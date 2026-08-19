@@ -2,8 +2,8 @@
 
 This example puts a login form in your browser — an email field, a password
 field, a **Sign in** button. Fill it in and submit. The attempt fails, and an
-error message appears with a **Dismiss** button. It fails *every* time, on
-purpose. After two rejections, a third submit locks the account: the form
+error message appears with a **Dismiss** button. It fails every time, on
+purpose. After 2 rejections, a third submit locks the account: the form
 disappears and an "Account locked" panel takes its place. Across the top, a
 banner names the machine's current state the whole way through, so you watch it
 step `:idle → :submitting → :error-shown` and back, then finally settle in
@@ -14,12 +14,12 @@ The form runs on a [machine](../../../../docs/machines/glossary.md#machine), whi
 is really just an [event handler](../../../../docs/core/glossary.md#event-handler)
 written as a transition table. That's the idea worth taking away:
 
-> **A machine is just data — so the same value that renders in a browser also unit-tests on the JVM.**
+> A machine is just data — so the same value that renders in a browser also unit-tests on the JVM.
 
 The `login-flow` value you click through here is the very same value a test
 drives as a sequence of pure function calls: feed it a state and an event, get
 the next state back — no frame, no DOM, no network, microseconds per transition.
-One table, two lives. This example shows both.
+One table, 2 lives. This example shows both.
 
 This is the [machines chapter](../../../../docs/machines/concepts.md)'s login flow,
 lifted off the page and made to run. The chapter's login-flow snippets live here
@@ -33,31 +33,31 @@ at it, poke here.
 
 ## What this demonstrates
 
-- **The login flow, as data you read top to bottom.** The whole machine is the
-  `login-flow` map in [`core.cljc`](core.cljc): five states
+- The login flow, as data you read top to bottom. The whole machine is the
+  `login-flow` map in [`core.cljc`](core.cljc): 5 states
   (`:idle → :submitting → {:error-shown | :authed | :locked-out}`), with the
   [guards](../../../../docs/machines/glossary.md#guard) and
-  [actions](../../../../docs/machines/glossary.md#action) sitting *with* the table
+  [actions](../../../../docs/machines/glossary.md#action) sitting with the table
   rather than in a global registry. References inside `:states` resolve against
   that one map — each arrow names a guard or action by id, defined once up top.
   To reuse a predicate across machines, define an ordinary Clojure var and name
   it in each machine's `:guards` / `:actions`. No string registry.
 
-- **A live browser demo, driven entirely by the snapshot.**
+- A live browser demo, driven entirely by the snapshot.
   [`views.cljs`](views.cljs) mounts a real Reagent login form. Every visible
   decision reads the machine's
   [snapshot](../../../../docs/machines/glossary.md#snapshot) through
   [subscriptions](../../../../docs/core/glossary.md#subscription). The view asks
-  *what tag is active*, not *which exact state*. `@(rf/subscribe
+  what tag is active, not which exact state. `@(rf/subscribe
   [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy])` disables the inputs and re-labels the button
   while a request is in flight; `:auth/locked` swaps the form for a lockout
-  panel. That is *ask, don't tell*: the view never names a state keyword, so
+  panel. That is ask, don't tell: the view never names a state keyword, so
   adding a sixth busy state wouldn't touch it. The demo wires the request to
-  always fail (more below), so what you watch is the lockout path — two
+  always fail (more below), so what you watch is the lockout path — 2
   rejected attempts, then a third that the retry guard rejects, parking the
   machine in `:locked-out`.
 
-- **The same flow tested as pure function calls.** Feed a starting
+- The same flow tested as pure function calls. Feed a starting
   [snapshot](../../../../docs/machines/glossary.md#snapshot) and an event into
   `machine-transition`, then assert against the snapshot that comes back. For
   the full-loop scenarios,
@@ -65,12 +65,12 @@ at it, poke here.
   queue through a throwaway [frame](../../../../docs/core/glossary.md#frame) and
   check where the [app-db](../../../../docs/core/glossary.md#app-db) settles. The
   chapter promises tests that run "on the JVM in microseconds" — no frame, no
-  browser, no mocks — and the same `login-flow` value makes good on it. The four
+  browser, no mocks — and the same `login-flow` value makes good on it. The 4
   scenarios live as the `state-machine-walkthrough-runs-headless` deftest in
   [`implementation/core/test/re_frame/examples_test.clj`](../../../../implementation/core/test/re_frame/examples_test.clj)
   — the examples tree itself stays test-free.
 
-- **An HTTP call that composes with the machine for free.** The
+- An HTTP call that composes with the machine for free. The
   `:issue-request` action returns an
   [effect](../../../../docs/core/glossary.md#effect), not a side effect. It fires
   `:rf.http/managed` and names its `:on-success` / `:on-failure` as
@@ -89,9 +89,9 @@ at it, poke here.
 ## Why .cljc
 
 The chapter sells state machines as something you can test on the bare JVM,
-and `.cljc` is what delivers that. The *identical* source compiles two ways:
+and `.cljc` is what delivers that. The identical source compiles 2 ways:
 under shadow-cljs for the browser demo, and on the JVM for the headless
-tests. One artefact, two runtimes — and the testing pitch only lands because
+tests. One artefact, 2 runtimes — and the testing pitch only lands because
 the JVM runs the very same code the browser does.
 
 ## Why this shape
@@ -100,9 +100,9 @@ Read the [machines chapter](../../../../docs/machines/concepts.md) first for the
 narrative; come here when you want to run the code rather than read about it.
 
 This example is a near-twin of the login machine in
-[`examples/core/login/`](../../../core/login/): same five states, same core guards and
+[`examples/core/login/`](../../../core/login/): same 5 states, same core guards and
 actions, both tagging `:locked-out` with `:auth/locked` and swapping in a
-dedicated lockout panel off that tag. What differs is what each teaches *around*
+dedicated lockout panel off that tag. What differs is what each teaches around
 the machine. `login` is the full feature scaffold — Malli schemas on the event
 and the machine `:data`, a `:sensitive?` flag on the request, a demo stub that
 routes by password — wired into a complete UI. This walkthrough strips all that
@@ -127,7 +127,7 @@ shadow-cljs watch examples/state-machine-walkthrough
 ```
 
 Then open the served [`index.html`](index.html) and watch the lockout path:
-two rejected attempts, then a third that parks the machine in `:locked-out`.
+2 rejected attempts, then a third that parks the machine in `:locked-out`.
 
 ## Cross-references
 

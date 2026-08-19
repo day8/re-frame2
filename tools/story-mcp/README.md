@@ -1,7 +1,7 @@
 # tools/story-mcp/
 
-`day8/re-frame2-story-mcp` is the **MCP (Model Context Protocol) agent
-surface** for re-frame2-story. Its design contract is
+`day8/re-frame2-story-mcp` is the MCP (Model Context Protocol) agent
+surface for re-frame2-story. Its design contract is
 [`spec/`](./spec/).
 
 ## What it is
@@ -12,7 +12,7 @@ subprocess, perform the `initialize` handshake, then call tools such as
 `list-stories`, `run-variant`, `snapshot-identity`, and
 `get-story-instructions`.
 
-The handlers call Story's public API in the **same JVM process**. This
+The handlers call Story's public API in the same JVM process. This
 artefact does not attach to an app through nREPL and cannot dereference
 state in a browser heap. A JVM launch therefore sees the Story
 registrations loaded into that JVM; CLJS-only surfaces such as registered
@@ -21,13 +21,13 @@ empty result.
 
 ## What it isn't
 
-- **Not** an IDE plugin. Agent hosts (Claude Code etc.) bring the MCP
+- Not an IDE plugin. Agent hosts (for example Claude Code) bring the MCP
   client side; this artefact is the server.
-- **Not** part of Story's authoring runtime. It reads from
+- Not part of Story's authoring runtime. It reads from
   `re-frame.story`'s public query API in the same runtime and dispatches
   to its public runtime functions; nothing here registers new framework
   primitives.
-- **Not** reachable from production CLJS bundles. Per
+- Not reachable from production CLJS bundles. Per
   [`tools/README.md`](../README.md) the dependency arrow flows
   tool → implementation; this jar is on a separate classpath root.
 
@@ -72,15 +72,15 @@ this jar is decomposed into [`spec/`](./spec/):
 | [`spec/API.md`](./spec/API.md) | Consolidated tool surface (each tool's input/output schemas). |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | Why Cheshire over data.json; why stage-marker is independent; why protocol-version pinned. |
 
-The four categories, at a glance:
+The 4 categories, at a glance:
 
-- **Dev** (3) — `get-story-instructions`, `preview-variant`, `list-substrates`.
-- **Docs** (10) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
+- Dev (3) — `get-story-instructions`, `preview-variant`, `list-substrates`.
+- Docs (10) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
   `explain-variant`, `get-docs-markdown`.
-- **Testing** (4) — `run-variant`, `snapshot-identity`, `read-a11y-violations`,
+- Testing (4) — `run-variant`, `snapshot-identity`, `read-a11y-violations`,
   `read-failures`.
-- **Write** (3, gated) — `register-variant`, `unregister-variant`,
+- Write (3, gated) — `register-variant`, `unregister-variant`,
   `record-as-variant`.
 
 ## File layout

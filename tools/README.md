@@ -1,6 +1,6 @@
 # tools/
 
-This directory houses **CLJS dev / inspection tools** that consume re-frame2's
+This directory houses CLJS dev / inspection tools that consume re-frame2's
 instrumentation API. Each tool ships independently, on its own release
 cadence, and is intentionally kept out of the runtime path that
 production consumers depend on. Most ship as their own Maven artefact;
@@ -28,13 +28,13 @@ observer of that runtime.
 Tools must not be reachable from a consumer's production build.
 
 - A tool may `:require` from `implementation/core/` (and from the per-feature
-  artefacts where its job demands it — e.g. a machine visualiser will pull
-  `implementation/machines/`). The dependency flows **tool → implementation**.
+  artefacts where its job demands it — for example, a machine visualiser will pull
+  `implementation/machines/`). The dependency flows tool → implementation.
 - The reverse is forbidden. Nothing under `implementation/` may `:require`
   anything under `tools/`. Adding such a dep would haul tooling weight
   (DOM-heavy UI, monaco, story metadata, MCP server bits) into every
   consumer's production bundle.
-- The contract is enforced **structurally**: `tools/` is a separate
+- The contract is enforced structurally: `tools/` is a separate
   classpath root, not on `implementation/`'s `deps.edn` or
   `shadow-cljs.edn`. Bundle isolation is "the wrong artefact is absent
   from the classpath" — same mechanism the substrate adapters use.
@@ -65,11 +65,11 @@ Most tools publish to Clojars under `day8/re-frame2-<tool>` (the
 Node-side MCP servers publish to npm instead — `@day8/re-frame2-pair-mcp`).
 Two tools are deliberate exceptions to the Clojars publish model:
 
-- **`tools/template/`** distributes by **git-coord, not Clojars**
+- `tools/template/` distributes by git-coord, not Clojars
   (rf2-dolpf §2.5) — the published artefact is a tagged commit on the
   template repo, invoked via `clojure -Tnew create`. See the `template`
   entry under "Shipped" below.
-- **`tools/testbed-support/`** is **not a published jar at all** — it
+- `tools/testbed-support/` is not a published jar at all — it
   has no Clojars/publish coord (its local `deps.edn` exists only for the
   JVM endpoint tests, not as a packaging surface) and is consumed only as
   an extra source path wired into the testbed builds. See its entry under
@@ -95,7 +95,7 @@ builds (today: `re-frame2-pair-mcp/server` and `re-frame2-pair-mcp/server-test`)
 `shadow-cljs compile <build>` works from `tools/` as well as from each
 tool's directory. Per-tool invocations remain valid — the coordinators
 compose the per-tool builds, they do not replace them. On the
-*shadow-cljs* surface (distinct from the JVM `:test` aggregate above),
+shadow-cljs surface (distinct from the JVM `:test` aggregate above),
 `xray` has no shadow build of its own (its CLJS tests run via
 `implementation/shadow-cljs.edn`) and `template`'s sources contain
 placeholder-bearing template files; both are therefore excluded from
@@ -109,7 +109,7 @@ actively developed against. Maturity varies (the alpha framework is
 itself pre-1.0); the common factor is that the artefact exists, is
 wired into the build, and consumers can use it today.
 
-- **`tools/xray/`** — `day8/re-frame2-xray`. **Xray**, the in-app
+- `tools/xray/` — `day8/re-frame2-xray`. Xray, the in-app
   devtools panel for re-frame2 — structural successor to
   re-frame-10x (renamed per `tools/xray/spec/DESIGN-RATIONALE.md`
   Lock #1; the standalone 10x port is now redirected into Xray per
@@ -121,11 +121,11 @@ wired into the build, and consumers can use it today.
   timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
   [`tools/xray/spec/000-Vision.md`](./xray/spec/000-Vision.md).
 
-- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
-  substrate-agnostic **`MachineChart`** state-chart component (xyflow +
+- `tools/machines-viz/` — `day8/re-frame2-machines-viz`. The
+  substrate-agnostic `MachineChart` state-chart component (xyflow +
   elkjs in-page renderer: nested compound states, parallel regions,
   `:spawn-all` join + cancellation-cascade overlays, `:after` countdown
-  rings, a UIx adapter) plus a read-only share-URL **viewer page**
+  rings, a UIx adapter) plus a read-only share-URL viewer page
   (`public/viewer.html` + `viewer.cljs`, built by the
   `machines-viz-viewer` Shadow build and hosted by the consumer — nothing
   in this repository deploys it, rf2-8m344). Also ships the pure-data
@@ -136,8 +136,8 @@ wired into the build, and consumers can use it today.
   panel; bundle-isolated like the rest of `tools/`. See
   [`tools/machines-viz/README.md`](./machines-viz/README.md).
 
-- **`tools/testbed-support/`** — a small dev-only support library
-  (three namespaces: `re-frame.testbed.config`,
+- `tools/testbed-support/` — a small dev-only support library
+  (3 namespaces: `re-frame.testbed.config`,
   `re-frame.testbed.story-host`, and the security-sensitive
   `re-frame.testbed.open-in-editor-server`) the Xray / Story browser
   testbeds share.
@@ -149,14 +149,14 @@ wired into the build, and consumers can use it today.
   resolve identically. `story-host/mount-with-hash-routing!` owns the
   live-app ↔ Story-shell hash-toggle host harness the showcase testbeds
   share. It is
-  **not a published jar** — no `deps.edn`/Clojars coord; it's wired into
+  not a published jar — no `deps.edn`/Clojars coord; it's wired into
   the testbed builds as an extra source path in
   `implementation/shadow-cljs.edn`. Bundle-isolated (nothing under
   `implementation/` `:require`s it). See
   [`tools/testbed-support/README.md`](./testbed-support/README.md).
 
-- **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): thirteen
+- `tools/mcp-base/` — `day8/re-frame2-mcp-base`. Shared primitives
+  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): 13
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
@@ -174,7 +174,7 @@ wired into the build, and consumers can use it today.
   `org.clojure/clojure`. Per rf2-vw4sq. See
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
-- **`tools/mcp-conformance/`** — End-to-end MCP-client conformance
+- `tools/mcp-conformance/` — End-to-end MCP-client conformance
   harness for the re-frame2 MCP servers (`re-frame2-pair-mcp`, `story-mcp`).
   Pure Node test fixtures: drives each server through the official
   `@modelcontextprotocol/sdk` `Client` so SDK-strict schema
@@ -183,17 +183,17 @@ wired into the build, and consumers can use it today.
   (`wire-vocab/`), the cross-MCP tool-naming convention
   (`NAMING.md`), and the cross-MCP token-budget posture
   (`TOKEN-BUDGETS.md`). Per rf2-cum40 / rf2-j2z7o / rf2-mzf1r /
-  rf2-ll0yq. **Spec posture: documented exemption from the per-tool
-  `spec/` convention** — the conformance contracts live on the
+  rf2-ll0yq. Spec posture: documented exemption from the per-tool
+  `spec/` convention — the conformance contracts live on the
   servers being verified, not on the harness; the harness's
-  normative contract IS its test corpus + the three top-level docs
+  normative contract is its test corpus + the 3 top-level docs
   (`NAMING.md`, `TOKEN-BUDGETS.md`, `wire-vocab/README.md`) plus
   the README. Bundle-isolated by construction (no CLJS sources,
   Node-side only). See
   [`tools/mcp-conformance/README.md`](./mcp-conformance/README.md).
 
-- **`tools/re-frame2-pair-mcp/`** — `@day8/re-frame2-pair-mcp`. A Node-based
-  stdio JSON-RPC **MCP server** (compiled from ClojureScript via
+- `tools/re-frame2-pair-mcp/` — `@day8/re-frame2-pair-mcp`. A Node-based
+  stdio JSON-RPC MCP server (compiled from ClojureScript via
   shadow-cljs) that pair-programs with a live re-frame2 app over a
   persistent nREPL socket. The one implementation of every pair
   operation — it replaced (and the project has since removed) the
@@ -213,7 +213,7 @@ wired into the build, and consumers can use it today.
   `@day8/re-frame2-pair-mcp`. See
   [`tools/re-frame2-pair-mcp/README.md`](./re-frame2-pair-mcp/README.md).
 
-- **`tools/story/`** — `day8/re-frame2-story`. A Storybook-class
+- `tools/story/` — `day8/re-frame2-story`. A Storybook-class
   component playground for re-frame2, implementing
   [`spec/007-Stories.md`](../spec/007-Stories.md). Each variant runs
   in its own frame (`spec/002`), is EDN-shaped data (not a function),
@@ -223,9 +223,9 @@ wired into the build, and consumers can use it today.
   as a registered story panel. See
   [`tools/story/README.md`](./story/README.md).
 
-- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. JVM-side stdio
-  JSON-RPC **MCP server** that exposes Story's read (and gated write)
-  surface as MCP tools. Nineteen tools across four categories — Dev
+- `tools/story-mcp/` — `day8/re-frame2-story-mcp`. JVM-side stdio
+  JSON-RPC MCP server that exposes Story's read (and gated write)
+  surface as MCP tools. Nineteen tools across 4 categories — Dev
   (`get-story-instructions`, `preview-variant`, `list-substrates`),
   Docs (`list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
@@ -235,7 +235,7 @@ wired into the build, and consumers can use it today.
   `--allow-writes`). Lands as Stage 7 of the Story epic (`rf2-tgci`).
   See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 
-- **`tools/template/`** — `day8/re-frame2-template`. The front-door
+- `tools/template/` — `day8/re-frame2-template`. The front-door
   scaffolding tool for new re-frame2 apps (rf2-lrtc; rf2-dolpf). A
   [deps-new](https://github.com/seancorfield/deps-new) template; users
   invoke it via `clojure -Tnew create :template
@@ -245,7 +245,7 @@ wired into the build, and consumers can use it today.
   `:substrate :uix` k/v. Distribution is git-coord, not Clojars
   (rf2-dolpf §2.5).
 
-  Note: `tools/template/` is **build-time only**; the template jar is
+  Note: `tools/template/` is build-time only; the template jar is
   never on a consumer's runtime classpath, so the bundle-isolation
   contract holds trivially. It is the one tool in this directory whose
   job is generation rather than runtime observation.
@@ -253,21 +253,21 @@ wired into the build, and consumers can use it today.
 ## Per-tool `spec/` folder convention (rf2-bfax)
 
 Every tool ships a local `spec/` folder, complete enough that the tool
-could *almost* be one-shotted from it. Same posture the project-level
+could almost be one-shotted from it. Same posture the project-level
 [`spec/`](../spec/) has to the framework: the spec/ folder is the
 normative contract; `src/` is its downstream consequence.
 
 Why each tool needs its own:
 
-- **Design decisions are preserved in committed form.** Decisions
+- Design decisions are preserved in committed form. Decisions
   iterated across multiple sessions (locked options, dropped
   alternatives, the reasoning trail) survive in the repo rather than
   in `findings/` (which is gitignored and local-only).
-- **Audit findings are preserved.** Research that informed the design
-  (Storybook surveys, XState parity audits, etc.) gets committed into
+- Audit findings are preserved. Research that informed the design
+  (for example Storybook surveys and XState parity audits) gets committed into
   `tools/<tool>/spec/findings/` so it isn't lost when the local
   `findings/` directory is cleaned up.
-- **One-shot-able.** A future contributor (human or AI) can read the
+- One-shot-able. A future contributor (human or AI) can read the
   spec folder and rebuild the tool with high fidelity.
 
 Typical structure:
@@ -291,17 +291,17 @@ The shape mirrors the project-level [`spec/`](../spec/) — `000-Vision`
 `DESIGN-RATIONALE` and committed `findings/`. Add `MIGRATION.md` and
 `Spec-Schemas.md` per-tool if the tool warrants them.
 
-The convention does **not** confuse with the project-level `spec/`.
+The convention does not confuse with the project-level `spec/`.
 That folder is the framework's normative contract. The tool-level
 `spec/` is the tool's normative contract — bounded scope, downstream
 of the framework's spec.
 
 ### Tool-shared contracts indexed back to `spec/Ownership.md`
 
-Where a contract surface is *shared across the tool tier* — typical
+Where a contract surface is shared across the tool tier — typical
 example: the cross-MCP wire vocabulary, privacy filter, and token-
 budget cap pipeline shared by `re-frame2-pair-mcp` and `story-mcp` — its
-**canonical home stays with the tool artefact**
+canonical home stays with the tool artefact
 (`tools/mcp-base/spec/`) rather than being lifted into
 the project-level `spec/`. This is the [`spec/README.md` §Canonical
 homes outside `/spec`](../spec/README.md#canonical-homes-outside-spec)
@@ -310,11 +310,11 @@ framework via a row in [`spec/Ownership.md`](../spec/Ownership.md).
 
 Two rules apply:
 
-1. **One canonical home.** The tool's `spec/` is the single source
+1. One canonical home. The tool's `spec/` is the single source
    of truth for the shared contract. Other tools cite it; they do
    not redefine it. Drift detection is the same as for in-tree
    surfaces — a second normative definition is a corpus bug.
-2. **Indexed from `spec/Ownership.md`.** The contract surface gets
+2. Indexed from `spec/Ownership.md`. The contract surface gets
    a row in the framework's ownership matrix with the canonical
    home cell pointing at the tool's spec path. This keeps the
    "where does X live?" question single-sourced even when the
@@ -324,23 +324,23 @@ The rule applies to genuinely-shared tool contracts. Single-tool
 contracts (the `tools/xray/spec/...` panel inventory, the
 `tools/story/spec/...` Story format) stay with their tool and are
 not indexed in the framework's `spec/Ownership.md` — they are not
-*framework-level* surfaces.
+framework-level surfaces.
 
 ## In design / planned
 
-Entries below are **in design** — the spec is being shaped, but no
+Entries below are in design — the spec is being shaped, but no
 runtime implementation has landed on disk yet. They will graduate to
 "Shipped" once their `src/` tree gains substance; empty scaffolding is
 not created up-front.
 
-- **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
+- `tools/machines-viz-mcp/` — `day8/re-frame2-machines-viz-mcp`.
   A likely separate MCP agent surface for the shipped
   [`tools/machines-viz/`](#shipped) chart tool. Spec-only — the
   separation is being shaped, but no `machines-viz-mcp/` directory has
   landed on disk yet. (Note: the chart component itself, the Mermaid /
   SCXML emitters, and the read-only viewer all ship today in
   `tools/machines-viz/`, listed under "Shipped" above; this entry is the
-  planned *MCP* surface only.)
+  planned MCP surface only.)
 
 ## Distinction from `skills/`
 

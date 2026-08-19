@@ -2,16 +2,16 @@
 
 A four-button Reagent app. Buttons A, B, D each trigger a
 `:rf.error/schema-validation-failure` trace at a distinct `:where`
-check-point in the per-event validation order; **Button C triggers the
-separate, halting `:rf.error/cofx-value-invalid` hard error** (a
+check-point in the per-event validation order; Button C triggers the
+separate, halting `:rf.error/cofx-value-invalid` hard error (a
 recordable coeffect's value failing its `reg-cofx` `:schema`). Each
 surface carries a different `:recovery` keyword.
 
-The `:where :cofx` schema-validation surface was **retired in EP-0017**
+The `:where :cofx` schema-validation surface was retired in EP-0017
 (rf2-nkf4l3): a recordable coeffect rides the durable causal record
 (epoch ledger, replay, SSR payload, Xray), so a bad value is not a
 recoverable dev-only trace — it is `:rf.error/cofx-value-invalid`, a
-production hard error that **throws** and halts the run, and it does not
+production hard error that throws and halts the run, and it does not
 emit `:rf.error/schema-validation-failure` at all (per [spec/010
 §Validation order](../../spec/010-Schemas.md) step 2).
 
@@ -38,7 +38,7 @@ Buttons A, B, D each emit one (and only one) trace of the form:
              :recovery   <:no-recovery | :skipped>}}
 ```
 
-Button C emits the separate hard-error record instead — it does NOT ride
+Button C emits the separate hard-error record instead — it does not ride
 `:rf.error/schema-validation-failure`:
 
 ```clojure
@@ -50,40 +50,40 @@ Button C emits the separate hard-error record instead — it does NOT ride
 ```
 
 For `:where :app-db`, the trace additionally carries `:registered-path`
-(the `reg-app-schema` root) and the `:path` is the **failing leaf**
+(the `reg-app-schema` root) and the `:path` is the failing leaf
 (the registered root concat'd with the Malli explainer's value-navigation
 suffix). Consumers that want the registration anchor reach
 `(:registered-path tags)`; consumers that want the failing slot reach
 `(:path tags)`.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- No app-steering recovery policy (the per-frame `:on-error` recovery
+- no app-steering recovery policy (the per-frame `:on-error` recovery
   policy was removed per rf2-hiqtk8) — the framework's default per-`:where`
-  recovery is what consumers verify against.
-- No `:rf.schema/at-boundary` interceptor — that interceptor is for
+  recovery is what consumers verify against
+- no `:rf.schema/at-boundary` interceptor — that interceptor is for
   production-mode schema enforcement on untrusted-input handlers, not
-  for the dev-mode validation surfaces this testbed exercises.
-- No `:sensitive?` slots in the schemas. A `:sensitive?` slot prop would
+  for the dev-mode validation surfaces this testbed exercises
+- no `:sensitive?` slots in the schemas. A `:sensitive?` slot prop would
   redact the offending `:value` in this very trace (validation-failure-trace
   redaction is the one schema-prop axis that survives EP-0025); this testbed
   keeps the values visible so consumers can assert the `:value` tag carries
-  the verbatim offending value.
+  the verbatim offending value
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- Schema-validation-failure trace + `:rollback?` flag visible — Button A surfaces the candidate-rejection path; Buttons B/D verify the trace shape without `:rollback?`. Button C surfaces the distinct `:rf.error/cofx-value-invalid` hard-error record instead.
-- `:rf.error/*` events highlighted in trace stream — `:rf.error/schema-validation-failure` (A/B/D) and `:rf.error/cofx-value-invalid` (C) are both surfaced in the dev-mode trace stream.
-- Click-to-source from trace event lands on source-coord line — each `reg-*` registration captures source coords; the failing-id in the trace links back to its declaration.
+Xray (26):
+- schema-validation-failure trace + `:rollback?` flag visible — Button A surfaces the candidate-rejection path; Buttons B/D verify the trace shape without `:rollback?`. Button C surfaces the distinct `:rf.error/cofx-value-invalid` hard-error record instead
+- `:rf.error/*` events highlighted in trace stream — `:rf.error/schema-validation-failure` (A/B/D) and `:rf.error/cofx-value-invalid` (C) are both surfaced in the dev-mode trace stream
+- click-to-source from trace event lands on source-coord line — each `reg-*` registration captures source coords; the failing-id in the trace links back to its declaration
 
-**Cross-cutting (6)**:
-- Schema-validation-failure produces app-db candidate rejection + `:rollback?` flag (rf2-hrqvg covers the flow analogue; this surface is the app-db analogue).
-- Subscribe → re-render → trace ordering preserved — Button A's `[:auth :token]` sub stays at the pre-handler value across the failed dispatch (never notified, never dirtied — the candidate never installed), which is the load-bearing rejection observability claim.
+Cross-cutting (6):
+- schema-validation-failure produces app-db candidate rejection + `:rollback?` flag (rf2-hrqvg covers the flow analogue; this surface is the app-db analogue)
+- subscribe → re-render → trace ordering preserved — Button A's `[:auth :token]` sub stays at the pre-handler value across the failed dispatch (never notified, never dirtied — the candidate never installed), which is the load-bearing rejection observability claim
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically. Schema violation should replay deterministically (the inputs are pure).
-- `:rf.assert/*` pass/fail with structured output — assertions over the four `:where` discriminators live in tool-side testbeds.
+Story (18):
+- recorder captures click → records `:play` → replays identically. Schema violation should replay deterministically (the inputs are pure)
+- `:rf.assert/*` pass/fail with structured output — assertions over the 4 `:where` discriminators live in tool-side testbeds
 
 ## Running
 

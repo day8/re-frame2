@@ -1,6 +1,6 @@
 # `testbeds/multi-frame`
 
-A three-frame Reagent app — two counter frames (`:counter/a`,
+A three-frame Reagent app — 2 counter frames (`:counter/a`,
 `:counter/b`) plus an append-only `:log` frame — with a Cross-bump
 button whose handler runs on `:counter/a` and fans out a cross-frame
 `:dispatch` to `:counter/b` and `:log` in a single drain.
@@ -8,7 +8,7 @@ button whose handler runs on `:counter/a` and fans out a cross-frame
 The point: a consumer (Xray, Story, re-frame2-pair-mcp) observes that the
 framework keeps each frame's `app-db`, signal-graph cache, and epoch
 ring buffer cleanly partitioned — even when a single click produces
-events that route to three distinct frames.
+events that route to 3 distinct frames.
 
 | Button | `data-testid` | What it does | What a consumer should see |
 |---|---|---|---|
@@ -18,17 +18,17 @@ events that route to three distinct frames.
 
 ## Why three frames
 
-Three is the smallest count that exhibits all the distinct partitions
+3 is the smallest count that exhibits all the distinct partitions
 a tool needs to distinguish:
 
-- **Two of the same shape** (`:counter/a` and `:counter/b`) — proves
-  isolation of two frames that share the *same handler set* and
-  *same app-db shape*. A consumer that conflates them by handler-id
-  or by sub-key fails here.
-- **One distinct shape** (`:log`) — proves the frame plurality
+- 2 of the same shape (`:counter/a` and `:counter/b`) — proves
+  isolation of 2 frames that share the same handler set and
+  same app-db shape. A consumer that conflates them by handler-id
+  or by sub-key fails here
+- one distinct shape (`:log`) — proves the frame plurality
   contract is genuinely independent of handler set; the log frame's
   app-db has no `:n` key at all. A consumer that assumes "all frames
-  have a counter" fails here.
+  have a counter" fails here
 
 ## Cross-frame dispatch — the load-bearing pattern
 
@@ -39,49 +39,49 @@ walker (`do-fx`) calls `dispatch!` with the requested frame, so each
 queued event lands on the right router queue without per-frame
 plumbing in the handler body.
 
-A consumer that reads the trace stream sees the three dispatches in
-**source order** (per [spec/002 §`:fx` ordering and serial
+A consumer that reads the trace stream sees the 3 dispatches in
+source order (per [spec/002 §`:fx` ordering and serial
 execution](../../spec/002-Frames.md)) — the handler's `:db` commits
 first, then `[:dispatch ... :counter/b]` fires, then `[:dispatch
 ... :log]` fires. The three frames' `app-db` writes interleave in
 that order against their respective `app-db`s.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- No `subscribe` directly references another frame's value. Cross-
+- no `subscribe` directly references another frame's value. Cross-
   frame subscription is supported (per [spec/002 §Cross-frame
   subscription](../../spec/002-Frames.md)) but it's a different
   contract from cross-frame dispatch; this surface exists to
   exercise dispatch isolation. A future testbed can layer cross-
-  frame subs.
-- No `destroy-frame!` lifecycle. The three frames are created on app
+  frame subs
+- no `destroy-frame!` lifecycle. The 3 frames are created on app
   init and live forever; the destroy contract is exercised by tests
-  that own the lifecycle (per [spec/002 §Per-instance frames]).
-- No `:fx-overrides` per frame. Per-frame fx replacement is a
+  that own the lifecycle (per [spec/002 §Per-instance frames])
+- no `:fx-overrides` per frame. Per-frame fx replacement is a
   separate contract; conflating it with the cross-dispatch shape
-  would dilute what this surface proves.
+  would dilute what this surface proves
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- **Multi-frame app shows separate epoch ring buffers per frame** —
+Xray (26):
+- multi-frame app shows separate epoch ring buffers per frame —
   the load-bearing scenario this surface unblocks. After one
-  Cross-bump click, Xray's trace panel must show three distinct
+  Cross-bump click, Xray's trace panel must show 3 distinct
   epoch records, one per frame, with the correct `:frame` tag on
-  each.
-- Trace panel populates on first dispatch — exercised three times
-  per click on this surface, once per frame.
-- Time-travel scrub forward/back mutates visible UI — needs to scrub
-  three frames independently; per-frame scrubbing exercises here.
+  each
+- trace panel populates on first dispatch — exercised 3 times
+  per click on this surface, once per frame
+- time-travel scrub forward/back mutates visible UI — needs to scrub
+  3 frames independently; per-frame scrubbing exercises here
 
-**Story (18)**:
-- Time-travel scrub within story preserves frame isolation — Story
+Story (18):
+- time-travel scrub within story preserves frame isolation — Story
   variants that mount this surface verify the scrubber doesn't leak
-  state across the three frames.
+  state across the 3 frames
 
-**Cross-cutting (6)**:
-- Subscribe → re-render → trace ordering preserved — exercised
-  per-frame on the inc-A / inc-B paths.
+Cross-cutting (6):
+- subscribe → re-render → trace ordering preserved — exercised
+  per-frame on the inc-A / inc-B paths
 
 ## Running
 

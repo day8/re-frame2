@@ -1,11 +1,11 @@
 # `read_profile` phase-A/B transcripts — rf2-07rnj's measurement window
 
-Raw driver output from the three runs of `rf2-07rnj`'s measurement window
+Raw driver output from the 3 runs of `rf2-07rnj`'s measurement window
 (2026-08-16), one file per run, in run order. The window is written up in
 `docs/design/hicasso/studio/the-cold-read-mount-term.md`; these are the
 transcripts that page's refusal is read off.
 
-**The window declined to publish a decomposition.** Four of the five phase-B
+The window declined to publish a decomposition. 4 of the 5 phase-B
 ablation terms resolve with one sign on every run; reader membership reads
 `+0.0047 / −0.0141 / +0.0125` and straddles zero, and a negative delta is
 arithmetically impossible when `c-noreaders` does strictly less work than
@@ -33,7 +33,7 @@ HICASSO_OUT_DIR=out/hicasso-readprof \
 
 ## The one redaction, stated so nobody reads these as doctored
 
-Each file is the driver's output verbatim **except for exactly one line**, the
+Each file is the driver's output verbatim except for exactly one line, the
 `shadow-cljs - config:` banner, whose absolute path is replaced by
 `<worktree>` and marked inline as redacted. Nothing else was touched — no
 figure, no guard verdict, no exit line.

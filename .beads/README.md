@@ -1,16 +1,16 @@
-# Beads - AI-Native Issue Tracking
+# Beads - AI-native issue tracking
 
-Welcome to Beads! This repository uses **Beads** for issue tracking - a modern, AI-native tool designed to live directly in your codebase alongside your code.
+This repository uses Beads for issue tracking. Beads is a modern, AI-native tool designed to live directly in your codebase alongside your code.
 
 ## What is Beads?
 
-Beads is issue tracking that lives in your repo, making it perfect for AI coding agents and developers who want their issues close to their code. No web UI required - everything works through the CLI and integrates seamlessly with git.
+Beads is issue tracking that lives in your repo. That makes it a good fit for AI coding agents and for developers who want their issues close to their code. You do not need a web UI - everything works through the CLI and integrates with git.
 
-**Learn more:** [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
+Learn more: [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
 
-## Quick Start
+## Quick start
 
-### Essential Commands
+### Essential commands
 
 ```bash
 # Create new issues
@@ -30,32 +30,32 @@ bd update <issue-id> --status done
 bd dolt push
 ```
 
-### Working with Issues
+### Working with issues
 
 Issues in Beads are:
-- **Git-native**: Stored in Dolt database with version control and branching
-- **AI-friendly**: CLI-first design works perfectly with AI coding agents
-- **Branch-aware**: Issues can follow your branch workflow
-- **Always in sync**: Auto-syncs with your commits
+- git-native: stored in a Dolt database with version control and branching
+- AI-friendly: the CLI-first design works well with AI coding agents
+- branch-aware: issues can follow your branch workflow
+- always in sync: issues auto-sync with your commits
 
 ## Why Beads?
 
-✨ **AI-Native Design**
-- Built specifically for AI-assisted development workflows
-- CLI-first interface works seamlessly with AI coding agents
-- No context switching to web UIs
+AI-native design:
+- built specifically for AI-assisted development workflows
+- the CLI-first interface works with AI coding agents
+- no context switching to web UIs
 
-🚀 **Developer Focused**
-- Issues live in your repo, right next to your code
-- Works offline, syncs when you push
-- Fast, lightweight, and stays out of your way
+Developer focused:
+- issues live in your repo, right next to your code
+- works offline and syncs when you push
+- fast, lightweight and stays out of your way
 
-🔧 **Git Integration**
-- Automatic sync with git commits
-- Branch-aware issue tracking
+Git integration:
+- automatic sync with git commits
+- branch-aware issue tracking
 - Dolt-native three-way merge resolution
 
-## Get Started with Beads
+## Get started with Beads
 
 Try Beads in your own projects:
 
@@ -70,12 +70,12 @@ bd init
 bd create "Try out Beads"
 ```
 
-## Learn More
+## Learn more
 
-- **Documentation**: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
-- **Quick Start Guide**: Run `bd quickstart`
-- **Examples**: [github.com/steveyegge/beads/examples](https://github.com/steveyegge/beads/tree/main/examples)
+- documentation: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
+- quick start guide: run `bd quickstart`
+- examples: [github.com/steveyegge/beads/examples](https://github.com/steveyegge/beads/tree/main/examples)
 
 ---
 
-*Beads: Issue tracking that moves at the speed of thought* ⚡
+Beads: issue tracking that moves at the speed of thought.

@@ -1,23 +1,23 @@
 # `read_profile` phase-A/B transcripts — rf2-3l6hf's null-control window
 
-Raw driver output from the three runs of `rf2-3l6hf`'s measurement window
+Raw driver output from the 3 runs of `rf2-3l6hf`'s measurement window
 (2026-08-16), one file per run, in run order. This is the first window taken
-on the instrument with a **measured negative control** (`c-null`), which is
+on the instrument with a measured negative control (`c-null`), which is
 what the merged-PR audit of #8328 named as the thing that would settle the
 reader-membership term. The window is written up in
 `docs/design/hicasso/studio/the-cold-read-mount-term.md`.
 
-**Reader membership is still UNRESOLVED, and now on direct evidence rather
-than on the arithmetic-impossibility argument.** The null control — an arm
+Reader membership is still UNRESOLVED, and now on direct evidence rather
+than on the arithmetic-impossibility argument. The null control — an arm
 whose true cost is exactly zero by construction — read `+0.0234 / +0.0219 /
 +0.0234` ms/commit. Reader membership read `+0.0422 / +0.0219 / +0.0359`. In
 run 2 the two are equal to the last digit: the instrument reported the same
-number for reader membership as it reported for nothing at all. **No bound on
-the term is published, and none can be read off these numbers** — a null
+number for reader membership as it reported for nothing at all. No bound on
+the term is published, and none can be read off these numbers — a null
 spread says what the instrument cannot see, not how large the invisible thing
 is.
 
-The other four ablation terms clear the null on all three runs.
+The other 4 ablation terms clear the null on all 3 runs.
 
 ## What produced them
 
@@ -33,14 +33,14 @@ The other four ablation terms clear the null on all three runs.
 
 ## The estimator these files report
 
-Each `p50` in the phase-B arm table is a **pooled median over the 64 kept
-samples of that arm**, each sample first divided by the 32-frame window — and
+Each `p50` in the phase-B arm table is a pooled median over the 64 kept
+samples of that arm, each sample first divided by the 32-frame window — and
 because 64 is even, that median is the mean of the 32nd and 33rd order
-statistics. It is **not** a mean of per-round medians, and the two differ
+statistics. It is not a mean of per-round medians, and the two differ
 here: run 1's null control reads 0.0234 as a pooled-p50 delta and 0.0174 as a
 mean of its own per-round deltas.
 
-Each delta is the difference of two such pooled p50s.
+Each delta is the difference of 2 such pooled p50s.
 
 `:read-profile-commit-per-round` and `:read-profile-commit-per-round-deltas`
 carry the per-round values — a within-round p50 over that round's 8 kept
@@ -57,7 +57,7 @@ HICASSO_OUT_DIR=out/hicasso-readprof \
 
 ## The one redaction, stated so nobody reads these as doctored
 
-Each file is the driver's output verbatim **except for exactly one line**, the
+Each file is the driver's output verbatim except for exactly one line, the
 `shadow-cljs - config:` banner, whose absolute path is replaced by
 `<worktree>` and marked inline as redacted. Nothing else was touched — no
 figure, no guard verdict, no exit line.

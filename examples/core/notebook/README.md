@@ -2,12 +2,12 @@
 
 Type markdown in the middle pane and watch it render, live, in the
 preview on the right. Pick a document from the list on the left to edit
-it, or start a new one. That's the whole app: three panes — a documents
+it, or start a new one. That's the whole app: 3 panes — a documents
 list, a markdown editor, a live preview — built on the
 [Reagent](https://github.com/reagent-project/reagent)
 [substrate](../../../docs/core/glossary.md#substrate).
 
-It shows two things. First, re-frame2 and Reagent scale past the
+It shows 2 things. First, re-frame2 and Reagent scale past the
 counter — a whole editor is just a tree of registered
 [views](../../../docs/core/glossary.md#view) reading a
 [subscription](../../../docs/core/glossary.md#subscription) graph.
@@ -22,8 +22,8 @@ little sits between a keystroke and the rendered preview, and how the
 one sharp edge — untrusted text becoming HTML — is handled. Three ideas
 carry it.
 
-**Every pane is a registered view.** No top-level "render the app"
-function juggles the three panes by hand. The shell is a
+Every pane is a registered view. No top-level "render the app"
+function juggles the 3 panes by hand. The shell is a
 [view](../../../docs/core/glossary.md#view); so are the sidebar, the
 editor, and the preview. Each is its own `reg-view` Var, and the whole
 UI is just those Vars composed. (The document rows inside the sidebar
@@ -45,7 +45,7 @@ the body re-derives the preview and ticks over the sidebar's live
 character count — no pane knows about any other, and you wire up no
 listeners at all.
 
-**One edit, one [pipeline run](../../../docs/core/glossary.md#run).**
+One edit, one [pipeline run](../../../docs/core/glossary.md#run).
 Typing in the editor dispatches `[:notebook/edit-body text]`. Clicking
 a document dispatches `[:notebook/select id]`. From there it's the same
 loop re-frame2 runs for everything. The
@@ -67,12 +67,12 @@ every render. It runs in one cached node of the
 [derivation graph](../../../docs/core/glossary.md#the-derivation-graph),
 so the view just asks for the parsed blocks and gets a settled answer.
 
-**The markdown parser emits hiccup, and that's the whole safety story.**
+The markdown parser emits hiccup, and that's the whole safety story.
 This is the key trick. `markdown->hiccup` is a tiny pure-CLJS parser. It
 handles headings, bold, italic, inline code, links, paragraphs, and
 ordered and unordered lists. It produces
 [hiccup](../../../docs/core/glossary.md#hiccup) (`[:h1 "…"]`,
-`[:strong "…"]`), not an HTML string. That one choice buys two things.
+`[:strong "…"]`), not an HTML string. That one choice buys 2 things.
 There's no extra npm dependency, so the bundle stays small. And because
 Reagent renders hiccup natively, there's no `dangerouslySetInnerHTML`
 anywhere in the example. The preview is a user-controlled surface —
@@ -95,8 +95,8 @@ scheme, emit a different hiccup vector — is far easier to get right than
 scrubbing an HTML string after the fact. That's the case for
 data-oriented rendering, in one tidy function.
 
-One last detail in the same spirit: the **`:notebook/new` event
-allocates document ids deterministically.** Instead of `(rand-int)`,
+One last detail in the same spirit: the `:notebook/new` event
+allocates document ids deterministically. Instead of `(rand-int)`,
 `allocate-next-doc-id` scans the `doc-N` ids already in app-db and takes
 max + 1. The new id is written into durable app-db, so it has to be a
 pure function of prior state. A random id would replay differently and
@@ -126,11 +126,11 @@ the brand. Use the pair to see how each substrate's idiom lands at real
 scale. This one shows Reagent's `reg-view` + `@(subscribe …)` idiom
 doing the whole job.
 
-One note on the substrate choice: this is **stock Reagent**
+One note on the substrate choice: this is stock Reagent
 (`reagent.dom.client` + `re-frame.adapter.reagent`), not reagent-slim.
 That keeps the trio on the reference substrate for each adapter.
 
-The mount is the ordinary re-frame2 boot, in two steps.
+The mount is the ordinary re-frame2 boot, in 2 steps.
 [`init!`](../../../docs/core/glossary.md#init) installs the Reagent
 [adapter](../../../docs/core/glossary.md#adapter). Then the tree renders
 inside a [`frame-root`](../../../docs/core/glossary.md#frame-root)
@@ -143,7 +143,7 @@ With the tree inside the provider, every `dispatch`/`subscribe` resolves
 to that frame; render with no provider and those calls raise
 `:rf.error/no-frame-context` —
 [identity is carried, not found](../../../docs/core/glossary.md#frame-identity-is-carried-not-found),
-even for a three-pane toy.
+even for a 3-pane toy.
 
 ## Files
 

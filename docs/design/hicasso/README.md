@@ -1,6 +1,6 @@
 # Hicasso — design record
 
-**Hicasso** (`re-frame.hicasso`, alias `h`) is re-frame2's native view layer:
+Hicasso (`re-frame.hicasso`, alias `h`) is re-frame2's native view layer:
 interpreted Hiccup on a UIx-class React function-component host, optimised for
 re-frame2. This directory is the durable design record for the programme chartered
 by [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md).

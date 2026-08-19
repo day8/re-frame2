@@ -1,32 +1,32 @@
 # Long-running work that always stops cleanly
 
-This example runs a job split across three workers at once. Click **Start
-work** and three progress bars race to the finish, each worker grinding
+This example runs a job split across 3 workers at once. Click **Start
+work** and 3 progress bars race to the finish, each worker grinding
 through its own 100 items in parallel. While they run, you can stop the job
-three ways: click **Cancel**, let it finish on its own, or click **Hide** to
+3 ways: click **Cancel**, let it finish on its own, or click **Hide** to
 make the whole panel vanish — the demo's stand-in for navigating away or
 closing the tab. However it ends, every worker shuts down cleanly, with no
 stray timers left firing into a screen that's gone.
 
-Starting a five-second job is easy. The bug that ships is in *stopping* it —
+Starting a 5-second job is easy. The bug that ships is in stopping it —
 and that's the idea worth taking away:
 
-> **Stopping the work isn't cleanup you run — it's a state you leave.**
+> Stopping the work isn't cleanup you run — it's a state you leave.
 
-There are three ways the job can end, and the hand-written version writes
-three separate teardown paths that all have to stay in sync. This one writes
+There are 3 ways the job can end, and the hand-written version writes
+3 separate teardown paths that all have to stay in sync. This one writes
 none. Every worker lives inside the parent's single `:working` state. Leaving
-that state — by any of the three routes — tears every worker down in one
+that state — by any of the 3 routes — tears every worker down in one
 move. You don't wire cancellation by hand; the
 [machine](../../../docs/machines/glossary.md#machine) does.
 
 This is the runnable companion to
 [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md).
 That spec describes the single-worker shape: one chunked machine for one long
-computation that *doesn't* split into pieces. When a job *does* split into
-independent shards, you model it as **one parent coordinator and N child
-workers**: the children run in parallel, and the parent waits for them all.
-(Why split it up at all, instead of one big machine? See **Why this shape**,
+computation that doesn't split into pieces. When a job does split into
+independent shards, you model it as one parent coordinator and N child
+workers: the children run in parallel, and the parent waits for them all.
+(Why split it up at all, instead of one big machine? See Why this shape,
 below.)
 
 That composition is what this example shows. Each `:work/processor` child
@@ -36,48 +36,48 @@ spawn-and-join.
 
 ## What this example demonstrates
 
-- **Cancellation that fires on every exit path.** This is the main idea. The
+- Cancellation that fires on every exit path. This is the main idea. The
   parent's `:working` state holds the `:spawn-all` declaration. Leaving
   `:working` — by user `:cancel`, by the join resolving (`:on-all-complete`),
   or by the frame being destroyed — runs one desugared `:exit`, which fires
   `:rf.machine/destroy` at every child still running. You write one
-  [state](../../../docs/machines/glossary.md#state) exit, not three teardown
+  [state](../../../docs/machines/glossary.md#state) exit, not 3 teardown
   paths to keep in sync, and the machine runs it however you left. Each
   torn-down child takes its in-flight `:after` timers with it. (Per Spec 005
   §Cancellation cascade, a real worker's in-flight `:rf.http/managed`
   requests would abort the same way — not exercised here.)
 
-- **Declarative spawn-and-join** via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all).
-  The parent `:work/flow` machine spawns three `:work/processor` children,
+- Declarative spawn-and-join via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all).
+  The parent `:work/flow` machine spawns 3 `:work/processor` children,
   one per shard. The runtime tracks the join in runtime-db at
   `[:rf.runtime/machines :spawned :work/flow [:working]]`. The parent's
   `:data` holds no join bookkeeping — just the `:progress` map the view
   renders. The runtime watches the children report in and fires
-  `:on-all-complete` when the last one finishes. You declare three children
+  `:on-all-complete` when the last one finishes. You declare 3 children
   and a join policy (`:join :all`); the framework counts.
 
-- **Cooperative browser yielding.** A worker that processes 100 items in a
+- Cooperative browser yielding. A worker that processes 100 items in a
   tight loop freezes the tab. Each `:work/processor` child does one item per
   `:processing` visit instead. An eventless `:always` moves it to
   `:checking-done`, and if work remains it drops into `:yielding`, whose
   `:after` schedules the next chunk after a short delay. That gap hands a
   render tick back to the browser, so the progress bar animates and the UI
   stays responsive. The same `:after` timer is the one cancelled when the
-  parent leaves `:working`. A stale timer that fires *after* cancel does
-  **not** drive a transition: the runtime tags each visit to the state and
+  parent leaves `:working`. A stale timer that fires after cancel does
+  not drive a transition: the runtime tags each visit to the state and
   ignores the straggler (see [§Epoch-based stale detection](../../../spec/005-StateMachines.md#epoch-based-stale-detection)).
 
-- **Per-step progress, done right.** Each child dispatches
+- Per-step progress, done right. Each child dispatches
   `[:work/flow [:progress shard-id processed total]]` after every chunk. The
-  parent's `:working` state handles `:progress` as an **internal
-  self-transition** — note there's no `:target` (see [§Self-transitions](../../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter)).
+  parent's `:working` state handles `:progress` as an internal
+  self-transition — note there's no `:target` (see [§Self-transitions](../../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter)).
   So the action records the new count without re-firing the `:spawn-all`
   entry. Only an external re-entry (`:reenter? true`) would exit and re-enter
-  `:working`, tearing down and re-spawning all three children on every
+  `:working`, tearing down and re-spawning all 3 children on every
   progress tick — a subtle, expensive bug that "internal by default" quietly
   prevents.
 
-- **The unmount cascade — one dispatch, the machine does the rest.** The
+- The unmount cascade — one dispatch, the machine does the rest. The
   work-bench view is wrapped in Reagent's `r/with-let`. Its `finally` cleanup
   runs on unmount and dispatches a single `[:work/flow [:cancel]]`. That is
   the only place the React lifecycle touches the machine. The workers
@@ -85,19 +85,19 @@ spawn-and-join.
   on a page, don't care who unmounted them. So when the user clicks **Hide**
   mid-job, the component unmounts, the cleanup dispatches `:cancel`, the
   parent exits `:working`, and the cascade destroys every child. The pattern
-  drops into any React tree precisely *because* the cancellation logic lives
+  drops into any React tree precisely because the cancellation logic lives
   in the machine, not the view.
 
 ## Why this shape — one parent, N children
 
-You could model a three-shard job as one big machine that loops over all the
+You could model a 3-shard job as one big machine that loops over all the
 work itself. This example splits it into a parent coordinator plus N child
-workers because the split puts two contracts on display at once:
+workers because the split puts 2 contracts on display at once:
 
-- **the join** — "run these in parallel, tell me when *all* are done" — which
+- the join — "run these in parallel, tell me when all are done" — which
   is `:spawn-all` with `:join :all`, with the runtime counting the children
-  in; and
-- **the cascade teardown** — "when the coordinator leaves its busy state,
+  in
+- the cascade teardown — "when the coordinator leaves its busy state,
   every child it spawned dies with it" — which falls out of `:spawn-all`'s
   desugared `:exit` firing `:rf.machine/destroy` per surviving child.
 

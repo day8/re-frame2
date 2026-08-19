@@ -3,10 +3,10 @@
 A single Reagent-mounted handler whose `:fx` recursively dispatches
 itself. The runtime's run-to-completion drain halts the cascade when
 the frame's `:drain-depth` ceiling is reached. The atomicity unit is
-the **event, not the drain** (per [spec/002 §Run-to-completion rule 3]
+the event, not the drain (per [spec/002 §Run-to-completion rule 3]
 / [spec/002 §Drain versus event — the epoch unit]): every settled
 `::recurse` event kept its own durable `:db` write and `:ok` epoch —
-there is **no whole-drain rollback** and no pre-drain snapshot. A
+there is no whole-drain rollback and no pre-drain snapshot. A
 consumer (Xray, Story, re-frame2-pair-mcp) observes the
 `:rf.error/drain-depth-exceeded` shape (carrying `:rollback? false`),
 the durable per-event writes, and the `:halted-depth` epoch outcome
@@ -25,10 +25,10 @@ click Start
 `::recurse` has no termination branch on purpose. The cascade only
 halts via the runtime's ceiling. After the halt:
 
-- `:depth-reached` reads back to the **ceiling** (the count of settled
-  `::recurse` events), NOT `0` — per-event durability evidence. Each
+- `:depth-reached` reads back to the ceiling (the count of settled
+  `::recurse` events), not `0` — per-event durability evidence. Each
   event kept its own `:db` write; there is no whole-drain rollback.
-- The frame's epoch record for the **halting** event carries outcome
+- the frame's epoch record for the halting event carries outcome
   `:halted-depth` (per [Spec-Schemas §`:rf/epoch-record` Outcomes],
   rf2-v0jwt). Because that event never ran, its `:db-before` and
   `:db-after` both equal the durable last-settled `app-db`. Consumers
@@ -63,43 +63,43 @@ the runtime ran the cascade more than once before halting. Default 25
 keeps the trace stream legible while still producing 25 `:event/dispatched`
 traces before the halt fires; dialling to 5 keeps specs sub-second.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- **No `:on-error` policy.** The default `:no-recovery` recovery is the
-  contract under test; an `:on-error` override would mask the halt.
-- **No partial-cascade error injection.** The cascade goes from clean
+- no `:on-error` policy. The default `:no-recovery` recovery is the
+  contract under test; an `:on-error` override would mask the halt
+- no partial-cascade error injection. The cascade goes from clean
   start to depth-exceeded halt with no other errors — keeps the trace
-  stream's halt event identifiable in one slot.
-- **No `dispatch-later` on the recursion site.** A `:dispatch-later`
+  stream's halt event identifiable in one slot
+- no `dispatch-later` on the recursion site. A `:dispatch-later`
   recursion would put each child on a fresh drain (timer fires after
   the parent settles); only synchronous `[:dispatch ...]` inside `:fx`
-  exercises the depth ceiling within a single drain.
+  exercises the depth ceiling within a single drain
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- **Partial epoch record (drain-halt) shows up with non-`:ok` outcome
-  (rf2-v0jwt)** — the load-bearing scenario this surface unblocks. The
+Xray (26):
+- partial epoch record (drain-halt) shows up with non-`:ok` outcome
+  (rf2-v0jwt) — the load-bearing scenario this surface unblocks. The
   halt produces an epoch record with `:outcome :halted-depth`; Xray's
   trace panel surfaces the partial cascade with the halt category
-  highlighted.
+  highlighted
 - `:rf.error/*` events highlighted in trace stream — the
-  `:rf.error/drain-depth-exceeded` row fires once per Start click.
-- Trace panel grows on subsequent dispatch — the cascade produces N
-  `:event/dispatched` traces (N = ceiling) before halting.
+  `:rf.error/drain-depth-exceeded` row fires once per Start click
+- trace panel grows on subsequent dispatch — the cascade produces N
+  `:event/dispatched` traces (N = ceiling) before halting
 
-**Cross-cutting (6)**:
-- **Drain-depth-exceeded keeps durable per-event writes + emits a
-  `:halted-depth` epoch record (rf2-v0jwt)** — the load-bearing
+Cross-cutting (6):
+- drain-depth-exceeded keeps durable per-event writes + emits a
+  `:halted-depth` epoch record (rf2-v0jwt) — the load-bearing
   scenario. The DOM mirror at `depth-reached=<ceiling>` after Start is
   positive per-event-durability evidence (there is no whole-drain
   rollback); the `:halted-depth` epoch outcome is the contract on the
-  ring-buffer side.
+  ring-buffer side
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically —
+Story (18):
+- recorder captures click → records `:play` → replays identically —
   the Start click is deterministic (the handler is pure; the ceiling
-  is data). Replay reproduces the same halt shape.
+  is data). Replay reproduces the same halt shape
 
 ## Running
 

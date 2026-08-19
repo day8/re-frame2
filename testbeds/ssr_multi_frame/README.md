@@ -1,13 +1,13 @@
 # `testbeds/ssr-multi-frame`
 
-Three frames coexist on the page (`:counter/a`, `:counter/b`, `:log`),
-each receiving its OWN `:rf/hydrate` dispatch from a per-frame slice
+3 frames coexist on the page (`:counter/a`, `:counter/b`, `:log`),
+each receiving its own `:rf/hydrate` dispatch from a per-frame slice
 of the baked payload. Per [`spec/011-SSR.md` §Frames are per-request](../../spec/011-SSR.md)
 + [`spec/002-Frames.md` §What lives in a frame](../../spec/002-Frames.md):
 each frame owns its own `app-db`, router queue, and signal-graph
 cache; the hydration protocol operates frame-by-frame.
 
-The static `index.html` bakes ONE payload script carrying a map of
+The static `index.html` bakes one payload script carrying a map of
 `{frame-id → per-frame-payload}`; the browser-side `run` walks it
 and dispatches `[:rf/hydrate slice]` against each frame.
 
@@ -33,18 +33,18 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 
 ## What this surface deliberately omits
 
-- Hash-mismatch detection per frame. Each frame's payload carries a
+- hash-mismatch detection per frame. Each frame's payload carries a
   symbolic hash (`aaaa1111`, …) — `verify-hydration!` isn't called
   here. Sibling [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
-  exercises the mismatch path on a single frame.
-- Cross-frame `:dispatch` fan-out. That's the
+  exercises the mismatch path on a single frame
+- cross-frame `:dispatch` fan-out. That's the
   [`testbeds/multi_frame/`](../multi_frame/) surface's concern;
-  conflating the two would dilute what this surface proves.
+  conflating the two would dilute what this surface proves
 
 ## Running
 
-This surface is a dev / Xray observation target — it is **not** staged
-by any smoke gate (the adapter-smoke orchestrator serves only the three
+This surface is a dev / Xray observation target — it is not staged
+by any smoke gate (the adapter-smoke orchestrator serves only the 3
 adapter smokes under `implementation/adapters/<name>/testbed/`). Build
 and view it by hand.
 
@@ -73,6 +73,6 @@ npx http-server out/examples/testbed-ssr-multi-frame -p 8080
 
 - [`spec/011-SSR.md` §Frames are per-request](../../spec/011-SSR.md) — the per-request frame contract.
 - [`spec/002-Frames.md` §What lives in a frame](../../spec/002-Frames.md) — the per-frame isolation contract.
-- Sibling: [`testbeds/multi_frame/`](../multi_frame/) — the cross-frame `:dispatch` fan-out surface (NOT SSR).
-- Sibling: [`testbeds/ssr_basic/`](../ssr_basic/) — the single-frame hydration baseline.
-- Sibling: [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/) — the deliberate-mismatch surface.
+- sibling: [`testbeds/multi_frame/`](../multi_frame/) — the cross-frame `:dispatch` fan-out surface (not SSR).
+- sibling: [`testbeds/ssr_basic/`](../ssr_basic/) — the single-frame hydration baseline.
+- sibling: [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/) — the deliberate-mismatch surface.

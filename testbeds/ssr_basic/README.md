@@ -1,6 +1,6 @@
 # `testbeds/ssr-basic`
 
-The **SSR hydration baseline**. Server-rendered HTML + a serialised
+The SSR hydration baseline. Server-rendered HTML + a serialised
 `:rf/hydration-payload` arrive baked into the static `index.html` (the
 shape the JVM-side `render-to-string` + payload builder would emit per
 [`spec/011-SSR.md`](../../spec/011-SSR.md)). The browser-side `run`:
@@ -39,20 +39,20 @@ cljs vars.
 
 ## What this surface deliberately omits
 
-- The mismatch path. The payload's `:rf/render-hash` is `nil`, so
+- the mismatch path. The payload's `:rf/render-hash` is `nil`, so
   `verify-hydration!` no-ops cleanly. Mismatch detection is exercised
-  by [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/).
-- Multi-frame hydration. Exercised by [`testbeds/ssr_multi_frame/`](../ssr_multi_frame/).
-- The JVM-side render. Spec 011's hiccup → HTML emitter and FNV-1a
+  by [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
+- multi-frame hydration. Exercised by [`testbeds/ssr_multi_frame/`](../ssr_multi_frame/)
+- the JVM-side render. Spec 011's hiccup → HTML emitter and FNV-1a
   hash are pinned by `implementation/ssr/test/re_frame/` (the JVM
-  conformance corpus and end-to-end tests).
+  conformance corpus and end-to-end tests)
 
 ## Running
 
-This surface is a dev / Xray observation target — it is **not** staged
+This surface is a dev / Xray observation target — it is not staged
 by any smoke gate. The adapter-smoke orchestrator
 (`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`)
-compiles + serves only the three adapter smokes under
+compiles + serves only the 3 adapter smokes under
 `implementation/adapters/<name>/testbed/`; top-level `testbeds/**` stay
 in-tree as observation targets. Build and view this one by hand.
 

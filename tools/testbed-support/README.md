@@ -32,8 +32,8 @@ no-op.
 
 `mount-with-hash-routing!` selects the surface from the current hash:
 
-- `#/stories...` mounts the Story shell.
-- Any other hash mounts the supplied live-app root view.
+- `#/stories...` mounts the Story shell
+- any other hash mounts the supplied live-app root view
 
 The consumer must create its frame, load its image, and complete its own boot
 before calling the host. The host owns only the React-root handoff and the
@@ -66,9 +66,9 @@ npm package through Node.
 Because this endpoint can open a local file, it accepts launches only when all
 of these conditions hold:
 
-- The request method is `POST`.
-- The `Host` header names a loopback host.
-- When present, `Origin` also names a loopback host.
+- the request method is `POST`
+- the `Host` header names a loopback host
+- when present, `Origin` also names a loopback host
 
 CORS reflects only a validated loopback origin; it never emits `*`. Missing
 files return 422 before Node is spawned so the browser client can fall back to

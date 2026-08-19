@@ -12,7 +12,7 @@ normative source for an individual namespace's surface.
 
 ## Canonical home — external to `/spec`
 
-This spec/ folder is the **canonical home** for the cross-MCP shared
+This spec/ folder is the canonical home for the cross-MCP shared
 primitives — a tool-shared contract that lives with the tool artefact
 rather than in the project-level [`/spec`](../../../spec/), per
 [`/spec/README.md` §Canonical homes outside `/spec`](../../../spec/README.md#canonical-homes-outside-spec).
@@ -22,7 +22,7 @@ framework's normative contract surface (the `:sensitive?`
 substrate, the `:rf.size/*` markers, the wire-elision walker) lives
 in [`/spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
 and [`/spec/Conventions.md`](../../../spec/Conventions.md). This
-folder pins the **cross-MCP shape** of the consumer-side primitives
+folder pins the cross-MCP shape of the consumer-side primitives
 that ride on those framework surfaces.
 
 ## Index
@@ -49,7 +49,7 @@ per-namespace contract doc; the table below indexes them:
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
 classpath. The library's `deps.edn` carries `org.clojure/clojure` and
-NOTHING ELSE at runtime: the one external dep it used to have
+nothing else at runtime: the one external dep it used to have
 (`day8/de-dupe`, the persistent-data-structure walker behind `dedup`)
 was vendored in under rf2-2ii52, because a `:git/url` coordinate is one
 `clein pom` drops silently and it blocked this artefact's publish path
@@ -58,27 +58,27 @@ transport runtime deps either.
 
 ## Handler-arity divergence
 
-The two shipped servers use **different registry-handler arities** —
+The two shipped servers use different registry-handler arities —
 pair-mcp is 3-arity `(fn [conn args extra])`, story-mcp is 1-arity
 `(fn [args])`. The divergence is deliberate (pair-mcp needs `conn`
 for nREPL and `extra` for streaming; story-mcp is single-process and
 needs neither) and is documented in full at
 [`handler-arity.md`](handler-arity.md).
 
-## What deliberately does NOT live here
+## What deliberately does not live here
 
 The base holds primitives that are shared across the pair's wire,
 privacy, and size surfaces.
 Two categories stay consumer-side:
 
-1. **Wire transport.** story-mcp uses Cheshire for JSON-RPC over
-   stdin/stdout; re-frame2-pair-mcp uses the npm `@modelcontextprotocol/sdk`'s
-   stdio transport. The framing is different by language; there's
-   nothing useful to share here.
+- Wire transport. story-mcp uses Cheshire for JSON-RPC over
+  stdin/stdout; re-frame2-pair-mcp uses the npm `@modelcontextprotocol/sdk`'s
+  stdio transport. The framing is different by language; there's
+  nothing useful to share here.
 
-2. **Tool registries.** Each MCP server's tool catalogue is domain-
-   specific. The base provides building blocks; it does NOT
-   prescribe how the registry is shaped.
+- Tool registries. Each MCP server's tool catalogue is domain-
+  specific. The base provides building blocks; it does not
+  prescribe how the registry is shaped.
 
 The shared cursor codec and recovery helpers live in `cursor.cljc`,
 parameterised by each consumer's cursor-payload shape. Cursor resource
@@ -91,26 +91,26 @@ wire contracts. Changing a value requires updating its consumers and
 conformance fixtures together.
 Two layers of protection:
 
-1. **The cross-MCP conformance gate** at
-   `tools/mcp-conformance/wire-vocab/` pins the canonical Malli
-   schema for every reserved `:rf.mcp/*` / `:rf.size/large-elided` /
-   `:rf.elision/at` marker and asserts that fixtures + source text
-   from every emitting server conform. Any rename or shape drift
-   fails the JVM test corpus.
-2. **The vars in `vocab.cljc`** are the shared reference point for
-   executable consumers rather than consumer-local constant definitions.
+- The cross-MCP conformance gate at
+  `tools/mcp-conformance/wire-vocab/` pins the canonical Malli
+  schema for every reserved `:rf.mcp/*` / `:rf.size/large-elided` /
+  `:rf.elision/at` marker and asserts that fixtures + source text
+  from every emitting server conform. Any rename or shape drift
+  fails the JVM test corpus.
+- The vars in `vocab.cljc` are the shared reference point for
+  executable consumers rather than consumer-local constant definitions.
 
 ## Adding to the base
 
 Two rules:
 
-1. **It must be implemented somewhere already.** This artefact is
+1. It must be implemented somewhere already. This artefact is
    for factoring duplication, not for landing speculative shared
    surfaces. New primitives land in a consumer first; if a second
    consumer needs the same code, lift it then.
 
-2. **It must be framework-runtime-free, with no consumer-side
-   transport deps.** The base's `deps.edn` carries `org.clojure/clojure`
+2. It must be framework-runtime-free, with no consumer-side
+   transport deps. The base's `deps.edn` carries `org.clojure/clojure`
    and nothing else at runtime — and a new external coordinate has to
    clear the publish path as well as the design bar: this artefact is
    Clojars-published, so a dep `clein pom` cannot express (`:git/url`,
@@ -122,25 +122,25 @@ Two rules:
    story-mcp requires `re-frame.mcp-base.sensitive` directly. The
    predicate itself lives here.)
 
-**What this rules OUT** — concrete rejection cases so a contributor
+What this rules out — concrete rejection cases so a contributor
 sees the trap before falling in:
 
-- **story-mcp's recorder bridge** — NO. Only one consumer; the bridge
+- story-mcp's recorder bridge — no. Only one consumer; the bridge
   is recorder-specific machinery, not a cross-MCP primitive. Lifting
   it would invert the rule and pull recorder-shaped concerns into the
   base for every other server to ignore.
-- **A re-frame2-pair-only nREPL bencode helper** — NO. Single
+- A re-frame2-pair-only nREPL bencode helper — no. Single
   consumer; nREPL transport is pair-mcp's domain. story-mcp does not
   speak nREPL; lifting would add a runtime concern the base does not
   need to know about.
 A new shared primitive ships with:
 
-- A per-namespace spec doc in this folder (`<ns>.md`), at the
+- a per-namespace spec doc in this folder (`<ns>.md`), at the
   one-shot bar — the doc should describe the surface fully enough
   that a future contributor can rebuild the ns from it without
   consulting source.
-- An entry in the index table above.
-- An update to [`/spec/Ownership.md`](../../../spec/Ownership.md)
+- an entry in the index table above.
+- an update to [`/spec/Ownership.md`](../../../spec/Ownership.md)
   if the surface is genuinely framework-level cross-cutting (most
   cross-MCP primitives are not — they live under the existing
   "Cross-MCP shared primitives" row).

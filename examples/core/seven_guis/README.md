@@ -1,12 +1,12 @@
 # 7GUIs in re-frame2
 
-[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework benchmark of seven small UI tasks. This suite covers all seven in re-frame2 — each one a tiny app you open and click in your browser. Six live in sub-folders here; task 1 is the standalone [counter example](../counter/core.cljs), one folder up.
+[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework benchmark of 7 small UI tasks. This suite covers all 7 in re-frame2 — each one a tiny app you open and click in your browser. Six live in sub-folders here; task 1 is the standalone [counter example](../counter/core.cljs), one folder up.
 
-The tasks are ordered so each one adds a problem the last didn't have. A counter. Then two fields that must stay in sync. Then a form with a validation rule. Then a timer. Then a list you can edit. Then undo/redo. Then a working spreadsheet. The point isn't the widgets. Each task hides a *famous trap*, and a framework either has an honest answer for it or papers over the crack.
+The tasks are ordered so each one adds a problem the last didn't have. A counter. Then 2 fields that must stay in sync. Then a form with a validation rule. Then a timer. Then a list you can edit. Then undo/redo. Then a working spreadsheet. The point isn't the widgets. Each task hides a famous trap, and a framework either has an honest answer for it or papers over the crack.
 
-What's worth watching is how little the answer changes as the tasks get harder. All seven share one shape: state lives in one place ([app-db](../../../docs/core/glossary.md#app-db)), [events](../../../docs/core/glossary.md#event) are the only way to change it, [subscriptions](../../../docs/core/glossary.md#subscription) derive everything the [view](../../../docs/core/glossary.md#view) needs, and the view just reads those derivations and dispatches events.
+What's worth watching is how little the answer changes as the tasks get harder. All 7 share one shape: state lives in one place ([app-db](../../../docs/core/glossary.md#app-db)), [events](../../../docs/core/glossary.md#event) are the only way to change it, [subscriptions](../../../docs/core/glossary.md#subscription) derive everything the [view](../../../docs/core/glossary.md#view) needs, and the view just reads those derivations and dispatches events.
 
-The traps that sink the imperative versions — the update loop between two text fields, the validation path you forgot, the undo stack that drifts out of sync — mostly stop being *bugs you can write*. They become *shapes the architecture doesn't have*. That is the whole pitch of re-frame2, and the suite shows it paying off seven times over.
+The traps that sink the imperative versions — the update loop between 2 text fields, the validation path you forgot, the undo stack that drifts out of sync — mostly stop being bugs you can write. They become shapes the architecture doesn't have. That is the whole pitch of re-frame2, and the suite shows it paying off 7 times over.
 
 | # | Task | The trap, and re-frame2's answer | File |
 |---|---|---|---|
@@ -20,25 +20,25 @@ The traps that sink the imperative versions — the update loop between two text
 
 ## What this demonstrates
 
-Read the seven in order and you can watch the same model grow one idea at a time:
+Read the 7 in order and you can watch the same model grow one idea at a time:
 
-- **Counter** is the bare loop: event handler, subscription, view. Nothing else.
-- **Temperature** adds the idea the whole suite leans on: *one source of truth, derived two ways*. The canonical value is Celsius. Both fields are subscriptions off it — one shows the raw text you're typing, the other shows the conversion. The trap is structurally absent.
-- **Flight Booker** layers subscriptions: `start-valid?`, `return-valid?`, and `dates-coherent?` feed a `book-enabled?` sub that the button reads. "Did I cover every path?" becomes "is it in the derivation graph?", which is much harder to get wrong.
-- **Timer** shows an event handler scheduling its own follow-up, via the `:fx [[:dispatch-later …]]` effect. The periodic tick rides the same [pipeline](../../../docs/core/glossary.md#event-pipeline) as a button click. A generation token makes Reset observably correct without reaching outside the loop.
-- **CRUD** is selection-as-state. The detail inputs read a `:draft` slice through subscriptions; Create, Update, and Delete are list operations on a vector. A `can-update?` sub even disables Update and Delete when the selected row is hidden by the filter — the master/detail edge the task exists to test, answered as derived state.
-- **Circle Drawer** is the first task to reach for an interceptor. A named `:drawer/undoable` interceptor (each undoable event opts in by id from its `:interceptors`) captures the prior `:circles` in its `:before` and pushes it onto an undo stack in its `:after`. The slider drag deliberately *omits* the interceptor, so a whole drag collapses into one undo step — a chore with an imperative stack, nearly free here.
-- **Cells** is the payoff. It's a small interpreter — tokeniser, parser, evaluator — written as pure functions, with no `eval` and no DOM in sight. It detects cycles with a visited-set walk and emits error markers (`#PARSE`, `#CYCLE`, `#DIV/0`, `#TYPE`) that flow through arithmetic without ever throwing. Propagation leans on the [derivation graph](../../../docs/core/glossary.md#the-derivation-graph) instead of fighting it: every cell's value sub takes the *whole* cell map as input, so any edit recomputes every mounted cell. That's fine — the evaluator is pure, the grid is small, and `=`-dedup means an unchanged result never re-renders. Correctness for free, with no per-cell dependency edges to keep in sync.
+- Counter is the bare loop: event handler, subscription, view. Nothing else.
+- Temperature adds the idea the whole suite leans on: one source of truth, derived 2 ways. The canonical value is Celsius. Both fields are subscriptions off it — one shows the raw text you're typing, the other shows the conversion. The trap is structurally absent.
+- Flight Booker layers subscriptions: `start-valid?`, `return-valid?`, and `dates-coherent?` feed a `book-enabled?` sub that the button reads. "Did I cover every path?" becomes "is it in the derivation graph?", which is much harder to get wrong.
+- Timer shows an event handler scheduling its own follow-up, via the `:fx [[:dispatch-later …]]` effect. The periodic tick rides the same [pipeline](../../../docs/core/glossary.md#event-pipeline) as a button click. A generation token makes Reset observably correct without reaching outside the loop.
+- CRUD is selection-as-state. The detail inputs read a `:draft` slice through subscriptions; Create, Update, and Delete are list operations on a vector. A `can-update?` sub even disables Update and Delete when the selected row is hidden by the filter — the master/detail edge the task exists to test, answered as derived state.
+- Circle Drawer is the first task to reach for an interceptor. A named `:drawer/undoable` interceptor (each undoable event opts in by id from its `:interceptors`) captures the prior `:circles` in its `:before` and pushes it onto an undo stack in its `:after`. The slider drag deliberately omits the interceptor, so a whole drag collapses into one undo step — a chore with an imperative stack, nearly free here.
+- Cells is the payoff. It's a small interpreter — tokeniser, parser, evaluator — written as pure functions, with no `eval` and no DOM in sight. It detects cycles with a visited-set walk and emits error markers (`#PARSE`, `#CYCLE`, `#DIV/0`, `#TYPE`) that flow through arithmetic without ever throwing. Propagation leans on the [derivation graph](../../../docs/core/glossary.md#the-derivation-graph) instead of fighting it: every cell's value sub takes the whole cell map as input, so any edit recomputes every mounted cell. That's fine — the evaluator is pure, the grid is small, and `=`-dedup means an unchanged result never re-renders. Correctness for free, with no per-cell dependency edges to keep in sync.
 
-A few cross-cutting habits show up too. Three of the tasks (Flight Booker, CRUD, Circle Drawer) disable buttons by reading a subscription rather than poking `.disabled` — *ask, don't tell*. Most tasks attach a Malli [schema](../../../docs/core/glossary.md#schema) to their app-db slice, so a malformed write [fails loud](../../../docs/core/glossary.md#fail-loud-not-silent) in dev — and the check is [elided](../../../docs/core/glossary.md#elide) in production.
+A few cross-cutting habits show up too. Three of the tasks (Flight Booker, CRUD, Circle Drawer) disable buttons by reading a subscription rather than poking `.disabled` — ask, don't tell. Most tasks attach a Malli [schema](../../../docs/core/glossary.md#schema) to their app-db slice, so a malformed write [fails loud](../../../docs/core/glossary.md#fail-loud-not-silent) in dev — and the check is [elided](../../../docs/core/glossary.md#elide) in production.
 
-The two tasks that mint new ids into durable state (CRUD's people, Circle Drawer's circles) allocate them from a counter in app-db, not from `random-uuid` at the write site. So replaying the event stream reproduces exactly the same data — the property that makes time-travel and SSR hydration honest.
+The 2 tasks that mint new ids into durable state (CRUD's people, Circle Drawer's circles) allocate them from a counter in app-db, not from `random-uuid` at the write site. So replaying the event stream reproduces exactly the same data — the property that makes time-travel and SSR hydration honest.
 
 ## Why this shape
 
 A common worry is that "everything is an event and a subscription" gets heavy as apps grow. The suite is a good argument against it. From the counter to the spreadsheet, no task needs a second state-management idea. Two-way binding never appears. There's no observer wiring, no manual dependency tracking, and no imperative "recompute the derived bits after this change" step — the [pipeline](../../../docs/core/glossary.md#event-pipeline) does that once, at the end, from settled state.
 
-The parts that stay hard — parsing a formula, detecting a cycle, getting the timer's generation logic right — are *real* domain problems, not framework friction. They live in plain pure functions you can unit-test without a browser.
+The parts that stay hard — parsing a formula, detecting a cycle, getting the timer's generation logic right — are real domain problems, not framework friction. They live in plain pure functions you can unit-test without a browser.
 
 ## How these compare to the original 7GUIs reference
 
@@ -53,7 +53,7 @@ The verbosity tax is real, and small. In return, every artefact is named, querya
 
 ## How to run
 
-Six tasks live in sub-folders under `seven_guis/<name>/`, each with its CLJS source and a thin HTML host page (e.g. `cells/core.cljs` + `cells/index.html`); the counter sits one folder up at `../counter/`. The build ids are defined in `implementation/shadow-cljs.edn`, so watch a task's build from `implementation/` to view it in a browser:
+Six tasks live in sub-folders under `seven_guis/<name>/`, each with its CLJS source and a thin HTML host page (for example `cells/core.cljs` + `cells/index.html`); the counter sits one folder up at `../counter/`. The build ids are defined in `implementation/shadow-cljs.edn`, so watch a task's build from `implementation/` to view it in a browser:
 
 ```bash
 shadow-cljs watch examples/cells

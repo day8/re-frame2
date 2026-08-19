@@ -1,4 +1,4 @@
-# re-frame2-pair MCP server — Spec
+# re-frame2-pair MCP server — spec
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > the framework-side contract for pair-shaped AI tools. re-frame2-pair-mcp is
@@ -6,15 +6,15 @@
 
 ## Files
 
-- **[000-Vision.md](000-Vision.md)** — Why an MCP server beats the bash-shim chain: pay cold-connect cost once per session, not per op (~700ms → ~5–50ms).
-- **[001-Wire-Protocol.md](001-Wire-Protocol.md)** — Newline-delimited JSON-RPC 2.0 over stdio per the MCP 2025-06-18 transport spec; framed by `@modelcontextprotocol/sdk`.
-- **[002-nREPL-Transport.md](002-nREPL-Transport.md)** — One active TCP socket to `127.0.0.1:<nrepl-port>`, response multiplexing by UUID `id`, discovery, and reconnect lifecycle.
-- **[003-Tool-Catalogue.md](003-Tool-Catalogue.md)** — Tool arguments, result envelopes, policy gates, and failure modes. The live `registry/tools` vector is the authoritative ordered catalogue.
-- **[API.md](API.md)** — Consolidated user-facing reference for installing, configuring, launching, and calling re-frame2-pair-mcp.
-- **[Principles.md](Principles.md)** — re-frame2-pair-mcp-specific load-bearing principles, downstream of framework `Principles.md`.
-- **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — Direction-setting decisions: question, options, pick, why, date locked.
-- **[findings/](findings/)** — Exploratory working substrate; audit lineage, not normative.
+- [000-Vision.md](000-Vision.md) — why an MCP server beats the bash-shim chain: pay cold-connect cost once per session, not per op (~700ms → ~5–50ms)
+- [001-Wire-Protocol.md](001-Wire-Protocol.md) — newline-delimited JSON-RPC 2.0 over stdio per the MCP 2025-06-18 transport spec; framed by `@modelcontextprotocol/sdk`
+- [002-nREPL-Transport.md](002-nREPL-Transport.md) — one active TCP socket to `127.0.0.1:<nrepl-port>`, response multiplexing by UUID `id`, discovery, and reconnect lifecycle
+- [003-Tool-Catalogue.md](003-Tool-Catalogue.md) — tool arguments, result envelopes, policy gates, and failure modes. The live `registry/tools` vector is the authoritative ordered catalogue
+- [API.md](API.md) — consolidated user-facing reference for installing, configuring, launching, and calling re-frame2-pair-mcp
+- [Principles.md](Principles.md) — re-frame2-pair-mcp-specific load-bearing principles, downstream of framework `Principles.md`
+- [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) — direction-setting decisions: question, options, pick, why, date locked
+- [findings/](findings/) — exploratory working substrate; audit lineage, not normative
 
 ## How to use
 
-This folder is complete enough to one-shot the tool. Read [`000-Vision.md`](000-Vision.md) first to anchor *why*; the capability docs (001–003) are normative — they own the wire protocol, nREPL transport, and tool catalogue respectively. [`Principles.md`](Principles.md) and [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) capture the locks. [`API.md`](API.md) is the consolidated reference where the per-area specs win on drift. `findings/` preserves the audit lineage and is never normative.
+This folder is complete enough to one-shot the tool. Read [`000-Vision.md`](000-Vision.md) first to anchor why; the capability docs (001–003) are normative — they own the wire protocol, nREPL transport, and tool catalogue respectively. [`Principles.md`](Principles.md) and [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) capture the locks. [`API.md`](API.md) is the consolidated reference where the per-area specs win on drift. `findings/` preserves the audit lineage and is never normative.

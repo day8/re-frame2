@@ -1,4 +1,4 @@
-# Xray Feature Matrix Gate
+# Xray feature matrix gate
 
 This directory owns the Xray browser feature/load gate scenarios for
 [`tools/xray/spec/017-Test-Coverage-Matrix.md`](../../spec/017-Test-Coverage-Matrix.md).
@@ -50,27 +50,27 @@ the 20-event/load re-check:
   `rf2-sbfb7`, the dock / docked-overlay and `mount-inline-panel!` debug
   surfaces were removed; full-shell embedding lands under
   008-Embedding-Contract.)
-- Deterministic exceptions: the deliberate-throw testbed surfaces thrown
+- deterministic exceptions: the deliberate-throw testbed surfaces thrown
   handlers inline in the Epoch panel's numbered cascade and via Trace
   source-coord chips. (Schema-failure recovery — rollback, skipped
   handlers/fx, the four `:where` surfaces — moved to CLJS unit at
   `tools/xray/test/.../panels/epoch/projection_cljs_test.cljc`.)
-- Multi-frame fan-out: the multi-frame testbed uses a testbed-only bridge
+- multi-frame fan-out: the multi-frame testbed uses a testbed-only bridge
   fx to dispatch into explicit frames. The gate asserts direct A/B
   isolation, fan-out into `:counter/b` and `:log`, and per-frame epoch
   history via the Trace and Epoch tabs (the per-frame cascade).
-- Routing: the routes-epochs deck drives the real `reg-route` +
+- routing: the routes-epochs deck drives the real `reg-route` +
   `:rf.route/navigate` surface, asserting the Routing panel's current
   route, navigation-this-epoch outcome, nested route table, and blocked
   navigation.
-- Machines: the deep-machine substrate asserts the Machine Inspector
+- machines: the deep-machine substrate asserts the Machine Inspector
   chart SVG renders; the machine-epochs deck steps a multi-machine,
   frame-isolated matrix and confirms the inspector mounts on a focused
   machine event.
-- Large payload load: the large dispatcher scenario drives 20 meaningful
+- large payload load: the large dispatcher scenario drives 20 meaningful
   host dispatches, asserting large-elision markers and app-db/trace panel
   stability under repeated size events.
-- Trace row budget: the load gate saturates Xray's 1000-event trace ring,
+- trace row budget: the load gate saturates Xray's 1000-event trace ring,
   asserts the Trace panel keeps the DOM to the 200-row rendering budget
   with an overflow indicator, then drives 20 more host dispatches without
   growing the rendered row count.

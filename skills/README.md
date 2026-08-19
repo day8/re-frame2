@@ -1,16 +1,16 @@
 # skills/
 
 This directory holds Claude Code / agent-shaped skills for re-frame2. Each
-subdirectory is a self-contained skill with its own `SKILL.md`, scripts,
-and packaging metadata — colocated with the re-frame2 surfaces it consumes,
-so the spec, implementation, and tooling travel together.
+subdirectory is a self-contained skill with its own `SKILL.md`, scripts
+and packaging metadata. Each sits next to the re-frame2 surfaces it
+consumes, so the spec, implementation and tooling travel together.
 
 ## Installing (link, never copy)
 
-Claude Code loads skills from `~/.claude/skills/<name>/`. **Link the repo
-directory in; never `cp -r` it.** A copy snapshots the skill and then drifts
+Claude Code loads skills from `~/.claude/skills/<name>/`. Link the repo
+directory in; never `cp -r` it. A copy snapshots the skill and then drifts
 as the repo is maintained — Claude Code keeps loading the stale copy. The
-cross-platform installer links *every* skill below into `~/.claude/skills/`
+cross-platform installer links every skill below into `~/.claude/skills/`
 so the active skill is the repo source by construction:
 
 ```bash
@@ -18,25 +18,25 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-It is idempotent, refuses to clobber a non-link copy without `--force`
-(`-Force`), and supports `--check` (`-Check`) to verify the links. Run it
-once after cloning, and re-run with `--force` once to retire any stale copy
-a previous copy-install left behind.
+The installer is idempotent. It refuses to clobber a non-link copy without
+`--force` (`-Force`), and supports `--check` (`-Check`) to verify the
+links. Run it once after cloning. Re-run with `--force` once to retire any
+stale copy a previous copy-install left behind.
 
 The docs-site landing page mirrors this index at
-[`docs/skills/index.md`](../docs/skills/index.md) — same nine skills,
+[`docs/skills/index.md`](../docs/skills/index.md) — same 9 skills,
 hosted on the mkdocs site (it carries the human-facing decision flow;
 edit routing here first).
 
 ## Current skills
 
-re-frame2 ships **nine** skills plus a shared protocol layer
+re-frame2 ships 9 skills plus a shared protocol layer
 ([`shared/`](shared) — see §Layout convention), grouped by
 the situation they cover:
 
 ### Authoring on the CLJS reference
 
-- **[`re-frame2/`](re-frame2)** — author re-frame2 ClojureScript
+- [`re-frame2/`](re-frame2) — author re-frame2 ClojureScript
   application code. Events, subscriptions, effects, frames, state machines,
   schemas, stories, routing, and the 14 canonical patterns (RemoteData,
   Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect,
@@ -44,47 +44,47 @@ the situation they cover:
   FormAction, SSR-Loaders), with leaf content under `references/`,
   `patterns/`, and `decision-trees/`.
 
-- **[`re-frame2-setup/`](re-frame2-setup)** — scaffold a fresh
+- [`re-frame2-setup/`](re-frame2-setup) — scaffold a fresh
   re-frame2 ClojureScript project by hand. Walks the author from an empty
   directory to a working `shadow-cljs watch` counter via the canonical
-  six-step path. Complementary to the generator template under
+  6-step path. Complementary to the generator template under
   [`tools/template/`](../tools/template): use the template when you want a
   one-shot scaffold. (Pre-split, the published `:template` coordinate can't
   resolve — [`tools/template/README.md`](../tools/template/README.md)
   documents the working `:local/root` route.)
   Reach for this skill when you're
-  bootstrapping greenfield — a brand-new app, or an **empty** CLJS project
-  (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — or when
+  bootstrapping greenfield — a brand-new app, or an empty CLJS project
+  (shadow-cljs / Clojure present but zero re-frame2 wiring) — or when
   you want to understand each step the template performs. Adding re-frame2
-  to a **non-trivial** existing app is an authoring task — route to
+  to a non-trivial existing app is an authoring task — route to
   [`re-frame2/`](re-frame2) (see the disqualifier below).
 
-- **[`re-frame-migration/`](re-frame-migration)** — migrate an existing
+- [`re-frame-migration/`](re-frame-migration) — migrate an existing
   re-frame v1.x ClojureScript codebase to re-frame2. Drives a
-  two-pre-flight-plus-six-phase workflow over the rule corpus in
+  2-pre-flight-plus-6-phase workflow over the rule corpus in
   [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md):
   applies Type A (mechanical) M-rules without asking, flags Type B
   (judgment-call) rewrites for the author. The migration corpus
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
 
-- **[`reagent-migration/`](reagent-migration)** — the **optional, second**
-  step *after* `re-frame-migration`: migrate Reagent **view** code to
-  **Hicasso** (`re-frame.hicasso`, alias `h`), re-frame2's re-frame-native
+- [`reagent-migration/`](reagent-migration) — the optional, second
+  step after `re-frame-migration`: migrate Reagent view code to
+  Hicasso (`re-frame.hicasso`, alias `h`), re-frame2's re-frame-native
   view layer. A Reagent hiccup view becomes an `h/defview` mounted in
   brackets and never called;
   `@(subscribe …)` becomes `(h/sub …)`; `#(dispatch …)` handlers lift to
   event vectors; Form-2 atoms and Form-3 lifecycle move out of the
-  component. An **AI skill that applies judgment, not a
-  codemod** — it applies the mechanical `MIG-NN` rewrites directly, reasons
+  component. An AI skill that applies judgment, not a
+  codemod — it applies the mechanical `MIG-NN` rewrites directly, reasons
   through the judgment calls, and declines the cases Hicasso doesn't yet
-  handle ("stay on Reagent, or wait"). **Staying on Reagent views is a
-  first-class, fully-supported choice** — this skill's trigger is narrow:
+  handle ("stay on Reagent, or wait"). Staying on Reagent views is a
+  first-class, fully-supported choice — this skill's trigger is narrow:
   already on re-frame2 AND specifically wanting to trial Hicasso, which is
-  **pre-publication with no released Maven coordinate**.
+  pre-publication with no released Maven coordinate.
 
-- **[`re-frame2-improver/`](re-frame2-improver)** — critique-mode for
-  **existing** re-frame2 ClojureScript code. Reviews a body of source
+- [`re-frame2-improver/`](re-frame2-improver) — critique-mode for
+  existing re-frame2 ClojureScript code. Reviews a body of source
   files (or a user-supplied snippet) against a small catalogue of
   re-frame2 anti-patterns, surfaces concrete findings cross-linked to
   canonical idioms under `skills/re-frame2/patterns/`, and may propose
@@ -94,40 +94,40 @@ the situation they cover:
 
 ### Implementing the framework
 
-- **[`re-frame2-implementor/`](re-frame2-implementor)** — guide an
-  engineer **building a new re-frame2 implementation** — a port to a
+- [`re-frame2-implementor/`](re-frame2-implementor) — guide an
+  engineer building a new re-frame2 implementation — a port to a
   different host language or substrate, not an application built on the
-  CLJS reference. Two-phase workflow: Phase 1 locks the host-language,
+  CLJS reference. 2-phase workflow: Phase 1 locks the host-language,
   substrate, scope, and primitive decisions; Phase 2 walks the EP corpus
   in dependency order with `spec/conformance/` as the acceptance test.
 
 ### Live-runtime devtools & pair programming
 
-- **[`re-frame2-xray/`](re-frame2-xray)** — read-only tour of
-  **Xray**, the re-frame2 in-app devtools panel. Answers how to *launch*
+- [`re-frame2-xray/`](re-frame2-xray) — read-only tour of
+  Xray, the re-frame2 in-app devtools panel. Answers how to launch
   Xray (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
-  the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
+  the Dynamic ↔ Static mode toggle) and which tab shows X — across the
   10 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
   Machine / Routes / Resources / Graph / Frames / Hicasso — Graph being
   Xray's UI over the EP-0014 derivation/process graph, Frames its EP-0023
   `image → frame → event stream` lens (which image loaded which frame,
-  L4-only), and Hicasso the Hicasso view substrate's evidence lens — six
-  views over four evidence envelopes, L4-only)
+  L4-only), and Hicasso the Hicasso view substrate's evidence lens — 6
+  views over 4 evidence envelopes, L4-only)
   and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
   Issues tab — issues surface inline. Xray owns
-  the *seeing*; `re-frame2-pair` owns the *driving*.
+  the seeing; `re-frame2-pair` owns the driving.
 
-- **[`re-frame2-pair/`](re-frame2-pair)** — pair-program with a live
+- [`re-frame2-pair/`](re-frame2-pair) — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
-  inspect `app-db`, dispatch events, hot-swap handlers, trace the six
+  inspect `app-db`, dispatch events, hot-swap handlers, trace the 6
   dominoes, walk the per-frame epoch history, time-travel via
   `restore-epoch`. Consumes only re-frame2's own Tool-Pair surfaces —
   no re-frame-10x dependency. The runtime helper namespace ships into
   consumer apps via shadow-cljs `:devtools :preloads`; there is no
   per-session cljs-eval inject step.
 
-- **[`re-frame2-pair-retro/`](re-frame2-pair-retro)** — meta-skill
+- [`re-frame2-pair-retro/`](re-frame2-pair-retro) — meta-skill
   for `re-frame2-pair`. Retrospects on a pair-programming session,
   identifies friction and wasted effort, and proposes improvements to
   `re-frame2-pair` itself (or routes a GitHub issue upstream to
@@ -140,11 +140,11 @@ the situation they cover:
 
 Each per-skill `SKILL.md` formerly carried its own "When NOT to use this
 skill" table mapping the other skills' triggers to a route. Those
-cross-referenced cells drift in lockstep. **This section is the
-single source of truth**; per-skill `SKILL.md` files (and the docs-site
-mirror's human-facing flow) point here instead of duplicating. Two
-hand-offs worth knowing: `re-frame2-setup` exits to `re-frame2` when the
-counter mounts, and `re-frame-migration` exits to `re-frame2` when the
+cross-referenced cells drift in lockstep. This section is the
+single source of truth. Per-skill `SKILL.md` files (and the docs-site
+mirror's human-facing flow) point here instead of duplicating. 2
+hand-offs are worth knowing: `re-frame2-setup` exits to `re-frame2` when
+the counter mounts, and `re-frame-migration` exits to `re-frame2` when the
 migration report is signed off.
 
 ### Trigger → skill
@@ -164,32 +164,32 @@ migration report is signed off.
 
 ### Disqualifiers (vocabulary alone is not enough)
 
-- Vocabulary matches without context don't justify activation. *"retro"*, *"what went wrong"*, *"improve workflow"*, *"any improvements?"* don't unlock `re-frame2-pair-retro` unless a real `re-frame2-pair` session has occurred in the conversation (or the user supplies a recap).
+- Vocabulary matches without context don't justify activation. "retro", "what went wrong", "improve workflow", "any improvements?" don't unlock `re-frame2-pair-retro` unless a real `re-frame2-pair` session has occurred in the conversation (or the user supplies a recap).
 - Spec-reading, architecture questions, design discussion belong to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — not to `re-frame2-pair` (no runtime) and not to `re-frame2` (not authoring).
 - Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame2-pair-retro` — there is no pair-tool surface to improve.
 - Mid-session pair work stays in `re-frame2-pair`; switch to `re-frame2-pair-retro` only when the user explicitly asks for a retro, or for a post-error post-mortem within the re-frame2-pair session — not as a default mode during routine pair work.
 - "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits once the counter mounts.
-- **Xray vs re-frame2-pair: read vs drive.** `re-frame2-xray` is a *read-only tour of the panel* — how to launch it and which tab/mode shows X. The moment the user wants to *operate* on a running runtime (dispatch an event, mutate `app-db`, hot-swap a handler, time-travel), that is `re-frame2-pair`, even if the word "Xray" appears in the prompt.
-- **`re-frame2-implementor` is scoped to the eight in-scope hosts.** Per [`spec/000-Vision.md`](../spec/000-Vision.md) §scope footnote, the only in-scope implementation targets are the eight JS-cross-compile-to-React+VDOM host languages (ClojureScript, TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason). A prompt asking to implement re-frame2 against a **non-React substrate** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **non-cross-compile-to-JS host** (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) is **out of scope** — a deliberate scope choice, not an oversight. There is no implementation track to sequence: surface the scope footnote and stop, or route the architecture question to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — do not start Phase 1 / Phase 2 implementation work.
+- Xray vs re-frame2-pair: read vs drive. `re-frame2-xray` is a read-only tour of the panel — how to launch it and which tab/mode shows X. The moment the user wants to operate on a running runtime (dispatch an event, mutate `app-db`, hot-swap a handler, time-travel), that is `re-frame2-pair`, even if the word "Xray" appears in the prompt.
+- `re-frame2-implementor` is scoped to the 8 in-scope hosts. Per [`spec/000-Vision.md`](../spec/000-Vision.md) §scope footnote, the only in-scope implementation targets are the 8 JS-cross-compile-to-React+VDOM host languages (ClojureScript, TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason). A prompt asking to implement re-frame2 against a non-React substrate (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a non-cross-compile-to-JS host (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) is out of scope — a deliberate scope choice, not an oversight. There is no implementation track to sequence: surface the scope footnote and stop, or route the architecture question to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — do not start Phase 1 / Phase 2 implementation work.
 
 ### Routing for friction found mid-pair retro
 
-`re-frame2-pair-retro` is a **published** skill: it files **GitHub issues
-against `day8/re-frame2`**, never `bd` beads (`bd` is the monorepo's internal
+`re-frame2-pair-retro` is a published skill: it files GitHub issues
+against `day8/re-frame2`, never `bd` beads (`bd` is the monorepo's internal
 tracker and has no place in a skill shipped to consumer projects — see
 [§Published-skill `allowed-tools` baseline](#published-skill-allowed-tools-baseline-security-policy)).
 Both kinds of friction target the same repo and carry the tool-vs-framework
-distinction in the **title + body**:
+distinction in the title + body:
 
-- **Pair-tool friction** — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior.
-- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](shared/tool-pair-surfaces.md).
+- pair-tool friction — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
+- framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](shared/tool-pair-surfaces.md).
 
-**Labels are optional taxonomy, not a filing precondition** — add a `--label` (e.g. `pair-mcp`) only after `gh label list` confirms the target repo defines it (an unknown label fails the whole `gh issue create`; fall back to a no-label create, which lands regardless). Full operational filing mechanics: [`re-frame2-pair-retro/SKILL.md` §Filing improvements](re-frame2-pair-retro/SKILL.md#filing-improvements).
+Labels are optional taxonomy, not a filing precondition — add a `--label` (for example `pair-mcp`) only after `gh label list` confirms the target repo defines it (an unknown label fails the whole `gh issue create`; fall back to a no-label create, which lands regardless). Full operational filing mechanics: [`re-frame2-pair-retro/SKILL.md` §Filing improvements](re-frame2-pair-retro/SKILL.md#filing-improvements).
 
 ## Verification posture — follows role, by design
 
 Each skill's verification posture (what the agent runs, what gates "done")
-follows from the **role cell** the skill occupies, not from a uniform
+follows from the role cell the skill occupies, not from a uniform
 family rule — single source below:
 
 | Skill | Role | Who executes | What gates "done" | Why |
@@ -213,7 +213,7 @@ Each skill subdir contains, at minimum:
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata.
 - `package.json` — npm packaging metadata (skill is also distributable as
   an Agent Skill via `npx skills add`).
-- `spec/` and `evals/` (where present) are **authoring-time scaffolding**
+- `spec/` and `evals/` (where present) are authoring-time scaffolding
   — the skill's own design docs and eval fixtures. They are not part of
   the skill contract a consumer loads, so they stay out of `package.json`
   `files[]` (the published npm package ships `SKILL.md`, `README.md`,
@@ -230,7 +230,7 @@ PR coverage.
 
 [`shared/`](shared) has no `SKILL.md` of its own; it is the corpus's
 common protocol layer, installed alongside the skills by the installer.
-Three leaves: [`retro-protocol.md`](shared/retro-protocol.md) (the
+3 leaves: [`retro-protocol.md`](shared/retro-protocol.md) (the
 diagnosis-first workflow `re-frame2-pair-retro` and `re-frame2-improver`
 load — a security boundary, test-backed), [`issue-filing.md`](shared/issue-filing.md)
 (the shell-safe `gh issue` filing recipe for every consumer granting a
@@ -243,18 +243,18 @@ through).
 Single source of truth for the per-leaf size ceiling — per-skill
 `spec/authoring-prompt.md` files defer here instead of restating.
 
-- Each leaf file SHOULD be **≤250 lines AND ≤16 KB** (target ~150 lines /
-  ~10 KB). The byte ceiling catches leaves whose long unwrapped prose
+- each leaf file SHOULD be ≤250 lines AND ≤16 KB (target ~150 lines /
+  ~10 KB) — the byte ceiling catches leaves whose long unwrapped prose
   lines fit under the line count but still bloat the per-session token
-  load.
-- `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400).
-- No SKILL → A → B chains; routing is one level deep.
-- Catalogue-shaped leaves (e.g. `re-frame2-pair/references/recipes.md`)
+  load
+- `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400)
+- no SKILL → A → B chains; routing is one level deep
+- catalogue-shaped leaves (for example `re-frame2-pair/references/recipes.md`)
   may exceed the ceiling if splitting would multiply file-handle overhead
   without reducing tokens-per-session. Test: would splitting reduce total
   tokens loaded per session?
 
-The ceilings are grounded in a 2026-05 corpus audit (max 203 L, p95
+The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
 148 L, median 88 L); leaves that have since outgrown them are refactor
 targets unless they pass the catalogue test above.
 
@@ -264,41 +264,41 @@ A pragmatic least-privilege stance, not a paranoid one. The skills here
 are dev productivity tools; trust the explicit invoker, gate accidents
 rather than theoretical attacks.
 
-- **Wildcards on routine commands are fine.** `Bash(npm *)`,
+- Wildcards on routine commands are fine. `Bash(npm *)`,
   `Bash(npx *)`, `Bash(clojure *)`, `Bash(shadow-cljs *)`,
   `Bash(rg *)`, `Bash(gh issue *)`, `Bash(gh pr *)`, `Bash(git *)`
   are all acceptable in published-skill frontmatter.
-- **No `Bash(bd *)` in published skill frontmatter.** `bd` (beads) is
+- No `Bash(bd *)` in published skill frontmatter. `bd` (beads) is
   the re-frame2 monorepo's internal tracker — it has no place in
   skills shipped to consumer projects. Cross-repo side effects from
-  skills file against **the target repo's GitHub issues** via
+  skills file against the target repo's GitHub issues via
   `gh issue create` (see the shell-safety pattern below).
-- **Avoid wildcards on truly dangerous tools.** Never grant
+- Avoid wildcards on truly dangerous tools. Never grant
   `Bash(*)`, `Bash(sudo *)`, `Bash(rm -rf *)`, or equivalent. If a
   skill needs a destructive shell action, name the exact command.
-- **Install from tags, not from SHAs.** Skill installation guidance
+- Install from tags, not from SHAs. Skill installation guidance
   may point at `main` or a release tag — no SHA-pin requirement.
   Latest-stable is the default for remote inputs; the explicit
   invoker can override.
-- **nREPL is dev-only and binds to localhost.** Any skill that walks
+- nREPL is dev-only and binds to localhost. Any skill that walks
   the author through enabling nREPL (currently `re-frame2-setup`)
   carries a one-line reminder that nREPL is a remote-evaluation
   surface and must stay bound to `localhost` in dev.
-- **Shell-safety pattern for transcript-derived text.** Two policy
+- Shell-safety pattern for transcript-derived text. 2 policy
   rules, single-sourced as a worked recipe in
   [`shared/issue-filing.md`](shared/issue-filing.md):
-  - **Bodies:** never interpolate transcript-derived text inline
+  - bodies: never interpolate transcript-derived text inline
     (where `$`, `` ` ``, or `\` would expand). `Write` the body to a
-    **fresh, per-filing temp file in the host OS's temp directory**
+    fresh, per-filing temp file in the host OS's temp directory
     (nonce-carrying `${TMPDIR:-/tmp}/…` on POSIX, `$env:TEMP\…` on
     Windows — never a fixed, predictable name) and pass that exact
     path via `gh issue create --body-file` — one bare `gh issue
     create` invocation, runnable under the restricted
     `Bash(gh issue *)` permission (a `cat > file` here-doc or a
     `--body "$(cat …)"` subshell is not).
-  - **Titles, search keywords, labels, repos** — every other
+  - titles, search keywords, labels, repos — every other
     user-influenced argv has no `--*-file` equivalent, so it is safe
-    only because the **agent authors it**: from the restricted safe
+    only because the agent authors it: from the restricted safe
     alphabet (letters, digits, spaces, `- . , / ( ) :`), never copied
     from transcripts, error strings, or suggested titles, and re-read
     in the pre-emission reviewer pass.
@@ -308,16 +308,16 @@ rather than theoretical attacks.
 
 ### Test-fixture discipline — which skills ship tests
 
-**Rule of thumb.** A skill warrants a `tests/` dir iff (a) it ships an
-executable surface (scripts, MCP server, runtime helpers, structured
-tool-call shapes), or (b) it is a **security or contract boundary** whose
-prose locks justify a regression backstop. If the skill is
+Rule of thumb: a skill warrants a `tests/` dir if and only if (a) it
+ships an executable surface (scripts, MCP server, runtime helpers,
+structured tool-call shapes), or (b) it is a security or contract
+boundary whose prose locks justify a regression backstop. If the skill is
 leaves-plus-orchestrator on a non-boundary surface, the authoring
 conventions (leaf size discipline, single-source routing, one-level
 routing) are the test — a `tests/` dir there would test prose, not
 behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
-Three skills qualify today:
+3 skills qualify today:
 
 - [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`e2e/`, `fixture/`,
   `prompts/`, `runtime/`, `shim/`) — clause (a): the one skill driving a

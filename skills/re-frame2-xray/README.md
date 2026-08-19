@@ -2,11 +2,11 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-`re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
+`re-frame2-xray` is a Claude Code tour skill for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers 3 questions, and only 3:
 
-1. **How do I launch Xray?** — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 10 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Hicasso) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Frames** tab (internal id `:module-view`) is its EP-0023 `image -> frame` lens — which image loaded which frame, and how a frame resolves its registrations; the **Hicasso** tab is the Hicasso view substrate's evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four evidence envelopes taken in one turn, each stating its scope, basis, completeness and loss. Dynamic is the *shell* mode, not a uniform data scope: most tabs are focused-epoch lenses, but **Graph** and **Frames** read the process-global registry / observed frame and do not rebind to the selected epoch.
-3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
+1. How do I launch Xray? — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
+2. Which tab shows X? — a one-line purpose for each tab across both modes: the 10 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Hicasso) and the 5 Static registry-browse tabs. The Graph tab is Xray's UI over the EP-0014 derivation/process graph; the Frames tab (internal id `:module-view`) is its EP-0023 `image -> frame` lens — which image loaded which frame, and how a frame resolves its registrations; the Hicasso tab is the Hicasso view substrate's evidence lens — 6 views (Mounted · Reads · Intents · Why · Advisor · Causal) over 4 evidence envelopes taken in one turn, each stating its scope, basis, completeness and loss. Dynamic is the shell mode, not a uniform data scope: most tabs are focused-epoch lenses, but Graph and Frames read the process-global registry / observed frame and do not rebind to the selected epoch.
+3. What's the chrome around the tabs for? — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 
@@ -14,7 +14,7 @@ Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction
 
 An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. Production builds elide the entire surface through the universal `interop/debug-enabled?` gate.
 
-Xray is the **human-facing** panel; for an AI agent surface against the running app, see [`re-frame2-pair`](../re-frame2-pair) (the raw nREPL pair-programming companion).
+Xray is the human-facing panel; for an AI agent surface against the running app, see [`re-frame2-pair`](../re-frame2-pair) (the raw nREPL pair-programming companion).
 
 ## Repo contents
 
@@ -30,15 +30,15 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 ## Relationship to other skills
 
-- [`re-frame2-pair`](../re-frame2-pair) — drives Xray programmatically from a live REPL. Xray owns the *seeing*; re-frame2-pair owns the *driving*.
+- [`re-frame2-pair`](../re-frame2-pair) — drives Xray programmatically from a live REPL. Xray owns the seeing; re-frame2-pair owns the driving.
 - [`re-frame2`](../re-frame2) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
 - [`re-frame2-setup`](../re-frame2-setup) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
 
-This skill does **not** depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely). The surface enumeration + "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating here.
+This skill does not depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely). The surface enumeration + "supersedes re-frame-10x" claim live once in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (§Supersedes re-frame-10x); cite it rather than restating here.
 
 ## Status
 
-Pre-alpha; some surfaces are still stabilising — the Machine tab renders through the shared machines-viz **MachineChart** mounted via `panels/machine_canvas.cljs`; the Static Machines Sim engine; and the schema / hydration inline rows, which populate only when the host wired those features. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly — see `SKILL.md` §Style guidance (Pre-alpha hedge).
+Pre-alpha; some surfaces are still stabilising — the Machine tab renders through the shared machines-viz MachineChart mounted via `panels/machine_canvas.cljs`; the Static Machines Sim engine; and the schema / hydration inline rows, which populate only when the host wired those features. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly — see `SKILL.md` §Style guidance (Pre-alpha hedge).
 
 There is no `re-frame2-xray-implementor` sibling skill; for implementing Xray itself, the spec is the answer.
 
@@ -60,7 +60,7 @@ ln -s ~/src/re-frame2/skills/re-frame2-xray ~/.claude/skills/re-frame2-xray
 
 #### Project-local — for your whole team via the repo
 
-**Link, never `cp -r`.** A copy snapshots the skill and then drifts as the upstream is maintained — Claude Code keeps loading the stale copy, and fixes/evals never reach your team. Link your project's `.claude/skills/re-frame2-xray/` to the cloned re-frame2 source so the active skill is the upstream by construction:
+Link, never `cp -r`. A copy snapshots the skill and then drifts as the upstream is maintained — Claude Code keeps loading the stale copy, and fixes/evals never reach your team. Link your project's `.claude/skills/re-frame2-xray/` to the cloned re-frame2 source so the active skill is the upstream by construction:
 
 ```bash
 cd your-re-frame2-project
@@ -73,16 +73,16 @@ ln -s ~/src/re-frame2/skills/re-frame2-xray .claude/skills/re-frame2-xray   # ma
 New-Item -ItemType Junction -Path .claude\skills\re-frame2-xray -Target $HOME\src\re-frame2\skills\re-frame2-xray
 ```
 
-A symlink/junction is not committable in a portable way, so don't `git add` it; instead document the one-liner above in your project's README (or vendor with a deliberate update procedure — see below) so each teammate links on clone. This mirrors the central skill-install contract — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and the repo's `scripts/install-skills.sh` / `scripts/install-skills.ps1` installer, which links *every* skill in one idempotent pass.
+A symlink/junction is not committable in a portable way, so don't `git add` it; instead document the one-liner above in your project's README (or vendor with a deliberate update procedure — see below) so each teammate links on clone. This mirrors the central skill-install contract — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and the repo's `scripts/install-skills.sh` / `scripts/install-skills.ps1` installer, which links every skill in one idempotent pass.
 
-**If you must vendor a pinned copy** (e.g. a fully offline team that can't reference the upstream clone), treat it as a deliberate pinned fork: `cp -r` the skill, record the upstream commit you copied from, and re-run the copy whenever you pull upstream fixes. Don't reach for `cp -r` as the default — it silently drifts.
+If you must vendor a pinned copy (for example a fully offline team that can't reference the upstream clone), treat it as a deliberate pinned fork: `cp -r` the skill, record the upstream commit you copied from, and re-run the copy whenever you pull upstream fixes. Don't reach for `cp -r` as the default — it silently drifts.
 
 #### Which to choose
 
-- **Global** if you're the only person using Claude Code here, or you want one install shared across repos.
-- **Project-local (linked)** if your team wants one shared install tracking the upstream source.
-- **Vendored (pinned fork)** only when an offline team can't reference an upstream clone — and only with an explicit update procedure.
-- **Both global + project-local** is fine — the project-local install takes precedence when both are present.
+- global if you're the only person using Claude Code here, or you want one install shared across repos
+- project-local (linked) if your team wants one shared install tracking the upstream source
+- vendored (pinned fork) only when an offline team can't reference an upstream clone — and only with an explicit update procedure
+- both global + project-local is fine — the project-local install takes precedence when both are present
 
 ## License
 

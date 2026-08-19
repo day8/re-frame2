@@ -1,14 +1,14 @@
 # Hicasso's clj-kondo export
 
-Six checks and three macro shapes, shipped from the artefact so a consumer's
+6 checks and 3 macro shapes, shipped from the artefact so a consumer's
 clj-kondo picks them up with no configuration of their own.
 
-This file is mostly about **what the checks refuse to know**. That is the more
+This file is mostly about what the checks refuse to know. That is the more
 useful half: clj-kondo sees one form at a time and does not know your program,
-so a check written to catch every instance of a mistake would have to guess,
-and a linter that guesses is one people learn to ignore. Everything here is
-written to be *always right about a narrow thing* rather than *usually right
-about a broad one*, and the narrowness is deliberate everywhere it shows.
+so a check written to catch every instance of a mistake would have to guess.
+A linter that guesses is one people learn to ignore. Everything here is
+written to be always right about a narrow thing rather than usually right
+about a broad one, and the narrowness is deliberate everywhere it shows.
 
 ## Installing it
 
@@ -17,7 +17,7 @@ clj-kondo --lint "$(clojure -Spath)" --dependencies --parallel --copy-configs
 ```
 
 That copies this directory to `.clj-kondo/day8/re-frame2-hicasso/` and adds it
-to your `:config-paths`. Nothing else is needed; re-run it when you upgrade.
+to your `:config-paths`. Nothing else is needed. Re-run it when you upgrade.
 
 Every level below is yours to change, and turning one off is a supported
 answer:
@@ -39,18 +39,18 @@ every prop reads as `Unresolved symbol`.
 
 ### `:re-frame.hicasso/direct-view-call` — error
 
-A view calling **itself** like a function — `(todo-row {…})` written inside
+A view calling itself like a function — `(todo-row {…})` written inside
 `(defview todo-row …)`, where `[todo-row {…}]` was meant. A view is a minted
 component and a hiccup head. Called directly it returns the runtime's component
 object instead of rendering, and no boundary is minted, so its reads belong to
 whichever body called it.
 
-**Refuses to know:** that any *other* symbol names a view. `(some-other-view …)`
+Refuses to know: that any other symbol names a view. `(some-other-view …)`
 needs to resolve a var minted by `defview` in another namespace, and a hook sees
 one form — see the table at the end for why the cache-backed version of that is
 worse than nothing.
 
-It also refuses any call whose name has been **rebound**. A parameter, a
+It also refuses any call whose name has been rebound. A parameter, a
 destructured prop, or a `let`, `for`, `fn`, `event`, `letfn` or `catch` binding
 spelled like the view introduces an ordinary local, and calling a local is
 ordinary Clojure:
@@ -61,7 +61,7 @@ ordinary Clojure:
 ```
 
 A `letfn` fnspec is read as the `fn` tail it is — `letfn` expands each one to
-`(fn f …)` — so a local function's name and **every parameter of every arity**
+`(fn f …)` — so a local function's name and every parameter of every arity
 are locals, the multi-arity spelling included.
 
 Shadowing is read off the form in hand, because that is the only kind of fact
@@ -71,38 +71,38 @@ entire form it heads, initialisers included, so a genuine self-call written in
 the initialiser of a `let` that goes on to bind the view's name is missed too.
 Missing one is the only way this check is allowed to be wrong.
 
-**Refuses to know** — and this direction is the one that costs you something —
-that a form *outside its roster* binds anything. Having no scope table, the
-hook recognises binding forms by **name**, and the roster is:
+Refuses to know — and this direction is the one that costs you something —
+that a form outside its roster binds anything. Having no scope table, the
+hook recognises binding forms by name, and the roster is:
 
-* the **`let`-shaped** forms, whose first argument is a binding vector —
+* the `let`-shaped forms, whose first argument is a binding vector —
   `let`, `loop`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first`,
   `doseq`, `dotimes`, `for`, `with-open`, `with-local-vars`, `binding`,
-  `with-redefs`;
-* the **array pair**, `areduce` and `amap`, which write their index and their
+  `with-redefs`
+* the array pair, `areduce` and `amap`, which write their index and their
   accumulator as bare arguments rather than in a vector and expand into a
   `loop` binding both. An accumulator is an ordinary value and may well be a
   function — `(areduce steps i f identity …)` folds an array of steps into
-  one — so calling it is ordinary code;
-* the **`fn` tails** — `fn`, `fn*`, `event`, every fnspec of a `letfn`, and a
+  one — so calling it is ordinary code
+* the `fn` tails — `fn`, `fn*`, `event`, every fnspec of a `letfn`, and a
   `defmethod`'s tail: every parameter of every arity, and for a `letfn` the
-  local function's own **name** as well, because `letfn` expands each fnspec to
-  `(fn f …)` and `f` is in scope throughout;
-* the **parameters of every method** of a `reify`, `specify!`, `extend-type` or
-  `extend-protocol`, every arity's, exactly as above. A method's **name** is
-  deliberately *not* in that list: a method is written like a fnspec and is not
-  one, and no expansion of these four forms puts its name in scope, so a body
+  local function's own name as well, because `letfn` expands each fnspec to
+  `(fn f …)` and `f` is in scope throughout
+* the parameters of every method of a `reify`, `specify!`, `extend-type` or
+  `extend-protocol`, every arity's, exactly as above. A method's name is
+  deliberately not in that list: a method is written like a fnspec and is not
+  one, and no expansion of these 4 forms puts its name in scope, so a body
   that mentions the name means the var. Reading it as a binding is what made a
   genuine self-call inside such a method go unreported — the check's only
-  permitted failure is silence, so a silence that is *wrong* has nothing to
-  surface it. The name is not read as a **call** either: it sits in head
-  position of a list, but writing one defines a method and invokes nothing;
-* the **single names** bound by `catch`, `as->` and `this-as`.
+  permitted failure is silence, so a silence that is wrong has nothing to
+  surface it. The name is not read as a call either: it sits in head
+  position of a list, but writing one defines a method and invokes nothing
+* the single names bound by `catch`, `as->` and `this-as`
 
-A local introduced by anything else is not seen, so calling one *does* report.
+A local introduced by anything else is not seen, so calling one does report.
 The notable absentees are `deftype`, `defrecord`, `proxy` and `specify` — the
 last because clj-kondo does not read it as a spec-bearing form either, so its
-method parameters are not locals to kondo's own analysis, and the first three
+method parameters are not locals to kondo's own analysis, and the first 3
 because a hook fires only at registered call sites: it never sees anything but
 a `defview`, `defhost` or `event` form, and a type defined inside a view body is
 not a program anyone has. If you have one, name your local something other
@@ -111,32 +111,32 @@ than the view, or switch the check off.
 ### `:re-frame.hicasso/deferred-read` — warning
 
 `h/sub` or `h/use-subs` read where nothing is going to call the surrounding
-function during this body. Two shapes:
+function during this body. There are 2 shapes:
 
-* inside an `event` body. `event` **is** the callback form: its whole contract is
+* inside an `event` body. `event` is the callback form: its whole contract is
   that it runs after the body that wrote it, so a read there is deferred by
   construction rather than by circumstance, and the runtime refuses it with
-  `:rf.error/hicasso-sub-outside-render`.
-* inside a plain `(fn …)` or `#(…)` that is *not* handed straight to `map`,
+  `:rf.error/hicasso-sub-outside-render`
+* inside a plain `(fn …)` or `#(…)` that is not handed straight to `map`,
   `mapv`, `for`, `keep`, `filter`, `reduce`, `run!`, `doseq` or another core
   form that calls it synchronously — a callback, a timer, a promise, a thunk
-  stashed for later.
+  stashed for later
 
-**Refuses to know:** whether the second shape is really deferred, which is why
+Refuses to know: whether the second shape is really deferred, which is why
 it is a warning and why nothing here blocks a build. A read inside a `(fn …)`
-handed to `mapv` or `for` runs *during* the body and is completely legal — a
+handed to `mapv` or `for` runs during the body and is completely legal — a
 helper may donate reads to the boundary that called it — so those are named and
 exempt. `(some-helper (fn [] (h/sub …)))` may well call its argument during the
 body too, and this cannot know; if it does, ignore the warning. Proving read
 extent in general is the runtime's law, not lint's.
 
-It also refuses a read whose **door has been rebound**, and so does
+It also refuses a read whose door has been rebound, and so does
 `parked-read`. `:refer [sub]` leaves an ordinary simple symbol behind, and a
 local may take that name like any other; `api/resolve` answers with the var
 either way, because it reads your `ns` form and never sees locals. Both read
 checks therefore consult the same shadowing roster the self-call check above
 uses — bluntly, though: a body that binds `sub` anywhere silences the bare
-spelling for that **whole body**, rather than for the form that binds it. The
+spelling for that whole body, rather than for the form that binds it. The
 blunt reading costs a missed warning and nothing else, which is the only
 direction these are allowed to be wrong. A qualified `h/sub` is untouched,
 because nothing is ever named `h/sub`.
@@ -144,10 +144,10 @@ because nothing is ever named `h/sub`.
 ### `:re-frame.hicasso/function-in-head-position` — error
 
 A `(fn …)`, `#(…)` or `(event …)` written as the head of a vector that sits in a
-**children position of a literal hiccup vector**. A function is never a legal
+children position of a literal hiccup vector. A function is never a legal
 head (`:rf.error/hicasso-bad-head`).
 
-**Refuses to know:** whether a *symbol* head names a function, a view or a
+Refuses to know: whether a symbol head names a function, a view or a
 host — that is what the symbol resolves to at runtime. It also refuses any
 vector that is not in a definite children position: `[(fn [] :a) (fn [] :b)]`
 bound in a `let` is an ordinary vector of functions and none of this check's
@@ -159,13 +159,13 @@ business.
 a read parked in a mutable reference, with the thunk written out in full at the
 `reset!`.
 
-Per [rf2-djxr] the runtime does **not** chase deferred reads through mutable
+Per [rf2-djxr] the runtime does not chase deferred reads through mutable
 references: `realize-deep` walks the structure a body returns, and a reference
-is not in it. Forcing such a thunk inside another body is *undefined conduct*
+is not in it. Forcing such a thunk inside another body is undefined conduct
 rather than an error, which is why this is a warning and why nothing anywhere
 enforces it. It is assistance, and it is the whole of the assistance.
 
-**Refuses to know:** anything that needs a binding followed.
+Refuses to know: anything that needs a binding followed.
 `(let [d (delay (h/sub …))] (reset! r d))` is invisible, and so is
 `(reset! r (make-thunk))`, and so is a `swap!` that assoc's a thunk into a map;
 and so, per the note under `deferred-read` above, is any read written through a
@@ -176,8 +176,8 @@ for this check forbids building it.
 
 ### `:re-frame.hicasso/unkeyed-mapped-child` — warning
 
-A `for` / `map` / `mapv` / `keep` / `map-indexed` sitting **directly in a
-children position** of a literal hiccup vector, whose element expression is a
+A `for` / `map` / `mapv` / `keep` / `map-indexed` sitting directly in a
+children position of a literal hiccup vector, whose element expression is a
 literal keyword-headed vector that provably writes no `:key`.
 
 Provably: either its props are a map literal without `:key`, or position 1
@@ -185,9 +185,9 @@ holds a literal that cannot be a props map at all. A `:&` remainder cannot
 supply the key — `key` is a structural slot no merge may reach — so a props map
 carrying only `:&` still counts as missing it.
 
-**Refuses to know:** what a symbol at position 1 evaluates to. `[:li item]` may
+Refuses to know: what a symbol at position 1 evaluates to. `[:li item]` may
 be an element with dynamic props carrying the key, or an element with one
-child; the codec decides at runtime with `map?`. That is the *commonest*
+child; the codec decides at runtime with `map?`. That is the commonest
 missing-key spelling and it is deliberately silent, because the alternative is
 firing on correct code. Also silent: an element whose head is a symbol (a view
 or host, indistinguishable here from an ordinary data vector), a mapping form
@@ -196,8 +196,8 @@ not at a fixed position.
 
 ### `:re-frame.hicasso/nameless-interactive-element` — warning
 
-`[:button {…}]`, or `[:a {…}]` **that carries an `href`**, with **no children
-at all** and none of `:aria-label`, `:aria-labelledby` or `:title`. Such an
+`[:button {…}]`, or `[:a {…}]` that carries an `href`, with no children
+at all and none of `:aria-label`, `:aria-labelledby` or `:title`. Such an
 element has no accessible name and a screen reader announces it as an
 unlabelled control.
 
@@ -207,7 +207,7 @@ compiled-view substrate rather than invented here — `re-frame.ui.compiler.a11y
 `<a>` only when it was a real link — so the two agreed about what a nameless
 control is. An `<a>` without `href` is not focusable and not a link.
 
-**Refuses to know:** what any child renders. One child of any kind — even a
+Refuses to know: what any child renders. One child of any kind — even a
 symbol that turns out to be an icon with no text — makes this silent, because
 it may well render text. Dynamic props answer the same way: the name may be in
 there. `:input`, `:select` and `:textarea` were in that compiler pass's set and
@@ -216,7 +216,7 @@ are deliberately absent here: their name usually comes from a sibling
 The real accessibility pass is a separate piece of work; this is one always-
 right corner of it.
 
-## Checks that are NOT here, and why
+## Checks that are not here, and why
 
 Each of these looks obviously worth adding, and each needs knowledge a
 clj-kondo hook does not have. They are listed so the next person can skip the

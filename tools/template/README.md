@@ -4,21 +4,21 @@
 > and the v2 equivalent of v1's
 > [`day8/re-frame-template`](https://github.com/day8/re-frame-template).
 >
-> **Spec:** [`spec/`](./spec/) contains the current contract, design
+> Spec: [`spec/`](./spec/) contains the current contract, design
 > rationale, and migration records.
 >
-> **Implementation shape:** [deps-new](https://github.com/seancorfield/deps-new)
+> Implementation shape: [deps-new](https://github.com/seancorfield/deps-new)
 > template with a programmatic body. Distribution is tag-based git-coord,
 > not Clojars. The old `day8/clj-template.re-frame2` Clojars artefact is
 > frozen at its last clj-new release.
 >
-> **Release pipeline:**
+> Release pipeline:
 > [`.github/workflows/template-release.yml`](../../.github/workflows/template-release.yml)
 > cuts a GitHub Release on every `template-v<VERSION>` tag push;
 > [`VERSION`](./VERSION) carries the template's own version sequence
 > (independent of the framework-wide repo-root `VERSION`).
 >
-> **Repo home:** the template currently lives in-tree at
+> Repo home: the template currently lives in-tree at
 > [`tools/template/`](./) in the re-frame2 monorepo. Its planned permanent
 > home is the external
 > repo `github.com/day8/re-frame2-template`; the split out to that
@@ -35,14 +35,14 @@ wired against the alpha-channel `day8/re-frame2-*` coords, ready to
 
 ## Quick start
 
-> **Pre-split status (current):** the dedicated
+> Pre-split status (current): the dedicated
 > `github.com/day8/re-frame2-template` repo does not exist yet — the
 > template still lives in-tree under `tools/template/` in the
 > re-frame2 monorepo. Until the split
 > lands, the only working invocation is the `:local/root` route
 > against a checkout of this repo. The published
-> `io.github.day8/re-frame2-template` git-coord form is **not yet a
-> viable path** — deps-new would clone the (nonexistent) external
+> `io.github.day8/re-frame2-template` git-coord form is not yet a
+> viable path — deps-new would clone the (nonexistent) external
 > repo and fail to find the template body (see
 > [`spec/005-Repo-Split.md` §4](./spec/005-Repo-Split.md)). It is
 > documented below under [Post-split (future)](#post-split-future)
@@ -83,7 +83,7 @@ because the `io.github.*` prefix would trigger deps-new's
 auto-git-clone before classpath lookup — bypassing the local-root
 checkout (and, pre-split, cloning a repo that doesn't exist yet).
 
-`:include-story? true` is currently **Reagent-only**. Combining it with
+`:include-story? true` is currently Reagent-only. Combining it with
 `:substrate :uix` throws
 `:rf.error/template-include-story-reagent-only`. A UIx Story
 variant follows once that adapter's Story coverage matches Reagent's.
@@ -93,20 +93,20 @@ variant follows once that adapter's Story coverage matches Reagent's.
 `:css :tailwind` swaps the default plain-CSS scaffold for Tailwind v4
 (zero build step in dev). `index.html` loads the
 `@tailwindcss/browser@4` Play CDN compiler and carries the Tailwind v4
-CSS-first source **inline** in a `<style type="text/tailwindcss">`
+CSS-first source inline in a `<style type="text/tailwindcss">`
 block — `@import "tailwindcss";` plus design tokens in `@theme { … }`
 (Tailwind v4 has no `tailwind.config.js`). That inline block is the
-compiler's input: the Play CDN compiler reads **only** inline
+compiler's input: the Play CDN compiler reads only inline
 `<style type="text/tailwindcss">` nodes — it never sees an external
 `<link>` stylesheet — so authoring Tailwind there is what makes it
-compile. `resources/public/css/app.css` stays **ordinary native CSS**
+compile. `resources/public/css/app.css` stays ordinary native CSS
 for the app-shell layout (a bare `@import "tailwindcss"`
 there would just resolve to a bogus `/css/tailwindcss` request and
 `@theme` would be silently dropped). Omit `:css` (or pass nothing) for
 the plain-CSS default. The flag is substrate-invariant — and composes
 with `:include-ssr?`, whose live shell injects the same
 `<style type="text/tailwindcss">` source block. A bogus value
-(e.g. `:css :tailwnd`) **fails closed** with
+(for example `:css :tailwnd`) fails closed with
 `:rf.error/template-bad-css-flag`.
 
 Before shipping, move to the compiled `@tailwindcss/cli` build: lift the
@@ -139,7 +139,7 @@ Once the template is split out to its dedicated
 `github.com/day8/re-frame2-template` repo,
 the steady-state invocation becomes the published git-coord form —
 deps-new's `auto-git-url` mechanism clones the external repo at the
-requested tag and runs the template hooks (the tagged commit IS the
+requested tag and runs the template hooks (the tagged commit is the
 artefact; no Maven / Clojars resolution):
 
 ```bash

@@ -4,41 +4,41 @@ This example opens a connection to a server, keeps it alive, and — when it dro
 
 The connection is modelled as a [machine](../../../docs/machines/glossary.md#machine), and that's the idea worth taking away:
 
-> **A connection is a situation you're in, not a value you hold.**
+> A connection is a situation you're in, not a value you hold.
 
 You rarely care what's "in the connection variable". You care which state you're in — connecting, authenticating, connected, dropped, reconnecting, or given up — and which [events](../../../docs/core/glossary.md#event) move you from one to the next. A [machine](../../../docs/machines/glossary.md#machine) describes exactly that, so that's what the connection is here.
 
 This is the runnable companion to [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md), which describes the same state machine in spec form. Here it's wired up so the [views](../../../docs/core/glossary.md#view) can drive it.
 
-A real connection is harder than the textbook on/off examples, in three specific ways. Each one has a clean answer, and those three answers are the heart of the example. (New to machines? Read the [machines guide](../../../docs/machines/concepts.md) first — this example assumes the basics.)
+A real connection is harder than the textbook on/off examples, in 3 specific ways. Each one has a clean answer, and those 3 answers are the heart of the example. (New to machines? Read the [machines guide](../../../docs/machines/concepts.md) first — this example assumes the basics.)
 
 ## The three hard parts
 
-**1. The connecting steps belong together.** The happy path has three steps: `:connecting`, then `:authenticating`, then `:connected`. All three live inside one parent [state](../../../docs/machines/glossary.md#state) called `:active`. Why group them? Because they're the *same* connection at different stages — they share one socket, one offline queue, one set of in-flight requests (a single `:data` map). Nesting them says exactly that. The siblings of `:active` — `:disconnected`, `:reconnecting`, `:failed` — are the connection *not* up. (When stages don't share data, you'd use parallel regions instead, as [`nine_states`](../nine_states/) does. Here they share, so nesting is the right shape.)
+**1. The connecting steps belong together.** The happy path has 3 steps: `:connecting`, then `:authenticating`, then `:connected`. All 3 live inside one parent [state](../../../docs/machines/glossary.md#state) called `:active`. Why group them? Because they're the same connection at different stages — they share one socket, one offline queue, one set of in-flight requests (a single `:data` map). Nesting them says exactly that. The siblings of `:active` — `:disconnected`, `:reconnecting`, `:failed` — are the connection not up. (When stages don't share data, you'd use parallel regions instead, as [`nine_states`](../nine_states/) does. Here they share, so nesting is the right shape.)
 
-**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/core/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and that actor keeps the real socket in a private table, off to the side. The connection itself only ever remembers the socket's **id**, never the socket. The actor lives as long as `:active` does, so it carries across all three steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
+**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/core/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and that actor keeps the real socket in a private table, off to the side. The connection itself only ever remembers the socket's id, never the socket. The actor lives as long as `:active` does, so it carries across all 3 steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
 
-**3. A late message from an old socket must be ignored.** After a reconnect, a slow message from the socket you just replaced can still arrive — and acting on it would be a bug. The fix is cheap: every incoming message carries the id of the socket it came from, and a [guard](../../../docs/machines/glossary.md#guard) called `:current-socket?` drops it unless that id is the one currently live. The live socket id *is* the connection's version number — no separate counter to keep. (That's [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md), reusing a value you already had.)
+**3. A late message from an old socket must be ignored.** After a reconnect, a slow message from the socket you just replaced can still arrive — and acting on it would be a bug. The fix is cheap: every incoming message carries the id of the socket it came from, and a [guard](../../../docs/machines/glossary.md#guard) called `:current-socket?` drops it unless that id is the one currently live. The live socket id is the connection's version number — no separate counter to keep. (That's [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md), reusing a value you already had.)
 
-Everything below builds on those three. The rest is ordinary machine grammar — `:after` timers, `:always` cascades, [state tags](../../../docs/machines/glossary.md#state-tag) — doing the routine wiring.
+Everything below builds on those 3. The rest is ordinary machine grammar — `:after` timers, `:always` cascades, [state tags](../../../docs/machines/glossary.md#state-tag) — doing the routine wiring.
 
 ## What this example demonstrates
 
-- **A connection lifecycle as a compound machine.** `:active` parents
+- A connection lifecycle as a compound machine. `:active` parents
   `:connecting` / `:authenticating` / `:connected`. The socket
   [`:spawn`](../../../docs/machines/glossary.md#spawn) is anchored on the parent,
   so it spans the success-path leaf [transitions](../../../docs/machines/glossary.md#transition)
   without re-spawning. Leaving `:active` (to `:reconnecting`, `:failed`, or
   `:disconnected`) destroys the actor; re-entry spawns a fresh one.
 
-- **A spawned actor owning the host-side socket.** The `:websocket/socket` actor
+- A spawned actor owning the host-side socket. The `:websocket/socket` actor
   is itself a small [machine](../../../docs/machines/glossary.md#machine). It
   keeps the JS `WebSocket`-shaped reference in a private store keyed by its
   `:rf/self-id`, turns outbound `:send` events into wire writes, and
   forwards inbound server messages back to the parent. Only the id ever appears
   in `:data` — never the socket itself.
 
-- **Stale-message rejection via the connection epoch.** The live socket-actor id
+- Stale-message rejection via the connection epoch. The live socket-actor id
   — read from the runtime-maintained `:rf/spawned` slot in `:data` — is the
   epoch; the `:current-socket?` [guard](../../../docs/machines/glossary.md#guard)
   rejects any socket-sourced event from a connection that has since been
@@ -48,60 +48,60 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   connection. [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md),
   composed against a value already in `:data`.
 
-- **`:after` exponential backoff** on `:reconnecting` — a delay computed at state
+- `:after` exponential backoff on `:reconnecting` — a delay computed at state
   entry from the retry count, `(min (* base-ms (Math/pow 2 retries)) max-backoff-ms)`.
   The runtime's `:after`-epoch invariant drops stale timers from earlier
   `:reconnecting` visits for free, so there's no cancellation flag to remember.
 
-- **Eventless `:always` cascades** doing two distinct jobs: `:reconnecting`'s
+- Eventless `:always` cascades doing 2 distinct jobs: `:reconnecting`'s
   `:max-retries-exceeded?` guard falls straight through to `:failed` when the
   retries run out, and `:connected`'s `:has-queued-messages?` guard fires the
   queue-flush the instant the state is entered.
 
-- **[State tags](../../../docs/machines/glossary.md#state-tag), not state-name
-  matching.** States declare tags (`:websocket/connected`,
+- [State tags](../../../docs/machines/glossary.md#state-tag), not state-name
+  matching. States declare tags (`:websocket/connected`,
   `:websocket/reconnecting`, `:websocket/active`, …); the view asks through
-  per-tag subs built on the framework's `:rf.machine/has-tag?` sub — *ask,
-  don't tell* — instead of unfolding the
+  per-tag subs built on the framework's `:rf.machine/has-tag?` sub — ask,
+  don't tell — instead of unfolding the
   [snapshot](../../../docs/machines/glossary.md#snapshot)'s hierarchical `:state`
   vector. Add a sixth "connecting-ish" state later and no view changes.
 
-- **App-owned request/reply correlation.** An `:in-flight` map keyed by
+- App-owned request/reply correlation. An `:in-flight` map keyed by
   request-id; `:register-request` stamps the id onto the outgoing body, schedules
   a `:dispatch-later` timeout, and routes the body to the actor. The matching
   inbound `:ws/received` clears the slot and dispatches the registered reply
   [event](../../../docs/core/glossary.md#event). If the deadline fires first —
-  a `:ws/request-timeout` on a still-live socket — the request is *failed*, not
+  a `:ws/request-timeout` on a still-live socket — the request is failed, not
   silently forgotten: the slot clears and the waiting reply fires with an
   explicit `{:ok false :error :ws/timeout}` body, the per-request twin of the
   socket-drop path below, so a timed-out caller learns the outcome instead of
   hanging forever. The correlation id is a folded
-  fact from a *recordable* [coeffect](../../../docs/core/glossary.md#coeffect)
+  fact from a recordable [coeffect](../../../docs/core/glossary.md#coeffect)
   (`:ws.app/request-id`), not an ambient `(random-uuid)` — so a replay re-presents
   the same id and the reply still matches the recorded request. (This is
-  deliberately the app-level Pattern-WebSocket convention, **not** the framework's
+  deliberately the app-level Pattern-WebSocket convention, not the framework's
   [uniform reply](../../../docs/core/glossary.md#the-uniform-reply) envelope —
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
-- **In-flight requests fail on a socket drop.** A request already on the wire
+- In-flight requests fail on a socket drop. A request already on the wire
   when the socket dies can't be answered on this connection, so `:on-socket-lost`
   clears the `:in-flight` map and fires each waiting `:reply` event with an
   explicit `{:ok false :error :ws/connection-lost}` body — at-most-once
   semantics, no silent leak, and no double-execution from a blind replay.
 
-- **Reconnect cascade with token refresh threaded through.** Leaving `:active`
+- Reconnect cascade with token refresh threaded through. Leaving `:active`
   destroys the actor (the declarative `:spawn` desugars to a
   `:rf.machine/destroy` on exit), and the runtime clears its id from the
-  `:rf/spawned` slot — so the *connection* machine needs no `:exit` action to
+  `:rf/spawned` slot — so the connection machine needs no `:exit` action to
   forget the id. The actor itself does carry one: an `:exit :close-socket` on
   its `:open` state closes the host `WebSocket` on the way down, because a live
   socket is a handle the runtime can't drop for you. After the `:after`
   backoff, re-entering `:active` re-runs the `:spawn`'s `:data` function, which
   re-reads the URL and token from `:data` — so a `:ws/refresh-token` arriving
-  *between* reconnects flows into the next socket with no extra wiring.
+  between reconnects flows into the next socket with no extra wiring.
 
-- **An offline queue and a surviving subscription set.** A `:ws/send` *or*
+- An offline queue and a surviving subscription set. A `:ws/send` or
   `:ws/request` issued while off-connection buffers its whole event into
   `:data :queue`; the `:connected` entry's `:always` cascade re-dispatches each
   one, so a queued send reaches the wire and a queued request rejoins the
@@ -125,13 +125,13 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 
 The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cljs`. It supports:
 
-- **Auto-echo for `:request` messages** — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :ok true :echo ...}`, so the request-reply correlation slot lights up.
-- **Auth ack** — `{:type :auth :token ...}` produces `{:type :auth-ok}` for any non-empty token and `{:type :auth-failed :reason "Empty token"}` otherwise.
-- **Subscribe ack** — every `{:type :subscribe :topic ...}` is acked with one synthetic `{:type :push :topic ... :note "subscribed"}` so the example demonstrates the subscribe-then-push shape end-to-end.
-- **`messages/send-server-push!`** — used by the "Trigger server push" button to deliver a manual server-pushed event.
-- **`messages/simulate-disconnect!`** — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade.
+- auto-echo for `:request` messages — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :ok true :echo ...}`, so the request-reply correlation slot lights up
+- auth ack — `{:type :auth :token ...}` produces `{:type :auth-ok}` for any non-empty token and `{:type :auth-failed :reason "Empty token"}` otherwise
+- subscribe ack — every `{:type :subscribe :topic ...}` is acked with one synthetic `{:type :push :topic ... :note "subscribed"}` so the example demonstrates the subscribe-then-push shape end-to-end
+- `messages/send-server-push!` — used by the "Trigger server push" button to deliver a manual server-pushed event
+- `messages/simulate-disconnect!` — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade
 
-**Production swap-out:** replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.
+Production swap-out: replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.
 
 ## How to run
 

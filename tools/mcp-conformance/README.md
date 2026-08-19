@@ -5,14 +5,14 @@ servers. The Node harnesses use the official
 `@modelcontextprotocol/sdk` client, so the SDK validates the initialize,
 `tools/list`, and `tools/call` envelopes that a real MCP host receives.
 
-This artefact owns four cross-server concerns:
+This artefact owns 4 cross-server concerns:
 
-1. SDK-driven end-to-end workflows in `test/end-to-end-*.cjs`.
-2. Live re-frame2-pair workflows in `test/live-re-frame2-pair-*.cjs`,
-   with a hermetic shadow-cljs and Chromium orchestrator.
-3. JVM vocabulary gates in [`wire-vocab/`](wire-vocab/).
-4. The shared naming and token-budget conventions in
-   [`NAMING.md`](NAMING.md) and [`TOKEN-BUDGETS.md`](TOKEN-BUDGETS.md).
+- SDK-driven end-to-end workflows in `test/end-to-end-*.cjs`
+- live re-frame2-pair workflows in `test/live-re-frame2-pair-*.cjs`,
+  with a hermetic shadow-cljs and Chromium orchestrator
+- JVM vocabulary gates in [`wire-vocab/`](wire-vocab/)
+- the shared naming and token-budget conventions in
+  [`NAMING.md`](NAMING.md) and [`TOKEN-BUDGETS.md`](TOKEN-BUDGETS.md)
 
 Server unit tests still own tool implementation details. This artefact
 owns the client-observable protocol, shared vocabulary, and the seams

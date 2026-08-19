@@ -1,13 +1,13 @@
 # Testbeds — shared framework-behavior surfaces
 
-> **Type:** Test fixture (framework-behavior).
-> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Xray, Story, re-frame2-pair-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
+> Type: test fixture (framework-behavior).
+> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Xray, Story, re-frame2-pair-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is supposed to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
 
-The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in **rf2-96nb3**. Top-level structure:
+The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in rf2-96nb3. Top-level structure:
 
-- **`examples/`** — tutorial apps. Each demonstrates one or two specs and reads as exemplary application code.
-- **`tools/<tool>/testbeds/`** — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/xray/testbeds/two_frame_isolation/` exercises Xray's panel layer against a canonical multi-frame app.
-- **`testbeds/`** *(this directory)* — **shared** framework-behavior fixtures. Consumed by multiple tools at once; the surfaces don't know about consumers, and consumers test against them externally.
+- `examples/` — tutorial apps. Each demonstrates one or two specs and reads as exemplary application code.
+- `tools/<tool>/testbeds/` — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/xray/testbeds/two_frame_isolation/` exercises Xray's panel layer against a canonical multi-frame app.
+- `testbeds/` (this directory) — shared framework-behavior fixtures. Consumed by multiple tools at once; the surfaces don't know about consumers, and consumers test against them externally.
 
 ## Layout
 
@@ -30,11 +30,11 @@ testbeds/
 
 Per-surface conventions (every testbed in this directory follows them):
 
-1. **One subdirectory per surface.** Sources, `index.html`, and a per-surface `README.md` are colocated; the namespace is kebab-cased to match the snake_cased directory name (`deliberate_throw/` → `deliberate-throw.core`).
-2. **Stark code.** No tutorial commentary in the bodies; HOT PATH comments only at the trigger sites — the one or two lines that produce the framework event the consumer is watching for.
-3. **Minimal app-db.** A testbed is *not* the place to show off a realistic app shape; the `non-trivial-app-db/` testbed (Tier 3) is where that lives.
-4. **Reagent canonical.** A surface ships under a single substrate unless cross-substrate behaviour is the point.
-5. **Central build wiring.** Shadow-cljs build entries live in [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn) under the `:testbeds/*` build-id prefix; the adapter-smoke orchestrator at [`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`](../implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs) picks them up via the same source-path + index.html + outDir triple every example uses.
+- one subdirectory per surface. Sources, `index.html`, and a per-surface `README.md` are colocated; the namespace is kebab-cased to match the snake_cased directory name (`deliberate_throw/` → `deliberate-throw.core`)
+- stark code. No tutorial commentary in the bodies; HOT PATH comments only at the trigger sites — the one or two lines that produce the framework event the consumer is watching for
+- minimal app-db. A testbed is not the place to show off a realistic app shape; the `non-trivial-app-db/` testbed (Tier 3) is where that lives
+- Reagent canonical. A surface ships under a single substrate unless cross-substrate behaviour is the point
+- central build wiring. Shadow-cljs build entries live in [`implementation/shadow-cljs.edn`](../implementation/shadow-cljs.edn) under the `:testbeds/*` build-id prefix; the adapter-smoke orchestrator at [`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`](../implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs) picks them up via the same source-path + index.html + outDir triple every example uses
 
 ## Running a testbed in dev
 
@@ -116,5 +116,5 @@ Tier 4 — a11y (retired rf2-9jfo1.1):
 - [`spec/002-Frames.md` §Run-to-completion](../spec/002-Frames.md) — the depth-bounded drain rule 3 the `drain_depth_trigger/` surface forces the runtime to hit.
 - [`spec/009-Instrumentation.md` §Size elision in traces](../spec/009-Instrumentation.md) — the three nomination paths + `:rf.size/large-elided` marker shape the `large_dispatcher/` surface exercises four buttons against.
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record` Outcomes](../spec/Spec-Schemas.md) — the `:halted-depth` outcome key the `drain_depth_trigger/` surface produces (rf2-v0jwt).
-- **rf2-qgms1 / PR #1080** — the a11y-panel scope fix; regression coverage now lives in `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variant pair (axe-core's `context` parameter scopes the scan to `data-rf-story-variant-root`).
+- rf2-qgms1 / PR #1080 — the a11y-panel scope fix; regression coverage now lives in `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variant pair (axe-core's `context` parameter scopes the scan to `data-rf-story-variant-root`).
 - [`spec/Ownership.md`](../spec/Ownership.md) — where every contract surface this directory exercises is owned.

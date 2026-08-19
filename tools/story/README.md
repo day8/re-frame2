@@ -9,23 +9,23 @@ takes the same primitives you already use — frames, events, subscriptions,
 effects, schemas, traces, epochs — and surfaces them as an interactive
 playground:
 
-- Each variant runs in its **own frame** (`spec/002`) — no state leaks between
+- Each variant runs in its own frame (`spec/002`) — no state leaks between
   scenarios; what you see is what you'd get in production.
-- Each variant is **EDN-shaped data**, not a function. Variants round-trip
+- Each variant is EDN-shaped data, not a function. Variants round-trip
   through MCP, visual-regression services, and the agent input pipeline.
-- Each variant ships with **schema-derived controls** (`spec/010`),
-  **assertion-vocabulary play sequences** (`:rf.assert/*`), and a
-  **content-hashed snapshot identity** for visual-regression keying.
-- **Mock anything, not just the network.** Storybook needs a separate addon
+- Each variant ships with schema-derived controls (`spec/010`),
+  assertion-vocabulary play sequences (`:rf.assert/*`), and a
+  content-hashed snapshot identity for visual-regression keying.
+- Mock anything, not just the network. Storybook needs a separate addon
   for each fake (MSW for HTTP, custom decorators for analytics, shim libs for
-  storage, …). Story has it in **one primitive**: `force-fx-stub` stubs any
-  effect handler you registered with `reg-fx` in three lines of variant body.
+  storage, …). Story has it in one primitive: `force-fx-stub` stubs any
+  effect handler you registered with `reg-fx` in 3 lines of variant body.
   See [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md)
   §`force-fx-stub`.
-- The story tool **embeds Xray's epoch panel** (Xray is the structural
+- The story tool embeds Xray's epoch panel (Xray is the structural
   successor to re-frame-10x) as a registered story panel — time-travel via
   `restore-epoch` is a UI affordance, not a reimplementation.
-- The `:test` mode pane ships a **play step-debugger** — step / pause /
+- The `:test` mode pane ships a play step-debugger — step / pause /
   rewind / step-back / breakpoint controls over a variant's `:script`
   sequence (see [`spec/009-Test-Mode.md` §Play step-debugger](spec/009-Test-Mode.md#play-step-debugger)).
   Storybook's Interactions panel ships these for `play()` functions;
@@ -85,7 +85,7 @@ grammar `:story.<path>/<variant>` is locked at the spec level.
 {:deps {day8/re-frame2-story-mcp {:mvn/version "..."}}}
 ```
 
-Story is one coordinate. Its RHS inspector *is* Xray, so
+Story is one coordinate. Its RHS inspector is Xray, so
 `day8/re-frame2-xray` comes in transitively at the same lockstep
 version — you do not add it yourself, and there is no reduced
 "Story without Xray" build to opt into. See
@@ -97,17 +97,17 @@ version — you do not add it yourself, and there is no reduced
 [`.github/workflows/release-story.yml`](../../.github/workflows/release-story.yml)
 publishes `day8/re-frame2-story` on a `story-v<VERSION>` tag push.
 
-Story declares five in-repo dependencies via `:local/root` (core, the
-Reagent adapter, machines, HTTP, Xray). `clein pom` silently SKIPS
-`:local/root` coordinates, so the workflow rewrites all five to
+Story declares 5 in-repo dependencies via `:local/root` (core, the
+Reagent adapter, machines, HTTP, Xray). `clein pom` silently skips
+`:local/root` coordinates, so the workflow rewrites all 5 to
 `:mvn/version "<VERSION>"` on the throwaway runner checkout before
-packaging, then reads the **generated pom back** and refuses to deploy
+packaging, then reads the generated pom back and refuses to deploy
 unless every one is present at the lockstep version
 ([`preflight-story-package.sh`](../../.github/scripts/preflight-story-package.sh)).
 Clojars has no yank, so the last gate before publishing inspects the
 actual artefact rather than the inputs meant to produce it.
 
-Those five siblings must already be on Clojars at the same version, so
+Those 5 siblings must already be on Clojars at the same version, so
 tags are cut in order: `v<VERSION>` (framework) → `xray-v<VERSION>` →
 `story-v<VERSION>`. The order is enforced structurally — resolving the
 rewritten graph fails if a coordinate is not yet published.
@@ -181,8 +181,8 @@ When running the feature-load gate locally, set a unique
 The browser testbeds also depend on a few non-obvious invariants:
 
 - Story panel `:for` scoping is part of frame/testbed isolation. Do not broaden
-  panel visibility unless the isolation behavior is tested.
-- Hot-reload fingerprint baselines are setup state, not behavior under test.
+  panel visibility unless the isolation behaviour is tested.
+- Hot-reload fingerprint baselines are setup state, not behaviour under test.
   Baseline creation must not itself trigger hot-reload reruns or recorder
   output can include fixture events.
 - Snapshot identity assertions should include the browser-visible unsigned hex
@@ -190,12 +190,12 @@ The browser testbeds also depend on a few non-obvious invariants:
 
 ## Status
 
-- **Spec.** [`spec/007-Stories.md`](../../spec/007-Stories.md) — normative.
-- **Implementation contract.** [`spec/`](./spec/).
-- **Research lineage.**
+- Spec. [`spec/007-Stories.md`](../../spec/007-Stories.md) — normative.
+- Implementation contract. [`spec/`](./spec/).
+- Research lineage.
   - Phase 1 — [`spec/findings/re-frame-2-story-feature-set.md`](./spec/findings/re-frame-2-story-feature-set.md).
   - Phase 2 — [`spec/findings/re-frame-2-story-sota-refinement.md`](./spec/findings/re-frame-2-story-sota-refinement.md).
-  - Architectural decisions resolved 2026-05-11; see
+  - Architectural decisions resolved 11 May 2026; see
     [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md).
 
 ## See also

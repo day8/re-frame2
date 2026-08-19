@@ -28,20 +28,20 @@ clojure -M:test
 Focused namespaces own shapes that are not generic one-key wrappers,
 including:
 
-- `:rf.mcp/cursor-stale` result reasons;
-- `:rf.mcp/result` tagged results;
+- `:rf.mcp/cursor-stale` result reasons
+- `:rf.mcp/result` tagged results
 - `:rf.mcp/source-uri` editor-jump decorations — the pre-built
   jump-to-definition URI re-frame2-pair-mcp splices beside a
   `:source-coord`; a decoration, not a single-key wrapper (no
   `canonical-markers` schema/fixture), asserted as the legitimate
-  additive slot the operating-frame open-map schema must accept;
-- `:rf/redacted`;
-- progress notifications and event bundles;
-- reply-envelope trace rows;
-- suppression indicator fields and shared input slots;
-- operating-frame addresses and egress profiles;
+  additive slot the operating-frame open-map schema must accept
+- `:rf/redacted`
+- progress notifications and event bundles
+- reply-envelope trace rows
+- suppression indicator fields and shared input slots
+- operating-frame addresses and egress profiles
 - tool-name verbs, infinite-trace operations, and trace-catalogue
-  duplicate-key linting.
+  duplicate-key linting
 
 The focused schema stays beside its tests unless more than one namespace
 needs it. Shared wrapper schemas and their fixture catalogue stay in
@@ -52,17 +52,17 @@ needs it. Shared wrapper schemas and their fixture catalogue stay in
 Not every vocabulary family has a reachable builder on the JVM, so the
 suite composes several independent checks:
 
-1. **Schema and fixtures.** Representative emissions must validate
+1. Schema and fixtures. Representative emissions must validate
    against one canonical Malli shape.
-2. **Live builder calls.** When the canonical encoder or builder is on
+2. Live builder calls. When the canonical encoder or builder is on
    the JVM classpath, the test drives it and validates the emitted value.
-3. **Emission-source pins.** Canonical literals must occur as data at the
+3. Emission-source pins. Canonical literals must occur as data at the
    contracted emit sites.
-4. **Documentation pins.** Where a public server contract owns a literal,
+4. Documentation pins. Where a public server contract owns a literal,
    its source must describe the canonical spelling.
-5. **Near-miss rejection.** Snake-case, pluralized, or otherwise
+5. Near-miss rejection. Snake-case, pluralised, or otherwise
    confusing spellings are rejected in the relevant source inventory.
-6. **Cross-encoding pins.** When a Node live test re-encodes a body, the
+6. Cross-encoding pins. When a Node live test re-encodes a body, the
    JVM suite checks that its assertion names every required field.
 
 Fixtures are evidence, not production owners. A source pin alone proves
@@ -113,22 +113,22 @@ shape drift.
 For a generic wrapper marker:
 
 1. add its schema and `canonical-markers` entry to
-   `wire_vocab/schemas.clj`;
-2. include a fixture for every contracted server;
+   `wire_vocab/schemas.clj`
+2. include a fixture for every contracted server
 3. extend the emit/doc source inventories when the existing sets do not
-   cover its owners; and
-4. add a live-builder assertion when the canonical builder is available.
+   cover its owners
+4. add a live-builder assertion when the canonical builder is available
 
 The generic fixture, source, server-coverage, and near-miss sweeps then
 apply automatically.
 
 For a non-wrapper family:
 
-1. add a focused `<family>_test.clj` namespace;
-2. keep a single-family schema local;
-3. cover the applicable evidence layers above; and
+1. add a focused `<family>_test.clj` namespace
+2. keep a single-family schema local
+3. cover the applicable evidence layers above
 4. rely on test-runner discovery rather than registering the namespace
-   in another list.
+   in another list
 
 When a gate fails, reconcile the production owner and the canonical
 schema together. Updating only a fixture hides the divergence instead of
