@@ -54,6 +54,9 @@ means that ordering and whatever else travels with it — see
 - **The R = 0 null arm reads flat under both writes**, which is what licenses
   reading the mid-rung numbers at all: 38 paired certified observations, median
   difference **0 B/boundary**, absolute median **1.5**, 90th percentile **4.5**.
+  That reading is now published as the instrument's **non-cancellation floor**,
+  and it sets a **refusal bar of 45 B per boundary** — see
+  [the non-cancellation floor](#the-non-cancellation-floor-and-the-refusal-bar-it-sets).
 - **The R = 20 rung certifies on 1 of its 4 arm families, in both runs.** That
   makes three sessions in a row finding the same one. **No gate was widened to
   admit it.**
@@ -271,7 +274,7 @@ term below.
 
 V2's other half. Every figure here differences a floor window under `page`
 against a floor window under `all` **in the same round on the same page**, which
-the published 1,769 / 1,765 B could not do.
+the unpaired 1,769 / 1,765 B could not do.
 
 | run | segment | n paired rounds | `all` | `page` | drop | per-round drop range |
 |---|---|---|---|---|---|---|
@@ -287,9 +290,28 @@ per-write cost that simply does not depend on the segment would produce it too,
 and this window does not separate the two. It is also remarkably tight: 21 paired
 rounds span **1,644 – 1,664 B**, a range of 20 B on a quantity of 1,650.
 
-**V2's floor-drop half therefore holds, and holds more cleanly than the
-published reading.** The paired figure is ≈ 110 B smaller than the unpaired
+**V2's floor-drop half therefore holds, and holds more cleanly than the earlier
+reading.** The paired figure is ≈ 110 B smaller than the unpaired
 1,769 / 1,765 B on both segments.
+
+**These figures are now the PUBLISHED floor drop, and the move is a CHANGE OF
+BASIS rather than a correction** (`rf2-2rtt6.140`, 2026-08-19). The row read
+**1,769 B (9.1%)** and **1,765 B (8.9%)** on the basis of
+[the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md#the-floor-drops-which-is-half-the-criterion),
+where the two writes were driven by **two sequential processes** — the only
+thing the instrument could do before `rf2-irxrw` — and each leg's median was
+taken over *that leg's own* certified rounds. This basis is
+**within-round paired**: both writes in the same round, on the same page, in
+the same process, over rounds where **both** floor windows certified. **Neither
+figure is withdrawn as a reading**, and the old basis is not retired — it is
+still selectable as `P0_ALLOC_WRITE=all|page`. What retires is its
+*admissibility for this estimand*: a between-process difference cannot separate
+the write from everything else that differs between two runs, which is exactly
+the objection `rf2-irxrw` was filed on. **What the new figure rests on is this
+window's own warrant** — two runs declared in advance, both positive controls
+passing at 8.00 B/double, 21 paired certified rounds spanning 20 B — **and what
+it does not settle is carried with it**: the drop's page-global-versus-per-write
+cause is unresolved, above, and both runs captured exit 1 on the falls gate.
 
 ## E. The null arm, which is what licenses reading the rest
 
@@ -305,6 +327,40 @@ arm on this page whose true value is known in advance.
 to two orders of magnitude below the mid-rung cell differences of 5 – 198
 B/boundary. So the mid-rung numbers are being read above the null arm's noise;
 what they lack is a consistent direction, not resolution.
+
+### The non-cancellation floor, and the refusal bar it sets
+
+**RULED 2026-08-19 00:05 AUSEST on `rf2-2rtt6.140`, on the table above.** That
+table is the instrument's noise floor measured *directly* rather than inferred
+or modelled — read off the one arm whose true value is known in advance to be
+zero — and the ruling publishes it as a **named floor rather than as a
+tolerance**:
+
+> **NON-CANCELLATION FLOOR — `1.5 B` per boundary (absolute median) and
+> `4.5 B` per boundary (90th percentile), over 38 paired certified
+> observations.**
+
+**It is stated in BYTES because bytes are what travels.** A percentage does
+not: `4.5 B` is about 0.2% of the smallest per-boundary term this programme
+publishes (`s(1) = 2,031 B/boundary/write`) and 100% of a `4.5 B` one. The
+stable quantity is the floor itself, because bytes per boundary is what the
+null arm measures.
+
+**What the floor sets is a REFUSAL BAR, not a tolerance. Any per-boundary
+figure that is not comfortably above the floor is REFUSED rather than
+published, and the bar is ten times the p90 — `45 B` per boundary.** A figure
+within an order of magnitude of the noise floor is not a measurement, and an
+instrument that says *I cannot resolve this* is not a worse instrument. The bar
+is a published number and a refusal the preflight can already express: **no
+gate, constant or rung parameter was added for it, and none should be.**
+
+**Against the ladder as it stands the bar refuses nothing published, and
+exactly what it should.** Of the 68 per-boundary cell medians these two runs
+produce — four arm families × five rungs × both writes, on the certified rounds
+of each — the **52 non-null cells read `2,138 B/boundary/write` or more**, the
+smallest of them **47× the bar**. The 16 the bar catches are the R = 0 cells,
+whose medians span **−1.5 to +1.5 B/boundary** and whose true value is zero.
+The null arm is where a floor-derived bar is *supposed* to bite.
 
 **The two excursions are named rather than smoothed**: both are
 `uix-subs | uix R0` at round 3, one in each run, reading −96.5 and −56.5
@@ -377,10 +433,14 @@ among others, and this window did not test it.
   of a round, because the rig ties leg order to round parity.
 - **`rf2-77gz8` is NOT resolved** — see section G — and no figure here is offered
   as evidence about the `floor`-plan B = 24 window it was measured on.
-- **No ruling is made on tolerability.** The published question — whether ≈ 1 – 4%
-  of non-cancellation is acceptable — was posed of a figure this window does not
-  reproduce. Whether there is anything left to rule on is for the ruling, not for
-  this page.
+- **No ruling is made on tolerability *by this window*.** The published question
+  — whether ≈ 1 – 4% of non-cancellation is acceptable — was posed of a figure
+  this window does not reproduce, and whether there was anything left to rule on
+  was for the ruling, not for this page. **The ruling has since been taken**
+  (`rf2-2rtt6.140`, 2026-08-19) and it did not answer that question: it
+  WITHDREW it, and published the null arm's reading as a floor in bytes instead
+  — see [the non-cancellation floor](#the-non-cancellation-floor-and-the-refusal-bar-it-sets).
+  Nothing this window measured changed when it landed.
 - **Today's levels are NOT differenced against the published ones.** This
   window's `all` cells sit 0.8 – 6.1% below the 2026-08-17 published `all` cells,
   and that number is recorded rather than read: the two are different estimators
