@@ -307,9 +307,15 @@ Two further things it would need, stated so they are not rediscovered:
   it is not excluded. The premise it turns on — whether ladder arms carry the
   mode — is untested.
 - **No ruling is made on whether ≈ 1 – 4% of non-cancellation is tolerable.**
-  That was a ruling when the source page declined it and it is a ruling still.
-  This page moves it earlier in the queue rather than answering it: the residual
-  is not established, so there may be nothing to rule on.
+  That was a ruling when the source page declined it and it was a ruling still
+  when this page was written. This page moves it earlier in the queue rather
+  than answering it: the residual is not established, so there may be nothing to
+  rule on. **That last clause turned out to be the answer.** The ruling was
+  taken on 2026-08-19 (`rf2-2rtt6.140`) and it WITHDREW the question — under
+  matched pairing the residual has no direction — publishing the instrument's
+  own noise floor as `1.5 B` / `4.5 B` per boundary, with a `45 B` refusal bar,
+  in its place. See
+  [the non-cancellation floor](the-sign-follows-the-pass-not-the-write.md#the-non-cancellation-floor-and-the-refusal-bar-it-sets).
 - **Nothing is concluded about V2's floor-drop half**, which the source page
   found holds, or about the R = 20 rung's three-of-four refusal.
 - **No gate, band, threshold or tolerance was touched, and no rig file was
