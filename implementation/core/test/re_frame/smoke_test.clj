@@ -567,7 +567,7 @@
       (is (some #(= 're-frame.frame/*current-frame* %)
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
-    ;; reg-view (defn-shape per Spec 004 §reg-view) defs the symbol and
+    ;; reg-view (defn-shape per Spec 001 §Allowed forms of the middle slot) defs the symbol and
     ;; registers under (keyword (str *ns*) (str sym)). Per rf2-hzos the
     ;; expansion is (do (binding [...] (reg-view* ...)) (def sym (view ...)) id)
     ;; — the terminal id makes the macro return its primary id (matching

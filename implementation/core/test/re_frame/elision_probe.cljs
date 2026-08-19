@@ -28,7 +28,7 @@
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
     `restore-epoch!` (rf2-gox8 follow-up to rf2-shjf).
   - `re-frame.views` reg-view* wrapper — `:view/render` trace op
-    (Spec 004 §Render-tree primitives, rf2-piag / rf2-t5tx). The
+    (Spec-Schemas §`:rf/epoch-record`, rf2-piag / rf2-t5tx). The
     instance-token mint, the `*render-key*` binding, and the late-
     bind emit must elide.
   - `re-frame.frame/safe-call-hook!` — the EP-0008 R2 per-hook
@@ -292,10 +292,10 @@
   ;; facade-side wrapper is private).
   (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
 
-;; ---- Spec 004 §Render-tree primitives — reg-view* wrapper (rf2-piag) -----
+;; ---- Spec-Schemas §`:rf/epoch-record` — reg-view* wrapper (rf2-piag) -----
 
 (defn ^:export touch-views! []
-  ;; Per Spec 004 §Render-tree primitives (rf2-piag / rf2-t5tx Option C),
+  ;; Per Spec-Schemas §`:rf/epoch-record` (rf2-piag / rf2-t5tx Option C),
   ;; the reg-view* wrapper emits a `:view/render` trace per render. The
   ;; emit site sits inside `(when interop/debug-enabled? ...)`, along
   ;; with the *render-key* binding and the late-bind lookup. Under

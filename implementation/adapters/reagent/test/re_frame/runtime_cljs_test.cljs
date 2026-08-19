@@ -103,7 +103,7 @@
 
 (deftest reg-view-registers
   (testing "reg-view (defn-shape macro) registers the view under the :view kind"
-    ;; Per Spec 004 §reg-view (rf2-d0pi): the macro is defn-shape. It
+    ;; Per Spec 001 §Allowed forms of the middle slot (rf2-d0pi): the macro is defn-shape. It
     ;; auto-derives the id from (keyword *ns* sym); the ^{:rf/id ...}
     ;; metadata override pins an explicit keyword for assertion.
     (reg-view ^{:rf/id :greet} greet [n] [:p "hi " n])
@@ -113,7 +113,7 @@
         "the macro defs the supplied symbol to a callable render fn")))
 
 (deftest reg-view-macro-defs-the-symbol
-  ;; Per Spec 004 §reg-view (rf2-d0pi), the macro is defn-shape and defs
+  ;; Per Spec 001 §Allowed forms of the middle slot (rf2-d0pi), the macro is defn-shape and defs
   ;; the supplied symbol to the registered render fn — there is no
   ;; outer-def pattern any more (the legacy
   ;; `(def name (reg-view :id meta render-fn))` shape is gone with the
@@ -129,8 +129,8 @@
         "the macro defined the supplied symbol as a fn")))
 
 ;; ---- (rf/view id) — runtime-lookup handle (rf2-yl9n) ----------------------
-;; Per Spec 001 §(re-frame.core/view id) and Spec 004 §Calling a registered
-;; view: render trees use Vars; runtime lookups use ids. (rf/view id) is the
+;; Per Spec 001 §(re-frame.core/view id): render trees use Vars; runtime
+;; lookups use ids. (rf/view id) is the
 ;; id-keyed lookup handle that returns the registered render fn (whatever
 ;; shape) or nil if not registered.
 
@@ -152,7 +152,7 @@
     (is (nil? (rf/view :nope/not-registered)))))
 
 ;; ---- keyword-head render tree is HTML, not a view dispatch (rf2-yl9n) ----
-;; Per Spec 004 §Calling a registered view: keyword vectors at render time
+;; Per Conventions §Render-tree shape vs runtime lookup: keyword vectors at render time
 ;; are HTML elements (Reagent's existing semantics) — the runtime does NOT
 ;; intercept :keyword vectors and dispatch via the views registry. This is
 ;; the negative-regression test: even if a view is registered under :foo,

@@ -53,7 +53,7 @@
       ;; Use the runtime fn form (rf/reg-view*) — the JVM-and-CLJS-shared
       ;; surface for runtime registration with a Var-ref body. The macro
       ;; form (rf/reg-view) is defn-shape only and rejects non-literal-fn
-      ;; bodies at compile time (per Spec 004 §reg-view); for hot-reload
+      ;; bodies at compile time (per Spec 001 §Allowed forms of the middle slot); for hot-reload
       ;; mechanics what matters is that the registrar's :view slot gets
       ;; replaced — exactly what reg-view* does.
       (rf/reg-view* :rf.hot-reload-test/widget v1-fn)

@@ -75,7 +75,7 @@
 ;; ---- current-render-key still binds under prod ---------------------------
 
 (deftest current-render-key-binding-survives-elision-under-prod
-  (testing "Per Spec 004 §Render-tree primitives: the
+  (testing "Per Spec-Schemas §`:rf/epoch-record`: the
             `binding [*render-key* ...]` form sits in the wrapper body
             BUT is not itself gated on `interop/debug-enabled?` — only
             the `emit-render-trace!` body inside the binding is gated.
@@ -101,7 +101,7 @@
 ;; ---- mint-instance-token! survives (value-layer machinery) ---------------
 
 (deftest mint-instance-token-survives-under-prod
-  (testing "Per Spec 004 §Render-tree primitives: `mint-instance-token!`
+  (testing "Per Spec-Schemas §`:rf/epoch-record`: `mint-instance-token!`
             is value-layer machinery (a swap! on the process-wide
             `instance-counter` atom). It is NOT gated — calling it
             under prod returns a fresh integer. The token's only
@@ -119,7 +119,7 @@
 ;; ---- current-render-key outside a render-key binding falls through -------
 
 (deftest current-render-key-anonymous-fallback-under-prod
-  (testing "Per Spec 004 §Render-tree primitives: outside a registered
+  (testing "Per Spec-Schemas §`:rf/epoch-record`: outside a registered
             view's render, `current-render-key` returns the documented
             anonymous fallback `[:rf.view/anonymous nil]`. The
             fallback shape itself survives prod because the

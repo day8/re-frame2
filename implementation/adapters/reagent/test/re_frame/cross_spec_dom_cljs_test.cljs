@@ -421,7 +421,8 @@
         ;; seed; this is a SCOPE, not an owned create — EP-0024). Even
         ;; though the render fn reads via frame/app-db-container directly,
         ;; the scope-provider mount path is the documented user-facing
-        ;; shape (per Spec 004 §frame-provider) and exercises the
+        ;; shape (per Spec 002 §`frame-provider` — the SCOPE-only
+        ;; component) and exercises the
         ;; same substrate code-path the spec describes.
         (let [root (rdc/create-root mount-node)]
           ;; Reagent 2's render is flushSync — by the time `rdc/render`
