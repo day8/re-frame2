@@ -122,8 +122,9 @@ Two things to do *before* you call a view converted:
   different keywords. Add an optional module (`.forms`, `.motion`, `.overlay`,
   `.native`) only where one is actually used; they are absent when unused and
   that is the point of them.
-- **Root (MIG-15):** once per root, and in this order — `rf/init!` (Hicasso
-  ships no adapter, so the app's existing one stays), then `h/mount!` carrying
+- **Root (MIG-15):** once per root, and in this order — `rf/init!` (nothing
+  installs an adapter for you, and the app's existing one keeps working under
+  Hicasso, so it stays), then `h/mount!` carrying
   `{:frame … :initial-events …}`, which ensures and seeds the frame itself. Add
   the `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook.
 

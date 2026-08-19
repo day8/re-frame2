@@ -173,8 +173,15 @@ want when several roots share one frame, or when the frame needs options the
 mount config does not carry (`:images`, `:fx-overrides`). The mount then finds
 the frame live and joins it without re-seeding.
 
-Hicasso ships no adapter of its own, so the app's existing `rf/init!` stays.
-Do not delete it as Reagent scaffolding.
+The app's existing `rf/init!` stays. Do not delete it as Reagent scaffolding:
+re-frame2 installs no adapter for you and has no default-adapter registry, so
+the install is the app's own explicit line whatever the views are written in. A
+Reagent adapter under a Hicasso tree keeps working exactly as it did, and is
+what a part-migrated page wants — every React-shaped adapter writes the same
+frame context, so the Reagent subtree and the Hicasso one resolve to the *same*
+frame. Hicasso does ship an adapter of its own (`re-frame.hicasso.substrate`),
+but it is an optional module nothing under Hicasso's own source requires, so
+mounting a Hicasso view neither installs it nor displaces what the app has.
 
 For hot reload use `h/render!`, never a second `h/mount!` — the latter
 `createRoot`s again and replaces the whole tree.
