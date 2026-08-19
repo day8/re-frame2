@@ -358,7 +358,7 @@ gate, constant or rung parameter was added for it, and none should be.**
 **Against the ladder as it stands the bar refuses nothing published, and
 exactly what it should.** Of the 68 per-boundary cell medians these two runs
 produce — four arm families × five rungs × both writes, on the certified rounds
-of each — the **52 non-null cells read `2,138 B/boundary/write` or more**, the
+of each — the **52 non-null cells read `2,137 B/boundary/write` or more**, the
 smallest of them **47× the bar**. The 16 the bar catches are the R = 0 cells,
 whose medians span **−1.5 to +1.5 B/boundary** and whose true value is zero.
 The null arm is where a floor-derived bar is *supposed* to bite.
