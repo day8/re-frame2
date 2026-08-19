@@ -18,9 +18,9 @@ The rest of the design — args, decorators, play, tags — slots cleanly into o
 
 ## Why a separate Spec
 
-Stories/variants/workspaces are downstream concerns. They are *enabled by* the frame and view designs in 002 and 004; they shouldn't drive those decisions. Keeping the design here:
+Stories/variants/workspaces are downstream concerns. They are *enabled by* the frame and view-registration designs in 002 and 001; they shouldn't drive those decisions. Keeping the design here:
 
-- Lets 002 and 004 stay focused on the foundation.
+- Lets 002 and 001 stay focused on the foundation.
 - Lets the story-tool design evolve independently of foundation framework decisions.
 - `story/reg-story`/`story/reg-variant`/`story/reg-workspace` are sugar; everything is doable by hand with `make-frame` + `reg-view` + `frame-provider {:frame …}`.
 

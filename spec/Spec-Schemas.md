@@ -1329,8 +1329,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; case). The error is itself FRAMELESS (no `:frame` tag): it rides the
   ;; always-on error axis and is correlated to its capture site through the
   ;; `:rf.trace/dispatch-id` ancestry graph instead. Per the 009 error catalogue
-  ;; row, [002 §Frame target resolution], and [004 §The footgun is now
-  ;; `:rf.error/no-frame-context`].
+  ;; row and [002 §Frame target resolution].
   ;;
   ;; `:operation` is an OPEN set, never a closed pair: the category is defined by
   ;; the ABSENCE, so whatever the requiring call site named reaches this payload —
