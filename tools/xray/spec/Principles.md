@@ -131,8 +131,8 @@ Xray ships **zero bytes** in production. The trace bus, the epoch
 history, the schema validation, the registrar trace emit — all
 gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`).
 Production builds (`:advanced` + `goog.DEBUG=false`) elide all of it.
-The advanced gate executes a
-private-state assertion in addition to bundle sentinels. Its second advanced
+The advanced gate executes a private-state
+assertion in addition to bundle sentinels. Its second advanced
 build deliberately creates and mutates a renamed `cacheline*` atom and must
 fail the runtime assertion, proving this specific evidence-state oracle still
 has teeth after minification; it is not a

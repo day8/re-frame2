@@ -487,8 +487,7 @@ Nothing under `implementation/` may `:require` anything under `tools/`.
 `day8/re-frame2-hicasso` in a published pom. rf2-gra70 answered it by
 publishing the artefact — `deps.edn` now carries the `:clein/build` alias — and
 the refusal is gone. What replaces it is an ordering obligation rather than
-nothing; see
-[`docs/release-process.md`](../../../docs/release-process.md).
+nothing; see [`docs/release-process.md`](../../../docs/release-process.md).
 
 ---
 
