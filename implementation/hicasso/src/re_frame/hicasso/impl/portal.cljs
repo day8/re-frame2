@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.impl.portal
-  "`h/portal` — HICCUP INTO `createPortal` (rf2-hic-028; spec SN §4.3's
+  "`h/portal` — HICCUP INTO `createPortal` (spec SN §4.3's
   *\"tiny optional portal helper\"*).
 
       (h/defview save-toast [_]
