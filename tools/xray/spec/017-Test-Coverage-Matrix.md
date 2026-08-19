@@ -316,31 +316,35 @@ rf2-l86mm, because that is the change that makes them red:
 | 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | rf2-l86mm | **DONE.** The PR-smoke run is derived from these entries rather than from a fixed list, so leaving them standing while the panel goes reds the smoke gate against a section that no longer renders |
 | 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | rf2-l86mm | **DONE — 13 → 12.** This scenario was the sole claimant of the retired `Mounted view reads (Freehand tool door, rf2-7gth0)` matrix row, so removing that row without moving the pin fails `coverage_matrix_metadata_test` |
 
-The remaining six go quietly stale, and they travel with the FREEHAND TREE
-DELETION rather than with the panel — because rows 2 and 3 are in top-level
-`implementation/shadow-cljs.edn`, rows 5 and 6 in `implementation/`, and row 8
-in `.github/workflows/`, none of which the panel pass holds. Row 1 waits with
-them rather than going early: deleting the deck's source while its build id
-survives leaves a build compiling a tree that is not there, which is a worse
-state than either end of the move.
+The remaining six went quietly stale rather than red, and they travelled with
+the FREEHAND TREE DELETION rather than with the panel — because rows 2 and 3
+are in top-level `implementation/shadow-cljs.edn`, rows 5 and 6 in
+`implementation/`, and row 8 in `.github/workflows/`, none of which the panel
+pass held. Row 1 waited with them rather than going early: deleting the deck's
+source while its build id survived would have left a build compiling a tree
+that is not there, which is a worse state than either end of the move. **All
+six have now landed**, across three commits rather than one — rows 1, 2 and 3
+with the tree deletion itself (rf2-0yp7w.6), rows 5 and 6 with the
+config-residue sweep that followed it (rf2-puwyb), and row 8 with the
+smoke-tier re-costing (rf2-ano54):
 
-| # | Artefact | The retirement pass | If left behind |
+| # | Artefact | Pass | State |
 |---|---|---|---|
-| 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | delete the tree | dead source under a build id that is also going; its `re-frame.freehand` require dies with the tree either way |
-| 2 | the `:testbeds/freehand-views` build in `implementation/shadow-cljs.edn` | delete the build map | a build compiling a deleted tree |
-| 3 | its port-8036 `:dev-http` entry in `implementation/shadow-cljs.edn` | delete the entry, freeing the 803x slot | a served root that no longer exists |
-| 5 | the `DEV_HTTP` entry and the port-band comment in `implementation/scripts/dev-testbed.cjs` | delete both | the launcher advertises a URL for a build id shadow-cljs no longer knows — silently, because the drift guard in `dev-testbed.test.cjs` runs shadow-cljs → `DEV_HTTP` and never the reverse |
-| 6 | the build→URL row in `implementation/README.md` | delete the row | a documented testbed nobody can start |
-| 8 | the PR-smoke enumeration in `.github/workflows/test.yml` | drop the deck from the named list: 5 scenarios → 4, 4 staged surfaces → 3, 4 bundles → 3, and 12 → 11 in the nightly sweep | a comment naming a scenario that no longer exists |
+| 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | rf2-0yp7w.6 | **DONE — tree deleted.** Dead source under a build id that was going with it; its `re-frame.freehand` require died with the tree either way |
+| 2 | the `:testbeds/freehand-views` build in `implementation/shadow-cljs.edn` | rf2-0yp7w.6 | **DONE — build map deleted.** Left standing it would have been a build compiling a deleted tree |
+| 3 | its port-8036 `:dev-http` entry in `implementation/shadow-cljs.edn` | rf2-0yp7w.6 | **DONE — entry deleted, and the 803x slot is free again.** Left standing it would have served a root that no longer exists |
+| 5 | the `DEV_HTTP` entry and the port-band comment in `implementation/scripts/dev-testbed.cjs` | rf2-puwyb | **DONE — entry deleted; the port-band comment re-tensed rather than deleted, and it now records 8036 as free again.** Left standing, the launcher would have advertised a URL for a build id shadow-cljs no longer knows — silently, because the drift guard in `dev-testbed.test.cjs` runs shadow-cljs → `DEV_HTTP` and never the reverse |
+| 6 | the build→URL row in `implementation/README.md` | rf2-puwyb | **DONE — row deleted.** Left standing it would have documented a testbed nobody can start |
+| 8 | the PR-smoke enumeration in `.github/workflows/test.yml` | rf2-ano54 | **DONE — 5 scenarios → 4, 4 staged surfaces → 3, 4 bundles → 3, and 12 → 11 in the nightly sweep.** Left standing it would have named a scenario that no longer exists |
 
 Beyond the eight, three re-reads rather than removals. The dated aggregate
 costings in `implementation/scripts/serve-and-run-xray-feature-gate.cjs` and in
 this document's own opening move with row 8's numbers, but neither names the
 deck and both already carry the date they were measured, so re-date them rather
 than treat them as breakage.
-[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) records that this deck's
-build id, port and scenario slot free up together at rf2-hic-062 — still true
-of rows 1, 2 and 3. And the reactively-driven repaint the scenario asserted
+[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) tracks this deck's build
+id, port and scenario slot as freeing up together — rows 1, 2 and 3 have now
+freed all three. And the reactively-driven repaint the scenario asserted
 (rf2-2t126) was the only browser-level proof that
 `:adapter/activate-derived-value!` holds end to end in a real DOM, while
 `re-frame.hicasso.impl.collector` calls that hook as well as the Freehand
