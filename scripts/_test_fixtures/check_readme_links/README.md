@@ -30,6 +30,16 @@ Fixtures:
 | `external_link_skipped_by_default`   | 0        | External `https://` URL — skipped without `--check-external` (the default + `--ci` mode).            |
 | `explicit_id_full_title_ok`          | 0        | `## One {#dup}` is heading TEXT — the id is the full-title slug `one-dup`, so that link resolves.    |
 | `explicit_id_brace_not_a_target`     | 1        | Negative control: a link to the brace id `#dup` targets nothing → flagged.                           |
+| `root_markdown_ok`                   | 0        | Repo-root markdown that is not a README — correct links stay silent (rf2-znup0).                     |
+| `root_markdown_broken_link`          | 2        | The same roster, both failure modes at once: a broken target and a broken anchor.                    |
+| `command_refs_ok`                    | 0        | Mayor-loop command file: a backticked path and a bare filename resolve, while a `ladder-*.md` glob and an `ai/` path are not references (rf2-1yy75). |
+| `command_refs_broken`                | 2        | Negative control: one drifted path form and one drifted bare filename, alongside a reference that still resolves. |
+| `command_script_refs_ok`             | 0        | The same arm resolving SCRIPT paths (rf2-2eivg): a `.sh`, a dotfile-directory `.sh` and an `.edn` resolve, while a glob, a git ref range, a gitignored root and a bare non-markdown filename stay silent. |
+| `command_script_refs_broken`         | 2        | Negative control for the widening: a drifted `scripts/` path, plus a drifted `.github/` path sitting SECOND on a line whose first reference resolves — so a one-match-per-line scan reads 1. |
+
+The last four rows carry no `README.md` and no repo-root markdown at all,
+so every count in them comes from the command-file reference resolver and
+nothing else.
 
 These READMEs are rendered by GitHub, so GitHub's heading slugger is the
 authority (rf2-zzt2r).  A heading id is two rules, and this gate treats
