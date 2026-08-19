@@ -35,8 +35,11 @@ that was outstanding.**
 - **V2's criterion is ASSESSED, and the floor-drop half HOLDS.** The floor went
   from certifying **0 of 6 in both runs on both segments** to **4 of 6 and 5 of
   6** under `write-all` and **5 of 6 and 6 of 6** under `write-page`, and it
-  **drops by 1,769 B (9.1%)** on `reagent-subs` and **1,765 B (8.9%)** on
-  `uix-subs`.
+  **drops by ~~1,769 B (9.1%)~~** on `reagent-subs` and **~~1,765 B (8.9%)~~**
+  on `uix-subs`. **Both figures are SUPERSEDED on a change of basis** — the
+  drop is **1,652 B (8.6%)** and **1,652 – 1,658 B (8.4%)** measured within the
+  round; see
+  [the note below the table](#the-floor-drops-which-is-half-the-criterion).
 - **The agreement half is close but not clean.** Across the 13 comparable rungs
   the two writes differ by **−4.28% to +8.81%**, absolute median **1.48%**.
   Ten of the 13 certified per-round ranges overlap between writes.
@@ -210,7 +213,7 @@ if it refuses, six rounds, measured twice — once under each write.
 
 ### The floor drops, which is half the criterion
 
-| segment | `all` floor (certified) | `page` floor (certified) | drop |
+| segment | `all` floor (certified) | `page` floor (certified) | drop *(SUPERSEDED — see the note below)* |
 |---|---|---|---|
 | `reagent-subs` | 4 of 6 · 19,318 – 19,408 | 5 of 6 · 17,588 – 17,636 | **1,769 B (9.1%)** |
 | `uix-subs` | 5 of 6 · 19,792 – 20,056 | 6 of 6 · 18,032 – 18,144 | **1,765 B (8.9%)** |
@@ -219,6 +222,36 @@ The drop figures are the difference of the medians across each write's certified
 rounds. The 2026-08-13 indication off refused windows was 1,688 / 1,719 B
 (7.3%), so the certified drop is slightly larger than the refused windows
 suggested.
+
+> **SUPERSEDED 2026-08-19 00:05 AUSEST (`rf2-2rtt6.140`), and the move is a
+> CHANGE OF BASIS rather than a correction.** The published floor drop is now
+> **1,652 B (8.6%)** on `reagent-subs` and **1,652 – 1,658 B (8.4%)** on
+> `uix-subs` — the same number on both segments to within 6 B, with the
+> per-round drop spanning **1,644 – 1,664 B across 21 paired certified rounds**
+> — measured by
+> [the sign follows the pass, not the write](the-sign-follows-the-pass-not-the-write.md#d-the-floor-paired-inside-the-round).
+>
+> **Name both bases, because they are not two readings of one quantity.** The
+> figures in the table above are **UNPAIRED**: runs 2 and 3 drove one write
+> each, in two sequential processes in a fixed order, and each leg's median was
+> taken over *that leg's own* certified rounds. The new basis is **WITHIN-ROUND
+> PAIRED** (`P0_ALLOC_WRITE=paired`, `rf2-irxrw`, PR #8461, which did not exist
+> when this page was written): both writes are driven at every arm inside every
+> round, on the same page in the same process, and a round contributes only
+> where **both** floor windows certified.
+>
+> **What is withdrawn is the basis, not the reading.** Nothing this window
+> measured is disputed: 19,318 – 19,408 / 17,588 – 17,636 and
+> 19,792 – 20,056 / 18,032 – 18,144 stand exactly as taken. **Nor is the old
+> basis retired** — `P0_ALLOC_WRITE=all` and `=page` are still selectable, so
+> `1,769 / 1,765 B` could be re-taken. What it has lost is its *admissibility
+> for this estimand*: a between-process difference cannot separate the write
+> from anything else that differs between two runs, which is the objection
+> `rf2-irxrw` was filed on, and it is why a within-round figure supersedes an
+> unpaired one even though the two are ≈ 110 B apart.
+>
+> **The half of V2's criterion this table adjudicates does not move.** The
+> floor-drop half HELD on the old basis and holds on the new one.
 
 ### The agreement, rung by rung
 
@@ -297,8 +330,13 @@ V2's most informative and it remains unassessed on three quarters of the arms.
   certified against a collection bracketed inside a single leg. Certified means
   certified by the leg witness and the falls gate, and no more.
 - **Whether the ≈ 1 – 4% sign-consistent residual is acceptable is not ruled
-  on**, and nor is whether the R = 20 rung's three-of-four refusal is a fault of
-  the rung, the page size or the write.
+  on** *by this window*, and nor is whether the R = 20 rung's three-of-four
+  refusal is a fault of the rung, the page size or the write. **The ruling was
+  taken on 2026-08-19 (`rf2-2rtt6.140`) and it WITHDREW the question rather than
+  answering it**: the residual this page reports does not survive matched
+  pairing, so what was ruled on instead is the instrument's own noise floor,
+  published as `1.5 B` / `4.5 B` per boundary with a `45 B` refusal bar in
+  [the non-cancellation floor](the-sign-follows-the-pass-not-the-write.md#the-non-cancellation-floor-and-the-refusal-bar-it-sets).
 - **`rf2-rs8q6`'s round-indexed dispersion did not reproduce in the form it was
   reported.** The certified windows here fall at rounds 2 – 5 with worst leg
   deviations of 0.00 – 13.33%, not the clean round-3 ≤ 0.19% against round-2
