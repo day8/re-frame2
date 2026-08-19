@@ -111,7 +111,7 @@
   frame-context` — the closest enclosing Provider's `:rf/xray`
   flows through React-context and `(rf/subscribe …)` inside the body
   resolves to the registered frame. With plain `defn`s the
-  React-context tier would be skipped (Spec 004 §Plain Reagent fns
+  React-context tier would be skipped (Spec 000 §Plain Reagent fns
   do not pick up the surrounding frame) and subscribe would fall
   through to `:rf/default` — silently routing every Xray panel
   query into the host's app-db.
@@ -1015,7 +1015,7 @@
   `:rf.xray/setting` sub + `:rf.xray/settings-update` event are
   registered against `:rf/xray` via `registry/register-xray-handlers!`).
   A plain `defn` rendered inside the shell's `:rf/xray` frame-provider
-  would not pick up the surrounding frame (Spec 004 §Plain Reagent fns
+  would not pick up the surrounding frame (Spec 000 §Plain Reagent fns
   / Spec 006 §Plain-fn-under-non-default-frame warning) — the subscribe
   here would route to `:rf/default` and read the host app's app-db.
   The dispatch ALREADY carries an explicit `{:frame :rf/xray}` arg, but

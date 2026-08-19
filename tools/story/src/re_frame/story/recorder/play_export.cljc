@@ -41,8 +41,9 @@
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
-  Assertion events ride the `:dispatch-sync` rail because Spec 004 §3
-  fires the canonical seven via the framework's synchronous queue —
+  Assertion events ride the `:dispatch-sync` rail because Story
+  004-Assertions §3 fires the canonical seven via the framework's
+  synchronous queue —
   the runner's `:dispatch` would re-queue them and break the
   guarantee that an assertion's outcome is observable on the very
   next state transition. The pure runner accepts either tag for any

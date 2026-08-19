@@ -237,7 +237,8 @@
 
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.
-  Uses `reg-view*` (the runtime-registration surface, per Spec 004)
+  Uses `reg-view*` (the runtime-registration surface, per
+  Conventions §Render-tree shape vs runtime lookup)
   because the gallery view-ids are explicit panel-keyed keywords
   rather than auto-derived from a defn symbol — we want
   `:panel-gallery.epoch/Panel` not the autogen

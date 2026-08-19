@@ -82,7 +82,7 @@
   in `[rf/frame-provider {:frame :rf/xray}]`; every subscribe +
   dispatch inside the shell resolves to `:rf/xray`. Every subscribing
   region is `reg-view`-registered so its rendered component carries
-  `:contextType frame-context` (Spec 004 §Plain Reagent fns do not
+  `:contextType frame-context` (Spec 000 §Plain Reagent fns do not
   pick up the surrounding frame).
 
   ## Mode-signal mechanism (4 stacked signals)

@@ -1,10 +1,10 @@
 (ns re-frame.story.play.presence
   "The presence rung of Story playback — the seam a `[:flush-presence]`
-  script step reaches for (rf2-qwzmt, S4-H; Spec 004 §Presence).
+  script step reaches for (rf2-qwzmt, S4-H).
 
   ## Why a rung exists
 
-  A variant whose view renders a PRESENCE boundary (Spec 004 §Presence)
+  A variant whose view renders a PRESENCE boundary
   RETAINS a removed keyed child in `:unmounting` until the boundary's
   `:timeout-ms` safety bound fires. Playback then has a settlement problem the
   `settled-boundary` ladder cannot solve: the retention is a CLOCK, not a

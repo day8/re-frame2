@@ -56,7 +56,7 @@
   run under a `:dom` / `:browser` runner.
 
   `[:flush-presence]` / `[:flush-presence ms]` advances the framework's
-  PRESENCE clock (Spec 004 §Presence) so a variant whose view renders a
+  PRESENCE clock so a variant whose view renders a
   presence boundary with a `:timeout-ms` safety bound settles its retained
   (`:unmounting`) children DETERMINISTICALLY — the fake-clock twin of
   `[:wait ms]`, and the reason a presence-bearing variant does not need the

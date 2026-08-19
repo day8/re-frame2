@@ -2096,7 +2096,7 @@ inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame
 :rf/xray}]`; every subscribe + dispatch inside the surface resolves
 to `:rf/xray`. Each subscribing region is `reg-view`-registered so
 its rendered component carries `:contextType frame-context` (rf2-in6l2
-+ Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
++ Spec 000 §Plain Reagent fns do not pick up the surrounding frame).
 
 ### Availability
 

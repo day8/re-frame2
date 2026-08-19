@@ -112,7 +112,7 @@ The facade's `reg-view` body is either:
   form would mount the leaf as a separate plain Reagent fn component;
   it would drop out of the surrounding frame and any `subscribe` /
   `dispatch` inside the leaf would silently route to `:rf/default`
-  (Spec 004 §Plain Reagent fns / Spec 006 §706). The plain-call form
+  (Spec 000 §Plain Reagent fns / Spec 006 §706). The plain-call form
   keeps the leaf body executing within the facade reg-view wrapper's
   render — the wrapper IS the in-flight Reagent component, so
   `current-frame-id` reads `:rf/xray` from React context and the leaf's
