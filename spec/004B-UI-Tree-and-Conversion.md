@@ -723,8 +723,8 @@ shapes.
   `{:got … :supported #{1}}` — fail-loud at the boundary, matching the artifact's
   construction-time error posture (`:rf.error/ssr-missing-payload-policy` style).
   Malformed nodes past the version gate throw `:rf.error/ui-tree-malformed` (shared
-  with all tree consumers). Spec 009 rows land with the stage that ships each id (004's
-  rows-land-with-stages rule): `:rf.error/ui-tree-malformed` **already has its catalogue
+  with all tree consumers). Spec 009 rows land with the stage that ships each
+  id: `:rf.error/ui-tree-malformed` **already has its catalogue
   row** (landed with S1 — the shared tree-consumer id, which also carries the
   semantic-`N` root-version-gate arm); `:rf.error/ssr-ui-tree-version-unsupported` is the
   SSR-seam sibling, and its dedicated
