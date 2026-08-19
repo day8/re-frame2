@@ -561,8 +561,8 @@
       `:rf.sub/run` trace event. Cache-hit subs do
       NOT emit `:rf.sub/run` and are correctly absent.
 
-    :renders — Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree
-      primitives. One entry per `:rf.view/rendered` post-render marker.
+    :renders — Spec-Schemas §`:rf/epoch-record`. One entry per
+      `:rf.view/rendered` post-render marker.
       `:render-key` is the `[<view-id> <instance-token>]` tuple; renders
       bypassing reg-view (plain Reagent fns) use `[:rf.view/anonymous nil]`
       as the documented fallback. Each row also carries the per-view

@@ -489,8 +489,9 @@
         ;; made a keyword head mean "registered view" on the streaming
         ;; server and "an HTML element" on every client substrate. One
         ;; grammar now holds corpus-wide: a keyword head is a DOM / custom
-        ;; element on EVERY host (Spec 004 + Conventions own the head
-        ;; grammar; this finishes rf2-n82bbu). Views are referenced by
+        ;; element on EVERY host (Conventions §Render-tree shape vs runtime
+        ;; lookup owns the head grammar; this finishes rf2-n82bbu). Views
+        ;; are referenced by
         ;; callable binding — the Var `reg-view` defs, or `(rf/view :id)`
         ;; — both of which the `ifn?` branch below resolves and recurses
         ;; through, so a suspense boundary inside a view body is still

@@ -1,9 +1,9 @@
 (ns re-frame.core-reg-view-macro
   "Helpers for the view-registration and frame-scope lexical macros —
   `reg-view`, `reg-machine`, `with-frame`, `with-new-frame`, `with-fx-
-  overrides`, `with-managed-request-stubs`. Per Spec 004 §reg-view,
-  Spec 005 §Source-coord stamping, Spec 002 §with-frame /
-  §`:fx-overrides`, Spec 014 §Testing.
+  overrides`, `with-managed-request-stubs`. Per Spec 002 §What
+  `reg-view` injects, Spec 005 §Source-coord stamping, Spec 002
+  §with-frame / §`:fx-overrides`, Spec 014 §Testing.
 
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
@@ -25,7 +25,9 @@
 
 #?(:clj
    (defn parse-reg-view-args
-     "Per Spec 004 §reg-view defn-shape. Parses (sym docstring? args body+)
+     "Per Spec 001 §Allowed forms of the middle slot — `reg-view` is the
+     only registration shipping as a defn-shape macro. Parses (sym
+     docstring? args body+)
      into {:sym :docstring :args :body}. Returns nil when shape is invalid."
      [more]
      (let [[a & rest1] more]
@@ -39,9 +41,8 @@
 #?(:clj
    (defn describe-reg-view-bad-second-arg
      "Human-readable description of an invalid second-arg to reg-view, for
-     the compile-error message. Per Spec 004 §reg-view compile-error
-     contract: the rejected cases are Var-ref symbol, create-class call,
-     and computed-fn call."
+     the compile-error message. The rejected cases are Var-ref symbol,
+     create-class call, and computed-fn call."
      [x]
      (cond
        (symbol? x)

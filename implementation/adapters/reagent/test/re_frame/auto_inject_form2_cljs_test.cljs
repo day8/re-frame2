@@ -1,5 +1,5 @@
 (ns re-frame.auto-inject-form2-cljs-test
-  "Per Spec 004 §reg-view (rf2-d0pi) and §Form-2: the `reg-view` macro
+  "Per Spec 002 §What `reg-view` injects (rf2-d0pi): the `reg-view` macro
   auto-injects lexical bindings `dispatch` and `subscribe` around the
   body. The injection is a single OUTER `let`:
 
@@ -17,7 +17,7 @@
   `dispatch` / `subscribe` lexical bindings via Clojure closure. Both
   the outer body AND the inner-render fn see the auto-injected names —
   the bindings are NOT re-injected per inner call; they're the same
-  closed-over values. Per Spec 004 §Form-2:
+  closed-over values. Spec 004, since retired, stated it as:
 
     'The dispatch and subscribe in both the outer body and the inner
      fn refer to the same lexical bindings — Clojure lexical closure
@@ -26,7 +26,7 @@
   This is the pre-alpha gap that rf2-o423 surfaced (rf2-d4v7 sub-gap 1):
   the Form-1 happy path is covered by views-macros-test, but the
   Form-2 boundary — does the inner fn see the injected names? — was
-  only documented in Spec 004 §Form-2 and the macro source comment,
+  only documented in Spec 004 (since retired) and the macro source comment,
   never asserted by a test. This file pins the contract.
 
   Reference Mike's feedback memory: 'target Reagent v2; don't invest
@@ -85,7 +85,7 @@
 
             Clojure lexical closure means `inner` sees `dispatch` /
             `subscribe` from the surrounding `let` — they are NOT
-            re-injected per inner call. Per Spec 004 §Form-2:
+            re-injected per inner call. Spec 004, since retired, stated:
             'The dispatch and subscribe in both the outer body and
             the inner fn refer to the same lexical bindings — Clojure
             lexical closure does the right thing.'
@@ -118,8 +118,8 @@
             ;; the inner render).
             inner-or-fn   (wrapper)]
         (is (fn? inner-or-fn)
-            "Form-2 wrapper returns a fn (the inner render — Spec 004
-             §Form-2 / Spec 006 §Form-2 handling)")
+            "Form-2 wrapper returns a fn (the inner render — Spec 006
+             §Form-2 handling)")
         (let [inner-out (inner-or-fn)]
           (is (vector? inner-out) "inner fn returns hiccup")
           (is (= :p (first inner-out)) "inner fn root tag preserved"))
@@ -133,7 +133,9 @@
         (is (fn? (:subscribe @inner-captured))
             "inner fn: `subscribe` resolves via lexical closure")
         ;; The inner fn sees the SAME fn instances the outer body saw —
-        ;; this is the Spec 004 §Form-2 contract: 'refer to the same
+        ;; this is the Spec 002 §What `reg-view` injects contract: the
+        ;; outer `let` binds once and the inner fn closes over it —
+        ;; 'refer to the same
         ;; lexical bindings'. If the macro had re-injected per inner
         ;; call (a bug shape), the values would be fresh fn objects
         ;; minted by `(:dispatch (rf/capture-frame))` / `(:subscribe (rf/capture-frame))` per call,
@@ -142,7 +144,8 @@
                         (:dispatch  @inner-captured))
             "inner fn's `dispatch` is the SAME closed-over fn as the
              outer body's — confirming the auto-inject is the outer
-             let, lexically captured by the inner fn (Spec 004 §Form-2)")
+             let, lexically captured by the inner fn (Spec 002 §What
+             `reg-view` injects)")
         (is (identical? (:subscribe @outer-captured)
                         (:subscribe @inner-captured))
             "inner fn's `subscribe` is the SAME closed-over fn as the
@@ -154,8 +157,8 @@
   (testing "A Form-2 view's auto-inject is the OUTER `let`, run once
             per outer-body invocation. Subsequent inner-fn calls see
             the SAME captured `dispatch` / `subscribe` — they are NOT
-            re-resolved per render. Per Spec 004 §Form-2 lexical-
-            closure contract.
+            re-resolved per render. Per Spec 002 §What `reg-view`
+            injects — the outer-let lexical-closure contract.
 
             Asserts: the captured `dispatch` is identical (===) across
             three inner-fn invocations — the binding is the closed-
@@ -183,4 +186,5 @@
               "all three captures are the same fn instance —
                confirming the inner fn's `dispatch` is the outer
                let's binding, closed over, NOT re-resolved per inner
-               call (Spec 004 §Form-2 lexical-closure contract)"))))))
+               call (Spec 002 §What `reg-view` injects — the outer-let
+               lexical-closure contract)"))))))
