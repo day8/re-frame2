@@ -116,7 +116,7 @@
         (rf/reg-event :rf2-cry25/clicked
           (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
         ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
-        ;; Spec 004 §reg-view. The reg-view definition site is the coord
+        ;; Spec 001 §Source-coordinate capture. The reg-view definition site is the coord
         ;; 'go to code' must resolve to.
         (rf/reg-view click-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])

@@ -1,5 +1,7 @@
 (ns re-frame.reg-view-test
-  "Per Spec 004 §reg-view: the defn-shape macro, the auto-id derivation
+  "Per Spec 001 §Allowed forms of the middle slot and Conventions
+  §`reg-view` auto-id derivation rule: the defn-shape macro, the
+  auto-id derivation
   rule, the `^{:rf/id ...}` metadata override, the lexical
   `dispatch`/`subscribe` injection, the Form-2 closure case, and the
   compile-error contract for non-defn-shape bodies. Per rf2-d0pi.

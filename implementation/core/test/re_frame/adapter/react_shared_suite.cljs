@@ -913,8 +913,8 @@
           (trace-tooling/unregister-listener! ::wad))))))
 
 ;; ===========================================================================
-;; render-time parity contracts (Spec 001 §Hot-reload / Spec 004
-;; §Render-tree primitives) — port of `*_parity` twins
+;; render-time parity contracts (Spec 001 §Hot-reload / Spec-Schemas
+;; §`:rf/epoch-record`) — port of `*_parity` twins
 ;; ===========================================================================
 
 (defn assert-view-re-register-causes-rerender
@@ -933,7 +933,7 @@
           "after re-registration, the next render mutates observed to v2"))))
 
 (defn assert-current-render-key-anonymous-fallback
-  "Render-key contract (Spec 004 §Render-tree primitives): outside a
+  "Render-key contract (Spec-Schemas §`:rf/epoch-record`): outside a
   render, current-render-key returns the documented anonymous fallback
   [:rf.view/anonymous nil] and *render-key* is nil. Substrate-agnostic —
   pinned through each installed adapter."

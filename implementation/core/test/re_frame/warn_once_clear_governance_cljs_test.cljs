@@ -6,8 +6,9 @@
                   cache) was left out of the fixture-reset chain.
     * rf2-9hoos — `seen-render-keys` (the :mount? discriminator's set).
     * rf2-qy6cl — the slim hiccup interpreter's `warned-keyword-prop`.
-    * rf2-z79p8 — `warned-plain-fn-frame-pairs` (the Spec 004 plain-fn-
-                  under-non-default-frame suppression set) — the 4th
+    * rf2-z79p8 — `warned-plain-fn-frame-pairs` (the Spec 000 §Plain
+                  Reagent fns under non-default frames suppression
+                  set) — the 4th
                   straggler. That cache has since been REMOVED (rf2-k4xous):
                   its warning is retired per EP-0002, and the three live
                   probe-carrying caches below still exercise the same gate.
