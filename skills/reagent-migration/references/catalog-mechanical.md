@@ -259,10 +259,18 @@ Four things matter, and the first two are the ones a migration gets wrong:
   Reagent pair `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into
   one `h/mount!`. An explicit `rf/make-frame` beforehand still works, and is what
   a shared frame — or one needing `:images` / `:fx-overrides` — wants.
-- **Hicasso ships no adapter of its own**, so `(rf/init! …)` stays — `make-frame`
-  raises `:rf.error/no-adapter-installed` until a reactive adapter is installed.
+- **`(rf/init! …)` stays** — `make-frame` raises
+  `:rf.error/no-adapter-installed` until a reactive adapter is installed, and
+  nothing installs one for you: there is no default-adapter registry, so the
+  install is the app's own explicit line whatever the views are written in.
   Keep the app's existing adapter install; it is not Reagent-specific
-  scaffolding to be deleted.
+  scaffolding to be deleted. A Reagent adapter under a Hicasso tree keeps
+  working exactly as it did, and is what a part-migrated page wants — every
+  React-shaped adapter writes the same frame context, so the Reagent subtree
+  and the Hicasso one resolve to the *same* frame. Hicasso does ship an
+  adapter of its own (`re-frame.hicasso.substrate`), but it is an optional
+  module nothing under Hicasso's own source requires, so `h/mount!` neither
+  installs it nor displaces what the app has.
 - **`h/render!` is the hot-reload door.** It re-renders the root React already
   has, so the reloaded view code meets its own DOM. Calling `h/mount!` again
   would `createRoot` a second time and replace the tree, discarding every node
