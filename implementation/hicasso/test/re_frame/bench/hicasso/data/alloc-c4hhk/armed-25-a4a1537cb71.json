@@ -1,0 +1,5 @@
+{
+  "generatedAt": "2026-08-19T00:54:28.124Z",
+  "build": "hicasso-bench",
+  "initFn": "re-frame.bench.p0-app/-main"
+}
