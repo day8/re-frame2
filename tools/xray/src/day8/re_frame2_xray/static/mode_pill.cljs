@@ -35,7 +35,7 @@
 
   `(rf/reg-view mode-pill …)` is the canonical Xray shape: subscribes
   inside the component body resolve to `:rf/xray` via React-context
-  (Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
+  (Spec 000 §Plain Reagent fns do not pick up the surrounding frame).
   The `<select>` is native so keyboard + screen-reader navigation work
   out of the box.
 

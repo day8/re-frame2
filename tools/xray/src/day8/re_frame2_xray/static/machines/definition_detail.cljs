@@ -235,7 +235,8 @@
         ;; The Sim sub-mode's plain-fn subtree (`sim/body` →
         ;; `SimChart` / `SimRail`) renders in its OWN React cycle and so
         ;; cannot recover the `:rf/xray` frame to `rf/subscribe` itself
-        ;; (Spec 004). Deref the sim sub family HERE (in this reg-view,
+        ;; (Spec 000 §Plain Reagent fns under non-default frames). Deref
+        ;; the sim sub family HERE (in this reg-view,
         ;; where the frame IS in context) and thread the values down —
         ;; mirroring the browse-list pattern. Only derefed on the
         ;; `:sim` sub-mode so the Topology/Instances/Cascade modes don't

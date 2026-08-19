@@ -1078,7 +1078,7 @@ on caller.
   rather than running it flakily. `[:wait-until pred]` is the
   deterministic alternative and SHOULD be preferred.
 - **`[:flush-presence]` / `[:flush-presence ms]`** advances the framework's
-  PRESENCE clock (Spec 004 §Presence) — the fake-clock twin
+  PRESENCE clock — the fake-clock twin
   of `[:wait ms]`, and the reason a presence-bearing variant needs no
   determinism opt-out. See §Presence-bearing variants below.
 - **`[:assert assertion-vector]`** evaluates a `:rf.assert/*` assertion
@@ -1129,7 +1129,7 @@ errors do.
 #### Presence-bearing variants
 
 A variant whose view renders a presence boundary with a retention timeout
-(Spec 004 §Presence) RETAINS a removed keyed child in the `:unmounting`
+RETAINS a removed keyed child in the `:unmounting`
 phase until that safety bound fires. That retention is a
 CLOCK, not a queue, so no rung of the settled-boundary ladder can settle
 it: draining the router (`:headless`), flushing reactions

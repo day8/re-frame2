@@ -717,7 +717,8 @@
 ;; The sim sub-mode's `body` / `SimRail` / `SimChart` are plain fns
 ;; mounted as Reagent components from `definition_detail/body`. A plain
 ;; fn renders in its OWN React cycle and so CANNOT recover the
-;; surrounding `:rf/xray` frame (Spec 004). The pre-fix code self-
+;; surrounding `:rf/xray` frame (Spec 000 §Plain Reagent fns under
+;; non-default frames). The pre-fix code self-
 ;; subscribed inside these fns; with NO frame in dynamic context a bare
 ;; `rf/subscribe` throws `:rf.error/no-frame-context` and crashes the
 ;; whole Static surface. The fix threads the derefed sub values DOWN from

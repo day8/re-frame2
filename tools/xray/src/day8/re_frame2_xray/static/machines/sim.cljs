@@ -623,7 +623,7 @@
   threaded down from the `detail` reg-view (`definition_detail`),
   via `body`. SimRail is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
-  frame to `rf/subscribe` itself (Spec 004 §Plain Reagent fns do not pick
+  frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns do not pick
   up the surrounding frame; a bare `subscribe` here throws
   `:rf.error/no-frame-context` and crashes the whole Static surface).
   The reg-view body derefs `:sim-state` / `:sim-available-transitions` /
@@ -698,7 +698,7 @@
   from the `detail` reg-view (`definition_detail`), via
   `body`. SimChart is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
-  frame to `rf/subscribe` itself (Spec 004; a bare `subscribe` here
+  frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare `subscribe` here
   throws `:rf.error/no-frame-context` and crashes the Static surface).
   The reg-view body derefs `:sim-current-state` / `:sim-last-transition`
   where the frame IS in context and passes the values down."
@@ -769,7 +769,7 @@
 
   `body` is mounted by `definition_detail/body` as a plain-fn Reagent
   component, so it renders in its OWN cycle and CANNOT recover the
-  surrounding `:rf/xray` frame to `rf/subscribe` itself (Spec 004; a bare
+  surrounding `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare
   `subscribe` here throws `:rf.error/no-frame-context` and crashes the
   Static surface). All sim sub values — `sim` (`:sim-state`),
   `transitions`, `suggestions`, `current`, `last-trans` — are derefed in

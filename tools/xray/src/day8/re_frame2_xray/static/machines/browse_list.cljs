@@ -40,7 +40,7 @@
   `query` is the current search string, threaded from the `browse-list`
   reg-view's own subscribe — this helper is a plain fn invoked as a
   Reagent component, so it renders in its OWN cycle and CANNOT recover
-  the `:rf/xray` frame to `rf/subscribe` itself (Spec 004 §Plain Reagent
+  the `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent
   fns do not pick up the surrounding frame; a bare `subscribe` here
   throws `:rf.error/no-frame-context` and crashes the whole Static
   surface). The reg-view body already derefs the same
@@ -68,7 +68,7 @@
   `sort-key` is the current sort axis, threaded from the `browse-list`
   reg-view's own subscribe — this helper is a plain fn invoked as a
   Reagent component, so it renders in its OWN cycle and
-  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 004
+  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent
   §Plain Reagent fns do not pick up the surrounding frame; a bare
   `subscribe` here throws `:rf.error/no-frame-context` and crashes the
   whole Static surface). The reg-view body derefs the sub and passes the
