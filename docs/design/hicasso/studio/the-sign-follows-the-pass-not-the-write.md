@@ -295,8 +295,8 @@ reading.** The paired figure is ≈ 110 B smaller than the unpaired
 1,769 / 1,765 B on both segments.
 
 **These figures are now the PUBLISHED floor drop, and the move is a CHANGE OF
-BASIS rather than a correction** (`rf2-2rtt6.140`, 2026-08-19). The row read
-**1,769 B (9.1%)** and **1,765 B (8.9%)** on the basis of
+BASIS rather than a correction** (`rf2-2rtt6.140`, 2026-08-19). What they
+supersede is **1,769 B (9.1%)** and **1,765 B (8.9%)**, published by
 [the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md#the-floor-drops-which-is-half-the-criterion),
 where the two writes were driven by **two sequential processes** — the only
 thing the instrument could do before `rf2-irxrw` — and each leg's median was
@@ -310,8 +310,9 @@ the write from everything else that differs between two runs, which is exactly
 the objection `rf2-irxrw` was filed on. **What the new figure rests on is this
 window's own warrant** — two runs declared in advance, both positive controls
 passing at 8.00 B/double, 21 paired certified rounds spanning 20 B — **and what
-it does not settle is carried with it**: the drop's page-global-versus-per-write
-cause is unresolved, above, and both runs captured exit 1 on the falls gate.
+it does not settle travels with it**: whether the drop is a page-global term or
+a per-write cost that simply does not depend on the segment is unresolved, as
+the paragraph above says, and both runs captured exit 1 on the falls gate.
 
 ## E. The null arm, which is what licenses reading the rest
 

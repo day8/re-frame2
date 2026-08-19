@@ -231,10 +231,11 @@ suggested.
 > — measured by
 > [the sign follows the pass, not the write](the-sign-follows-the-pass-not-the-write.md#d-the-floor-paired-inside-the-round).
 >
-> **Name both bases, because they are not two readings of one quantity.** The
-> figures in the table above are **UNPAIRED**: runs 2 and 3 drove one write
-> each, in two sequential processes in a fixed order, and each leg's median was
-> taken over *that leg's own* certified rounds. The new basis is **WITHIN-ROUND
+> **Both bases are named, because the two figures are not two readings of one
+> quantity.** The figures in the table above are **UNPAIRED**: runs 2 and 3
+> drove one write each, in two sequential processes in a fixed order, and each
+> leg's median was taken over *that leg's own* certified rounds, which differed
+> between the legs. The new basis is **WITHIN-ROUND
 > PAIRED** (`P0_ALLOC_WRITE=paired`, `rf2-irxrw`, PR #8461, which did not exist
 > when this page was written): both writes are driven at every arm inside every
 > round, on the same page in the same process, and a round contributes only
