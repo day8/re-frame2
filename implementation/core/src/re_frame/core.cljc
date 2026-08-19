@@ -739,7 +739,7 @@
   (computed ids, library generation, Form-3 / `create-class` bodies)
   where the `reg-view` macro's defn-shape doesn't fit. Optional metadata
   is merged with any pending source-coords from a wrapping `reg-view`.
-  Per Spec 004 §reg-view*."
+  Per Spec 001 §Allowed forms of the middle slot."
   ([id render-fn]
    (reg-view* id {} render-fn))
   ([id metadata render-fn]
@@ -768,7 +768,7 @@
 (defn view
   "Runtime-lookup handle for a registered view. Returns the registered
   render fn (or nil if not registered) — call with the view's invocation
-  args to yield the hiccup tree. Per Spec 004 §Calling a registered view."
+  args to yield the hiccup tree. Per Spec 001 §`(re-frame.core/view id)`."
   [id]
   (when-let [meta (registrar/lookup :view id)]
     (:handler-fn meta)))
@@ -780,7 +780,8 @@
      on sym), auto-injects lexical `dispatch` / `subscribe` bound to the
      surrounding frame, defs the symbol and registers under the id.
      For runtime registration with computed ids or non-defn bodies, use
-     `reg-view*`. Per Spec 004 §reg-view."
+     `reg-view*`. Per Spec 001 §Allowed forms of the middle slot and
+     Conventions §`reg-view` auto-id derivation rule."
      {:arglists '([sym args body+] [sym docstring args body+])}
      [sym & more]
      (rvm/expand-reg-view (meta &form)
@@ -1452,7 +1453,8 @@
 (defn capture-frame
   "Return a frame api — the keystone affordance for
   carrying a frame into closures and across async boundaries. Per Spec
-  002 §capture-frame and Spec 004 §Affordance for plain fns.
+  002 §capture-frame and Cross-Spec-Interactions §10 Plain Reagent fn
+  under a `frame-provider`.
 
   Two arities:
     (capture-frame)           — capture the ambient frame
