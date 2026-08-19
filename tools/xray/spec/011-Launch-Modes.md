@@ -467,8 +467,8 @@ load. It MAY schedule a bounded adapter-ready retry. Once the adapter
 is ready, it MUST find the configured layout host and mount the shell
 there. If the host is missing, it MUST emit the diagnostic described in
 §Layout host contract and leave the app running. If the installed
-adapter is a React-element substrate (UIx / Hicasso / Helix / Freehand /
-re-frame.ui — hosts whose `:render` cannot take the hiccup shell, per
+adapter is a React-element substrate (UIx / Hicasso / Helix — hosts
+whose `:render` cannot take the hiccup shell, per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Adapter
 resolution), it MUST refuse the mount with the
 `:unsupported-substrate` diagnostic (status API + one `console.warn`)

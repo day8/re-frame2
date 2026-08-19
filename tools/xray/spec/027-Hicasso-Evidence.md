@@ -481,11 +481,14 @@ is rf2-hic-024's.
 The dependency points one way only: `tools/xray` → `implementation/hicasso`.
 Nothing under `implementation/` may `:require` anything under `tools/`.
 
-**Release note.** `implementation/hicasso/deps.edn` carries no `:clein/build`
-yet (rf2-hic-008 owns release wiring), so `day8/re-frame2-hicasso` is the
-second in-repo coordinate `.github/scripts/preflight-xray-package.sh` refuses
-to find in a published pom, beside `day8/re-frame2-freehand`. That refusal is
-correct and is not a mechanical fix.
+**Release note — CLOSED.** This edge was once Xray's unpublishable coordinate:
+`implementation/hicasso/deps.edn` carried no `:clein/build`, so
+`.github/scripts/preflight-xray-package.sh` refused to find
+`day8/re-frame2-hicasso` in a published pom. rf2-gra70 answered it by
+publishing the artefact — `deps.edn` now carries the `:clein/build` alias — and
+the refusal is gone. What replaces it is an ordering obligation rather than
+nothing; see
+[`docs/release-process.md`](../../../docs/release-process.md).
 
 ---
 
@@ -575,9 +578,10 @@ surface in `feature_matrix/scenarios.cjs` is a Hicasso host, so a populated arm
 in the shell sweep needs a new deck, a new `implementation/shadow-cljs.edn`
 build id and a new `:dev-http` port — the shape rf2-6pohj built for the Views
 panel. That cost is why there is no staged Hicasso host, and it is not a reason
-against the DOM row above. If that deck is ever wanted its moment is the
-Freehand tree deletion, because `testbeds/freehand-views` existed solely to
-give the Views panel a populated roster, those panel sections have now retired
-(`021-Dynamic-Panel-Designs.md` §3.4.1, rf2-l86mm), and the deck's build id,
-port and scenario slot free up together with the tree. This tab is the survivor
-of that disposition, not a casualty of it.
+against the DOM row above. If that deck is ever wanted, its moment has arrived:
+`testbeds/freehand-views` existed solely to give the Views panel a populated
+roster, those panel sections retired
+([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.1,
+rf2-l86mm), and the deck's build id, port and scenario slot freed up with the
+Freehand tree (rf2-0yp7w). This tab is the survivor of that disposition, not a
+casualty of it.
