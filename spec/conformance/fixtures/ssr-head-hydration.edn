@@ -33,7 +33,7 @@
  :fixture/dispatches
  ;; Per Spec 011 §The :rf/hydrate event the payload's `:rf/app-db`
  ;; carries the active-route slice under the canonical `:rf/route`
- ;; key (matching Spec 004 §Active-route storage). The runtime's
+ ;; key (matching Spec 012 §The :rf/route slice). The runtime's
  ;; `active-head` reads `:rf/route` to find the route-id whose `:head`
  ;; metadata names the head fn to invoke.
  ;; EP-0001 (rf2-vzld77): the active-route slice is durable routing

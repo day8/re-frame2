@@ -21,7 +21,7 @@ The headline shape:
 
 - **Frames** are isolated runtime boundaries — `{state, queue, sub-cache, id}` (multi-instance, per-test, per-request) (Spec 002).
 - **Registration** carries rich metadata; every registered entity is queryable (Spec 001 / 010).
-- **Views** are pure functions of `(state, props) → render-tree`; the render-tree is serialisable data (Spec 004).
+- **Views** are pure functions of `(state, props) → render-tree`; the render-tree is serialisable data.
 - The **CLJS reference** makes concrete bindings (atom, Malli, Reagent, hiccup, ...) without committing the pattern to them.
 - Existing re-frame code keeps working subject to a small, well-defined set of mechanical migration rules (C1 below; [MIGRATION.md](../migration/from-re-frame-v1/README.md)).
 
@@ -449,7 +449,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 |---|---|---|
 | 001 | Registration | Registration calls accept a metadata map. Foundation for everything below. |
 | 002 | Frames | Isolated runtime boundaries; one global handler registrar; explicit-frame addressing at the pattern level. CLJS reference uses React context as an optimisation. |
-| 004 | Views | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. |
+| — | Views | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. **No Spec document carries this contract** — see the note below. |
 | 006 | Reactive Substrate | Substrate-agnostic core + adapter contract; Reagent default; plain-atom for JVM/SSR/headless. v1-required for the CLJS reference; pattern-level for any host. |
 | 008 | Testing | Test fixtures, sync triggers, per-test stubbing, headless sub/machine evaluation, framework adapters. |
 | 009 | Instrumentation, Tracing, Performance | Trace event stream, listener API, Performance API integration; tools depend on traces. |
@@ -459,6 +459,8 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 | 013 | Flows | Registered, runtime-toggleable computed-state declarations that materialise into `app-db`. v2 incarnation of v1's `on-changes` interceptor. |
 
 > Slot 003 is intentionally vacant — reserved for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology); see [README §About Spec 003](README.md). The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
+
+> Slot 004 is vacant for a different reason: it once held a view contract and no longer does. `004-Views.md` was deleted on 2026-08-18 together with the substrates it described, and nothing has replaced it — this corpus asserts no view contract, and where a replacement lands is not yet settled. The **capability** stays v1-required, which is why the row above survives without a Spec number; the contract statement it summarises is the View-contract bullet in [§The pattern](#the-pattern-js-cross-compile-language-agnostic). `004B` and `004C` are separate surviving contracts — the structural tree ABI, and root identity and mount — not a replacement for the deleted document. See [README §There is no 004 view contract](README.md).
 
 ### v1-optional capabilities
 
