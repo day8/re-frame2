@@ -1,0 +1,4 @@
+;; Fixture stand-in with a NON-executable extension.  The widened rule takes
+;; any extension rather than a hand-list of the script suffixes that happen to
+;; appear today, and this file is what pins that.
+{:fixture true}
