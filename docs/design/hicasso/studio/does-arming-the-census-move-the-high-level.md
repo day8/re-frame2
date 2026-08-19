@@ -37,6 +37,22 @@ The levels are page-global and discrete, so the discriminator is a **byte compar
 the estimator pair** against the two levels already in the corpus. Declared before any
 run so that no reading is classified after the fact:
 
+> **AMENDED AT RUN 3 OF 70, AND THE DISCLOSURE IS THE POINT.** The rule as first
+> written asked whether a pair "reads 21,632 / 22,072" — an exact byte equality — and
+> that is under-specified, because a settled level in this corpus carries a small
+> jitter: `rf2-77gz8`'s `run11` reads 19,110 against the same level's 19,100 in the
+> other eighteen. **What I had seen when I amended it**: three runs taken, of which
+> `unarmed-01` reached the mode and read **21,620 / 22,060** — 12 B from the +2,532
+> level on both segments and 1,272 B from the +3,792 level on both. So the literal
+> rule classified nothing and the amendment was forced. **The amended rule**: a
+> high-mode pair is assigned to the **nearest** corpus level, and the assignment
+> stands only if the pair sits **within ±64 B of that level on both segments and more
+> than 256 B from every other**; otherwise the run is reported as a FOURTH LEVEL and
+> the two-level comparison is refused for it. ±64 B is about five times the largest
+> jitter the corpus shows and about a twentieth of the smallest gap between levels
+> (1,260 B), so it cannot reach across. Amended with 67 of 70 runs unrun, committed
+> before they were taken, and the verdict below is read under the amended rule.
+
 | Observation | Verdict |
 |---|---|
 | Both arms reach the mode; **every** armed high reads 21,632 / 22,072 and **every** unarmed high reads 22,892 / 23,332 | **ARMING SHIFTS THE HIGH LEVEL.** The two are ONE level under two builds, and every high-mode reading in the corpus — `rf2-77gz8`'s included — is instrument-dependent |
