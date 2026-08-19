@@ -21,7 +21,8 @@
   server-side test.
 
   Views are referenced by a CALLABLE head: the Var `reg-view` defs, or
-  `(rf/view :id)`. Spec 004 + Conventions own this grammar; Spec 011's
+  `(rf/view :id)`. Conventions §Render-tree shape vs runtime lookup owns
+  this grammar; Spec 011's
   keyword-resolution prose was a non-owning spec extending it and has
   been corrected. Finishes rf2-n82bbu — these emitters were the last
   surface out of conformance.
@@ -599,7 +600,8 @@
          ;; the mistake survived every server-side test (rf2-o4rbh found it
          ;; in the flagship streaming example).
          ;;
-         ;; Spec 004 + Conventions own the head grammar; Spec 011's
+         ;; Conventions §Render-tree shape vs runtime lookup owns the head
+         ;; grammar; Spec 011's
          ;; keyword-resolution prose was a non-owning spec extending it and
          ;; is CORRECTED, not changed (rf2-3i7tr grammar ownership). This
          ;; finishes rf2-n82bbu — the JVM emitters were the last surface

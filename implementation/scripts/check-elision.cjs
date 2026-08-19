@@ -274,8 +274,8 @@ const DEV_ONLY_SENTINELS = [
   // goog.DEBUG=false.
   { source: 're-frame.epoch.assembly/apply-redact-fn (rf.warning/epoch-redact-fn-exception, projection-side)',
     sentinel: 'rf.warning/epoch-redact-fn-exception' },
-  // re-frame.views — :rf.view/render trace op (Spec 004 §Render-tree
-  // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
+  // re-frame.views — :rf.view/render trace op (Spec 009 §`:op-type`
+  // vocabulary, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit
   // body sits inside `(when interop/debug-enabled? ...)`. The
   // operation keyword's string fragment must elide in production —

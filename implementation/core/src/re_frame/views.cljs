@@ -1,5 +1,6 @@
 (ns re-frame.views
-  "Views — reg-view, frame-provider. Per Spec 004.
+  "Views — reg-view, frame-provider. Per Spec 002 §What `reg-view`
+  injects and §`frame-provider` — the SCOPE-only component.
 
   CLJS-only (Reagent-side). The pure-data render-tree contract lives in
   Spec 011 (SSR); this namespace ties view registration into the Reagent
@@ -8,8 +9,10 @@
   Form-1 (a render fn) is the canonical view shape. Form-2/3 are
   supported via Reagent's native handling.
 
-  reg-view auto-defs the local Var (per Spec 004 §reg-view defs the Var
-  by default); the Var is the canonical call-site reference. For
+  reg-view auto-defs the local Var (per Conventions §Render-tree shape
+  vs runtime lookup — `reg-view` bridges Var and id, auto-defing the
+  symbol AND auto-deriving the registry id); the Var is the canonical
+  call-site reference. For
   late-binding by id (e.g. across module boundaries, runtime-computed
   ids, or hot-reload semantics), call `(re-frame.core/view :id)`
   to obtain the wrapped fn and use `[(rf/view :id) args]` as the
@@ -69,14 +72,15 @@
   `[<view-id> <instance-token>]`. Bound by the wrapper emitted by
   `reg-view*` for the duration of each render. Nil outside a registered
   view's render (the trace recorder treats nil as
-  `[:rf.view/anonymous nil]` per Spec 004 §Render-tree primitives)."
+  `[:rf.view/anonymous nil]` per Spec-Schemas §`:rf/epoch-record`)."
   nil)
 
 (defn current-render-key
   "Return the `:render-key` for the in-flight render, or
   `[:rf.view/anonymous nil]` when none is bound (e.g. inside a plain
-  Reagent fn that bypassed reg-view). Per Spec 004 §Render-tree
-  primitives — the anonymous fallback is the documented unbound-shape."
+  Reagent fn that bypassed reg-view). Per Spec-Schemas
+  §`:rf/epoch-record` — the anonymous fallback is the documented
+  unbound-shape."
   []
   (or *render-key* [:rf.view/anonymous nil]))
 
@@ -613,7 +617,8 @@
   frame at render time, then registers it in the :view kind of the
   registrar.
 
-  Per Spec 004 §reg-view*: this is the plain-fn surface delegated to
+  Per Conventions §Render-tree shape vs runtime lookup: this is the
+  plain-fn surface delegated to
   by `re-frame.core/reg-view*` on CLJS. `metadata` is merged into the
   registry slot's metadata as-is; source-coord capture is performed
   by the caller (`re-frame.core/reg-view*`).
@@ -621,7 +626,7 @@
   Each render binds `*render-key*` to `[id instance-token]` so the
   trace recorder can attribute the render. The instance-token is
   minted at mount and reused across re-renders of the same component
-  instance (per Spec 004 §Render-tree primitives).
+  instance (per Spec-Schemas §`:rf/epoch-record`).
 
   The view's HandlerScope is pre-computed once at registration time
   from `metadata` (source-coord stamp + `:rf.trace/no-emit?` — fixed

@@ -37,7 +37,7 @@
   ## Why a component and not a keyword head
 
   `:rf/suspense-boundary` cannot be an authoring surface on the client.
-  A keyword head is an HTML element on every host (Spec 004 + Conventions
+  A keyword head is an HTML element on every host (Conventions
   §Render-tree shape vs runtime lookup; rf2-j81hs made that one rule
   corpus-wide), so a marker left in a client render tree paints a phantom
   `<suspense-boundary>` element. And the marker could not be *given*
