@@ -7,7 +7,7 @@ session loaded with the skill.
 
 ## Repo-maintenance artifact, not shipped
 
-`evals/` is a **repo-maintenance artifact** — it is **not** part of
+`evals/` is a repo-maintenance artifact — it is not part of
 the distributable skill package. `skills/re-frame2/package.json`'s `files`
 allow-list omits `evals/`: a packaged-skill consumer runs the skill,
 they do not re-run its gate suite, so shipping the harness would only bloat the
@@ -26,25 +26,25 @@ The harness follows Anthropic's `skill-creator` convention, documented in
 and the schema in
 [`anthropics/skills/skills/skill-creator/references/schemas.md`](https://github.com/anthropics/skills/blob/main/skills/skill-creator/references/schemas.md).
 The same shape is described in Anthropic's public best-practices guide:
-[*Skill authoring best practices — Build evaluations first*](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#build-evaluations-first).
+[Skill authoring best practices — Build evaluations first](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#build-evaluations-first).
 
 A single `evals.json` file holds the eval list. Per Anthropic's schema:
 
 - `skill_name` — must match the skill's frontmatter (`re-frame2`).
 - `evals[]` — one entry per scenario. Each entry has:
-  - `id` — unique integer.
+  - `id` — unique integer
   - `name` — short kebab-case slug; used as the per-run directory name when
-    the harness is executed.
-  - `prompt` — the user message that exercises the skill.
+    the harness is executed
+  - `prompt` — the user message that exercises the skill
   - `expected_output` — a human-readable description of what success looks
-    like (not parsed; it's there to make manual review fast).
+    like (not parsed; it's there to make manual review fast)
   - `files` — optional list of input files (empty here; every prompt is
-    self-contained).
+    self-contained)
   - `expectations` — a list of objectively verifiable statements. The
     grader (human or scripted) checks each one against the run's output and
     transcript. This is the field that produces the pass/fail signal.
 
-Two harness extensions on top of the base schema:
+2 harness extensions on top of the base schema:
 
 - `dimension` — `discovery` | `recipe-correctness` | `routing-correctness`.
   Lets coverage be measured even when an eval contributes to more than one.
@@ -53,7 +53,7 @@ Two harness extensions on top of the base schema:
 
 ## Coverage
 
-Eleven evals, covering the three dimensions:
+11 evals, covering the 3 dimensions:
 
 | ID | Name | Dimension | What it probes |
 |---:|---|---|---|
@@ -69,8 +69,8 @@ Eleven evals, covering the three dimensions:
 | 10 | `recipe-correctness-mutation-reply-to-workflow` | recipe-correctness | Article-save flow with post-success navigate + toast + field-error folding, concurrent saves (`patterns/resources-mutations.md`). Does the output use `reg-mutation` via `[:rf.mutation/execute …]` keyed by `:instance`, and keep the two axes apart — cache consequences (`:invalidates` list / `:populates` detail) DECLARATIVE on `reg-mutation`, app workflow in a call-site `:reply-to` handler (a causal event target reading the appended `{:status :value :error}` reply map, NOT a callback, NOT registration-level) — rejecting workflow-on-`reg-mutation` and the component-watcher idiom? |
 | 11 | `recipe-correctness-mutation-optimistic-mixed-scope` | recipe-correctness | Optimistic favorite (instant heart/count, clean rollback) invalidating a global article fact AND the session-scoped feed (`patterns/resources-mutations.md`). Does the output declare an `:optimistic` / `:optimistic-tags` plan (params / old-data, NO `result` arg) relying on the runtime-recorded inverse (no hand-written rollback), express the mixed-scope invalidation as per-target DESCRIPTORS (`{:scope :rf.scope/global …}` + `{:scope {:from-db …} :tags #{[:feed]}}`) rather than `:cross-scope? true`, and never `assoc` into `:rf.runtime/resources`? |
 
-Three is Anthropic's minimum. Eleven gives **seven** recipe-correctness evals
-and **two** each for discovery and routing-correctness, so every dimension keeps
+3 is Anthropic's minimum. 11 gives 7 recipe-correctness evals
+and 2 each for discovery and routing-correctness, so every dimension keeps
 multi-eval coverage and any single eval can flake without the dimension going
 dark. The skew toward recipe-correctness reflects that dimension's higher defect
 risk (idiom drift in produced code) — including the Resources/mutations recipe
@@ -80,7 +80,7 @@ fail-closed mandatory `:scope`, the passive-view / causal-fetch split, call-site
 runtime-recorded inverses — plus the Story-recorder privacy contract eval 7
 guards and the Story authoring/run boundary eval 8 guards.
 
-> **Staying in sync.** The table above, the eval count in this paragraph, and
+> Staying in sync: the table above, the eval count in this paragraph, and
 > the per-dimension breakdown are checked against `evals.json` by
 > `scripts/check_skill_eval_docs.py` (run it after adding or renaming an eval).
 > The gate fails if the README count, the dimension tallies, or the set of eval
@@ -92,9 +92,9 @@ The skill-creator workflow ([SKILL.md
 §"Running and evaluating test cases"](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md))
 is the reference. The short version:
 
-1. For each eval, spawn two Claude sessions in parallel:
-   - **with-skill** — `skills/re-frame2/SKILL.md` is loaded.
-   - **baseline** — no skill loaded (just plain Claude).
+1. For each eval, spawn 2 Claude sessions in parallel:
+   - with-skill — `skills/re-frame2/SKILL.md` is loaded
+   - baseline — no skill loaded (just plain Claude)
 2. Capture the agent's response, the tool-call transcript, and any files it
    produces.
 3. Grade each `expectations[]` entry against the captured output — pass / fail
@@ -116,13 +116,13 @@ directly, point it at this directory and the workspace can live alongside
 
 For v1.0 release of `skills/re-frame2/`:
 
-- Every eval's `expectations[]` pass rate ≥ **0.80** with-skill across three
-  runs.
-- The with-skill vs baseline pass-rate delta is **strictly positive** for at
-  least one eval per dimension. (If baseline matches with-skill, the skill is
-  not earning its tokens for that dimension.)
-- No eval shows pathological behaviour (the agent ignoring the skill, hitting
-  a recursion limit, or reading `>3` leaves for a single prompt).
+- every eval's `expectations[]` pass rate ≥ 0.80 with-skill across 3
+  runs
+- the with-skill vs baseline pass-rate delta is strictly positive for at
+  least one eval per dimension (if baseline matches with-skill, the skill is
+  not earning its tokens for that dimension)
+- no eval shows pathological behaviour (the agent ignoring the skill, hitting
+  a recursion limit, or reading `>3` leaves for a single prompt)
 
 If an eval consistently fails, the fix usually lives in the leaf, not the
 eval — that's the whole point of evaluation-driven development. Fix the leaf

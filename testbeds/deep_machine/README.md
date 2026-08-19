@@ -1,8 +1,8 @@
 # `testbeds/deep-machine`
 
-One Reagent-mounted state machine that, in a single registration,
+One Reagent-mounted state machine. In a single registration it
 exercises every grammar surface from [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md)
-a tool (Xray, Story, re-frame2-pair-mcp) needs to discriminate when
+that a tool (Xray, Story, re-frame2-pair-mcp) needs to discriminate when
 visualising hierarchy and transition cascades. The buttons drive the
 machine through each capability one at a time.
 
@@ -29,51 +29,51 @@ machine through each capability one at a time.
 
 ## Why one machine, not five
 
-The five capability axes (parallel / hierarchical / `:always` /
-`:after` / `:spawn` / `:spawn-all`) compose in the spec; a
+The 5 capability axes (parallel / hierarchical / `:always` /
+`:after` / `:spawn` / `:spawn-all`) compose in the spec. A
 visualiser that handles each in isolation may still break when they
-interact — e.g. a `:spawn` declared on a deeply nested leaf inside
+interact — for example a `:spawn` declared on a deeply nested leaf inside
 a region, where the spawn/destroy fx must be emitted with the full
 prefix-path resolved at desugar time. A tool that conflates the
 spawn-registry path with the leaf-only key fails on this surface.
 
-The two child machines (`:helper/tick`, `:helper/job`) are minimal —
+The 2 child machines (`:helper/tick`, `:helper/job`) are minimal —
 they exist as well-formed `:machine-id`s the parent's `:spawn` /
 `:spawn-all` can address. Their bodies are not interesting; the
 load-bearing thing this surface shows is the parent's spawn /
 destroy / join shape, not what the children compute.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- **No `:final?` on the parent.** The parent never terminates;
+- no `:final?` on the parent. The parent never terminates;
   `:work/reset` cycles it. A future surface can layer the final-state
-  contract.
-- **No nested parallel regions.** Per [spec/005 §Parallel regions]
+  contract
+- no nested parallel regions. Per [spec/005 §Parallel regions]
   v1 explicitly disallows nesting; `make-machine-handler` would
   reject this at registration. The five-deep compound on `:work`
   + the top-level parallel split between `:work` and `:health` is
-  the depth ceiling under the v1 grammar.
-- **No `:on-error` policy.** Per-frame error overrides are a
+  the depth ceiling under the v1 grammar
+- no `:on-error` policy. Per-frame error overrides are a
   separate contract; this surface stays on the happy path so each
-  cascade is observable as a clean transition.
-- **No `:after` driven by a snapshot-fn or a subscription.** Per
+  cascade is observable as a clean transition
+- no `:after` driven by a snapshot-fn or a subscription. Per
   [spec/005 §`:after` delay shapes] those are valid; the testbed
   uses a literal `pos-int?` for the deterministic 200ms test
-  window. A future surface can layer the fn-delay shape.
+  window. A future surface can layer the fn-delay shape
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- Trace panel populates on first dispatch — each Button produces a
+Xray (26):
+- trace panel populates on first dispatch — each button produces a
   rich cascade (multiple `:rf.machine/*` traces per click) that
-  exercises the trace panel's grouping by `:cascade-id`.
-- Click-to-source from trace event lands on source-coord line —
+  exercises the trace panel's grouping by `:cascade-id`
+- click-to-source from trace event lands on source-coord line —
   every `:guards` / `:actions` entry in the deep machine carries
   reader meta; the `:rf.machine/source-coords` index resolves
-  every transition's source line.
+  every transition's source line
 
-**Cross-cutting (6)**:
-- **State-machine transition cascade shows `:rf.machine/*` events**
+Cross-cutting (6):
+- state-machine transition cascade shows `:rf.machine/*` events
   — the load-bearing scenario this surface unblocks. Each of the
   buttons above produces a different `:rf.machine/*` trace shape
   the consumer's panel must surface and discriminate:

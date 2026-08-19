@@ -15,13 +15,13 @@ Filed under `rf2-v04s`, executing item 2 of [`rf2-hic-063`](#what-governs-this-d
 | [`brief-linearlite.md`](brief-linearlite.md) | Pilot 2's brief — LinearLite, the board and the grown card detail | Handing the brief to the agent |
 | [`friction-log.md`](friction-log.md) | The friction-log format, built around the seven outcomes | Before a pilot writes its first entry, and when dispositioning a finished log |
 
-The two briefs are the only pages a pilot agent ever sees. `workspace.md` is the operator's; `friction-log.md` is quoted into the brief by reference and its blank template is copied into the workspace, but the pilot is never sent to this directory to read it, because this directory is inside the repository the pilot is blinded to.
+The 2 briefs are the only pages a pilot agent ever sees. `workspace.md` is the operator's. `friction-log.md` is quoted into the brief by reference, and its blank template is copied into the workspace. But the pilot is never sent to this directory to read it, because this directory is inside the repository the pilot is blinded to.
 
 ## The blinding is a read fence, not an absence
 
-The ratified method is a fresh agent, a separate workspace, and the released artefact plus public docs only — no repo access, no in-tree spec, no bead history. The obvious way to enforce that is for the repository simply not to be there. **That is not available, and it is worth being exact about why, because the workaround is the load-bearing design decision in this package.**
+The ratified method is a fresh agent, a separate workspace, and the released artefact plus public docs only — no repo access, no in-tree spec, no bead history. The obvious way to enforce that is for the repository simply not to be there. That is not available, and it is worth being exact about why, because the workaround is the load-bearing design decision in this package.
 
-[`docs/core/hicasso/00-installation.md`](../../../../core/hicasso/00-installation.md) — the published page, the one a pilot is *supposed* to follow — tells the reader that `day8/re-frame2-hicasso` is not published, and to clone the monorepo beside their project and resolve it with `:local/root`. So a pilot following the published instructions correctly ends up with the entire repository on disk. Two further published paths do the same thing: the migration reporter that [chapter 20](../../../../core/hicasso/20-migration-from-reagent.md) opens with is run from `migration/reagent-to-hicasso/codemod` inside that checkout, and the full compatibility matrix is a design record the installation page names by repository path and tells the reader to read from a checkout.
+[`docs/core/hicasso/00-installation.md`](../../../../core/hicasso/00-installation.md) — the published page, the one a pilot is supposed to follow — tells the reader that `day8/re-frame2-hicasso` is not published, and to clone the monorepo beside their project and resolve it with `:local/root`. So a pilot following the published instructions correctly ends up with the entire repository on disk. Two further published paths do the same thing: the migration reporter that [chapter 20](../../../../core/hicasso/20-migration-from-reagent.md) opens with is run from `migration/reagent-to-hicasso/codemod` inside that checkout, and the full compatibility matrix is a design record the installation page names by repository path and tells the reader to read from a checkout.
 
 Blinding therefore cannot mean the repository is absent. It means:
 
@@ -31,7 +31,7 @@ Blinding therefore cannot mean the repository is absent. It means:
 
 ## What the published documentation does not answer
 
-Three gaps were found while writing the briefs, all of one class: **the published happy path routes through a repository checkout at three separate points.** They are recorded rather than filled, because filling them from in-tree knowledge is the contamination the programme exists to detect.
+Three gaps were found while writing the briefs, all of one class: the published happy path routes through a repository checkout at 3 separate points. They are recorded rather than filled, because filling them from in-tree knowledge is the contamination the programme exists to detect.
 
 | # | Gap | Where it bites | Standing |
 | --- | --- | --- | --- |

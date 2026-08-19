@@ -1,12 +1,12 @@
-# Enhancement Proposals (EPs)
+# Enhancement proposals (EPs)
 
-Design proposals for re-frame2 which follow the Python Enhancement Proposal model. The project goal is to drive the coding work using detailed specifications (which are just really good prompts), and these EPs are an example of such prompts.
+These are design proposals for re-frame2. They follow the Python Enhancement Proposal model. The project's goal is to drive the coding work with detailed specifications, which are just really good prompts. These EPs are an example of such prompts.
 
 The EP process itself — types, status lifecycle, durability rules, and the EP-worthiness bar — is normative in [EP-0009](EP-0009-the-ep-process.md). This README is only the index and summary.
 
 ## Authoring a new EP
 
-Copy [`EP-template.md`](EP-template.md) to `EP-NNNN-<slug>.md`, fill it in, and add an index row below. The template encodes the active-process rules so a new EP follows them by construction: `Status:` is a [controlled lifecycle](EP-0009-the-ep-process.md#statuses) (not free text), `Type:` is `standards-track` or `process`, and graduation is per-type — standards-track into `spec/`, process into its named normative home (which may be the active EP itself). The full process — including the EP-worthiness bar and the [document conventions](EP-0009-the-ep-process.md#document-conventions) — is normative in [EP-0009](EP-0009-the-ep-process.md). `scripts/check_ep_status_sync.py` is the mechanical gate (status/Type grammar + README/header sync).
+Copy [`EP-template.md`](EP-template.md) to `EP-NNNN-<slug>.md`, fill it in, and add an index row below. The template encodes the active-process rules so a new EP follows them by construction: `Status:` is a [controlled lifecycle](EP-0009-the-ep-process.md#statuses) (not free text), and `Type:` is `standards-track` or `process`. Graduation is per-type — standards-track into `spec/`, process into its named normative home (which may be the active EP itself). The full process — including the EP-worthiness bar and the [document conventions](EP-0009-the-ep-process.md#document-conventions) — is normative in [EP-0009](EP-0009-the-ep-process.md). `scripts/check_ep_status_sync.py` is the mechanical gate (status/Type grammar + README/header sync).
 
 ## Index
 

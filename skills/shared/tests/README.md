@@ -13,7 +13,7 @@ regression backstop.
 
 ## Structural surfaces
 
-Two structural tests, both plain `clojure.test` over file contents,
+2 structural tests, both plain `clojure.test` over file contents,
 both CI-eligible. The CI step loops `skills/shared/tests/*_test.clj`,
 so a new structural test added here is gated automatically.
 
@@ -34,8 +34,8 @@ file contents). The behavioural fixtures are document-runnable; see
 
 ## Why this directory exists
 
-The corpus convention is that **only `re-frame2-pair/`, `shared/`, and
-`re-frame2-setup/` ship a `tests/` directory** — see `skills/README.md`
+The corpus convention is that only `re-frame2-pair/`, `shared/`, and
+`re-frame2-setup/` ship a `tests/` directory — see `skills/README.md`
 §"Test-fixture discipline." `re-frame2-pair/` qualifies because it
 drives a live runtime (nREPL attach, app-db mutation, epoch reads), so
 its surface is testable in the conventional sense;
@@ -44,9 +44,9 @@ generator template (`tests/setup_drift_test.clj` pins the load-bearing
 coordinates).
 
 `skills/shared/` (this directory) is the second exception, and it earns
-it for a different reason: `retro-protocol.md` is a **security
-boundary**, not just a doc leaf. A prior audit found four issues there;
-three landed prose-only fixes. The audit's Finding 4 explicitly called
+it for a different reason: `retro-protocol.md` is a security
+boundary, not just a doc leaf. A prior audit found 4 issues there;
+3 landed prose-only fixes. The audit's Finding 4 explicitly called
 for a regression suite so a future drift of the prose doesn't silently
 re-open the boundary.
 

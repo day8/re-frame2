@@ -4,25 +4,25 @@ Maven artefact: `day8/reagent-slim` (per IMPL-SPEC §1 DECISION-1 — the `re-fr
 
 Public ns:
 
-- **In-tree (this repo):** `re-frame.adapter.reagent-slim`. The monorepo shadow-cljs build adds both `adapters/reagent/src` and `adapters/reagent-slim/src` to the same classpath, and the bridge adapter already owns `(ns re-frame.adapter.reagent ...)`; the slim adapter therefore carries the `-slim` suffix in-tree to avoid a hard ns clash on that shared classpath.
-- **Published Maven artefact:** `re-frame.adapter.reagent` — i.e. the canonical adapter ns (no `-slim` suffix). Downstream apps depend on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, so the ns is single-source per app and a downstream `(:require [re-frame.adapter.reagent :as ra])` works regardless of which coord their `deps.edn` pins.
+- in-tree (this repo): `re-frame.adapter.reagent-slim`. The monorepo shadow-cljs build adds both `adapters/reagent/src` and `adapters/reagent-slim/src` to the same classpath, and the bridge adapter already owns `(ns re-frame.adapter.reagent ...)`; the slim adapter therefore carries the `-slim` suffix in-tree to avoid a hard ns clash on that shared classpath.
+- published Maven artefact: `re-frame.adapter.reagent` — that is, the canonical adapter ns (no `-slim` suffix). Downstream apps depend on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, so the ns is single-source per app and a downstream `(:require [re-frame.adapter.reagent :as ra])` works regardless of which coord their `deps.edn` pins.
 
-The publication-time rename exists **solely** to resolve the monorepo classpath clash above — it is not a back-compat shim for some prior published ns (reagent-slim is pre-alpha and has never shipped). It happens on a throwaway runner checkout in `.github/workflows/release.yml` (the `Rename adapter ns at publication` step in the `deploy-leaf` matrix job, gated `if: matrix.leaf == 'reagent-slim'`, delegating to `.github/scripts/transform-reagent-slim-ns.sh`) — it mv's `reagent_slim.cljs` → `reagent.cljs` and rewrites the `(ns ...)` declaration before clein packages the jar. The in-tree source is never modified.
+The publication-time rename exists solely to resolve the monorepo classpath clash above — it is not a back-compat shim for some prior published ns (reagent-slim is pre-alpha and has never shipped). It happens on a throwaway runner checkout in `.github/workflows/release.yml` (the `Rename adapter ns at publication` step in the `deploy-leaf` matrix job, gated `if: matrix.leaf == 'reagent-slim'`, delegating to `.github/scripts/transform-reagent-slim-ns.sh`) — it mv's `reagent_slim.cljs` → `reagent.cljs` and rewrites the `(ns ...)` declaration before clein packages the jar. The in-tree source is never modified.
 
-Reagent-slim is the trimmed-down Reagent variant re-frame2's reference adapter targets when re-com's full surface isn't required. Same observable view semantics as the full Reagent adapter; smaller dependency footprint; an empirically-capped Form-3 surface.
+Reagent-slim is the trimmed-down Reagent variant re-frame2's reference adapter targets when re-com's full surface isn't required. It keeps the same observable view semantics as the full Reagent adapter, with a smaller dependency footprint and an empirically-capped Form-3 surface.
 
 See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) for the design decisions (why this exists, the React 19 floor, the 7-key Form-3 cap, the narrowed `convert-prop-value`, the SSR split). See [`IMPL-SPEC.md`](IMPL-SPEC.md) for the implementation contract.
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 
-Most views are Form-1 / Form-2; the canonical surface is `reg-view`. A small fraction of views genuinely need to own a piece of host DOM lifecycle:
+Most views are Form-1 / Form-2. The canonical surface is `reg-view`. A small fraction of views genuinely need to own a piece of host DOM lifecycle:
 
-- **Library bridges** — Framer Motion, GSAP, D3 transitions, Vega-Embed, Mapbox, ag-grid, CodeMirror, SpreadJS — anything imperative that needs a DOM element plus mount / update / unmount hooks.
-- **DOM-listener-bearing widgets** — `addEventListener` for `animationend`, `transitionend`, `resize`, intersection / mutation observers, custom DOM protocols.
-- **Error boundaries** — `componentDidCatch` is React's class-component-only contract; the slim adapter's 7-key cap permits it precisely because no Form-1 substitute exists.
-- **Pre-commit DOM measurement** — scroll-position restoration via `:get-snapshot-before-update`.
+- library bridges — Framer Motion, GSAP, D3 transitions, Vega-Embed, Mapbox, ag-grid, CodeMirror, SpreadJS — anything imperative that needs a DOM element plus mount / update / unmount hooks
+- DOM-listener-bearing widgets — `addEventListener` for `animationend`, `transitionend`, `resize`, intersection / mutation observers, custom DOM protocols
+- error boundaries — `componentDidCatch` is React's class-component-only contract; the slim adapter's 7-key cap permits it precisely because no Form-1 substitute exists
+- pre-commit DOM measurement — scroll-position restoration via `:get-snapshot-before-update`
 
-The escape hatch is **Form-3 via `reagent2.core/create-class`** (the slim equivalent of full Reagent's `reagent.core/create-class`), registered through `re-frame.core/reg-view*` — the plain-fn surface [`spec/API.md`](../../../spec/API.md) names for `create-class` bodies.
+The escape hatch is Form-3 via `reagent2.core/create-class` (the slim equivalent of full Reagent's `reagent.core/create-class`), registered through `re-frame.core/reg-view*` — the plain-fn surface [`spec/API.md`](../../../spec/API.md) names for `create-class` bodies.
 
 ### Spelling
 
@@ -37,7 +37,7 @@ The escape hatch is **Form-3 via `reagent2.core/create-class`** (the slim equiva
    :component-did-catch       (fn [this err info] ...)})
 ```
 
-The slim adapter enforces a **7-key cap** — these six keys plus `:display-name`. Any other key throws at `create-class` call time. The cap is empirical (the union of what Day8's four production codebases use, plus nothing else); see [`DESIGN-RATIONALE.md` §4](DESIGN-RATIONALE.md) for the framing.
+The slim adapter enforces a 7-key cap — these 6 keys plus `:display-name`. Any other key throws at `create-class` call time. The cap is empirical (the union of what Day8's 4 production codebases use, plus nothing else); see [`DESIGN-RATIONALE.md` §4](DESIGN-RATIONALE.md) for the framing.
 
 ### Outer / inner pattern, with all worked examples
 
@@ -69,12 +69,12 @@ The skeleton, briefly:
     [(rf/view :my-app.charts/vega-inner) spec]))
 ```
 
-Four things matter (same as full Reagent — the slim adapter's lifecycle semantics are observably identical):
+4 things matter (same as full Reagent — the slim adapter's lifecycle semantics are observably identical):
 
-1. **Per-mount state in closure atoms.** Don't `def` / `defonce` at top-level.
-2. **`:component-will-unmount` is mandatory** — without it the library instance and any listeners it attached leak across re-mounts and hot-reloads.
-3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The frame api carries the surrounding frame; lifecycle callbacks fire after commit but the closure is established at render-time.
-4. **Subscriptions live in the outer or in `:reagent-render`** — reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount`.
+- per-mount state in closure atoms — don't `def` / `defonce` at top-level
+- `:component-will-unmount` is mandatory — without it the library instance and any listeners it attached leak across re-mounts and hot-reloads
+- `(:dispatch (rf/capture-frame))` is captured during render, not inside the lifecycle callback. The frame api carries the surrounding frame. Lifecycle callbacks fire after commit but the closure is established at render-time
+- subscriptions live in the outer or in `:reagent-render` — reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount`
 
 ### Cross-references
 
@@ -82,6 +82,6 @@ Four things matter (same as full Reagent — the slim adapter's lifecycle semant
 - [`DESIGN-RATIONALE.md` §4 The 7-key Form-3 cap](DESIGN-RATIONALE.md) — why the cap is what it is (empirical, not aspirational).
 - [`IMPL-SPEC.md` §6](IMPL-SPEC.md) — the implementation contract: validation throw shape, React-class wrapper, lifecycle key → method mapping.
 - [`spec/API.md`](../../../spec/API.md) `reg-view*` — the plain-fn surface (no auto-def, no auto-inject, no compile check), listed there for exactly this Form-3 / `create-class` case.
-- **Views MUST NOT attach native DOM event listeners from render bodies, and MUST NOT own imperative library lifecycles directly** — bare `addEventListener` in a render body leaks listeners, and any dispatch the listener later fires escapes the render's frame scope: under EP-0002 that raises `:rf.error/no-frame-context` — a loud error, not a silent route to `:rf/default`. Repair it by carrying the frame into the listener via `(:dispatch (rf/capture-frame))` captured at render, or by wrapping the fire in `(rf/with-frame …)`; either way the imperative lifecycle belongs in Form-3.
+- Views MUST NOT attach native DOM event listeners from render bodies, and MUST NOT own imperative library lifecycles directly — bare `addEventListener` in a render body leaks listeners, and any dispatch the listener later fires escapes the render's frame scope: under EP-0002 that raises `:rf.error/no-frame-context` — a loud error, not a silent route to `:rf/default`. Repair it by carrying the frame into the listener via `(:dispatch (rf/capture-frame))` captured at render, or by wrapping the fire in `(rf/with-frame …)`; either way the imperative lifecycle belongs in Form-3.
 - [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/capture-frame))` at render-time to carry the frame.
-- **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries).
+- Outer/inner Pattern (Pattern-OuterInner) — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries).

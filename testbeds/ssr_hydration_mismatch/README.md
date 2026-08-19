@@ -37,8 +37,8 @@ structured payload visible inline.
 The spec's hash is an 8-character lowercase-hex FNV-1a over the
 canonical-EDN serialisation of the render-tree (per Spec 011
 §Hydration-mismatch detection). To force a real mismatch where the
-client computes some hash and the payload carries a different one, we
-need the client and server to disagree.
+client computes some hash and the payload carries a different one,
+the client and server need to disagree.
 
 A static `index.html` can't compute the FNV-1a at page-build time
 (no JVM in the browser). Instead, baking a constant `"deadbeef"`
@@ -51,8 +51,8 @@ shape (8 lowercase-hex chars).
 
 ## Running
 
-This surface is a dev / Xray observation target — it is **not** staged
-by any smoke gate (the adapter-smoke orchestrator serves only the three
+This surface is a dev / Xray observation target — it is not staged
+by any smoke gate (the adapter-smoke orchestrator serves only the 3
 adapter smokes under `implementation/adapters/<name>/testbed/`). Build
 and view it by hand.
 
@@ -82,4 +82,4 @@ npx http-server out/examples/testbed-ssr-hydration-mismatch -p 8080
 - [`spec/011-SSR.md` §Mismatch recovery and configuration](../../spec/011-SSR.md) — the recovery posture (warn-and-replace).
 - [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md) — the `:rf.ssr/hydration-mismatch` taxonomy entry.
 - [`implementation/ssr/test/re_frame/ssr_end_to_end_test.clj`](../../implementation/ssr/test/re_frame/ssr_end_to_end_test.clj) — the JVM-side mismatch coverage; this testbed pairs with it on the browser side.
-- Sibling: [`testbeds/ssr_basic/`](../ssr_basic/) — the no-mismatch baseline.
+- sibling: [`testbeds/ssr_basic/`](../ssr_basic/) — the no-mismatch baseline.

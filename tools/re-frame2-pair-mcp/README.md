@@ -1,6 +1,6 @@
 # tools/re-frame2-pair-mcp/
 
-`@day8/re-frame2-pair-mcp` — the **MCP (Model Context Protocol) server**
+`@day8/re-frame2-pair-mcp` — the MCP (Model Context Protocol) server
 that pair-programs with a live re-frame2 application over a persistent
 nREPL connection.
 
@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the thirty
+via shadow-cljs to a single `.js` file) that exposes the 30
 re-frame2-pair ops listed in `registry/tools` as MCP tools (the
 read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
@@ -92,14 +92,14 @@ Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
 }
 ```
 
-> **After `claude mcp add`, start a FRESH session — not `--continue`
-> (rf2-646lr).** Registering the server with `claude mcp add` (or editing
+> After `claude mcp add`, start a fresh session — not `--continue`
+> (rf2-646lr). Registering the server with `claude mcp add` (or editing
 > `settings.json`) does not retroactively load the MCP into a session
 > that was already running. Field report: a session resumed with
-> `claude --continue` did **not** surface the re-frame2-pair tools even
+> `claude --continue` did not surface the re-frame2-pair tools even
 > though `claude mcp list` showed the server `Connected`; the tools only
 > appeared after a full exit and `claude --resume` (or a plain new
-> `claude`). MCP servers are wired up at session **start**, so launch a
+> `claude`). MCP servers are wired up at session start, so launch a
 > new session after registering the server (or after pulling MCP source
 > changes and rebuilding `out/server.js` — see the
 > [stale-binary hook](#stale-binary-post-merge-hook-rf2-6jj3r)). This is
@@ -107,10 +107,10 @@ Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
 
 The server auto-discovers the nREPL port from (highest precedence first):
 
-1. `--port-file <path>` launch flag — an explicit, **cwd-independent**
+1. `--port-file <path>` launch flag — an explicit, cwd-independent
    path to the port file. See [Launch flags](#launch-flags).
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. **MCP `roots/list` walk (rf2-3grub)** — primary zero-config path.
+3. MCP `roots/list` walk (rf2-3grub) — primary zero-config path.
    On the first tool call the server asks its MCP client for the
    workspace directories the user has opened, walks each one for
    `shadow-cljs.edn`, and checks the standard port-file candidates
@@ -118,8 +118,8 @@ The server auto-discovers the nREPL port from (highest precedence first):
    Multiple running shadow builds trigger an `elicitation/create`
    prompt so the user picks the project to attach to. Survives shadow
    restarts via a per-tool-call port-file re-read. Requires an MCP
-   client that exposes `roots` (Claude Code 2.1.39+, Cursor, etc.).
-4. **Shadow HTTP probe (rf2-umoz2)** — fallback for clients without
+   client that exposes `roots` (for example Claude Code 2.1.39+ or Cursor).
+4. Shadow HTTP probe (rf2-umoz2) — fallback for clients without
    `roots`. `GET http://127.0.0.1:9630/api/project-info` returns the
    live build's absolute `:project-home`; the server then reads the
    port-file candidates resolved against that root. The HTTP port is
@@ -129,10 +129,10 @@ The server auto-discovers the nREPL port from (highest precedence first):
    `.shadow-cljs/nrepl.port`, `.nrepl-port` — legacy fallback for
    setups without shadow's web server (older shadow, manual nREPL boot).
 
-> **The cwd caveat step 3 solves (rf2-3grub).** Step 5 is bare
-> *relative* paths resolved against `process.cwd()`. The MCP server
-> runs as a **subprocess of the agent host** (Claude Code / Cursor /
-> Copilot), whose cwd is frequently **not** your project root. Step 3
+> The cwd caveat step 3 solves (rf2-3grub). Step 5 is bare
+> relative paths resolved against `process.cwd()`. The MCP server
+> runs as a subprocess of the agent host (Claude Code / Cursor /
+> Copilot), whose cwd is frequently not your project root. Step 3
 > closes that gap by asking the MCP client (which knows the workspace)
 > for the open project roots; step 4 keeps the shadow-specific HTTP
 > escape hatch for clients that pre-date `roots`. The explicit overrides
@@ -146,14 +146,14 @@ Each tool call routes to a shadow-cljs build. The build-id is resolved
 from (highest precedence first):
 
 1. An explicit `:build` MCP arg on this call — always wins.
-2. **Session-scoped cache (rf2-l9ixp)** — populated by `discover-app`
+2. Session-scoped cache (rf2-l9ixp) — populated by `discover-app`
    on success. Run `discover-app` once at the start of a session against
    the build you want to debug; subsequent tool calls default to that
    build without re-passing `:build`. Removes the friction of a multi-
    build workspace silently routing follow-up calls to `:app` (the
    env-var fallback) and returning `:runtime-not-preloaded`. The cache
-   resets on nREPL reconnect (e.g. shadow restart, full page reload
-   destroying the runtime sentinel).
+   resets on nREPL reconnect (for example a shadow restart, or a full page
+   reload destroying the runtime sentinel).
 3. `$SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
 ### Launch flags
@@ -169,12 +169,12 @@ from (highest precedence first):
 #### port-file flag (rf2-3dbwh)
 
 The default port-file fallbacks (`target/shadow-cljs/nrepl.port`,
-`.shadow-cljs/nrepl.port`, `.nrepl-port`) are **relative** paths resolved
+`.shadow-cljs/nrepl.port`, `.nrepl-port`) are relative paths resolved
 against the server's current working directory. Because the MCP server is
-launched as a subprocess of the agent host, that cwd is frequently *not*
+launched as a subprocess of the agent host, that cwd is frequently not
 your project root — in which case the relative scan misses and only the
 env var or `--port-file` resolve a port. `--port-file` takes an
-**absolute** path and wins over every other source:
+absolute path and wins over every other source:
 
 ```json
 {
@@ -189,11 +189,11 @@ env var or `--port-file` resolve a port. `--port-file` takes an
 
 It is the cwd-independent escape hatch when port auto-discovery fails.
 
-#### eval-cljs gate (rf2-a0z0h — default ON; inverts rf2-cxx5s)
+#### eval-cljs gate (rf2-a0z0h — default on; inverts rf2-cxx5s)
 
 `eval-cljs` evaluates arbitrary CLJS / Clojure source against the live
 runtime — it is the REPL primitive of a pair-debug session. Published
-builds ship the tool **ENABLED**. The operator opts OUT at server
+builds ship the tool enabled. The operator opts out at server
 launch with `--no-eval` for the rare paranoid case (CI runs, shared
 dev environments where multiple humans share a single MCP process):
 
@@ -218,20 +218,20 @@ The prior default-OFF posture (rf2-cxx5s) parallelled `--allow-writes`
 in shape but not in effect. `--allow-writes` is load-bearing because
 pair-tool writes can confuse the debug audit trail ("did my app
 produce this state change, or did the pair tool?"). A default-OFF
-`--allow-eval` did NOT parallel that protection because eval-cljs can
+`--allow-eval` did not parallel that protection because eval-cljs can
 express any write the writes-gate would block — the two gates are not
 independent. Once eval is on, writes are de-facto on. So default-OFF
 eval added friction (every operator had to edit `~/.claude.json` and
 restart Claude Code to access the REPL surface) without adding a
 separable protection.
 
-The real defence is **don't expose this MCP to untrusted callers**.
+The real defence is don't expose this MCP to untrusted callers.
 Once an operator has installed re-frame2-pair-mcp and wired it into
 `~/.claude.json`, they have already declared trust in the surface.
 
 ##### Migration
 
-`--allow-eval` is a **removed flag** (rf2-a0z0h). Operators carrying it
+`--allow-eval` is a removed flag (rf2-a0z0h). Operators carrying it
 in their `~/.claude.json` from the prior rf2-cxx5s era get an
 intentional `:removed-flag` boot diagnostic on stderr naming the
 replacement (the parser ignores the flag for posture purposes — eval is
@@ -246,24 +246,24 @@ opt OUT of the eval surface.
 The off-box value-egress surfaces can return verbatim slices of a live
 app's state, so all of them honour the same gate:
 
-- **Direct app-db / sub reads** — `snapshot`, `get-path`, `read-sub`,
+- Direct app-db / sub reads — `snapshot`, `get-path`, `read-sub`,
   `list-subscriptions :include-values` (each sub's `:value`).
-- **Pull-mode epoch reads** — `trace-window`, `watch-epochs`, and
+- Pull-mode epoch reads — `trace-window`, `watch-epochs`, and
   `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 /
   rf2-m9duxl): the raw `:rf/epoch-record` routes through
   `re-frame.core/projected-record`, whose app-db sensitive axis the
   per-call `:include-sensitive` governs. (These have no `:elision` knob —
   they egress whole records, not per-slot values.)
-- **Streaming** — `subscribe`: top-level `:sensitive? true` events
+- Streaming — `subscribe`: top-level `:sensitive? true` events
   default-drop (opt back in with `:include-sensitive`), and the events
   that ride are per-value walked (`:elision`, default on).
-- **Signal recorders** — `record` / `read-recording` and `watch-until`
+- Signal recorders — `record` / `read-recording` and `watch-until`
   (rf2-8fin7.2): the `:app-db` / `:sub` sample values are walked before
   entering `read-recording` or returning as `:sample` / `:last-sample`.
-- **Simulation** — `dispatch-dry-run` (rf2-z7roa): it mutates nothing,
+- Simulation — `dispatch-dry-run` (rf2-z7roa): it mutates nothing,
   but its `:db-state-after-simulation` (the would-be app-db) and
   `:would-fire-effects[*].args` (fx-derived data) are off-box egress, so
-  it is gated by the SAME posture even though it is not
+  it is gated by the same posture even though it is not
   `--allow-writes`-gated.
 
 The reserved-frame tap surface (`app-db-reset!`, below) default-elides
@@ -272,11 +272,11 @@ control-state-only diagnostics (`get-stream-controls`, `list-streams`)
 carry no app-db / event payloads, so they are unconditionally safe — no
 gate. Spec 009 §Privacy mandates default-suppression:
 sensitive slots redact and large slots elide before any payload crosses
-the LLM-facing wire. Published builds ship with the gate **OFF**:
+the LLM-facing wire. Published builds ship with the gate off:
 
-- A caller's `:include-sensitive true` is overridden to `false`.
-- A caller's `:elision false` is overridden to `true`.
-- The preload runtime's `app-db-reset!` taps default-elide both
+- a caller's `:include-sensitive true` is overridden to `false`.
+- a caller's `:elision false` is overridden to `true`.
+- the preload runtime's `app-db-reset!` taps default-elide both
   `:previous` and `:next` payloads through `re-frame.core/elide-wire-value`
   before any tap consumer sees them. The `configure-raw-state!` signal
   that flips the runtime into this posture is issued by every tool that
@@ -309,11 +309,11 @@ of a pair-debug session.
 #### writes gate (rf2-ee38b.18)
 
 `restore-epoch` (time-travel undo) and `replace-app-db` (state
-injection) are the two Tool-Pair **write** primitives the server is the
+injection) are the two Tool-Pair write primitives the server is the
 canonical consumer of (Tool-Pair §Time-travel, §Pair-tool writes). Both
 replace a frame's `app-db` wholesale — qualitatively more powerful than
 `dispatch` (which drives the application's own handlers). Published
-builds ship them **DISABLED**; the operator opts in at launch with
+builds ship them disabled; the operator opts in at launch with
 `--allow-writes`:
 
 ```json
@@ -330,14 +330,14 @@ builds ship them **DISABLED**; the operator opts in at launch with
 Without the flag, both tools return
 `{:ok? false :reason :rf.error/writes-disabled}` without touching the
 nREPL socket — a stock install cannot rewind history or inject state
-over the MCP **named-write** surface. The two tools still appear in
+over the MCP named-write surface. The two tools still appear in
 `tools/list` (descriptors are unconditional); the gate is enforced at
 `tools/call` time. The tools also carry the `:destructiveHint`
 annotation so agent hosts gate them behind a confirmation prompt even
 when the flag is on.
 
-> **Note on composition with `eval-cljs`.** This gate protects the
-> named-write audit trail. It does NOT defend against eval-driven
+> Note on composition with `eval-cljs`. This gate protects the
+> named-write audit trail. It does not defend against eval-driven
 > writes — `eval-cljs` (enabled by default post-rf2-a0z0h) can express
 > any write `--allow-writes` would block. For a true read-only debug
 > session (no app-db mutation through this MCP at all), compose with
@@ -356,7 +356,7 @@ SKILL.md teaches the agent which tool to call. See
 
 ### eval-cljs and Promise-returning forms (rf2-xn4f9)
 
-By default, `eval-cljs` captures the form's **synchronous** return
+By default, `eval-cljs` captures the form's synchronous return
 value and `pr-str`'s it. When the form returns a JS Promise — any
 async work (`fetch`, `.layout()`, an `async` fn, anything chained
 with `.then`) — the synchronous return IS the Promise object, and
@@ -415,7 +415,7 @@ Subset what you need with `include`:
 Agent: tools/call snapshot {frames: ["rf/default"], include: ["app-db", "epochs"]}
 ```
 
-Per-op reads (`eval-cljs` against `runtime/app-db-at`, etc.) remain
+Per-op reads (for example `eval-cljs` against `runtime/app-db-at`) remain
 available — they're still the right call when you genuinely need one
 slice for one frame. `snapshot` is the right surface when you don't
 yet know which slice carries the answer.
@@ -455,10 +455,10 @@ the failure path; the probe cache means the success path stays free.
 `discover-app`'s freshness token reports `:liveness :unknown` when it
 can't read the JVM-side build-worker state (so stale-build detection is
 blind), while reads themselves may still work. The dominant cause is
-**multiple / zombie shadow-cljs JVMs**: `Ctrl-C` of a `shadow-cljs
+multiple / zombie shadow-cljs JVMs: `Ctrl-C` of a `shadow-cljs
 watch` does not always free shadow's ports, so an orphan JVM lingers
 holding 9630–963x. The MCP server's nREPL socket then reaches a runtime
-whose build worker lives in a *different* JVM, and the worker lookup
+whose build worker lives in a different JVM, and the worker lookup
 misses — for the whole session — even though evals and reads succeed.
 
 When `:liveness` stays `:unknown`, the token's `:hint` now names this
@@ -471,7 +471,7 @@ npx shadow-cljs watch app # start exactly ONE watch
 ```
 
 `npx shadow-cljs stop` is the operative move: it frees the ports that a
-bare `Ctrl-C` leaves held. Starting a *single* watch afterwards ensures
+bare `Ctrl-C` leaves held. Starting a single watch afterwards ensures
 the nREPL socket and the build worker live in the same JVM.
 
 ## Spec
@@ -514,7 +514,7 @@ npm run test:post-merge-hook
 
 `out/server.js` is gitignored and rebuilt locally. After
 `git pull` brings down MCP source changes, the binary on disk is
-stale until you re-run `npm run build` AND bounce the MCP server in
+stale until you re-run `npm run build` and bounce the MCP server in
 your host (typically by restarting Claude Code). To get a stderr
 warning automatically on every pull, install the repo's git hooks
 once per clone (from the repo root):
@@ -558,9 +558,9 @@ tools/re-frame2-pair-mcp/
 
 ## Co-install with browser-substrate MCP servers (rf2-gj1kr)
 
-re-frame2-pair-mcp is intentionally **re-frame2-runtime-only** — every tool
-routes through one of the eight [Tool-Pair primitives](../../spec/Tool-Pair.md)
-on the JVM-side nREPL socket. It does **not** drive the browser
+re-frame2-pair-mcp is intentionally re-frame2-runtime-only — every tool
+routes through one of the 8 [Tool-Pair primitives](../../spec/Tool-Pair.md)
+on the JVM-side nREPL socket. It does not drive the browser
 directly. The absence of "click this button" / "screenshot this
 viewport" / "navigate to this URL" tools is by design: browser
 substrate is the concern of a peer MCP server.
@@ -586,11 +586,11 @@ single-purpose; the agent host glues them at the workflow level.
 
 ## Concurrent agents (rf2-hrcoj)
 
-**v1 posture: single-agent per session.** Today's re-frame2-pair-mcp assumes
+v1 posture: single-agent per session. Today's re-frame2-pair-mcp assumes
 one agent host (Claude Code, Cursor, or Copilot) per running server
 process. The shared mutable state — the nREPL connection, the
 per-session response cache (`cache.cljs`), and the active
-subscription registry — is **not** partitioned by agent.
+subscription registry — is not partitioned by agent.
 
 Two agents attaching to the same re-frame2-pair-mcp instance simultaneously
 work today (no lock-out), but they will see each other's
@@ -599,7 +599,7 @@ side-effects: a `dispatch` from agent A may show up in agent B's
 agent B's `list-streams`. For pre-alpha this is the documented
 behaviour, not a bug — single-agent is the expected workflow.
 
-**v2 sketch (not implemented; deferred).** Multi-agent semantics
+v2 sketch (not implemented; deferred). Multi-agent semantics
 would need: agent-scoped session ids on every `tools/call`,
 per-agent subscription tables, optional lock-out on mutating ops
 (`dispatch` with `:trace` mode + `eval-cljs` + `tail-build`), and
@@ -608,21 +608,21 @@ agent's request hash. The cache layer (`cache.cljs`) already keys
 by request-args hash, which makes the shared-cache path the
 likely first step.
 
-If a workflow needs concurrent-agent isolation **today**, the
-recourse is **one re-frame2-pair-mcp instance per agent host**, each
+If a workflow needs concurrent-agent isolation today, the
+recourse is one re-frame2-pair-mcp instance per agent host, each
 holding its own nREPL socket — shadow-cljs's nREPL supports
 multiple concurrent clients.
 
 ## Record / replay session (rf2-f9acs, deferred)
 
-**Status: deferred to a future drop.** Playwright MCP can record a
+Status: deferred to a future drop. Playwright MCP can record a
 session (every click + viewport state) into a replayable artefact;
 re-frame2-pair-mcp has no peer surface today. The existing surfaces give
 agents push-mode visibility (`subscribe`) and pull-mode replay over
 the epoch ring (`watch-epochs`, `trace-window`), but neither
 persists across server lifetimes.
 
-**v2 sketch (not implemented).** Two paired tools would round it
+v2 sketch (not implemented). Two paired tools would round it
 out:
 
 - `record-session` — start capturing every `tools/call` (and its

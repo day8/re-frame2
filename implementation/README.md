@@ -2,12 +2,12 @@
 
 The v2 reference implementation, generated from the specification corpus in
 `../spec/`. The acceptance test for the spec is:
-*"an AI can one-shot the implementation from the spec alone."* This
+"an AI can one-shot the implementation from the spec alone." This
 directory is that one-shot.
 
 ## Status
 
-The fast PR spine runs on every pull request; expensive browser, bundle,
+The fast PR spine runs on every pull request. Expensive browser, bundle,
 tool, template, and live-MCP gates run by changed surface and in the
 scheduled/manual rigorous workflow. See [`../TESTING.md`](../TESTING.md)
 for the canonical matrix. Open implementation beads live in `../.beads/`.
@@ -16,27 +16,27 @@ for the canonical matrix. Open implementation beads live in `../.beads/`.
 
 The implementation is split into per-Maven-artefact subdirectories per
 [Conventions §Adapter shipping convention](../spec/Conventions.md#adapter-shipping-convention)
-(rf2-0hxm) — extended to per-feature artefacts under rf2-p7va (schemas),
+(rf2-0hxm). This is extended to per-feature artefacts under rf2-p7va (schemas),
 rf2-xbtj (machines), rf2-k682 (routing), rf2-tfw3 (flows), rf2-5kpd
 (http), rf2-uo7v (ssr), and rf2-lt4e (epoch). Each subdirectory carries
-its own `deps.edn`; the top-level `deps.edn` and `shadow-cljs.edn` are
+its own `deps.edn`. The top-level `deps.edn` and `shadow-cljs.edn` are
 build coordinators that pull every artefact onto a single classpath
 for the cross-substrate builds (browser tests, elision probe, examples).
 
-Two top-level groupings:
+There are 2 top-level groupings:
 
-- **`adapters/`** — substrate adapters (rf2-zha9 directory introduction;
+- `adapters/` — substrate adapters (rf2-zha9 directory introduction;
   rf2-0imy canonical naming, "adapters" not "substrates"). One directory
   per adapter (`reagent`, `uix`, `reagent-slim`).
-- **Per-feature artefacts** — one flat directory per feature
+- per-feature artefacts — one flat directory per feature
   (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`,
-  `resources`, `epoch` — nine in all), each plugged into core via the
+  `resources`, `epoch` — 9 in all), each plugged into core via the
   `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 The `hicasso/` artefact sits beside `core/` and `adapters/` as re-frame2's own
 native view substrate. Reagent, reagent-slim and UIx live on as first-class,
-actively-supported adapters. The two earlier view substrates — the `ui/` donor
+actively-supported adapters. The 2 earlier view substrates — the `ui/` donor
 ([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)) and
 `freehand/` ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
 — were retired and removed under rf2-0yp7w.
@@ -291,7 +291,7 @@ For the repo-level tiers, prefer:
 ../scripts/test-rigorous-local.sh
 ```
 
-**Per-artefact JVM** (no setup beyond Clojure CLI):
+Per-artefact JVM (no setup beyond Clojure CLI):
 
 ```sh
 # core artefact
@@ -332,11 +332,11 @@ clojure -M:test
 ```
 
 The core run executes the full JVM suite — smoke, conformance, drain,
-SSR end-to-end, etc. — loading every `.edn` in
+SSR end-to-end and so on — loading every `.edn` in
 `../../spec/conformance/fixtures/` and running the runnable subset
 against this implementation.
 
-**CLJS** (one-time `npm install` at the implementation/ root, then iterate):
+CLJS (one-time `npm install` at the implementation/ root, then iterate):
 
 ```sh
 cd implementation
@@ -362,7 +362,7 @@ Exits 0 on green, 1 on red. Use this when verifying anything that
 depends on a real DOM, real browser timing, or React's DOM-rendering
 pipeline.
 
-If port 8021 is already in use (e.g. another local repo's dev server),
+If port 8021 is already in use (for example another local repo's dev server),
 the harness logs a warning and falls back to a free OS-chosen port.
 Set `BROWSER_TEST_PORT` to pin a specific port (CI determinism); the
 harness still falls back if that port is busy too.
@@ -372,7 +372,7 @@ harness still falls back if that port is busy too.
 `npm run dev` (`scripts/dev-testbed.cjs`) is the cross-platform launcher
 for the Xray / Story driving surfaces. It seeds `RF2_TESTBED_PROJECT_ROOT`
 (so "open in editor" works on a fresh clone at any path, on any OS) and
-spawns `shadow-cljs watch` for the **explicit build-ids you name**,
+spawns `shadow-cljs watch` for the explicit build-ids you name,
 printing each watched build's served URL on start:
 
 ```sh
@@ -384,16 +384,16 @@ npm run dev -- :examples/standard-epochs :examples/routes-epochs
 npm run dev -- :examples/login-form --verbose
 ```
 
-Name the build(s) you actually want to watch; extra `shadow-cljs watch`
+Name the build(s) you actually want to watch. Extra `shadow-cljs watch`
 flags pass straight through, and duplicate build-ids are de-duped while
 preserving first-seen order.
 
-> **Why explicit build-ids, not a "watch everything" alias?** Each
+> Why explicit build-ids, not a "watch everything" alias? Each
 > `shadow-cljs watch` build kicks off a Closure externs-prebuild, and
 > several builds compiled simultaneously race on the shared `externs.zip`
 > — intermittent build failures ("Exception parsing externs.zip",
 > "`this.contents` is null"). The old `xray` / `stories` / `all` group
-> aliases fired up to six builds into a single watch and tripped the race
+> aliases fired up to 6 builds into a single watch and tripped the race
 > reliably on some machines (notably Windows), so they were removed
 > (rf2-trlj7). Watch the build(s) you need; keep any explicit list short.
 
@@ -423,27 +423,27 @@ When in doubt, the canonical reference is [`../spec/Conventions.md`](../spec/Con
 and [`../spec/Ownership.md`](../spec/Ownership.md). The notes below
 disambiguate names that look interchangeable at a glance.
 
-- **id-only enumeration vs `rf/registrations`** — for just the ids
+- id-only enumeration vs `rf/registrations` — for just the ids
   under a kind, project `registrations`' keys
   (`(-> (rf/registrations :event) keys set) → #{...}`). `registrations`
   returns the full id→metadata map; use it directly when the caller
   needs the per-handler value (`:doc`, source coords, route template,
   fx fn, flow def). (The dedicated `rf/handler-ids` projection was
   removed — rf2-i4hk4b.)
-- **adapter vs substrate vs artefact** — *substrate* is the
-  reactive runtime (Reagent, UIx). *Adapter* is the
+- adapter vs substrate vs artefact — substrate is the
+  reactive runtime (Reagent, UIx). Adapter is the
   `re-frame.adapter.*` ns that bridges core to that substrate
   (canonical naming per rf2-0imy; not "substrate adapter" or
-  "renderer"). *Artefact* is a Maven coordinate the adapter ships
-  as (e.g. `day8/re-frame2-reagent`, `day8/reagent-slim`).
-- **`story/ids` vs `rf/registrations`** — both enumerate registered
+  "renderer"). Artefact is a Maven coordinate the adapter ships
+  as (for example `day8/re-frame2-reagent`, `day8/reagent-slim`).
+- `story/ids` vs `rf/registrations` — both enumerate registered
   ids for a kind. `story/ids` is Story's re-export of
   `registrar/ids` colocated with the Story facade so test-driver
   code does not pull `re-frame.core`; `(-> (rf/registrations kind)
   keys set)` is the public route for application code (the dedicated
   `rf/handler-ids` projection was removed — rf2-i4hk4b). They return
   the same id set for the same kind.
-- **projected epoch record vs raw `:db-after`** — `epoch/projected-
+- projected epoch record vs raw `:db-after` — `epoch/projected-
   record` returns the elision-safe view of an epoch (the structured
   `:sub-runs` / `:renders` / `:effects` projections) and is safe
   for off-box surfaces (Xray, Story-MCP, Pair2-MCP). The raw
@@ -452,5 +452,5 @@ disambiguate names that look interchangeable at a glance.
 
 ## What's not in scope
 
-- The migration agent (re-frame v1 → v2). That's a separate
+- the migration agent (re-frame v1 → v2). That's a separate
   AI-driven task per `../migration/from-re-frame-v1/README.md`.

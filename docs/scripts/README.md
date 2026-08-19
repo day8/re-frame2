@@ -2,10 +2,10 @@
 
 Build-time and content-generation helpers for the docs site.
 
-There are two independent tutorial screenshot generators — one for
+There are 2 independent tutorial screenshot generators — one for
 [Story](../story/index.md), one for [Xray](../xray/index.md). They have
-different testbeds, serving models, and output directories. Run them
-separately; the sections below document each in full.
+different testbeds, serving models and output directories. Run them
+separately. The sections below document each in full.
 
 | Generator | Tutorial | Output |
 | --------- | -------- | ------ |
@@ -18,13 +18,14 @@ Re-running either generator is opt-in.
 
 ## Story — `generate-story-tutorial-screenshots.cjs`
 
-Drives Playwright through the live Story testbeds and captures the
-screenshots embedded in the [Story](../story/index.md) tutorial.
+This generator drives Playwright through the live Story testbeds. It
+captures the screenshots embedded in the [Story](../story/index.md)
+tutorial.
 
 The generator serves the compiled Story testbed bundles from
 `implementation/out` over its own internal HTTP server, then captures
-each Story shell scene. No external orchestrator is required — just the
-compiled bundles.
+each Story shell scene. You do not need an external orchestrator — just
+the compiled bundles.
 
 ### How to run
 
@@ -49,11 +50,11 @@ docs/images/story/story-tutorial-*.png
 
 ### Determinism notes
 
-- Viewport pinned to **1440×900**.
-- Each scene waits for a distinctive `[data-test=...]` anchor before
-  shooting.
-- The "seen help" flag is pre-seeded in `localStorage` so the
-  first-run help overlay never appears.
+- viewport pinned to 1440×900
+- each scene waits for a distinctive `[data-test=...]` anchor before
+  shooting
+- the "seen help" flag is pre-seeded in `localStorage` so the
+  first-run help overlay never appears
 
 ### When to re-run
 
@@ -62,22 +63,23 @@ then commit the regenerated PNGs alongside the doc page.
 
 ## Xray — `generate-tutorial-screenshots.cjs`
 
-Drives a headless Chromium through the Xray testbed and captures the
-annotated screenshots embedded in the [Xray](../xray/index.md) tutorial.
+This generator drives a headless Chromium through the Xray testbed. It
+captures the annotated screenshots embedded in the
+[Xray](../xray/index.md) tutorial.
 
-Unlike the Story generator, this one does **not** serve the bundles
-itself — it expects a static server already running (the example
-orchestrator) and navigates the Xray testbed URLs against it.
+Unlike the Story generator, this one does not serve the bundles itself.
+It expects a static server already running (the example orchestrator)
+and navigates the Xray testbed URLs against it.
 
 ### How to run
 
 The pipeline needs the example bundles compiled and served. The
-canonical examples test orchestrator
-(`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`, invoked via
-`npm run test:adapter-smokes` from `implementation/`) builds and serves every
-example bundle on `http://127.0.0.1:8040` (its default port; override
-with `EXAMPLES_PORT`, and point this script at the same port via
-`SCREENSHOT_BASE_URL`).
+canonical examples test orchestrator is
+`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`,
+invoked via `npm run test:adapter-smokes` from `implementation/`. It
+builds and serves every example bundle on `http://127.0.0.1:8040`, its
+default port. Override the port with `EXAMPLES_PORT`, and point this
+script at the same port via `SCREENSHOT_BASE_URL`.
 
 ```bash
 # Terminal A — build + serve the example bundles on :8040
@@ -100,9 +102,9 @@ docs/images/xray/*.png
 
 ### Determinism notes
 
-- Viewport pinned to **1280×800**.
+- viewport pinned to 1280×800
 - Xray's first paint is gated by waiting for
-  `[data-testid="rf-xray-shell"]`.
+  `[data-testid="rf-xray-shell"]`
 
 ### When to re-run
 
@@ -116,9 +118,9 @@ Annotations live in a sibling JSON file —
 by scene id. The pipeline resolves each region's DOM anchor (selector or
 absolute xy box) via Playwright `boundingBox`, then injects an SVG
 overlay (anti-aliased boxes, drop-shadowed labels, optional arrows)
-just before `page.screenshot` fires. The overlay is torn down between
-scenes. No external image-processing dependency — Playwright + inline
-SVG is enough.
+just before `page.screenshot` fires. It tears the overlay down between
+scenes. There is no external image-processing dependency — Playwright
+plus inline SVG is enough.
 
 Region shape:
 

@@ -17,7 +17,7 @@ integration scripts.
 | Do the three Hicasso evidence-door tools return a schema-matched, non-empty, value-free projection when actually run against a live Hicasso application — and, against a build that has never loaded the door, reach `:evidence-tier-unavailable` rather than an analyzer compile error? | **JS** — `live-hicasso-wire.cjs` |
 | Does closing stdin (EOF) retire the session — close the persistent nREPL socket and exit 0 — with no out-of-band kill? | **JS** — `stdin-eof-shutdown.cjs` |
 
-If a regression would only be visible **after** the CLJS compiles to
+If a regression would only be visible after the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
 CLJS test. The two layers are complementary: `npm test` runs the CLJS
 suite, while the Node integration scripts are explicit package commands.
@@ -33,31 +33,31 @@ by the `:ns-regexp "-test$"` rule.
 
 What this layer covers:
 
-- **Per-tool body** — `<tool>_test.cljs` (one per registered tool):
+- Per-tool body — `<tool>_test.cljs` (one per registered tool):
   pins the function shape (args coercion, eval-form composition,
   wire envelope, error surfaces) without touching the network.
-- **Cross-cutting concerns** — `cache_test.cljs`, `wire_cap_test.cljs`,
+- Cross-cutting concerns — `cache_test.cljs`, `wire_cap_test.cljs`,
   `dedup_test.cljs`, `dedup_benchmark_test.cljs`,
   `sensitive_filter_test.cljs`, `path_slicing_test.cljs`,
   `elision_test.cljs`, `lazy_summary_test.cljs`,
   `cursor_pagination_test.cljs`, `args_test.cljs`,
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
   concern's public surface.
-- **Pipeline glue** — `invoke_test.cljs` covers build resolution →
+- Pipeline glue — `invoke_test.cljs` covers build resolution →
   precheck → dispatch → cache → cap.
-- **Conformance corpus** — `conformance_test.cljs` (rf2-xkxbv): one
+- Conformance corpus — `conformance_test.cljs` (rf2-xkxbv): one
   inline-fixture corpus driving every tool through `tools/invoke`
   against a stub conn, asserting recorded wire-shape EDN. Sibling
   to `re-frame.ssr-conformance-test` / `re-frame.machines-conformance-test`
   / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
   on the framework side.
-- **Snapshot pipeline / wire shape** — `snapshot_test.cljs`,
+- Snapshot pipeline / wire shape — `snapshot_test.cljs`,
   `subscribe_test.cljs`, `list_subscriptions_test.cljs`,
   `wire_cap_test.cljs`, `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
   stubbed at `nrepl/cljs-eval-value`.
 
-What this layer DOESN'T cover:
+What this layer doesn't cover:
 
 - The stdio JSON-RPC framing. The CLJS suite never reaches the
   `out/server.js` entry-point; it talks directly to the per-tool fn.
@@ -105,7 +105,7 @@ documented as a smoke harness. Exercises:
 
 - The persistent socket survives multiple ops on one server instance
   (the original pilot bug — bencode@2's `decode.position` cursor —
-  would resurface here, NOT in the CLJS unit suite).
+  would resurface here, not in the CLJS unit suite).
 - bencode multi-frame parsing on a real wire (status frame separate
   from value frame in nREPL's normal output stream).
 - `eval-cljs` degrades cleanly when the runtime preload is absent —
@@ -123,12 +123,12 @@ retired `skills/re-frame2-pair/tests/e2e/` suite used to drive through the
 `scripts/ops.clj` bash transport — now through the one implementation, the
 MCP server:
 
-- **connect** — `discover-app` finds the preloaded runtime and returns a
+- connect — `discover-app` finds the preloaded runtime and returns a
   healthy snapshot (`:ok?`, `:debug-enabled?`, `:frames [:rf/default]`).
-- **dispatch + trace** — `dispatch {event "[:counter/inc]" sync true}`
+- dispatch + trace — `dispatch {event "[:counter/inc]" sync true}`
   commits, the on-screen `#value` reads `6`, and `trace-window` carries a
   matching `:counter/inc` epoch.
-- **hot-reload** — capture a `registrar-handler-ref` probe, touch-edit the
+- hot-reload — capture a `registrar-handler-ref` probe, touch-edit the
   fixture's `core.cljs` to trigger a shadow-cljs reload, and confirm
   `tail-build {probe … wait-ms …}` reports `:soft? false` once the probe
   flips.
@@ -159,12 +159,12 @@ own `-main` over `eval-cljs`, then calls `read-mounted-boundaries`,
 `read-read-attribution` and `explain-render` as MCP tools, asserting per
 read that the envelope is `:ok? true` stamped with the schema this build
 consumes, that it names the slice's own frame and its `::subs/draft`
-read, and — the point of the file — that it does **not** carry the
+read, and — the point of the file — that it does not carry the
 secret seeded into that draft. Non-vacuity comes first: `read-sub`, the
 same server on the same socket, returns the secret, so the absence rows
 are about the door rather than about an empty runtime.
 
-**It also witnesses the door-ABSENT rung, and that row runs first**
+It also witnesses the door-absent rung, and that row runs first
 (rf2-t2ec). Before anything pulls `re-frame.hicasso.tool` in, the same
 three tools must answer `:reason :evidence-tier-unavailable` with the
 load-the-door hint — the population being a Hicasso build that has never
@@ -203,22 +203,22 @@ nREPL port file or Playwright is absent. Run with:
 #### `stdin-eof-shutdown.cjs` — EOF lifecycle contract (rf2-j538f7.32)
 
 The self-contained lifecycle grader. Spawns `out/server.js` and drives it
-over real stdio against a **fake bencode nREPL** the script itself boots —
+over real stdio against a fake bencode nREPL the script itself boots —
 no live shadow-cljs, so it runs anywhere (Ubuntu + Windows CI). It pins the
 documented `stdin EOF -> nREPL close -> process exit` contract
 (`spec/001-Wire-Protocol.md`, `server.cljs` lifecycle step 6): the MCP host
 owns process lifecycle, so closing stdin must retire the session. Three
 cases:
 
-- **with nREPL** — a completed `eval-cljs` call opens an idle nREPL socket;
+- with nREPL — a completed `eval-cljs` call opens an idle nREPL socket;
   `child.stdin.end()` must close that socket (the fake peer observes its
   connection close) AND exit the process `0` within a short bound. The
   success path never calls `child.kill()` — force-kill lives only in the
   cleanup `finally`, so a leaked/hung process surfaces as a red instead of
   being masked. Before the fix the child stayed alive indefinitely.
-- **no nREPL** — a closed-world session (discovery never resolves a port)
+- no nREPL — a closed-world session (discovery never resolves a port)
   still exits `0` promptly on EOF.
-- **early EOF** — EOF before the first tool call (no socket ever opened) is
+- early EOF — EOF before the first tool call (no socket ever opened) is
   harmless, and a duplicate terminal event does not change the exit status
   (idempotency).
 
@@ -236,13 +236,13 @@ of truth), so its tests sit here as a `.cjs` sibling.
 
 Two layers:
 
-- **Unit** — dot-sources `scripts/git-hooks/lib/check-stale-mcp-binary.sh`
+- Unit — dot-sources `scripts/git-hooks/lib/check-stale-mcp-binary.sh`
   and pipes synthetic lists of changed file paths through
   `check_stale_mcp_binary`. Asserts warning text appears only for
   paths that fall inside an MCP source surface (the `src/` tree, the
   build-config files `shadow-cljs.edn` / `deps.edn` / `package.json`)
   and is silent otherwise.
-- **Smoke** — spins up a tiny temp git repo, stages the hook's
+- Smoke — spins up a tiny temp git repo, stages the hook's
   detection library at the expected relative path, sets `ORIG_HEAD`
   to a prior commit, and runs `scripts/git-hooks/post-merge`
   end-to-end. Asserts the warning fires for a real cross-MCP diff and

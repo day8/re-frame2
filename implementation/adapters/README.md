@@ -1,8 +1,8 @@
 # Adapters
 
-This directory groups re-frame2's **substrate adapters** — implementations of the substrate contract defined in [Spec 006](../../spec/006-ReactiveSubstrate.md).
+This directory groups re-frame2's substrate adapters — implementations of the substrate contract defined in [Spec 006](../../spec/006-ReactiveSubstrate.md).
 
-> **Naming.** Per the corpus convention: *substrate* is the abstract contract; *adapter* is each implementation. "Reagent adapter," "UIx adapter."
+> Naming. Per the corpus convention: substrate is the abstract contract; adapter is each implementation. "Reagent adapter," "UIx adapter."
 
 ## Adapters that ship today
 
@@ -14,7 +14,7 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 
 [^slim-coord]: The `re-frame2-` prefix is dropped on this coord (per IMPL-SPEC DECISION-1); it is the lone adapter artefact published as `day8/reagent-slim` rather than `day8/re-frame2-*`.
 
-A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
+You pick one (or more) by adding the matching artefact to your `deps.edn` alongside `day8/re-frame2`. Bundle isolation is structural — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
 
 ## Local-test-only adapter
 
@@ -22,7 +22,7 @@ A consumer picks one (or more) by adding the matching artefact to their `deps.ed
 |---|---|---|---|
 | [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator for lifecycle-order and unmount-during-render tests |
 
-The **test-react** adapter is **not a published artefact**. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array, the release deploy matrix, and the CI JVM job set by design. Consumers never depend on it; it exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
+The test-react adapter is not a published artefact. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array, the release deploy matrix, and the CI JVM job set by design. Consumers never depend on it. It exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
 
 The `reagent-slim` adapter includes reactive primitives, a render scheduler,
 hiccup translation, and pure-CLJS render-to-string. Its test suite covers the
@@ -33,13 +33,13 @@ adapter contract, React root calls, disposal, source coordinates, and the
 
 Each adapter implements the surface defined in [Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md):
 
-- **Required (6):** `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`.
-- **Optional (3):** `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). Three of the six shipped adapter kinds install it — Reagent, reagent-slim and UIx. The other three omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush, and the test-react fixture hands the render clock to the test.
-- **Lifecycle (1):** `dispose-adapter!`.
+- required (6): `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`
+- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 3 of the 6 shipped adapter kinds install it — Reagent, reagent-slim and UIx. The other 3 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush, and the test-react fixture hands the render clock to the test.
+- lifecycle (1): `dispose-adapter!`
 
-An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (e.g. `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
+An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (for example `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
 
-Plus per-adapter ergonomics — e.g. `use-subscribe` hook (UIx), source-coord wrapping, `flush-views!` test helper.
+Plus per-adapter ergonomics — for example the `use-subscribe` hook (UIx), source-coord wrapping, and the `flush-views!` test helper.
 
 ## Layout
 
@@ -66,17 +66,17 @@ adapters/
     └── test/...
 ```
 
-All four published adapters declare `day8/re-frame2 {:local/root "../../core"}`; the unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
+All 4 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. The unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
 
 ## Where the substrate logic lives
 
-The four React-shaped adapter namespaces are primarily configuration and
+The 4 React-shaped adapter namespaces are primarily configuration and
 substrate-specific public helpers because they delegate shared mechanics into
 [`re-frame.substrate.spine`](../core/src/re_frame/substrate/spine.cljs) in the
-core artefact. Two factory families:
+core artefact. There are 2 factory families:
 
-- **Ratom family** — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim).
-- **React-hook family** — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx).
+- ratom family — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim)
+- React-hook family — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx)
 
 Each adapter file builds a config map and hands it to the appropriate factory pair. The spine carries the epoch scheduler (glitch-freedom), the container quartet, `useSyncExternalStore` hooks, source-coord wrapping, the after-render sentinel, the unmount sentinel, and the nine-/five-hook routed late-bind tables. Reading the spine ns is the fastest path to understanding how the adapters work end-to-end.
 
@@ -84,7 +84,7 @@ The test-react adapter is its own quadrant — pure CLJC, no React, shares only 
 
 ## Per-feature artefacts vs adapters
 
-Per-feature artefacts (`schemas/`, `machines/`, `routing/`, `flows/`, `http/`, `ssr/`, `epoch/`) sit at `implementation/<name>/` — they extend re-frame2's core capabilities. Adapters here implement the substrate contract for a specific reactive layer. The two tiers are independent: a consumer mixes one adapter with any subset of per-feature artefacts.
+Per-feature artefacts (`schemas/`, `machines/`, `routing/`, `flows/`, `http/`, `ssr/`, `epoch/`) sit at `implementation/<name>/` — they extend re-frame2's core capabilities. Adapters here implement the substrate contract for a specific reactive layer. The 2 tiers are independent: a consumer mixes one adapter with any subset of per-feature artefacts.
 
 See:
 

@@ -8,12 +8,12 @@ wakes it into a live app, so the **Hide bodies** button works like in
 any single-page app.
 
 That's server-side rendering (SSR), and the trick is that it's all
-*one app, run twice*: the server renders the "recent articles" page to
+one app, run twice: the server renders the "recent articles" page to
 an HTML string and ships it; the browser picks that string up and runs
 it.
 
-> **The same code runs on both sides — only the output differs: a
-> string on the server, a live DOM in the browser.**
+> The same code runs on both sides — only the output differs: a
+> string on the server, a live DOM in the browser.
 
 The same [event
 handlers](../../../../docs/core/glossary.md#event-handler),
@@ -41,7 +41,7 @@ handlers](../../../../docs/core/glossary.md#event-handler),
 `run` boots the browser from the baked payload. The views and event
 handlers in between carry no reader conditionals at all — they're pure,
 so "does this run on the server?" never comes up for them. Where it
-*does* come up — a `localStorage` write the JVM has never heard of —
+does come up — a `localStorage` write the JVM has never heard of —
 you declare it once with `:platforms`, rather than branch at the call
 site.
 
@@ -55,37 +55,37 @@ its own namespace.
 Read top to bottom, the example narrates a single request and the
 client picking it up:
 
-- **A [frame](../../../../docs/core/glossary.md#frame) per request, on
-  the server.** `handle-request` mints a fresh frame for each call,
+- A [frame](../../../../docs/core/glossary.md#frame) per request, on
+  the server. `handle-request` mints a fresh frame for each call,
   drains it, renders it, and tears it down. A hundred concurrent
-  requests are a hundred isolated
+  requests are 100 isolated
   [app-dbs](../../../../docs/core/glossary.md#app-db) that can't see or
   race one another. The same frame isolation that's good for testing N
   apps in one process gives you request isolation for free.
-- **`:rf/server-init`, gated to the server.** It carries `:platforms
+- `:rf/server-init`, gated to the server. It carries `:platforms
   #{:server}` and declares `:rf.cofx/requires [:rf.server/request]`, so
   the request map arrives as a
   [coeffect](../../../../docs/core/glossary.md#coeffect) rather than a
   global the handler reaches for. Its job here is small: start the
   article fetch.
-- **Platform-gated [effects](../../../../docs/core/glossary.md#effect) via
-  `:platforms`.** The session-store fx is `#{:client}`, so a server
+- Platform-gated [effects](../../../../docs/core/glossary.md#effect) via
+  `:platforms`. The session-store fx is `#{:client}`, so a server
   drain skips it. A handler that returns it never learns which
   runtime it's on. No `typeof window` anywhere.
-- **The article fetch goes through managed HTTP, stubbed for the
-  render.** `:rf/server-init` returns an `:rf.http/managed` effect. The
+- The article fetch goes through managed HTTP, stubbed for the
+  render. `:rf/server-init` returns an `:rf.http/managed` effect. The
   JVM smoke redirects it to a canned-success stub through the
   `:fx-overrides` seam, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
-- **Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.**
+- Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.
   `rf/render-to-string` is a pure function from hiccup to an HTML
   string — no React server-render dependency, no DOM, JVM-runnable.
-- **The hydration payload is the server→client contract.** The server
+- The hydration payload is the server→client contract. The server
   serialises the settled state into the `:rf/hydration-payload` shape
   and bakes it into a `<script id='__rf_payload'>` tag the client reads
   back.
-- **`:rf/hydrate` *replaces*, it doesn't merge.** On the client,
+- `:rf/hydrate` replaces, it doesn't merge. On the client,
   `:rf/hydrate` (a framework-owned event the app must not re-register)
   installs the payload in one atomic step under the locked
   `:replace-frame-state` policy. It replaces both
@@ -95,13 +95,13 @@ client picking it up:
   snapshots, route). The server is authoritative for the initial client
   state, so "replace" is the honest semantics — a defaulting merge
   would bury "which side won?" bugs at every key.
-- **`data-rf-render-hash` turns the classic SSR bug into a located
-  one.** With `:emit-hash?`, `render-to-string` stamps a structural
+- `data-rf-render-hash` turns the classic SSR bug into a located
+  one. With `:emit-hash?`, `render-to-string` stamps a structural
   hash of the render-tree on the root element. After first render the client
   recomputes it. On disagreement the runtime emits
-  `:rf.ssr/hydration-mismatch` — telling you not just *that* the renders
-  diverged but *where*.
-- **Hydration leaves the page reactive.** The "Hide bodies" button
+  `:rf.ssr/hydration-mismatch` — telling you not just that the renders
+  diverged but where.
+- Hydration leaves the page reactive. The "Hide bodies" button
   dispatches `:articles/toggle-bodies` against a slice that has no
   server correspondent. That proves the client is fully live after the
   server's HTML is adopted, not a static snapshot.
@@ -112,12 +112,12 @@ client picking it up:
 architecture, not a future concession. The example leans into that by
 exercising the load-bearing subtleties, not just the happy path:
 
-- **Two frame families, one schema.** SSR has a per-request *server*
-  frame (in `handle-request`) and a fixed *client* hydration frame
+- Two frame families, one schema. SSR has a per-request server
+  frame (in `handle-request`) and a fixed client hydration frame
   (`:rf/default`, in `run`). Because
   [`reg-app-schema`](../../../../docs/core/glossary.md#schema) is
   frame-local, the `[:articles]` schema is held as a plain value and
-  registered explicitly against *each* frame at its entry point — so
+  registered explicitly against each frame at its entry point — so
   the server commit and the client commit validate against the same
   contract. (It's `[:maybe …]` because the slice is legitimately absent
   until the fetch lands.) That validation is a development-time
@@ -125,21 +125,21 @@ exercising the load-bearing subtleties, not just the happy path:
   and elides the check ([Spec 010 §Production
   builds](../../../../spec/010-Schemas.md#production-builds)), so
   neither commit is verified in a release build. The symmetry is still
-  the point — one declared contract, two frames — but a server that has
-  to *reject* a malformed request does that in its handler, not through
+  the point — one declared contract, 2 frames — but a server that has
+  to reject a malformed request does that in its handler, not through
   the schema ([Pattern-FormAction §Validation is the handler's
   job](../../../../spec/Pattern-FormAction.md#validation-is-the-handlers-job)).
-- **Per-request teardown is load-bearing.** `handle-request` ends with
+- Per-request teardown is load-bearing. `handle-request` ends with
   `destroy-frame!` in a `finally`, on both the success and the throw
   path. A long-running server then can't leak a frame (and its request
   slot) per request, and a render or fetch error never strands a
   half-built one.
-- **The payload deliberately omits `:rf/frame-id`.** The server renders
+- The payload deliberately omits `:rf/frame-id`. The server renders
   under a per-request frame the client can't know ahead of time, and
-  the client hydrates its *own* fixed frame. `ssr/hydrate!` treats a
-  present payload frame-id as *validation evidence* — a mismatch fails
+  the client hydrates its own fixed frame. `ssr/hydrate!` treats a
+  present payload frame-id as validation evidence — a mismatch fails
   closed with `:rf.error/hydration-frame-id-mismatch` — never as a way
-  to pick the target frame. So an *absent* id is exactly right: the
+  to pick the target frame. So an absent id is exactly right: the
   explicit client `:frame` stands, and the dynamic server output agrees
   with the static `index.html` next to this file (neither carries a
   frame-id). That `index.html` is an illustrative stand-in, not a
@@ -170,7 +170,7 @@ present ⇒ `hydrate-root`, which reconciles against the server's markup
 and adopts it; payload absent ⇒ a fresh `create-root` + `render` — and
 `run` calls it instead of branching inline. The browser DOM-adoption
 regression (`re-frame.ssr.ssr-startup-recipe-dom-cljs-test`, over in
-`implementation/ssr/test/`) calls that *same* helper, so the proof
+`implementation/ssr/test/`) calls that same helper, so the proof
 drives the branch this example ships rather than a hand-kept copy of it
 that could quietly drift.
 

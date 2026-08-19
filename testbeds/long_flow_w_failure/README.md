@@ -5,17 +5,17 @@ topology, with a configurable mid-flow failure injection. The
 single Start click produces a visible ~5-second stream of
 `:rf.flow/computed` / `:rf.flow/failed` / `:rf.error/flow-eval-exception`
 traces that a consumer (Xray, Story, re-frame2-pair-mcp) reads to verify the
-flow-failure **atomicity** contract from
+flow-failure atomicity contract from
 [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md)
-(rf2-u0zz5): a flow throw is a pre-install throw, so it **aborts the
-whole event** — no `:db` install, `app-db` unchanged, no
-`:rf.event/db-changed`, `:fx` skipped, **no partial commit**.
+(rf2-u0zz5): a flow throw is a pre-install throw, so it aborts the
+whole event — no `:db` install, `app-db` unchanged, no
+`:rf.event/db-changed`, `:fx` skipped, no partial commit.
 
 ## The cascade
 
 `Start` schedules N ticks at 250ms intervals via `:dispatch-later`.
 Each tick bumps `:input` by one; every bump fires a flows pass that
-recomputes all three flows in topo order. Total cascade time =
+recomputes all 3 flows in topo order. Total cascade time =
 `:total-ticks × 250ms` (default 5 seconds).
 
 ```
@@ -26,7 +26,7 @@ recomputes all three flows in topo order. Total cascade time =
 
 `:flow-b` lists `[:a-result]` as a topology-pin input only — Spec 013
 §Topological sort uses path-prefix overlap to fix evaluation order,
-so the declaration forces `:flow-a → :flow-b`. Without it the two
+so the declaration forces `:flow-a → :flow-b`. Without it the 2
 flows are independent (both read `[:input]`, write disjoint paths)
 and Kahn's algorithm picks an unspecified order between them. Pinning
 the order makes `:flow-a` the demonstrable "ran-then-discarded" prior
@@ -66,18 +66,18 @@ in the DOM so a consumer can assert against the contract without
 needing a recorder. After Start with defaults (fail-at=5,
 total-ticks=20):
 
-- `input`: advances 1, 2, 3, 4, then FREEZES at 4 (ticks 5..20 abort
+- `input`: advances 1, 2, 3, 4, then freezes at 4 (ticks 5..20 abort
   before install).
-- `a-result`: advances 0, 2, 4, 6, 8, then FREEZES at 8. (No install
+- `a-result`: advances 0, 2, 4, 6, 8, then freezes at 8. (No install
   on the failing tick — even `:flow-a`'s prior write is discarded.)
-- `b-result`: advances 0, 3, 6, 9, 12, then FREEZES at 12.
-- `c-result`: advances 0, 5, 10, 15, 20, then FREEZES at 20.
+- `b-result`: advances 0, 3, 6, 9, 12, then freezes at 12.
+- `c-result`: advances 0, 5, 10, 15, 20, then freezes at 20.
 
 A consumer that reads the trace stream can assert:
-- 4 committed ticks → 4 `:rf.event/db-changed` (ticks 1..4); NONE for
+- 4 committed ticks → 4 `:rf.event/db-changed` (ticks 1..4); none for
   ticks 5..20 (each aborts).
-- `:rf.flow/computed` traces for `::flow-a` on every tick it RUNS
-  (ticks 1..20 — it runs even on aborted ticks; only its WRITE is
+- `:rf.flow/computed` traces for `::flow-a` on every tick it runs
+  (ticks 1..20 — it runs even on aborted ticks; only its write is
   discarded).
 - 4 `:rf.flow/computed` traces for `::flow-b` (ticks 1..4).
 - 16 `:rf.flow/failed` traces for `::flow-b` (ticks 5..20).
@@ -85,7 +85,7 @@ A consumer that reads the trace stream can assert:
 - 4 `:rf.flow/computed` traces for `::flow-c` (ticks 1..4); 0 after.
 
 The exact trace order per failing drain: `:flow-a` computed →
-`:flow-b` failed → `:rf.error/flow-eval-exception`, with NO
+`:flow-b` failed → `:rf.error/flow-eval-exception`, with no
 `:rf.event/db-changed`.
 
 ## Why a multi-second window
@@ -93,7 +93,7 @@ The exact trace order per failing drain: `:flow-a` computed →
 The atomicity contract is a per-drain property — observable on any
 single throw. But a consumer's UI (trace panel, recorder, MCP wire)
 under stress tests differently when 60+ flow traces stream past in
-five seconds vs. when one click produces 3 traces. The default
+5 seconds than when one click produces 3 traces. The default
 total-ticks=20 keeps the trace volume realistic without blowing
 ring-buffer budgets (the Spec 009 200-row default holds 60 per-tick
 traces fine).
@@ -102,46 +102,46 @@ A consumer that tests the contract at minimum cost dials total-ticks
 down to 6 and fail-at to 4 — the cascade completes in 1.5 seconds
 and produces enough trace shape to assert the whole abort signature.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- **No `:on-error` policy.** The atomicity contract is what the
-  default recovery does; an `:on-error` override would mask it.
-- **No `:rf.fx/clear-flow` on the failing flow.** Clearing
+- no `:on-error` policy. The atomicity contract is what the
+  default recovery does; an `:on-error` override would mask it
+- no `:rf.fx/clear-flow` on the failing flow. Clearing
   `::flow-b` mid-cascade is a separate contract; this surface
   stays on the canonical "let it keep re-throwing" path so the
-  abort evidence accumulates over multiple ticks.
-- **No retry logic on `:tick`.** Every tick fires unconditionally;
+  abort evidence accumulates over multiple ticks
+- no retry logic on `:tick`. Every tick fires unconditionally;
   the failing flow's re-throw is what produces the abort
-  evidence — not retry orchestration in user code.
-- **No `:flow-b` recovery on `Fail at tick > total-ticks`.** Setting
+  evidence — not retry orchestration in user code
+- no `:flow-b` recovery on `Fail at tick > total-ticks`. Setting
   fail-at to a value higher than total-ticks gives a clean cascade
   with zero failures — useful as a control case for verifying the
-  trace shape when no failure injection is active.
+  trace shape when no failure injection is active
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- Trace panel grows on subsequent dispatch (rf2-1barg regression
-  — gold standard) — exercised 20× in one Start click.
+Xray (26):
+- trace panel grows on subsequent dispatch (rf2-1barg regression
+  — gold standard) — exercised 20× in one Start click
 - `:rf.error/*` events highlighted in trace stream — exercised
-  16× per default run (one per failing tick).
+  16× per default run (one per failing tick)
 - ≤200-row budget enforced under 1000-event ring saturation —
   dial `total-ticks` up to 333+ to produce 1000+ flow traces in
-  one cascade; verify ring-buffer truncation against the budget.
+  one cascade; verify ring-buffer truncation against the budget
 
-**Cross-cutting (6)**:
-- **Flow `:rf.flow/failed` shows atomicity failure semantics
-  (rf2-u0zz5)** — the load-bearing scenario this surface unblocks.
+Cross-cutting (6):
+- flow `:rf.flow/failed` shows atomicity failure semantics
+  (rf2-u0zz5) — the load-bearing scenario this surface unblocks.
   The abort signature (no install, frozen `app-db`, no
   `:rf.event/db-changed`, `:fx` skipped) has a DOM mirror + a
   deterministic trace shape a spec can assert against; the 5-second
-  cascade gives it time to accumulate evidence beyond a single drain.
+  cascade gives it time to accumulate evidence beyond a single drain
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically —
+Story (18):
+- recorder captures click → records `:play` → replays identically —
   the Start click is deterministic (timer schedule is data; flow
   recomputes are pure given the same `:input` sequence). Replay
-  reproduces the same per-tick trace stream.
+  reproduces the same per-tick trace stream
 
 ## Running
 

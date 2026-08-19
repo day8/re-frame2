@@ -2,12 +2,12 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-A `Skill` that helps `Claude Code` **scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project** — from an empty directory to a working, mounted counter.
+A `Skill` that helps `Claude Code` scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project — from an empty directory to a working, mounted counter.
 
-This is the **greenfield bootstrap** companion to the main [`re-frame2`](../re-frame2) skill. The two split the work:
+This is the greenfield bootstrap companion to the main [`re-frame2`](../re-frame2) skill. The 2 split the work:
 
-- The main `re-frame2` skill teaches the re-frame2 **API** — events, subs, machines, schemas, frames, fx, flows, routing, SSR.
-- `re-frame2-setup` owns the bootstrap and the version-sensitive wiring — the artefact, shadow-cljs, and React pins that move release to release.
+- the main `re-frame2` skill teaches the re-frame2 API — events, subs, machines, schemas, frames, fx, flows, routing, SSR
+- `re-frame2-setup` owns the bootstrap and the version-sensitive wiring — the artefact, shadow-cljs, and React pins that move release to release
 
 Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](../re-frame2-pair) (for live-runtime pair-programming).
 
@@ -21,7 +21,7 @@ the monorepo today (planned external home
 [`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
 Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
 
-> **Pre-split / pre-release caveat.** The standalone `day8/re-frame2-template`
+> Pre-split / pre-release caveat: the standalone `day8/re-frame2-template`
 > repo isn't published yet (see [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
 > so the `io.github.day8/…` invocation above can't auto-resolve against a
 > released template today. Until the split lands, scaffold via the working
@@ -30,11 +30,11 @@ Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :nam
 > clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' \
 >         -Tnew create :template day8/re-frame2-template :name acme/my-app
 > ```
-> (or just follow this skill's manual six-step path). The published
+> (or just follow this skill's manual 6-step path). The published
 > invocation is forward-correct and will work once the repo split and first
 > release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
 
-The two routes are complementary, not redundant, and run by different actors: the **template** is a user-run `clojure -Tnew create …` command; **this skill** executes the manual scaffold instead (its `allowed-tools` deliberately exclude `-Tnew`). When it steers you toward the generator it hands you the command to run — see [`SKILL.md` cardinal rule 5](SKILL.md). Both routes land on the same canonical scaffold.
+The 2 routes are complementary, not redundant, and run by different actors: the template is a user-run `clojure -Tnew create …` command; this skill executes the manual scaffold instead (its `allowed-tools` deliberately exclude `-Tnew`). When it steers you toward the generator it hands you the command to run — see [`SKILL.md` cardinal rule 5](SKILL.md). Both routes land on the same canonical scaffold.
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
@@ -43,7 +43,7 @@ The two routes are complementary, not redundant, and run by different actors: th
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
 Either way you end up at the same canonical shape — the skill walks the
-six-step path manually and lands on the template's day-one scaffold
+6-step path manually and lands on the template's day-one scaffold
 (core + Reagent adapter + schemas + Xray, `init` entry symbol); the
 template performs the same steps for you in one command. After the
 counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
@@ -51,26 +51,26 @@ applies.
 
 ## What it covers
 
-The canonical six-step greenfield path:
+The canonical 6-step greenfield path:
 
-1. Discover the current re-frame2 VERSION (the ten artefacts ship in lockstep; Xray rides the same line).
+1. Discover the current re-frame2 VERSION (the 10 artefacts ship in lockstep; Xray rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs`, and (Reagent route) Xray's npm deps `@xyflow/react` + `elkjs` to `package.json`. Run `npm install`.
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
 5. Write `src/your_app/core.cljs` — the whole counter in one file: `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`, and the registered event + sub + `reg-view` view + schema. (first-counter.md is the sole copy-complete source; entry-namespace.md explains the boot lifecycle.)
 6. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
 
-## What it deliberately does NOT cover
+## What it deliberately does not cover
 
-- Re-frame2's API surface (events, subs, machines, schemas, ...) — that's the main `re-frame2` skill.
-- Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
-- Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
-- Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx greenfield gives the substrate `core.cljs` + `views.cljs` plus the Xray-free build wiring this skill hand-wires (the UIx route ships no Xray — the panel rides the ratom-family substrates today; Story and `re-frame2-pair` work on every substrate); the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` variant (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
+- re-frame2's API surface (events, subs, machines, schemas, ...) — that's the main `re-frame2` skill
+- live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
+- migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)
+- test infrastructure, CI, deployment — out of scope. The author chooses their own.
+- anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx greenfield gives the substrate `core.cljs` + `views.cljs` plus the Xray-free build wiring this skill hand-wires (the UIx route ships no Xray — the panel rides the ratom-family substrates today; Story and `re-frame2-pair` work on every substrate); the fastest non-Reagent path is the user-run generator template's complete `_uix/` variant (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
 
 ## Status
 
-Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus two cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
+Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus 2 cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
 
 ## Layout
 
@@ -98,15 +98,15 @@ skills/re-frame2-setup/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The five reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx recipe reads two together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: it walks the 6-step canonical path and links to the leaf in `references/` whenever depth is useful. The 5 reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx recipe reads 2 together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 
-`re-frame2-setup` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The supported install is a **repo checkout** (git clone + link) or a Claude Code **marketplace plugin** — it is **not** published to npm (the `package.json` is marked `private`). Clone re-frame2, **check out a specific release tag or commit**, **review the skill's `SKILL.md` and reference leaves before installing** (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising), and then link the skill from `skills/re-frame2-setup/`.
+`re-frame2-setup` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The supported install is a repo checkout (git clone + link) or a Claude Code marketplace plugin — it is not published to npm (the `package.json` is marked `private`). Clone re-frame2, check out a specific release tag or commit, and review the skill's `SKILL.md` and reference leaves before installing (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising). Then link the skill from `skills/re-frame2-setup/`.
 
 Skills under `~/.claude/skills/` are agent instructions with shell access. Treat installation the same way you would treat installing any other plugin — pin the checkout you link from to a reviewed tag, read the code, install deliberately.
 
-**Link, never copy** (the repo-wide policy). Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Clone the monorepo, check out a release tag you've reviewed, then run the cross-platform installer, which **links** every skill in the monorepo into `~/.claude/skills/` so the active skill is the reviewed checkout by construction:
+Link, never copy (the repo-wide policy). Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Clone the monorepo, check out a release tag you've reviewed, then run the cross-platform installer, which links every skill in the monorepo into `~/.claude/skills/` so the active skill is the reviewed checkout by construction:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git
@@ -131,7 +131,7 @@ The skill's description auto-matches when you talk about starting a new re-frame
 >
 > Scaffold the smallest working re-frame2 app I can extend.
 
-(Adding re-frame2 to a **non-trivial** existing app is authoring, not greenfield setup — see the relationship table above.)
+(Adding re-frame2 to a non-trivial existing app is authoring, not greenfield setup — see the relationship table above.)
 
 ### Explicit — slash command
 
@@ -145,9 +145,9 @@ The skill's description auto-matches when you talk about starting a new re-frame
 
 ### What happens
 
-Claude reads `SKILL.md` and walks the six-step path. For each step, it reads the matching `references/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns boot lifecycle, the copy-complete counter source).
+Claude reads `SKILL.md` and walks the 6-step path. For each step, it reads the matching `references/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns boot lifecycle, the copy-complete counter source).
 
-When all six steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
+When all 6 steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
 
 ## Cross-link
 

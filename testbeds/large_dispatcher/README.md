@@ -1,8 +1,8 @@
 # `testbeds/large-dispatcher`
 
-Four handlers exercise the wire-elision surface defined
+4 handlers exercise the wire-elision surface defined
 in [spec/009 §Size elision in traces](../../spec/009-Instrumentation.md).
-Three buttons write to paths classified `:large` via the EP-0025
+3 buttons write to paths classified `:large` via the EP-0025
 commit-plane classification effect, and one button
 writes to an undeclared slot to exercise the
 `:rf.warning/large-value-unschema'd` dev-mode advisory. A consumer
@@ -51,68 +51,68 @@ advisory instead).
 
 ## Why four buttons
 
-Three classified paths plus one warning-only control is the
+3 classified paths plus one warning-only control is the
 smallest shape that exercises every discrimination axis a consumer
 needs:
 
-- **Flat vs nested classified path** (B / C vs D) — buttons B and C
+- flat vs nested classified path (B / C vs D) — buttons B and C
   classify flat root paths; button D classifies a path nested
   inside a composed `:map`. A consumer that only resolves flat
-  paths misses button D.
-- **Two simultaneous declarations** (B vs C) — having two
+  paths misses button D
+- 2 simultaneous declarations (B vs C) — having 2
   classified paths active at the same time lets a consumer
-  assert the registry contains a *map* of declarations, not
+  assert the registry contains a map of declarations, not
   just a single one. A consumer that overwrites declarations
-  on each write fails this check.
-- **Classified vs unclassified large value** (B / C / D vs A) — only
+  on each write fails this check
+- classified vs unclassified large value (B / C / D vs A) — only
   classified paths emit the marker; an unclassified large
   slot emits the `:rf.warning/large-value-unschema'd` advisory
   once (and ships raw — fail-open). The presence/absence of the warning
-  is the discriminator between "classify the path" and "I already did".
+  is the discriminator between "classify the path" and "I already did"
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- **No `:sensitive` classification on any path.** This surface
+- no `:sensitive` classification on any path. This surface
   exercises the `:large` axis cleanly; composition (sensitive
   wins over large — per Spec 015) requires both, but each surface
-  exercises one axis.
-- **No `:digest` slot computation.** The `:digest` field of the
+  exercises one axis
+- no `:digest` slot computation. The `:digest` field of the
   marker is gated on the `:include-digests?` config flag; this
   surface stays on the default `false` so the marker shape is
-  minimal and stable across runs.
-- **No off-box wire egress in the surface itself.** The MCP wire
+  minimal and stable across runs
+- no off-box wire egress in the surface itself. The MCP wire
   is exercised by the consuming tool (re-frame2-pair-mcp); this surface
-  produces the in-process elision shape that the wire reads.
-- **No state-machine snapshots.** Machine snapshots elide via the
+  produces the in-process elision shape that the wire reads
+- no state-machine snapshots. Machine snapshots elide via the
   same walker (per [spec/005 §Wire-boundary elision]); conflating
   the machine surface with the app-db surface would dilute
-  the four nomination paths.
+  the 4 nomination paths
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- **A `:large`-classified value arrives as a `:rf.size/large-elided` marker** —
+Xray (26):
+- a `:large`-classified value arrives as a `:rf.size/large-elided` marker —
   the load-bearing scenario this surface unblocks. Xray's trace
   panel must show the `[:declared-large-value]` slot replaced with
   the marker shape under `:tags :db-after` on the first emit
-  after button B.
+  after button B
 - `:rf.warning/large-value-unschema'd` highlighted in trace stream —
   button A's first emit fires the advisory; subsequent button-A
-  clicks do not (the path is cached as warned-once).
-- Click-to-source from trace event lands on source-coord line —
-  every handler in this surface carries reader meta; the four
-  buttons each resolve to their handler's coord.
+  clicks do not (the path is cached as warned-once)
+- click-to-source from trace event lands on source-coord line —
+  every handler in this surface carries reader meta; the 4
+  buttons each resolve to their handler's coord
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically
-  — the four clicks are deterministic; replay reproduces the same
-  elision shape on each emit.
+Story (18):
+- recorder captures click → records `:play` → replays identically
+  — the 4 clicks are deterministic; replay reproduces the same
+  elision shape on each emit
 
-**Cross-cutting (6)**:
-- Subscribe → re-render → trace ordering preserved — the four subs
+Cross-cutting (6):
+- subscribe → re-render → trace ordering preserved — the 4 subs
   on the per-slot length re-run only when their slice changes;
   the elision marker doesn't reach the subscription layer (subs
-  see the unredacted app-db value).
+  see the unredacted app-db value)
 
 ## Running
 

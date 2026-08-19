@@ -1,7 +1,7 @@
 # `testbeds/http-toggle`
 
 A single Reagent button + outcome dropdown that drives a
-`:rf.http/managed` request through one of the eight failure categories
+`:rf.http/managed` request through one of the 8 failure categories
 in Spec 014 (plus the success path). One click + one selection emits
 the corresponding `:rf.http/*` event(s) on the trace stream so a
 consumer (Xray, Story, re-frame2-pair-mcp) verifies category attribution
@@ -50,7 +50,7 @@ path's emit from `re-frame.http.transport/finalise-failure!`:
                                ;;        + category-specific tags}
 ```
 
-For the seven canned-failure outcomes, the per-testbed
+For the 7 canned-failure outcomes, the per-testbed
 `:http-toggle/canned-failure-with-trace` fx replays this emit before
 delegating to the framework's `:rf.http/managed-canned-failure` stub
 (see [rf2-3g16l](../../.beads) — the framework stub bypasses
@@ -58,35 +58,35 @@ delegating to the framework's `:rf.http/managed-canned-failure` stub
 path's contract). The successful `:success` outcome rides the live
 transport path and emits no error trace.
 
-The category-attribution scenario in rf2-fe84r reads: *"HTTP failure
-cascade visible as ordered `:rf.http/*` with category attribution"* —
+The category-attribution scenario in rf2-fe84r reads: "HTTP failure
+cascade visible as ordered `:rf.http/*` with category attribution" —
 this testbed walks one outcome per dropdown entry, so the consumer's
 spec can iterate the dropdown values and assert each emits its expected
 `:kind` tag directly on the trace bus.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- No retry policy. The testbed pins each click to one attempt; the
+- no retry policy. The testbed pins each click to one attempt; the
   `:retry` slot is exercised by tools-side fixtures that need to assert
-  on the multi-attempt cascade.
-- No `:accept` projection. The reply lands at `:value` (success path)
+  on the multi-attempt cascade
+- no `:accept` projection. The reply lands at `:value` (success path)
   or `:error` (failure paths) verbatim; consumers reading the
-  envelope shape don't need `:accept` to mutate it.
-- No URL parameterisation. Every outcome uses a hard-coded URL so the
-  trace's `:request :url` slot is deterministic across runs.
+  envelope shape don't need `:accept` to mutate it
+- no URL parameterisation. Every outcome uses a hard-coded URL so the
+  trace's `:request :url` slot is deterministic across runs
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
-- HTTP failure cascade visible as ordered `:rf.http/*` with category attribution — the bread-and-butter scenario this surface exists to drive.
-- Time-travel scrub forward/back mutates visible UI — every outcome produces a `:status` and `:reply` mutation observable on `data-testid="status"` and `data-testid="reply-status"`.
+Xray (26):
+- HTTP failure cascade visible as ordered `:rf.http/*` with category attribution — the bread-and-butter scenario this surface exists to drive
+- time-travel scrub forward/back mutates visible UI — every outcome produces a `:status` and `:reply` mutation observable on `data-testid="status"` and `data-testid="reply-status"`
 
-**Cross-cutting (6)**:
-- HTTP failure cascade visible as ordered `:rf.http/*` with category attribution (the canonical cross-cutting scenario).
+Cross-cutting (6):
+- HTTP failure cascade visible as ordered `:rf.http/*` with category attribution (the canonical cross-cutting scenario)
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically. The canned-stub seam is deterministic; the live `:success` outcome may be skipped from a recorder replay (or stub-overridden) depending on the recording mode.
-- A11y panel surfaces violations on known-bad variant — out of scope here; covered by `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variants (rf2-9jfo1.1 retired the standalone Tier-4 surface).
+Story (18):
+- recorder captures click → records `:play` → replays identically. The canned-stub seam is deterministic; the live `:success` outcome may be skipped from a recorder replay (or stub-overridden) depending on the recording mode
+- a11y panel surfaces violations on known-bad variant — out of scope here; covered by `tools/story/testbeds/counter_with_stories/` via the `:story.counter-matrix/a11y-known-bad` / `/a11y-known-good` variants (rf2-9jfo1.1 retired the standalone Tier-4 surface)
 
 ## Running
 

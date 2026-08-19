@@ -1,16 +1,16 @@
-# re-frame2 Specification
+# re-frame2 specification
 
 > **Type:** Reference
 > Index of the design documents for re-frame2 — a re-frame-flavoured pattern for building SPAs, plus its Clojure/CLJS reference implementation.
 
-The **load-bearing decisions** live in [000-Vision.md](000-Vision.md). Each per-area Spec consumes those decisions; downstream Specs do not reshape the foundation. The **AI-first practical principles** are collected in [Principles.md](Principles.md).
+The load-bearing decisions live in [000-Vision.md](000-Vision.md). Each per-area Spec consumes those decisions; downstream Specs do not reshape the foundation. The AI-first practical principles are collected in [Principles.md](Principles.md).
 
 ## How the corpus is organised
 
 The directory has two orthogonal axes:
 
-1. **Bucket axis (normative vs. supporting).** Numbered Specs (000–016) are the primary normative bucket — they own pattern-level contract surfaces. The Companion layer (below) is mixed: most companion docs *support* the contract (rationale, scaffolding, audit, examples), but a small subset are **normative companions** — they own contract surfaces of their own. The Ownership matrix in [Ownership.md](Ownership.md) is the single source for "which companion owns what."
-2. **Layer axis (foundation / capability / companion).** Three explicit layers structure the corpus:
+- Bucket axis (normative vs. supporting). Numbered Specs (000–016) are the primary normative bucket — they own pattern-level contract surfaces. The Companion layer (below) is mixed: most companion docs support the contract (rationale, scaffolding, audit, examples), but a small subset are normative companions — they own contract surfaces of their own. The Ownership matrix in [Ownership.md](Ownership.md) is the single source for "which companion owns what."
+- Layer axis (foundation / capability / companion). Three explicit layers structure the corpus:
 
 | Layer | What it contains | Role |
 |---|---|---|
@@ -18,11 +18,11 @@ The directory has two orthogonal axes:
 | **Capability** | [004B-UI-Tree-and-Conversion](004B-UI-Tree-and-Conversion.md), [004C-Roots-and-Mount](004C-Roots-and-Mount.md), [005-StateMachines](005-StateMachines.md), [006-ReactiveSubstrate](006-ReactiveSubstrate.md), [007-Stories](007-Stories.md), [008-Testing](008-Testing.md), [009-Instrumentation](009-Instrumentation.md), [010-Schemas](010-Schemas.md), [011-SSR](011-SSR.md), [012-Routing](012-Routing.md), [013-Flows](013-Flows.md), [014-HTTPRequests](014-HTTPRequests.md), [015-Data-Classification](015-Data-Classification.md), [016-Resources](016-Resources.md) | Per-area normative Specs. Each consumes Foundation; none reshapes it. Optional capabilities (see the [host-profile matrix](000-Vision.md#host-profile-matrix)) live here. |
 | **Companion** | [API](API.md), [MIGRATION](../migration/from-re-frame-v1/README.md), [Principles](Principles.md), [Conventions](Conventions.md), [Construction-Prompts](Construction-Prompts.md), [Security](Security.md), [AI-Audit](AI-Audit.md), [Tool-Pair](Tool-Pair.md), [Implementor-Checklist](Implementor-Checklist.md), [Runtime-Architecture](Runtime-Architecture.md), [Cross-Spec-Interactions](Cross-Spec-Interactions.md), [Ownership](Ownership.md), [Spec-Schemas](Spec-Schemas.md), [Conformance Corpus](conformance/README.md), the `Pattern-*` docs, [worked examples](../examples) | Mixed: see the §[Normative status within the Companion layer](#normative-status-within-the-companion-layer) breakdown immediately below. Some companion docs are **normative companions** (own contract surfaces of their own); the rest are supporting material that scaffolds, validates, or demonstrates the contract owned elsewhere. |
 
-Within the Companion layer, each doc carries a **Type** (the companion-document genre axis): Reference, Migration, Convention, Construction Prompts, Audit, Schemas, or Pattern. Every doc declares its Type via the `> **Type:**` header. The Foundation and Capability layers do not carry a Type header — their layer is determined by numbering. The Type vocabulary is closed for v1; new Types require a companion-doc convention update.
+Within the Companion layer, each doc carries a Type (the companion-document genre axis): Reference, Migration, Convention, Construction Prompts, Audit, Schemas, or Pattern. Every doc declares its Type via the `> **Type:**` header. The Foundation and Capability layers do not carry a Type header — their layer is determined by numbering. The Type vocabulary is closed for v1; new Types require a companion-doc convention update.
 
 ### Normative status within the Companion layer
 
-The Companion layer is **mixed-normativity**. Some companion docs own pattern-level contract surfaces (a **normative companion**); others *cite* the owning spec without defining the contract (a **supporting companion**). The Ownership matrix in [Ownership.md](Ownership.md) is the authoritative split per surface — read this section to understand the categories, then read Ownership.md to see which doc owns which contract surface.
+The Companion layer is mixed-normativity. Some companion docs own pattern-level contract surfaces (a normative companion); others cite the owning spec without defining the contract (a supporting companion). The Ownership matrix in [Ownership.md](Ownership.md) is the authoritative split per surface — read this section to understand the categories, then read Ownership.md to see which doc owns which contract surface.
 
 | Companion doc | Status | What it owns (per [Ownership.md](Ownership.md)) |
 |---|---|---|
@@ -45,11 +45,11 @@ The Companion layer is **mixed-normativity**. Some companion docs own pattern-le
 | `Pattern-*` (8 docs) | Supporting | Worked-example conventions — *Pattern* status, not Spec status. Convention is normative-by-convention but not pattern-level contract. |
 | [worked examples](../examples) | Supporting | Browser-runnable apps demonstrating the contract owned elsewhere. |
 
-**The rule.** A companion doc may **own** a contract surface when the surface is genuinely cross-cutting (touches multiple numbered Specs) — Conventions owns reserved namespaces because the policy spans every Spec, Tool-Pair owns the pair-tool contract because the surface spans 001/002/006/009 plus the time-travel slice. A companion doc **must not** redefine a contract surface that has a numbered-Spec owner. Drift detection is the same as for in-tree surfaces — a second normative definition is a corpus bug. Per [Ownership.md §Drift rule](Ownership.md).
+The rule. A companion doc may own a contract surface when the surface is genuinely cross-cutting (touches multiple numbered Specs) — Conventions owns reserved namespaces because the policy spans every Spec, Tool-Pair owns the pair-tool contract because the surface spans 001/002/006/009 plus the time-travel slice. A companion doc must not redefine a contract surface that has a numbered-Spec owner. Drift detection is the same as for in-tree surfaces — a second normative definition is a corpus bug. Per [Ownership.md §Drift rule](Ownership.md).
 
 External canonical homes (per §[Canonical homes outside `/spec`](#canonical-homes-outside-spec) below) are the third option — surfaces downstream of the pattern that live with their tool / implementation artefact rather than with the framework spec.
 
-**About Spec 003.** The numbering 000–016 has one gap: there is no `003-*.md`. Slot 003 is **reserved** for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology) — design work that depends on Specs 002 and 005 being settled. The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
+About Spec 003. The numbering 000–016 has one gap: there is no `003-*.md`. Slot 003 is reserved for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology) — design work that depends on Specs 002 and 005 being settled. The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
 
 ## Documents
 
@@ -63,7 +63,7 @@ External canonical homes (per §[Canonical homes outside `/spec`](#canonical-hom
 
 ### Capability layer (per-area normative Specs)
 
-**There is no 004 view contract.** `004-Views.md` and the S3/S4/S5 view-conformance profiles were deleted on 2026-08-18 (rf2-h89ri) together with the substrates they described (`re-frame.freehand` and `re-frame.ui`, removed under rf2-0yp7w). Nothing has replaced them here, and this corpus asserts no view contract: where a replacement lands is rf2-ps7ia's to settle. `004B` and `004C` survive because the contracts they own — the structural tree ABI and root identity/mount — still have producers in the tree.
+There is no 004 view contract. `004-Views.md` and the S3/S4/S5 view-conformance profiles were deleted on 2026-08-18 (rf2-h89ri) together with the substrates they described (`re-frame.freehand` and `re-frame.ui`, removed under rf2-0yp7w). Nothing has replaced them here, and this corpus asserts no view contract: where a replacement lands is rf2-ps7ia's to settle. `004B` and `004C` survive because the contracts they own — the structural tree ABI and root identity/mount — still have producers in the tree.
 
 | # | Title | One-liner |
 |---|---|---|
@@ -140,7 +140,7 @@ Worked examples:
 
 The corpus serves three distinct audiences. Pick the track that matches your goal; tracks are intentionally non-overlapping in their primary content.
 
-### Track 1 — Canonical (the contract)
+### Track 1 — canonical (the contract)
 
 For implementors and AI agents reading the contract in its normative reading order.
 
@@ -152,22 +152,22 @@ For implementors and AI agents reading the contract in its normative reading ord
 6. [Spec-Schemas.md](Spec-Schemas.md) — canonical runtime shapes.
 7. [conformance/](conformance/README.md) — fixtures the contract is verified against.
 
-### Track 2 — Background (rationale and design history)
+### Track 2 — background (rationale and design history)
 
-For readers wanting the *why* before (or beside) the *what*. Optional in the strict sense — every normative claim in Track 1 stands without these — but they make the corpus easier to absorb.
+For readers wanting the why before (or beside) the what. Optional in the strict sense — every normative claim in Track 1 stands without these — but they make the corpus easier to absorb.
 
-1. **Optional upstream rationale (re-frame v1 doc set):** [on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/), [a-loop](https://day8.github.io/re-frame/a-loop/), [application-state](https://day8.github.io/re-frame/application-state/). Why the v1 pattern has the shape it does. Skip if already familiar.
+1. Optional upstream rationale (re-frame v1 doc set): [on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/), [a-loop](https://day8.github.io/re-frame/a-loop/), [application-state](https://day8.github.io/re-frame/application-state/). Why the v1 pattern has the shape it does. Skip if already familiar.
 2. [Principles.md](Principles.md) — the 11 AI-first discipline principles + the two foundational essays.
 3. [AI-Audit.md](AI-Audit.md) — how each Spec scores against the principles; surfaces gaps.
 4. [Conventions.md](Conventions.md) — locked runtime conventions (reserved namespaces, fx-ids, `app-db` keys).
 5. The `Resolved decisions` and `Open questions` appendices in each numbered Spec — design-history records embedded next to the contract.
 
-### Track 3 — Implementor (porting to a new host)
+### Track 3 — implementor (porting to a new host)
 
 For implementors taking the pattern to one of the in-scope JS-cross-compile hosts — TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, or Kotlin/JS (the CLJS reference being the eighth). The pattern commits to React + VDOM at the render side and to a JS-cross-compile source language per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) and [006 §Abstract](006-ReactiveSubstrate.md#abstract); non-React substrates and non-cross-compile-to-JS hosts (server-side Python / Ruby / Rust / Go / Kotlin / Swift / Java) are out of scope as first-class implementation targets. Substantial — most of the artefacts already exist; this track sequences them explicitly.
 
 1. [000 §Host-profile matrix](000-Vision.md#host-profile-matrix) — pattern-required vs. host-discretion vs. CLJS-only, row by row. The single source of truth for "must I ship this?"
-2. [Implementor-Checklist.md](Implementor-Checklist.md) — the **decision-ordered companion** to the matrix. Part 1 declares which optional capabilities the implementation includes; Part 2 walks each capability's technology and library choices with options-by-host; Part 3 explains conformance against the claimed list.
+2. [Implementor-Checklist.md](Implementor-Checklist.md) — the decision-ordered companion to the matrix. Part 1 declares which optional capabilities the implementation includes; Part 2 walks each capability's technology and library choices with options-by-host; Part 3 explains conformance against the claimed list.
 3. [Principles.md](Principles.md) — the discipline your implementation should bias toward (especially the "open maps with schemas," "data is code," and "registry-as-truth" essays).
 4. [Spec-Schemas.md](Spec-Schemas.md) — the canonical shapes your runtime must produce. In static hosts, these become types.
 5. [009 §Error contract](009-Instrumentation.md#error-contract) — the structured-error trace surface every implementation supplies.
@@ -177,24 +177,24 @@ For implementors taking the pattern to one of the in-scope JS-cross-compile host
 
 ## Canonical homes outside `/spec`
 
-Most contract surfaces in re-frame2 have their canonical home in this `/spec` tree — the language-agnostic pattern lives here, and every other-language port consumes it as the contract. **A small, deliberate set of contract surfaces has its canonical home elsewhere**, and `/spec` indexes them via [Ownership.md](Ownership.md) rather than redefining them.
+Most contract surfaces in re-frame2 have their canonical home in this `/spec` tree — the language-agnostic pattern lives here, and every other-language port consumes it as the contract. A small, deliberate set of contract surfaces has its canonical home elsewhere, and `/spec` indexes them via [Ownership.md](Ownership.md) rather than redefining them.
 
-The rule):
+The rule:
 
-- A contract surface MAY live in a canonical home **outside `/spec`** when it is *downstream* of the language-agnostic pattern — i.e. it is a **tool-shared contract** or a **CLJS-reference-specific binding** of a pattern-level obligation, rather than part of the pattern's minimal core. The home lives with the artefact it ships in (`tools/<tool>/spec/...` or `implementation/<area>/...`).
-- The pattern-level `/spec` corpus remains the single source of truth for **what `the pattern` is**. External homes are valid only for surfaces that are not part of the pattern.
-- Every external home is **indexed in [Ownership.md](Ownership.md)** with its canonical-home path made explicit (e.g. `Canonical home spec` cell pointing at `tools/mcp-base/spec/README.md` or `implementation/SECURITY.md`). The rule for the index is the same as for in-tree owners: exactly one canonical home; other citations are informational.
+- A contract surface MAY live in a canonical home outside `/spec` when it is downstream of the language-agnostic pattern — that is, it is a tool-shared contract or a CLJS-reference-specific binding of a pattern-level obligation, rather than part of the pattern's minimal core. The home lives with the artefact it ships in (`tools/<tool>/spec/...` or `implementation/<area>/...`).
+- The pattern-level `/spec` corpus remains the single source of truth for what `the pattern` is. External homes are valid only for surfaces that are not part of the pattern.
+- Every external home is indexed in [Ownership.md](Ownership.md) with its canonical-home path made explicit (for example `Canonical home spec` cell pointing at `tools/mcp-base/spec/README.md` or `implementation/SECURITY.md`). The rule for the index is the same as for in-tree owners: exactly one canonical home; other citations are informational.
 - A new external home requires the same justification as any contract surface — bead-recorded decision, owner identified, drift rule applied.
 
 Currently the rule is exercised by two surfaces:
 
-1. **Cross-MCP shared primitives** — the `:rf.mcp/*` + `:rf.size/*` wire vocabulary, the JSON-RPC error codes, the privacy / elision walkers shared across the MCP pair, argument coercion, structural diff, overflow-marker shape, and the token-budget cap pipeline — live with the artefact in [`tools/mcp-base/spec/`](../tools/mcp-base/spec). Indexed in Ownership.md. Tool-shared contracts: a rename here is a wire-protocol break across every MCP server, not a pattern-level decision.
-2. **CLJS-reference security specifics** — named functions (`re-frame.core/elide-wire-value`, `re-frame.interop/debug-enabled?`, …), numeric defaults (interning cap, timeouts, drain ceilings), JVM-vs-CLJS stub semantics, and the full implementation-side audit trail — live in [`implementation/SECURITY.md`](../implementation/SECURITY.md). The pattern-level threat model + behavioural MUSTs live in [`Security.md`](Security.md); the implementation-side companion carries the host-specific binding (per [Security §How to read this doc](Security.md#how-to-read-this-doc)).
+1. Cross-MCP shared primitives — the `:rf.mcp/*` + `:rf.size/*` wire vocabulary, the JSON-RPC error codes, the privacy / elision walkers shared across the MCP pair, argument coercion, structural diff, overflow-marker shape, and the token-budget cap pipeline — live with the artefact in [`tools/mcp-base/spec/`](../tools/mcp-base/spec). Indexed in Ownership.md. Tool-shared contracts: a rename here is a wire-protocol break across every MCP server, not a pattern-level decision.
+2. CLJS-reference security specifics — named functions (`re-frame.core/elide-wire-value`, `re-frame.interop/debug-enabled?`, …), numeric defaults (interning cap, timeouts, drain ceilings), JVM-vs-CLJS stub semantics, and the full implementation-side audit trail — live in [`implementation/SECURITY.md`](../implementation/SECURITY.md). The pattern-level threat model + behavioural MUSTs live in [`Security.md`](Security.md); the implementation-side companion carries the host-specific binding (per [Security §How to read this doc](Security.md#how-to-read-this-doc)).
 
-**Why allow external homes at all?** `/spec` is the *language-agnostic pattern*; cross-MCP wire vocab + the CLJS-reference's concrete function names + numeric defaults are tooling concerns and implementation concerns respectively, not pattern-level. Forcing those into `/spec` would pollute the abstraction — a TypeScript port reading `/spec/Security.md` for the pattern doesn't need (and would be confused by) the `re-frame.core/elide-wire-value` symbol. The split keeps each doc serving one audience cleanly.
+Why allow external homes at all? `/spec` is the language-agnostic pattern; cross-MCP wire vocab + the CLJS-reference's concrete function names + numeric defaults are tooling concerns and implementation concerns respectively, not pattern-level. Forcing those into `/spec` would pollute the abstraction — a TypeScript port reading `/spec/Security.md` for the pattern doesn't need (and would be confused by) the `re-frame.core/elide-wire-value` symbol. The split keeps each doc serving one audience cleanly.
 
 ## Ownership matrix
 
-Every contract surface in re-frame2 is owned by exactly one normative spec. The full **owner → companion-citations** mapping lives in **[Ownership.md](Ownership.md)** — it is the single source for "where does X live?" Use it to navigate, and to detect drift if a definition ever appears in a non-owning doc. Most owning specs live in this `/spec` tree; the small set of external canonical homes (per §Canonical homes outside `/spec` above) is indexed in the same matrix.
+Every contract surface in re-frame2 is owned by exactly one normative spec. The full owner → companion-citations mapping lives in [Ownership.md](Ownership.md) — it is the single source for "where does X live?" Use it to navigate, and to detect drift if a definition ever appears in a non-owning doc. Most owning specs live in this `/spec` tree; the small set of external canonical homes (per §Canonical homes outside `/spec` above) is indexed in the same matrix.
 
-Drift rule: if a contract surface acquires a *second* normative definition (a redefinition rather than a citation), that is a corpus bug. File it as a `spec-review` bead and resolve by collapsing back to the listed owner.
+Drift rule: if a contract surface acquires a second normative definition (a redefinition rather than a citation), that is a corpus bug. File it as a `spec-review` bead and resolve by collapsing back to the listed owner.

@@ -17,37 +17,37 @@ Each layer's throw produces a different trace shape with different
 recovery semantics. A trace panel that conflated them — or a recorder
 that captured a flow throw but missed the per-flow `:rf.flow/failed`
 attribution preceding it — would fail to surface the load-bearing fact
-about where the cascade halted. The four buttons are the minimum that
+about where the cascade halted. The 4 buttons are the minimum that
 lets a consumer verify it discriminates.
 
-## What's deliberately *missing*
+## What's deliberately missing
 
-- No `try` / `catch` around any trigger site. The throw must propagate
+- no `try` / `catch` around any trigger site. The throw must propagate
   to the framework boundary; that's where the structured error event is
-  emitted.
-- Recovery is the framework's typed per-category default — the
+  emitted
+- recovery is the framework's typed per-category default — the
   `:recovery` consumers test against. There is no app-steering recovery
   policy (the per-frame `:on-error` recovery policy was removed per
-  rf2-hiqtk8); observe errors via `register-error-listener!`.
-- No epoch recorder wired into the app. The recorder is the consumer's
+  rf2-hiqtk8); observe errors via `register-error-listener!`
+- no epoch recorder wired into the app. The recorder is the consumer's
   concern — `tools/xray/testbeds/deliberate-throw-recorder/spec.cjs`
-  (when filed) will register the listener itself.
+  (when filed) will register the listener itself
 
 ## Test scenarios from rf2-fe84r this surface enables
 
-**Xray (26)**:
+Xray (26):
 - `:rf.error/*` events highlighted in trace stream
-- Handler exception surfaces as `:effects` outcome `:error` per epoch record
-- Partial epoch record (drain-halt) shows up with non-`:ok` outcome (rf2-v0jwt) — via Button D (machine action; the snapshot non-commit is the cleanest drain-halt observable)
-- Click-to-source from trace event lands on source-coord line — Buttons A/B/C/D each register their handler/fx/flow/machine via the four canonical `reg-*` shapes, so every flavour of source-coord capture exercises here.
+- handler exception surfaces as `:effects` outcome `:error` per epoch record
+- partial epoch record (drain-halt) shows up with non-`:ok` outcome (rf2-v0jwt) — via Button D (machine action; the snapshot non-commit is the cleanest drain-halt observable)
+- click-to-source from trace event lands on source-coord line — Buttons A/B/C/D each register their handler/fx/flow/machine via the 4 canonical `reg-*` shapes, so every flavour of source-coord capture exercises here
 
-**Cross-cutting (6)**:
-- Deliberately-throwing handler surfaces structured trace in BOTH Xray + Story `:play`
-- Flow `:rf.flow/failed` shows atomicity-contract failure semantics per Spec 013 §Failure semantics (rf2-hrqvg) — Button C
-- State-machine transition cascade shows `:rf.machine/*` events — Button D's pre-throw transition fires the `:rf.machine/transition` trace before the action throws
+Cross-cutting (6):
+- deliberately-throwing handler surfaces structured trace in both Xray + Story `:play`
+- flow `:rf.flow/failed` shows atomicity-contract failure semantics per Spec 013 §Failure semantics (rf2-hrqvg) — Button C
+- state-machine transition cascade shows `:rf.machine/*` events — Button D's pre-throw transition fires the `:rf.machine/transition` trace before the action throws
 
-**Story (18)**:
-- Recorder captures click → records `:play` → replays identically — Buttons A/B/C/D should all replay deterministically (the throws are pure)
+Story (18):
+- recorder captures click → records `:play` → replays identically — Buttons A/B/C/D should all replay deterministically (the throws are pure)
 - `:rf.assert/*` pass/fail with structured output — assertions wrapped around each button's expected `:rf.error/*` shape live in `tools/story/testbeds/<scenario>/spec.cjs` (filed after this surface lands)
 
 ## Running

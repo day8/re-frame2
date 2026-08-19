@@ -4,7 +4,7 @@ Most people use AI coding tools as if the chat window were the whole team.
 
 They ask one session to design the feature, read the repo, write the patch, debug
 the tests, do some investigation, remember the decisions, open the PR, review the
-PR, and then somehow still know what happened four hours later. This works for toy
+PR, and then somehow still know what happened 4 hours later. This works for toy
 tasks and demos. It falls apart on real projects, for the utterly boring reason
 that one context window is not a project-management system.
 
@@ -19,13 +19,13 @@ Gastown directly, but the shape came from studying it. Credit lands there.
 
 Prompt engineering and context management are still the keys.
 
-- One long-lived AI session is the **mayor**.
-- Many short-lived AI sessions are **workers**.
-- [Beads](https://github.com/gastownhall/beads) tracks the work.
-- Prompts are treated very seriously.
-- Git worktrees isolate workers.
-- Chat and the tracker hold the calls waiting on me.
-- I make the important calls.
+- one long-lived AI session is the mayor
+- many short-lived AI sessions are workers
+- [Beads](https://github.com/gastownhall/beads) tracks the work
+- prompts are treated very seriously
+- Git worktrees isolate workers
+- chat and the tracker hold the calls waiting on me
+- I make the important calls
 
 The rest is good discipline.
 
@@ -37,11 +37,11 @@ It talks to you. It knows you, your processes, and your goals. It files tracker
 items. It dispatches background workers. It reviews their output. It merges PRs
 when CI is green. It records decisions.
 
-It must **not** burn its context window implementing features.
+It must not burn its context window implementing features.
 
 This is the part everyone struggles with, because watching the mayor code feels
 productive. It is like asking the air-traffic controller to leave the tower and
-help unload bags. For five minutes, sure, a few bags move. Then the planes start
+help unload bags. For 5 minutes, sure, a few bags move. Then the planes start
 doing interesting things.
 
 Workers do the work. They get a tight brief, a worktree, and one bounded task.
@@ -82,11 +82,11 @@ Start with:
 
 Then make the mayor work:
 
-- Ask it where the prompt is ambiguous.
-- Ask it which cases are missing.
-- Ask it what the repo already does in nearby areas.
-- Ask it what could go wrong.
-- Ask it to restate the problem in two sentences.
+- ask it where the prompt is ambiguous
+- ask it which cases are missing
+- ask it what the repo already does in nearby areas
+- ask it what could go wrong
+- ask it to restate the problem in 2 sentences
 
 A terminology section is usually worth it. So is a list of in-scope and
 out-of-scope changes.
@@ -101,10 +101,10 @@ Keep AI working material out of the product tree:
 
 - `ai/prompts/` — durable AI instructions: implementation, decision, review.
 - `ai/findings/` — audits, research notes, design drafts, second opinions.
-  **Gitignored.** Never commit one. Convert actionable findings into tracker items,
+  Gitignored. Never commit one. Convert actionable findings into tracker items,
   spec, or docs.
 - `ai/extended-context/` — durable project context not obvious from the code, kept
-  locally. **Gitignored**, so it is not available from a clean clone. The mayor
+  locally. Gitignored, so it is not available from a clean clone. The mayor
   consults it on bootstrap and grows it on retrospectives.
 - `ai/decisions/` — one file per decision, written only when you ask for a durable
   record of a specific call. Ordinary holds awaiting you live in chat and on their
@@ -113,8 +113,8 @@ Keep AI working material out of the product tree:
 One warning about that tree, learned the hard way. Because git cannot see it, a
 worker can finish a piece of analysis, write it there, and cite it by a path no
 maintainer has. Two audits were lost that way here, and a mayor re-ran an entire
-three-design programme in one day for want of looking there first. Working notes
-stay local; the *conclusion* gets promoted into whatever tracked record already
+3-design programme in one day for want of looking there first. Working notes
+stay local. The conclusion gets promoted into whatever tracked record already
 owns the surface.
 
 ## The tracker is the work queue
@@ -123,24 +123,24 @@ Every real piece of work becomes a tracker item.
 
 A good item says:
 
-- what is wrong or missing;
-- where to look, with `file:line` where possible;
-- what should change — a sketch is fine, a fix is great;
-- what counts as done;
-- what tests or checks matter;
-- what not to touch.
+- what is wrong or missing
+- where to look, with `file:line` where possible
+- what should change — a sketch is fine, a fix is great
+- what counts as done
+- what tests or checks matter
+- what not to touch
 
 Workers do not get vibes. They get items. Vague items produce vague PRs.
 
 Beads also has memories: `bd remember` stores project-shaped insights that outlive
 the current mayor, and `bd memories <topic>` retrieves them. Use them for the
-operations knowledge a fresh mayor would otherwise rediscover at 2 a.m.
+operations knowledge a fresh mayor would otherwise rediscover at 2am.
 
 ## Briefs are where the errors are
 
 This is the finding I would most want to have had at the start.
 
-Across one long session, workers corrected the mayor's stated premises about twenty
+Across one long session, workers corrected the mayor's stated premises about 20
 times. Not on style — on facts the mayor asserted and had not checked. Counts that
 had drifted between filing and dispatch. A file asserted to carry a claim it did not
 carry. A defect described as silent whose error was raised loudly at source and
@@ -178,10 +178,10 @@ The mayor should surface those clearly:
 Then I decide, and the mayor records the decision on the item.
 
 That recording step is not paperwork. It is how future agents inherit your judgment
-instead of rediscovering the same argument at 2 a.m.
+instead of rediscovering the same argument at 2am.
 
 One correction worth making early. A mayor can over-deliver on deference: one was
-holding nine items "for the operator" when three were genuinely operator calls, and the
+holding 9 items "for the operator" when 3 were genuinely operator calls, and the
 rest were already answered by the project's stated stance. Ask which items on that list
 actually need you.
 
@@ -190,7 +190,7 @@ actually need you.
 Workers may open PRs. The mayor merges them.
 
 Before merging, the mayor checks that the diff matches the item, that scope did not
-sprawl, that failure output stays actionable, and that CI is green — on all five clauses
+sprawl, that failure output stays actionable, and that CI is green — on all 5 clauses
 of the merge criterion, which are set out in [`loops.md`](loops.md). "No failures" is not
 one of the clauses and is not green: an empty rollup reports no failures too.
 
@@ -207,7 +207,7 @@ This is the difference between "a lot of agents did things" and "the project adv
 If your process audits merged changes, expect closed items to reappear. Twelve did in one
 session, and every one was a legitimate audit reopening the item that owned a residual.
 
-The rule is short: **read the item's notes before re-closing anything.** The instinct to
+The rule is short: read the item's notes before re-closing anything. The instinct to
 re-close a "reverted" item destroys a real finding and looks like tidiness.
 
 Expect chains. A fix lands, its audit reopens the item for a second carrier, that fix's
@@ -232,9 +232,9 @@ what lands, or the project becomes a committee made of weather.
 
 ## Checkpoints
 
-Every so often, stop and run two reviews.
+Every so often, stop and run 2 reviews.
 
-**First**, ask the mayor for a retrospective:
+First, ask the mayor for a retrospective:
 
 > What information not already recorded in the code or the tracker would have been helpful
 > to have had before we started this session? What's not obvious from the code alone?
@@ -242,7 +242,7 @@ Every so often, stop and run two reviews.
 > duplicate. Structure it like an AI skill, with front matter and then a body. Give the file
 > an expressive name; long is fine. Itemise it in the README.
 
-**Second**, ask the mayor to spawn independent reviewers against recent commits:
+Second, ask the mayor to spawn independent reviewers against recent commits:
 
 > Regarding the recent commits, spawn agents to review independently for:
 > - performance hot spots, but not at the expense of clarity;
@@ -262,18 +262,18 @@ Different lenses find different issues.
 ## Ready to run it
 
 If you want to try the method, the pasteable prompt is [`bootstrap.md`](bootstrap.md). Paste
-it into a fresh AI session as your opening message; the mayor takes it from there.
+it into a fresh AI session as your opening message. The mayor takes it from there.
 
 Three siblings carry the operational detail:
 
 - [`bootstrap.md`](bootstrap.md) — the opening prompt, and the hard-won list of things that
   bite.
-- [`loops.md`](loops.md) — the five standing loops, and the merge criterion in full.
+- [`loops.md`](loops.md) — the 5 standing loops, and the merge criterion in full.
 - [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — the worker-prompt shapes, the
-  worktree-boundary block, and the gate-mechanics block. The last two go into every editing
+  worktree-boundary block, and the gate-mechanics block. The last 2 go into every editing
   dispatch verbatim.
 
-None of those three is specific to this repository. The concrete values they need — your gate
+None of those 3 is specific to this repository. The concrete values they need — your gate
 command, your tracker's commands, your hot-zone file list — belong in your own project's
 agent-instructions file.
 

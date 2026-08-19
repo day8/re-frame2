@@ -21,17 +21,17 @@ React changes.
 
 ## What this demonstrates
 
-The lesson isn't the dashboard. It's how *little* glue sits between the
+The lesson isn't the dashboard. It's how little glue sits between the
 data and the pixels. Three ideas carry the example.
 
-**Two separate controls feed one subscription.** The chips pick which
+Two separate controls feed one subscription. The chips pick which
 categories of metric to show. The range picker picks how much history to
 show. In the [app-db](../../../../docs/core/glossary.md#app-db) they're
 unrelated — a `:dashboard/active-tags` set and a `:dashboard/range`
 keyword, written by two small
 [event handlers](../../../../docs/core/glossary.md#event-handler). But both
 feed a single derived [subscription](../../../../docs/core/glossary.md#subscription),
-`:dashboard/visible-metrics`, which filters the cards by tag *and* trims
+`:dashboard/visible-metrics`, which filters the cards by tag and trims
 each metric's series to the last N points:
 
 ```clojure
@@ -46,13 +46,13 @@ each metric's series to the last N points:
 ```
 
 Toggle a chip or change the range, and the framework re-runs just this
-one function — and only if one of its three inputs actually changed (by
-`=`). The view never sees two events. It asks for the visible metrics
+one function — and only if one of its 3 inputs actually changed (by
+`=`). The view never sees 2 events. It asks for the visible metrics
 and gets one settled answer. That's the
 [derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
 doing the bookkeeping you'd otherwise do by hand.
 
-**You read state through a React hook.** UIx components are `defui`
+You read state through a React hook. UIx components are `defui`
 functions, and inside one you call
 `(uix-adapter/use-subscribe [:dashboard/visible-metrics])` at the top of
 the body — instead of dereferencing a
@@ -67,7 +67,7 @@ chips read the frame's `:dispatch` from the `use-frame` hook — the
 in hook position, read at render time. That's the idiomatic way to
 dispatch from inside a UIx event callback.
 
-**The sparklines are pure functions, not a chart widget.** Each
+The sparklines are pure functions, not a chart widget. Each
 sparkline is one SVG `<path>`. Its `d` string is computed straight from
 the metric's series: find min and max, scale into a 100×30 viewBox, emit
 `M…L…L…`. That's it — a dozen lines of arithmetic in `sparkline-path`,
@@ -91,7 +91,7 @@ framework.
 Two different apps, one per substrate — yet they both wear the same
 "Editorial Warm" identity from
 [`examples/_shared/css/style.css`](../../../_shared/css/style.css). So what
-looks *different* is the layout and the interaction, never the brand. A
+looks different is the layout and the interaction, never the brand. A
 design-led example earns its keep by showing that polished visuals and
 interaction hold up on its substrate. It skips the platform features
 (managed HTTP, state machines, routing) that other examples cover, so
@@ -108,7 +108,7 @@ creating it on the first mount, reusing it untouched on a hot reload — and
 [app-db](../../../../docs/core/glossary.md#app-db) before the first paint.
 With the tree inside the root, every `use-subscribe` and
 `use-frame` resolves to that frame through React context; render with
-*no* provider and the hooks raise `:rf.error/no-frame-context` —
+no provider and the hooks raise `:rf.error/no-frame-context` —
 [identity is carried, not
 found](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found),
 even here.
@@ -133,28 +133,28 @@ Edits recompile live, and the command prints a local URL to open. Add
 
 ## Accessibility + responsive — what to copy
 
-This is the UIx example meant to model a *polished* multi-pane app, so
+This is the UIx example meant to model a polished multi-pane app, so
 its controls and layout show the accessibility + responsive shape a real
 UIx app should copy:
 
-- **Tag filter chips are multi-select toggles** — each chip is a real
+- Tag filter chips are multi-select toggles — each chip is a real
   `<button>` carrying `aria-pressed`, and the row is a `role="group"`
   with an `aria-label`. Assistive tech reads the on/off state, not just
   a visual class.
-- **The range picker is a single-select mode control** — it implements
+- The range picker is a single-select mode control — it implements
   the full WAI-ARIA radio-group idiom, not just the roles. The row is a
   `role="radiogroup"`, and each chip is a `role="radio"` carrying
   `aria-checked`. So it announces as a one-of-N choice, not as
-  independent buttons. It also honours the radio-group **keyboard
-  contract**. A *roving tabindex* puts only the checked radio in the tab
+  independent buttons. It also honours the radio-group keyboard
+  contract. A roving tabindex puts only the checked radio in the tab
   order, so Tab lands on the current selection. Arrow keys (Left/Up,
   Right/Down, with wrap) move the selection — and the focus with it,
   since in a radio group selection follows focus.
-- **Sparklines are decorative** (`aria-hidden="true"`) — the card's
+- Sparklines are decorative (`aria-hidden="true"`) — the card's
   eyebrow, value, and label already carry the metric name + value as
   text, so the SVG is a visual restatement, not a separate nameless
   graphic to announce.
-- **Layout stays within its box at every width** — the card grid floor
+- Layout stays within its box at every width — the card grid floor
   is `minmax(min(100%, 280px), 1fr)`, so a narrow viewport collapses to
   one full-width column instead of overflowing. Two `@media` breakpoints
   stack the header and shrink the oversized H1 and card padding on

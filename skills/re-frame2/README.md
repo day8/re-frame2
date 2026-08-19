@@ -1,8 +1,8 @@
 # re-frame2 (skill)
 
-> ↑ [`skills/`](..) — index of all eight re-frame2 skills.
+> ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
 
-A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) **author re-frame2 ClojureScript applications**. Companion to [`re-frame2-pair`](../re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps new projects from scratch).
+A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) author re-frame2 ClojureScript applications. Companion to [`re-frame2-pair`](../re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps new projects from scratch).
 
 This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction, SSR-Loaders).
 
@@ -37,13 +37,13 @@ skills/re-frame2/
 └── evals/                            Eval harness. Repo-maintenance artifact; not shipped with the skill.
 ```
 
-The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the fourteen canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
+The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the 14 canonical patterns, and the 2 decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
 
 ## Install
 
-`re-frame2` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The two supported channels are a **repo checkout** (git clone + link) and a **Claude Code marketplace plugin** — it is **not** published to npm (the `package.json` is marked `private`). Clone the repo and **link** the skill into `~/.claude/skills/` (Claude Code loads skills from there).
+`re-frame2` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The 2 supported channels are a repo checkout (git clone + link) and a Claude Code marketplace plugin — it is not published to npm (the `package.json` is marked `private`). Clone the repo and link the skill into `~/.claude/skills/` (Claude Code loads skills from there).
 
-**Link, never copy.** A copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Use the cross-platform installer, which links *every* skill in the monorepo so the active skill is the repo source by construction:
+Link, never copy. A copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Use the cross-platform installer, which links every skill in the monorepo so the active skill is the repo source by construction:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git
@@ -74,7 +74,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a **repo-maintenance artifact** — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
+Alpha. The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the 14 canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a repo-maintenance artifact — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
 
 ## License
 

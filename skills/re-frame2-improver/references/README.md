@@ -15,7 +15,7 @@ Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern w
 
 ## Routing — load only the leaves whose signals appear
 
-A typical trigger is a short pasted snippet. Consult the signals below and open **only** the leaves whose signals plausibly match the in-scope code (usually 1–3, not all six); each leaf carries the full detection rules. When one leaf matches, load its co-occurring leaf too.
+A typical trigger is a short pasted snippet. Consult the signals below and open only the leaves whose signals plausibly match the in-scope code (usually 1–3, not all 6); each leaf carries the full detection rules. When one leaf matches, load its co-occurring leaf too.
 
 | Leaf | Load when the source shows | Co-occurs with |
 |---|---|---|
@@ -26,18 +26,18 @@ A typical trigger is a short pasted snippet. Consult the signals below and open 
 | `imperative-effects.md` | `.setItem` / DOM `set!` / `js/setTimeout` / inline `rf/dispatch`; `js/Date.now` / `Math.random` / `.getItem`; `@(rf/subscribe …)` in a handler body | `manual-retry-loops.md` (HTTP write) |
 | `view-side-hook-state.md` | `(r/atom …)` / `reagent/atom` at a view or namespace top; `use-state` / `useReducer`; an event handler derefing a view-ns atom | — |
 
-**Consolidate co-occurring findings that share one refactor.** When two leaves match the same code and resolve to the *same* canonical shape — most often `manual-loading-flags.md` + `boolean-discriminator-subs.md` on one screen, both replaced by the *same* Nine States / tags machine, or an HTTP-shaped `imperative-effects.md` write that collapses into the `manual-retry-loops.md` Managed-HTTP fix — name each diagnosis but fold their rewrites into **one** consolidated fix. Independent rewrites for the same machine contradict each other.
+Consolidate co-occurring findings that share one refactor. When 2 leaves match the same code and resolve to the same canonical shape — most often `manual-loading-flags.md` + `boolean-discriminator-subs.md` on one screen, both replaced by the same Nine States / tags machine, or an HTTP-shaped `imperative-effects.md` write that collapses into the `manual-retry-loops.md` Managed-HTTP fix — name each diagnosis but fold their rewrites into one consolidated fix. Independent rewrites for the same machine contradict each other.
 
 ## Per-leaf format
 
-Each leaf carries five sections — Detection rules / Why it's an anti-pattern / The canonical fix / Worked example / Edge cases — locked in [`../spec/design.md` §L5](../spec/design.md) (`schemaless-events.md` adds a sixth additive "Regression example"). The catalogue grows only when an anti-pattern surfaces across 3+ real reviews; the growth procedure and deferred candidates live in [`../spec/design.md`](../spec/design.md).
+Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / The canonical fix / Worked example / Edge cases — locked in [`../spec/design.md` §L5](../spec/design.md) (`schemaless-events.md` adds a sixth additive "Regression example"). The catalogue grows only when an anti-pattern surfaces across 3+ real reviews; the growth procedure and deferred candidates live in [`../spec/design.md`](../spec/design.md).
 
 ## Shared retro protocol
 
-- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol. The SKILL.md loads it; per-leaf detection rules assume it is already in scope.
+- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — 7-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol. The SKILL.md loads it; per-leaf detection rules assume it is already in scope.
 
 ## Cross-references
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
 - [`skills/re-frame2/patterns/`](../../re-frame2/patterns) — the canonical-idiom leaves each anti-pattern routes to.
-- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, five-section leaf format, shared-protocol extraction, growth procedure, deferred candidates).
+- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, shared-protocol extraction, growth procedure, deferred candidates).

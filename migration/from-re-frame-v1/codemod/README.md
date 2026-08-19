@@ -3,10 +3,10 @@
 A standalone scanner + conservative codemod for the v1 → v2 event-registration
 collapse defined by [EP-0018](../../../docs/EP/EP-0018-one-event-registration.md):
 the three public registrars (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`)
-collapse to one public form, **`reg-event`** (semantically today's
+collapse to one public form, `reg-event` (semantically today's
 `reg-event-fx`). The rule it implements is [MIGRATION M-73](../README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018).
 
-It is **self-contained**: it operates on source *text* via
+It is self-contained: it operates on source text via
 [rewrite-clj](https://github.com/clj-commons/rewrite-clj) (a zipper over the
 node tree, so formatting and comments survive a rewrite) and never loads,
 requires, or executes re-frame2 itself. That means it runs against any v1 corpus
@@ -23,7 +23,7 @@ on a bare JVM with `clojure` on the path — no re-frame2 build in the loop.
 | complex `reg-event-db` | **flag** (`:complex`) | left unchanged — non-literal handler (var / higher-order / multi-arity) or a destructured first param |
 | `reg-event-ctx` | **flag** (`:ctx`) | left unchanged — withdrawn from the public surface; rewrite the full-context work to a **registered interceptor** (`reg-interceptor`, referenced by id in `:interceptors`; EP-0022) by hand |
 
-Detection is **alias-agnostic**: `rf/reg-event-db`, `re-frame.core/reg-event-db`,
+Detection is alias-agnostic: `rf/reg-event-db`, `re-frame.core/reg-event-db`,
 and bare `reg-event-db` are all recognised, and the rename preserves whatever
 alias/namespace was on the symbol.
 
@@ -33,12 +33,12 @@ alias/namespace was on the symbol.
 a faithful, semantics-preserving wrap regardless of how complex `BODY` is — with
 one subtlety. If `BODY` can evaluate to `nil` (a `when` / `if`-without-else /
 `cond` / `and` / `or` / bare `get` / `some->` tail, a literal `nil`, …) the
-codemod **does not silently rewrite it**. Under the new model a bare `nil`
+codemod does not silently rewrite it. Under the new model a bare `nil`
 return is a clean no-op (and `{:db nil}` coerces to `{:db {}}` — see `rf2-ekq28v`),
 so the author may now prefer that reading over faithfully reproducing the v1
 "write nil to app-db" footgun. The codemod flags these for human review.
 
-The nil analysis is **conservative**: it answers "non-nil" only for bodies it can
+The nil analysis is conservative: it answers "non-nil" only for bodies it can
 prove are non-nil (a literal collection, or a builder headed by `assoc` /
 `assoc-in` / `update` / `merge` / `dissoc` / … or a `->` thread ending in one of
 those). Anything it is unsure about it flags — the safe direction for D7.

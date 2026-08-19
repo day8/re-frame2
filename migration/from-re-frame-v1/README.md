@@ -1,4 +1,4 @@
-# re-frame v1.x → re-frame2 Migration
+# re-frame v1.x → re-frame2 migration
 
 > **Type:** Migration
 > The rewrite rules, exceptions, and acceptance criteria for upgrading a ClojureScript codebase from re-frame v1.x to re-frame2 — plus the procedure an agent follows to apply them. The companion artefact for *new* code is [Construction-Prompts.md](../../spec/Construction-Prompts.md).
@@ -14,13 +14,13 @@ Read top-to-bottom for the full picture; jump to Part 2 if you only need the pro
 
 ---
 
-## Part 1 — The migration rules
+## Part 1 — the migration rules
 
 ---
 
 ## re-frame2 in one paragraph
 
-re-frame2 keeps the public API of `re-frame.core` working for the vast majority of code, with migration cost held to a **small, well-defined set of breakages** documented in this file. New features (rich registration metadata, frames for multi-instance, `reg-view`, Malli schemas, etc.) are *additive opt-ins* that existing code is not required to adopt.
+re-frame2 keeps the public API of `re-frame.core` working for the vast majority of code, with migration cost held to a **small, well-defined set of breakages** documented in this file. New features (rich registration metadata, frames for multi-instance, `reg-view`, Malli schemas and so on) are *additive opt-ins* that existing code is not required to adopt.
 
 The required-migration rules in this file run M-0 through M-74 (the numbering is not gap-free — M-2 is a strikethrough slot preserved for numbering stability, demoted to opt-in [O-6](#o-6-future-proof-against-reagent-specific-subscription-return-types)). Most codebases trip only a handful; the early single-concern rules (M-1 through M-11) and the smaller-surface notes (M-12 onward) are surfaced alongside the report. Much of the public API surface (`reg-sub`/`reg-fx`/`reg-cofx`/`dispatch`/`subscribe`/`dispatch-sync` and their handler signatures) is preserved — see the "What stays the same" section below for the explicit non-breakage list. **The event registrars are the headline break:** under EP-0018 the three v1 forms (`reg-event-db`/`reg-event-fx`/`reg-event-ctx`) collapse to one public form, **`reg-event`** (= today's `reg-event-fx`, coeffects in / closed effects map out), with `reg-event-ctx` demoted to a framework-internal primitive; the retired names are throwing stubs naming their replacement, and the codemod in [M-73](#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018) does the rewrite. Coeffect delivery is declared, not injected — `inject-cofx` is removed and a handler declares `:rf.cofx/requires` (EP-0017; [M-72](#m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename)). Interceptors are registered image members: application interceptors are authored with `reg-interceptor` and event/frame chains carry interceptor **references** (`:auth/required`, `[:rf.interceptor/path [:cart]]`), not inline values — `->interceptor` is internal-only (EP-0022; [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)). **One carve-out applies to `reg-sub`:** the `reg-sub` name, the layer-1 `(fn [db query-v] …)` form, and the static `:<-` forms are preserved, **but** the v1 reaction-returning **two-function signal-fn form** is intentionally breaking — its signal fn must migrate to a v2 **`input-fn` returning a vector of query vectors** (see [M-71](#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors)). **re-frame2 requires an explicit frame.** Under EP-0002 (the carried-frame invariant) frame identity is *carried, not found*: every dispatch and subscription resolves its frame from the scope it runs under, and the runtime **never infers a default from absence** — a frame-scoped call with no established scope fails loudly with `:rf.error/no-frame-context`. A migration MAY choose `:rf/default` as its **explicit** frame id (it reads familiarly), but the runtime will not infer it: you establish that frame at your root — `frame-root {:id …}` (the ENSURE mount) or `make-frame` + `frame-provider` / `with-frame`. So the v1 mental model "one global `app-db` that bare calls implicitly hit" becomes "v1's ambient global `app-db` becomes one explicitly established frame you select once, after which bare calls inside its scope work unchanged; new composition goes through image values loaded into frames." The full design rationale is in [000-Vision.md](../../spec/000-Vision.md); the carried-frame contract (EP-0002) is normatively stated in [002-Frames.md §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
 
@@ -33,7 +33,7 @@ Each rule below is tagged **Type A** or **Type B**. The two categories tell the 
 - **Type A — fully mechanical.** The pattern is unambiguous, the rewrite is structural, and the result observably behaves identically. The agent applies the change without asking.
 - **Type B — semantic flag.** The pattern is detectable but the rewrite requires understanding intent (timing-sensitive code; dynamic call sites; behaviour-change-with-edge-cases). The agent identifies every affected call site, explains the risk, and asks the user to decide before applying.
 
-When a single rule has both Type A and Type B aspects (e.g., M-5: `apply` is mechanical, Var-aliasing depends on dynamic use), the rule documents both — apply the Type A part automatically; flag the Type B part.
+When a single rule has both Type A and Type B aspects (for example M-5: `apply` is mechanical, Var-aliasing depends on dynamic use), the rule documents both — apply the Type A part automatically; flag the Type B part.
 
 The rules are listed in order of likelihood. Apply them in order; later rules may depend on earlier ones being resolved.
 
@@ -83,7 +83,7 @@ The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lin
 
 **Choose and record the route, then continue the migration.** The route decision is made once, here at M-0, and every later artefact rule (M-27 through M-33) inherits it — one publication-state decision governs the whole guide. Record it in the migration report, then keep going: a first release is not a precondition for any other rule in this file.
 
-**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame2 {:git/sha "abc1234…"}`).
+**Report.** Include the before/after coord pair in the migration report's preamble (for example `re-frame/re-frame 1.4.5 → day8/re-frame2 {:git/sha "abc1234…"}`).
 
 **Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. The artefact name change is deliberate: the public `re-frame.core` namespace is unchanged, but the Maven coord moves to `day8/re-frame2` so v1 and v2 can ship as siblings without classpath conflict.
 
@@ -170,7 +170,7 @@ For the vast majority of code this is harmless or strictly better. The cases tha
 
 **What to do:**
 
-- **Pattern 1.** If the intermediate render is genuinely needed (rare, usually for spinner-flash-to-content effects), restructure: emit the visible state, return; let the user-visible event complete. Then have a *separate* domain event (e.g., from a `:dispatch-later` with `{:ms 0 ...}`) trigger the work. `:dispatch-later` always remains async.
+- **Pattern 1.** If the intermediate render is genuinely needed (rare, usually for spinner-flash-to-content effects), restructure: emit the visible state, return; let the user-visible event complete. Then have a *separate* domain event (for example from a `:dispatch-later` with `{:ms 0 ...}`) trigger the work. `:dispatch-later` always remains async.
 - **Pattern 2.** Animation chains using `:dispatch` to pace frames are fragile; convert to `:dispatch-later` or use `requestAnimationFrame` via a dedicated fx. Drain semantics make `:dispatch` ill-suited for pacing.
 - **Pattern 3.** Tests asserting on router queue contents post-dispatch will see an empty queue (drain has already run). Reframe assertions in terms of *resulting `app-db` state* or *effects observed*, not queue contents.
 
@@ -442,12 +442,12 @@ The rewrite is mechanical:
 
 re-frame2 reserves a single root keyword namespace for **framework-owned** ids: `:rf/*` and its sub-namespaces (per [Conventions.md §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)). The full reserved set: `:rf/*`, `:rf.frame/*`, `:rf.registry/*`, `:rf.fx/*`, `:rf.error/*`, `:rf.warning/*`, `:rf.machine/*` (with sub-areas `:rf.machine.lifecycle/*`, `:rf.machine.timer/*`, `:rf.machine.event/*`, `:rf.machine.microstep/*`), `:rf.route/*`, `:rf.nav/*`, `:rf.ssr/*`, `:rf.server/*`, `:rf.epoch/*`, `:rf.assert/*`, `:rf.test/*`. The legacy `:re-frame/*` prefix is **not** runtime-resolved in v2 — it is rewritten mechanically by the migration agent (per [§M-20](#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)).
 
-**What to look for** in the codebase: any `(reg-event-* :rf/...)`, `(reg-sub :rf/...)`, `(reg-fx :rf/...)`, `(reg-cofx :rf/...)`, `(make-frame {:id :rf/...})`, etc. — registrations whose id sits in a reserved namespace. Also: events dispatched whose head is an id in a reserved namespace but where the user's own code is the registered handler (i.e., the user has shadowed a framework event).
+**What to look for** in the codebase: any `(reg-event-* :rf/...)`, `(reg-sub :rf/...)`, `(reg-fx :rf/...)`, `(reg-cofx :rf/...)`, `(make-frame {:id :rf/...})` and so on — registrations whose id sits in a reserved namespace. Also: events dispatched whose head is an id in a reserved namespace but where the user's own code is the registered handler (that is, the user has shadowed a framework event).
 
 **What to do:** flag every hit, present the registered id, the registration site, and the reason the namespace is reserved. The user decides:
 
 - **Rename to a non-reserved namespace.** Pick a top-level segment that doesn't shadow the framework — typically the project's own root namespace.
-- **Genuinely override a framework extension point.** A small number of framework-owned events are extension points (e.g., `:rf/hydrate` is documented as customisable via re-registration of the standard handler). The agent confirms the override is intentional and leaves it; otherwise renames.
+- **Genuinely override a framework extension point.** A small number of framework-owned events are extension points (for example `:rf/hydrate` is documented as customisable via re-registration of the standard handler). The agent confirms the override is intentional and leaves it; otherwise renames.
 - **Decline to action.** The user takes responsibility for the collision (rare; tooling will warn at runtime).
 
 This is Type B because the rewrite depends on intent the agent can't recover statically — was the user *trying* to override a framework event or accidentally colliding? The user must say.
@@ -539,7 +539,7 @@ Per [012 §Tooling and AI-amenability](../../spec/012-Routing.md#tooling-and-ai-
 
 **Type B** (semantic flag).
 
-Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* frame construction (i.e. the first `make-frame` for a given `:id`) initialises `app-db` to `{}` and then runs its `:initial-events`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any frame exists) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(make-frame {:id frame-id :initial-events [[:rf/set-db initial-state]]})`, where `frame-id` is your explicit root frame id — a migration may pick `:rf/default`, but it is registered, never inferred), and the seeded value must move into the `:initial-events` vector (the standard `[:rf/set-db {…}]` event seeds a literal app-db).
+Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* frame construction (that is, the first `make-frame` for a given `:id`) initialises `app-db` to `{}` and then runs its `:initial-events`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any frame exists) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(make-frame {:id frame-id :initial-events [[:rf/set-db initial-state]]})`, where `frame-id` is your explicit root frame id — a migration may pick `:rf/default`, but it is registered, never inferred), and the seeded value must move into the `:initial-events` vector (the standard `[:rf/set-db {…}]` event seeds a literal app-db).
 
 **What to look for:** top-level `(reset! re-frame.db/app-db ...)` (or `(swap! re-frame.db/app-db ...)`) calls in namespace bodies.
 
@@ -597,7 +597,7 @@ The rule has **two sub-cases** depending on where the `^:flush-dom` form appears
 
 **What to look for** in the codebase:
 
-- `^:flush-dom` reader-tag on dispatched event vectors, e.g. `^:flush-dom [:do-the-thing]`.
+- `^:flush-dom` reader-tag on dispatched event vectors, for example `^:flush-dom [:do-the-thing]`.
 
 The grep is the same for both sub-cases; classify each hit by *where the form appears* — inside an effect map returned from a handler (M-16a) versus inside a top-level `(rf/dispatch ...)` call from app init / a component callback / a REPL (M-16b).
 
@@ -639,7 +639,7 @@ The mechanical M-16a rewrite (`{:fx [[:dispatch-later {:ms 0 :event [:bootstrap]
 
 re-frame2's run-to-completion drain (per [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)) means the dispatched event drains to fixed point before the caller returns, but the caller's caller (the browser event loop / boot sequence) sees the same paint cadence as v1; render scheduling is unchanged for top-level dispatches. The defensive `^:flush-dom` was always doing nothing useful at the top level — v1's flush-dom inserted a tick *between two synchronously-chained dispatches*, but there's no chain at the top level.
 
-**(ii) Preserve the latency — move the dispatch through a one-shot event handler.** If the call site genuinely wants a paint tick between something the caller already did (e.g. a component just mutated DOM via a ref) and the dispatched handler running, register a one-shot trampoline event whose body is the M-16a rewrite:
+**(ii) Preserve the latency — move the dispatch through a one-shot event handler.** If the call site genuinely wants a paint tick between something the caller already did (for example a component just mutated DOM via a ref) and the dispatched handler running, register a one-shot trampoline event whose body is the M-16a rewrite:
 
 ```clojure
 ;; re-frame2 (ii) — wrap in a one-shot trampoline
@@ -964,7 +964,7 @@ re-frame2 locks the **hybrid call shape** as canonical: `[<id>]` for trivial eve
 **Failure modes the agent flags rather than guesses:**
 
 - **Anonymous destructure** (`(fn [_ event] ...)` with no inner destructure): the agent has no parameter names to use as map keys. Reports "name your args first, then re-run" and skips this id.
-- **Dynamically-built event vectors** (`(rf/dispatch (cons :user/login args))`, etc.): the agent flags as "manual review needed" — the call site is not statically rewriteable.
+- **Dynamically-built event vectors** (`(rf/dispatch (cons :user/login args))` and so on): the agent flags as "manual review needed" — the call site is not statically rewriteable.
 - **Mixed-arity dispatches for the same id**: some call sites pass 2 args, some pass 3. The agent reports the inconsistency and skips; the user resolves first.
 - **Trivial-arity** (`[:counter/inc]`) and **single-arg** (`[:user-by-id 42]`) call sites: do **not** trigger migration. They stay as-is forever. Map-payload form is recommended only for ≥2 non-id args.
 
@@ -1045,7 +1045,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 
 **Route *slice* paths — scope the rewrite to framework routing only (NOT a blanket Type-A target).** The `app-db [:route]` → runtime-db `[:rf.runtime/routing :current]` slice rewrite, and the `[:route]` sub-head → `[:rf/route]` rewrite, apply **only** when the app has adopted Spec 012 framework routing (the opt-in O-8 routing migration). Most v1 apps keep a **third-party router** (`secretary`, `reitit`, `bidi`) and store route state at an app-owned slice like `[:route]` — that is **user state**, not a framework slot. Rewriting it as if Spec 012 routing were in use would break app-owned router state, introduce reserved runtime-db writes/subs that should not exist, and falsely require `day8/re-frame2-routing` / `re-frame.routing`. So: an `[:route]` app-db slice path is rewritten **only** with evidence of framework routing usage (the routing artefact loaded, `:rf.route/*` events dispatched, `reg-route` declared) or an explicit O-8 routing-adoption decision. Absent that, leave `[:route]` as user state and surface it as a Type-B note. The framework route slice lives in runtime-db at `[:rf.runtime/routing :current]` **only** when the routing extension is in use (per [012 §Where routing state lives](../../spec/012-Routing.md), [§The `:rf/route` sub](../../spec/012-Routing.md)).
 
-**`:re-frame/*` is not a runtime alias.** The v2 runtime does **not** coerce `:re-frame/<x>` to `:rf/<x>`; direct authoring of `:re-frame/*` ids in v2 source does not resolve. The mechanical rewrite above is the **only** path — every `:re-frame/<x>` site is rewritten to its `:rf/*` counterpart (per the table, e.g. `:re-frame/default` → `:rf/default`) at migration time. `:re-frame/*` ids that reference v1 features removed in v2 (e.g. `:re-frame/clear-event`) hit the relevant per-rule migration (M-1 etc.) and are not part of this rule. Pre-alpha re-frame2 has no in-flight v1 codebases auto-running against it, so no runtime coercion shim is justified.
+**`:re-frame/*` is not a runtime alias.** The v2 runtime does **not** coerce `:re-frame/<x>` to `:rf/<x>`; direct authoring of `:re-frame/*` ids in v2 source does not resolve. The mechanical rewrite above is the **only** path — every `:re-frame/<x>` site is rewritten to its `:rf/*` counterpart (per the table, for example `:re-frame/default` → `:rf/default`) at migration time. `:re-frame/*` ids that reference v1 features removed in v2 (for example `:re-frame/clear-event`) hit the relevant per-rule migration (M-1 and so on) and are not part of this rule. Pre-alpha re-frame2 has no in-flight v1 codebases auto-running against it, so no runtime coercion shim is justified.
 
 **Why?** The 14-prefix scheme was placeful by namespace — each Spec area got its own top-level identifier, with no rule for predicting which prefix a future concern lands under. Single-root + hierarchical sub-namespaces gives one reserved set to remember, one grep target, and a predictable home for new spec areas. The migration is mechanical because every old name has a single new name; the rename table above is the closed list.
 
@@ -1081,7 +1081,7 @@ Any of the five interceptor refs in any registration's interceptor list.
 
 - **`debug`** → just remove it from the interceptor list. Nothing else changes. (Type A.)
 - **`trim-v`** → see M-19. Either keep the multi-positional event vector and adjust the handler destructure, or migrate the event-id to map-payload form. The agent flags `trim-v` users alongside the M-19 rewrite.
-- **`on-changes`** → migrate to a flow per [013](../../spec/013-Flows.md). The agent rewrites `(rf/on-changes f out-path & in-paths)` to the 3-slot `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)` registration (id first, metadata middle, the pure derive fn last — a `:derive` left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`). The id has to be picked — agent asks the user, defaulting to a namespaced keyword derived from the call site (e.g. `:<user-ns>/<event-id>-flow`). Type B because the user may want to toggle the flow conditionally rather than have it run for every event the original interceptor was wired to.
+- **`on-changes`** → migrate to a flow per [013](../../spec/013-Flows.md). The agent rewrites `(rf/on-changes f out-path & in-paths)` to the 3-slot `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)` registration (id first, metadata middle, the pure derive fn last — a `:derive` left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`). The id has to be picked — agent asks the user, defaulting to a namespaced keyword derived from the call site (for example `:<user-ns>/<event-id>-flow`). Type B because the user may want to toggle the flow conditionally rather than have it run for every event the original interceptor was wired to.
 - **`enrich`** → identify whether the body is computing derived state (→ flow), validating (→ schema), or doing something else (→ a registered interceptor `(rf/reg-interceptor :my/enrich {:after (fn [ctx] ...)})` referenced by id). Type B; the agent suggests the path based on what the body looks like.
 - **`after`** → if the body is purely side-effecting and event-shaped (analytics, logging, telemetry), the canonical replacement is a registered fx returned by the handler: `:fx [[:analytics/track ...]]`. If the body genuinely needs to run for every event of a specific kind regardless of handler, register it: `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` in the event's `:interceptors`. Type B because the right path depends on the body. (There is no public `->interceptor` to vendor onto; the registered interceptor IS the named, addressable replacement.)
 
@@ -1165,7 +1165,7 @@ The agent rewrites mechanically: the keyword's local-name becomes the auto-defed
 
 The v1 `re-frame.alpha` namespace is dissolved before v1 ships. Three surfaces are removed along with their supporting plumbing:
 
-- `re-frame.alpha/reg` — the generalised registration entry (`(reg :event-fx :id ...)` / `(reg :sub :id ...)` etc.).
+- `re-frame.alpha/reg` — the generalised registration entry (`(reg :event-fx :id ...)` / `(reg :sub :id ...)` and so on).
 - `re-frame.alpha/sub` — the generalised subscribe accepting a query-map (`(sub {:re-frame/q ::id :param 1})`).
 - `re-frame.alpha/reg-sub-lifecycle` — the user-extension hook for adding new lifecycle policies.
 
@@ -1325,7 +1325,7 @@ As the first per-feature artefact split (Strategy B), Spec 010's schema-attachme
 
 - Any call to `re-frame.core/reg-app-schema`, `re-frame.core/app-schema-at`, or `re-frame.core/app-schemas`.
 - A direct `(:require [re-frame.schemas])` clause.
-- Use of the `:rf.error/schema-validation-failure` trace op (i.e. the app reads the validation outcome).
+- Use of the `:rf.error/schema-validation-failure` trace op (that is, the app reads the validation outcome).
 
 **What to do.** Add `day8/re-frame2-schemas` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
@@ -1346,7 +1346,7 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, or `re-frame.core/machine-meta`.
-- Any subscription to the framework-shipped `:rf/machine` reg-sub (e.g. `(rf/subscribe [:rf/machine machine-id])`).
+- Any subscription to the framework-shipped `:rf/machine` reg-sub (for example `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
 **What to do.** Add `day8/re-frame2-machines` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
@@ -1440,7 +1440,7 @@ The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.m
 - Any test namespace that resolves the stub via `(registrar/handler :fx :rf.http/managed-canned-success)` for direct invocation.
 - Any test namespace that uses the `:test` or `:story` frame preset (per Spec 002 §Frame presets — both presets expand into `{:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}`).
 - Any conformance-fixture runner that drives Spec 014 fixtures (the corpus references the canned-stub fx ids by id).
-- Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (e.g. realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
+- Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (for example realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
 
 **What to do.** Add `re-frame.http.test-support` alongside `re-frame.http.managed` in the require closure of every test / dev-only namespace from the list above:
 
@@ -1557,10 +1557,10 @@ The runtime now tracks each declarative-`:spawn` spawn-id at the reserved runtim
 **What to look for** in the codebase:
 
 - Machine specs that declared `:spawn` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the runtime-owned spawn-id tracking makes them correct without user-side rewrite.
-- Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [{:keys [data]}] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
+- Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (for example `:exit (fn [{:keys [data]}] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
 - User-supplied `:exit` action bodies that peek at the child's last snapshot before the auto-destroy fires — read it from the **runtime-db** partition at `[:rf.runtime/machines :snapshots (:pending data)]` (via the `[:rf/machine <id>]` subscription vector / the `:rf.db/runtime` cofx, not an app-db `(get-in db …)` read — snapshots no longer live in app-db). The composition rule ([§Composition with explicit `:entry` / `:exit`](../../spec/005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 
-**What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-fix (the actor leaked); it now works correctly under the runtime-owned spawn-id registry. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `[:rf.runtime/machines :snapshots]` has a stale entry after exit) needs explicit triage.
+**What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-fix (the actor leaked); it now works correctly under the runtime-owned spawn-id registry. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (for example tests asserting `[:rf.runtime/machines :snapshots]` has a stale entry after exit) needs explicit triage.
 
 **Public API** (in `re-frame.core` and the `reg-machine` / `:spawn` surface) is unchanged. The change is to the **runtime semantics** of where the spawn-id is stored: the user's `:data` is now user territory, and the runtime owns `[:rf.runtime/machines :spawned ...]`. As with every machine callback, `:on-spawn` receives the unified context map — `(fn [{:keys [data id]}] new-data)` (per [005 §Guards / §Actions](../../spec/005-StateMachines.md)).
 
@@ -1738,7 +1738,7 @@ The CLJS implementations of `subscribe`, `subscribe-once`, `unsubscribe`, and th
 
 ### M-42. React-19-removed Reagent surfaces are ABSENT under `day8/reagent-slim` (compile-time unresolved-var)
 
-**Type B — flag for human review.** Hit sites are mechanical to identify (the symbols are named), but the replacement depends on call-site intent (root-API mount vs. one-off ref capture, etc.).
+**Type B — flag for human review.** Hit sites are mechanical to identify (the symbols are named), but the replacement depends on call-site intent (root-API mount vs. one-off ref capture and so on).
 
 Per the slim Reagent rewrite design (IMPL-SPEC §10 / DECISION-7 / DECISION-8 / Stage 1 §2.3a), `day8/reagent-slim` drops five Reagent surfaces that have no React 19 replacement — **not as working APIs, and not as throw-on-call stubs either**. They are simply absent: there is no `reagent2.dom` namespace, and `reagent2.core` defines neither `render` nor `dom-node`. A stale call site fails at **compile time** with an unresolved-var error — the build fails before the app ever runs. (An earlier design shipped throw-on-call shims carrying a `:rf.error/react-19-removed-surface` `ex-info`; those were pruned — a throw-only stub for a removed surface is itself a back-compat shim, which the no-shims stance disallows. The louder, earlier signal is the compile error.)
 
@@ -1750,7 +1750,7 @@ Per the slim Reagent rewrite design (IMPL-SPEC §10 / DECISION-7 / DECISION-8 / 
 | `reagent.core/render` | `reagent2.dom.client/create-root` + `reagent2.dom.client/render` |
 | `reagent.core/dom-node` | `:ref` callback (class components) or `React.useRef` (function components) — React 19 removed `findDOMNode` |
 
-**The bridge keeps the Vars, but the render call site still changes.** The classic bridge (`day8/re-frame2-reagent`, depending on stock Reagent 2.x) still ships `reagent.dom/render`, `reagent.core/dom-node`, etc. — stock Reagent has not removed those Vars. But React 19 removed the `react-dom/render` that `reagent.dom/render` delegated to, so on the bridge the Var **warns and no-ops at runtime**; the render call site needs the same `create-root` + `render` rewrite either way, just targeting `reagent.dom.client` (bridge) instead of `reagent2.dom.client` (slim). The other symbols (`dom-node` / `force-update-all` / `unmount-component-at-node`) remain available on the bridge; only slim drops them. Migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for the full five-symbol sweep.
+**The bridge keeps the Vars, but the render call site still changes.** The classic bridge (`day8/re-frame2-reagent`, depending on stock Reagent 2.x) still ships `reagent.dom/render`, `reagent.core/dom-node` and so on — stock Reagent has not removed those Vars. But React 19 removed the `react-dom/render` that `reagent.dom/render` delegated to, so on the bridge the Var **warns and no-ops at runtime**; the render call site needs the same `create-root` + `render` rewrite either way, just targeting `reagent.dom.client` (bridge) instead of `reagent2.dom.client` (slim). The other symbols (`dom-node` / `force-update-all` / `unmount-component-at-node`) remain available on the bridge; only slim drops them. Migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for the full five-symbol sweep.
 
 **Migration agent action.**
 
@@ -1930,7 +1930,7 @@ Pre-release framing: the snapshot's `:state` slot has a new third arm (Nine Stat
 
 - **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
 - **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf.machine/has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
-- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/subscribe [:rf/machine :ui/foo])))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/subscribe [:rf/machine :ui/foo]) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/subscribe [:rf.machine/has-tag? :ui/foo :data/loading])`).
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (for example the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/subscribe [:rf/machine :ui/foo])))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/subscribe [:rf/machine :ui/foo]) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/subscribe [:rf.machine/has-tag? :ui/foo :data/loading])`).
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 
@@ -1950,7 +1950,7 @@ Pre-release framing: state-machine declarations may now declare a `:type :histor
 
 **Type A** (mechanical, name-rename).
 
-The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (e.g. `with-interceptor-overrides` is a natural companion).
+The test-support macro `re-frame.core/with-overrides` is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (for example `with-interceptor-overrides` is a natural companion).
 
 **What to look for** in the codebase:
 
@@ -2027,7 +2027,7 @@ The handle-capture step is needed only for async-dispatching fx that target mult
 rg -U 'reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]'
 ```
 
-Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx`, etc.) and apps that defined their own fx handlers are the typical hits. Single-frame apps that only used the reserved `:dispatch` / `:dispatch-later` / `:db` / `:fx` effects have no `reg-fx` call sites and need no change.
+Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx` and so on) and apps that defined their own fx handlers are the typical hits. Single-frame apps that only used the reserved `:dispatch` / `:dispatch-later` / `:db` / `:fx` effects have no `reg-fx` call sites and need no change.
 
 **Apply to:** every unary `reg-fx` handler in the codebase. The runtime no longer accepts the unary shape.
 
@@ -2099,7 +2099,7 @@ Per the tear-down verb axis discipline (see [Conventions §Tear-down verb axis �
 - `clear-` — registrar / cache / buffer decrement (in-process)
 - `destroy-` — lifecycle boundary
 
-One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface was already on the two-verb axis (`clear-event`, `clear-sub`, `clear-sub-cache!`, `destroy-frame!`, etc.).
+One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface was already on the two-verb axis (`clear-event`, `clear-sub`, `clear-sub-cache!`, `destroy-frame!` and so on).
 
 | v1 → v2 (pre-rename) | v2 (post-rename) | Verb-axis rationale |
 |---|---|---|
@@ -2414,7 +2414,7 @@ Registering `:rf.schema/at-boundary` **without** a `:schema` on the handler is r
   (fn [{:keys [db]} [_ {:keys [order-id total]}]] ...))
 ```
 
-Only when chain-wide `:event` reshaping is genuinely intended — the same reshape applied across many handlers — register a project interceptor with `reg-interceptor` (e.g. `:app/unwrap`) and reference it by id in those handlers' `:interceptors`. The common case is destructuring, not a registered interceptor.
+Only when chain-wide `:event` reshaping is genuinely intended — the same reshape applied across many handlers — register a project interceptor with `reg-interceptor` (for example `:app/unwrap`) and reference it by id in those handlers' `:interceptors`. The common case is destructuring, not a registered interceptor.
 
 **Detect.** v2-pre-rename codebases listing an `at-boundary` / `unwrap` interceptor value (or a renamed `*-interceptor` Var) in an event's `:interceptors`. A v1 codebase that used the xstate-shaped boundary validator lands on the `:rf.schema/at-boundary` ref via the same rewrite; v1 `unwrap` usage lands on destructuring.
 
@@ -2521,7 +2521,7 @@ The interceptor-map carries:
 
 At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is rejected at registration. The `:rf.fx/reg-http-interceptor` fx takes the same single map (with `:id` riding alongside); the fx body routes `:id` into the positional arg and passes the rest through unchanged.
 
-**Detect.** Any `reg-http-interceptor` call site that doesn't match `(rf/reg-http-interceptor :id {…})` — i.e. the 2-arity (positional :before) form `(rf/reg-http-interceptor :id (fn [ctx] …))` or the 3-arity (opts + positional :before) form `(rf/reg-http-interceptor :id {…} (fn [ctx] …))` or the older single-map form `(rf/reg-http-interceptor {:id … :before …})`.
+**Detect.** Any `reg-http-interceptor` call site that doesn't match `(rf/reg-http-interceptor :id {…})` — that is, the 2-arity (positional :before) form `(rf/reg-http-interceptor :id (fn [ctx] …))` or the 3-arity (opts + positional :before) form `(rf/reg-http-interceptor :id {…} (fn [ctx] …))` or the older single-map form `(rf/reg-http-interceptor {:id … :before …})`.
 
 **Mechanical sweep.**
 - 2-arity `(rf/reg-http-interceptor :id (fn ...))` → `(rf/reg-http-interceptor :id {:before (fn ...)})`
@@ -2775,7 +2775,7 @@ If the source site has no metadata map, create one. If it already has metadata, 
 
 **What to look for.** Inspect every `reg-event-db` / `reg-event-fx` / `reg-event-ctx` registration. A hit is any of:
 
-- The form after the id is a bare interceptor value: a Var (`mw/x`), inline `(rf/->interceptor ...)`, `(rf/path ...)`, `(rf/unwrap-interceptor)`, `(rf/redact-interceptor ...)`, etc.
+- The form after the id is a bare interceptor value: a Var (`mw/x`), inline `(rf/->interceptor ...)`, `(rf/path ...)`, `(rf/unwrap-interceptor)`, `(rf/redact-interceptor ...)` and so on.
 - The form after the id is a vector: `[i1 i2]`.
 - The call has both a metadata map and a following vector.
 
@@ -2863,7 +2863,7 @@ Apply only when the user wants the richer metadata. The required compatibility r
 
 ### O-2. Convert plain Reagent view fns to `reg-view` for multi-frame readiness
 
-A plain Reagent fn carries no `:contextType` wiring, so it cannot read a surrounding `frame-provider`'s frame; a bare ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; see [M-11](#m-11-plain-reagent-fns-that-depend-on-the-surrounding-frame--flag-for-human-review)). If the codebase plans to introduce multi-frame use (devcards, isolated widgets, Storybook stories, etc.), views that may be rendered inside a non-default `frame-provider` should be registered via `reg-view` so they pick up the surrounding frame. (M-11 is the *required* boundary — a plain fn that ambiently reads the frame is already broken under any provider; O-2 here is the *modernisation* that makes a clean view multi-frame-ready.)
+A plain Reagent fn carries no `:contextType` wiring, so it cannot read a surrounding `frame-provider`'s frame; a bare ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; see [M-11](#m-11-plain-reagent-fns-that-depend-on-the-surrounding-frame--flag-for-human-review)). If the codebase plans to introduce multi-frame use (devcards, isolated widgets, Storybook stories and so on), views that may be rendered inside a non-default `frame-provider` should be registered via `reg-view` so they pick up the surrounding frame. (M-11 is the *required* boundary — a plain fn that ambiently reads the frame is already broken under any provider; O-2 here is the *modernisation* that makes a clean view multi-frame-ready.)
 
 **Transformation:**
 
@@ -2899,7 +2899,7 @@ Apply only with explicit user direction; this is a real authoring exercise, not 
 
 ### O-4. Convert namespaced top-level state to a frame for isolation
 
-If the codebase has a self-contained subsystem under a single `app-db` path (e.g. all `:auth/*` keys, with corresponding events/subs all namespaced `:auth/...`), it can be reorganised as a separate frame for cleaner isolation. This is a meaningful architectural change, not a mechanical migration. **Do not apply unless explicitly asked.**
+If the codebase has a self-contained subsystem under a single `app-db` path (for example all `:auth/*` keys, with corresponding events/subs all namespaced `:auth/...`), it can be reorganised as a separate frame for cleaner isolation. This is a meaningful architectural change, not a mechanical migration. **Do not apply unless explicitly asked.**
 
 ### O-5. ~~Update fx handlers to binary form for full multi-frame support~~ — *promoted to [M-51](#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).*
 
@@ -2907,7 +2907,7 @@ The unary-fx-handler back-compat path was cut from the runtime; the binary signa
 
 ### O-6. Future-proof against Reagent-specific subscription return types
 
-re-frame2 v1 still ships against Reagent and continues to return Reagent-compatible reactives from `subscribe`. Code that introspects the returned object (`reagent.ratom/reaction?`, `.-state`, calling `reagent.core/dispose!`, etc.) will work in v1.
+re-frame2 v1 still ships against Reagent and continues to return Reagent-compatible reactives from `subscribe`. Code that introspects the returned object (`reagent.ratom/reaction?`, `.-state`, calling `reagent.core/dispose!` and so on) will work in v1.
 
 A future re-frame2.x or v3 may swap the substrate (UIx, headless). Code that depends on the Reagent type leaking through `subscribe` blocks that path. Future-proofing now means staying within the documented `re-frame.core` boundary.
 
@@ -3154,7 +3154,7 @@ If a usage isn't on this list and isn't covered by an M- or O-rule, flag it for 
 
 ---
 
-## Part 2 — Execution procedure
+## Part 2 — execution procedure
 
 Sections below are written in second person to an AI agent performing the migration. The procedure references rules from Part 1.
 
@@ -3185,7 +3185,7 @@ After applying any rules, in order:
 
 1. **Compile.** Run `shadow-cljs compile` (or the project's equivalent). Resolve any compile errors. Most likely issues:
    - Unresolved symbols from removed private namespaces (apply M-1).
-   - `apply` / Var-aliasing of `reg-event-*` etc. (apply M-5).
+   - `apply` / Var-aliasing of `reg-event-*` and so on (apply M-5).
 2. **Run tests** if a test suite exists. Watch for:
    - Tests that depended on intermediate renders between synchronously-chained dispatches (apply M-3).
    - Tests that asserted on router-queue contents post-dispatch (apply M-3).

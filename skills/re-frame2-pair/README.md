@@ -1,16 +1,16 @@
 # re-frame2-pair
 
-> ↑ [`skills/`](..) — index of all eight re-frame2 skills.
+> ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
 
-> **Delivery path.** This skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (`@day8/re-frame2-pair-mcp` — not yet published to npm; build and run it from a re-frame2 clone, see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)) — **33 tools** catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 33 are reachable from the skill's `allowed-tools:`; the two write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the **only** skill-facing transport — and the one implementation of every operation. The bash/babashka transport that originally fronted these ops (`scripts/ops.clj` + shell wrappers) has been removed; the live connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from [`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`](../../tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs).
+> Delivery path: this skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (`@day8/re-frame2-pair-mcp` — not yet published to npm; build and run it from a re-frame2 clone, see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)) — 33 tools catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 33 are reachable from the skill's `allowed-tools:`; the 2 write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the only skill-facing transport — and the one implementation of every operation. The bash/babashka transport that originally fronted these ops (`scripts/ops.clj` + shell wrappers) has been removed; the live connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from [`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`](../../tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs).
 
-A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
+A `Skill` that makes `Claude Code` a better pair programmer by allowing it to interact with your running [re-frame2](https://github.com/day8/re-frame2) application.
 
-This is the **re-frame2 sibling** of [`re-frame-pair`](https://github.com/day8/re-frame-pair) (the v1 skill, which targeted re-frame + re-frame-10x). re-frame2-pair is **decoupled from re-frame-10x entirely** — it consumes only re-frame2's own runtime contract (the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)).
+This is the re-frame2 sibling of [`re-frame-pair`](https://github.com/day8/re-frame-pair) (the v1 skill, which targeted re-frame + re-frame-10x). re-frame2-pair is decoupled from re-frame-10x entirely — it consumes only re-frame2's own runtime contract (the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)).
 
-A coding agent working with just the **static code** is working with a limited perspective. This Skill makes Claude Code more capable by giving it read/write access to:
-  - the **internal state** of the application
-  - the **dynamics of your running application**
+A coding agent working with just the static code is working with a limited perspective. This Skill makes Claude Code more capable by giving it read/write access to:
+  - the internal state of the application
+  - the dynamics of your running application
 
 It can:
 
@@ -22,7 +22,7 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-**Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed.** Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
+Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed. Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
 
 More docs: [`docs/TESTING.md`](docs/TESTING.md) (test plan); [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) (running from a clone); [`RELEASING.md`](RELEASING.md) (release flow); [`docs/initial-spec.md`](docs/initial-spec.md) (the original, historical design record).
 
@@ -30,7 +30,7 @@ More docs: [`docs/TESTING.md`](docs/TESTING.md) (test plan); [`docs/LOCAL_DEV.md
 
 re-frame-pair (v1) reaches into re-frame-10x internals to read the epoch buffer, drive undo, and time-travel. re-frame2 supersedes both that pattern and that dependency: epoch recording, querying, and restore are first-class surfaces in re-frame2 itself (per the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) §Time-travel and §How AI tools attach). Trying to reuse the v1 skill against re-frame2 would mean carrying a re-frame-10x dep that doesn't need to exist.
 
-re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / hot-reload / time-travel), same recipes, but every surface translated to re-frame2's own primitives. The two skills can coexist — pick the one that matches your app's framework version. A future merge is possible if/when re-frame and re-frame2 converge, but isn't a goal.
+re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / hot-reload / time-travel), same recipes, but every surface translated to re-frame2's own primitives. The 2 skills can coexist — pick the one that matches your app's framework version. A future merge is possible if/when re-frame and re-frame2 converge, but isn't a goal.
 
 ## Cross-link
 
@@ -39,7 +39,7 @@ re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / 
 - [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
 - [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — the skills-corpus pointer at the Tool-Pair surface enumeration (and the "supersedes re-frame-10x" claim) that sibling skills cite when routing an upstream finding. This README carries the fullest surface list; the shared leaf points back here for it.
 
-> **Distribution caveat — link from a clone; bring `skills/shared/` along.** The skill references sibling `../shared/` leaves in normal operation, and a `package.json` `files` allow-list cannot reach a parent directory — `npm pack` (and any plugin bundle) does **not** ship `skills/shared/`. The supported install is a link from a full re-frame2 monorepo clone (link, never copy); a tarball / plugin / vendored install must copy `skills/shared/` alongside the skill or the shared references break.
+> Distribution caveat — link from a clone; bring `skills/shared/` along. The skill references sibling `../shared/` leaves in normal operation, and a `package.json` `files` allow-list cannot reach a parent directory — `npm pack` (and any plugin bundle) does not ship `skills/shared/`. The supported install is a link from a full re-frame2 monorepo clone (link, never copy); a tarball / plugin / vendored install must copy `skills/shared/` alongside the skill or the shared references break.
 
 ## Which technical stack?
 
@@ -47,10 +47,10 @@ Designed for web apps built from the following stack:
 
 - A [re-frame2](https://github.com/day8/re-frame2) application (reference implementation: CLJS + Reagent v2)
 - `re-frame.interop/debug-enabled?` true (the `goog.DEBUG` mirror — set automatically in dev builds; production elides the trace and epoch surfaces per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md))
-- For the DOM→source bridge: re-frame2 injects `data-rf2-source-coord` on every **registered view's** root DOM element automatically in debug builds (mandatory per [Spec 006 §Source-coord annotation], gated on `interop/debug-enabled?` — there is **no** `configure!` knob to enable it). Coverage therefore needs registered views (`reg-view`) on a DOM-capable adapter; plain anonymous Reagent fns aren't annotated. As a fallback, [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites emits `data-rc-src`. Without registered-view coverage (or re-com `:src`), the `dom/*` ops degrade gracefully.
+- For the DOM→source bridge: re-frame2 injects `data-rf2-source-coord` on every registered view's root DOM element automatically in debug builds (mandatory per [Spec 006 §Source-coord annotation], gated on `interop/debug-enabled?` — there is no `configure!` knob to enable it). Coverage therefore needs registered views (`reg-view`) on a DOM-capable adapter; plain anonymous Reagent fns aren't annotated. As a fallback, [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites emits `data-rc-src`. Without registered-view coverage (or re-com `:src`), the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
-You don't need to change your application *code* to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: install the `@day8/re-frame2-pair` package and add its `preload/` directory to `:source-paths` plus the namespace to `:devtools :preloads` (two `shadow-cljs.edn` lines — see *Install* below). The preload loads only in dev builds; production is untouched.
+You don't need to change your application code to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: install the `@day8/re-frame2-pair` package and add its `preload/` directory to `:source-paths` plus the namespace to `:devtools :preloads` (2 `shadow-cljs.edn` lines — see Install below). The preload loads only in dev builds; production is untouched.
 
 ## No re-frame-10x dependency
 
@@ -62,9 +62,9 @@ If your app uses both re-frame2-pair and Xray, they coexist as parallel listener
 
 Without this `Skill`, `Claude Code` writes edits to source files and shadow-cljs hot-reloads them into the running program.
 
-`re-frame2-pair` adds a second mode: Claude can also make **ephemeral** changes to application code via the REPL — hot-swap an event handler or a subscription, try it, discard if it didn't work.
+`re-frame2-pair` adds a second mode: Claude can also make ephemeral changes to application code via the REPL — hot-swap an event handler or a subscription, try it, discard if it didn't work.
 
-The difference between the two modes is that REPL changes last until the next full page reload whereas source edits stick.
+The difference between the 2 modes is that REPL changes last until the next full page reload whereas source edits stick.
 
 
 ## Examples
@@ -151,11 +151,11 @@ Here's the kinds of conversations you can have with Claude.
 
 ## Install
 
-Both pieces install from a **repo checkout** — neither is published to npm yet (`@day8/re-frame2-pair-mcp` and the `@day8/re-frame2-pair` skill package are both marked `private`). See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for the full clone/link walk-through.
+Both pieces install from a repo checkout — neither is published to npm yet (`@day8/re-frame2-pair-mcp` and the `@day8/re-frame2-pair` skill package are both marked `private`). See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for the full clone/link walk-through.
 
-1. **MCP server.** Build and run it from a re-frame2 clone: `cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point your Claude Code `mcpServers` entry at the compiled `out/server.js` — see [`docs/LOCAL_DEV.md` §MCP server from a clone](docs/LOCAL_DEV.md#mcp-server-from-a-clone) and [`tools/re-frame2-pair-mcp/README.md`](../../tools/re-frame2-pair-mcp/README.md) for the entry point and launch flags. (Once published: `npm install -g @day8/re-frame2-pair-mcp`.)
-2. **Preload.** The `re-frame2-pair.runtime` CLJS namespace ships in this skill's own `preload/` directory; the MCP server does **not** carry it. From a linked clone, add the absolute path to `skills/re-frame2-pair/preload/` to your app's shadow-cljs `:source-paths` (no package install). **The preload is required** — without it `discover-app` refuses every session with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis). (Once published: `npm install -D @day8/re-frame2-pair` and point at `node_modules/@day8/re-frame2-pair/preload`.)
-3. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame2-pair.runtime]`) alongside that `:source-paths` line — see `SKILL.md` §Setup for the two-line snippet. No closure-defines. The preload only loads in dev; production builds are untouched.
+1. MCP server. Build and run it from a re-frame2 clone: `cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point your Claude Code `mcpServers` entry at the compiled `out/server.js` — see [`docs/LOCAL_DEV.md` §MCP server from a clone](docs/LOCAL_DEV.md#mcp-server-from-a-clone) and [`tools/re-frame2-pair-mcp/README.md`](../../tools/re-frame2-pair-mcp/README.md) for the entry point and launch flags. (Once published: `npm install -g @day8/re-frame2-pair-mcp`.)
+2. Preload. The `re-frame2-pair.runtime` CLJS namespace ships in this skill's own `preload/` directory; the MCP server does not carry it. From a linked clone, add the absolute path to `skills/re-frame2-pair/preload/` to your app's shadow-cljs `:source-paths` (no package install). The preload is required — without it `discover-app` refuses every session with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis). (Once published: `npm install -D @day8/re-frame2-pair` and point at `node_modules/@day8/re-frame2-pair/preload`.)
+3. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame2-pair.runtime]`) alongside that `:source-paths` line — see `SKILL.md` §Setup for the 2-line snippet. No closure-defines. The preload only loads in dev; production builds are untouched.
 
 ### How the connection works
 
@@ -164,14 +164,14 @@ The `re-frame2-pair.runtime` namespace ships into the consumer app via shadow-cl
 On first use in a session:
 
 1. The MCP server locates your shadow-cljs nREPL port automatically (it scans the standard port files and absorbs shadow restarts — you rarely configure anything; see [`references/mcp-transport.md` §Install / configure](references/mcp-transport.md#install--configure-one-time)).
-2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the two-line setup. No per-session inject step.
-3. Live-watch happens two ways: pull-mode `watch-epochs` (tracks the last seen `:epoch-id` per frame and asks for everything since) and push-mode `subscribe` (the long-running call pushes each batch as a `notifications/progress` tick — see [`references/streaming-subscriptions.md`](references/streaming-subscriptions.md)). Hot-reload confirmation is probe-based: after an edit, the `tail-build` tool polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
+2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the 2-line setup. No per-session inject step.
+3. Live-watch happens 2 ways: pull-mode `watch-epochs` (tracks the last seen `:epoch-id` per frame and asks for everything since) and push-mode `subscribe` (the long-running call pushes each batch as a `notifications/progress` tick — see [`references/streaming-subscriptions.md`](references/streaming-subscriptions.md)). Hot-reload confirmation is probe-based: after an edit, the `tail-build` tool polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
 
 On full page refresh, the preload re-runs as part of the next bundle load — the marker reappears automatically; no manual reconnect step.
 
 ## Invoking it in Claude
 
-Once the skill is installed, there are two ways to reach it from a Claude Code conversation.
+Once the skill is installed, there are 2 ways to reach it from a Claude Code conversation.
 
 ### Implicit — just ask
 
@@ -209,7 +209,7 @@ The skill's first op in a session is `discover-app`, which:
 
 ## How it works
 
-The pieces (design; see *Status* above):
+The pieces (design; see Status above):
 
 1. `discover-app` (MCP tool `mcp__re-frame2-pair__discover-app`) finds the running shadow-cljs build and its nREPL port, switches the session into `:cljs` mode for that build, and verifies re-frame2 + `debug-enabled?` + the preload marker.
 2. `eval-cljs` (MCP tool `mcp__re-frame2-pair__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.

@@ -18,7 +18,7 @@
 | **Old** (clj-new + Clojars; retired 2026-05-20) | `clojure -X:project/new :template re-frame2 :name acme/my-app` |
 | **New** (deps-new + git-coord) | `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app` |
 
-No action is required on **existing** scaffolded apps — the
+No action is required on existing scaffolded apps — the
 template's role ends at emit time, so the source tree it generated
 for you has no compile-time or runtime knowledge of the template
 artefact. Apps scaffolded under the clj-new template continue to
@@ -32,8 +32,8 @@ emits. The invocation surface changed.
 
 ### The template framework
 
-[**clj-new**](https://github.com/seancorfield/clj-new) →
-[**deps-new**](https://github.com/seancorfield/deps-new). Both
+[clj-new](https://github.com/seancorfield/clj-new) →
+[deps-new](https://github.com/seancorfield/deps-new). Both
 maintained by sean-corfield; deps-new is the current-generation
 Clojure scaffolder. The template's programmatic body
 (`data-fn` / `template-fn` / `post-process-fn`) replaces the
@@ -41,7 +41,7 @@ clj-new-era Mustache-only substitution shape.
 
 ### The distribution channel
 
-**Clojars → git-coord.** The published artefact is no longer
+Clojars → git-coord. The published artefact is no longer
 `day8/clj-template.re-frame2` on Clojars; it is a tagged commit of
 the [`tools/template/`](../../tools/template/) artefact (planned
 external repo `github.com/day8/re-frame2-template`).
@@ -80,7 +80,7 @@ retires.
 
 Under the v1-era clj-new template the supported flag set was
 `:substrate` plus the gated `:include-story?` exception. Under the
-deps-new rebuild, the **locked v1 set is exactly three flags**:
+deps-new rebuild, the locked v1 set is exactly three flags:
 
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
@@ -131,19 +131,19 @@ clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-a
 
 ## What didn't change
 
-- **The substrate set.** Reagent (default) / UIx. Adding a
+- The substrate set. Reagent (default) / UIx. Adding a
   new substrate is still the same shape: drop a sub-tree under
   `_<substrate>/`, add a `case` clause in `template-fn`, ship the
   per-substrate test.
-- **The substrate-agnostic shell.** `events.cljs`, `subs.cljs`,
+- The substrate-agnostic shell. `events.cljs`, `subs.cljs`,
   host HTML, `.gitignore`, `dev/` tree, `.editorconfig`,
   `lefthook.yml` — emitted identically across the
   substrates.
-- **The counter throughline.** Every variant emits a working
+- The counter throughline. Every variant emits a working
   counter, mirroring [the Guide introduction — a tiny counter
   application](https://github.com/day8/re-frame2/blob/main/docs/core/introduction.md)
   and the canonical `examples/<substrate>/counter*/` apps.
-- **Pin lockstep.** `:rf2-version`, `:shadow-version`,
+- Pin lockstep. `:rf2-version`, `:shadow-version`,
   `:react-version` continue to track
   `implementation/package.json` and the re-frame2 alpha release
   cadence.

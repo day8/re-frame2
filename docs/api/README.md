@@ -1,17 +1,17 @@
 # The re-frame2 API
 
-This is the **complete public API reference** for the manifest-tracked namespaces of
+This is the complete public API reference for the manifest-tracked namespaces of
 the ClojureScript implementation of re-frame2 — one page per public namespace, with
-the boundary of "manifest-tracked" set out under **Completeness** below. The one
+the boundary of "manifest-tracked" set out under Completeness below. The one
 public surface that falls outside it is the Hicasso view layer, which keeps its own
 reference: [Hicasso API reference](../core/hicasso/api-reference.md). Entries use a
-consistent shape: **Kind**, **Signature**, **Description** (contract, including error
-ids where they are part of the surface), and an **Example** where a call is worth
+consistent shape: Kind, Signature, Description (contract, including error
+ids where they are part of the surface), and an Example where a call is worth
 showing. The Example is optional — many contract-only surfaces (compile-time template
 forms, symbol-resolution vars) carry no runnable call — so its absence is not a gap.
 
 For the mental model, start with the [Core guide](../core/introduction.md). This
-corpus is deliberately terse: it states *what* you may call, not *why* the design
+corpus is deliberately terse: it states what you may call, not why the design
 chose it.
 
 ## How to read these pages
@@ -25,28 +25,28 @@ chose it.
 | Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
-**Facade vs owning namespace.** Many optional features re-export registration verbs
+Facade vs owning namespace. Many optional features re-export registration verbs
 through `re-frame.core` (for example `reg-machine`, `reg-flow`, `reg-resource`). The
 core page carries a short entry and points at the owning namespace for the full
 contract. Prefer requiring the feature namespace when you need depth; `rf/` remains
 valid for the re-export.
 
-**Keyword surfaces.** Events, fx, subs, and similar *keyword-addressed*
+Keyword surfaces. Events, fx, subs, and similar keyword-addressed
 registrations (`:rf.http/managed`, `:rf/machine`, …) appear as tables or sections on
 the owning page. They are not vars; the [api-manifest](../../spec/api-manifest.edn)
 tracks vars.
 
-**Completeness.** Public vars in the manifest with tiers `:front-porch`,
+Completeness. Public vars in the manifest with tiers `:front-porch`,
 `:advanced`, `:adapter`, or `:testing` under `re-frame.*` are expected to appear on
 these pages (or as an explicit facade pointer). Tooling and implementation tiers are
-out of scope here. This is **enforced**: the api-manifest `doc-api-check` reconciles
+out of scope here. This is enforced: the api-manifest `doc-api-check` reconciles
 every eligible manifest namespace against `docs/api/`, so an eligible namespace with
 no page — or an eligible var with no member heading (`### \`var\``, or a
 `#### \`var\`` facade-pointer entry on the owning/facade page) — turns the CI check
 red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 (`### \`re-frame.machines/machine-transition\``).
 
-**Where Hicasso sits.** `re-frame.hicasso` and its optional modules carry no
+Where Hicasso sits. `re-frame.hicasso` and its optional modules carry no
 api-manifest rows, so the enforcement above neither demands a page here nor notices
 their absence. That is deliberate rather than an oversight: the view layer is
 pre-alpha, its surface is still moving, and it documents itself in

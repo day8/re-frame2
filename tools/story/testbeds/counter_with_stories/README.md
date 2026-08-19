@@ -2,7 +2,7 @@
 
 The canonical worked example for [`tools/story/`](../../../../tools/story/)
 (`day8/re-frame2-story`). The counter the rest of the guide pivots
-around, with seven of the nine Story authoring macros wired up
+around, with 7 of the 9 Story authoring macros wired up
 end-to-end (the `reg-fragment` / `reg-check` composition cohort is not
 exercised here):
 
@@ -18,10 +18,10 @@ exercised here):
 
 `stories.cljs` stacks two surfaces, banner-demarcated in the source:
 
-- **Exemplary block** — the `:story.counter` parent, its five teaching
+- exemplary block — the `:story.counter` parent, its 5 teaching
   variants, and the all-states / auto-grid workspaces. This is the
   small, copyable reference a consumer reads to learn the authoring
-  shapes. The four canonical variants author the documented assertion
+  shapes. The 4 canonical variants author the documented assertion
   surface — the `:assert-db` checkpoint sugar for app-db equality plus
   the explicit `[:assert [:rf.assert/…]]` form for the assertions the
   sugar does not cover (`sub-equals`, `dispatched?`, `effect-emitted`)
@@ -30,12 +30,12 @@ exercised here):
   events-only loader-body shape (no `:loaders`, no
   `:loaders-complete-when`, no `:frame-setup` decorators) that takes the
   `:pre-mount → :ready` lifecycle fast path.
-- **Gate-fixture block** — the `:story.counter-diagnostics`,
+- gate-fixture block — the `:story.counter-diagnostics`,
   `:story.counter-matrix`, and `:story.counter-play-script` sibling
-  parents and their roughly thirty variants: deliberate failure / matrix
+  parents and their roughly 30 variants: deliberate failure / matrix
   / CI fixtures that keep Story's diagnostics, feature-load gate,
   schema / a11y / recorder / isolation surfaces, and the CI-as-test
-  runner under continuous coverage. These are NOT teaching variants.
+  runner under continuous coverage. These are not teaching variants.
   (Splitting them into a sibling fixtures file is tracked separately.)
 
 ## File layout
@@ -55,7 +55,7 @@ counter_with_stories/
 └── index.html                               ; the host page
 ```
 
-## Privacy + Size elision demo
+## Privacy + size elision demo
 
 The live app embeds an "elision card" underneath the counter. Each
 button drives one branch of the privacy + size elision arc the
@@ -89,11 +89,11 @@ The example also registers a console-logging
 at boot via `rf/register-listener!` (the `:events` channel). Every dispatched
 event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
-recipe forwards in production. The substrate is **always-on**: it
+recipe forwards in production. The substrate is always-on: it
 survives `:advanced` + `goog.DEBUG=false` where the trace surface
 DCEs because event-emit is the production observability surface. The
 demo's registration is intentionally ungated so visitors can see
-the listener fire; production deployments AND the registration
+the listener fire; production deployments and the registration
 with `(not ^boolean re-frame.interop/debug-enabled?)` per the
 chapter-22 recipe.
 
@@ -155,17 +155,17 @@ implementation symbols. The contract is enforced by:
 - `re-frame.story.config/enabled?` — when set to `false` via
   `:closure-defines`, every `reg-*` macro elides to `nil` and
   `mount-shell!` short-circuits before any DOM call.
-- The bundle-isolation grep test checks for the Story-internal
+- the bundle-isolation grep test checks for the Story-internal
   sentinel set (the `:rf.error/unknown-tag` reason string, the
   `:rf.error/decorator-*` taxonomy) in the
   `out/examples/counter` bundle. The example here counter_with_stories
-  is intentionally a DEV build (Story enabled) so the playground
+  is intentionally a dev build (Story enabled) so the playground
   works; the production-flavoured probe is the plain `counter`
   example.
 
 ## See also
 
-- The Story tutorial at [`docs/story/`](../../../../docs/story/).
-- The Story tool's authoring contract at [`tools/story/spec/`](../../../../tools/story/spec/).
-- The normative spec at [`spec/007-Stories.md`](../../../../spec/007-Stories.md).
-- The agent-facing MCP surface at [`tools/story-mcp/`](../../../../tools/story-mcp/).
+- the Story tutorial at [`docs/story/`](../../../../docs/story/)
+- the Story tool's authoring contract at [`tools/story/spec/`](../../../../tools/story/spec/)
+- the normative spec at [`spec/007-Stories.md`](../../../../spec/007-Stories.md)
+- the agent-facing MCP surface at [`tools/story-mcp/`](../../../../tools/story-mcp/)

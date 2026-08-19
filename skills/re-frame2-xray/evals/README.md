@@ -2,14 +2,14 @@
 
 This directory holds the evaluation fixtures for the `re-frame2-xray` tour
 skill (`skills/re-frame2-xray/SKILL.md` and its reference leaves). The
-fixtures gate two things at once:
+fixtures gate 2 things at once:
 
-1. **Trigger accuracy** — the skill fires on Xray launch / tab-routing /
+1. Trigger accuracy — the skill fires on Xray launch / tab-routing /
    chrome prompts (positives) and stays quiet on adjacent surfaces
    (negatives). This is the `skill-creator` description-optimisation
    signal.
-2. **Answer quality** — for the highest-drift Xray facts, the skill's
-   answer names the *currently shipped* control and rejects stale
+2. Answer quality — for the highest-drift Xray facts, the skill's
+   answer names the currently shipped control and rejects stale
    guidance. Trigger-only evals can prove the skill fired; they cannot
    prove the answer is still correct as the Xray UI churns. The
    `expectations[]` layer is the guardrail that closes that gap.
@@ -20,19 +20,19 @@ A single `evals.json` holds the eval list. Per Anthropic's `skill-creator`
 schema ([SKILL.md](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md),
 [schemas.md](https://github.com/anthropics/skills/blob/main/skills/skill-creator/references/schemas.md)),
 each entry has an `id`, a kebab-case `name`, and a `prompt`. On top of that
-base, this harness uses two layers:
+base, this harness uses 2 layers:
 
-- **Layer 1 — trigger (every entry).** `should_trigger` (`true` /
+- Layer 1 — trigger (every entry). `should_trigger` (`true` /
   `false`) drives the description-optimisation loop's train/held-out
   scoring. Negatives also carry a `rationale` naming the sibling skill
-  that *should* own the prompt.
-- **Layer 2 — answer quality (high-drift positives only).** The positives
+  that should own the prompt.
+- Layer 2 — answer quality (high-drift positives only). The positives
   that carry volatile UI facts also carry:
   - `expected_output` — a human-readable description of a correct answer
-    (not parsed; makes manual review fast).
+    (not parsed; makes manual review fast)
   - `expectations[]` — objectively gradeable statements. Each is checked
     against the run's answer; this is the pass/fail signal. They mix
-    **positive** assertions (name the right control) with **negative**
+    positive assertions (name the right control) with negative
     assertions (reject the stale one).
 
 `schema_version` is `"2"` (the `"1"` fixture was trigger-only). Bump it
@@ -40,9 +40,9 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-30 evals, covering Xray's trigger surface and answer quality: **22 positives**
-(skill should fire) and **8 negatives** (skill should stay quiet). **14
-positives** carry the Layer-2 answer-quality `expectations[]`; they target the
+30 evals, covering Xray's trigger surface and answer quality: 22 positives
+(skill should fire) and 8 negatives (skill should stay quiet). 14
+positives carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves:
 
 | ID | Name | Layer 2? | What the answer-quality assertions pin |
@@ -69,42 +69,42 @@ launch-default, launch-overlay, launch-popout-button, launch-programmatic,
 config-init-vs-settings, chrome-rewind, chrome-palette,
 panel-route-machine-canvas, panel-route-schema, panel-route-hydration —
 plus launch-popout (the paired programmatic counterpart to the button
-prompt), the tab-inventory pair **panel-route-frames** +
-**tab-inventory-count** that pin the 10-tab Dynamic surface (incl. Frames
+prompt), the tab-inventory pair panel-route-frames +
+tab-inventory-count that pin the 10-tab Dynamic surface (including Frames
 and Hicasso) so a future drop / misroute of Frames, a dropped Hicasso, or a
 revert to 9 tabs, fails the
-answer-quality layer, and **graph-projection-vs-static-mode** that pins the
+answer-quality layer, and graph-projection-vs-static-mode that pins the
 Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
 the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
 re-route a user to the wrong control.
 
 ## How to run
 
-There is **no scripted runner** in-tree for these — the answer-quality
+There is no scripted runner in-tree for these — the answer-quality
 layer needs a live Claude session, so the harness is manual, following the
 skill-creator workflow ([SKILL.md §"Running and evaluating test
 cases"](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md)).
 The short version:
 
-1. **Trigger layer (every entry).** Run the description-optimisation loop /
+1. Trigger layer (every entry). Run the description-optimisation loop /
    the skill-creator scorer over `evals.json` to confirm the positives fire
    and the negatives stay quiet. `should_trigger` is the only field that
    layer reads.
-2. **Answer-quality layer (the Layer-2 entries).** For each entry that
+2. Answer-quality layer (the Layer-2 entries). For each entry that
    carries `expectations[]`, spawn a fresh Claude session with
    `skills/re-frame2-xray/SKILL.md` loaded, send the `prompt`, and capture
    the answer + the tool-call transcript (which leaves it read).
-3. **Grade.** Check each `expectations[]` statement against the captured
+3. Grade. Check each `expectations[]` statement against the captured
    answer — pass / fail with one-line evidence. Most are grep-able for the
-   load-bearing token (e.g. `Reset`, `open-overlay!`, `Static`, the `⛶`
-   button); the negative assertions need a short read to confirm the stale
-   control is *absent*.
-4. **Act on failures.** A failing answer-quality assertion almost always
-   means the **skill drifted behind the shipped Xray UI**, not that the
+   load-bearing token (for example `Reset`, `open-overlay!`, `Static`, the
+   `⛶` button); the negative assertions need a short read to confirm the
+   stale control is absent.
+4. Act on failures. A failing answer-quality assertion almost always
+   means the skill drifted behind the shipped Xray UI, not that the
    assertion is wrong — re-verify against the current
    `tools/xray/src/.../` + `tools/xray/spec/*`, fix the skill body or the
    matching reference leaf, and re-run. Only weaken an assertion if the
-   *product* contract genuinely changed (then update both the skill and the
+   product contract genuinely changed (then update both the skill and the
    assertion in the same PR).
 
 The harness is intentionally tool-agnostic — `evals.json` is just data, so
@@ -114,9 +114,9 @@ any runner that respects the schema works.
 
 Whenever an Xray UI change lands that touches one of the high-drift facts
 (a launch verb, a chrome control, a tab route), update the skill body / the
-matching reference leaf **and** the corresponding `expectations[]` in the
+matching reference leaf and the corresponding `expectations[]` in the
 same PR. The Layer-2 assertions are the contract that the tour skill keeps
-describing the *shipped* Xray, not a stale snapshot — they are only as good
+describing the shipped Xray, not a stale snapshot — they are only as good
 as the discipline of updating them alongside the product.
 
 > Note: the repo's `scripts/check_skill_eval_docs.py` drift gate covers this
@@ -137,30 +137,30 @@ The tour skill's Dynamic tab inventory (the `e a v t m r s g u h` set across
 `references/shared-components.md`, `package.json`, and
 `.claude-plugin/plugin.json`) is checked against the live Xray registry by
 `scripts/check_skill_xray_tab_inventory_drift.py` — a structural drift gate
-that parses the shipped `reg-l4-tab!` metadata and **fails if any Dynamic
+that parses the shipped `reg-l4-tab!` metadata and fails if any Dynamic
 tab's `:id` / `:label` / `:mnem` / `:order` diverges from the skill + eval
-inventory** (it also fails a retired label — e.g. the old "Modules" — leaking
-back into user-facing prose). Run it whenever you touch the inventory. When
-an Xray tab is added, removed, or reordered, re-verify the skill against
-the **single source of truth** in this order:
+inventory (it also fails a retired label — for example the old "Modules" —
+leaking back into user-facing prose). Run it whenever you touch the
+inventory. When an Xray tab is added, removed, or reordered, re-verify the
+skill against the single source of truth in this order:
 
-1. **`tools/xray/src/day8/re_frame2_xray/focus.cljc` — `valid-panels`.**
+1. `tools/xray/src/day8/re_frame2_xray/focus.cljc` — `valid-panels`.
    This `#{…}` set MIRRORS the live `panel-registry/tab-ids-for-mode
    :dynamic` registry (a cross-check test, `registry_cljs_test.cljs`,
    fails the Xray build if they drift) and is the JVM-runnable, single
    authoritative count. Today it is
    `#{:epoch :app-db :views :trace :machines :routing :resources
-   :derivation-graph :module-view :hicasso}` — **10 tabs.** The internal ids
+   :derivation-graph :module-view :hicasso}` — 10 tabs. The internal ids
    map to display labels: `:views`→Views, `:routing`→Routes,
    `:derivation-graph`→Graph, `:module-view`→Frames (`:hicasso` and the rest
    render under their own names).
-2. **The per-panel `reg-l4-tab!` calls** under
+2. The per-panel `reg-l4-tab!` calls under
    `tools/xray/src/day8/re_frame2_xray/panels/*.cljs` — confirm each tab's
-   `:label`, `:mnem`, and `:order` (e.g. `module_view.cljs` →
+   `:label`, `:mnem`, and `:order` (for example `module_view.cljs` →
    `{:id :module-view :label "Frames" :mnem "u" :order 9}`). An L4-only
-   tab (Graph, Frames, Hicasso) registers via `reg-l4-tab!` but is **not**
+   tab (Graph, Frames, Hicasso) registers via `reg-l4-tab!` but is not
    in `panel-enum` (it has no standalone `mount-*!` facade).
-3. **`tools/xray/spec/API.md`** (the §Public surfaces table + §Panel
+3. `tools/xray/spec/API.md` (the §Public surfaces table + §Panel
    reg-views) — the normative published surface, which also enumerates
    which tabs are standalone-mountable vs L4-only registry tabs.
 

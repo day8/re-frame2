@@ -1,11 +1,11 @@
 # tools/xray/
 
-`day8/re-frame2-xray` — **Xray**, the re-frame2 devtools panel.
-*The cascade you can see.*
+`day8/re-frame2-xray` — Xray, the re-frame2 devtools panel.
+The cascade you can see.
 
 Xray is the structural successor to [re-frame-10x](https://github.com/day8/re-frame-10x).
-Where v1 organised debugging around the *epoch panel*, Xray organises it
-around the *story a cascade tells* — every dispatch is a node in a graph
+Where v1 organised debugging around the epoch panel, Xray organises it
+around the story a cascade tells — every dispatch is a node in a graph
 of causes, every state delta is a slice you can scrub, every machine
 transition lands on a chart you can read, every schema violation
 surfaces as an issue you cannot miss.
@@ -22,8 +22,8 @@ shipped to consumers.
 Xray consumes the re-frame2 instrumentation surface (Spec 009 trace
 bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The chrome is one tool in
-two modes: a **10-tab Dynamic detail panel** (event-coupled) and a
-**5-tab Static mode** (registry browse). The tabs are *presentation* of
+2 modes: a 10-tab Dynamic detail panel (event-coupled) and a
+5-tab Static mode (registry browse). The tabs are presentation of
 an already-structured runtime.
 
 AI agent access uses `tools/re-frame2-pair-mcp/` and the browser-side
@@ -33,11 +33,11 @@ epoch, and registrar data.
 
 ## Headline experiences
 
-The chrome is a **4-layer spine** (chrome ribbon · event list · tab bar ·
+The chrome is a 4-layer spine (chrome ribbon · event list · tab bar ·
 detail panel) per [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md).
 Selecting an event in the L2 event list moves a single spine sub
-(`:rf.xray/focus`); every Dynamic tab is a *lens on that one focused
-event*. Time-travel is the spine itself — the events-ribbon nav cluster
+(`:rf.xray/focus`); every Dynamic tab is a lens on that one focused
+event. Time-travel is the spine itself — the events-ribbon nav cluster
 plus the event list are the scrubber; there is no bottom rail. Issues are
 not a tab — they surface inline in the Epoch panel, the L2 event-row
 pink-wash, and the always-on issues ribbon signal.
@@ -61,16 +61,16 @@ The tab-bar render order + the registry `:id` each tab lands on
 | **Frames** (`u`) | `:module-view` | The EP-0023 `image -> frame` public model — each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance. L4-only — registry tab, no standalone `mount-*!` facade. |
 | **Hicasso** (`h`) | `:hicasso` | Six views over the adapter-neutral Hicasso evidence surface — Mounted boundaries · Reads attribution · the Intents stream · Why · Advisor · Causal — each stating its own scope, basis, completeness and loss. The last two are derivations over the same four envelopes as the first four, taken in one turn. L4-only — registry tab, no standalone `mount-*!` facade. |
 
-All ten ids are focusable via `focus!`. The standalone-mountable `Panel`
+All 10 ids are focusable via `focus!`. The standalone-mountable `Panel`
 re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
-are the first seven — Epoch, app-db, Views, Trace, Machine, Routes, and
-Resources; **Graph**, **Frames** and **Hicasso** are L4-only registry tabs
+are the first 7 — Epoch, app-db, Views, Trace, Machine, Routes, and
+Resources; Graph, Frames and Hicasso are L4-only registry tabs
 (shell-internal, focusable but not independently mountable).
 
 ### Static mode — the 5 browse surfaces (registry catalogue, event-independent)
 
-A peer 3-layer surface (no spine) for browsing *everything that could
-fire*, not just what did — per Lock #14/#15 in
+A peer 3-layer surface (no spine) for browsing everything that could
+fire, not just what did — per Lock #14/#15 in
 [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md). Toggle with
 `Ctrl+Shift+M`.
 
@@ -85,9 +85,9 @@ fire*, not just what did — per Lock #14/#15 in
 Full canonical inventory in [`spec/000-Vision.md`](./spec/000-Vision.md)
 §The tab table and [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md).
 
-> **Maintainers — chrome-shape drift guard.** When a Dynamic/Static tab
+> Maintainers — chrome-shape drift guard. When a Dynamic/Static tab
 > is added, retired, folded, or renamed, update this Headline-experiences
-> table in the SAME change, alongside the canonical sources
+> table in the same change, alongside the canonical sources
 > ([`spec/000-Vision.md`](./spec/000-Vision.md) §tab table,
 > [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md) §5, and
 > [`testbeds/panel_gallery/core.cljs`](./testbeds/panel_gallery/core.cljs)).
@@ -112,7 +112,7 @@ Once published, the dev-deps coord will be
 `day8/re-frame2-xray {:mvn/version "0.0.1.alpha"}` (tracking the repo
 `VERSION`).
 
-### Add The Layout Host
+### Add the layout host
 
 Xray's default launch mode is true inline, not an overlay. Add a
 right-side host to the app layout (DOM order: `<main>` first, host
@@ -146,11 +146,11 @@ the clamp ends, Enter/Space to reset).
 
 Two complementary resize mechanisms ship together:
 
-- **CSS variable** (host-owned). Override `--rf-xray-inline-width`
-  anywhere up the cascade (e.g.
+- CSS variable (host-owned). Override `--rf-xray-inline-width`
+  anywhere up the cascade (for example
   `:root { --rf-xray-inline-width: 720px; }`) to set the initial
   width.
-- **Xray drag handle** (user-controlled, persisted; auto-injected).
+- Xray drag handle (user-controlled, persisted; auto-injected).
   Drag the panel's outer edge (left edge when docked `:right-rail`)
   to resize. Width clamps to `[320px, 90vw]` and persists across
   reloads in the Settings slot `[:general :panel-width-px]` (written at
@@ -161,7 +161,7 @@ Two complementary resize mechanisms ship together:
   reset to default. See
   [`spec/007-UX-IA.md` §Resize affordance](./spec/007-UX-IA.md#resize-affordance).
 
-**Yield-to-consumer.** Some teams prefer the browser-native handle
+Yield-to-consumer. Some teams prefer the browser-native handle
 (`resize: horizontal` + `overflow: auto` on the host). Xray
 detects that at render time via `getComputedStyle` and renders no
 handle of its own — the consumer wins, no double-handle. The
@@ -277,7 +277,7 @@ which wires `../tools/xray/src` + `../tools/xray/test` onto the build
 classpath and registers every `tools/xray/testbeds/*` source dir +
 `:dev-http` port. The runnable feature gates are npm scripts in
 [`implementation/package.json`](../../implementation/package.json) — see
-**Tests** below.
+Tests below.
 
 ## Tests
 
@@ -301,7 +301,7 @@ elide every surface Xray consumes (per Spec 009 §Production builds).
 ## Publishing
 
 Xray publishes to Clojars as `day8/re-frame2-xray` on a tag push
-of the form **`xray-v<VERSION>`** (e.g. `xray-v0.0.1.alpha`). The
+of the form `xray-v<VERSION>` (for example `xray-v0.0.1.alpha`). The
 workflow lives at
 [`.github/workflows/release-xray.yml`](../../.github/workflows/release-xray.yml)
 and is triggered automatically — no manual deploy step.
