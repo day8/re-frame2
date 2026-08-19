@@ -14,6 +14,45 @@ count below was written down and committed *before the runner was invoked once*,
 exactly that many runs were taken regardless of what they showed. The mode's low rate
 makes the stop-when-it-looks-good failure the live one here, not a theoretical one.
 
+## The answer, first
+
+**ARMING DOES NOT MOVE THE LEVEL, and the confound is refuted from BOTH directions at
+once.** The hypothesis required every armed high to sit at +2,532 and every unarmed high
+to sit at +3,792. Both halves fail:
+
+- **The +2,532 level occurs UNARMED.** Nine unarmed runs read **exactly 21,632 / 22,072**,
+  the level the confound said only an armed build could produce. The literal, un-amended
+  byte-equality rule fires on these, so **the verdict does not rest on the amendment**
+  below.
+- **The +3,792 level occurs ARMED.** `armed-13` reads **22,884 / 23,324** — 8 B from the
+  level on both segments, 1,252 B from the other — the level the confound said only an
+  unarmed build could produce.
+- **An armed run and an unarmed run trace the elevated ramp BYTE-IDENTICALLY.** `armed-06`
+  and `unarmed-05` agree on **ten consecutive rounds** of `reagent-subs` and **eleven** of
+  `uix-subs`, across the step and through the settle. Not merely the same level: the same
+  curve, to the byte, on two different bundles.
+- **The low level is byte-identical across arms too** — 19,100 / 19,540 in all 32 low
+  runs, 16 in each arm — which independently re-confirms `rf2-n1b9h` on a larger sample.
+
+**So `rf2-77gz8`'s high-mode readings are NOT instrument-contaminated**, and neither is
+any other high-mode reading in the corpus. The +2,532 and +3,792 levels are genuinely
+distinct levels of the arm, and arming gates neither of them.
+
+**Two things this window did not expect and found anyway.**
+
+1. **THE MODE'S RATE IS NOT A PROPERTY OF THE REVISION.** It ran at **53%** today against
+   `rf2-77gz8`'s **10%** and `rf2-n1b9h`'s **0%**, on the same revision, the same
+   instrument and the same plan. Crucially **both arms moved together** — 52.9% armed
+   against 54.3% unarmed — which is what an environment effect predicts and what an
+   arming effect does not. Any future sizing that treats ~10% as the rate is sizing
+   against a number that is not stable.
+2. **THE ELEVATED LEVEL HAS FINE STRUCTURE.** Of 37 high readings, 19 sit exactly on
+   21,632 / 22,072, nine at −12 B, five at +96 B, and the rest within 8 B — and the offset
+   is **identical on both segments in 34 of 37**, so the fine structure is page-global in
+   the same way the coarse step is. Under the pre-declared ±64 B margin the five +96 B
+   readings classify as a FOURTH level; they appear in **both** arms (3 armed, 2 unarmed),
+   so they are a property of the arm and not of the build.
+
 ## Pre-registration
 
 **Declared before the first run, and committed in this file before the runner was
@@ -93,6 +132,65 @@ including its `:advanced` build — re-derived from the `generatedAt` spacing of
 one arm and not the other answers nothing, which is why the count is symmetric and why
 the null is pre-declared as a refusal rather than as a bound on the effect.
 
+## The reading
+
+**Seventy runs were taken. Exactly seventy.** Sixty-nine produced a reading; the
+seventieth is dealt with under [Admissibility](#admissibility) and is not replaced.
+
+| Arm | Readings | High-mode | Rate | `new` (+2,532) | `high` (+3,792) | FOURTH (+96 on `new`) |
+|---|---|---|---|---|---|---|
+| ARMED | 34 | 18 | 52.9% | 14 | **1** | 3 |
+| UNARMED | 35 | 19 | 54.3% | 17 | 0 | 2 |
+
+Every high-mode estimator pair observed, with its offset from the nearest corpus level:
+
+| Pair (`reagent-subs` / `uix-subs`) | Level | Offset | ARMED | UNARMED |
+|---|---|---|---|---|
+| 21,632 / 22,072 | `new` | 0 / 0 | 10 | 9 |
+| 21,620 / 22,060 | `new` | −12 / −12 | 3 | 6 |
+| 21,640 / 22,072 | `new` | +8 / 0 | 1 | 1 |
+| 21,632 / 22,076 | `new` | 0 / +4 | 0 | 1 |
+| 21,728 / 22,168 | FOURTH | +96 / +96 | 3 | 2 |
+| 22,884 / 23,324 | `high` | −8 / −8 | **1** | 0 |
+| 19,100 / 19,540 (low) | `low` | 0 / 0 | 16 | 16 |
+
+**Both pre-declared "the levels are distinct" branches fire**, and either alone would
+settle it. Nine unarmed runs read the +2,532 level exactly; one armed run reads the
++3,792 level within 8 B on both segments. The branch that would have shown contamination
+required *every* armed high at one level and *every* unarmed high at the other, and it is
+falsified twice over.
+
+### The same curve, on two different bundles
+
+The sharpest form of the result is not the tally but a pair of individual runs. `armed-06`
+and `unarmed-05` were taken nine minutes apart, one with the census compiled into the
+write path and one with it folded away, and they trace the elevated ramp **byte for
+byte**:
+
+| Round | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `reagent-subs` ARMED | 19,928 | 19,876 | 21,804 | 21,796 | 21,772 | 21,648 | 21,648 | 21,632 | 21,632 | 21,632 | 21,632 |
+| `reagent-subs` UNARMED | 19,910 | 19,876 | 21,804 | 21,796 | 21,772 | 21,648 | 21,648 | 21,632 | 21,632 | 21,632 | 21,632 |
+| `uix-subs` ARMED | 20,316 | 20,620 | 22,244 | 22,236 | 22,128 | 22,096 | 22,072 | 22,072 | 22,072 | 22,072 | 22,072 |
+| `uix-subs` UNARMED | 20,316 | 20,620 | 22,244 | 22,236 | 22,128 | 22,096 | 22,072 | 22,072 | 22,072 | 22,072 | 22,072 |
+
+Ten consecutive identical rounds on `reagent-subs` (5–14) and eleven on `uix-subs`
+(4–14), through the step and into the settle. A counter that moved the level could not
+produce this.
+
+### The census, where it exists
+
+The armed arm carries the census; the unarmed arm cannot, by construction, and this bead
+is about the LEVEL only. Across the 34 armed readings the census takes **one value** in
+**1,224 arm windows** — `events = 7, subs = 0, renders = 0` — with **zero** control
+windows moved and **zero** windows off the expected count. That includes `armed-13`, the
+one +3,792 run, which reads `7 / 0 / 0` on both sides of its own step exactly as
+`rf2-77gz8`'s two +2,532 runs did. **So the work-count exclusion `rf2-77gz8` established
+at the +2,532 level now also holds at the +3,792 level**, which is a small extension of
+that finding rather than a new one, and it carries the same limit: on this arm `subs` and
+`renders` are structural zeros, so the census rests on one counter summed over seven
+writes.
+
 ## Admissibility
 
 `--only alloc` **exits non-zero as a matter of course** — it exits on any refused window
@@ -108,6 +206,51 @@ names as exit-bearing checks and this window reads out of the committed record i
    estimator, which is inside the estimator rather than a run-level gate.
 
 A run failing (1) or (2) is **excluded and named**, never silently replaced.
+
+### What actually happened, and it makes the point better than the argument does
+
+**All seventy runs exited 1.** **Sixty-nine of them are admissible** — every one passes
+its positive control and every one reads zero unverified read-backs. Not a single run was
+excluded on either gate.
+
+**`armed-25` produced no reading at all.** Chromium failed to launch (`exitCode
+3221225794`, i.e. `0xC0000142` — a transient Windows loader failure), no page was served,
+no window was measured, and the driver wrote a 118-byte record containing `generatedAt`,
+`build` and `initFn` and **no `alloc` object whatsoever**. It then exited **1** — the same
+code as all sixty-nine good runs.
+
+That is the cleanest demonstration in this corpus of why a runner's exit code cannot be
+the verdict. A reader scoring this window by exit code would count seventy readings and
+have sixty-nine, and the missing one is invisible in the code and obvious in the record.
+**It is committed rather than deleted**, because the file is the evidence of the
+exclusion, and **it is not replaced with a seventy-first run**: the stopping rule counted
+runs TAKEN, and thirty-five were taken on each arm.
+
+**One disclosure that is not a criterion.** `lane/control-verdict` adjudicates on
+**overlap** — whether the measured range contains a value within slack of the prediction
+— not on the point estimate, and `rf2-egdaq` is the open ruling on whether it tightens.
+Six of the sixty-nine runs pass with a mean `perDouble` above 9 against the predicted 8
+(the loosest is 11.06); the other sixty-three sit at 8.08–8.11. Four of the six loose runs
+read high and two read low, against 33 of 63 high among the tight ones, and the loose runs
+fall in both arms. **`controlVerdict.ok` was the pre-declared criterion and it is the one
+applied**; the point estimates are published here so a reader adjudicating under a future
+stricter rule can re-score this window without re-running it.
+
+## What this window does not settle
+
+- **It says nothing about the MECHANISM.** `rf2-77gz8` left per-invocation allocation —
+  a runtime codegen effect — as the surviving candidate, and this window neither
+  strengthens nor weakens that. No dataset here records V8 tier state either.
+- **The +3,792 level is RARE and this window barely touched it**: one occurrence in
+  sixty-nine readings, plus `alloc-9jrhi/bisect-1`. Two observations total, one in each
+  build. That is enough to refute "arming gates it" — a single armed occurrence does that
+  — and **not** enough to say anything about its rate, or whether it is the top of the
+  ladder.
+- **What the arm's full set of levels is remains open.** This window saw four distinct
+  settled values and has no basis for claiming that is all of them.
+- **The rate finding is an observation, not a model.** That the rate moved from 0% to 10%
+  to 53% across three windows at one revision says the rate depends on something not
+  recorded; it does not say what.
 
 ## The rig is not touched
 
