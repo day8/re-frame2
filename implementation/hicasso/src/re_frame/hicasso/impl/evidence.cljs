@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.evidence
   "THE EVIDENCE SINK SEAM (HD-005) — a holder and a setter, and
-  deliberately nothing else (rf2-hic-009).
+  deliberately nothing else.
 
   It is its own namespace because it is the one part of the runtime whose
   correctness is a claim about what the DETACHED path costs. That claim
@@ -15,36 +15,31 @@
   cost note below, which is the reason there is no `evidence!` function
   to call.
 
-  **rf2-hic-023 owns this file**: the versioned, adapter-neutral evidence
-  projection Xray consumes attaches here.
+  The versioned, adapter-neutral evidence projection Xray consumes
+  attaches here. The `:edges-changed` and `:commit` events are the seam's
+  vocabulary, and anything written against those keys attaches to the
+  fused table unchanged.
 
-  ## The cost note, moved with the seam
-
-  It moved to the runtime from the retired `front.sub-index` unchanged in
-  shape: the `:edges-changed` and `:commit` events keep their keys, so
-  anything written against the seam attaches to the fused table without
-  being rewritten.
+  ## The cost note
 
   Detached cost is one deref and one nil test at each of the two tap
   points, and **that is a literal count, which it only is because the nil
   test is the outermost form at each tap point**: nothing the sink would
-  have been handed gets built when there is no sink. A third line used to
-  own that check — a private `evidence!` the tap points called with the
-  event already constructed — and the indirection is what hid the cost,
-  charging the detached path one event map per boundary per commit and
-  one per commit, garbage the moment it was made and so invisible to a
-  retained-heap ladder (rf2-e3i6y). Factoring the guard back out restores
-  the claim's falsity, which is why it reads as duplication and stays,
-  and why [[!evidence-sink]] is reachable as the atom rather than behind
-  a reader fn: a reader would reintroduce a call on the path whose whole
-  claim is that it performs a deref and a nil test.
+  have been handed gets built when there is no sink. Routing the check
+  through a shared `evidence!` the tap points called with the event
+  already constructed would hide that cost, charging the detached path
+  one event map per boundary per commit and one per commit — garbage the
+  moment it is made, and so invisible to a retained-heap ladder. Keeping
+  the guard factored out at each tap point is what keeps the claim
+  falsifiable, which is why it reads as duplication and stays, and why
+  [[!evidence-sink]] is reachable as the atom rather than behind a reader
+  fn: a reader would reintroduce a call on the path whose whole claim is
+  that it performs a deref and a nil test.
 
-  Fusing the index in moved one more allocation behind the guard
-  (rf2-dabt3): the collector's `flush!` used to build
-  `(into #{} (map .-subKey) dirty)` unconditionally because the index's
-  `commit!` took sub-keys, and the cells were mapped straight back. The
-  dirty set is now taken off the cells in hand, so that set is
-  evidence-only and is built only when a sink is listening.
+  The collector's dirty set obeys the same rule. It is taken off the
+  cells already in hand rather than rebuilt with
+  `(into #{} (map .-subKey) dirty)`, so it is evidence-only and is built
+  only when a sink is listening.
 
   **No evidence subsystem ships**: no manifest, no registry, no
   buffering, and the sink is nil until something sets it.")

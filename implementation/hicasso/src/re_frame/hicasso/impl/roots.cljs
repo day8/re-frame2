@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.roots
-  "THE HYDRATION ADOPTION WINDOW (rf2-2rtt6.84) — one window PER ROOT, and
-  the three doors that move it (rf2-hic-009, rf2-6tmu).
+  "THE HYDRATION ADOPTION WINDOW — one window PER ROOT, and the three
+  doors that move it.
 
   A window is what tells a render *whether the DOM it is about to produce
   is already on the screen*. `re-frame.hicasso.impl.mount` opens one
@@ -16,36 +16,31 @@
   `render!`, `unmount!`, `release!` — lives in
   `re-frame.hicasso.impl.mount`.
 
-  ## It used to be ONE BOOLEAN FOR THE WHOLE PAGE, and that was a defect
+  ## PER ROOT, never page-wide — the constraint the code cannot show
 
-  Every hydrating root opened the same module-level flag and every root's
-  closer shut it, so N overlapping adoptions performed N opens and the
-  FIRST close ended the window for all of them. Two consequences, both
-  measured (PR #7751, rf2-6tmu):
+  Nothing about one root's lifecycle may be visible in another's. Roots
+  on one page are independent by React's own design —
+  `onRecoverableError` is an option of an *individual* `hydrateRoot` —
+  so no page-wide state may stand in for a per-root window, and any
+  attempt to share one makes correctness rest on the relative ordering of
+  commits, passive effects, presence renders and recoverable-error
+  callbacks across roots that have no ordering guarantee between them.
 
-    - **A silenced diagnostic.** Two overlapping divergent hydrations
-      produced two React `Hydration failed` complaints and only ONE
-      `:rf.ssr/hydration-mismatch`. Root B's mismatch was discarded, so
-      every tool reading the instrumentation stream saw a healthy root
-      that had in fact failed to adopt.
-    - **Cross-root presence interference.** While ANY root hydrated, a
-      presence tray in an unrelated ORDINARY root was told it was
-      adopting too, and lost its enter transition.
+  Two things break the moment that ordering is relied on. A single shared
+  flag is opened N times by N overlapping adoptions and shut by the
+  FIRST close, so a second root's divergence raises React's
+  `Hydration failed` while its `:rf.ssr/hydration-mismatch` is discarded
+  — the instrumentation stream then shows a healthy root that never
+  adopted. And an unrelated ORDINARY root's presence tray is told it is
+  adopting for as long as ANY root hydrates, losing its enter
+  transition.
 
-  Correctness rested on the relative ordering of commits, passive
-  effects, presence renders and recoverable-error callbacks across
-  otherwise-independent roots. React's root API gives no reason to treat
-  page-wide ordering as an invariant — `onRecoverableError` is an option
-  of an *individual* `hydrateRoot`, and independently configured roots on
-  one page are supported — so the ordering was an accident this arm
-  depended on. Now each root carries its own window and nothing about one
-  root's lifecycle is visible in another's.
-
-  A page-global REFERENCE COUNT would not have fixed it: it keeps B's
-  window open when A commits, so a later recoverable error from the
-  already-committed A is falsely labelled a hydration mismatch, and it
-  still leaks adoption semantics into presence components outside both
-  hydrating subtrees. It converts one interference bug into another."
+  A page-global REFERENCE COUNT is not the alternative: it keeps a second
+  root's window open when the first commits, so a later recoverable error
+  from the already-committed root is falsely labelled a hydration
+  mismatch, and it still leaks adoption semantics into presence
+  components outside both hydrating subtrees. It trades one interference
+  for another."
   (:require ["react" :as react]))
 
 (defn open-adoption-window!
@@ -57,9 +52,8 @@
 
   - `impl.mount/hydrate-root!`, once per hydrating client root; and
   - `re-frame.hicasso.server/render`, once per REQUEST, closed in that
-    door's `finally` (rf2-b6jkj — the Render arm rf2-hic-046 ruled and
-    rf2-6tmu shaped as item 5 of its repair). Because both call `tree`,
-    the fork is decided once for both sides of the wire.
+    door's `finally`. Because both call `tree`, the fork is decided once
+    for both sides of the wire.
 
   A render that neither door took — a hand-rolled `renderToString` over
   the app element — still finds no provider above it, reads the adoption
@@ -78,10 +72,9 @@
   badly and adds a cleanup path that can leak. The ref is reachable only
   from the root that minted it, so a root whose construction throws
   leaves nothing behind to close: the window it would have opened is
-  simply unreachable. That is the shape of the prior art in this repo —
-  `re-frame.substrate.spine` mints `#js {:adopting true}` per root and
-  closes over it in its reporter, and the prototype's root did the same
-  while also closing over its root-id."
+  simply unreachable. `re-frame.substrate.spine` carries the same shape,
+  minting `#js {:adopting true}` per root and closing over it in its
+  reporter."
   []
   #js {"open" true})
 

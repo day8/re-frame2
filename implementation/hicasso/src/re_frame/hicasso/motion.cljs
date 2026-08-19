@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.motion
-  "MOTION — the optional module, and the posture it exists to state
-  (rf2-hic-053).
+  "MOTION — the optional module, and the posture it exists to state.
 
       (ns my.app
         (:require [re-frame.hicasso :as h]
@@ -70,24 +69,21 @@
   that true, and it fails the moment the public door imports the module
   or its engine.
 
-  ## Where the pieces live, and why the engine did not move with the door
+  ## Where the pieces live
 
   The machine and the phase transform are
   `re-frame.hicasso.impl.presence` (pure — a value in, a value out, no
   React and no clock), and the component that drives them is
-  `re-frame.hicasso.impl.presence-react`. They stay under `impl.*`
+  `re-frame.hicasso.impl.presence-react`. They live under `impl.*`
   because that is the package's one private half and this namespace is a
   door onto part of it, exactly as `re-frame.hicasso` is a door onto the
-  rest. Moving the two files as well would respell the emitter of four
-  catalogued `:rf.error/hicasso-presence-*` ids and rewrite the
-  provenance manifest, for a namespace name the naming ledger still
-  marks provisional (row 5).
+  rest. The four catalogued `:rf.error/hicasso-presence-*` ids name
+  `impl.presence-react` as their emitter, so the two files stay put.
 
-  **The override keys are still `::h/mounting` and `::h/unmounting`**, as
-  the example above shows, and that is deliberate rather than an
-  oversight: naming-ledger row 31 puts their respelling to `::motion/…`
-  in front of the consolidation sitting (rf2-hic-065). This bead moves
-  the namespace; it does not renumber the vocabulary."
+  **The override keys are `::h/mounting` and `::h/unmounting`**, as the
+  example above shows. The door moved to this namespace; the vocabulary
+  did not, and a respelling to `::motion/…` waits on the naming ledger
+  (row 31)."
   (:require [re-frame.hicasso.impl.presence-react :as impl-presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
