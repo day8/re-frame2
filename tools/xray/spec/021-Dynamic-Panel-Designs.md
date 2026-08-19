@@ -835,13 +835,15 @@ entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs`, and the canonical
 covered-row count pin in `coverage_matrix_metadata_test.clj` — because the
 PR-smoke run is derived from those entries rather than from a fixed list, and
 because that scenario was the sole claimant of its matrix row. The deck's
-SOURCE (`tools/xray/testbeds/freehand_views/`) stays until the Freehand tree
-deletion, because it is inseparable from its `:testbeds/freehand-views` build
+SOURCE (`tools/xray/testbeds/freehand_views/`) waited for the Freehand tree
+deletion, because it was inseparable from its `:testbeds/freehand-views` build
 id and port-8036 `:dev-http` entry in top-level
-`implementation/shadow-cljs.edn`: deleting the source alone leaves a build
-compiling a tree that is not there.
+`implementation/shadow-cljs.edn`: deleting the source alone would have left a
+build compiling a tree that is not there. **The second pass has landed**
+(rf2-0yp7w) — source, build id and port went together, and nothing under
+`tools/xray/testbeds/` or `implementation/shadow-cljs.edn` names the deck now.
 [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the
-remaining checklist.
+artefact-by-artefact record.
 
 One asserted fact OUTLIVES the deck and is worth naming, because it is the
 only browser-level proof that `:adapter/activate-derived-value!` holds end to

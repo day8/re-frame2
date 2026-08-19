@@ -319,14 +319,16 @@ const BUILD_OUTPUTS = new Set(['main.js']);
 // is monorepo-STAGED: it is source-only, built from implementation/'s shadow
 // config with a central `:examples/*` build id, and the orchestrator copies
 // _shared into its output dir — so the shared-design-system contract (favicon +
-// OG card + style.css) applies. A standalone scaffold like
-// examples/ui/minimal-counter/ is the opposite: it carries its OWN
-// shadow-cljs.edn / package.json / deps.edn, serves its own host page from
-// resources/public/, and is deliberately NOT on the monorepo classpath (it is
-// "the tree you would have created yourself"). It links none of _shared — nor
-// should it, a minimal user-facing scaffold is not a gallery showcase — and its
-// host-page contract is owned end-to-end by its own scaffold smoke
-// (implementation/freehand/scaffold-smoke). Enumerating it here would force the
+// OG card + style.css) applies. A standalone scaffold is the opposite: it
+// carries its OWN shadow-cljs.edn / package.json / deps.edn, serves its own
+// host page from resources/public/, and is deliberately NOT on the monorepo
+// classpath (it is "the tree you would have created yourself"). It links none
+// of _shared — nor should it, a minimal user-facing scaffold is not a gallery
+// showcase — and its host-page contract is owned end-to-end by its own
+// scaffold smoke. The scaffold this used to name, examples/ui/minimal-counter/,
+// went with the donor tree under rf2-0yp7w, and no standalone scaffold is in
+// the tree today — nothing under examples/ carries its own shadow-cljs.edn — so
+// the rule below is prospective. Enumerating it here would force the
 // gallery chrome onto a page that must stay minimal, so a project root bearing
 // its own shadow-cljs.edn is pruned from this walk (any future standalone
 // scaffold under examples/ is excluded by the same marker, no per-path list).
