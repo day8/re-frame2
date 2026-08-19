@@ -83,7 +83,7 @@ otherwise draw a conclusion from.
 
 | File | Blob at this page's base |
 |---|---|
-| `core/test/re_frame/bench/p0_workcount.cljc` | `1787bc0053772c6bd72c3b665db8e8f9be87b2cd` |
+| `core/test/re_frame/bench/p0_workcount.cljc` | `033f00470c380a17664a1dabffa0768f0e22c671` |
 
 The other rig files carry the census call sites and the recording; the census's
 own semantics are wholly in the blob above.
