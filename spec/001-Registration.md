@@ -48,7 +48,7 @@ For `reg-event`, the metadata-map carries a reserved **`:interceptors`** key —
 
 ### Return value
 
-Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. The contract is uniform across the family per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Per-kind surfaces (Specs 002 / 004 / 005 / 010 / 011 / 012 / 013) inherit this without restating it.
+Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. The contract is uniform across the family per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Per-kind surfaces (Specs 002 / 005 / 010 / 011 / 012 / 013) inherit this without restating it.
 
 Per-kind extensions (e.g., `:path` on `reg-route`) are documented in their respective Specs. (Frame construction is not a `reg-*` member — rf2-h1vqa4; the `make-frame` config map *does* recognise `:interceptors`, since frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 

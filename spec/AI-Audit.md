@@ -108,6 +108,8 @@ _As-of 2026-07-04._
 
 _As-of 2026-07-04._
 
+> **The audited document no longer exists.** `spec/004-Views.md` was deleted on 2026-08-18 together with the substrates it described, and nothing has replaced it — this corpus asserts no view contract today (see [README](README.md)). The table below is retained as the dated record of the 2026-07-04 pass, not as a grade of anything live; the watermark contract above cannot express deletion, only drift. `004B` and `004C` are separate surviving Specs and are not what this table graded.
+
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ◐ | Three hiccup-invocation forms (see 002 above). Form-1/2/3 component handling adds three more shape variants for the registration. |

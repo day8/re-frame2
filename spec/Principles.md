@@ -232,6 +232,6 @@ The discipline: **the body of an `:on-click`-style closure is a single dispatch 
 
 Discouraged because it violates "low hidden context": the outer-fn fires once per mount with no indication at the call site that mounting has a side-effect. Use Form-1 + an explicit setup event instead.
 
-#### Hiccup positional-args convention — *retained, formalised in 004*
+#### Hiccup positional-args convention — *retained, formalised in Conventions*
 
 The convention is positional: tag first, optional attrs map second, children after. Formalised at the pattern level by [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids). The shape is `[tag attrs? & children]` for any host's render-tree.

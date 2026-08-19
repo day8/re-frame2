@@ -28,7 +28,7 @@
  {:event {:counter/initialise {:doc "Seed."}
           :counter/inc        {:doc "Increment."}}
   :sub   {:count {:doc "Layer-1 sub the view consumes."}}
-  :view  {:counter-display {:doc "A read-only display of :count. Per Spec 004 reg-view; the view body's render fn is realised by the conformance DSL's `realise-view-handler`."}}}
+  :view  {:counter-display {:doc "A read-only display of :count. Per Spec 001 reg-view; the view body's render fn is realised by the conformance DSL's `realise-view-handler`."}}}
 
  :fixture/handlers
  {:event {:counter/initialise [[:set [:count] 0]]
