@@ -351,7 +351,7 @@ positional locators — an id is stable under fragment reordering, which is the 
 ## 6. Frame-plan extraction and payload references
 
 **What the extractor consumes** (the top-region *grammar* — which forms are legal
-wrappers and their diagnostics — is owned by the Spec-004 rewrite): the **static top
+wrappers and their diagnostics — has no live owner): the **static top
 region** of a root form is every node reachable from its root without crossing a
 control form (`if`/`when`/`cond`/`case`/`for`/…), a dynamic expression, an internal
 view boundary, a foreign component, `presence`, `client-only`, or `portal`. The walk
@@ -962,8 +962,11 @@ successor, which is a worse answer than doing nothing.
   units/page fragments) → §4, §7.
 - **Q28** (frame-plan extraction) → §6 pins what the extractor consumes and the
   conflict ordering/diagnosis; the top-region syntactic grammar (which wrapper forms
-  are legal and their compile diagnostics) is owned by the Spec-004 rewrite per the
-  disposition's Q-ownership map.
+  are legal and their compile diagnostics) was deferred by the disposition's
+  Q-ownership map to a Spec 004 rewrite that never landed. `spec/004-Views.md` was
+  deleted instead (rf2-h89ri, 2026-08-18), with the compiled macro door whose
+  compile-time forms that grammar described (rf2-0yp7w, 2026-08-16), and **no live
+  Spec owns it today** — see [README](README.md) on the vacant 004 slot.
 
 ## [S1-CONFIRM] register
 
