@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the 30
+via shadow-cljs to a single `.js` file) that exposes the thirty
 re-frame2-pair ops listed in `registry/tools` as MCP tools (the
 read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
