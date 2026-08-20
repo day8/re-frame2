@@ -61,7 +61,7 @@ named as the path forward and both have since closed.
 | the arm's levels at one revision | two, maybe three, the high one at n = 1 – 2 runs | **four settled levels over 69 scored runs**, `rf2-c4hhk` |
 | whether the census contaminates them | open — the counter compiles into the very path the mechanism lives in | **refuted from both directions**, `rf2-c4hhk` |
 | the substrate the ladder was measured on | today's | **`4a1537cb71` — the 2026-08-08 commit itself** |
-| a within-run level witness | a proposal, unarmable at n = 1 | **armed as a refusal**, `rf2-a233t`, PR #8536 |
+| a within-run level witness | a proposal, unarmable at n = 1 | **armed as a refusal**, `rf2-a233t` — [the level witness armed within one run](the-level-witness-armed-within-one-run.md) |
 
 The hold's condition is still not met — the mechanism is *still* unnamed, and
 `rf2-6kxub` remains open on the mode's unstable rate. **But the hold was aimed at the
@@ -295,6 +295,8 @@ named three, and the corpus holds six besides this page and the studio index:
 - **The `uix-subs` excursion above the envelope is real and unexplained.** 187 – 402 B on
   three of six rounds. It is small enough to be the conversion's own error and is not
   claimed to be anything else.
-- **`rf2-a233t`'s level witness is not yet on `main`.** It lands with PR #8536. Nothing
-  on this page depends on it running; the argument in §4 is about what the witness
-  *cannot* adjudicate, which its arrival does not change.
+- **Nothing on this page depends on `rf2-a233t`'s level witness running.** It landed
+  while this page was being written ([the level witness armed within one
+  run](the-level-witness-armed-within-one-run.md), PR #8536), and the argument in §4 is
+  about what the witness *cannot* adjudicate — a six-round run — which its arrival does
+  not change. The witness guards runs taken from here on; it cannot reach back to 2026-08-08.
