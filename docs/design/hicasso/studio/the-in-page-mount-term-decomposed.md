@@ -280,6 +280,21 @@ cell — this run closed at 05:28 and `rf2-6c237`'s at 21:43 the night before.
 The comparison is therefore still like for like, but 0.827 and 0.7625 are
 both upper bounds on today's seam (rf2-gttif).*
 
+*A **second** change has landed under those two figures since, and it does
+not read the same way. `rf2-dabt3` (`383ba2d645`, 2026-08-03 20:51) retired
+the sub-index into the cell table: `front/sub_index.cljs` is deleted, and
+the shipping commit half no longer performs an `index/mount!` plus a
+whole-set `record-reads!` but pushes one reader slot per key. **That is a
+fusion, not a removal** — work leaves and different work arrives — so unlike
+the mint it licenses no direction at all, and the cost of what replaced the
+index write is not resolved by the widened-window re-take recorded in
+[the cold-read mount term](the-cold-read-mount-term.md), which declines to
+publish that term at all. **0.827 and 0.7625
+therefore price a commit half whose structure this tree no longer has.** The
+like-for-like comparison between the two stands, because both predate the
+retirement; neither is a figure for today's seam, no direction is claimed
+for the difference, and no re-take is offered here (`rf2-07rnj`).*
+
 **(c) By counterfactual, on our own arm.** The decisive arm. `coarse` is the
 candidate's page reading **the twin's five coarse subscriptions** at five
 fixed sites, cards rendered from the collections — byte-identical DOM, five
@@ -387,6 +402,13 @@ asymmetry.**
    insert) and declined: escrowing it is a render-phase ref-count mutation
    the state machine forbids (`rf2-2rtt6.25`), and batching the index write
    and the cell-map insert buys tens of microseconds on a 141-key mount.
+   **The index write is no longer one of those candidates.** `rf2-dabt3`
+   (`383ba2d645`) retired the sub-index after this run — see §6(b) — so
+   there is nothing left to batch under that name, and the sub-term the
+   clause prices describes a structure the tree no longer has. The cell-map
+   insert survives the retirement, and the item's conclusion is unaffected
+   in either direction: what left was a batching candidate that had already
+   been declined. Nothing here has been re-measured (`rf2-07rnj`).
 3. **30% is the interpreter against a compiler**, and the fence forbids the
    remedy. UIx's `$` is compile-time; ours is a runtime walk over a hiccup
    tree we must also *build* (0.291 ms of it). Closing that gap means

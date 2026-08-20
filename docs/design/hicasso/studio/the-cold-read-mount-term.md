@@ -581,7 +581,16 @@ sub-cache peek 18; the sub-key mint 53.
    escrow the state machine forbids. The index write is 8.7% (~0.5 µs/key)
    and the cell-map insert 4.3%; batching either buys tens of microseconds
    on a 141-key mount and was declined as complexity the profile does not
-   license.
+   license. **The index write half of that reading is HISTORICAL, and does
+   not describe this tree:** `rf2-dabt3` (`383ba2d645`) retired the
+   sub-index it prices — `front/sub_index.cljs` is deleted — so 8.7% prices
+   a structure the runtime no longer has, and there is no index write left
+   to batch. What that commit put in its place is not resolved by any window
+   this page publishes, so nothing is offered in the figure's stead and no
+   share in this list has been re-taken. The cell-map insert clause is
+   untouched by the retirement and stands. (The commit-half table at the top
+   of this section carries the same mark on its `index write` row, and the
+   window notes under it set the retirement out in full.)
 
 ## 2. The cheapening — the cold read becomes the port's probe
 
