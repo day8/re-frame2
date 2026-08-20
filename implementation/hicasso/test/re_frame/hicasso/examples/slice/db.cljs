@@ -19,8 +19,8 @@
 
   ## THE PAGE IS NOT IN HERE, AND THAT IS DELIBERATE
 
-  Pagination arrives with rf2-hic-074, and the page number is the one
-  piece of its state this map does **not** hold. It rides the feed
+  The page number is the one piece of pagination's state this map does
+  **not** hold. It rides the feed
   route's `?page=` query instead, so it is state in the routing
   partition of the same `app-db` — `[:rf.runtime/routing :current]`,
   read through `[:rf.route/query]` — rather than a second copy beside

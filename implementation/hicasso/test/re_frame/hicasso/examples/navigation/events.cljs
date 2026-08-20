@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.navigation.events
   "THE NAVIGATION WITNESS'S EVENTS — and the focus-on-route RECIPE
-  (rf2-hic-042; specification §7's routing row).
+  (specification §7's routing row).
 
   Ordinary re-frame2, like every other witness application's model tier:
   `re-frame.core` and pure functions, no view door, nothing here that

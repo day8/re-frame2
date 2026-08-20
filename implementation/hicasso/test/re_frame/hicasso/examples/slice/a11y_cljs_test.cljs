@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.slice.a11y-cljs-test
-  "THE SLICE'S STRUCTURAL ACCESSIBILITY (rf2-hic-043; specification §7's
-  accessibility row).
+  "THE SLICE'S STRUCTURAL ACCESSIBILITY (specification §7's accessibility
+  row).
 
   The row's claim is that data-first markup makes roles and names plain
   attributes, so a structural assertion can hold them and a browser is
@@ -36,13 +36,12 @@
 
   [[every-operable-control-in-the-application-has-a-name]] runs
   `ht/unnamed-controls` over every one of the slice's bodies that carries
-  an operable control — the original six, and rf2-hic-074's pager, whose
-  three page positions each render a different set of links and
-  end-stops — in every state each of them has, in both locales. One
-  assertion per tree,
-  and it is the acceptance criterion of the bead in the form the
-  application can be held to as it grows: a seventh control added
-  tomorrow without a name reds it, and no row has to be written for it."
+  an operable control — the original six, and the pager, whose three page
+  positions each render a different set of links and end-stops — in every
+  state each of them has, in both locales. One assertion per tree, in the
+  form the application can be held to as it grows: a seventh control
+  added tomorrow without a name reds it, and no row has to be written for
+  it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso.examples.slice.i18n :as i18n]

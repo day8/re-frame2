@@ -86,7 +86,7 @@
   No `n/defcomponent`, no ref, no effect, no imperative handle, no memo
   hint and no second root. The application's whole native-tier surface is
   `h/defhost` and `h/event`; the island the imperative-SDK row needs
-  (rf2-hic-067) is not needed here, because a virtualizer is an ordinary
+  is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the
   declaration."
   (:require [re-frame.hicasso :as h]

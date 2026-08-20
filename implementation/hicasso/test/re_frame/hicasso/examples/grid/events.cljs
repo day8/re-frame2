@@ -37,7 +37,8 @@
 
   [[::edit]] carries a marker, so it takes its arguments positionally and
   not in the canonical `[<id> {<k> <v>}]` payload map. Second
-  confirmation of rf2-hic-025's finding 1, from an application whose
+  confirmation of the slice authoring report's finding 1, from an
+  application whose
   intent carries THREE arguments rather than two — the collision does not
   soften as the payload grows, it gets worse, because a three-argument
   positional vector is exactly where a payload map would have started to

@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.slice.a11y-focus-dom-cljs-test
   "L4 — WHAT THE BROWSER SAYS ABOUT THE SLICE'S ACCESSIBILITY
-  (rf2-hic-043; specification §7's accessibility row).
+  (specification §7's accessibility row).
 
   `re-frame.hicasso.examples.slice.a11y-cljs-test` asserts the structure:
   which role each element carries and which label names which control,

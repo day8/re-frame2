@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.navigation.conduct-dom-cljs-test
-  "L4 — WHAT THE BROWSER SAYS ABOUT NAVIGATION CONDUCT (rf2-hic-042;
-  specification §7's routing row).
+  "L4 — WHAT THE BROWSER SAYS ABOUT NAVIGATION CONDUCT (specification
+  §7's routing row).
 
   The row's required proof is *deep link, back/forward, pending
   mutation*, and its additional surface is *dirty-leave, scroll

@@ -22,8 +22,8 @@
 
   [[the-recipes-register-no-route]]. Route PATHS are process-global
   strings and this repository's node bundle loads every witness into one
-  process; rf2-hic-025's finding 8 cost twelve assertions and warned
-  nobody. A form needs no routing to be evidence about forms, so it
+  process; the slice authoring report's finding 8 cost twelve assertions
+  and warned nobody. A form needs no routing to be evidence about forms, so it
   reaches none — and this row makes that mechanical rather than
   observed."
   (:require [cljs.test :refer-macros [deftest is testing]]

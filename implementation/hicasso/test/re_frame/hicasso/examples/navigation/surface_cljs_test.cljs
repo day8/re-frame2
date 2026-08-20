@@ -15,16 +15,14 @@
   hypothetical. See [[re-frame.hicasso.examples.require-graph]] for the
   mechanism and for why the emitted graph cannot go stale.
 
-  ## Why this file exists at all, which is the part worth reading
+  ## Why this file exists at all
 
-  Seven of the eight witness packages under `examples/` carried a fence
-  and this one did not, for a full day, while two further fences were
-  authored alongside it. rf2-ccuw had just made each
-  fence's POPULATION derived so a namespace added inside a fenced package
-  could not escape — and that bought nothing here, because a package no
-  fence names is fenced by no population at all. Nothing asserted that
-  this application stayed off `re-frame.hicasso.impl.*`, the benchmark
-  tree, `tools/`, or the test kit.
+  Every fence's POPULATION is derived, so a namespace added inside a
+  fenced package cannot escape it. That buys nothing for a package NO
+  FENCE NAMES: it is fenced by no population at all, and nothing asserts
+  that it stays off `re-frame.hicasso.impl.*`, the benchmark tree,
+  `tools/`, or the test kit. This package is under `examples/`, so it
+  carries its own fence for that reason.
 
   ## Three claims, and they are different
 
@@ -55,8 +53,8 @@
   Every other witness's fence carries a row asserting it does NOT reach
   `re-frame.routing`, because route PATHS are plain strings in a
   PROCESS-GLOBAL registrar and this repository's node bundle loads every
-  application in the tree into one process (rf2-hic-025 finding 8, filed
-  as rf2-wqnl). This is the one package where that edge is PRESENT and
+  application in the tree into one process. This is the one package where
+  that edge is PRESENT and
   the hazard is therefore live: `routes.cljs` ends on a bare top-level
   `(register!)`, so merely compiling this package into the node bundle
   writes two paths into the registrar every other suite's URLs are

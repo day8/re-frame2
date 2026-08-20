@@ -84,7 +84,7 @@
   A clock. Nothing here reports a millisecond, a `p50` or a `p95`, and
   the page says why: `budgets.md` §4 registers `U1`–`U4` as
   distributional rows with no package-resident clock instrument, and §9.3
-  puts building one at `rf2-hic-071` rather than here. Every figure this
+  puts building one in the budget gates rather than here. Every figure this
   file takes is a monotone counter, so it reads the same on a loaded box
   as on a quiet one (`budgets.md` §2)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -313,8 +313,7 @@
   before it presents the table it draws from these records.
 
   RECONSTRUCTING each record's new value from the NEXT same-attribute
-  record's `oldValue` was weighed and DECLINED (rf2-hic-045, the audit of
-  PR #8163). It would restate what the old values already carry; done
+  record's `oldValue` was weighed and DECLINED. It would restate what the old values already carry; done
   correctly it must key on target IDENTITY as well as attribute name, not
   on the name alone; and the last record of each attribute would still
   fall back to a final read taken after `hm/settle!`, so the caveat above

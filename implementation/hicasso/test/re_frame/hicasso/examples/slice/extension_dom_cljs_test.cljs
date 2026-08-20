@@ -20,9 +20,9 @@
   A page flip replaces every row in the list, so it is the sharpest
   available reading of whether the list's keys are domain ids. But this
   file measures BEHAVIOUR and claims nothing about enforcement: the
-  substrate does not police the keys a body writes, and rf2-hic-074's PR
-  #8026 finding is the general form of that — Hicasso's unkeyed-children
-  warning cannot reach a child array a foreign component owns, so *the
+  substrate does not police the keys a body writes, and the general form
+  of that is Hicasso's unkeyed-children warning, which cannot reach a
+  child array a foreign component owns — so *the
   key is the model id* is a rule an author keeps and not one the runtime
   imposes. What the rows below assert is therefore what React did with
   the keys the body wrote: which elements survived a flip, and whose
