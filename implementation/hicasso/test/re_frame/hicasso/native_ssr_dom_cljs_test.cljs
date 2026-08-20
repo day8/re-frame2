@@ -66,12 +66,11 @@
   - **A Hicasso server entry.** There is none, and none is needed: the
     consumer calls `react-dom/server` and the policy is honoured by
     rendering. The harness here is `renderToString` called by hand, which
-    is the only server path in the package (rf2-ggnp's census, re-run).
+    is the only server path in the package.
 
   ## The mutation witnesses, one per assertion class
 
-  Make `component` ignore the policy — return `f` for both arms, which is
-  the pre-rf2-hic-046 behaviour audit #7839 found — and
+  Make `component` ignore the policy — return `f` for both arms — and
   [[a-client-only-island-is-absent-from-the-server-bytes]] goes red on
   the island's markup being present and on its body having run. Make the
   gate render its component unconditionally — `adopted?` replaced by
@@ -377,9 +376,8 @@
 
 (defn- server-html
   "The page as a REAL server render. `react-dom/server`'s own
-  `renderToString`, called by hand — which per rf2-ggnp's census is the
-  only server path this package has, and is exactly the call a consumer
-  makes."
+  `renderToString`, called by hand — the only server path this package
+  has, and exactly the call a consumer makes."
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString

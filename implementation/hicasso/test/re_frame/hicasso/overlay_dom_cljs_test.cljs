@@ -17,13 +17,13 @@
   `document.elementFromPoint`, `document.activeElement`, `:modal`,
   `:popover-open` — and none asserts an attribute the module just wrote. The
   two headless rows are the exceptions that prove it: the placement table is a
-  VALUE, and an overlay's contents are the author's own markup, which
-  rf2-hic-043's L2 projections read without a browser at all.
+  VALUE, and an overlay's contents are the author's own markup, which the
+  a11y kit's L2 projections read without a browser at all.
 
   | claim | row |
   |---|---|
   | a compass word is a `position-area`, and a misspelt one is not silently some other place | [[a-compass-word-is-a-position-area-and-an-unknown-one-passes-through]] |
-  | an overlay's contents are ordinary markup, and rf2-hic-043's projections read them | [[an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them]] |
+  | an overlay's contents are ordinary markup, and the a11y kit's projections read them | [[an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them]] |
   | the top layer escapes an ancestor that clips and stacks | [[an-overlay-escapes-an-ancestor-that-clips-and-out-stacks-it]] |
   | a modal makes the rest of the document inert | [[a-modal-makes-the-document-behind-it-unfocusable]] |
   | closing through the platform's door returns focus | [[closing-through-the-platform-door-returns-focus-to-the-trigger]] |
@@ -154,9 +154,9 @@
 ;; carries an `(async done …)` row — the trusted-input bridge presses a
 ;; key in another process, so a row that waits for one must yield — and
 ;; cljs.test refuses an async row under a POSITIONAL fixture by throwing
-;; a bare string that unwinds the entire lane, closing summary included
-;; (rf2-u0j8). `make-reset-runtime-fixture` returns the positional shape
-;; by DEFAULT, which is what this file used to take.
+;; a bare string that unwinds the entire lane, closing summary included.
+;; `make-reset-runtime-fixture` returns the positional shape by DEFAULT,
+;; so the MAP shape has to be asked for.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter

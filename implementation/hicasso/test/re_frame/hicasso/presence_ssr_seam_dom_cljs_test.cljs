@@ -24,8 +24,8 @@
   disposition says
 
   `docs/design/hicasso/product/dispositions.md` HS-33 — *optional motion
-  and presence module* — carries the operative disposition **Client-only
-  — refusal until rf2-hic-046**, and the canonical two-policy matrix
+  and presence module* — carries the operative disposition
+  **Client-only**, and the canonical two-policy matrix
   (`lanes/react-compatibility-notes.md`) states what bare Client-only
   owes: the surface is *\"absent from the server bytes, with nothing there
   to hydrate, mounting after adoption\"*, and the table's own third note
@@ -50,12 +50,10 @@
   `re-frame.hicasso.impl.roots/with-adoption` is the ONLY door onto the
   adoption window's React context. It is reached from exactly one place —
   `impl.mount/tree`, and only for a handle carrying an `:adoption` window
-  — so the census is really a census of that window's MINTERS. When this
-  file was written there was one, `impl.mount/hydrate-root!`, and no
-  server entry, request scope or render helper anywhere.
+  — so the census is really a census of that window's MINTERS.
 
-  **THERE ARE TWO NOW, AND THE SECOND IS A SERVER DOOR** (rf2-doadc, the
-  door landed by rf2-b6jkj). `re-frame.hicasso.server/render` opens a
+  **THERE ARE TWO, AND THE SECOND IS A SERVER DOOR.**
+  `re-frame.hicasso.server/render` opens a
   window PER REQUEST, hands `impl.mount/tree` a
   `{:frame … :adoption <window>}` handle — the hydrating shape, so the
   same fork on both sides of the wire — and closes it in a `finally`.
@@ -81,29 +79,13 @@
   control shows the divergence is caused by the missing provider and by
   nothing else.
 
-  ## Two source comments used to overstate this, and no longer do
+  ## Two source comments this file is the counterpart to
 
-  Both spoke in the present tense about a server door that does not
-  exist. They are runtime source and THIS suite's dispatch could not
-  edit them, so it recorded them verbatim instead; rf2-kpig has since
-  corrected both, and each now names the measurement rather than a
-  mechanism:
-
-      impl/roots.cljs:54           the window is minted per
-                                   `hydrate-root!` call and that is
-                                   the only minter — no server-render
-                                   entry exists in this tier
-      impl/presence_react.cljs:130 the server half does not exist yet,
-                                   so `adopting-here?` reads `nil` on a
-                                   server render and the tray emits
-                                   `:mounting` children
-
-  Both now cite rf2-hic-046's RULED Render arm as DECIDED rather than
-  built, and both cite this file. Both have since gone stale the other
-  way and are corrected again by rf2-doadc, because a window IS opened
-  around a request now. §1 and §3 remain the counter-measurement for the
-  path they name — the windowless render — and §5 is the measurement for
-  the path that has one.
+  `impl/roots.cljs` and `impl/presence_react.cljs` each carry a note
+  about what a server render sees, and each names a measurement rather
+  than a mechanism. A window IS opened around a request, so §1 and §3 are
+  the counter-measurement for the path those notes name — the windowless
+  render — and §5 is the measurement for the path that has one.
 
   ## Why the existing presence witness did not catch this
 
@@ -134,15 +116,12 @@
   Either arm of the two-policy matrix, taken deliberately.
 
   **RENDER.** A product server-render door that mints one window per
-  request and scopes it over that request's tree — the fifth item of
-  rf2-6tmu's adopted repair shape, deferred there to rf2-hic-046. §1's
-  control is that door in one line, so the cost was measured before it
-  existed.
+  request and scopes it over that request's tree — the fifth item of the
+  adopted per-root repair shape. §1's control is that door in one line.
 
-  **IT EXISTS** — `re-frame.hicasso.server/render`, driven by
-  §5. What that does NOT do is close this file, and the distinction is
-  the whole of rf2-doadc's triage: the rows below are about a render with
-  no window, which remains spellable by hand, so they keep measuring
+  **IT EXISTS** — `re-frame.hicasso.server/render`, driven by §5. What
+  that does NOT do is close this file, and the distinction is the whole
+  of the triage here: the rows below are about a render with no window, which remains spellable by hand, so they keep measuring
   what they always measured. What closing the file needs is a decision
   that the windowless spelling is out of scope — and HS-33's disposition
   is `docs/design/hicasso/product/dispositions.md`'s, not a witness's.
@@ -644,7 +623,7 @@
 ;;      does to the seam §1 records
 ;; ---------------------------------------------------------------------------
 
-;; THE ROW rf2-doadc ASKS FOR. §1 measures a `renderToString` with no window
+;; THE ROW THE PRODUCT DOOR ASKS FOR. §1 measures a `renderToString` with no window
 ;; over it; this measures `re-frame.hicasso.server/render`, which opens one
 ;; per request and hands `impl.mount/tree` the hydrating handle shape. The
 ;; two rows differ in exactly one thing, so what separates their bytes is

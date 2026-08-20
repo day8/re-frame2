@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.portal-dom-cljs-test
-  "THE PORTAL HELPER (rf2-hic-028; spec SN §4.3).
+  "THE PORTAL HELPER (spec SN §4.3).
 
       [h/portal {:target rack}
        [:button.toast {:on-click [:toast/dismiss]} \"dismiss\"]]

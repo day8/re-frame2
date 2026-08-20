@@ -297,7 +297,7 @@
   a throw anywhere in the row body above is another. Reporting and
   finishing there leaves a mounted React root and its container standing
   in the document for the NEXT namespace to inherit, which is the very
-  contamination the rf2-fyba campaign is about, arriving by a second
+  contamination this teardown exists to prevent, arriving by a second
   door."
   []
   (run! mount/release! @!minted)

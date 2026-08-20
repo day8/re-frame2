@@ -440,7 +440,7 @@
            (.-name (n/marker (n/component "app/same-name" :client-only (fn [_]))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. The tier sentinel (rf2-hic-034 plants its proof on this)
+;; 3. The tier sentinel (the three-way parity suite plants its proof on this)
 ;; ---------------------------------------------------------------------------
 
 (deftest the-tier-sentinel-is-reachable-rather-than-a-dead-literal

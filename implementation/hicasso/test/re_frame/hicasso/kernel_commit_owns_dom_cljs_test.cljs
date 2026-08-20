@@ -73,8 +73,8 @@
   ## The census is taken BEFORE the fixture resets anything
 
   `mount/release!` resets the runtime, so a residue reading taken after it
-  answers zero whether teardown worked or not — a gate that cannot go red
-  (rf2-2rtt6.48). Every row here therefore ends with
+  answers zero whether teardown worked or not — a gate that cannot go
+  red. Every row here therefore ends with
   [[teardown-census!]]: `mount/unmount!`, settle at the runtime's horizon,
   ASSERT, and only then release.
 

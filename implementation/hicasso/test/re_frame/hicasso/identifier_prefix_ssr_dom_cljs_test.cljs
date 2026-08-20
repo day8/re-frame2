@@ -7,7 +7,7 @@
   clause was unreachable from every per-surface witness in the package,
   for a source reason rather than an oversight: `hydrate-root!` passed
   `onRecoverableError` and nothing else, so **the prefix was
-  unspellable**. rf2-hic-046's native-tier half measured that and stopped
+  unspellable**. The native-tier SSR witness measured that and stopped
   (`native-ssr-dom-cljs-test`); the operator ruled a thin pass-through;
   the pass-through landed, and this file is what measures it.
 
@@ -32,8 +32,8 @@
 
   A hydrating root's tree is `Fragment[closer, adoption-provider[frame
   provider[page]]]` (`impl.mount/tree`) — the closer is a SIBLING of the
-  app subtree, which is rf2-6tmu's deliberate arrangement and right for
-  every reason that bead gives. React derives a `useId` from the
+  app subtree, which is deliberate and right for the reason
+  `impl.mount/tree` gives. React derives a `useId` from the
   prefix AND from a *tree id* accumulated at each fork — an array of more
   than one child — so that sibling pair is a fork the server render never
   sees, and every id below it shifts. `renderToString` over the tree the
@@ -46,7 +46,8 @@
   rather than a sibling would remove the fork instead, and then the
   hand-rolled `renderToString` a consumer already writes would agree with
   no new door at all; it also moves a component into the app's parent
-  chain, which is a change to rf2-6tmu's design rather than to this one.
+  chain, which is a change to `impl.mount/tree`'s design rather than to
+  this one.
 
   ## The claim is AGREEMENT, and presence is not agreement
 
@@ -89,9 +90,8 @@
   ## The harness
 
   The server bytes come from `react-dom/server`'s own `renderToString`,
-  called by hand with React's own `identifierPrefix` option — per
-  rf2-ggnp's census the only server path this package has, and exactly
-  the call a consumer makes. The client half is the product door
+  called by hand with React's own `identifierPrefix` option — the only
+  server path this package has, and exactly the call a consumer makes. The client half is the product door
   `impl.mount/hydrate-root!` and never `hydrateRoot` directly: what is
   under test is the door's pass-through, so a row reaching past it would
   witness React rather than this arm.
@@ -151,8 +151,7 @@
 ;; a `{:server :render}` host, because that pair is the ONLY spelling
 ;; that puts a native body into a server response — the innermost
 ;; Client-only wins, and a Client-only island contributes nothing to the
-;; bytes for the prefix to be read out of (rf2-hic-046's native half,
-;; `native-ssr-dom-cljs-test`).
+;; bytes for the prefix to be read out of (`native-ssr-dom-cljs-test`).
 ;;
 ;; The island is the vehicle and never the subject. What is under test is
 ;; the ROOT's option; the island is the smallest legal thing that makes
@@ -201,9 +200,9 @@
   React's own `identifierPrefix` — `nil` for a route that names none.
 
   **The tree a consumer can spell today**: the frame provider over the
-  root element, handed to `react-dom/server`'s `renderToString`. Per
-  rf2-ggnp's census that hand-rolled call is the only server path this
-  package has, so these are the bytes an SSR route actually ships."
+  root element, handed to `react-dom/server`'s `renderToString`. That
+  hand-rolled call is the only server path this package has, so these are
+  the bytes an SSR route actually ships."
   [frame-kw hiccup prefix]
   (react-dom-server/renderToString
     (mount/provider frame-kw (codec/root-element frame-kw hiccup))
