@@ -61,6 +61,19 @@ const RUNS = ['paired-run1', 'paired-run2'];
 
 // `rf2-n6w7o`'s masking bound and the averaging floor it is charged at, both
 // read here rather than proposed. Neither is touched by this reader.
+//
+// THE BOUND IS RETIRED, AND THIS READER DOES NOT TREAT IT AS LIVE. `rf2-2rtt6.141`
+// accepted the #7682 audit's two soundness objections, replaced the bound with
+// the observed leg witness, and DELETED `ALLOC_MASK_BUDGET_B` and
+// `allocMaxWrites` -- an ancestral, gated fact rather than a proposal:
+// `p0_ladder_structural.test.cjs` pins `lacks(/const ALLOC_MASK_BUDGET_B/)`, and
+// `docs/design/hicasso/allocation-instrument-rework.md` carries the reasoning
+// under "Constraint semantics -- what is retired and what stands".
+//
+// It survives here as a HISTORICAL YARDSTICK and nothing more: `rf2-2rtt6.140`'s
+// uncertifiability argument is written in its terms, so reconstructing that
+// argument at today's F requires the number the bead used. Section 6 reconstructs
+// it and says so. No live conclusion rests on it.
 const MASKING_BOUND_B = 300000;
 const W = 6;
 
@@ -336,11 +349,16 @@ function report() {
   const F = med(ws.filter((c) => c.rungKey === 'floor').map((c) => c.perWrite));
   const allow = MASKING_BOUND_B / (W + 1);
   const budget = allow - F;
-  say(`    masking bound (W+1) x perWrite <= ${n0(MASKING_BOUND_B)} B  =>  perWrite <= ${n0(allow)} B at W = ${W}`);
+  say(`    THE ${n0(MASKING_BOUND_B)} B MASKING BOUND IS RETIRED AND DELETED (rf2-2rtt6.141, 2026-08-08).`);
+  say(`    It is reconstructed below ONLY because rf2-2rtt6.140's uncertifiability argument`);
+  say(`    is written in its terms. Nothing live rests on it; the certificate is the leg`);
+  say(`    witness and the falls gate.`);
+  say('');
+  say(`    retired bound (W+1) x perWrite <= ${n0(MASKING_BOUND_B)} B  =>  perWrite <= ${n0(allow)} B at W = ${W}`);
   say(`    F (floor arm, median perWrite) = ${n0(F)} B = ${pc((100 * F) / allow)} of the allowance`);
   say(`    boundary budget = ${n0(allow)} - ${n0(F)} = ${n0(budget)} B per write`);
   say('');
-  say('    rung    perWrite   s = (pW-F)/B    max B at W=6   (W+1) x pW    certified    6 x legMedian');
+  say('    rung    perWrite   s = (pW-F)/B    max B (RETIRED)  (W+1) x pW    certified    6 x legMedian');
   for (const r of rungTable(ws, F)) {
     say(
       `    ${r.rung.padEnd(6)} ${n0(r.perWrite).padStart(9)}   ` +
@@ -359,20 +377,38 @@ function report() {
   say(`    artefact of dividing by it. Its perWrite lands ${n0(T.find((r) => r.rung === 'R0').perWrite - F)} B from the floor's,`);
   say(`    which is the independent check that F is the WRITE and not the mount.`);
   say('');
-  say(`    A ladder holds ONE B across all rungs, so the binding rung decides:`);
+  say(`    RECONSTRUCTING THE BEAD'S OWN ARGUMENT in the retired bound's terms. A ladder`);
+  say(`    holds ONE B across all rungs, so on that argument the binding rung decides:`);
   const LADDER = T.filter((r) => r.maxB != null && r.rung !== 'R0');
   say(`      ${LADDER.map((r) => `${r.rung} B<=${r.maxB}`).join(', ')}`);
   const stopAt = LADDER.filter((r) => r.maxB >= 1).map((r) => r.rung);
   say(`      -> R20 alone forces B = 0. Stop at ${stopAt[stopAt.length - 1]} and B = 1 certifies.`);
+  say(`    THAT ARGUMENT NO LONGER HAS A LIVE WARRANT: every max-B above is computed from a`);
+  say(`    DELETED constant. What survives it is the empirical certified column, which is`);
+  say(`    measured rather than modelled and reaches the SAME rung -- R20 at ` +
+      `${T.find((r) => r.rung === 'R20').certified}/${T.find((r) => r.rung === 'R20').n} against`);
+  say(`    ${LADDER.filter((r) => r.rung !== 'R20').map((r) => `${r.rung} ${r.certified}/${r.n}`).join(', ')}` +
+      ` -- and rf2-onozm's observed ceiling, which is a`);
+  say(`    quantity rather than a constant. The conclusion stands on those two, not on the bound.`);
   say('');
-  say(`    AND THE BOUND DISAGREES WITH THE CERTIFICATE. Rungs over the ${n0(MASKING_BOUND_B)} B bound:`);
+  say(`    AND THE RETIRED BOUND DISAGREES WITH THE CERTIFICATE IN BOTH DIRECTIONS, which`);
+  say(`    is an independent re-derivation of why it was retired rather than a case for it.`);
+  say(`    (i) it REFUSES what the certificate ADMITS -- rungs over the ${n0(MASKING_BOUND_B)} B bound:`);
   for (const r of overBound) {
     say(`      ${r.rung.padEnd(4)} (W+1) x perWrite = ${n0(r.bracket)} B, yet certifies ` +
         `${r.certified}/${r.n} = ${pc((100 * r.certified) / r.n)}`);
   }
-  say(`    Whether the bound is still a binding VALIDITY requirement independent of the`);
-  say(`    certificate is a DECISION FOR THE OPERATOR. This reader does not answer it and`);
-  say(`    moves no reading, threshold, band or budget status.`);
+  const underBound = T.filter((r) => r.bracket <= MASKING_BOUND_B && r.n > r.certified);
+  say(`    (ii) it ADMITS what the certificate REFUSES -- rungs under the bound that still refuse:`);
+  for (const r of underBound) {
+    say(`      ${r.rung.padEnd(4)} (W+1) x perWrite = ${n0(r.bracket)} B, under the bound, yet ` +
+        `${r.n - r.certified} of ${r.n} windows refuse`);
+  }
+  say(`    So the two criteria are INDEPENDENT, not nested either way. Any claim that the`);
+  say(`    bound "refuses nothing the certificate admits and admits nothing it refuses" is`);
+  say(`    false in both directions on this corpus.`);
+  say(`    The bound's status is NOT an open question: it was retired and deleted on`);
+  say(`    2026-08-08. This reader moves no reading, threshold, band or budget status.`);
 
   return out.join('\n');
 }
@@ -425,11 +461,28 @@ function selfTest() {
     Math.min(...synth.legs) === Math.min(...single.legs), true);
   ck('negLegs CAN separate them', negLegs(synth).length !== negLegs(single).length, true);
 
+  // THE SET-RELATIONSHIP GUARD, added when the merged-PR audit of #8591 caught
+  // this page asserting that the retired bound "refuses nothing the certificate
+  // admits and admits nothing the certificate refuses". Both halves are false on
+  // this corpus, so the two criteria are INDEPENDENT rather than nested either
+  // way. Pinned on synthetic rungs so it needs no dataset.
+  const rungs = [
+    { rung: 'floor', bracket: 134960, certified: 45, n: 48 }, // under bound, some refuse
+    { rung: 'R3', bracket: 319137, certified: 85, n: 96 }, // over bound, most certify
+    { rung: 'R7', bracket: 521521, certified: 89, n: 96 }, // over bound, most certify
+  ];
+  const overAndAdmitted = rungs.filter((r) => r.bracket > MASKING_BOUND_B && r.certified > 0);
+  const underAndRefused = rungs.filter((r) => r.bracket <= MASKING_BOUND_B && r.n > r.certified);
+  ck('the bound REFUSES what the certificate ADMITS', overAndAdmitted.length > 0, true);
+  ck('the bound ADMITS what the certificate REFUSES', underAndRefused.length > 0, true);
+  ck('so neither criterion contains the other',
+    overAndAdmitted.length > 0 && underAndRefused.length > 0, true);
+
   if (fail.length) {
     console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
     process.exit(1);
   }
-  console.log(`self-test OK (${12} checks)`);
+  console.log(`self-test OK (${15} checks)`);
 }
 
 if (require.main === module) {
