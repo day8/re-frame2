@@ -159,7 +159,7 @@ const SEGMENT_PERMUTATIONS = [
  * run-level distribution on raw `TaskDuration` reads q90 23.4%, q95 31.0%,
  * q99 **41.4%**, and 35% false-fires at **2.7%** per run, thirteen times the
  * advertised 0.2%. (`ladder_band.cjs --from data/ladder-ymi6j.json` prints
- * both models; its `--selftest` fails if the pooled one is reinstated.)
+ * both models; its `--self-test` fails if the pooled one is reinstated.)
  *
  * IT STAYS AT 35% ANYWAY, deliberately, and as a judgement now stated as one:
  *

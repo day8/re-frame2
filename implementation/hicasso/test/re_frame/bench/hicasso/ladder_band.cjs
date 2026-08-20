@@ -6,7 +6,7 @@
 //   node .../ladder_band.cjs --emit data.json out/.../*.json   ... and write the
 //                                                              compact dataset
 //   node .../ladder_band.cjs --from data.json                recompute FROM it
-//   node .../ladder_band.cjs --selftest                      the resampling model
+//   node .../ladder_band.cjs --self-test                      the resampling model
 //
 // ## Why this file exists
 //
@@ -49,7 +49,7 @@
 // unrelated runs and load rungs, which is not a future run, and a comment here
 // argued that pooling was the CONSERVATIVE choice. It is the narrower one. The
 // bootstrap below is now run-preserving, both models are printed side by side
-// so the retraction can be checked, and `--selftest` fails if the pooled model
+// so the retraction can be checked, and `--self-test` fails if the pooled model
 // is ever reinstated. No new measurement was taken to find any of it.
 
 const fs = require('node:fs');
@@ -329,7 +329,7 @@ const rateAbove = (sorted, c) => sorted.filter((b) => b > c).length / sorted.len
 // The self-test — a test of the RESAMPLING MODEL, and of nothing else
 // ---------------------------------------------------------------------------
 //
-// `node ladder_band.cjs --selftest`, the convention `seam.cjs` already uses.
+// `node ladder_band.cjs --self-test`, the flag spelling the rest of this bench fleet takes.
 //
 // The pooled-block bootstrap shipped for two days and nobody caught it,
 // because the two models agree on the median and every check anyone would
@@ -420,7 +420,7 @@ function main() {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--emit') emit = argv[++i];
     else if (argv[i] === '--from') from = argv[++i];
-    else if (argv[i] === '--selftest') {
+    else if (argv[i] === '--self-test') {
       const st = selfTest();
       for (const c of st.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.detail ? '  — ' + c.detail : ''}`);
       if (!st.ok) {
@@ -439,7 +439,7 @@ function main() {
   } else {
     if (files.length === 0) {
       console.error(
-        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --selftest'
+        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --self-test'
       );
       process.exit(2);
     }
