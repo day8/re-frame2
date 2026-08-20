@@ -49,10 +49,23 @@ one.
 
 **The MODE is the only arm still standing, and it is an ASSOCIATION rather than
 a result. Position is unresolved, not refuted. Substrate is associated but not
-necessary. The discriminating arm the bead asks for is STILL OWED A WINDOW — and
-more plainly than the first version of this page implied, because the one
-property that survives is the one the committed corpus cannot separate and the
-one whose exposure is three runs.**
+necessary. The discriminating arm the bead asks for was OWED A WINDOW when this
+page was written — and more plainly than the first version of this page implied,
+because the one property that survives is the one the committed corpus cannot
+separate and the one whose exposure is three runs.**
+
+> **THAT WINDOW HAS SINCE BEEN TAKEN, so the last clause above records what was
+> outstanding when this page was written and is not its current position.**
+> [The reversed fixed arm: a pre-registered fifteen-run window](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+> recorded fifteen runs and moves two of the three verdicts in the table below:
+> the SLOT reading is refuted, MODE gains the matched baseline this page says it
+> lacks but narrows to the **forward** fixed order, and SUBSTRATE is still
+> unsettled — for a reason this page did not anticipate. The reconciliation on
+> this page is the blockquote closing
+> [what the p-values are not](#what-the-p-values-are-not); the figures behind it
+> belong to the window's own record and are quoted from there. **Every number
+> here is read on the 116-run corpus of [the corpus](#the-corpus) below, and none
+> is re-derived against the 131-run corpus that window produced.**
 
 | arm of the question | verdict | the counts it rests on | Fisher, two-sided |
 |---|---|---|---|
@@ -142,6 +155,13 @@ corpus for any purpose will meet it.
 run is `P0_ALLOC_PLAN=floor`, `P0_ALLOC_WRITE=all`, `P0_ROOTS=4`, B = 24, six
 writes, one instrument — checked rather than assumed, because a pooled census
 over unlike units would be meaningless and the byte band is absolute.
+
+**This is the corpus AS THIS PAGE READ IT, and every figure below is anchored to
+it.** [The reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+has since added fifteen runs, taking the admissible corpus to **131 runs, 3,688
+collection-free, 3,520 positional** against 116 / 3,258 / 3,090 here. **Nothing
+on this page is re-derived against them**, so a figure quoted from here is a
+figure about the 116, and the two censuses must not be read across.
 
 **Two `plan=floor` runs are in the directory and out of this corpus**, and the
 reader names both rather than dropping them:
@@ -309,7 +329,21 @@ and no arithmetic on the windows inside them can turn three runs into a
 controlled comparison. **A replication of the `fixed` arm at higher n against
 same-session `parity` is what would settle it**, and that is an allocation
 window rather than an analysis. That the mode arm is the only one still standing
-makes the reversed-`fixed` window more clearly necessary, not less.
+made the reversed-`fixed` window more clearly necessary, not less.
+
+**SINCE SETTLED, and narrowed by the settling.**
+[The reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+took exactly that replication — five `fixed` and five `parity` runs interleaved
+in one session — and reads **4 of 5 `fixed` runs against 0 of 5 `parity` runs,
+`p` = 0.0476** at run level. Taken with this page's 3 of 3 against 1 of 3 that is
+**7 of 8 against 1 of 8, `p` = 0.0101**, which is the first run-level separation
+the record has had that controls session, date and revision. **But the same
+window put five `fixed-reversed` runs beside them and they do not carry the
+term** — 1 of 68 windows at the primary band — and `fixed-reversed` is exactly as
+non-alternating as `fixed`. So what separates from `parity` is the **forward**
+fixed order specifically, not "a plan that does not alternate". Those counts are
+that window's corpus, not this one's. The paragraph above is left as written: its
+reasoning is what commissioned the window.
 
 The negative control on the same contrast: `reagent` at position 0, `fixed`
 against `parity`, reads **0 of 43 against 2 of 666, `p` = 1.0**. Reagent does not
@@ -369,20 +403,36 @@ show.
 > statistic below is a per-window MAXIMUM, and at position 0 the already-recorded
 > ~748 B rider competes with the cluster for it. So the reversed arm's `uix` cell
 > is masked, and the window that was supposed to settle the substrate could not.
+>
+> **The title is left standing rather than corrected.** It names this record, and
+> it is the name both the studio index and the new page link it by; a page
+> renamed to its own correction stops being findable as the thing that was
+> corrected. It is half wrong, and this is where it says so.
 
-## Why the discriminating arm is still owed a window
+## Why the discriminating arm was owed a window
 
 The bead names its discriminator: *a fixed run with the segment order REVERSED
 (uix leading), which `p0_run.cjs` does not currently offer.* **That remains the
 right instrument, the reason it is needed has changed rather than gone away —
-and since this page was first written the arm itself has LANDED.**
+and since this page was first written the arm itself has LANDED, and has since
+been RUN.**
 
 `P0_ALLOC_SEG_ORDER=fixed-reversed` is now one of three names in
 `ALLOC_SEG_ORDERS`, and it drives the plan reversed every round: the mode held
-constant, the second substrate at position 0. **So what is outstanding is no
-longer the rig change. It is the WINDOW** — a `fixed-reversed` run at adequate
-n, read against the `fixed` and `parity` arms already in the corpus. That is
-bench-slot-bound rather than quiet-box-bound, and it is why this bead stays open.
+constant, the second substrate at position 0. **So what was outstanding when this
+page was written was no longer the rig change but the WINDOW** — a
+`fixed-reversed` run at adequate n, read against the `fixed` and `parity` arms
+already in the corpus. That was bench-slot-bound rather than quiet-box-bound.
+
+> **THE WINDOW HAS SINCE BEEN TAKEN.**
+> [The reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+> ran five `fixed-reversed` runs at that n, interleaved with five `fixed` and
+> five `parity` in one session. **The bead does stay open, but not for the reason
+> this section gives.** What is owed now is a **masking-free statistic,
+> pre-registered as such, and the reversed arm taken again under it** — because
+> the statistic this window pre-registered is a per-window MAXIMUM and it is
+> masked in the one cell the whole discriminator rests on. The reasoning below is
+> left as written: it is what commissioned the window.
 
 The bead's stated reason was that no position arm existed. That reason is
 superseded — `parity` supplies uix at both positions, 1,445 windows of it, and
@@ -402,8 +452,23 @@ Inside `fixed` the confound is untouched:
 mode constant, and it is the only arrangement that does.** If the cluster follows
 uix to position 0, the carrier is the substrate under `fixed`; if it stays at
 position 1 with reagent now in it, the carrier is the slot. **No committed run
-answers that**, because none was taken in the reversed order — the arm exists in
-the rig now, but no dataset has been recorded through it.
+answered that** when this page was written, because none had been taken in the
+reversed order.
+
+**Five have been taken since, and the disjunction above did not resolve cleanly.**
+On the pre-registered statistic neither branch fires:
+`fixed-reversed | uix-subs | pos0` reads **1 of 68** and
+`fixed-reversed | reagent-subs | pos1` reads **1 of 82**, `p` = 1.0000 between
+them, against the same session's **8 of 63** at `fixed | uix-subs | pos1`.
+**The STAYS branch is refuted** — putting `reagent-subs` in the second-driven
+slot does not move the cluster there, 8 of 63 against 1 of 82, `p` = 0.0105.
+**The FOLLOWS branch is masked rather than
+tested**, because position 0 is where the already-recorded ~748 B rider lives and
+it competes for the per-window maximum the statistic reads: that cell's median
+|worst leg| is **1,488 B**, above the top of the band, and only **20%** of its
+in-band legs are the window's worst against `fixed`'s **80%**. Every figure in
+this paragraph is that window's own corpus, not this page's; the record is
+[the reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md).
 
 ### What it cost, now that it has been made
 
@@ -422,7 +487,8 @@ The outcomes are pre-registered in the source rather than chosen after the run:
 the cluster FOLLOWS uix to position 0 and the carrier is the substrate under
 `fixed`; it STAYS at position 1 and the carrier is the second-driven slot,
 whichever substrate occupies it; BOTH or NEITHER and neither property is the
-carrier as stated.
+carrier as stated. **They have since been read, and the pre-registered statistic
+returned NEITHER**; what that does and does not settle is recorded above.
 
 ## What the earlier read got wrong, and one thing it did not
 
@@ -470,11 +536,15 @@ not absent.
   bound is available at a useful width on eleven in-band windows.
 - **Three `fixed` runs is three.** 81 windows, one box, one session, one
   revision. Every `fixed` figure on this page rests on them.
-- **The reversed-`fixed` arm now EXISTS in the rig and has never been RUN.**
-  `P0_ALLOC_SEG_ORDER=fixed-reversed` landed after this analysis was first
-  written, so the discriminator is available; no dataset has been recorded
-  through it, so nothing here is read against it. **The arm existing is not the
-  arm answering.**
+- **The reversed-`fixed` arm has SINCE BEEN RUN, and nothing here is read against
+  it.** `P0_ALLOC_SEG_ORDER=fixed-reversed` landed after this analysis was first
+  written, and
+  [a pre-registered fifteen-run window](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+  has since recorded five runs through it. Every number on this page is still the
+  116-run corpus it was computed on, so those runs bear on its verdicts without
+  being counted in any of its figures. **The arm answering is not this page
+  answering**: what that window settled, what it narrowed and what it could not
+  reach are its record to state, not this one's.
 - **The last-leg term at `parity` position 0 is described and not chased.** Its
   ordinal signature is published above because it decides the band question; its
   identity is nobody's yet.
