@@ -9,7 +9,7 @@
   with no row anywhere: `h/route-link`, `h/use-subs` and `h/reg-state`.
   This file is what those rows now point at.
 
-  ## The roster, derived MECHANICALLY (rf2-2l8pw, acceptance 4)
+  ## The roster, derived MECHANICALLY
 
   The facade's public roster is its three macros plus its alias block,
   and both are greppable, so no future re-run needs to read the file by

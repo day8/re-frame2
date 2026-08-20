@@ -8,9 +8,8 @@
 
   ## The accept path is not new, and this file does not re-establish it
 
-  `codec/as-element` has had a total `:react-element` arm since
-  rf2-hic-030, asked after `vector?`, so a returned element has always
-  passed through untouched;
+  `codec/as-element` carries a total `:react-element` arm, asked after
+  `vector?`, so a returned element passes through untouched;
   `native-fence-cljs-test/the-two-languages-compose-without-either-rewriting-the-other`
   is the row that says so, and `native-hooks-dom-cljs-test/host` writes
   the spelling as ordinary source. What was never established is the
@@ -113,9 +112,9 @@
   ## What a direct return still costs — I9
 
   Exactly two hooks, counted at React's own dispatcher through
-  [[re-frame.hicasso.hook-probe]]. The shell is the React-hook spine
-  (rf2-hic-018) and I9 is frozen at two; a boundary that answered an
-  element is still a boundary and pays the same two, which is the reason
+  [[re-frame.hicasso.hook-probe]]. The shell is the React-hook spine and
+  I9 is frozen at two; a boundary that answered an element is still a
+  boundary and pays the same two, which is the reason
   Rung 3 is an escape from the CODEC and not from the boundary.
 
   ## Hooks in the body — a law, and deliberately not a refusal
@@ -139,7 +138,7 @@
   nothing here licenses a claim about how much faster a direct return
   is. What is established is the shape the clock would price — one
   page, two arms, byte-equal DOM — and which surfaces the second arm
-  does not enter. The clock row is `rf2-5yn9`.
+  does not enter. Pricing it is the clock row's, elsewhere.
 
   Runtime: `-cljs-test`, no DOM. `react-dom/server` runs bodies for real
   — the shell's hooks, the ambient reads, the codec's emission — through

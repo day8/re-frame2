@@ -10,9 +10,9 @@
   ## Why nothing here asserts `(thrown? …)`
 
   Because `(thrown? …)` is not a witness, and this file is the one place
-  where that matters most. rf2-hic-011 ran a NAMED sabotage against its
-  own guard, the reads still threw — from a different layer, with a
-  different error id — and the assertion stayed green. A refusal's whole
+  where that matters most. A NAMED sabotage against a read guard leaves
+  the reads still throwing — from a different layer, with a different
+  error id — and a `(thrown? …)` assertion stays green. A refusal's whole
   subject is its IDENTITY, so every row below asserts the ex-data as a
   MAP: the id a tool branches on, the fn that raised it, the reason, the
   recovery, and the ambient pair the constructor supplied.
@@ -44,7 +44,8 @@
   refuses to mint an incomplete refusal, so the completeness property
   holds for the refusals nobody has written a row for yet —
   [[an-incomplete-refusal-is-itself-refused]] is the witness for that, and
-  it is the permanent form of the sabotage rf2-hic-007 ran once by hand."
+  it is the permanent form of a sabotage that would otherwise be run by
+  hand."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]

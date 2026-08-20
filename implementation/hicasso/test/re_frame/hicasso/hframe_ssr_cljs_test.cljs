@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.hframe-ssr-cljs-test
-  "`h/hframe` ON THE SERVER (rf2-wehh0 — the design's W8 and W11,
-  re-expressed on the package's own entry).
+  "`h/hframe` ON THE SERVER — the design's W8 and W11, re-expressed on
+  the package's own entry.
 
   ## Why this file exists, and what it is a copy of
 
@@ -47,11 +47,10 @@
 
   As designed the row contrasted `h/hframe` answering against the ambient
   chain throwing *server-side for a renderer-specific reason*: the raw
-  React-context read the adapters publish is client-renderer-only. That
-  stopped being true at rf2-2rtt6.122 — the ambient chain now refuses on
-  both sides for ONE reason, the arm's own refusal, established by
-  `impl.intent/with-frame` over every render extent. The contrast
-  survives and its explanation changed.
+  React-context read the adapters publish is client-renderer-only. The
+  ambient chain refuses on BOTH sides now, for ONE reason — the arm's own
+  refusal, established by `impl.intent/with-frame` over every render
+  extent — so the contrast survives on a different explanation.
 
   `hframe_cljs_test` already witnesses the carry refusing inside a
   boundary body, but it drives `collector/render-body` directly. This row

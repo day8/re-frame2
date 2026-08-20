@@ -34,7 +34,7 @@
   scan's docstring says why in full: their sentinel would be the
   declaring file's name, and core's own production registration
   coordinates already put the only such name in the `:hicasso-release`
-  bundle. That surface is witnessed by rf2-hic-007's own two gates —
+  bundle. That surface is witnessed by two gates of its own —
   `check_source_coord_elision.cjs` and
   `re-frame.hicasso.error-source-coord-elision-prod-test` — against the
   `:browser-test-prod-elision` bundle, where the sentinel discriminates."

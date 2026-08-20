@@ -225,10 +225,10 @@
   ;; The reload a developer actually performs: change the body of a `reg-sub`
   ;; and hit save. The re-registration arrives at the arm as a disposal, so
   ;; `invalidate-cell!` drops the held reference SYNCHRONOUSLY and defers the
-  ;; rebuild to a microtask — the same two-phase repair rf2-hic-013 measured
-  ;; from the reincarnation side, reached here by the registry route, and
-  ;; rescheduled by rf2-2l17 so the correction lands before visible paint
-  ;; (design law React 3) rather than in some later task.
+  ;; rebuild to a microtask — the same two-phase repair the reincarnation
+  ;; side measures, reached here by the registry route, and scheduled so
+  ;; the correction lands before visible paint (design law React 3) rather
+  ;; than in some later task.
   (async done
     (seeded! "hello")
     (let [{:keys [entry notified release value]} (mount-boundary! label-body)]
