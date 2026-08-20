@@ -48,7 +48,7 @@ overall; see [§6](#6-what-this-still-does-not-certify).
 
 | | |
 |---|---|
-| base | `2f96ecc98c36ce0c6c845969e39566134351dea1`, `origin/main` at 2026-08-20 23:40 AUSEST |
+| base | `2f96ecc98c36ce0c6c845969e39566134351dea1`, `origin/main` at 2026-08-20 23:40 AUSEST. The gates began at 23:42 and ran past midnight; the page is dated for the run's start, as the dispatch was. |
 | worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
 | `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
 | open PRs touching a family 1–4 surface | **none**. Only two PRs are open: `#8559` is `docs/design/hicasso/product/dispositions.md`, and `#8555` is the bench trees plus `docs/design/hicasso/studio/`. `#8555` does touch `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. |
@@ -230,7 +230,44 @@ Every composite `npm run` script below was split into its steps so that each ver
 foreground capture rather than one status standing for a chain. **Every command is the 2026-08-18 page's,
 re-used verbatim; none of them has ceased to exist.**
 
-<!-- FAMILY-TABLE -->
+| Family | Command | Captured exit | What it reported, at `2f96ecc98c` |
+|---|---|---|---|
+| 2, 3, 4 — node lane, compile | `node scripts/compile-node-test.cjs node-test out/node-test.js` | `0` | **1990 files, 1989 compiled, 0 warnings** |
+| 2, 3, 4 — node lane, run | `node out/node-test.js` | `0` | **11854 tests, 60048 assertions, 0 failures, 0 errors** |
+| 2, 3 — browser lane, compile | `npx shadow-cljs compile browser-test` | `0` | **1076 files, 1075 compiled, 0 warnings** |
+| 2, 3 — browser lane, run | `node scripts/serve-and-run-browser-tests.cjs` | `0` | **1019 tests, 5745 assertions, 0 failures, 0 errors** |
+| 2 — SSR JVM arm | `clojure -M:test` in `implementation/ssr` | `0` | **599 tests, 2925 assertions, 0 failures, 0 errors** |
+| 4 — elision arm, build | `npx shadow-cljs release browser-test-prod-elision` | `0` | **312 files, 252 compiled, 0 warnings**; bundle **1967892 bytes** |
+| 4 — elision arm, coordinate check | `node hicasso/scripts/check_source_coord_elision.cjs` | `0` | no `defview`/`defhost` source coordinate in the advanced bundle, **positive control present** |
+| 4 — elision arm, browser run | `node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023 --duplicate-done-drift-unverifiable` | `0` | **92 tests, 295 assertions, 0 failures, 0 errors** |
+
+**Verdict: GREEN for families 2, 3 and 4.**
+
+### 5.1 The counts MOVED, and this run is the mirror image of the last one
+
+The 2026-08-18 page's substantive finding was that every count was identical across 175 commits, and it
+insisted on stating the identity rather than passing over it. **This run is the other case, so the same
+discipline applies in reverse.**
+
+| Arm | 2026-08-18, at `f5b1f1e94f` | here, at `2f96ecc98c` | moved? |
+|---|---|---|---|
+| node lane | 11771 tests / 59589 assertions | 11854 / 60048 | **+83 / +459** |
+| browser lane | 1015 / 5724 | 1019 / 5745 | **+4 / +21** |
+| SSR JVM | 599 / 2925 | 599 / 2925 | no |
+| elision lane | 92 / 295 | 92 / 295 | no |
+| `hicasso-release` build | 162 files / 107 compiled | 162 / 107 | no |
+| node-lane compile | 1985 files / 1984 compiled | 1990 / 1989 | **+5 / +5** |
+| browser-lane compile | 1075 files / 1074 compiled | 1076 / 1075 | **+1 / +1** |
+
+**Read this as what it is: the suites GREW, and nothing shrank.** Not one arm lost a test or a file. That
+is the healthy direction for a 442-commit interval whose character was features and fixes rather than
+deletions — the contrast is the parent page's §6.4, where every suite came back *smaller* after PR #8322
+and each drop was pinned to a landed deletion.
+
+**No count here is attributed to a commit, and none should be.** 442 commits landed and the additions are
+spread across them; this page measures the population, it does not bisect it. What the identity of the
+three *unmoved* rows says is narrower and worth keeping: the SSR JVM lane and the `hicasso-release` build
+population are the two surfaces the interval did not touch at all.
 
 ## 6. What this still does not certify
 
