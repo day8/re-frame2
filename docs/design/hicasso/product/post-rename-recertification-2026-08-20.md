@@ -188,8 +188,9 @@ inherits:
 Three conditions, and all three are cheap to test:
 
 1. `p0_run.cjs` and the other eight instrument files at the same blobs as some prior admissible reading —
-   which today means either a re-pin of the ladder against `cf437c8f30…` (or whatever `#8555` leaves) with
-   a fresh anchor taken on it, or a reading taken on a checkout of the anchor's own `p0_run.cjs`.
+   which today means either a re-pin of the ladder against the driver blob §4.2 records (or whatever
+   `#8555` leaves) with a fresh anchor taken on it, or a reading taken on a checkout of the anchor's own
+   `p0_run.cjs`.
 2. A drained box, to the standard the anchor page's §2 and §5 set.
 3. Two readings, across a change, on that one instrument.
 
@@ -214,6 +215,22 @@ prevent.
 
 **So no cell was moved and no value was minted.** The discrepancy is recorded here, one notch sharper
 than `budgets.md` records it, and the ruling stays where it was.
+
+## 5. Families 2, 3 and 4 — SSR bytes, macro parity, source coordinates
+
+These three families share their runners, which is why they share a section rather than one each. The
+parent page's §4 roster establishes the mapping; it was re-checked at source here and it still holds —
+the witness namespaces `three_way_parity_cljs_test`, `error_shape_cljs_test`, `native_grammar_cljs_test`
+and `native_surface_cljs_test` are each present in the built node-test bundle, found by a fixed-string
+search of `out/node-test.js`. **That search was run once against a name that should NOT be there**
+(`rf2_no_such_namespace_zzz`, 0 hits), because a search that looks nowhere and a search that finds
+nothing print the same number.
+
+Every composite `npm run` script below was split into its steps so that each verdict is its own
+foreground capture rather than one status standing for a chain. **Every command is the 2026-08-18 page's,
+re-used verbatim; none of them has ceased to exist.**
+
+<!-- FAMILY-TABLE -->
 
 ## 6. What this still does not certify
 
@@ -241,3 +258,42 @@ careful sentences get quoted one notch stronger later.
 
 **Nothing was filed in [`correction-ledger.md`](correction-ledger.md), because there was no red to file.**
 Every captured exit in §3 and §5 is the runner's own `0`.
+
+## 7. The controls — which gates were shown to still bite
+
+A certification's characteristic failure is a gate that returns green because it ran over nothing, so green
+is only worth as much as the demonstration that red was available. Each control below planted a fault, ran
+the gate, checked that the failure named the plant, restored, and verified the restore by **blob hash
+against the committed object** — never by reading a diff, because this checkout translates line endings
+and a plain byte digest reports a correct restore as failed.
+
+<!-- CONTROL-TABLE -->
+
+### 7.2 What was NOT proved
+
+**Family 4's elision arm carries no plant**, exactly as the 2026-08-18 page recorded, and the reason it
+gave still holds: the *coordinate erased in production* half rests on `check_source_coord_elision.cjs`'s
+own two positive controls, which are real evidence that the gate read a non-empty bundle but weaker than a
+planted red. Stated so nobody reads §7's table as covering both arms.
+
+**Family 5 has nothing to prove.** What it now lacks is a second reading rather than a gate, which is
+[§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather
+than a gap in this section. Sabotaging the ladder would demonstrate that the ladder reports — which the
+2026-08-19 anchor already demonstrated three times — and would say nothing about the comparison that is
+missing.
+
+### 7.3 Two gates bit unplanned, and both are recorded because an accidental control is still a control
+
+- **`scripts/check_provenance_pins.py` returned exit `1` on this page's first draft.** §4.3 originally
+  carried a shortened driver blob in prose, and the checker classified it as a commit citation because the
+  nearest describing word on its left was *re-pin*: `1 unresolvable`, naming the token and the line. The
+  fix was to name the blob rather than to re-pin anything, and the second run reported **2 pages inspected,
+  26 cited pins — 26 landed, 0 stranded, 0 unresolvable, 0 foreign, 0 findings**, exit `0`. This is the
+  hazard that gate exists for and it caught it unprompted.
+- **A fixed-string search of the browser runner reported that the elision arm's
+  `--duplicate-done-drift-unverifiable` flag no longer existed, and the search was wrong.** The flag is
+  live: `rf2-u0cy4` moved its literal into `scripts/lib/browser-runner-drift-env.cjs` and the runner now
+  refers to it through the constant `DRIFT_UNVERIFIABLE_FLAG`, so a search of the runner file alone finds
+  nothing while `package.json`'s `test:browser-prod-elision` still passes the flag verbatim. **A search
+  that returns zero is not a check that passed**, and this one was caught by reading the script that
+  invokes the runner rather than by trusting the count. No command in §5 has ceased to exist.
