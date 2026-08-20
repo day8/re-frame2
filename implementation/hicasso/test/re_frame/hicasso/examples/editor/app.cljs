@@ -7,7 +7,8 @@
 
   ## No route is registered, and that is deliberate
 
-  rf2-hic-025's finding 8: route **ids** are namespaced keywords and
+  The slice authoring report's finding 8: route **ids** are namespaced
+  keywords and
   cannot collide, but route **paths** are plain strings in a
   process-global registry, and this repository's node test bundle loads
   every application in the tree into ONE process. The slice claimed `/`
@@ -32,9 +33,8 @@
   are compiled because `hicasso/test` is a `:source-paths` entry, and its
   suites run on the node and browser lanes — which is the coverage that
   matters. Serving it needs a `:dev-http` entry in
-  `implementation/shadow-cljs.edn`, which is a hot-zone file; rf2-hic-045
-  owns the measurement lane that will want one and can add it with the
-  build it needs."
+  `implementation/shadow-cljs.edn`, which is a hot-zone file; the
+  measurement lane that wants one adds it with the build it needs."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]

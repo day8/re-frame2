@@ -13,9 +13,9 @@
   returns one string, so typing into the assignee notifies the assignee's
   boundary and no other; a single `::form` sub returning the whole map
   would notify the notes field, the submit button and the error region on
-  every character. rf2-hic-045 owns the published per-keystroke numbers
-  for the four-field editor and the grid; this application inherits the
-  discipline they measure rather than re-measuring it.
+  every character. The published per-keystroke numbers are the four-field
+  editor's and the grid's; this application inherits the discipline they
+  measure rather than re-measuring it.
 
   `::shown-problem` is the one read that deliberately spans more than its
   own field: R-A5's gate is *touched OR attempted*, and `:attempted?` is

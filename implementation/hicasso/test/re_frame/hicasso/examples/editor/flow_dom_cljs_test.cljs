@@ -25,23 +25,22 @@
 
   Specification §6 asks that the four-field editor publish the mechanical
   per-keystroke path — state writes, subscription recomputations,
-  boundary runs, commit and visible echo — and rf2-hic-045 publishes the
-  numbers from this application. Two of those five are counted here:
+  boundary runs, commit and visible echo — and the per-keystroke census
+  publishes the numbers from this application. Two of those five are counted here:
   `l0-cljs-test/one-keystroke-moves-exactly-one-address` is the write,
   and [[the-per-keystroke-body-count-is-one-and-does-not-grow]] is the
   body count, read off [[re-frame.hicasso.test.mounted/bodies-run]].
 
-  **That door is the kit's, and it used to be an internal's.** This file
-  read `impl.collector/body-runs` directly, because nothing else answered
-  *how many boundary bodies ran*: `hm/census` counts cells, edges and
-  boundaries — residue, not work — and Spec 009's render measures are
-  compiled out unless `re-frame.performance/enabled?`, which no PR-lane
-  build sets. A test is ALLOWED that reach (the fence in
-  `examples.witness-surface-cljs-test` is over APPLICATION namespaces),
-  so this was never a breach; it was an application's own witness unable
-  to state its budget in the vocabulary of the facade that mounted it.
-  Reported by rf2-hic-078, closed by rf2-5mxe, and rf2-hic-045 and
-  rf2-hic-071 both read the same door.
+  **That door is the kit's, and the budget is stated through it.**
+  `impl.collector/body-runs` is the internal behind it, and a test is
+  ALLOWED that reach — the fence in `examples.witness-surface-cljs-test`
+  is over APPLICATION namespaces — but an application's own witness
+  states its budget in the vocabulary of the facade that mounted it.
+  Nothing else answers *how many boundary bodies ran*: `hm/census` counts
+  cells, edges and boundaries — residue, not work — and Spec 009's render
+  measures are compiled out unless `re-frame.performance/enabled?`, which
+  no PR-lane build sets. The per-keystroke census and the budget gates
+  read the same door.
 
   ## Typing is a real DOM event, not a dispatch
 
@@ -173,7 +172,7 @@
       (hm/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
-;; The reset — rf2-hic-025's finding 5, measured
+;; The reset — the slice authoring report's finding 5, measured
 ;; ---------------------------------------------------------------------------
 
 (deftest a-discard-restores-every-field-and-bumps-the-revision
@@ -208,29 +207,30 @@
       (hm/unmount! m))))
 
 (deftest what-the-revision-bump-is-actually-load-bearing-FOR
-  ;; rf2-hic-025's finding 5 says the bump is needed because dropping a
-  ;; draft "moves the model back to a value the field is already
-  ;; showing". This application is the place to say what can reach that
-  ;; state, because it has one field of each policy on one page.
+  ;; The slice authoring report's finding 5 says the bump is needed
+  ;; because dropping a draft "moves the model back to a value the field
+  ;; is already showing". This application is the place to say what can
+  ;; reach that state, because it has one field of each policy on one
+  ;; page.
   ;;
-  ;; ## What was here before, and why it was replaced rather than fixed
+  ;; ## Why the stimulus is a SECOND field rather than this one
   ;;
-  ;; The first row written here typed into the slug a value
-  ;; its policy normalises back to what the model already held, discarded,
-  ;; and asserted the field showed the model. It was measured with
-  ;; `::events/discard`'s `(update :revision (fnil inc 0))` DELETED, and it
-  ;; stayed GREEN — so it was never asserting the counter at all.
+  ;; A row that types into the slug a value its policy normalises back to
+  ;; what the model already holds, discards, and asserts the field shows
+  ;; the model is GREEN with `::events/discard`'s
+  ;; `(update :revision (fnil inc 0))` DELETED — so it asserts the counter
+  ;; not at all.
   ;;
   ;; The reason is mechanical and is one file away. A keystroke's
   ;; divergence is not drift: `impl.controlled/converge!` runs at the end
   ;; of the change handler, in the same discrete event, and writes the
   ;; model's value onto the glass — which is exactly what
   ;; [[a-normalised-keystroke-echoes-the-COMMITTED-value]] asserts three
-  ;; rows above, on this same field with this same setup. By the time that
-  ;; row clicked `#discard` the field had shown `"intents-are-data"` since
-  ;; the keystroke, and the closing assertion re-read a value nothing had
-  ;; disturbed. A row that cannot see its own subject is not patched into
-  ;; seeing it; the stimulus was wrong, so the stimulus is what changed.
+  ;; rows above, on this same field with this same setup. By the time such
+  ;; a row clicks `#discard` the field has shown `"intents-are-data"`
+  ;; since the keystroke, and its closing assertion re-reads a value
+  ;; nothing has disturbed. A row that cannot see its own subject is not
+  ;; patched into seeing it; the stimulus is what has to change.
   ;;
   ;; ## The drift the reset law is about is the drift NO HANDLER RAN FOR
   ;;

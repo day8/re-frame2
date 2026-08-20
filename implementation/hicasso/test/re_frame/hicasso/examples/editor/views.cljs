@@ -23,8 +23,8 @@
 
   ## What was NOT needed here
 
-  Recorded because rf2-hic-025's report made the same list from a broader
-  application and a facade freeze reads both. This form of four controls,
+  Recorded because the slice authoring report makes the same list from a
+  broader application, and a facade freeze reads both. This form of four controls,
   two buttons and a readout needed `defview`, `sub`, and the three
   markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
   `h/event` — every intent said what it meant as a vector — and no

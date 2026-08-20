@@ -9,7 +9,7 @@
   `re-frame.hicasso.examples.slice.l0-cljs-test` does exactly that.
 
   ## TWO event shapes, and the seam is not the author's choice
-  (the rf2-hic-025 authoring report's first finding)
+  (the slice authoring report's first finding)
 
   `spec/Conventions.md` §Canonical event-vector shape asks for
   `[<id> {<k> <v>}]` — one trailing map — and the linter nudges new code
@@ -110,8 +110,7 @@
   {:doc "Throw a draft away — the reset, and it is one move."}
   (fn [{:keys [db]} [_ {:keys [slug]}]]
     ;; ONE move on the model, and no `::h/revision` counter beside it.
-    ;; This handler carried one until rf2-36bd deleted the bump and the
-    ;; browser lane did not move: dropping the draft is already three
+    ;; A bump here moves nothing: dropping the draft is already three
     ;; changes the editor's body reads, so the body re-runs and the commit
     ;; re-asserts the model over the fields without being told to. See
     ;; `db`'s namespace docstring for the measurement and for the shape

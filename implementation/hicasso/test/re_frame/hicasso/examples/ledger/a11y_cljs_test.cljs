@@ -1,7 +1,7 @@
 (ns re-frame.hicasso.examples.ledger.a11y-cljs-test
-  "THE LEDGER'S STRUCTURAL ACCESSIBILITY (rf2-hic-047, on rf2-hic-043's
-  helpers; specification §7's *Large collections* row, which requires
-  *10K-row behavior, focus and accessibility*).
+  "THE LEDGER'S STRUCTURAL ACCESSIBILITY, on the a11y kit's helpers
+  (specification §7's *Large collections* row, which requires *10K-row
+  behavior, focus and accessibility*).
 
   Virtualization breaks accessibility in one specific way and it is worth
   naming before any row is read: **the document stops being the model**.
@@ -10,7 +10,7 @@
   it resolves has to come from the model, and the only thing carrying the
   model into the accessibility tree is a handful of attribute VALUES the
   author wrote. So the rows below are arranged around values, in
-  rf2-hic-043's own terms: does the attribute carry the right value for
+  the a11y kit's own terms: does the attribute carry the right value for
   the state the page is in, and is the name RESOLVED rather than merely
   present?
 

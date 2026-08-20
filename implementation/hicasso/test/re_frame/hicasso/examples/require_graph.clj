@@ -40,8 +40,8 @@
   application tomorrow was compiled, was loaded, was part of the
   application, and was invisible to every assertion in the file. Nothing
   went red. The claim each consumer makes silently narrowed from *the
-  application* to *these seven files*, and rf2-hic-074 had already
-  extended one of them after its report was written.
+  application* to *these seven files*, and one of them was extended after
+  its report was written.
 
   So the population is asked for too. [[application-namespaces]] reads
   the package's own directory off the JVM classpath at expansion time
@@ -73,8 +73,8 @@
   EDIT to a namespace already on the chain. It does not cover a file
   APPEARING in or DISAPPEARING from the directory while nothing on the
   chain changes, because shadow-cljs keys its cache on source hashes and
-  a directory listing is not one — observed while rf2-ccuw was written:
-  a plant deleted from disk was still named by a warm expansion.
+  a directory listing is not one: a plant deleted from disk is still
+  named by a warm expansion.
 
   The boundary is narrow and it falls on the safe side. CI compiles
   cold, so the gate is always read from the directory as it is. Locally,
@@ -86,12 +86,11 @@
 
   ## Why it sits at the `examples/` root
 
-  It was written twice. rf2-hic-025 wrote it for the slice, rf2-hic-086
-  wrote it again for the Todo witness, and neither branch could
-  `:require` the other's namespace because the two beads ran in parallel
-  off one base. Both copies were the same file bar the docstring. This
-  is the one copy, at the root every witness sits under, consumed by all
-  six `surface-cljs-test` namespaces — the slice, the Todo, the forms
+  It was written twice — once for the slice and once for the Todo
+  witness, in parallel off one base, so neither branch could `:require`
+  the other's namespace and both copies were the same file bar the
+  docstring. This is the one copy, at the root every witness sits under,
+  consumed by all six `surface-cljs-test` namespaces — the slice, the Todo, the forms
   recipes, the ledger, the typeahead, and the editor/grid pair.
 
   ## Scope

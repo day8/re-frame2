@@ -253,7 +253,7 @@
   ;; Same fact, same reason, as every other application in this tree:
   ;; route paths are plain strings in a PROCESS-GLOBAL registry and this
   ;; repository's node bundle loads every application in the tree into one
-  ;; process (rf2-hic-025 finding 8).
+  ;; process.
   (testing "no application namespace reaches the routing artefact"
     (is (= [] (filterv (fn [[_ to]] (= "re-frame.routing" to)) foreign-edges))))
   (testing "the instrument can see a routing edge when there is one"

@@ -168,8 +168,8 @@
   mints no instance, issues no request, settles nothing and reports
   NOTHING: the instance reads `:idle` afterwards, exactly as it does
   before any write. Measured in this repository's `:browser-test` build,
-  where the registration was gone and every symptom pointed at the
-  transport. Filed as rf2-06lp."
+  where a missing registration made every symptom point at the
+  transport."
   []
   (rf/reg-mutation ::save
     {:params-schema [:map [:assignee :string] [:notes :string]]}

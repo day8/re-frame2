@@ -21,7 +21,7 @@
 
   ## The marker section is the sharpest thing in this file
 
-  rf2-hic-025's authoring report opens with `::h/value` and the canonical
+  The slice authoring report opens with `::h/value` and the canonical
   event-vector shape being silently incompatible. That report describes
   the collision; the rows under §THE MARKER LAW put both spellings
   through `ht/materialize`, which is
@@ -54,7 +54,7 @@
                    [::subs/revision]    revision}}))
 
 ;; ---------------------------------------------------------------------------
-;; THE MARKER LAW — rf2-hic-025 finding 1, confirmed from a second app
+;; THE MARKER LAW — the slice report's finding 1, confirmed from a second app
 ;; ---------------------------------------------------------------------------
 
 (deftest the-positional-intent-substitutes-what-was-typed
@@ -106,9 +106,8 @@
     ;; `Use of undeclared Var re-frame.hicasso/fn` plus one
     ;; `Use of undeclared Var <your-ns>/e` per argument — a WARNING and
     ;; not an error, so the build completes and the page throws at
-    ;; render. Reported by rf2-hic-078; the naming gap itself is
-    ;; acknowledged in `h/defview`'s docstring and belongs to the bead
-    ;; that owns naming.
+    ;; render. The naming gap itself is acknowledged in `h/defview`'s
+    ;; docstring.
     (let [cb (h/event [e] [::events/edit {:field :title
                                         :value (.. e -target -value)}])]
       (is (ht/callback? cb)

@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.keyboard-dom-cljs-test
-  "L4 — WHAT A KEYBOARD CAN REACH ON THE TEN-THOUSAND-ROW SCREEN
-  (rf2-hic-049, over rf2-hic-047's ledger).
+  "L4 — WHAT A KEYBOARD CAN REACH ON THE TEN-THOUSAND-ROW SCREEN.
 
   > | Accessibility | Semantic Hiccup and native controls | Structural
   > a11y assertions plus browser focus tests | Names, roles, **keyboard,
@@ -50,7 +49,7 @@
   window moving; and that the screen carries no control whose role
   promises an activation its tag cannot deliver.
 
-  **Measured too, since rf2-il7b: a real Tab.** A synthetic
+  **Measured too: a real Tab.** A synthetic
   `KeyboardEvent` performs no default action in any engine — it reaches
   every listener and moves focus nowhere — so a `pressed Tab` row built
   from `new KeyboardEvent` would measure its own dispatcher.
@@ -233,7 +232,7 @@
   deliver it, in document order.
 
   The sweep [[every-operable-control-is-one-the-platform-activates]]
-  makes, and the counterpart of rf2-hic-043's `ht/unnamed-controls`: one
+  makes, and the counterpart of `ht/unnamed-controls`: one
   asks whether a control can be NAMED, this asks whether it can be
   OPERATED, and a screen needs both answers to be empty."
   [m]
@@ -375,8 +374,8 @@
   ;; on its own claims that Tab moves focus, which nobody doubts, and the
   ;; synthetic arm on its own claims this file's dispatcher is broken.
   ;; Together they are the reason every row below reads the engine's
-  ;; focusability answer instead of pressing a key — until rf2-il7b there
-  ;; was no key to press.
+  ;; focusability answer instead of pressing a key, and press one only
+  ;; where a trusted key press is available.
   ;;
   ;; The three-control page, not the ledger: what is under test is a
   ;; property of the PLATFORM, and driving it through four hundred lines

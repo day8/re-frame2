@@ -29,8 +29,8 @@
 
   ## `::h/value` cannot ride the canonical event-vector shape
 
-  Confirmed here from a second application, and the finding is
-  rf2-hic-025's first
+  Confirmed here from a second application, and the finding is the slice
+  authoring report's first
   (`docs/design/hicasso/product/authoring-report-slice.md` §1).
   `spec/Conventions.md` §Canonical event-vector shape asks for
   `[<id> {<k> <v>}]`; Hicasso substitutes its markers with `mapv` over
@@ -53,9 +53,9 @@
 
   ## The revision counter is the author's to invent
 
-  [[::discard]] bumps `:revision` with `(fnil inc 0)`, which is
-  rf2-hic-025's finding 5. What this application adds is the measurement
-  the report could not make, and it took two attempts to get one.
+  [[::discard]] bumps `:revision` with `(fnil inc 0)`, which is the
+  slice authoring report's finding 5. What this application adds is the
+  measurement that report could not make.
   `editor.flow-dom-cljs-test/what-the-revision-bump-is-actually-load-bearing-FOR`
   names the one state in which the bump is the only thing that repairs a
   field — a value written onto the glass by something that fired no

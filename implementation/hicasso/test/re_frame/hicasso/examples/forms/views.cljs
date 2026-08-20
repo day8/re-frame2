@@ -14,9 +14,9 @@
   difference on every keystroke. [[field-row]] reads its OWN field's text
   and its OWN field's displayable problem; the save button reads the gate
   and the write's status; the form shell reads nothing at all and so
-  never re-renders. rf2-hic-045 published the per-keystroke arithmetic
-  for the four-field editor and the 100-cell grid and this application
-  follows it rather than measuring it again.
+  never re-renders. The per-keystroke arithmetic is published for the
+  four-field editor and the 100-cell grid, and this application follows it
+  rather than measuring it again.
 
   ## The submit button is ENABLED while the form is invalid
 

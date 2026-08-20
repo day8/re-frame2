@@ -103,7 +103,8 @@
   copy of it.
 
   The prompt itself — its wording, its dismissal, whether it is a dialog
-  — is rf2-hic-054's recipe. What lands here is the wiring point: where
+  — is the async-routing recipe's. What lands here is the wiring point:
+  where
   the pending value is read, and which event resumes it."
   [_]
   (when-let [pending (h/sub [:rf/pending-navigation])]
