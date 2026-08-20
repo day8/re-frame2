@@ -127,7 +127,7 @@ const BAND_HI_B = 1300;
 const OBSERVED_LO_B = 1050;
 const OBSERVED_HI_B = 1224;
 
-// --- the two readings of "worst leg" ---------------------------------------
+// --- the readings ----------------------------------------------------------
 
 const largestPositiveB = (w) => {
   const e = excesses(w);
@@ -135,12 +135,62 @@ const largestPositiveB = (w) => {
   return Math.max(...e);
 };
 
-const STATISTICS = {
-  'signed-furthest': worstExcessSignedB,
-  'largest-positive': largestPositiveB,
+const inBand = (b, lo, hi) => b !== null && b >= lo && b <= hi;
+const bandOrNull = (b, lo, hi) => (inBand(b, lo, hi) ? b : null);
+
+// A READING answers one question about one window at one band: WHICH leg, if
+// any, makes this window count — returning that leg's excess in B, or `null`
+// for a window this reading does not count. Membership and the value reported
+// are then the same fact asked two ways, which is what lets a reading that is
+// not a per-window maximum sit in this table beside two that are.
+//
+// THE FIRST TWO ARE MAXIMA and were this reader's whole vocabulary until
+// `rf2-csca8`'s reversed window. Both ask what the window's WORST leg was and
+// then whether THAT leg lands in the band, so a window registers only when
+// nothing in it deviates further. They differ only in what "worst" means:
+// furthest from the cohort median in either direction, or largest above it.
+//
+// `any-leg` IS THE MASKING-FREE READING, AND IT IS PRE-REGISTERED HERE FOR A
+// WINDOW NOT YET TAKEN (rf2-csca8, `the-substrate-arm-...` studio page). It
+// counts a window carrying an in-band leg WHETHER OR NOT that leg is the
+// window's worst. The two maxima above cannot answer the substrate question
+// the reversed arm was built for, and the reason is structural rather than a
+// shortage of runs: the reversed arm exists to move `uix-subs` to position 0,
+// position 0 is where the ~748 B rider lives, and a window whose worst leg is
+// the rider cannot register a 1,050-1,224 B leg it also carries. Measured on
+// the committed corpus, `fixed-reversed | uix-subs | pos0` has a median
+// |worst leg| of 1,488 B — above the band top — with 35 of its 68 windows
+// worse than 1,224 B. A maximum was always going to under-count there.
+//
+// WHAT IS PRE-REGISTERED AND WHAT IS NOT, because the same reading runs over
+// both populations and they do not have the same standing:
+//
+//   - over `data/revorder-csca8/`, the window this reading was declared for
+//     before its runner was invoked once, `any-leg` is PRIMARY and
+//     CONFIRMATORY;
+//   - over every record that predates it, `any-leg` is POST-HOC — it is the
+//     same arithmetic the MASKING DIAGNOSTIC below already published under
+//     that label, and promoting it here does not relabel data it was chosen
+//     after seeing.
+//
+// The two maxima stay, are printed beside it, and are never replaced by it.
+const READINGS = {
+  'signed-furthest': (w, lo, hi) => bandOrNull(worstExcessSignedB(w), lo, hi),
+  'largest-positive': (w, lo, hi) => bandOrNull(largestPositiveB(w), lo, hi),
+  'any-leg': (w, lo, hi) => {
+    const hit = excesses(w).find((b) => inBand(b, lo, hi));
+    return hit === undefined ? null : hit;
+  },
 };
 
-const inBand = (b, lo, hi) => b !== null && b >= lo && b <= hi;
+// The heading each reading prints under. Two of the three read a per-window
+// MAXIMUM and one does not, so a shared "worst leg read as ..." caption would
+// have described `any-leg` as the thing it was written to stop being.
+const READING_CAPTIONS = {
+  'signed-furthest': 'worst leg read as SIGNED-FURTHEST',
+  'largest-positive': 'worst leg read as LARGEST-POSITIVE',
+  'any-leg': 'ANY LEG IN BAND — the masking-free reading (pre-registered for data/revorder-csca8; POST-HOC over every earlier record)',
+};
 
 // --- Fisher's exact test ----------------------------------------------------
 //
@@ -263,9 +313,9 @@ function analyse(datasets, opts = {}) {
     byStatistic: {},
   };
 
-  for (const [name, statistic] of Object.entries(STATISTICS)) {
-    const hit = (w, lo = BAND_LO_B, hi = BAND_HI_B) =>
-      inBand(statistic(w), lo, hi);
+  for (const [name, reading] of Object.entries(READINGS)) {
+    const legOf = (w, lo = BAND_LO_B, hi = BAND_HI_B) => reading(w, lo, hi);
+    const hit = (w, lo = BAND_LO_B, hi = BAND_HI_B) => legOf(w, lo, hi) !== null;
 
     const cells = {};
     for (const w of positional) {
@@ -274,7 +324,7 @@ function analyse(datasets, opts = {}) {
       cells[k].windows++;
       if (hit(w)) {
         cells[k].band++;
-        cells[k].values.push({ run: w.runId, round: w.round, bytes: statistic(w) });
+        cells[k].values.push({ run: w.runId, round: w.round, bytes: legOf(w) });
       }
       if (hit(w, OBSERVED_LO_B, OBSERVED_HI_B)) cells[k].observed++;
     }
@@ -314,7 +364,7 @@ function analyse(datasets, opts = {}) {
     ];
     const comparisons = {};
     for (const band of bands) {
-      const inThis = (w) => inBand(statistic(w), band.lo, band.hi);
+      const inThis = (w) => reading(w, band.lo, band.hi) !== null;
       const count = (ws) => ({ k: ws.filter(inThis).length, n: ws.length });
       const compare = (label, a, b) => {
         const x = count(a);
@@ -493,7 +543,7 @@ function analyse(datasets, opts = {}) {
   // honest denominator for a claim about the MODE, whose whole `fixed`
   // exposure is three runs in a single session.
   const runLevel = {};
-  for (const [name, statistic] of Object.entries(STATISTICS)) {
+  for (const [name, reading] of Object.entries(READINGS)) {
     runLevel[name] = {};
     for (const band of [{ n: `${BAND_LO_B}-${BAND_HI_B}`, lo: BAND_LO_B, hi: BAND_HI_B },
       { n: `${OBSERVED_LO_B}-${OBSERVED_HI_B}`, lo: OBSERVED_LO_B, hi: OBSERVED_HI_B }]) {
@@ -503,7 +553,7 @@ function analyse(datasets, opts = {}) {
         cells[k] = cells[k] || { key: k, runs: {}, };
         const r = (cells[k].runs[w.runId] = cells[k].runs[w.runId] || { n: 0, k: 0 });
         r.n++;
-        if (inBand(statistic(w), band.lo, band.hi)) r.k++;
+        if (reading(w, band.lo, band.hi) !== null) r.k++;
       }
       runLevel[name][band.n] = Object.values(cells).map((c) => {
         const rs = Object.values(c.runs);
@@ -603,7 +653,7 @@ function report(a) {
   }
 
   for (const [name, s] of Object.entries(a.byStatistic)) {
-    L.push(`=== worst leg read as ${name.toUpperCase()} ===`);
+    L.push(`=== ${READING_CAPTIONS[name] || name.toUpperCase()} ===`);
     L.push('');
     L.push(`  ${'mode | segment | position'.padEnd(34)}${'windows'.padStart(9)}${`in ${BAND_LO_B}-${BAND_HI_B}`.padStart(14)}${'rate'.padStart(8)}${`in ${OBSERVED_LO_B}-${OBSERVED_HI_B}`.padStart(14)}`);
     for (const c of s.cells) {
@@ -705,6 +755,74 @@ function selfTest() {
   ok('worst leg: signed-furthest takes the -4,324 B leg', worstExcessSignedB(separator) === -4324);
   ok('worst leg: largest-positive takes the +1,056 B leg', largestPositiveB(separator) === 1056);
   ok('worst leg: the two readings disagree about the band', inBand(largestPositiveB(separator), BAND_LO_B, BAND_HI_B) && !inBand(worstExcessSignedB(separator), BAND_LO_B, BAND_HI_B));
+
+  // --- `any-leg`, THE MASKING-FREE READING (rf2-csca8) ---------------------
+  //
+  // THE MASKED WINDOW, which is the whole reason this reading exists and the
+  // one shape neither maximum can see. Its excess vector is 0, 0, 0, 0,
+  // +1,100, +1,488: it CARRIES an in-band leg and its worst leg is a LARGER
+  // term sitting above the band top — the reversed arm's shape, where position
+  // 0's ~748 B rider wins the maximum in a cell whose median |worst leg| is
+  // 1,488 B. Both maxima return `null` here and `any-leg` returns +1,100.
+  const masked = synthWindow('uix-subs', [20000, 20000, 20000, 20000, 21100, 21488]);
+  ok('any-leg: the masked window carries a +1,100 B leg under a +1,488 B worst',
+    excesses(masked).join(',') === '0,0,0,0,1100,1488');
+  ok('any-leg: BOTH maxima miss the masked window',
+    READINGS['signed-furthest'](masked, BAND_LO_B, BAND_HI_B) === null &&
+    READINGS['largest-positive'](masked, BAND_LO_B, BAND_HI_B) === null);
+  ok('any-leg: the masking-free reading takes the +1,100 B leg',
+    READINGS['any-leg'](masked, BAND_LO_B, BAND_HI_B) === 1100);
+  ok('any-leg: and it takes it under the bead\'s narrower band too',
+    READINGS['any-leg'](masked, OBSERVED_LO_B, OBSERVED_HI_B) === 1100);
+  // AND IT IS NOT MERELY PERMISSIVE — a window with no in-band leg at all is
+  // refused by all three, so the reading discriminates rather than counting
+  // everything it is shown.
+  const unmasked = synthWindow('uix-subs', [20000, 20000, 20000, 20000, 20400, 21488]);
+  ok('any-leg: a window with no in-band leg is counted by none of the three',
+    READINGS['any-leg'](unmasked, BAND_LO_B, BAND_HI_B) === null &&
+    READINGS['signed-furthest'](unmasked, BAND_LO_B, BAND_HI_B) === null &&
+    READINGS['largest-positive'](unmasked, BAND_LO_B, BAND_HI_B) === null);
+  // AND IT AGREES WITH THE MAXIMA WHERE THEY CAN SEE: when the in-band leg IS
+  // the window's worst, all three return the same leg. `any-leg` is a
+  // SUPERSET of `largest-positive`, never a different population.
+  const unambiguous = synthWindow('uix-subs', [20000, 20000, 20000, 20000, 21100, 20000]);
+  ok('any-leg: where the in-band leg IS the worst, all three agree',
+    READINGS['any-leg'](unambiguous, BAND_LO_B, BAND_HI_B) === 1100 &&
+    READINGS['largest-positive'](unambiguous, BAND_LO_B, BAND_HI_B) === 1100 &&
+    READINGS['signed-furthest'](unambiguous, BAND_LO_B, BAND_HI_B) === 1100);
+
+  // THE SAME SEPARATION THROUGH `analyse`, not just through the reading —
+  // planted in the `fixed-reversed` arm at `uix-subs | pos0`, which is the
+  // exact cell the substrate question turns on. A reader wired to the maxima
+  // reports this cell EMPTY; the masking-free one reports one of two.
+  const maskedSet = synthDataset('fixed-reversed', [
+    { 'uix-subs|grid/floor': synthWindow('uix-subs', [20000, 20000, 20000, 20000, 21100, 21488]), 'reagent-subs|grid/floor': synthWindow('reagent-subs', [20000, 20000, 20000, 20000, 20000, 20000]) },
+    { 'uix-subs|grid/floor': synthWindow('uix-subs', [20000, 20000, 20000, 20000, 20000, 21488]), 'reagent-subs|grid/floor': synthWindow('reagent-subs', [20000, 20000, 20000, 20000, 20000, 20000]) },
+  ]);
+  const mk = analyse([{ id: 'masked-1', data: maskedSet }]);
+  const mkCell = (stat) => mk.byStatistic[stat].cells.find((c) => c.key === 'fixed-reversed|uix-subs|pos0');
+  ok('any-leg: through analyse, the maxima read the planted cell as 0 of 2',
+    mkCell('largest-positive').band === 0 && mkCell('signed-furthest').band === 0 && mkCell('largest-positive').windows === 2);
+  ok('any-leg: through analyse, the masking-free reading reads it as 1 of 2',
+    mkCell('any-leg').band === 1 && mkCell('any-leg').observed === 1 && mkCell('any-leg').windows === 2);
+  // The reagent cell is unplanted in both, so the DIFFERENCE above is the
+  // plant and not a reading that counts more windows everywhere.
+  ok('any-leg: the unplanted reagent cell stays 0 of 2 under all three',
+    ['any-leg', 'largest-positive', 'signed-furthest'].every((s) =>
+      mk.byStatistic[s].cells.find((c) => c.key === 'fixed-reversed|reagent-subs|pos1').band === 0));
+  // The run-level census and the contrast list must both carry the new
+  // reading, because a window-level p with no run-level denominator beside it
+  // is the reading this reader refuses to publish.
+  ok('any-leg: the run-level census carries the reading under both bands',
+    !!mk.runLevel['any-leg'] &&
+    !!mk.runLevel['any-leg'][`${BAND_LO_B}-${BAND_HI_B}`] &&
+    !!mk.runLevel['any-leg'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]);
+  ok('any-leg: the CARRIER contrast is computed under the reading',
+    !!mk.byStatistic['any-leg'].comparisons[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+      .find((x) => x.label.startsWith('CARRIER')));
+  // AND THE THREE READINGS ARE THE WHOLE VOCABULARY — a fourth added without
+  // a caption would print a bare key as a heading.
+  ok('any-leg: every reading has a caption', Object.keys(READINGS).every((k) => !!READING_CAPTIONS[k]));
 
   // --- the census, on a dataset whose answer is known by construction ------
   const planted = synthDataset('fixed', [
