@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.impl.boundary
-  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
-  rf2-2rtt6.41).
+  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c)).
 
   HD-020(c) rules that \"the runtime ships one internal class-based
   boundary exposed as `h/boundary` (`:fallback`/`:reset-key`/`:on-error`);
@@ -8,11 +7,11 @@
   `:foreign/host-and-error-boundary` row names it by that description.
   This is it, and it is deliberately the smallest thing that satisfies
   the three keys. The decision's words are quoted as it wrote them; the
-  export it names has since been spelled `h/error-boundary`, which is
-  what the naming ledger ruled (row 12, rf2-g8rb). The var HERE keeps the
-  short name — it is `impl.boundary`'s own, an implementation detail no
-  consumer types, and it is what the `:rf.error/hicasso-boundary-*` ids
-  and their Spec 009 rows are named after.
+  export is spelled `h/error-boundary`, which is what the naming ledger
+  rules (row 12). The var HERE keeps the short name — it is
+  `impl.boundary`'s own, an implementation detail no consumer types, and
+  it is what the `:rf.error/hicasso-boundary-*` ids and their Spec 009
+  rows are named after.
 
       [boundary {:fallback  [:p.oops \"that did not work\"]
                  :reset-key attempt
@@ -50,19 +49,18 @@
   surface, no telemetry: each of those is an application's decision, and
   `:on-error` is the door it makes them behind.
 
-  ## \"Nothing else\" is now REFUSED rather than merely stated (rf2-czlb)
+  ## \"Nothing else\" is REFUSED rather than merely stated
 
   The three keys above, plus the `:children` the codec writes from the
   trailing forms, are the whole of [[prop-roster]], and [[check-props!]]
-  refuses anything outside it. Until it did, `{:on-errors …}` minted,
-  crossed `rfProps` intact, and was consulted by nothing — and so did
-  `{:resetKey …}` and `{:fall-back …}`. `mint-host!` had refused the
-  same class at a `defhost` declaration since rf2-hic-007, with its own
-  message giving the reason — *\"reading past an option it does not know
-  is how a policy comes to be set and never applied\"* — and this was the
-  one declaration surface in the package without the guard. It was also
-  the surface whose silent failure is worst: an error boundary that
-  reports nothing, wearing an `:on-error` that says it does.
+  refuses anything outside it. Without that refusal `{:on-errors …}`
+  mints, crosses `rfProps` intact, and is consulted by nothing — and so
+  do `{:resetKey …}` and `{:fall-back …}`. `mint-host!` refuses the same
+  class at a `defhost` declaration, with its own message giving the
+  reason — *\"reading past an option it does not know is how a policy
+  comes to be set and never applied\"* — and this is the declaration
+  surface whose silent failure is worst: an error boundary that reports
+  nothing, wearing an `:on-error` that says it does.
 
   A **shape** check on `:on-error` rides the same guard, because the
   silent trap has a second door. [[report!]] is `(cond (vector? …) …
@@ -124,32 +122,33 @@
   was mounted under rather than in whatever happened to be ambient when
   the throw arrived.
 
-  ## The fallback and the children are lowered HERE (rf2-uo9di)
+  ## The fallback and the children are lowered HERE
 
   Both are hiccup **data**, written in the parent boundary's body — and
   both are walked by the codec inside **this class's own React render**,
   one render later, after that body's dynamic extent has unwound. So
-  `intent/*dispatch*` was unbound at the moment the codec reached them,
-  and before the binding below existed an intent at an event position on
-  the fallback or on a native child raised
+  `intent/*dispatch*` is unbound at the moment the codec reaches them,
+  and without the binding below an intent at an event position on the
+  fallback or on a native child raises
   `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/event`
-  at one raised the same id at invocation.
+  at one raises the same id at invocation.
 
-  The fallback half is the sharp one, because it is the half the ruling
+  The fallback half is the sharp one, because it is the half the decision
   above is sold on: `:fallback` sits beside `:reset-key` precisely so
   that \"the retry is the CALLER's to schedule\", and the control that
-  schedules it is a button whose `:on-click` is an intent. So the table's
-  own worked example could not be written — and a fallback that throws
-  while rendering does not fail quietly in a corner, it takes the *next*
-  boundary up, turning an application's error path into an
-  application-wide failure.
+  schedules it is a button whose `:on-click` is an intent. Without the
+  binding the table's own worked example cannot be written — and a
+  fallback that throws while rendering does not fail quietly in a corner,
+  it takes the *next* boundary up, turning an application's error path
+  into an application-wide failure.
 
-  The repair is [[re-frame.hicasso.impl.presence-react]]'s, one component
-  along, and **cheaper**: presence had to buy a `useContext` to find its
-  frame and paid for it in HD-025's stated cost, while this class already
-  has [[frame-of]] through `contextType`. So there is no new hook and no
-  new accessor — only HD-020(a)'s rule applied where the lowering
-  actually happens rather than where the hiccup was written, with
+  The mechanism is [[re-frame.hicasso.impl.presence-react]]'s, one
+  component along, and **cheaper here**: presence buys a `useContext` to
+  find its frame and pays for it in HD-025's stated cost, while this
+  class already has [[frame-of]] through `contextType`. So there is no
+  extra hook and no extra accessor — only HD-020(a)'s rule applied where
+  the lowering actually happens rather than where the hiccup was written,
+  with
   `collector/frame-dispatch`'s memoised frame-locked dispatch so a child
   here lowers *identically* to one written in the parent's body and
   nothing is allocated per render.
@@ -253,8 +252,8 @@
   [[check-props!]] ran in this instance's own render — which React
   always runs before it can run `componentDidCatch` — so every other
   shape was refused there, where the refusal does not cost the
-  application its error path (rf2-czlb, and the namespace docstring's
-  argument for the placement)."
+  application its error path — see the namespace docstring's argument for
+  the placement."
   [^js this error]
   (let [on-error (:on-error (props-of this))]
     (cond
@@ -308,7 +307,7 @@
           (fn []
             (this-as ^js this
               ;; THE ROSTER AND THE SHAPE, once per render and before
-              ;; anything is read off the map (rf2-czlb). Here rather
+              ;; anything is read off the map. Here rather
               ;; than in `report!` because React runs this before it can
               ;; run `componentDidCatch`, so a bad declaration is
               ;; refused on the first paint instead of being discovered
@@ -316,7 +315,7 @@
               (let [{:keys [fallback children]} (check-props! (props-of this))
                     error    (unchecked-get (.-state this) "error")
                     frame-kw (frame-of this)]
-                ;; THE LOWERING, inside the frame (rf2-uo9di). The fallback
+                ;; THE LOWERING, inside the frame. The fallback
                 ;; and the children were both written in the parent's body
                 ;; and are both walked HERE, so the ambient frame the codec's
                 ;; intent lowering reads has to be re-established around this

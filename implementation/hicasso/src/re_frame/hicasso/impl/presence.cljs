@@ -1,26 +1,20 @@
 (ns re-frame.hicasso.impl.presence
   "PRESENCE AS DATA — the retention machine and the phase transform
-  (rf2-2rtt6.37, HD-025). The **pure half**: a value in, a value out, no
-  React, no clock, no ambient read. The React component that drives it is
+  (HD-025). The **pure half**: a value in, a value out, no React, no
+  clock, no ambient read. The React component that drives it is
   `re-frame.hicasso.impl.presence-react`.
 
-  ## The trap this deletes
+  ## Why the phase is never an ambient read
 
-  The shipped predecessor exposes a keyed child's phase as an AMBIENT
-  READ, and its own guide records what that costs, verbatim:
+  Exposing a keyed child's phase as a dynamic var read is a trap, and the
+  trap is silent. Props written inline in the parent are evaluated during
+  the PARENT'S render, so an ambient read there resolves to the parent's
+  phase rather than the per-child one the author meant. Avoiding it would
+  force every fading child into a separate declared view purely so the
+  var resolves against the right child, and the a11y obligation would
+  then cost three separate `(when exiting? …)` attributes on that child.
 
-  > Read the phase inside a DECLARED, KEYED CHILD VIEW, as above. Reading
-  > it in markup written inline in the parent is a trap: those props are
-  > evaluated during the PARENT'S render, so the phase you get is the
-  > parent's, not the per-child one you meant.
-
-  So a fading toast cannot be written inline. It must be extracted into a
-  child view purely so a dynamic var resolves against the right child,
-  and getting it wrong yields the wrong phase SILENTLY. The a11y
-  obligation then costs three separate `(when exiting? …)` attributes on
-  that child.
-
-  ## The two changes
+  ## The two shapes
 
   **(1) `::h/mounting` and `::h/unmounting` are attribute OVERRIDE MAPS
   on a native node.** The boundary merges them into that node's attrs
@@ -38,21 +32,16 @@
 
   **(2) When the child IS a boundary, the phase arrives as an ORDINARY
   PROP** — `[toast-card {:key id :toast t :rf/phase :unmounting}]`. That
-  deletes the trap by construction: a prop cannot be read from the wrong
+  closes the trap by construction: a prop cannot be read from the wrong
   render scope, it appears in a structural test's props map, and a
-  headless test can supply it with no clock.
+  headless test can supply it with no clock. There is consequently no
+  `presence-phase` surface at all — one fewer public concept.
 
-  The consequence worth recording: `presence-phase` has no Hicasso
-  equivalent. One fewer public concept against K5. (K5 — the ergonomics
-  kill criterion — was removed by operator ruling on 2026-08-04; this
-  records the reason the shape was chosen, not a live gate.)
+  ## Why the boundary may apply an override at all
 
-  ## Why the predecessor's rejection does not apply
-
-  It rejected exactly this, and gave a reason: *\"A boundary that stamped
-  attributes would have to guess at a node it never sees.\"* That is
-  sound for a boundary stamping **by itself**. It does not survive the
-  AUTHOR writing the override on the node. The boundary already owns the
+  A boundary that stamped attributes *by itself* would have to guess at a
+  node it never sees, and that is not what happens here: the AUTHOR
+  writes the override on the node. The boundary already owns the
   retained-children list — that is what retention IS — so applying an
   override the author wrote is a hiccup→hiccup transform performed before
   the codec runs. React then sees an ordinary element whose props
@@ -62,15 +51,15 @@
   ## Honest limits
 
   - **The override applies to a node the boundary can SEE.** An override
-    written inside an opaque child view is invisible to it; change (2) is
+    written inside an opaque child view is invisible to it; shape (2) is
     what that case is for, and an override written on a boundary child is
     a loud error naming `:rf/phase` rather than a silently dropped map.
-  - **ENTER is the weak half**, and the predecessor already says why:
-    driving enter purely as a `:mounting` → `:present` class flip can race
-    paint. `::h/mounting` ships, and the guide teaches the CSS answer —
-    an animation on insertion, or `@starting-style`.
+  - **ENTER is the weak half**: driving enter purely as a `:mounting` →
+    `:present` class flip can race paint. `::h/mounting` ships, and the
+    guide teaches the CSS answer — an animation on insertion, or
+    `@starting-style`.
 
-  ## Inherited unchanged
+  ## The standing rules
 
   `:timeout-ms` is MANDATORY, and is both the retention length and the
   hard terminal bound; re-entry cancels exit; keys are required on every
@@ -93,7 +82,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The two override keys are DEFINED in
-;; [[re-frame.hicasso.impl.codec]] and read from there (rf2-34a7). They
+;; [[re-frame.hicasso.impl.codec]] and read from there. They
 ;; are this module's vocabulary, but the codec's prop walk has to
 ;; recognise them — it is where an override written OUT OF THIS
 ;; MODULE'S REACH is refused — and this namespace requires the codec
@@ -126,9 +115,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
-;; package, and the ambient view and source coordinate come with it
-;; (rf2-hic-007). The eight lines that stood here were one of six identical
-;; copies.
+;; package, and the ambient view and source coordinate come with it.
 
 ;; ---------------------------------------------------------------------------
 ;; Reading a child
@@ -194,8 +181,7 @@
   REFUSED, by the codec's own prop walk
   ([[re-frame.hicasso.impl.codec/refuse-misplaced-override!]]). Between
   the two there is no route by which an override reaches the DOM as an
-  attribute — which is what the sentence that stood here claimed while
-  only the first clause was built (rf2-34a7).
+  attribute.
 
   **The exclusion is on the canonical SLOT, through the filter
   [[re-frame.hicasso.impl.codec/without-structural]] that `:&`
@@ -212,13 +198,12 @@
   A **boundary child** takes `:rf/phase` as an ordinary prop instead, and
   an override written there is a loud error: the boundary cannot see
   inside an opaque view, and silently dropping the map is the class of
-  failure this whole ruling exists to delete.
+  failure the design exists to delete.
 
-  **That ruling has both its doors now** (rf2-34a7). This one refuses
-  the override the tray CAN see and cannot apply; the codec's prop walk
-  refuses the one the tray never sees at all — written on a grandchild,
-  inside a view's body, forwarded through a `:&` remainder, or under no
-  tray whatsoever."
+  **The refusal has two doors.** This one refuses the override the tray
+  CAN see and cannot apply; the codec's prop walk refuses the one the
+  tray never sees at all — written on a grandchild, inside a view's body,
+  forwarded through a `:&` remainder, or under no tray whatsoever."
   [child phase]
   (let [props (props-of child)]
     (if (codec/boundary-head? (nth child 0))

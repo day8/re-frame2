@@ -1,7 +1,7 @@
 (ns re-frame.hicasso.impl.route-link
-  "`route-link` — the fifth tier-1 shape's Hicasso spelling
-  (rf2-2rtt6.54; the census counts **106** route-links across 85
-  idiomatic files and the charter names the form tier-1).
+  "`route-link` — the fifth tier-1 shape's Hicasso spelling (the census
+  counts **106** route-links across 85 idiomatic files and the charter
+  names the form tier-1).
 
   The census author writes
 
@@ -88,9 +88,7 @@
    :require-ns    "re-frame.routing"})
 
 ;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
-;; package, and the ambient view and source coordinate come with it
-;; (rf2-hic-007). The eight lines that stood here were one of six identical
-;; copies.
+;; package, and the ambient view and source coordinate come with it.
 
 (def control-keys
   "The keys `route-link` owns. Everything else on the props map is a

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.impl.presence-react
-  "PRESENCE, DRIVEN BY REACT (rf2-2rtt6.37, HD-025). The impure half:
+  "PRESENCE, DRIVEN BY REACT (HD-025). The impure half:
   a component that owns the retained-children list and a clock. The
   machine and the phase transform are
   `re-frame.hicasso.impl.presence`, and they are pure.
@@ -12,8 +12,8 @@
   reads no subscription, mounts no registration and takes no cell.
   `collector/shell` is untouched and the dispatcher-level ledger still
   counts exactly two there. The second `useContext` is the root-scoped
-  adoption window (rf2-6tmu); it is paid HERE, by the optional component
-  that reads it, and nowhere else in the arm.
+  adoption window; it is paid HERE, by the optional component that reads
+  it, and nowhere else in the arm.
 
   The two lifecycle hooks are legitimate under HD-003's placement rule
   rather than in spite of it: presence is animation lifecycle, which is
@@ -23,7 +23,7 @@
   instance — would be a second reactivity system, which is the top item
   on the anti-regression fence.
 
-  ## The frame hook, and why children lowered here need one (rf2-2rtt6.66)
+  ## The frame hook, and why children lowered here need one
 
   A presence child is hiccup **data**, written in the parent boundary's
   body — but it is **lowered in THIS component's render**, one React
@@ -70,22 +70,22 @@
   earliest deadline. Deadlines are absolute instants, so a timer re-armed
   because some *other* key changed cannot extend a child's retention.
 
-  ## Born present under adoption (rf2-2rtt6.84)
+  ## Born present under adoption
 
   A hydrating tree's children are already on the screen, so they start
   `:present` rather than `:mounting` — the machine's own `settle`,
   applied one render earlier, gated on `roots/adopting-here?`. It changes
   no transform, and it is scoped to the adoption window of **the root
-  this tray is actually in** (rf2-6tmu).
+  this tray is actually in**.
 
-  That scoping is the fourth hook, and it is the one cost this component
-  grew. It reads a context whose default is `nil`, so a tray in an
+  That scoping is the fourth hook, and it is this component's one extra
+  cost. It reads a context whose default is `nil`, so a tray in an
   ordinary root — including a tray mounted while some *other* root is
-  hydrating — reads no provider and answers false. Before rf2-6tmu the
-  gate was a page-wide boolean, and an unrelated ordinary root's tray was
-  told it was adopting for as long as any root anywhere was hydrating:
-  it skipped its enter transition for a hydration it had nothing to do
-  with. The window it reads now can only be its own root's."
+  hydrating — reads no provider and answers false. A page-wide boolean
+  could not do this: it would tell an unrelated ordinary root's tray it
+  was adopting for as long as any root anywhere was hydrating, and the
+  tray would skip its enter transition for a hydration it had nothing to
+  do with. The window this reads can only be its own root's."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
@@ -109,7 +109,7 @@
         state      (aget hook 0)
         set-state  (aget hook 1)
         stepped    (presence/step state children (now) timeout-ms)
-        ;; BORN PRESENT UNDER ADOPTION (rf2-2rtt6.84). A child a render
+        ;; BORN PRESENT UNDER ADOPTION. A child a render
         ;; meets for the first time is `:mounting`, which is right for a
         ;; child that is genuinely appearing and wrong for one that is
         ;; already on the screen: under hydration every child is already
@@ -133,13 +133,13 @@
         ;; DOM the server already delivered, which is the flash this
         ;; branch exists to avoid.
         ;;
-        ;; THE SERVER HALF EXISTS NOW, ON ONE PATH (rf2-kpig, corrected
-        ;; by rf2-doadc). `re-frame.hicasso.server/render` opens a
+        ;; THE SERVER HALF EXISTS ON ONE PATH.
+        ;; `re-frame.hicasso.server/render` opens a
         ;; window per request and renders through `impl.mount/tree`, so
         ;; `adopting-here?` reads a real open window on the server, this
         ;; line settles, and the tray's children are `present` in the
         ;; bytes — the phase the hydrating client's first pass also
-        ;; computes. That is the Render arm rf2-hic-046 ruled, landed.
+        ;; computes.
         ;;
         ;; A server render taken by hand — `renderToString` over the app
         ;; element, with no door — scopes no window, so `adopting-here?`
@@ -169,7 +169,7 @@
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
       #js [(presence/pending-signature next)])
-    ;; THE LOWERING, inside the frame (rf2-2rtt6.66). These children were
+    ;; THE LOWERING, inside the frame. These children were
     ;; written in the parent's body and are walked here, so the ambient
     ;; frame the codec's intent lowering reads has to be re-established
     ;; around this call and nowhere else. `nil` when no provider is above

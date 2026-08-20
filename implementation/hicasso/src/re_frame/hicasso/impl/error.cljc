@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.impl.error
-  "**THE ONE REFUSAL SHAPE** (rf2-hic-007) — spec SN §3.6, *Loud, stable
-  failure*:
+  "**THE ONE REFUSAL SHAPE** — spec SN §3.6, *Loud, stable failure*:
 
   > Every refusal has a stable error id, source coordinate, view, frame
   > where relevant, tree path or host-prop position, offending value,
@@ -241,7 +240,7 @@
   section of `spec/009-Instrumentation.md`, sixth column, with `(none)`
   where a class genuinely carries nothing beyond the six here. That
   column is the situational half's stable representation; the complaint
-  catalogue (rf2-hic-021) owns its prose and its per-id round trips.
+  catalogue owns its prose and its per-id round trips.
 
   [[missing-fields]] is the rule [[fail!]] enforces, and the shape test
   calls that fn rather than restating it."
@@ -322,9 +321,8 @@
 
   The message is the reason with the id's greppability token appended,
   which is `re-frame.error`'s contract reproduced rather than delegated.
-  Whether to route the complaint TEXT through core's builder instead was
-  the complaint catalogue's to rule on, and it ruled that the text stays
-  here (rf2-hic-021); the reasons are recorded in
+  The complaint TEXT stays here rather than being routed through core's
+  builder; the reasons are recorded in
   `docs/design/hicasso/product/complaints.md`, §Rulings this catalogue
   owns.
 
@@ -353,7 +351,7 @@
       (check-complete! data))
     ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
     ;; message carries the `[:rf.error/...]` token the source cannot show
-    ;; (the gate's own "computed discriminator" case). Re-routing the
-    ;; complaint text through `re-frame.error` was ruled out by
-    ;; rf2-hic-021 — see complaints.md, §Rulings this catalogue owns.
+    ;; (the gate's own "computed discriminator" case). The complaint text
+    ;; is not routed through `re-frame.error` — see complaints.md,
+    ;; §Rulings this catalogue owns.
     (throw (ex-info (str reason " [" id "]") data))))
