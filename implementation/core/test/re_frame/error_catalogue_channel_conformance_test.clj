@@ -880,19 +880,31 @@
 ;; assertion but the wrong KIND of assertion for a coverage question.
 ;;
 ;; Catching it BY NAME would need a total, identity-preserving pairing, and the
-;; two corpora cannot derive one: 22 of the 111 `*Tags` schemas are legitimately
-;; claimed by NO catalogue row (`FxHandledTags`' siblings for non-error ops, and
-;; 12 whose operation 009 never names by any derivation), only 5 schema names
-;; are cited anywhere in 009, and nothing in `implementation/` references a
-;; schema name — so an orphaned schema is indistinguishable from a correctly-
-;; unpaired one without a third authority. The rf2-6tags no-roster ruling
-;; therefore STANDS rather than needing an exception: no orphan allow-list, and
-;; no reading of `implementation/` to discover schema names.
+;; two corpora cannot derive one. A standing minority of the `*Tags` corpus is
+;; legitimately claimed by NO catalogue row, for two different reasons — the
+;; success-path and other non-error siblings of `FxHandledTags`, which an ERROR
+;; catalogue has no row for, and schemas whose operation 009 never names by any
+;; derivation. Barely a handful of schema names are cited anywhere in 009, and
+;; nothing in `implementation/` references a schema name — so an orphaned schema
+;; is indistinguishable from a correctly-unpaired one without a third authority.
+;; The rf2-6tags no-roster ruling therefore STANDS rather than needing an
+;; exception: no orphan allow-list, and no reading of `implementation/` to
+;; discover schema names.
+;;
+;; This paragraph used to quote four raw totals and is deliberately down to none
+;; (rf2-zmpfn). Nothing asserts them, they drift on every schema added or
+;; retired, and three of the four were wrong when re-measured — the unpaired
+;; count, the corpus total, and the count of names 009 cites. Re-derive on
+;; demand instead: `(count (parse-tags-schemas))` for the corpus, and that minus
+;; `(paired-count (parse-catalogue-tag-rows) (parse-tags-schemas))` for the
+;; unpaired population. The argument needs only that the population is
+;; non-empty, never its size.
 ;;
 ;; The answer is the mechanism the ROW side already ships, applied to the
 ;; pairing itself. `tags-column-paired-floor` records the paired COUNT, so a
-;; drop reds without the arm ever knowing WHICH schema went. One integer, not 22
-;; entries: it names no member, so it cannot rot into the hand-maintained roster
+;; drop reds without the arm ever knowing WHICH schema went. One integer, not an
+;; entry per unpaired schema: it names no member, so it cannot rot into the
+;; hand-maintained roster
 ;; the ruling forbids, and the only edit it admits is a deliberate lowering in
 ;; the same commit that removes a pairing.
 ;;
@@ -975,9 +987,11 @@
   schema is a SILENT NARROWING: `HydrationMismatchTags`' adoption keys would
   simply never be diffed against the row, which is coverage lost with nothing
   saying so. The legacy first-`[:map …]`-anywhere reading is retained beside the
-  arms so this reader can only ever WIDEN — measured at the change, all 111
-  `*Tags` schemas but the one edited here are `[:map`-headed, so their key sets
-  are byte-identical either way."
+  arms so this reader can only ever WIDEN — every `*Tags` schema except
+  `HydrationMismatchTags`, the one edited here, is `[:map`-headed, so their key
+  sets are byte-identical either way. Named rather than counted (rf2-zmpfn): the
+  exception is the durable fact, while a corpus total goes stale on the next
+  schema retired, as this line's did."
   [form]
   (let [arm-maps (concat (schema-arm-maps (last form))
                          (->> (tree-seq coll? seq form)
@@ -1011,8 +1025,9 @@
   TOP-LEVEL, not the first `[:map …]` found anywhere, since rf2-zk1xu: a
   two-arm `HydrationMismatchTags` read down to its first arm would validate
   every adoption-tier payload against the HICCUP map and report the shipped
-  schema rejecting events it accepts. For the 110 `[:map`-headed schemas the
-  two readings are the same vector."
+  schema rejecting events it accepts. `HydrationMismatchTags` is the corpus's
+  only non-`[:map`-headed schema, so for every OTHER schema the two readings are
+  the same vector."
   [schema-name]
   (let [text    (slurp spec-schemas-file)
         matcher (re-matcher tags-schema-def-re text)]
