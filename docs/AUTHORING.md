@@ -899,6 +899,15 @@ across the whole corpus, design trees included, and `scripts/check_provenance_pi
 runs on changed pages under `docs/design/hicasso/`. Nothing checks their
 tables, rendering, or nav, so verify those by hand and say so in the PR body.
 
+"Across the whole corpus" means every page, not every line of one: fenced code
+blocks are stripped before links are extracted, so a broken target or anchor
+inside a fence is never checked and a green says nothing about it (rf2-sodfq).
+That is deliberate — a fence is code, and 108 links in this corpus sit
+legitimately inside one — but it means an edit confined to a fenced block is
+ungated, so check those links by hand. Two trees are held to more:
+`docs/design/hicasso/` and `docs/the-mayor-method/`, where a documentation link
+inside a fence is itself reported, because there the fence is the deliverable.
+
 Everything else is human judgment: feature PRs update the affected guide page
 (or say why not); click live cells you touched; prefer cited `examples/`
 sources so the examples compile gate covers them.

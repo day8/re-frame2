@@ -1667,6 +1667,28 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # a fence, so the announcement fires on three quarters of the corpus, and its
 # text is identical before and after a doc link is added inside a fence.  A
 # signal that cannot change when the defect appears is not a signal.
+#
+# rf2-sodfq separated a THIRD assertion on 2026-08-21 that neither rejection
+# above reaches.  Both of those are about a fenced link's PRESENCE — ban it, or
+# announce that it went unchecked.  The weaker one is to leave the links alone
+# and validate their TARGETS AND ANCHORS, and it had never been measured.  It
+# costs nothing today: routing `_fenced_lines` through the ordinary
+# target/anchor check reds on ZERO of the 108 fenced doc links now in the corpus
+# (89 of them in `spec/Spec-Schemas.md`), with a bogus in-fence anchor planted as
+# the positive control taking that same run to exit 1 — so the zero is a
+# measurement and not an empty search.
+#
+# It is refused anyway, and the count is not why.  A fence is code, and this
+# repo's documentation quotes broken links ON PURPOSE — planted-fault write-ups
+# and captured gate output are a standing idiom here.  The zero holds only
+# because those demonstrations happen to be written as bare backticked paths;
+# one `[text](no-such-page.md)` inside a fence would red a required check on a
+# page doing exactly what it should, and the author's only repair would be to
+# stop writing the example.  Validating code because it happens to parse clean
+# today is how a gate acquires the arbitrary friction the paragraphs above
+# refuse.  What the skip costs is written down instead — at the top of this file,
+# and in the prose that nominates this gate — so that an exit 0 on a fence-heavy
+# page is not read as coverage of the fence.
 FENCED_DOC_LINK_TREES = ("docs/design/hicasso", "docs/the-mayor-method")
 
 

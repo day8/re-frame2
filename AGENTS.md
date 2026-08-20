@@ -182,7 +182,16 @@ and heading anchors, in the fast-PR spine and — since rf2-v7fui —
 unconditionally in `test.yml`'s `verify-readme-links` job, so on every PR rather
 than only a docs-classified one. Its `--verbose` banner
 prints the per-root file counts it walked, which is the thing to read when you
-need to know what a green actually inspected.
+need to know what a green actually inspected. That banner counts FILES, and the
+second bound on a green is inside them: fenced code blocks are stripped before
+links are extracted, so a broken target or anchor written inside a fence is not
+checked by this gate or by `scripts/check_readme_links.py` — they share the one
+extractor — and the exit 0 is silent about it (rf2-sodfq). The skip is
+deliberate and documented at the top of the script; what it means for you is
+that an edit confined to a fenced block is ungated, so verify those links by
+hand and say so. `docs/design/hicasso/` and `docs/the-mayor-method/` are the
+exception, and they invert the rule rather than relaxing it: in those two trees
+a documentation link inside a fence is itself reported as a defect.
 So does `scripts/check_provenance_pins.py`, on changed pages under
 `docs/design/hicasso/`, as its own `docs.yml` job. It prints one line on every
 run naming the pages it opened and the pins it classified, so read that before
