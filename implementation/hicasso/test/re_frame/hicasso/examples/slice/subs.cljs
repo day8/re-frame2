@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.slice.subs
-  "THE SLICE'S SUBSCRIPTIONS — including its strings and its theme tokens
-  (rf2-hic-025).
+  "THE SLICE'S SUBSCRIPTIONS — including its strings and its theme tokens.
 
   Every read a view makes goes through here, and that is the §7 i18n /
   theming claim in one sentence: **a translated string and a theme token
@@ -66,7 +65,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — pagination, whose only input from outside `app-db` is the URL
-;; (rf2-hic-074)
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-sub ::page

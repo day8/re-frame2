@@ -196,7 +196,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Witnesses D and E — `h/defhost`'s two shapes, and what is outside them
-;; (rf2-3f11)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The door's arity is part of its contract, and it was the one part

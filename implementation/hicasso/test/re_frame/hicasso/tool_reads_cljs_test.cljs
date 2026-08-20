@@ -1,7 +1,6 @@
 (ns re-frame.hicasso.tool-reads-cljs-test
   "THE FOUR READS, AGAINST A LIVE RUNTIME — what the tool door projects,
-  what it refuses to carry, and what it says when it does not know
-  (rf2-hic-023).
+  what it refuses to carry, and what it says when it does not know.
 
   ## The observable is the runtime's own tables, never a rendered page
 

@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.mcp-runtime-query-spike-cljs-test
-  "THE MCP-RUNTIME-QUERY SPIKE, DRIVEN ON AN APPLICATION IT DID NOT WRITE
-  (rf2-hic-059).
+  "THE MCP-RUNTIME-QUERY SPIKE, DRIVEN ON AN APPLICATION IT DID NOT WRITE.
 
   The criteria this file answers to were frozen first, in
   `docs/design/hicasso/product/mcp-runtime-query-spike.md`, and the

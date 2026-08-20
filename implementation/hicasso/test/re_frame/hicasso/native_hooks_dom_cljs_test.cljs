@@ -1267,7 +1267,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; W10. An ABANDONED attempt — render is speculative past the fence too
-;;      (rf2-sr19)
 ;; ---------------------------------------------------------------------------
 
 (deftest an-abandoned-island-attempt-acquires-nothing-and-its-retry-acquires-exactly-once

@@ -304,8 +304,7 @@
 ;; `:async? true` — the MAP shape — because the trusted-input row below
 ;; is `(async done …)`. `make-reset-runtime-fixture` returns the
 ;; POSITIONAL fn by default, and cljs.test throws a bare string that
-;; unwinds the entire lane the moment an async body appears under one
-;; (rf2-u0j8).
+;; unwinds the entire lane the moment an async body appears under one.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter

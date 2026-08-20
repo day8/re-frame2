@@ -1,8 +1,7 @@
 (ns re-frame.hicasso.evidence-schema-cljs-test
   "THE DOOR THAT REFUSES — every shape in which an evidence projection
   would claim more than it knows, driven through
-  [[re-frame.hicasso.evidence/projection]] and shown to be refused
-  (rf2-hic-023).
+  [[re-frame.hicasso.evidence/projection]] and shown to be refused.
 
   ## Why the whole file is negative controls
 

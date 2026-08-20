@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.slice.events
-  "THE SLICE'S EVENTS — ordinary re-frame2, and one stand-in server
-  (rf2-hic-025).
+  "THE SLICE'S EVENTS — ordinary re-frame2, and one stand-in server.
 
   Every handler here is `(fn [coeffects event-v] → effect-map)`. Nothing
   in this namespace knows that a view substrate exists: it requires
@@ -187,7 +186,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The digest — a second async source, and the retry an error region offers
-;; (rf2-hic-074)
 ;;
 ;; There is no stale-reply check on this pair, and its absence is deliberate
 ;; rather than an oversight the save path caught and this one missed. A save

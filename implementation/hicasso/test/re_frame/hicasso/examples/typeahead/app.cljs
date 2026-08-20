@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.app
-  "THE ENTRY POINT — the four lines that start the typeahead witness
-  (rf2-hic-044).
+  "THE ENTRY POINT — the four lines that start the typeahead witness.
 
   The third witness application under `examples/`, and the one written to
   be MEASURED rather than to be read: the slice is the RealWorld-class

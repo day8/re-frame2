@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.smoke-cljs-test
-  "THE PACKAGE SMOKE — a `defview` reads a `sub`, through the public door
-  (rf2-hic-001).
+  "THE PACKAGE SMOKE — a `defview` reads a `sub`, through the public door.
 
   This is the one test the extraction bead owes, and it is deliberately
   the smallest thing that can fail for the right reason. It is not a

@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.direct-return-cljs-test
-  "RUNG 3 — THE DIRECT RETURN, AND THE FOUR SURFACES IT WALKS PAST
-  (rf2-hic-033).
+  "RUNG 3 — THE DIRECT RETURN, AND THE FOUR SURFACES IT WALKS PAST.
 
   A `defview` body may answer an already-constructed React element
   instead of hiccup. The boundary is unchanged around it — same frame,

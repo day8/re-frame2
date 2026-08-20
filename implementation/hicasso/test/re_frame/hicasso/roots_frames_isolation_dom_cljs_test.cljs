@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.roots-frames-isolation-dom-cljs-test
-  "TWO LIVE ROOTS, TWO FRAMES — and nothing crosses between them
-  (rf2-hic-012).
+  "TWO LIVE ROOTS, TWO FRAMES — and nothing crosses between them.
 
   The bead's first and fourth deliverables: two roots dispatching,
   subscribing and unmounting independently with zero cross-frame reads or

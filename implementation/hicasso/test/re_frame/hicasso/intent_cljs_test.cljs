@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.intent-cljs-test
-  "INTENT LOWERING, tested against the surface authoring.md declares
-  (rf2-2rtt6.8).
+  "INTENT LOWERING, tested against the surface authoring.md declares.
 
   Every test drives the lowered closure with a stand-in event rather than
   a real DOM one. That is not a shortcut: the closures take exactly three

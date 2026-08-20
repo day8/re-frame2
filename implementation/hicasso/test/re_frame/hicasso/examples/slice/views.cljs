@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.slice.views
-  "THE SLICE'S VIEWS — the whole application's markup, on the public door
-  (rf2-hic-025).
+  "THE SLICE'S VIEWS — the whole application's markup, on the public door.
 
   Thirteen boundaries — the original slice's six, and the seven
   rf2-hic-074 added for pagination, runtime-selected content and a
@@ -130,7 +129,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The pager — the page is a URL, so Back and Forward are routing's
-;; (rf2-hic-074)
 ;; ---------------------------------------------------------------------------
 
 (h/defview pager
@@ -192,7 +190,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The digest — runtime-selected content, under its own error region
-;; (rf2-hic-074)
 ;;
 ;; Specification §3.3: dynamic composition is a FEATURE. The four bodies below
 ;; are the renderers, the map after them is the choice, and `digest-body` is
