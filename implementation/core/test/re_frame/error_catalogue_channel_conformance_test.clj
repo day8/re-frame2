@@ -1080,9 +1080,16 @@
   backslash, so it is the LENGTH of the run immediately before the pipe that
   decides: an ODD run (`\\|`, `\\\\\\|`) spends its last backslash on the pipe
   and the pipe is content, while an EVEN run (`\\\\|`, `\\\\\\\\|`) pairs off
-  entirely and the pipe is a bare delimiter. Measured against Python-Markdown's
-  `tables` extension, which is the reference this reader is trying to agree
-  with; `table-delimiter-honours-backslash-run-parity` pins all four.
+  entirely and the pipe is a bare delimiter.
+
+  Measured against Python-Markdown 3.10's `tables` extension, the reference
+  this reader is trying to agree with. Rendering `| one | two<run>| three |`
+  under a five-column header — wide enough that a short row is padded rather
+  than TRUNCATED, which is what makes the split visible at all — gives two
+  cells for runs of one and three (`two| three`, `two\\| three`: the pipe is
+  content) and three for runs of two and four (`two\\`, `two\\\\` then
+  `three`: the pipe is a delimiter and the surviving backslashes are the run
+  halved). `table-delimiter-honours-backslash-run-parity` pins all four.
 
   WHY THE ESCAPE IS HONOURED AT ALL. `\\|` is how markdown writes a literal
   pipe inside a cell, so a cell containing one is correct prose rather than a
@@ -2446,18 +2453,22 @@
 
 (deftest table-delimiter-honours-backslash-run-parity
   (testing "A PURE PARSER FIXTURE for `table-delimiter-re` (rf2-1t0er), fed
-            constructed rows rather than the live corpus — the corpus carries
-            exactly one escaped pipe and no even-backslash run at all, so the
-            even half of the rule is unreachable from it and would be pinned by
-            nothing.
+            constructed rows rather than the live corpus, because the corpus
+            cannot reach half the rule. Spec 009 carries eleven escaped pipes
+            across nine lines and EVERY ONE is a run of exactly one — only the
+            catalogue row for
+            `:rf.error/infinite-missing-next-page-param` is in this reader's
+            section at all — and the file holds no even-length run anywhere. So
+            the even half of the rule is unreachable from the corpus and would
+            be pinned by nothing.
 
             Markdown decides by the PARITY of the backslash run immediately
             before the pipe, because a backslash escapes the character after it
             including another backslash. An ODD run spends its last backslash on
             the pipe, which is then content; an EVEN run pairs off entirely and
             the pipe is a bare delimiter. The four cases below are the two rules
-            and their first repeat, checked against Python-Markdown's `tables`
-            extension.
+            and their first repeat, checked against Python-Markdown 3.10's
+            `tables` extension.
 
             The pre-parity `#\"(?<!\\\\)\\|\"` read ONE character, so it called
             every backslash-prefixed pipe escaped: right on the odd runs by
