@@ -83,9 +83,13 @@
 //
 // ## WHAT THIS IS NOT
 //
-// It is not a gate. No run passes or fails on it, no threshold here is a
-// budget, and no published figure is computed from it. It is a reader over
-// records that already exist, exactly as `alloc_level_witness.cjs` is.
+// It is not a gate. No run passes or fails on it and no threshold here is a
+// budget. Published figures ARE computed here — the z-scores above, and the
+// per-position and per-cell summaries beside them, are this reader's output and
+// the whole reason it exists — but computing a figure is not adjudicating one:
+// this reader settles no run and moves no threshold, band or budget. It is a
+// reader over records that already exist, exactly as `alloc_level_witness.cjs`
+// is.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -796,7 +800,16 @@ const plantedAt = (riderAt, key) => {
   return riderAt[key] || 0;
 };
 
-function synthRound(round, segments, riderAt, controlLegs) {
+// AND THE WINDOW'S PRIME EXCESS, which the reader medians twice over — once by
+// POSITION and once by control-slot CELL — and which no fixture could vary
+// before this. `primeAt` is a map of `round:position` keys to bytes; a window it
+// does not name carries `PRIME_EXCESS_B`, which is what every window of every
+// fixture written before it carries, so those fixtures read exactly as they did.
+const PRIME_EXCESS_B = 6864;
+const primeExcessAt = (primeAt, key) =>
+  primeAt && typeof primeAt[key] === 'number' ? primeAt[key] : PRIME_EXCESS_B;
+
+function synthRound(round, segments, riderAt, controlLegs, primeAt) {
   const arms = {};
   segments.forEach((segment, i) => {
     const legMedian = 19280;
@@ -813,7 +826,7 @@ function synthRound(round, segments, riderAt, controlLegs) {
       // written before the map form above reads exactly as it did.
       legWorstDeviation:
         legs.map((x) => x - legMedian).reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a)) / legMedian,
-      primeExcess: 6864,
+      primeExcess: primeExcessAt(primeAt, `${round}:${i}`),
       certified: true,
     };
   });
@@ -825,7 +838,7 @@ function synthRound(round, segments, riderAt, controlLegs) {
   return { round, arms, segments, controls };
 }
 
-function synth(segOrder, rounds, riderAt, controlLegs) {
+function synth(segOrder, rounds, riderAt, controlLegs, primeAt) {
   const order = ['reagent-subs', 'uix-subs'];
   return {
     alloc: {
@@ -835,7 +848,8 @@ function synth(segOrder, rounds, riderAt, controlLegs) {
           r,
           segOrder === 'fixed' || r % 2 === 0 ? order : [...order].reverse(),
           riderAt,
-          controlLegs
+          controlLegs,
+          primeAt
         )
       ),
     },
@@ -848,9 +862,12 @@ function synth(segOrder, rounds, riderAt, controlLegs) {
 // actually emits rather than over a hand-written idea of it.
 //
 // `riderAt` is `round:position:ordinal`, unchanged, so a rider can be planted
-// at a POSITION and the reader asked which PROPERTY it lands on.
-function synthSlot(controlSlot, rounds, riderAt) {
-  const d = synth('fixed', rounds, riderAt);
+// at a POSITION and the reader asked which PROPERTY it lands on. `primeAt` is
+// `round:position`, and it is what lets a fixture give a CELL a different prime
+// excess from the position that contains it — the one difference under `last`
+// that separates the two medians at all.
+function synthSlot(controlSlot, rounds, riderAt, primeAt) {
+  const d = synth('fixed', rounds, riderAt, undefined, primeAt);
   d.alloc.controlSlot = controlSlot;
   for (const r of d.alloc.perRound) {
     const keys = Object.keys(r.arms);
@@ -1107,7 +1124,69 @@ function selfTest() {
   // --- THE OTHER PAGE-ONLY SUMMARIES (rf2-rs8q6) ---------------------------
   //
   // The second audit named these beside the z-scores: the per-run tables, the
-  // modal rider terms, and the secondary cluster.
+  // modal rider terms, and the secondary cluster. The THIRD named the one they
+  // left out — the prime excess, medianed twice — and the two fixtures below
+  // are what close it.
+
+  ok('the prime excess is medianed by POSITION and by CELL, and the two are not the same number', () => {
+    // THE GAP THE MERGED-PR AUDIT OF #8571 MEASURED. Before this fixture both
+    // derivations were reachable only through the corpus: sabotaging either to
+    // a constant — the per-position value to 123456, the per-cell value to
+    // 654321 — left the self-test at 31/31 and exit 0. A self-test that passes
+    // over a sabotaged output is not covering it, whatever its count says.
+    //
+    // What makes the fixture DISCRIMINATING is that under `last` the two
+    // populations genuinely differ. Cell (A) — after the controls, opens the
+    // round — holds position 0 at rounds 1-5, because round 0's position 0
+    // opens the whole run and has no control window before it; position 0
+    // itself holds all six. That is the 43-against-44 the cell's own comment
+    // prices at 2 B on the corpus, made large here so the fixture separates
+    // the two medians rather than rounding them together.
+    const primeAt = { '0:0': 1000, '1:0': 6000, '2:0': 7000, '3:0': 8000, '4:0': 9000, '5:0': 10000 };
+    const a = analyse([{ id: 'p', data: synthSlot('last', 6, null, primeAt) }]);
+
+    // BY POSITION — all six windows, so the median falls between 7,000 and 8,000.
+    const p0 = a.byMode.fixed.perPosition.find((p) => p.position === 0);
+    assert.strictEqual(p0.windows, 6);
+    assert.strictEqual(p0.primeExcessMedianB, 7500, 'median of 1000/6000/7000/8000/9000/10000');
+
+    // BY CELL — the same position less round 0, five windows, a different median.
+    const after = slotCell(a, 'last', true, true);
+    assert.strictEqual(after.windows, 5);
+    assert.strictEqual(after.primeExcessMedianB, 8000, 'median of 6000/7000/8000/9000/10000');
+
+    // and the single window the two populations differ by, alone in its own cell.
+    const opens = slotCell(a, 'last', false, true);
+    assert.strictEqual(opens.windows, 1);
+    assert.strictEqual(opens.primeExcessMedianB, 1000);
+
+    // THE POINT, asserted rather than left to be read off the three above:
+    // taking the published per-cell figure off the position is wrong, by 500 B
+    // on this record and by 2 B on the corpus.
+    assert.notStrictEqual(p0.primeExcessMedianB, after.primeExcessMedianB);
+
+    // and position 1 still carries the fixture default, so the plant is local
+    // to position 0 rather than a global shift both medians would follow.
+    const p1 = a.byMode.fixed.perPosition.find((p) => p.position === 1);
+    assert.strictEqual(p1.primeExcessMedianB, PRIME_EXCESS_B);
+    assert.strictEqual(slotCell(a, 'last', false, false).primeExcessMedianB, PRIME_EXCESS_B);
+  });
+
+  ok('and BOTH reach the report text, which is the surface the records quote', () => {
+    // The derivation and the printed column are two places a value can be
+    // wrong, and the records cite the printed one.
+    const primeAt = { '0:0': 1000, '1:0': 6000, '2:0': 7000, '3:0': 8000, '4:0': 9000, '5:0': 10000 };
+    const lines = report(analyse([{ id: 'p', data: synthSlot('last', 6, null, primeAt) }]));
+    const lastCell = (l) => l.split('|').pop().trim();
+
+    const positionRows = lines.filter((l) => /^ {2}0 +\|/.test(l));
+    assert.strictEqual(positionRows.length, 1, 'exactly one position-0 row in the position table');
+    assert.strictEqual(lastCell(positionRows[0]), '7500 B');
+
+    const afterRows = lines.filter((l) => /^ {2}yes +\| yes +\|/.test(l));
+    assert.strictEqual(afterRows.length, 1, 'exactly one after-controls/opens-round cell row');
+    assert.strictEqual(lastCell(afterRows[0]), '8000 B');
+  });
 
   ok('the per-run table separates the runs rather than pooling them', () => {
     const a = analyse([
