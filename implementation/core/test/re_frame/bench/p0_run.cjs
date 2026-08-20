@@ -198,9 +198,20 @@ const ONLY = (() => {
 // ---------------------------------------------------------------------------
 //
 // rf2-6kxub measured the floor arm's high-mode RATE tracking ELAPSED TIME
-// WITHIN A SESSION — 0/6 at 8.2 min, 1/8 at 14.9, 2/20 at 19.7, 37/69 at 88.3,
+// WITHIN A SESSION — 0/6 at 8.2 min, 1/7 at 14.9, 2/19 at 19.7, 37/69 at 88.3,
 // with a within-session gradient at one-tail p = 0.0198 on a boundary-free
-// Mann-Whitney. That locates the rate on elapsed-time-within-session and NAMES
+// Mann-Whitney.
+//
+// THOSE ARE THE ADMISSIBLE DENOMINATORS, and the refusal basis is named here
+// so the rationale does not teach a failed positive control as a low reading.
+// `alloc_mode_rate_session.cjs` refuses any record whose
+// `alloc.controlVerdict.ok` is not exactly true, which drops
+// `alloc-9jrhi/bisect-5` and `alloc-77gz8/run12`. A REFUSED CONTROL IS NO
+// READING AT ALL, never a low one: it leaves the denominator and never the
+// numerator, which is why the two short sessions move 1/8 -> 1/7 and
+// 2/20 -> 2/19 while 0/6 and 37/69 do not move at all.
+//
+// That locates the rate on elapsed-time-within-session and NAMES
 // NO MECHANISM: thermal state, V8 tier accumulation and heap fragmentation
 // over a long session all survive it equally, and across sessions the duration
 // is confounded with the date and the clock time.
