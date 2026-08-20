@@ -2160,12 +2160,24 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:final-redirect :any]
    [:frame          {:optional true} :keyword]])
 
-(def HeadMismatchTags
-  [:map
-   [:category    :keyword]
-   [:server-hash :any]
-   [:client-hash :any]
-   [:head-id     {:optional true} :keyword]])
+;; RETIRED (rf2-zk1xu): `HeadMismatchTags` is gone, three months after the row it
+;; typed. It was registered for `:rf.warning/head-mismatch`, whose `:tags` column
+;; read exactly `:server-hash`, `:client-hash`, `:head-id`; that row was STRUCK
+;; (rf2-4o1c.4) when head mismatch was folded INTO `:rf.ssr/hydration-mismatch`
+;; and discriminated by `:failing-id` `:rf.ssr/head-mismatch` — a VALUE on that
+;; row, not a category of its own. The schema outlived its row as canonical-
+;; looking prose no catalogue category, emitter or spec consumer claimed.
+;;
+;; NOTHING REPLACES IT, and nothing should. A head mismatch reaches the trace
+;; through `verify-hydration!` — host-attributed today, runtime-attributed if the
+;; post-v1 follow-on lands, per
+;; [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) — so its
+;; `:tags` are the hiccup arm of `HydrationMismatchTags` below, and `:head-id`
+;; was never reachable on either path: `verify-hydration!` accepts only
+;; `:first-diff-path` / `:failing-id` / `:server-hash`. The head's own shipped
+;; channel, `:rf/head-hash` (plus the `data-rf-head-hash` wire attribute), is a
+;; HYDRATION-PAYLOAD channel, not a trace one — it never rides `:tags`, so it
+;; needs no `*Tags` schema at all.
 
 (def HydrationMismatchTags
   ;; TWO DISJOINT ARMS UNDER ONE CATEGORY. `:rf.ssr/hydration-mismatch` is the
@@ -2186,8 +2198,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; sub-arm is the SAME shape: it is discriminated by `:failing-id`
   ;; `:rf.ssr/head-mismatch` and nothing else — `verify-hydration!` accepts only
   ;; `:first-diff-path` / `:failing-id` / `:server-hash` opts, so no `:head-id`
-  ;; can reach this category's tags. (`HeadMismatchTags` above types a
-  ;; head-model channel of its own and is not this category's schema.)
+  ;; can reach this category's tags — the retirement note directly above records
+  ;; where that key came from and why no schema declares it any more.
   ;;
   ;; ADOPTION TIER — `re-frame.substrate.spine/native-hydration-reporter` and
   ;; `re-frame.hicasso.impl.mount/hydration-reporter` emit through plain
