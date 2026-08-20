@@ -120,6 +120,16 @@ function armOverFloor(round, segment, arm, leg, boundaries) {
 }
 
 // Every matched certified cell of one round, at the rungs asked for.
+//
+// `ratio` IS NULL WHERE `d_all` IS ZERO, AND THE CELL IS STILL RETURNED. An
+// earlier revision of this function DROPPED such a cell, which is correct for
+// the block statistic — a ratio against a zero denominator is not a number —
+// and wrong for the null arm, where `d_all = 0` is the value the arm is
+// SUPPOSED to take. It cost 14 of the 38 cells `rf2-0gjqi` published in its
+// section E, and it silently kept exactly the cells where the instrument had
+// behaved perfectly. The self-test now pins that section's published figures
+// for the same reason it pins the blocks: the defect was invisible in every
+// figure the reader was pinned on.
 function roundCells(round, boundaries, rungs) {
   const out = [];
   for (const { segment, arm } of FAMILIES) {
@@ -127,8 +137,16 @@ function roundCells(round, boundaries, rungs) {
       const key = `${arm}#${rung}`;
       const dAll = armOverFloor(round, segment, key, 'all', boundaries);
       const dPage = armOverFloor(round, segment, key, 'page', boundaries);
-      if (dAll === null || dPage === null || dAll === 0) continue;
-      out.push({ segment, arm, rung, dAll, dPage, delta: dPage - dAll, ratio: (dPage - dAll) / dAll });
+      if (dAll === null || dPage === null) continue;
+      out.push({
+        segment,
+        arm,
+        rung,
+        dAll,
+        dPage,
+        delta: dPage - dAll,
+        ratio: dAll === 0 ? null : (dPage - dAll) / dAll,
+      });
     }
   }
   return out;
@@ -143,7 +161,10 @@ function blocks(row, label) {
   const B = row.boundaries;
   const out = [];
   for (const round of row.perRound || []) {
-    const cells = roundCells(round, B, MID_RUNGS);
+    // A cell with no ratio carries no block statistic — see `roundCells`. At
+    // the mid rungs `d_all` is thousands of bytes per boundary and this drops
+    // nothing, which the self-test's per-block `n` is what proves.
+    const cells = roundCells(round, B, MID_RUNGS).filter((c) => c.ratio !== null);
     if (!cells.length) continue;
     const first = (round.writeLegs || [])[0] || null;
     const m = median(cells.map((c) => c.ratio));
@@ -231,14 +252,19 @@ function scheduleDrove(row) {
   return true;
 }
 
-// The null arm — R = 0, all four windows certified — pooled over the rounds of
-// one run. It is the only population here whose true value is known in advance,
-// and it is what licenses reading the mid-rung numbers at all.
-function nullArm(row) {
-  const B = row.boundaries;
+// The null arm — R = 0, all four windows certified. It is the only population
+// here whose true value is known in advance, and it is what licenses reading
+// the mid-rung numbers at all.
+//
+// It takes a LIST of rows because the figure it is read against is pooled over
+// a whole window's runs, and a per-run reading of the same population is a
+// different statistic on a third of the observations.
+function nullArm(rows) {
   const deltas = [];
-  for (const round of row.perRound || []) {
-    for (const c of roundCells(round, B, [NULL_RUNG])) deltas.push(c.delta);
+  for (const row of [].concat(rows)) {
+    for (const round of row.perRound || []) {
+      for (const c of roundCells(round, row.boundaries, [NULL_RUNG])) deltas.push(c.delta);
+    }
   }
   const abs = deltas.map(Math.abs).sort((x, y) => x - y);
   return {
@@ -329,6 +355,11 @@ function report(rows) {
       `;;   ${label} | ${na.n} | ${na.median} | ${na.absMedian} | ${na.p90} | ${na.max}`
     );
   }
+  const pooledNull = nullArm(rows.map((r) => r.row));
+  out.push(
+    `;;   pooled | ${pooledNull.n} | ${pooledNull.median} | ${pooledNull.absMedian} | ` +
+      `${pooledNull.p90} | ${pooledNull.max}`
+  );
 
   return out;
 }
@@ -429,6 +460,19 @@ function selfTest() {
   assert.strictEqual(sep.dot, sep.n, 'a parity corpus is perfectly tied');
   assert.strictEqual(sep.orthogonal, false, 'and is therefore not orthogonal');
 
+  // THE NULL ARM, pinned on the published section E — and it is the pin that
+  // caught this reader's one real defect. A `d_all` of exactly zero is what the
+  // R = 0 arm is SUPPOSED to read, and an earlier `roundCells` dropped every
+  // such cell as a division hazard: 24 of 38 survived, the absolute median read
+  // 3 instead of 1.5 and the 90th percentile 56.5 instead of 4.5. Nothing else
+  // here would have seen it — every mid-rung figure above was unaffected.
+  const na = nullArm(rows.map((r) => r.row));
+  assert.strictEqual(na.n, 38, 'null arm: published n');
+  assert.strictEqual(na.median, 0, 'null arm: published median');
+  assert.strictEqual(na.absMedian, 1.5, 'null arm: published absolute median');
+  assert.strictEqual(na.p90, 4.5, 'null arm: published 90th percentile');
+  assert.strictEqual(na.max, 96.5, 'null arm: published max');
+
   // THE FLOOR-FREE ESTIMATOR MUST DISAGREE. Same blocks, `perBoundaryPerWrite`
   // instead of `arm − floor`, and the count falls to 3 of 6 in run 1.
   const floorFree = (row, label) => {
@@ -456,7 +500,7 @@ function selfTest() {
   assert.strictEqual(ffLower, 3, 'and reads 3 of 6, which is the measured wrong answer');
 
   console.log(`[alloc-pass-position] self-test OK — 12 published blocks, both decompositions, `
-    + `the parity tie, and the floor-free estimator's 3 of 6 all reproduce`);
+    + `the parity tie, the null arm's 38 cells, and the floor-free estimator's 3 of 6 all reproduce`);
 }
 
 if (require.main === module) {
