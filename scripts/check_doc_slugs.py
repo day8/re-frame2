@@ -52,10 +52,11 @@ Notes on what is and isn't checked:
       for what that recognition covers and, just as importantly, what it does not.
     * In the trees listed in FENCED_DOC_LINK_TREES a markdown doc link inside a
       fence is itself reported (rf2-mmyc).  Everywhere else it is SILENTLY
-      skipped: 88 links in `spec/Spec-Schemas.md` alone sit legitimately inside
-      schema samples as `;;` commentary.  The roster is scoped to trees with
-      evidence, so a green on a fence-heavy file outside it asserts nothing
-      about the fence — which is why `docs/the-mayor-method/` joined (rf2-qdqf).
+      skipped: well over a hundred links do this corpus-wide, most of them in
+      `spec/Spec-Schemas.md` alone, sitting legitimately inside schema samples
+      as `;;` commentary.  The roster is scoped to trees with evidence, so a
+      green on a fence-heavy file outside it asserts nothing about the fence —
+      which is why `docs/the-mayor-method/` joined (rf2-qdqf).
 
 The script is intentionally dependency-light. Beyond pymdown-extensions
 (already pinned in requirements.txt for the MkDocs build) it relies only
@@ -1634,14 +1635,25 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # to say about them, and the damage (samples that render a literal `](...)` and
 # no longer read as Clojure) was only visible to a reader.
 #
-# SCOPED, NOT CORPUS-WIDE, and the corpus is why: 109 in-repo links live inside
-# fences elsewhere in this repo — 88 of them in `spec/Spec-Schemas.md`, as
-# ordinary `;;` commentary cross-referencing other specs from inside a schema
-# sample, which is a good idiom and not something to legislate away.  Making the
-# assertion corpus-wide would need an allowlist for those, and an allowlist is
-# how a gate stops meaning anything.  `docs/design/hicasso/` is a working design
-# record whose fences are Clojure, bash and captured output; it measures clean
-# today, so the check lands green.
+# EVERY CENSUS BELOW IS A MAGNITUDE, NEVER AN EXACT COUNT, and that is a repair
+# rather than vagueness (rf2-sodfq).  This block once carried a run of exact
+# ones, and ordinary merges had falsified nearly all of them before anyone
+# re-read the block — including a pair that CONTRADICTED EACH OTHER between two
+# paragraphs of this same file on the day they landed, because a PR that moved
+# the corpus merged between writing them and integrating them.  A stale number
+# in the rationale for a gate reads as carelessness in the gate.  If you need a
+# figure, MEASURE it: `_check_fenced_doc_links` is the production scanner and
+# takes the covered trees as an argument, so pass it the corpus roots.  Do not
+# write the answer back here.
+#
+# SCOPED, NOT CORPUS-WIDE, and the corpus is why: well over a hundred in-repo
+# links live inside fences elsewhere in this repo, most of them in
+# `spec/Spec-Schemas.md`, as ordinary `;;` commentary cross-referencing other
+# specs from inside a schema sample, which is a good idiom and not something to
+# legislate away.  Making the assertion corpus-wide would need an allowlist for
+# those, and an allowlist is how a gate stops meaning anything.
+# `docs/design/hicasso/` is a working design record whose fences are Clojure,
+# bash and captured output; it measures clean today, so the check lands green.
 #
 # `docs/design/freehand/` measures clean too and is the same class of artefact —
 # a defensible extension, deliberately not taken here: it had no incident, and
@@ -1649,34 +1661,38 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # arbitrary friction.
 #
 # rf2-qdqf added `docs/the-mayor-method/` on exactly that evidence standard, and
-# the evidence is a measurement: `bootstrap.md` is 99.7% fenced by non-blank line
-# (334 of 335), because the file IS a pasteable prompt and the fence is the
-# deliverable.  A worker proving gate coverage planted two bogus anchors in it,
-# one outside the fence and one inside; the gate reported exactly the first and
-# was silent on the second.  A green on that file therefore said nothing about
-# the block holding the document, which is worse than a skip because the file is
-# demonstrably in the corpus.  Widening puts the whole file back under an
-# assertion that can fail.  The tree measures clean today (0 fenced doc links
-# across its three files) and its established idiom is already the right one —
-# bare paths in backticks, `README.md` and `dispatch-prompt-template.md`, never
-# markdown links, which inside a `text` fence would render literally and reach a
-# reader as noise pasted into a prompt.
+# the evidence was a measurement: `bootstrap.md` was then almost entirely fenced
+# by non-blank line, because the file IS a pasteable prompt and the fence is the
+# deliverable.  (It has since grown a long prose section around that prompt,
+# which is the rule at the head of this block earning its keep — the exact ratio
+# once quoted here was long false by the time anyone re-read it, while the
+# reason it was quoted for was not.)  A worker proving gate coverage planted two
+# bogus anchors in it, one outside the fence and one inside; the gate reported
+# exactly the first and was silent on the second.  A green on that file
+# therefore said nothing about the block holding the document, which is worse
+# than a skip because the file is demonstrably in the corpus.  Widening puts
+# the whole file back under an assertion that can fail.  The tree measures clean
+# today (no fenced doc links in any of its files) and its established idiom is
+# already the right one — bare paths in backticks, `README.md` and
+# `dispatch-prompt-template.md`, never markdown links, which inside a `text`
+# fence would render literally and reach a reader as noise pasted into a prompt.
 #
-# Corpus-wide inversion stays rejected, on the same 109 links; and ANNOUNCING the
-# skip instead was measured and rejected too — 538 of the 721 corpus files carry
-# a fence, so the announcement fires on three quarters of the corpus, and its
-# text is identical before and after a doc link is added inside a fence.  A
-# signal that cannot change when the defect appears is not a signal.
+# Corpus-wide inversion stays rejected, on those same links; and ANNOUNCING the
+# skip instead was measured and rejected too — roughly three quarters of the
+# corpus files carry a fence, so the announcement fires on most of the corpus,
+# and its text is identical before and after a doc link is added inside a fence.
+# A signal that cannot change when the defect appears is not a signal.
 #
 # rf2-sodfq separated a THIRD assertion on 2026-08-21 that neither rejection
 # above reaches.  Both of those are about a fenced link's PRESENCE — ban it, or
 # announce that it went unchecked.  The weaker one is to leave the links alone
 # and validate their TARGETS AND ANCHORS, and it had never been measured.  It
 # costs nothing today: routing `_fenced_lines` through the ordinary
-# target/anchor check reds on ZERO of the 108 fenced doc links now in the corpus
-# (89 of them in `spec/Spec-Schemas.md`), with a bogus in-fence anchor planted as
-# the positive control taking that same run to exit 1 — so the zero is a
-# measurement and not an empty search.
+# target/anchor check reds on ZERO of the fenced doc links in the corpus, with a
+# bogus in-fence anchor planted as the positive control taking that same run to
+# exit 1 — so the zero is a measurement and not an empty search.  That zero is
+# the one figure worth writing down, because it is a NONE rather than a census:
+# a merge that falsifies it is exactly the event this paragraph is about.
 #
 # It is refused anyway, and the count is not why.  A fence is code, and this
 # repo's documentation quotes broken links ON PURPOSE — planted-fault write-ups
