@@ -1,7 +1,6 @@
 (ns re-frame.hicasso.roots-frames-hydration-dom-cljs-test
   "TWO OVERLAPPING HYDRATING ROOTS — independent adoption, independent
-  complaints, independent presence, independent teardown (rf2-hic-012,
-  rf2-6tmu).
+  complaints, independent presence, independent teardown.
 
   The property: two roots adopting server markup at the same time must
   not corrupt or silence one another. rf2-hic-012 wrote these rows and
@@ -271,7 +270,7 @@
 ;; every later recoverable error on either root a "hydration mismatch";
 ;; H4 below is the row that separates those two.
 ;;
-;; SABOTAGE, and why it does not execute HERE (rf2-1mmn). The mutation is
+;; SABOTAGE, and why it does not execute HERE. The mutation is
 ;; "mint ONE window in `hydrate-root!` and hand it to both roots": one root's
 ;; closer then shuts the other's window and this row reds on the count. It is
 ;; armable — `sup/with-page-global-adoption` IS that mutation, executing — but
@@ -547,7 +546,7 @@
 ;; commits inside a `flushSync` so root B's first render is readable on the
 ;; line after it. No timer stands between the two.
 ;;
-;; SABOTAGE, EXECUTING (rf2-1mmn):
+;; SABOTAGE, EXECUTING:
 ;; [[a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition]]
 ;; below arms exactly this mutation — `sup/with-page-global-adoption` points
 ;; the window `impl.presence-react` reads back at a page-wide one — runs this
@@ -663,7 +662,7 @@
                                 (done)))))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; H6 — THE EXECUTING SABOTAGE CONTROL for this risk family (rf2-1mmn)
+;; H6 — THE EXECUTING SABOTAGE CONTROL for this risk family
 ;; ---------------------------------------------------------------------------
 
 ;; Kernel risk row 8 of `docs/design/hicasso/product/lanes/adversarial-risks.md`

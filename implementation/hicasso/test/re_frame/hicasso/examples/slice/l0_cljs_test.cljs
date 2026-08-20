@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.l0-cljs-test
-  "L0 — THE SLICE'S HANDLERS, SUBSCRIPTIONS AND TRANSITIONS (rf2-hic-025).
+  "L0 — THE SLICE'S HANDLERS, SUBSCRIPTIONS AND TRANSITIONS.
 
   `re-frame.hicasso.test`'s ladder names L0 as the tier the kit
   deliberately does not touch: *an event handler is a function of `db`
@@ -81,7 +81,7 @@
     (is (= ["intents"] (mapv :slug (db/listed (assoc db/seed :order ["gone" "intents"])))))))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination — arithmetic, and a page number nobody may trust (rf2-hic-074)
+;; Pagination — arithmetic, and a page number nobody may trust
 ;; ---------------------------------------------------------------------------
 
 (def ^:private slugs (mapv :slug (db/listed db/seed)))
@@ -123,7 +123,7 @@
            thing that exists rather than nothing at all"))))
 
 ;; ---------------------------------------------------------------------------
-;; The page rides the URL, so Back and Forward are routing's (rf2-hic-074)
+;; The page rides the URL, so Back and Forward are routing's
 ;; ---------------------------------------------------------------------------
 
 (deftest the-page-round-trips-through-the-url
@@ -314,7 +314,7 @@
       (is (= "rgb(18, 21, 26)" (read-sub frame [::subs/token :surface]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination and the digest, through the frame (rf2-hic-074)
+;; Pagination and the digest, through the frame
 ;; ---------------------------------------------------------------------------
 
 (defn- at-page

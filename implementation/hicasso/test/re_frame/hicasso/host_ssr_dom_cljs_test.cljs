@@ -54,7 +54,7 @@
      the placeholder never flashes. Asserted on the line after
      `root!` returns, which is inside its own `flushSync`.
 
-  ## And why `:render` needs NO mechanism at all (rf2-l0wfx)
+  ## And why `:render` needs NO mechanism at all
 
   Under `:render` the declaration mints no gate: the head's type IS the
   foreign component. So all three places above render the SAME element
@@ -88,7 +88,7 @@
   second child mount the adoption swap causes. No mutation is visible to
   more than one row, which is why there are four.
 
-  A fifth guards the assertion from the other side (rf2-hic-028): make a
+  A fifth guards the assertion from the other side: make a
   server render SWALLOW what the component threw — a `try` around the
   crossing, a policy that quietly emitted the page with the region
   missing — and
@@ -100,7 +100,7 @@
   React DOM. The declaration rows and the `renderToString` rows need no
   DOM and run under `:node-test` too — `renderToString` is React's
   server renderer, and the point of using it here is that it is the
-  same runtime the sibling Node entry (rf2-2rtt6.86) drives."
+  same runtime the sibling Node entry drives."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso.impl.mount :as mount]
@@ -221,7 +221,7 @@
 
 (h/defhost reader-host theme-reader {:server :render})
 
-;; --- the FALSE assertion, and what it costs (rf2-hic-028) -----------------
+;; --- the FALSE assertion, and what it costs --------------------------------
 ;;
 ;; `:render` is an assertion the author makes, and the matrix's closing
 ;; requirement is what happens when it is FALSE: *a host that renders

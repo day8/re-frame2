@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.codec-cljs-test
-  "THE HICCUP CODEC, tested at the element (rf2-2rtt6.8).
+  "THE HICCUP CODEC, tested at the element.
 
   Every assertion here reads a React element's `type`, `props` and `key`
   rather than rendered DOM. That is the right altitude for a codec and it
@@ -530,7 +530,7 @@
         (is (= :rf.error/hicasso-merge-not-a-map (:rf.error/id (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The canonical structural-slot filter (rf2-2rtt6.36)
+;; The canonical structural-slot filter
 ;; ---------------------------------------------------------------------------
 
 (deftest a-structural-slot-is-recognised-in-every-spelling-the-codec-accepts
@@ -691,7 +691,7 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; A presence override no tray can reach (rf2-34a7)
+;; A presence override no tray can reach
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `impl.presence/with-phase` strips `::h/mounting` / `::h/unmounting` off
@@ -814,7 +814,7 @@
     (is (= [[:todo.ui/edit 7 "bread"]] @!seen))))
 
 ;; ---------------------------------------------------------------------------
-;; The named value at a foreign crossing (rf2-vrvv9)
+;; The named value at a foreign crossing
 ;; ---------------------------------------------------------------------------
 
 (defn- a-foreign-component
@@ -876,7 +876,7 @@
         "the native crossing, unchanged")))
 
 ;; ---------------------------------------------------------------------------
-;; The class slot is a POSITION at the crossing too (rf2-2rtt6.119)
+;; The class slot is a POSITION at the crossing too
 ;; ---------------------------------------------------------------------------
 
 (deftest a-class-collection-crosses-as-a-class-string-at-a-host-and-at-a-tag
@@ -971,7 +971,7 @@
     (is (nil? (host-prop :label nil "label")))))
 
 ;; ---------------------------------------------------------------------------
-;; What "callback refs only" actually is (rf2-d03av)
+;; What "callback refs only" actually is
 ;; ---------------------------------------------------------------------------
 
 (deftest an-object-ref-crosses-by-identity-at-both-positions
@@ -1376,7 +1376,7 @@
          twenty renders with twenty distinct class VALUES add nothing")))
 
 ;; ---------------------------------------------------------------------------
-;; The minted key warnings — development only (rf2-2rtt6.104)
+;; The minted key warnings — development only
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Every row below owns its own view and member NAMES, because the dedupe
@@ -1516,7 +1516,7 @@
       (is (re-find #"carries a set at :key" (second out))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE TOTALITY REPAIR (rf2-2rtt6.104)
+;; THE TOTALITY REPAIR
 ;;
 ;; `check-member-key!`'s `cond` shipped with two arms and no `:else`, so every
 ;; non-nil `:key` that was neither primitive nor a CLJS collection fell out of

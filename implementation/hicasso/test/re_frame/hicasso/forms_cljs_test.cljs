@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.forms-cljs-test
-  "THE FORMS MODULE — ITS PROTOCOL, ITS MARKUP AND ITS PRICE (rf2-sh56).
+  "THE FORMS MODULE — ITS PROTOCOL, ITS MARKUP AND ITS PRICE.
 
   Five sections in one file, because the module is one view and splitting
   a dozen rows across three namespaces would cost more to read than it

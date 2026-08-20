@@ -230,7 +230,7 @@
   NOT finish the row — the chain's single trailing `done` does that.
 
   **A rejection handler may not sit downstream of the `.then` that calls
-  `done` (rf2-qpns).** `cljs.test/run-block` hands `done` a continuation
+  `done`.** `cljs.test/run-block` hands `done` a continuation
   that runs the WHOLE REMAINDER of the run synchronously, so anything out
   there that throws unwinds back into the callback that called `done`. A
   `.catch` placed after that callback claims the foreign failure as its
@@ -242,7 +242,7 @@
 
   The long-form account is on
   [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
-  `report-failure!` (rf2-d3tc); the shape is the one
+  `report-failure!`; the shape is the one
   [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
   [label handle]
   (fn [e]

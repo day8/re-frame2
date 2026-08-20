@@ -1,7 +1,7 @@
 (ns re-frame.hicasso.hmr-registry-cljs-test
   "THE HMR CONTRACT, PART 2 — what a save's re-registrations do to the
   number React re-reads, and when an edited subscription reaches the
-  screen (rf2-hic-015).
+  screen.
 
   `hmr_remount_cljs_test` takes the structural half: the head is re-minted,
   so the subtree is replaced and the retired generation must let go. This
@@ -144,7 +144,7 @@
   ;; does not make the whole page thrash". `commit-basis` carries a registry
   ;; term, so this is not free by construction — it is bought by
   ;; `make-snapshot` reading that term ONLY for a key no cell holds, and it
-  ;; is worth a witness because the rejected design (rf2-2rtt6.44) put the
+  ;; is worth a witness because the rejected design put the
   ;; term in every key's live contribution and would render identically.
   (seeded! "A")
   (let [{:keys [entry notified release]} (mount-boundary! label-body)
@@ -300,7 +300,7 @@
   ;; because what the arm cares about is whether the incarnation moved.
   (seeded! "A")
   (let [token-before  (frame/frame-incarnation-token frame-id)
-        ;; Acquire the arm's frame row BEFORE the reload (rf2-x874). Since the
+        ;; Acquire the arm's frame row BEFORE the reload. Since the
         ;; incarnation is pinned into the row at mint time, a render acquires
         ;; the row rather than a first dispatch — so a count sampled while the
         ;; table was still empty would compare an empty table against a

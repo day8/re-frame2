@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.error-shape-cljs-test
-  "THE REFUSAL SHAPE, ASSERTED AS A MAP (rf2-hic-007).
+  "THE REFUSAL SHAPE, ASSERTED AS A MAP.
 
   Spec SN §3.6 is one sentence — *every refusal has a stable error id,
   source coordinate, view, frame where relevant, tree path or host-prop

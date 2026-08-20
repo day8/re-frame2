@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.app
-  "THE SLICE'S ENTRY POINT — the four lines that start it (rf2-hic-025).
+  "THE SLICE'S ENTRY POINT — the four lines that start it.
 
   `re-frame.hicasso.consumer-app` is the smallest complete Hicasso
   application and proves that a clean consumer can compile and run one.

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.events
-  "THE TEN-THOUSAND-ROW LEDGER'S MODEL — ordinary re-frame2 (rf2-hic-047).
+  "THE TEN-THOUSAND-ROW LEDGER'S MODEL — ordinary re-frame2.
 
   The grid is evidence about BREADTH at a hundred fields, all of them
   mounted. This application is evidence about SCALE, where the defining

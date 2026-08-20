@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.checkpoint-support
   "THE MICROTASK-CHECKPOINT INSTRUMENT, and the sabotage that proves it
-  can go red (rf2-2l17).
+  can go red.
 
   Three namespaces read this file, because all three wait on the same
   deferral — `re-frame.hicasso.impl.collector/invalidate-cell!`'s second

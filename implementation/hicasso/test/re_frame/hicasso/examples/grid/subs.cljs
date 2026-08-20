@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.grid.subs
-  "THE GRID'S READ TOPOLOGY — the whole of the scaling claim (rf2-hic-078).
+  "THE GRID'S READ TOPOLOGY — the whole of the scaling claim.
 
   Three subscriptions, and the important one is the shape of the first.
 

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.surface-cljs-test
-  "THE IMPORT DISCIPLINE, MECHANICALLY (rf2-hic-025).
+  "THE IMPORT DISCIPLINE, MECHANICALLY.
 
   The slice is evidence about the DOOR. It is worth exactly as much as
   the claim that it was written on the public surface, and that claim is
@@ -26,7 +26,7 @@
   for, and the facade freeze at rf2-hic-026 wants to know about that
   more than about anything else in this file.
 
-  ## And the population is asked for too (rf2-ccuw)
+  ## And the population is asked for too
 
   Both claims are only worth the set of namespaces they are made over,
   and that set used to be typed here — twice, as a roster literal and as

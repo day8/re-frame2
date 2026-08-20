@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.forms-dom-cljs-test
-  "THE FORMS MODULE ON A REAL REACT ROOT OVER A REAL DOM (rf2-sh56).
+  "THE FORMS MODULE ON A REAL REACT ROOT OVER A REAL DOM.
 
   The claims the node lane cannot decide: whether a commit keeps the
   node, where the focus and the caret are, what order a real blur arrives

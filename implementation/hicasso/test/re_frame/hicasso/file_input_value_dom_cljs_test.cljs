@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.file-input-value-dom-cljs-test
-  "A FILE INPUT HAS NO VALUE SURFACE (rf2-u2tza, rf2-lhsvs).
+  "A FILE INPUT HAS NO VALUE SURFACE.
 
   The guide rules it out in one sentence — chapter 04, supported controls:
   the File input row reads `no controlled value`, with `:on-change` and an
@@ -45,7 +45,7 @@
   only model-driven clear away from the author. The predicate is
   non-EMPTY.
 
-  ## The spelling is the platform's, not the author's (rf2-h6qm7)
+  ## The spelling is the platform's, not the author's
 
   The prop refusal shipped comparing the `type` prop exactly, and an HTML
   `type` is an enumerated attribute the platform matches ASCII
@@ -190,7 +190,7 @@
         (finally (drop! n))))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — THE PROP (rf2-u2tza)
+;; 1 — THE PROP
 ;; ---------------------------------------------------------------------------
 
 (deftest a-value-on-a-file-input-is-refused-at-the-source
@@ -337,7 +337,7 @@
             (drop-container! c)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — THE MARKER (rf2-lhsvs)
+;; 2 — THE MARKER
 ;; ---------------------------------------------------------------------------
 
 (deftest the-value-marker-on-a-file-input-is-refused

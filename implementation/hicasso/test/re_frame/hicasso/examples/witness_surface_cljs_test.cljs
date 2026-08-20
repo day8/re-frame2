@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.witness-surface-cljs-test
-  "THE TWO WITNESSES' IMPORT DISCIPLINE, MECHANICALLY (rf2-hic-078).
+  "THE TWO WITNESSES' IMPORT DISCIPLINE, MECHANICALLY.
 
   rf2-hic-078's acceptance is *zero impl imports, enforced by a test*.
   Both witness applications — the four-field editor and the 100-cell
@@ -27,7 +27,7 @@
 
   Both are only worth the set of namespaces they are made over, and that
   set used to be typed here — twice, as the [[witnesses]] literal and as
-  the macro's argument (rf2-ccuw). A predicate over a hand-written
+  the macro's argument. A predicate over a hand-written
   population fences a namespace minted tomorrow only if somebody
   remembers to type it. So [[witnesses]] is read off each package's
   DIRECTORY and [[graph]] off the ANALYZER, and [[the-graph-is-populated]]

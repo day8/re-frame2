@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.genspike-cljs-test
-  "THE SCHEMA-DRIVEN GENERATIVE SPIKE — a bounded pilot (rf2-hic-057).
+  "THE SCHEMA-DRIVEN GENERATIVE SPIKE — a bounded pilot.
 
   Product specification §11 lists *schema-driven generators* as a SPIKE
   with a pre-registered deciding rule: **graduate only if they find real

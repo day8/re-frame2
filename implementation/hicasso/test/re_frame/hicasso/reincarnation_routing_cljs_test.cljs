@@ -35,7 +35,7 @@
   *refused* from *silently delivered to the wrong frame*, which no other
   observable here distinguishes.
 
-  ## Sections 4–8 are the lowered callback's contract (rf2-x874)
+  ## Sections 4–8 are the lowered callback's contract
 
   Section 4 recorded a DEFECT when this suite landed: the ambient dispatch a
   boundary lowered into its callbacks closed over the frame KEYWORD and
@@ -259,7 +259,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4. THE CONTRACT — a lowered callback's destination is decided when it is
-;;    MINTED, in every state the memo can be in when it fires (rf2-x874)
+;;    MINTED, in every state the memo can be in when it fires
 ;; ---------------------------------------------------------------------------
 
 ;; This section replaces the DEFECT recording PR #7749 shipped here. That

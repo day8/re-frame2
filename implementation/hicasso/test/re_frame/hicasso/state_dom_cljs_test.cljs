@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.state-dom-cljs-test
-  "`h/reg-state`, MOUNTED — two disclosures on one page (rf2-2rtt6.98).
+  "`h/reg-state`, MOUNTED — two disclosures on one page.
 
   [[re-frame.hicasso.state-cljs-test]] proves the sugar against a real
   frame with no React at all, and says so: the DOM half is this file.

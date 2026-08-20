@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.public-root-lifecycle-dom-cljs-test
   "THE PUBLIC DOOR'S ROOT LIFECYCLE — what a CONSUMER can do to one root
-  without touching another (rf2-31xm, rf2-e2al).
+  without touching another.
 
   Every other suite in this package mounts through `impl.mount`, because
   every other suite is measuring the runtime and the impl door is the
@@ -165,7 +165,7 @@
 (defn- connected? [handle] (.-isConnected (:container handle)))
 
 ;; ---------------------------------------------------------------------------
-;; W1 (rf2-31xm) — tearing one root down must not reach the other
+;; W1 — tearing one root down must not reach the other
 ;; ---------------------------------------------------------------------------
 
 (deftest tearing-one-root-down-leaves-the-other-root-live
@@ -230,7 +230,7 @@
           (collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W2 (rf2-e2al) — the door can re-render a mounted root
+;; W2 — the door can re-render a mounted root
 ;; ---------------------------------------------------------------------------
 
 (deftest a-mounted-root-can-be-re-rendered-through-the-public-door
@@ -275,7 +275,7 @@
           (collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W3 (rf2-1mmn) — THE EXECUTING SABOTAGE CONTROL for kernel risk row 2
+;; W3 — THE EXECUTING SABOTAGE CONTROL for kernel risk row 2
 ;; ---------------------------------------------------------------------------
 
 (defn- pre-rf2-31xm-teardown!
@@ -398,7 +398,7 @@
             (collector/reset-runtime!)))))))
 
 ;; ---------------------------------------------------------------------------
-;; W4 (rf2-7mtcf) — the door ENSURES its frame and seeds it BEFORE first paint
+;; W4 — the door ENSURES its frame and seeds it BEFORE first paint
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Naming-ledger row 13 renames this door `root!` -> `mount!` and row 20 keeps
@@ -466,7 +466,7 @@
           (collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W5 (rf2-7mtcf) — a JOINING root does not replay `:initial-events`
+;; W5 — a JOINING root does not replay `:initial-events`
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The other half of the ENSURE contract, and the half that would make the door

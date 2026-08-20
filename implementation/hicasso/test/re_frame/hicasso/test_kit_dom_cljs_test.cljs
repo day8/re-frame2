@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.test-kit-dom-cljs-test
-  "THE CANONICAL-DOM COMPARATOR'S WITNESSES (rf2-hic-020).
+  "THE CANONICAL-DOM COMPARATOR'S WITNESSES.
 
   `re-frame.hicasso.test/canonical-dom` takes a DOM node, so its claims
   are taken on a REAL document rather than on a hand-built stand-in — a

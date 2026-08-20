@@ -45,7 +45,7 @@
     red control the prototype's own determinism row never had;
   - **the round trip through the real doors** — that suite's §5 drives
     `server/render`'s own `__rf_payload` script through `re-frame.ssr`'s
-    `hydrate!` and then `h/hydrate!` (rf2-lb1xi). This file therefore
+    `hydrate!` and then `h/hydrate!`. This file therefore
     seeds the client frame from the payload map directly, exactly as the
     prototype did and for a sharper reason: what is under test is the
     CONTENT of the payload, so the seeding door is deliberately the least

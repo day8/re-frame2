@@ -32,7 +32,7 @@
   recompiled, and the test namespace that depends on it is recompiled
   too — with this macro re-expanded against the new graph.
 
-  ## Asking the compiler about WHICH namespaces (rf2-ccuw)
+  ## Asking the compiler about WHICH namespaces
 
   A predicate over the wrong population proves nothing about the
   application, and for three releases the population was a hand-written
@@ -85,7 +85,7 @@
   at all, and until something references it, it is not what the fence is
   a claim about.
 
-  ## Why it sits at the `examples/` root (rf2-urgk)
+  ## Why it sits at the `examples/` root
 
   It was written twice. rf2-hic-025 wrote it for the slice, rf2-hic-086
   wrote it again for the Todo witness, and neither branch could

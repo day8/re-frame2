@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.roots-frames-support
   "THE MULTI-ROOT WITNESS HARNESS — the observables, and the reasons they
-  are these observables (rf2-hic-012).
+  are these observables.
 
   Two suites read this file: `roots-frames-isolation-dom-cljs-test` and
   `roots-frames-hydration-dom-cljs-test`. It exists because both of them
@@ -222,7 +222,7 @@
   that cares about a *particular* string reads it back out of the
   captured markup rather than assuming it.
 
-  **It no longer opens an adoption window** (rf2-6tmu). It used to, on
+  **It no longer opens an adoption window**. It used to, on
   the grounds that an open window is the state a server render is in —
   but the window was page-global then, so \"opening\" one was a free
   module write. A window is now minted per root and reaches a subtree

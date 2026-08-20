@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.identifier-prefix-ssr-dom-cljs-test
   "`identifierPrefix` ACROSS THE SEAM — the option, and the SECOND
-  obstruction it uncovered (rf2-hic-046).
+  obstruction it uncovered.
 
   `dispositions.md` §2.4 requires, of every surface it promotes, *two
   simultaneous hydrating roots with a stable `identifierPrefix`*. That

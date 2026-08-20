@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.grid.row-total-layer2-dom-cljs-test
   "L3 — THE LAYER-1 / LAYER-2 CONTRAST THE PER-KEYSTROKE CENSUS NAMES AND
-  DECLINES TO CLAIM (rf2-18u0).
+  DECLINES TO CLAIM.
 
   > The remedy, where one is wanted, is the ordinary one and is not a new
   > mechanism: a derived read stated as a layer-2 subscription over its own

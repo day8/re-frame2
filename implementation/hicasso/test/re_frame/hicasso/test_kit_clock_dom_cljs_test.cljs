@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.test-kit-clock-dom-cljs-test
-  "THE MOUNTED FACADE'S CLOCK, WITNESSED (rf2-r7zq).
+  "THE MOUNTED FACADE'S CLOCK, WITNESSED.
 
   `hm/advance-clock!` is an instrument for driving TIME, and the thing an
   instrument like that fails at is the thing it is easiest to write a
@@ -41,10 +41,10 @@
   seeds the frame — a timer armed by an `:initial-events` step has to be
   this mount's — so a step that FAILS escapes before any handle exists to
   release the hold through, and a clock left installed does not fail the
-  run, it hangs it or greens it (rf2-4mvd). And what the clock hands back
+  run, it hangs it or greens it. And what the clock hands back
   at the boundary is a claim of its own: ids that cannot be confused with
   the platform's, and an interval that resumes on the deadline it had
-  left rather than a fresh full period (rf2-w2e6). Those rows read the
+  left rather than a fresh full period. Those rows read the
   five platform functions directly, and drive a captured scheduler that
   records what it was asked for.
 
@@ -352,7 +352,7 @@
                                       (done)))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W4 — a clocked mount that FAILS puts the platform back (rf2-4mvd)
+;; W4 — a clocked mount that FAILS puts the platform back
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The install is `mount!`'s first act, deliberately: a timer armed by an
@@ -423,7 +423,7 @@
                            0))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W5 — the failure releases EXACTLY its own hold (rf2-4mvd)
+;; W5 — the failure releases EXACTLY its own hold
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The clock is page-wide because the thing it replaces is, so it is
@@ -486,7 +486,7 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W6 — the two schedulers' handles are DISJOINT (rf2-w2e6)
+;; W6 — the two schedulers' handles are DISJOINT
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The clock replaces the global scheduler but not the timers already armed
@@ -576,7 +576,7 @@
                        (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W7 — an interval hands back the deadline it had left (rf2-w2e6)
+;; W7 — an interval hands back the deadline it had left
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `release-clock!` promises every outstanding timer goes back to the real
@@ -647,7 +647,7 @@
                          (done))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W8 — a THROWING tick does not disarm the handed-back interval (rf2-w2e6)
+;; W8 — a THROWING tick does not disarm the handed-back interval
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The handover arms the cadence from INSIDE the first tick's one-shot, so the

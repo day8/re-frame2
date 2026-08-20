@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.editor.views
   "THE FOUR-FIELD EDITOR — every control written the way the guide writes
-  one (rf2-hic-078).
+  one.
 
   `:value` off a subscription, an intent vector at `:on-input`, and
   nothing else. No ref, no `on-change` closure, no local draft, no effect

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.readset-group-census-cljs-test
-  "THE CENSUS'S OWN HONESTY (rf2-hic-083).
+  "THE CENSUS'S OWN HONESTY.
 
   [[re-frame.hicasso.readset-group-census]] is about to be believed, so
   this file is the part that attacks it. The pooled figure it produces

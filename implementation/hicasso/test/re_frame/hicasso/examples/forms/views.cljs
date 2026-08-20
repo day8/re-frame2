@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.views
-  "THE MARKUP FOR THE THREE RECIPES (rf2-hic-051).
+  "THE MARKUP FOR THE THREE RECIPES.
 
   Five boundaries. Everything they reach for is `h/…` — `defview`, `sub`,
   the `::h/value` marker, `::h/revision`, the `:on-key-down` key map — or

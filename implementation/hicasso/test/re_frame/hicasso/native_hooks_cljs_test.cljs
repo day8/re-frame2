@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-hooks-cljs-test
-  "THE TWO NATIVE HOOKS, WHERE NO DOM IS NEEDED (rf2-hic-031).
+  "THE TWO NATIVE HOOKS, WHERE NO DOM IS NEEDED.
 
   `n/use-sub` and `n/use-frame` are React hooks and most of what is true
   about them is true only once React is driving a real fiber — identity
@@ -72,7 +72,7 @@
   "Reads one subscription, and nothing else.
 
   `{:server :render}` because the harness below is the server renderer
-  and the policy is now READ (rf2-hic-046): a Client-only island's body
+  and the policy is now READ: a Client-only island's body
   does not run there, so the instrument needs the declaration. That is
   the policy working rather than a concession to the test."
   {:server :render}

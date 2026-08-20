@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.views
-  "THE WHOLE OF THE MARKUP (rf2-hic-086).
+  "THE WHOLE OF THE MARKUP.
 
   Five boundaries. Everything they reach for is `h/…` — `defview`, `sub`,
   `route-link`, the `::h/value` and `::h/checked` markers, the `::h/clear`

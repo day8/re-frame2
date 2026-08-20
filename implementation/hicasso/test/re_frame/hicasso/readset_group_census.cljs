@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.readset-group-census
   "THE SHARED READ-SET CENSUS — how many memberships would a notification
-  group actually coalesce (rf2-hic-083).
+  group actually coalesce.
 
   [specification §11](../../../../../docs/design/hicasso/product/specification.md)
   carries *Shared read-set notification groups* as **Census, then spike**,

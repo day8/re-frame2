@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.editor.subs
-  "THE EDITOR'S READ TOPOLOGY — one address per field (rf2-hic-078).
+  "THE EDITOR'S READ TOPOLOGY — one address per field.
 
   Four fields and four subscription cells, because the per-keystroke
   budget is a fact about the READ TOPOLOGY and about nothing else.

@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.lazy-boundary-dom-cljs-test
   "CODE SPLITTING — WHAT CROSSES A `React.lazy` BOUNDARY, AND WHAT A
-  REJECTED ONE NEVER DOES AGAIN (rf2-hic-041).
+  REJECTED ONE NEVER DOES AGAIN.
 
   The bridge itself is `n/lazy` and it landed with the ABI helpers
   (rf2-hic-032): a `react/lazy` record carrying the tier marker, its
@@ -46,7 +46,7 @@
   measurement here rather than two*. The reasoning was sound and the
   measurement did not exist: nothing here reloads anything, and §7's
   code-splitting row names `HMR` in the same required-proof cell as the
-  load, fallback, error and retry states this file does land (rf2-y5x6j).
+  load, fallback, error and retry states this file does land.
 
   It is now witnessed where a reload can actually be performed — the
   `native-lazy-island-across-a-save` section of
@@ -696,7 +696,7 @@
                 ;; reload allocates one the same way, but that is asserted
                 ;; under an actual reload rather than here — see this
                 ;; file's docstring and `hmr_spec.cjs`'s
-                ;; `native-lazy-island-across-a-save` (rf2-y5x6j).
+                ;; `native-lazy-island-across-a-save`.
                 (reset! !attempts 0)
                 (.render ^js (:root handle) (reject-tree 2 replacement-host))
                 (poll #(= 2 @(:calls reject-loader))

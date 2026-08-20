@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.surface-cljs-test
-  "THE FORMS RECIPES' IMPORT DISCIPLINE, MECHANICALLY (rf2-hic-051).
+  "THE FORMS RECIPES' IMPORT DISCIPLINE, MECHANICALLY.
 
   The recipes are evidence about the DOOR, and they are worth exactly
   what that claim is worth. So the claim is read off the ClojureScript

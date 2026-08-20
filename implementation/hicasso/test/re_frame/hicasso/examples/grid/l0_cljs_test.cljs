@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.grid.l0-cljs-test
-  "L0 — THE GRID'S MODEL, WITH NO VIEW SUBSTRATE ANYWHERE (rf2-hic-078).
+  "L0 — THE GRID'S MODEL, WITH NO VIEW SUBSTRATE ANYWHERE.
 
   A hundred controlled fields, and the model behind them is one map, one
   policy function and three handlers. That is the claim this file makes:

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.view-body-retention-elision-prod-test
-  "PRODUCTION ERASURE OF THE RETAINED VIEW BODY (rf2-kjf5).
+  "PRODUCTION ERASURE OF THE RETAINED VIEW BODY.
 
   `mint-view!` attaches the body function to the minted head so the L0–L2
   test kit can render `[some-view …]` without React

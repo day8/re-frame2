@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.editor.l2-cljs-test
   "L1 AND L2 — THE EDITOR'S BODIES AS SEMANTIC TREES, AND THE MARKER LAW
-  AS A FUNCTION (rf2-hic-078).
+  AS A FUNCTION.
 
   `ht/tree` runs one hook-free body under injected read fixtures and
   answers the Spec 004B structural tree it returned. No React, no

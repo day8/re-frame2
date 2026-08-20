@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.grid.events
-  "THE 100-CELL CONTROLLED GRID'S MODEL — ordinary re-frame2 (rf2-hic-078).
+  "THE 100-CELL CONTROLLED GRID'S MODEL — ordinary re-frame2.
 
   The editor is evidence about a form's SHAPE; this is evidence about
   BREADTH. One hundred controlled fields on one page, every one of them

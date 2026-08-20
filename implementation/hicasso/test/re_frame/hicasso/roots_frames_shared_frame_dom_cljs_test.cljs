@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.roots-frames-shared-frame-dom-cljs-test
-  "TWO ROOTS, ONE FRAME — the other axis (rf2-hic-012).
+  "TWO ROOTS, ONE FRAME — the other axis.
 
   The bead's goal sentence has two nouns in it: independent roots *and*
   frames cannot observe or corrupt one another. Its sibling suites take
@@ -329,7 +329,7 @@
 ;; the windows are compared by IDENTITY, which a registry keyed by anything
 ;; these two roots share cannot satisfy however it is implemented.
 ;;
-;; MUTATION, and where its record can be REACHED (rf2-1mmn): key the window
+;; MUTATION, and where its record can be REACHED: key the window
 ;; off the frame in
 ;; `hydrate-root!` — mint into a `defonce` map on first use per frame and
 ;; hand both roots the same object — and this row reds on `identical?` and

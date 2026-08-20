@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.routes
-  "THE FILTER IS A ROUTE (rf2-hic-086).
+  "THE FILTER IS A ROUTE.
 
   Two `reg-route` calls, and the whole of what this application stores
   about which to-dos it is showing: nothing. `All`, `Active` and

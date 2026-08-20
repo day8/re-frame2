@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.capsule-spike-cljs-test
-  "THE §11 REPLAYABLE-VIEW-CAPSULE SPIKE (rf2-hic-082).
+  "THE §11 REPLAYABLE-VIEW-CAPSULE SPIKE.
 
   [Specification §11] carries *replayable view capsules* as a **spike
   after L2**, with one deciding rule beside it — *one-shot, commit-owned,

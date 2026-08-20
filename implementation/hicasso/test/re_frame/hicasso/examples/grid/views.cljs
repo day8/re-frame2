@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.grid.views
   "THE 100-CELL CONTROLLED GRID — one hundred fields, each written the way
-  the guide writes one (rf2-hic-078).
+  the guide writes one.
 
   [[cell]] is the four-field editor's `text-field` with a coordinate in
   place of a field keyword. That is the claim this application makes and

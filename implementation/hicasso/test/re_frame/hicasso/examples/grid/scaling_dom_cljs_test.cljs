@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.grid.scaling-dom-cljs-test
-  "L3 — THE NARROW-UPDATE SCALING CLAIM, MEASURED (rf2-hic-078).
+  "L3 — THE NARROW-UPDATE SCALING CLAIM, MEASURED.
 
   > Narrow-update body work scales with changed rows rather than all
   > mounted rows.
@@ -19,7 +19,7 @@
   actually ran — a `React.memo` bail-out shows up as an increment that
   did not happen, so it measures adoption rather than inferring it from
   the comparator. It is the kit's door onto the runtime's own always-on
-  counter (rf2-5mxe); this file read that counter directly until the door
+  counter; this file read that counter directly until the door
   existed, which was allowed — the fence in
   `examples.witness-surface-cljs-test` is over APPLICATION namespaces —
   but left the application's own witness naming an internal to state a

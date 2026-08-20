@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.l0-cljs-test
-  "L0 — THE HANDLERS, THE SUBSCRIPTIONS AND THE TRANSITIONS (rf2-hic-086).
+  "L0 — THE HANDLERS, THE SUBSCRIPTIONS AND THE TRANSITIONS.
 
   `re-frame.hicasso.test`'s ladder names L0 as the tier the kit
   deliberately does not touch: *an event handler is a function of `db`

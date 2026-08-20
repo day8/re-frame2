@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.three-way-parity-cljs-test
   "THREE-WAY PARITY — Hicasso-native against BOTH handwritten React and
-  UIx (rf2-hic-034).
+  UIx.
 
   > A native island should be within 5% or 1 ms of the same component
   > mounted directly through its chosen React route, excluding the single

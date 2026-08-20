@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.app
-  "THE LEDGER'S ENTRY POINT — an adapter, a frame, a root (rf2-hic-047).
+  "THE LEDGER'S ENTRY POINT — an adapter, a frame, a root.
 
   `examples.grid.app`'s shape, with the model size as [[initial-events]]'
   parameter for the same reason: the size is the independent variable of

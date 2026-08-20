@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.three-way-parity-dom-cljs-test
-  "THREE-WAY PARITY UNDER A REAL REACT (rf2-hic-034).
+  "THREE-WAY PARITY UNDER A REAL REACT.
 
   `three_way_parity_cljs_test` settles what a server render can settle:
   bytes, element shape, props, and the construction figures underneath
@@ -40,7 +40,7 @@
   in terms that this is what keeps native-boundary clause 6 true — the
   door never names the tier.
 
-  ## One frame, and why a second would measure nothing HERE (rf2-ap7w)
+  ## One frame, and why a second would measure nothing HERE
 
   Row 4 of the conformance matrix asks for both embedding directions
   ACROSS TWO FRAMES, and every row below runs under the single

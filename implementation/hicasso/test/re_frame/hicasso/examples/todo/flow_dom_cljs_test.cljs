@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.flow-dom-cljs-test
-  "L3 — THE WHOLE TODO FLOW, MOUNTED (rf2-hic-086).
+  "L3 — THE WHOLE TODO FLOW, MOUNTED.
 
   One pass through the application on a real React root: adding through
   a real form submission, a real checkbox, edit-in-place under real

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.trusted-input-support
-  "A REAL KEY PRESS, FROM INSIDE A cljs.test ROW (rf2-il7b).
+  "A REAL KEY PRESS, FROM INSIDE A cljs.test ROW.
 
   Three suites in this package used to STATE a gap rather than measure
   it, and they were right to: a page cannot forge a trusted event, and
@@ -38,7 +38,7 @@
   needs MAP fixtures — `{:async? true}` on
   `re-frame.test-support/make-reset-runtime-fixture` — because cljs.test
   refuses an async row under a positional one by throwing a bare string
-  that unwinds the entire lane (rf2-u0j8).
+  that unwinds the entire lane.
 
   ## Why the readings need no settle
 

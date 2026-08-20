@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.surface-cljs-test
-  "THE IMPORT DISCIPLINE, MECHANICALLY (rf2-hic-044).
+  "THE IMPORT DISCIPLINE, MECHANICALLY.
 
   This application is the evidence `rf2-hic-050` decides the flagship
   resource experiment on. It is worth exactly as much as the claim that it

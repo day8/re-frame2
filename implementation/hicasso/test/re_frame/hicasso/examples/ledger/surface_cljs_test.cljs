@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.surface-cljs-test
-  "THE LEDGER'S IMPORT DISCIPLINE, MECHANICALLY (rf2-hic-047).
+  "THE LEDGER'S IMPORT DISCIPLINE, MECHANICALLY.
 
   Every application under `examples/` carries this file, and its two
   standing claims — the fence and the roster — are `todo.surface-cljs-test`'s,

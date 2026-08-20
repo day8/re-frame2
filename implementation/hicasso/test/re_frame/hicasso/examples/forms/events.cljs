@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.events
-  "THE THREE RECIPES, AS EVENT HANDLERS (rf2-hic-051).
+  "THE THREE RECIPES, AS EVENT HANDLERS.
 
   Ordinary re-frame2: every handler here is `(fn [coeffects event-v] →
   effect-map)` and nothing in this namespace knows a view substrate

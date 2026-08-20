@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.hframe-dom-cljs-test
-  "`h/frame` AGAINST A REAL REACT ROOT (rf2-841vn).
+  "`h/frame` AGAINST A REAL REACT ROOT.
 
   The node sibling ([[re-frame.hicasso.hframe-cljs-test]]) settles what
   the primitive does. Four claims are left over, and each is a claim

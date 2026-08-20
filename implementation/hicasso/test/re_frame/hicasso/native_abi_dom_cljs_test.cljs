@@ -32,7 +32,7 @@
 
   Checkpoint 3 recorded row 5's *mismatch attribution* clause as unmet for
   the outward bridge, and it is worth writing down that this is a SCOPE
-  rather than a gap (rf2-s52w).
+  rather than a gap.
 
   A bridged subtree is a child of a root the CONSUMER built with their own
   `createElement` and adopts with their own `hydrateRoot`. Spec 011's
@@ -163,7 +163,7 @@
   (n/$ react/StrictMode nil (n/$ bridging-parent {:article-id article-id})))
 
 (defui uix-bridging-parent
-  "A UIx parent that renders the very same bridged view (rf2-ap7w).
+  "A UIx parent that renders the very same bridged view.
 
   The third of the three parents the law names — *Hicasso-native, UIx and
   raw React parents can render Hicasso* — and until this row it was the
@@ -291,7 +291,7 @@
   and runs once per path; `mount/release!` is idempotent, so a row whose
   success path already tore its root down pays nothing here.
 
-  **Why the rejection arm cannot do this itself (rf2-fqof).**
+  **Why the rejection arm cannot do this itself.**
   [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
   once the wait succeeds, so a rejection reaches the arm with a live root
   the arm has no name for — the wait's own deadline is one such path, and
@@ -299,7 +299,7 @@
   finishing there leaves a mounted React root and its container standing
   in the document for the NEXT namespace to inherit, which is the very
   contamination the rf2-fyba campaign is about, arriving by a second
-  door (rf2-o0n1)."
+  door."
   []
   (run! mount/release! @!minted)
   (reset! !minted [])
@@ -334,7 +334,7 @@
   step that finished the row claims whatever a LATER namespace throws, prints
   it against this row's label, and calls `done` a SECOND time — re-forcing
   `run-block`'s unrealized delay and re-running the offending namespace, which
-  `run-browser-tests.cjs` promotes to a fatal console match (rf2-e8kc). Every
+  `run-browser-tests.cjs` promotes to a fatal console match. Every
   chain below therefore reports here and finishes on a single trailing step,
   with nothing after it."
   [label]
@@ -346,7 +346,7 @@
 ;; Teardown IS hoisted onto those trailing steps, through [[release-minted!]].
 ;; That the rejection arm never had the handle — `mount-live!` resolves WITH
 ;; it — is not a reason to leave the teardown on the success path; it is the
-;; defect (rf2-fqof). The root is already on the page when the promise is
+;; defect. The root is already on the page when the promise is
 ;; created, so the arm that cannot name it is the arm that strands it.
 ;; `a-lazy-head-suspends-and-then-names-its-own-component` holds its handle in
 ;; an enclosing `let` and hoists that one directly — it says so there.
@@ -934,7 +934,7 @@
               control-watch     (support/watch-mismatches!)
               _                 (relabel! alpha "client")
               ;; MANUFACTURED fault, asserted on — the one call site
-              ;; `:swallow-uncaught?` belongs at (rf2-mwx08).
+              ;; `:swallow-uncaught?` belongs at.
               control-console   (support/open-console-capture! {:swallow-uncaught? true})
               control-handle    (mount/hydrate-root! control-container alpha
                                                      [article-card {:article-id 7}])]

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.erasure-sentinels-cljs-test
-  "THE LIVE HALF OF THE PRODUCTION-ERASURE PROOF (rf2-hic-024).
+  "THE LIVE HALF OF THE PRODUCTION-ERASURE PROOF.
 
   `implementation/hicasso/scripts/check_production_erasure.cjs` scans the
   `:advanced` / `goog.DEBUG=false` bundle and requires five strings to be

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.editor.l0-cljs-test
-  "L0 — THE EDITOR'S MODEL, WITH NO VIEW SUBSTRATE ANYWHERE (rf2-hic-078).
+  "L0 — THE EDITOR'S MODEL, WITH NO VIEW SUBSTRATE ANYWHERE.
 
   `re-frame.hicasso.test`'s ladder names L0 as the tier the kit
   deliberately does not touch: an event handler is a function of `db` and

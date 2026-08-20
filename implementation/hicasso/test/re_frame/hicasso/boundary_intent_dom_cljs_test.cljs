@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.boundary-intent-dom-cljs-test
-  "AN INTENT ON A BOUNDARY'S FALLBACK, AND ON ITS CHILDREN (rf2-uo9di).
+  "AN INTENT ON A BOUNDARY'S FALLBACK, AND ON ITS CHILDREN.
 
   The sibling of [[re-frame.hicasso.presence-intent-dom-cljs-test]], and
   the identical mechanism one component along. An `h/error-boundary`'s
@@ -29,7 +29,7 @@
   it takes the *next* boundary up, so an application's error path became
   an application-wide failure.
 
-  ## The closed roster rides here too (rf2-czlb)
+  ## The closed roster rides here too
 
   Rows 8 and 9 are a different subject on the same instrument, and they
   are here because they need exactly what [[watched-root!]] already

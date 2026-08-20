@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.kernel-commit-owns-cljs-test
-  "INVARIANT I5, AT THE SEAM — render probes, commit owns (rf2-hic-010).
+  "INVARIANT I5, AT THE SEAM — render probes, commit owns.
 
   > Render is speculative: it probes reads, acquires no durable ownership,
   > and publishes no committed evidence. The selected commit reconciles

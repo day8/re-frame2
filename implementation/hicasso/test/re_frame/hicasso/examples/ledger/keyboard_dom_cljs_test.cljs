@@ -84,7 +84,7 @@
   below is for: cljs.test refuses an async row under a POSITIONAL
   fixture by throwing a bare string that unwinds the whole
   `test:browser` run, every later namespace and the closing summary
-  included (rf2-u0j8)."
+  included."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso :as h]
@@ -126,7 +126,7 @@
 ;; `:async? true` — the MAP shape — because this file now has async rows.
 ;; A positional fixture makes cljs.test throw a bare string the moment a
 ;; test body returns an async object, and nothing catches it: the whole
-;; lane unwinds, closing summary included (rf2-u0j8). An earlier draft of
+;; lane unwinds, closing summary included. An earlier draft of
 ;; this comment claimed the map shape was already in force here. It was
 ;; not: `make-reset-runtime-fixture` returns the POSITIONAL fn by default
 ;; and `:async? true` is the opt-in, so the file was one async row away

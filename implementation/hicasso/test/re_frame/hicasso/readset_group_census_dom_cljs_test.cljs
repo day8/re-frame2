@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.readset-group-census-dom-cljs-test
   "THE POPULATION — the shared read-set census taken on real mounted
-  applications (rf2-hic-083).
+  applications.
 
   [[re-frame.hicasso.readset-group-census-cljs-test]] decides the census's
   ARITHMETIC on the Node lane, where the published `render-body` +

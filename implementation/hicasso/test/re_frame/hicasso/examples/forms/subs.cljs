@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.subs
-  "WHAT THE FORM READS (rf2-hic-051).
+  "WHAT THE FORM READS.
 
   Every read the views make, and nothing else. The `db` namespace holds
   the rules; this file only addresses them, which is why each handler
