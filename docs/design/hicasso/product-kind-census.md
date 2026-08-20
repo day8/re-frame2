@@ -1,39 +1,50 @@
 # The product-record kind census — how much of `product/` is view specification
 
-`rf2-g0vdg`, 2026-08-19. A **measurement**. It moves nothing, edits nothing and
-rules nothing. Every file under [`product/`](product/README.md) is assigned one of four
-kinds, with a proportion where a file carries more than one, and the counts are the
-deliverable.
+`rf2-g0vdg`, 2026-08-19; re-derived 2026-08-20. A **measurement**. It moves nothing,
+edits nothing and rules nothing. Every file under [`product/`](product/README.md) is
+assigned one of four kinds, with a proportion where a file carries more than one, and the
+counts are the deliverable.
 
 **Why it exists.** [`rf2-ps7ia`](product/README.md#custody-and-amendment) must decide where the
 Hicasso normative set lives, and that decision reads very differently depending on how
 much of the set is actually normative. The estimate in play was *roughly forty files*.
-The measured population is **64 files and 17,044 lines**, so the estimate was low by
+The measured population is **64 files and 17,054 lines**, so the estimate was low by
 half — which is the argument for counting before deciding. **This page does not take
 that decision.** It supplies the number it turns on.
 
 ## The headline
 
-**The view-specification set is small, and it is not a set of files.** Of 17,044 lines,
-about **1,136 — under 7% — are view specification**, and they do not sit in files of
-their own: they are sections inside seven documents whose remaining bulk is working
+**The view-specification set is small, and it is not a set of files.** Of 17,054 lines,
+about **1,138 — under 7% — are view specification**, and they do not sit in files of
+their own: they are sections inside **twelve** documents whose remaining bulk is working
 record. The corpus is **89% working record by line**. Nothing here is a whole-file
 substrate contract. The normative core a consumer must obey to write Hicasso views
 correctly would fit in roughly **1,100 lines across three or four authored documents**,
 and the largest single contributor is one section range of one file.
 
-| Kind | Files (primary) | Lines (attributed) | Share |
-|---|---|---|---|
-| 1 — View specification | 7 | ~1,136 | 6.7% |
-| 2 — Substrate contract | **0** | ~97 | 0.6% |
-| 3 — Reader-facing answer | 4 | ~609 | 3.6% |
-| 4 — Working record | 53 | ~15,202 | 89.2% |
-| **Total** | **64** | **17,044** | **100%** |
+| Kind | Files (primary) | Files (any share) | Lines (attributed) | Share |
+|---|---|---|---|---|
+| 1 — View specification | 7 | **12** | ~1,138 | 6.7% |
+| 2 — Substrate contract | **0** | 3 | ~97 | 0.6% |
+| 3 — Reader-facing answer | 4 | 6 | ~608 | 3.6% |
+| 4 — Working record | 53 | 64 | ~15,211 | 89.2% |
+| **Total** | **64** | — | **17,054** | **100%** |
 
-Files are counted by their **primary** kind — the one holding the largest share.
+**Two file counts, and they answer different questions.** *Files (primary)* counts a file
+once, under the kind holding its largest share; the column therefore sums to 64 and says
+how many documents are *chiefly* of a kind. *Files (any share)* counts every file carrying
+**any** attributed content of that kind; it double-counts mixed files by design, does not
+sum to 64, and says how many documents a graduation of that kind would have to **read
+from**. For view specification the two numbers are **7 and 12**, and the gap is the whole
+of the mixture finding: five further documents carry view specification as a minority
+share. Neither number is wrong and neither substitutes for the other — the earlier
+revision of this page quoted 7 in the headline while its carrier table listed a
+non-primary carrier, which is what `AUDIT-REOPEN #8522` caught.
+
 Lines are **attributed**: a file that is 55% view specification contributes 55% of its
-lines to kind 1 and the rest to whichever kind holds them. The two columns therefore
-answer different questions, and the line column is the one the decision turns on.
+lines to kind 1 and the rest to whichever kind holds them. The line column is the one the
+decision turns on. Shares are rounded independently to one decimal and need not sum to
+exactly 100.
 
 **Eighteen of the 64 files are MIXED**; the other 46 are single-kind, and 46 of 46 of
 those are working record. So mixture is not a rare complication here — it is the shape
@@ -43,15 +54,38 @@ comes closest at about 95%.
 
 ### How the population was measured
 
-64 tracked files, 17,044 lines, of which 13 files and 947 lines are under
+64 tracked files, 17,054 lines, of which 13 files and 947 lines are under
 [`lanes/`](product/lanes/README.md) and 5 files and 707 lines under
-[`pilots/`](product/pilots/README.md). Both figures were re-derived here rather than
-inherited and both agree with the bead.
+[`pilots/`](product/pilots/README.md), leaving 46 files and 15,400 lines at top level.
+
+**Pinned to a commit, because the line total moves.** These figures were re-derived at
+commit `5858e9317a83e3ed0c34e95389457d83afd1e654`. The file count and the classification
+have not changed since the first pass; the line total has, from 17,044 to 17,054, entirely
+inside two single-kind working records — `correction-ledger.md` 131 → 133 and
+`release-scans.md` 328 → 336. No carrier of any normative kind changed length, so every
+kind-1, kind-2 and kind-3 figure on this page is unmoved and only the kind-4 residual
+absorbed the ten lines. The surrounding tree moved further: `docs/design/hicasso/` as a
+whole is now **135** files against the 131 the bead recorded, that growth being this page
+plus `studio/` additions, none of it under `product/`.
+
+**Two in-flight branches will move the total again**, both in working records and neither
+touching a carrier: one is editing `product/correction-ledger.md` and one
+`product/release-scans.md`. A reader reconciling a later count against this page should
+expect the kind-4 line to differ and the rest to hold.
+
+**A measurement caveat worth recording.** On the authoring host, combining a positive
+pathspec with a `:!` exclusion in `git ls-files` returned **zero** rather than the
+64 the positive pathspec alone returns — a false-empty that would have read as *nothing
+there*. Every census on this page was therefore run without an exclusion pathspec, with an
+explicit control confirming no `.beads` path falls under the measured roots (it does not:
+the roots are entirely inside `docs/`). Each sweep was also run once against something it
+should find, so an empty result here means absence rather than a mis-spelled pattern.
 
 ### The register is written in a non-normative voice, and that is a finding
 
 A count of RFC-2119 keywords (`MUST`, `MUST NOT`, `SHALL`, `REQUIRED`) over all 64 files
-returns **one hit, in a single file**, against a control of **35** in
+returns **one hit, in a single file** — `REQUIRED`, in
+[`dispositions.md`](product/dispositions.md) — against a control of **35** in
 [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) and 3 in
 [`spec/004B-UI-Tree-and-Conversion.md`](../../../spec/004B-UI-Tree-and-Conversion.md) taken
 with the same expression. The corpus states its laws in the indicative — *"a `defview` is
@@ -152,7 +186,7 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`pilots/brief-realworld.md`](product/pilots/brief-realworld.md) | 148 | WR | — |
 | [`pilots/friction-log.md`](product/pilots/friction-log.md) | 160 | WR | — |
 
-### Top level — 46 files, 15,390 lines
+### Top level — 46 files, 15,400 lines
 
 | File | Lines | Primary | Mix |
 |---|---|---|---|
@@ -171,7 +205,7 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`naming-findings-cp3.md`](product/naming-findings-cp3.md) | 57 | WR | — |
 | [`budgets.md`](product/budgets.md) | 2204 | WR | — |
 | [`release-policy.md`](product/release-policy.md) | 339 | **RF 70%** | WR 30% |
-| [`release-scans.md`](product/release-scans.md) | 328 | WR | — |
+| [`release-scans.md`](product/release-scans.md) | 336 | WR | — |
 | [`per-keystroke.md`](product/per-keystroke.md) | 659 | WR 80% | RF 20% (§6 asks for it as explanatory documentation *as well as* a witness) |
 | [`topology-tournament.md`](product/topology-tournament.md) | 1001 | WR | — |
 | [`prototype-suite-triage.md`](product/prototype-suite-triage.md) | 962 | WR | — |
@@ -184,7 +218,7 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`checkpoint-2-slice.md`](product/checkpoint-2-slice.md) | 413 | WR | — |
 | [`checkpoint-3-native.md`](product/checkpoint-3-native.md) | 420 | WR | — |
 | [`checkpoint-4-coverage.md`](product/checkpoint-4-coverage.md) | 461 | WR | — |
-| [`correction-ledger.md`](product/correction-ledger.md) | 131 | WR | — |
+| [`correction-ledger.md`](product/correction-ledger.md) | 133 | WR | — |
 | [`post-rename-recertification.md`](product/post-rename-recertification.md) | 280 | WR | — |
 | [`post-rename-recertification-2026-08-18.md`](product/post-rename-recertification-2026-08-18.md) | 291 | WR | — |
 | [`authoring-report-slice.md`](product/authoring-report-slice.md) | 176 | WR | — |
@@ -203,33 +237,57 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`virtualizer-recipe.md`](product/virtualizer-recipe.md) | 119 | **RF 60%** | WR 40% |
 | [`async-routing-recipes.md`](product/async-routing-recipes.md) | 144 | **RF 60%** | WR 40% |
 
-## What the seven view-specification carriers actually hold
+## What the twelve view-specification carriers actually hold
 
-Ranked by attributed view-specification lines, because this is the list a graduation
-would work from:
+**All twelve are listed, and the column sums to the headline.** Ranked by attributed
+view-specification lines, because this is the list a graduation would work from. The
+**Primary** column marks the seven whose largest share is view specification — the seven
+counted in the *Files (primary)* column above — and distinguishes them from the five that
+carry view specification as a minority share while remaining working records overall.
+Excluding those five would understate the reading a graduation must do, so none is
+excluded.
 
-| Carrier | VS lines | What it holds |
-|---|---|---|
-| [`specification.md`](product/specification.md) §§1–5, 7–10 | ~275 | Product shape, the architecture laws, the target programming model (`h/defview`, `h/sub`, `h/event`, `h/defhost`, `h/as-element`, root lifecycle, error region), events, controlled fields, host interop, the native hot path, the coverage table, React compatibility, the testing ladder, Xray's questions |
-| [`dispositions.md`](product/dispositions.md) §2 | ~205 | Per-surface server/hydration policy — the *target policy* half; the inventory-id rule; §2.4's default rule and the only route out of it |
-| [`facade-freeze.md`](product/facade-freeze.md) §§2–3, 5 | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
-| [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | ~113 | The public language: core surface, the optional `n` surface and the provisional `n/$` grammar, nine authoring laws, the exclusions, the interop contract |
-| [`invariants.md`](product/invariants.md) §§1–4 | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
-| [`lanes/react-compatibility-notes.md`](product/lanes/react-compatibility-notes.md) | ~86 | The canonical public-surface SSR/hydration matrix, Activity, Suspense, the external-store ceiling, hydration as a root-level diagnostic contract |
-| [`lanes/testing-xray.md`](product/lanes/testing-xray.md) | ~47 | The L0–L4 ladder as a supported product contract, the evidence contract, the failure/privacy contract |
-| [`lanes/design-laws.md`](product/lanes/design-laws.md) §§1–4 | ~44 | React and ownership, state and reactivity, language and interop, the native boundary — the canonical owner of the native-tier laws |
+| Carrier | Primary? | VS lines | What it holds |
+|---|---|---|---|
+| [`specification.md`](product/specification.md) §§1–5, 7–10 | **VS** | ~278 | Product shape, the architecture laws, the target programming model (`h/defview`, `h/sub`, `h/event`, `h/defhost`, `h/as-element`, root lifecycle, error region), events, controlled fields, host interop, the native hot path, the coverage table, React compatibility, the testing ladder, Xray's questions |
+| [`dispositions.md`](product/dispositions.md) §2 | WR | ~205 | Per-surface server/hydration policy — the *target policy* half; the inventory-id rule; §2.4's default rule and the only route out of it. Also the tree's only RFC-2119 keyword |
+| [`facade-freeze.md`](product/facade-freeze.md) §§2–3, 5 | **VS** | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
+| [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | **VS** | ~113 | The public language: core surface, the optional `n` surface and the provisional `n/$` grammar, nine authoring laws, the exclusions, the interop contract |
+| [`invariants.md`](product/invariants.md) §§1–4 | **VS** | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
+| [`complaints.md`](product/complaints.md) §§*What every complaint carries*, *The stability rule*, *Rulings this catalogue owns* | WR | ~92 | The four guaranteed `ex-data` slots and the rule that `:view`/`:source` are context and never branchable; the id-stability rule. **Its normative half already lives in `spec/009` under a bidirectional gate**, which is why this carrier is the least homeless of the twelve |
+| [`lanes/react-compatibility-notes.md`](product/lanes/react-compatibility-notes.md) | **VS** | ~86 | The canonical public-surface SSR/hydration matrix, Activity, Suspense, the external-store ceiling, hydration as a root-level diagnostic contract |
+| [`lanes/testing-xray.md`](product/lanes/testing-xray.md) | **VS** | ~47 | The L0–L4 ladder as a supported product contract, the evidence contract, the failure/privacy contract |
+| [`lanes/design-laws.md`](product/lanes/design-laws.md) §§1–4 | **VS** | ~44 | React and ownership, state and reactivity, language and interop, the native boundary — the canonical owner of the native-tier laws |
+| [`lanes/hot-path-architecture.md`](product/lanes/hot-path-architecture.md) §*Owned native surface and semantic fence*, §*Explicit refusals* | WR | ~21 | The semantic fence: no macro rewrites interpreted Hiccup and only an explicit `n/$` form expands to direct React construction; the standing refusals. The rest of the file is workflow, ladder and acceptance evidence |
+| [`lanes/adversarial-risks.md`](product/lanes/adversarial-risks.md) — *Required contract* column | WR | ~15 | Per-risk required contracts stated normatively: ambient-read extent, controlled-input portability, callback retirement, hydration isolation, speculative-render residue. The other three columns are witnesses and remedies, which are working record |
+| [`lanes/use-cases.md`](product/lanes/use-cases.md) — *Hicasso consequence* column | WR | ~6 | A handful of standing authoring rules stated as consequences — preserve one interpreted mode, keep read-anywhere during direct synchronous boundary execution, add no generic local-state DSL. The *Job* and *Design pressure* columns are requirements-mine material |
+| **Total** | — | **~1,138** | Seven primary carriers hold ~799; the five minority carriers hold ~339 |
 
-Two structural facts about that list:
+**Why the split matters more than either number.** A graduation that took only the seven
+primary carriers would move about 70% of the view specification and leave ~339 lines of it
+behind in documents that would still read as working records — including the two largest
+single omissions, `dispositions.md` §2 at ~205 lines and `complaints.md` at ~92. Those two
+alone are more than a quarter of the corpus's normative content. So the *seven* is the
+right answer to *how many documents are chiefly specification* and the wrong answer to
+*how many documents must be read*, and only the second question bears on `rf2-ps7ia`.
+
+Three structural facts about that list:
 
 - **It is heavily duplicative by design.** `invariants.md` says of itself that *nothing
   here is new* and that every row is transcribed from `specification.md`,
   `lanes/design-laws.md`, `lanes/ergonomics-api.md` or `decision-brief.md`.
   `facade-freeze.md` says its laws are transcribed from `specification.md` §4 and
-  `lanes/ergonomics-api.md` and that it *adds none*. So the ~1,136 lines contain perhaps
+  `lanes/ergonomics-api.md` and that it *adds none*. So the ~1,138 lines contain perhaps
   two independent statements of the same law and in places three. A graduation that
   de-duplicated would land materially under a thousand lines; a graduation that moved the
   files wholesale would carry all three copies plus the transcription-precedence rule that
   exists only to arbitrate between them.
+- **The five minority carriers are the ones a file-level move would strand**, and they are
+  not the small ones. `dispositions.md` and `complaints.md` are 512 and 308 lines of which
+  ~205 and ~92 are normative; moving either wholesale drags a per-surface inventory and a
+  live status ledger into `spec/`, and moving neither leaves a quarter of the view contract
+  outside it. This is the concrete form of the mixture finding: the tree has no file whose
+  boundaries match the contract's boundaries.
 - **The reader-facing half has largely graduated already.** 29 pages stand under
   `docs/core/hicasso/` and the ladder in `lanes/hot-path-architecture.md` is already
   published as `escape-ladder.md`; `05-forms.md` already stands as the draft spec for the
@@ -306,33 +364,59 @@ saying so in `spec/`.
 ## Is the view-specification set a small job or a programme?
 
 **A small job, and smaller than it looks — but only if answers graduate rather than
-documents.** The normative core is about 1,136 lines, under 7% of a 17,044-line corpus,
-and it is not distributed across thirty files: eight section ranges in seven documents
-carry effectively all of it, and those ranges are substantially transcriptions of one
-another, so a de-duplicated statement of the Hicasso view contract plausibly lands under a
-thousand lines — three or four authored documents, one pass, not a sequenced programme.
+documents.** The normative core is about 1,138 lines, under 7% of a 17,054-line corpus,
+and it is not distributed across thirty files: **twelve documents carry it, seven of them
+chiefly**, and the top four carriers alone hold ~732 of the 1,138. Those ranges are
+substantially transcriptions of one another, so a de-duplicated statement of the Hicasso
+view contract plausibly lands under a thousand lines — three or four authored documents,
+one pass, not a sequenced programme. **Twelve is the number to plan the reading against
+and three or four is the number to plan the writing against**, and conflating them is the
+one way to get this wrong in either direction: a reader who takes *seven* as the reading
+list silently drops ~339 normative lines, and a reader who takes *twelve* as the writing
+list builds a programme the material does not justify.
+
 What is a programme, and would be a large and thankless one, is moving *files*: 53 of the
 64 are working records whose value is their provenance pins, dated measurement windows and
-beside-amendment history, and every one of the seven carriers is mixed, so any file-level
-move either drags working record into `spec/` or tears a document that says of itself that
-*where a row and its owner disagree the owner governs*. The two cheapest facts to act on
-are that the reader-facing half has already largely graduated into the 29 published pages
-under `docs/core/hicasso/`, and that one of the seven carriers — `complaints.md` — is not
-homeless at all, because `spec/009` already carries its normative half under a
-bidirectional gate and already reserves the slot for the rest.
+beside-amendment history, and **every one of the twelve carriers is mixed** — not one file
+in this tree is purely view specification — so any file-level move either drags working
+record into `spec/` or tears a document that says of itself that *where a row and its owner
+disagree the owner governs*. The two cheapest facts to act on are that the reader-facing
+half has already largely graduated into the 29 published pages under `docs/core/hicasso/`,
+and that one of the twelve carriers — `complaints.md` — is not homeless at all, because
+`spec/009` already carries its normative half under a bidirectional gate and already
+reserves the slot for the rest.
+
+**On the register.** Whichever number is used, this is a rewrite and not a move: the corpus
+states its laws in the indicative and returns exactly one RFC-2119 keyword across all 64
+files, against 35 in `spec/006` alone. That cost falls on the ~1,138 lines, not on the
+17,054.
 
 ## What this page is not
 
 It takes no decision on `rf2-ps7ia`. It proposes no destination, moves nothing, and
 changes no gate. Its two riders are reported and deliberately not fixed.
 
+**What the 2026-08-20 revision changed, and what it did not.** `AUDIT-REOPEN #8522` found
+this page internally inconsistent about how many documents carry view specification: the
+headline said seven while the carrier table listed eight rows, one of them a non-primary
+carrier, and four further attributed carriers were silently absent — so the table summed to
+~1,001 against a headline of ~1,136 with nothing explaining the gap. **No classification
+changed.** Every file holds the kind and proportion it was first assigned; what changed is
+that the page now states both counts, says which question each answers, lists all twelve
+carriers so the column reconciles with the headline, and carries the ten lines of working-
+record growth since the first pass. The headline total moved from ~1,136 to ~1,138 for one
+reason only: `specification.md`'s attributed lines are now carried as ~278 — 55% of 506 —
+where the earlier carrier table rounded them to ~275.
+
 **Where this page sits, and why.** `docs/design/` is where working records live and this is
 one; it sits at `docs/design/hicasso/` rather than inside `product/` on purpose, because
 `product/README.md` enumerates every file in that directory and a 65th file would both
 enlarge the population this page measures and leave that index incomplete. It is gated by
 `scripts/check_doc_slugs.py` for link targets and heading anchors, and by
-`scripts/check_provenance_pins.py`, which has nothing to adjudicate here — this page cites
-no commit hashes. `mkdocs build --strict` does **not** reach it: `mkdocs.yml`'s
+`scripts/check_provenance_pins.py`, which has exactly one token to adjudicate: the single
+commit this page's measurement is pinned to, under *How the population was measured*. That
+commit was on `origin/main` when it was written and stays reachable, so the pin resolves
+rather than stranding. `mkdocs build --strict` does **not** reach it: `mkdocs.yml`'s
 `exclude_docs` block carries `design/hicasso/`. It is not added to
 `docs/design/hicasso/README.md`'s table, which already omits three other top-level pages in
 this directory.
