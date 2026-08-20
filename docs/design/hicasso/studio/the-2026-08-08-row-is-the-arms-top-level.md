@@ -24,8 +24,9 @@ node implementation/hicasso/test/re_frame/bench/hicasso/alloc_ladder_placement.c
 
 - **The arm has a level ladder spanning `3,784 B` — the same figure on both segments —
   at the very revision the 2026-08-08 row was measured at.** `rf2-c4hhk` pinned
-  `implementation/core/src` at `4a1537cb717dc6660aa449642f198a2cc970c93b`, the commit
-  the 2026-08-08 row itself landed at, and read the arm 70 times. Sixty-nine scored:
+  `implementation/core/src` at `4a1537cb717dc6660aa449642f198a2cc970c93b` — **provably
+  the substrate the 2026-08-08 run itself executed against**, checked in [§3](#3-the-level-ladder-at-the-same-substrate-revision)
+  rather than assumed from the commit date — and read the arm 70 times. Sixty-nine scored:
   `19,100 / 19,540` in 32 of them, and four settled levels above it topping out at
   `22,884 / 23,324`.
 - **The published shortfall is `4,034 – 5,018 B`. The ladder spans `3,784 B`.** The
@@ -110,6 +111,22 @@ and no better — which is the accuracy this conversion is entitled to, and is w
 placement below is reported across eight variants rather than one.
 
 ## 3. The level ladder at the same substrate revision
+
+**First, that "same" is checked rather than assumed**, because the whole placement rests
+on it and a landing commit is not automatically the tree a run executed against.
+`4a1537cb71` is the commit that *landed* the 2026-08-08 dataset, an hour after the run —
+so the question is whether `implementation/core/src` moved in between. It did not, and
+the interval is far wider than an hour:
+
+| | |
+|---|---|
+| last change under `implementation/core/src` before the landing commit | `ee9343fd233ab43d06e78b3fc999de396e3c95e4`, 2026-08-07 23:25:44 +1000 |
+| the run itself (`generatedAt`) | 2026-08-07T23:37:56.882Z = 2026-08-08 09:37:56 +1000 |
+| the landing commit `4a1537cb71` | 2026-08-08 10:38:22 +1000, and it **touches no file under `implementation/core/src`** |
+
+So the substrate at `4a1537cb71` is byte-identical to the substrate the 2026-08-08 run
+executed against, with about ten hours of margin on the earlier side. **`rf2-c4hhk` did
+not merely measure a nearby revision; it measured this run's own.**
 
 `alloc-c4hhk`. **70 datasets committed; `armed-25` produced no reading (Chromium failed
 to launch) and exited 1 exactly like the 69 good runs; 69 scored; 69 admissible with
