@@ -128,6 +128,26 @@ const pos = (x) => (x > 0 ? x : 0);
 // a leg or across a leg boundary, and the count below bounds the number of
 // collections in NEITHER direction -- see the census in section 4.
 const negLegs = (c) => c.legs.filter((l) => l < 0);
+
+// THE COLLECTION-COUNT LOWER BOUND, DERIVED RATHER THAN ASSERTED (rf2-onozm).
+//
+// This is the reader's ONLY expression of the bound: the report prints what this
+// returns, and the self-test pins both this function and that printed line, so
+// the two cannot drift apart. Added on the merged-PR audit of #8602, which found
+// the previous guard checking `Math.min(negLegs(w).length, 1) === 1` -- 1 by
+// construction for any window with a negative leg, calling no production
+// function and consuming no report result, so the reported bound could be
+// changed with every check still green.
+//
+// ONE delta is sampled per leg, so a negative leg witnesses that SOMETHING
+// collected inside the window and nothing finer. A window with three negative
+// legs and a window with one therefore support the SAME bound -- one collection
+// -- because one collection spanning a leg boundary can mark several legs, and
+// one leg can hide several collections. THE BOUND IS DELIBERATELY NOT A FUNCTION
+// OF THE LEG COUNT; a change that makes it one is the regression this exists to
+// catch.
+const collectionLowerBound = (w) => (negLegs(w).length > 0 ? 1 : 0);
+
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const pc = (v) => v.toFixed(1) + '%';
 
@@ -449,11 +469,16 @@ function report() {
   });
   const negObs = r20neg.flatMap((c) => negLegs(c));
   const multi = r20neg.filter((c) => negLegs(c).length > 1);
+  const bounds = r20neg.map(collectionLowerBound);
+  const boundPerWindow = bounds.length ? Math.min(...bounds) : 0;
+  const boundTotal = bounds.reduce((a, b) => a + b, 0);
   say(`      negative legs per window: ` +
       Object.keys(perWin).sort((a, b) => a - b).map((k) => `${k} x ${perWin[k]}`).join(', ') +
       `  ->  ${negObs.length} NEGATIVE-LEG OBSERVATIONS over ${r20neg.length} windows`);
-  say(`      All ${r20neg.length} refusing windows carry at least one, so each is`);
-  say(`      collection-affected and the lower bound is ONE COLLECTION PER WINDOW.`);
+  say(`      All ${r20neg.length} refusing windows carry at least one, so each is collection-affected.`);
+  say(`      THE LOWER BOUND IS ${boundPerWindow} COLLECTION PER WINDOW, ${boundTotal} IN ALL. That figure is`);
+  say(`      derived from the windows themselves and is deliberately NOT a function of the`);
+  say(`      leg count -- see collectionLowerBound(), which is what this line prints.`);
   say(`      ${negObs.length} IS A COUNT OF LEG OBSERVATIONS, NOT OF COLLECTIONS, and does not`);
   say(`      raise that bound: one collection spanning a leg boundary can make several`);
   say(`      legs negative, and one leg can hide several collections. The number of`);
@@ -711,12 +736,20 @@ function selfTest() {
   ck('deepest-magnitude cannot separate 3 negative legs from 1',
     Math.min(...synth.legs) === Math.min(...single.legs), true);
   ck('negLegs CAN separate them', negLegs(synth).length !== negLegs(single).length, true);
-  // And the claim the census may NOT make, pinned so it cannot creep back: the
-  // collection-count lower bound is one PER WINDOW, and the leg count does not
-  // raise it. Both synthetic windows are one collection-affected window each,
-  // whatever their leg counts.
-  ck('a 3-negative-leg window still bounds collections at >= 1, not >= 3',
-    Math.min(negLegs(synth).length, 1), 1);
+  // And the claim the census may NOT make: the collection-count lower bound is
+  // one PER WINDOW, and the leg count does not raise it. PINNED THROUGH THE
+  // PRODUCTION DERIVATION THE REPORT USES. The previous version of this check read
+  // `Math.min(negLegs(synth).length, 1) === 1`, which is 1 by construction for any
+  // window with a negative leg -- a synthetic answer carrying itself, exactly the
+  // shape struck from the set-relation guard below, and the merged-PR audit of
+  // #8602 caught it here. The three checks below go red if `collectionLowerBound`
+  // ever becomes a function of the leg count.
+  ck('a 3-negative-leg window and a 1-negative-leg window support the SAME bound',
+    collectionLowerBound(synth), collectionLowerBound(single));
+  ck('and that bound is ONE collection, not one per negative leg',
+    collectionLowerBound(synth), 1);
+  ck('a window with no negative leg supports no collection at all',
+    collectionLowerBound({ legs: [100, 100, 100, 100, 100, 100] }), 0);
 
   // THE SET-RELATIONSHIP GUARD, added when the merged-PR audit of #8591 caught
   // this page asserting that the retired bound "refuses nothing the certificate
@@ -774,6 +807,18 @@ function selfTest() {
   ck('and nothing above it was ever sampled at another page size',
     new Set(cws.map((c) => c.boundaries)).size, 1);
 
+  // AND THE REPORTED BOUND ITSELF, so a figure stated in the output cannot drift
+  // from the derivation behind it. BOTH halves are needed and neither substitutes
+  // for the other: the three checks above fail if `collectionLowerBound` becomes a
+  // function of the leg count, and this one fails if the sentence stops printing
+  // what that function returns -- an output line rewritten to "three collections",
+  // or a total re-derived from `negObs.length` (76 rather than 72), reds here.
+  const rep = report();
+  ck('the report states the derived collection bound and no other',
+    /THE LOWER BOUND IS 1 COLLECTION PER WINDOW, 72 IN ALL\./.test(rep), true);
+  ck('and it still names the 76 as leg observations rather than as collections',
+    /76 IS A COUNT OF LEG OBSERVATIONS, NOT OF COLLECTIONS/.test(rep), true);
+
   // An empty certified set must be NO CEILING rather than -Infinity, which would
   // place every window above the ceiling and read as a unanimous finding.
   let threw = false;
@@ -798,5 +843,5 @@ if (require.main === module) {
 
 module.exports = {
   windows, identities, cells, rungTable, ceiling, liveLadder, ladderMaxB,
-  report, selfTest, med, pos, MASKING_BOUND_B, W,
+  negLegs, collectionLowerBound, report, selfTest, med, pos, MASKING_BOUND_B, W,
 };
