@@ -887,8 +887,10 @@
 
     ;; ---- 4-layer chrome events (spec/018) -------------------------
 
-    ;; L3 tab bar — flip the active tab. Six valid ids:
-    ;; :epoch :app-db :views :trace :machines :routing
+    ;; L3 tab bar — flip the active tab. The valid ids are whatever
+    ;; `panel-registry/tab-ids-for-mode :dynamic` currently holds (the
+    ;; JVM-portable mirror of that set is `focus/valid-panels`), so
+    ;; this event has no literal inventory to keep in step.
     ;; Registry-driven; a new tab requires only a reg-l4-tab! call.
     ;; Issues surface inline in the Epoch panel, via the L2 event-row
     ;; pink-wash, and via the auto-open-on-error signal — there is no

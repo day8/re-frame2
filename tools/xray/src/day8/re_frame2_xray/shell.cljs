@@ -2464,10 +2464,11 @@
                                      " ease-out forwards")}}
       ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
       ;; `install!` declares `:panel <view-fn>` via
-      ;; `panel-registry/reg-l4-tab!`; the previous case-switch over
-      ;; `{:event :app-db :views :trace :machines :routing}` is
-      ;; replaced by a lookup against `tab-by-id :dynamic`. The six
-      ;; tabs and their per-panel view fns each live colocated with
+      ;; `panel-registry/reg-l4-tab!`; the case-switch this replaced
+      ;; enumerated `{:event :app-db :views :trace :machines :routing}`
+      ;; — a literal that went stale on every tab added or retired.
+      ;; A lookup against `tab-by-id :dynamic` has no inventory to keep
+      ;; in step: EVERY registered tab's view fn lives colocated with
       ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
       ;; rather than the panel-cum-shell coupling the literal case-
       ;; switch encoded.
