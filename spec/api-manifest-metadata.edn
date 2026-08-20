@@ -204,10 +204,11 @@
  ;; fully, so a var listed here that ever DID acquire a ClojureScript arm
  ;; would appear as a live public with no row and turn the probe RED.
  ;;
- ;; Not every JVM-only var on a covered door needs an entry: `render-static`
- ;; is a `#?(:clj (defmacro …))` and is `:require-macros`-referred, so the
- ;; CLJS analyzer does carry it and it reconciles normally. An entry is
- ;; needed only where the CLJS host has NOTHING.
+ ;; Not every JVM-only var on a covered door needs an entry: a
+ ;; `#?(:clj (defmacro …))` reads as JVM-only in the source but, when it is
+ ;; `:require-macros`-referred, the CLJS analyzer does carry it and it
+ ;; reconciles normally. An entry is needed only where the CLJS host has
+ ;; NOTHING.
  ;;
  ;; Each entry states its justification. Keep it short.
  :jvm-only-classification
