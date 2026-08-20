@@ -59,18 +59,28 @@ low. Nothing was stopped early and nothing was extended.
 ### Why twenty, and why all at one revision
 
 The rate was re-derived from the committed corpus rather than taken from prose.
-Every 18-round floor run committed before this page, scored by the estimator
-above:
+**What the table counts, stated so its denominators are not left to inference**:
+every floor run of **18 rounds** committed before the twenty-run series began,
+scored by the estimator above. Two runs sit on the edge of that rule and are named
+rather than left implicit. The 6-round `alloc-9jrhi/pilot-rounds6` is **out** —
+it is not an 18-round run and is not comparable under this estimator. And
+`alloc-9jrhi/bisect-5` is **in**, because these are the DESIGN's numbers and the
+series length was fixed before that run's control was ever read. The
+admissible-readings accounting, which does drop it, closes this section under
+"The same rule moves the prior" and takes the prior to **1 in 6**.
 
 | Revision | Runs | High-mode runs |
 |---|---|---|
 | `4a1537cb71` | 7 | **1** (`alloc-9jrhi/bisect-1`) |
-| every other revision measured | 7 | 0 |
+| every other revision measured | 6 | 0 |
 
 So the observed rate **at the revision where the mode has ever appeared** was
-**1 in 7 (≈14%)**, not the "one in three" the earliest corpus suggested — six runs
-at that revision from `rf2-n1b9h` had since come back low and diluted it. Twenty
-runs at p = 1/7 gives **P(at least one high) = 1 − (6/7)²⁰ ≈ 95%**.
+**1 in 7 (≈14%)**, not the "one in three" the earliest corpus suggested — the
+**four** `rf2-n1b9h` runs at that revision had since come back low and diluted the
+three the bisect had left. That session is six runs, but two of them sit at head
+rather than at `4a1537cb71`, which is why the revision's total is seven and not
+nine. Twenty runs at p = 1/7 gives
+**P(at least one high) = 1 − (6/7)²⁰ ≈ 95%**.
 
 Those are the **design's** numbers and they stay: 1 in 7 is what the corpus showed
 when the series length was fixed, and the twenty follows from it.
