@@ -1301,28 +1301,77 @@
                                                       {:tolerance tolerance})))
              ;; ONE expression of the positive-control rule too, and it is
              ;; the LANE's. The driver owns the collector, so it is the
-             ;; driver that reads `predicted` against the measured range —
-             ;; and until rf2-95s5b it printed that pair as a bare ratio
-             ;; nothing adjudicated. `lane/control-verdict` is what the
-             ;; freehand P0 arms already publish their controls under; what
-             ;; it DECIDES is not this namespace's to change (rf2-egdaq),
-             ;; and its docstring states the rule it applies — range
-             ;; OVERLAP, not every-round-inside.
+             ;; driver that states `predicted` against this row's own
+             ;; per-round readings — and until rf2-95s5b it printed that
+             ;; pair as a bare ratio nothing adjudicated.
+             ;;
+             ;; THE RULE IS `lane/control-verdict-strict`, EVERY ROUND
+             ;; INSIDE THE BAND (rf2-egdaq). It used to be the lane's
+             ;; overlap rule, which asks only that the measured RANGE meet
+             ;; the band — and on a counter this precise that is not a
+             ;; weaker gate, it is an absent one. This control's whole
+             ;; purpose is to catch a collector that has stopped seeing
+             ;; transient garbage, and the shape that failure takes is a
+             ;; round reading ~0 B. Under overlap, one round at 0 B beside
+             ;; five good ones PASSES: `min` 0 is below the roof and `max`
+             ;; ~4,700,000 is above the floor, so the range meets the band
+             ;; and a good round vouches for a dead one. Under this rule
+             ;; that round is named and the run is refused.
+             ;;
+             ;; AND THE COARSE-LEG CARVE-OUT DOES NOT REACH HERE. The
+             ;; 2026-07-31 ruling keeps overlap for legs sitting within a
+             ;; few of Chrome's 100 µs `performance.now()` quanta, where a
+             ;; low round is the clock rather than a defect, and names a
+             ;; window whose legs clear the quantum as its own revisit
+             ;; trigger. This leg is not a clock leg at all: a dense array
+             ;; of unboxed doubles read in BYTES off CDP's heap counter,
+             ;; predicted 4,700,000 B and typically published inside
+             ;; [4,699,074 – 4,700,974], ±0.02% of it. There is no quantum
+             ;; to sit on, so the exemption has nothing to exempt — and the
+             ;; ruling's own revisit trigger, a window whose legs clear the
+             ;; quantum, is met by a leg that was never on one in the first
+             ;; place. `re-frame.bench.p0-app`'s control IS a clock
+             ;; ratio and stays on overlap under that same ruling; the two
+             ;; rows of this driver are adjudicated by different rules
+             ;; because they are measured by different instruments.
+             ;;
+             ;; RE-ADJUDICATING THE PUBLISHED SERIES COSTS NOTHING, and the
+             ;; published records settle it without re-running a window: a
+             ;; stated [min–max] whose two ends both sit inside the band
+             ;; bounds EVERY round inside it. Across this row's published
+             ;; series the widest excursion either way is 4,690,838 B —
+             ;; 0.195% below a prediction gated at ±25% — so every heap row
+             ;; ever published is `ok` under this rule too. The tightening
+             ;; buys teeth for the next run, not a revision of the last one.
+             ;;
+             ;; The answer carries `:per-round` so a later reader can
+             ;; re-adjudicate under either rule WITHOUT re-running the
+             ;; window — the durability hole rf2-egdaq's audit of PR #8326
+             ;; found, and the reason the aggregate shape is gone from
+             ;; this call rather than merely tightened.
              ;;
              ;; A flat literal `#js` answer, never `clj->js`: that would
              ;; render `:ok?` as the key `"ok?"` and a driver reading
              ;; `v.ok` would see `undefined` — the control green for ever
              ;; because nothing could read it. The same trap `mount!`
-             ;; already carries the scar from.
-             :controlVerdict (fn [predicted measured slack]
-                               (let [m (js->clj measured :keywordize-keys true)
-                                     v (lane/control-verdict
-                                         predicted
-                                         (select-keys m [:min :max :mean])
-                                         slack)]
-                                 #js {:ok    (boolean (:ok? v))
-                                      :why   (:why v)
-                                      :slack (:slack v)}))
+             ;; already carries the scar from, and it is why `:outside`
+             ;; is built as flat `#js` objects one level down too.
+             :controlVerdict (fn [predicted per-round slack]
+                               (let [vs (vec (js->clj per-round))
+                                     v  (lane/control-verdict-strict predicted vs slack)]
+                                 #js {:ok       (boolean (:ok? v))
+                                      :rule     (name (:rule v))
+                                      :why      (:why v)
+                                      :slack    (:slack v)
+                                      :stated   (boolean (:stated? v))
+                                      :band     (into-array (:band v))
+                                      :perRound (into-array vs)
+                                      :outside  (into-array
+                                                  (map (fn [o]
+                                                         #js {:round    (:round o)
+                                                              :measured (:measured o)
+                                                              :offBy    (:off-by o)})
+                                                       (:outside v)))}))
              :guardSelfTest  (fn [] (pr-str (guard/self-test)))
              ;; The fan-out sweep's two doors, and both of them are RULES
              ;; rather than arithmetic, so both live here rather than in a
