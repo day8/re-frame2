@@ -31,6 +31,34 @@
 // by it, and it is not tau and is not calibrated against tau in either
 // direction. It is a label applied to an already-measured bimodal population.
 //
+// ## ADMISSIBILITY, WHICH IS A SEPARATE QUESTION AND FAILS CLOSED
+//
+// The bar above says which of two MODES an admissible reading sits in. It says
+// nothing about whether there is a reading at all, and those two questions were
+// once run together here to this reader's cost.
+//
+// **A FAILED POSITIVE CONTROL IS NOT A LOW-MODE OBSERVATION.** Every floor
+// record carries `alloc.controlVerdict`, the verdict of the run's own positive
+// control — a control that did not certify says the INSTRUMENT was not reading
+// correctly during that run, so the arm figures beside it are not a measurement
+// of anything. An earlier version of `runsOf` admitted every dataset carrying an
+// `alloc.perRound` array and classified anything it could not read as LOW, so
+// two control-refused runs were silently counted as low-mode observations:
+// `alloc-77gz8/run12-a4a1537cb71` and
+// `alloc-9jrhi/bisect-5-a-4a1537cb71-replicate`. Counting a refused control low
+// biases every rate on this record DOWNWARD, and it did.
+//
+// So `admit()` below fails closed on three shapes, and `runsOf` NAMES each
+// exclusion rather than dropping it:
+//
+//   no alloc block             — the dataset holds no allocation reading at all
+//   control refused            — `alloc.controlVerdict.ok !== true`
+//   no certified segment level — every window was refused, so no level exists
+//
+// The rule is the one `docs/design/hicasso/studio/the-eight-signs-are-one-block.md`
+// already applies to the same corpus, and it is applied here identically so the
+// two records cannot disagree about which runs count as readings.
+//
 // ## THE BOUNDARY SENSITIVITY, WHICH IS WHY THIS READER PRINTS A SWEEP
 //
 // The headline figure an earlier read quoted — a one-tail hypergeometric
@@ -128,34 +156,58 @@ function mannWhitney(highRanks, lowRanks) {
 
 // --- the records ------------------------------------------------------------
 
+// ADMISSIBILITY, as a pure function of one parsed record, so the self-test can
+// exercise every refusal shape without a fixture directory on disk. It returns
+// either a reading or a NAMED reason there is none — never a default, and never
+// a `false` that a caller could read as "low".
+function admit(raw) {
+  const a = raw && raw.alloc;
+  // A dataset with no `alloc` block carries no reading at all.
+  if (!a || !Array.isArray(a.perRound)) return { ok: false, why: 'no alloc block' };
+  // A FAILED POSITIVE CONTROL IS NOT A LOW-MODE OBSERVATION. See the header:
+  // the control certifies that the instrument was reading correctly during the
+  // run, so a refused control voids the arm figures beside it rather than
+  // contributing a low one. A record with no verdict at all is refused on the
+  // same principle — an unasserted control is not a passed control.
+  if (!a.controlVerdict || a.controlVerdict.ok !== true) return { ok: false, why: 'control refused' };
+
+  const perSegment = {};
+  for (const round of a.perRound) {
+    for (const w of Object.values(round.arms || {})) {
+      if (!w.certified) continue;
+      (perSegment[w.segment] = perSegment[w.segment] || []).push(w.legMedian);
+    }
+  }
+  const levels = {};
+  for (const [seg, xs] of Object.entries(perSegment)) levels[seg] = median(xs);
+  const readable = Object.values(levels).filter((v) => v !== null && Number.isFinite(v));
+  // Every window refused, so the run holds no level to classify. Falling through
+  // here would have produced `high: false` from an EMPTY set — the exact shape
+  // that made an unreadable run look like a low-mode one.
+  if (!readable.length) return { ok: false, why: 'no certified segment level' };
+
+  return { ok: true, levels, high: readable.some((v) => v >= HIGH_MODE_B) };
+}
+
 function runsOf(dir) {
   const full = path.join(DATA, dir);
   const out = [];
   const skipped = [];
   for (const f of fs.readdirSync(full).filter((x) => x.endsWith('.json')).sort()) {
     const raw = JSON.parse(fs.readFileSync(path.join(full, f), 'utf8'));
-    const a = raw.alloc;
-    // A dataset with no `alloc` block carries no reading at all. It is counted
-    // as INADMISSIBLE and named, never silently dropped and never counted low —
-    // counting it low would move every rate on this page.
-    if (!a || !Array.isArray(a.perRound)) {
-      skipped.push({ file: f, why: 'no alloc block' });
+    const verdict = admit(raw);
+    // EVERY exclusion is named and carries its reason. None is silently
+    // dropped and none is counted low — a dataset with no reading is not a
+    // reading of zero, and a dataset whose control failed is not a reading.
+    if (!verdict.ok) {
+      skipped.push({ file: f, why: verdict.why });
       continue;
     }
-    const perSegment = {};
-    for (const round of a.perRound) {
-      for (const w of Object.values(round.arms || {})) {
-        if (!w.certified) continue;
-        (perSegment[w.segment] = perSegment[w.segment] || []).push(w.legMedian);
-      }
-    }
-    const levels = {};
-    for (const [seg, xs] of Object.entries(perSegment)) levels[seg] = median(xs);
     out.push({
       file: f.replace(/\.json$/, ''),
       at: Date.parse(raw.generatedAt),
-      levels,
-      high: Object.values(levels).some((v) => v !== null && v >= HIGH_MODE_B),
+      levels: verdict.levels,
+      high: verdict.high,
     });
   }
   out.sort((x, y) => x.at - y.at);
@@ -229,8 +281,15 @@ function report(a) {
   L.push('');
   L.push(`  ${'session'.padEnd(20)}${'runs'.padStart(6)}${'high'.padStart(6)}${'rate'.padStart(8)}${'minutes'.padStart(10)}   inadmissible`);
   for (const s of [...a.sessions, a.bounding]) {
-    L.push(`  ${s.dir.padEnd(20)}${String(s.N).padStart(6)}${String(s.K).padStart(6)}${`${(100 * s.rate).toFixed(1)}%`.padStart(8)}${s.minutes.toFixed(1).padStart(10)}   ${s.skipped.map((x) => x.file).join(', ') || '—'}`);
+    // Every exclusion is printed WITH ITS REASON. A count of admissible runs
+    // that did not say what it left out, and why, would be the defect this
+    // reader was corrected for.
+    const excl = s.skipped.map((x) => `${x.file.replace(/\.json$/, '')} (${x.why})`).join(', ') || '—';
+    L.push(`  ${s.dir.padEnd(20)}${String(s.N).padStart(6)}${String(s.K).padStart(6)}${`${(100 * s.rate).toFixed(1)}%`.padStart(8)}${s.minutes.toFixed(1).padStart(10)}   ${excl}`);
   }
+  L.push('');
+  L.push('  INADMISSIBLE means NO READING, never a low reading. A failed positive control voids');
+  L.push('  the arm figures beside it; counting such a run low biases every rate here downward.');
   L.push('');
 
   const long = a.sessions[a.sessions.length - 1];
@@ -290,6 +349,66 @@ function selfTest() {
   // moving every rate on the record silently.
   ok('classifier: the bar is rf2-77gz8 21,000 B/write, unchanged', HIGH_MODE_B === 21000);
 
+  // --- ADMISSIBILITY, every refusal shape, on synthetic records -----------
+  // These are pure-function fixtures rather than corpus pins, so they hold even
+  // if the corpus one day carries none of these shapes. The corpus pins below
+  // then check that the rule is actually REACHING the committed data.
+  const window = (segment, legMedian) => ({ segment, legMedian, certified: true });
+  const synth = (over) => ({
+    generatedAt: '2026-08-01T00:00:00.000Z',
+    alloc: {
+      controlVerdict: { ok: true },
+      perRound: [{ arms: { a: window('reagent-subs', 19000), b: window('uix-subs', 19500) } }],
+      ...over,
+    },
+  });
+
+  ok('admit: a clean record is admitted and reads low', (() => {
+    const v = admit(synth({}));
+    return v.ok === true && v.high === false && v.levels['uix-subs'] === 19500;
+  })());
+  ok('admit: a clean record above the bar reads high', (() => {
+    const v = admit({ generatedAt: 'x', alloc: { controlVerdict: { ok: true }, perRound: [{ arms: { a: window('uix-subs', 22000) } }] } });
+    return v.ok === true && v.high === true;
+  })());
+  // SHAPE 1 — no alloc block. `alloc-c4hhk/armed-25` is this shape.
+  ok('admit: SHAPE 1 — no alloc block is refused and named', (() => {
+    const v = admit({ generatedAt: 'x' });
+    return v.ok === false && v.why === 'no alloc block';
+  })());
+  // SHAPE 2 — the control refused. `alloc-77gz8/run12` and
+  // `alloc-9jrhi/bisect-5` are this shape, and the reason this reader was
+  // corrected: BOTH were previously counted LOW.
+  ok('admit: SHAPE 2 — a refused control is refused, NOT counted low', (() => {
+    const v = admit(synth({ controlVerdict: { ok: false, perDouble: 11.8, differential: 14.2 } }));
+    return v.ok === false && v.why === 'control refused' && v.high === undefined;
+  })());
+  ok('admit: SHAPE 2 — a MISSING control verdict is refused too', (() => {
+    const r = synth({});
+    delete r.alloc.controlVerdict;
+    return admit(r).why === 'control refused';
+  })());
+  // AND IT DISCRIMINATES: the refused record's levels are perfectly readable
+  // and BELOW the bar, so a reader that only checked readability would call it
+  // low. Refusal has to come from the control, not from the numbers.
+  ok('admit: SHAPE 2 — the refused record would otherwise have read LOW', (() => {
+    const clean = admit(synth({}));
+    return clean.ok === true && clean.high === false;
+  })());
+  // SHAPE 3 — no certified segment level. `alloc-2rtt6-138/run1` is this shape
+  // in the committed corpus, though not in the four sessions read here.
+  ok('admit: SHAPE 3 — every window refused is refused, not read as low', (() => {
+    const v = admit(synth({ perRound: [{ arms: { a: { segment: 'uix-subs', legMedian: 19500, certified: false } } }] }));
+    return v.ok === false && v.why === 'no certified segment level';
+  })());
+  ok('admit: SHAPE 3 — an empty perRound is refused', (() => admit(synth({ perRound: [] })).why === 'no certified segment level')());
+  // The ordering of the refusals matters: a record that is BOTH control-refused
+  // and unreadable is reported against the control, which is the stronger fact.
+  ok('admit: a doubly-bad record is named for the control', (() => {
+    const v = admit(synth({ controlVerdict: { ok: false }, perRound: [] }));
+    return v.why === 'control refused';
+  })());
+
   // --- the committed corpus, pinned ---------------------------------------
   let a = null;
   try {
@@ -300,10 +419,42 @@ function selfTest() {
   }
   const byDir = Object.fromEntries([...a.sessions, a.bounding].map((s) => [s.dir, s]));
   ok('corpus: workcount-n1b9h reads 0 of 6', byDir['workcount-n1b9h'].K === 0 && byDir['workcount-n1b9h'].N === 6);
-  ok('corpus: alloc-77gz8 reads 2 of 20', byDir['alloc-77gz8'].K === 2 && byDir['alloc-77gz8'].N === 20);
+  // THE CORRECTED DENOMINATOR. 2 of 20 was the figure before the admissibility
+  // repair; run12's control was refused, so the readings are 2 of 19.
+  ok('corpus: alloc-77gz8 reads 2 of 19 — NOT 2 of 20', byDir['alloc-77gz8'].K === 2 && byDir['alloc-77gz8'].N === 19);
   ok('corpus: alloc-c4hhk reads 37 of 69', byDir['alloc-c4hhk'].K === 37 && byDir['alloc-c4hhk'].N === 69);
-  ok('corpus: alloc-c4hhk names armed-25 as the one inadmissible run',
-    byDir['alloc-c4hhk'].skipped.length === 1 && /armed-25/.test(byDir['alloc-c4hhk'].skipped[0].file));
+  ok('corpus: alloc-9jrhi reads 1 of 7 — NOT 1 of 8', byDir['alloc-9jrhi'].K === 1 && byDir['alloc-9jrhi'].N === 7);
+  // AND EVERY EXCLUSION IS NAMED WITH ITS REASON, on the committed corpus, so
+  // the rule is shown to REACH the data rather than only the synthetic pins.
+  ok('corpus: alloc-c4hhk names armed-25, refused for having no alloc block',
+    byDir['alloc-c4hhk'].skipped.length === 1 &&
+    /armed-25/.test(byDir['alloc-c4hhk'].skipped[0].file) &&
+    byDir['alloc-c4hhk'].skipped[0].why === 'no alloc block');
+  ok('corpus: alloc-77gz8 names run12, refused for its CONTROL',
+    byDir['alloc-77gz8'].skipped.length === 1 &&
+    /run12-a4a1537cb71/.test(byDir['alloc-77gz8'].skipped[0].file) &&
+    byDir['alloc-77gz8'].skipped[0].why === 'control refused');
+  ok('corpus: alloc-9jrhi names bisect-5, refused for its CONTROL',
+    byDir['alloc-9jrhi'].skipped.length === 1 &&
+    /bisect-5-a-4a1537cb71-replicate/.test(byDir['alloc-9jrhi'].skipped[0].file) &&
+    byDir['alloc-9jrhi'].skipped[0].why === 'control refused');
+  ok('corpus: workcount-n1b9h excludes nothing', byDir['workcount-n1b9h'].skipped.length === 0);
+  // THE TWO REFUSED RUNS READ BELOW THE BAR, which is exactly why the old
+  // reader counted them low and why nothing but the control catches them.
+  ok('corpus: both refused runs would have read LOW, so only the control excludes them', (() => {
+    const raw = (d, f) => JSON.parse(fs.readFileSync(path.join(DATA, d, f), 'utf8'));
+    const check = (d, f) => {
+      const r = raw(d, f);
+      const v = admit(r);
+      if (v.ok !== false || v.why !== 'control refused') return false;
+      // Re-admit the same record with a passing control and confirm it reads low.
+      const forced = { ...r, alloc: { ...r.alloc, controlVerdict: { ok: true } } };
+      const w = admit(forced);
+      return w.ok === true && w.high === false;
+    };
+    return check('alloc-77gz8', 'run12-a4a1537cb71.json') &&
+      check('alloc-9jrhi', 'bisect-5-a-4a1537cb71-replicate.json');
+  })());
   ok('corpus: the three session durations are 8.2 / 19.7 / 88.3 min',
     Math.abs(byDir['workcount-n1b9h'].minutes - 8.2) < 0.05 &&
     Math.abs(byDir['alloc-77gz8'].minutes - 19.7) < 0.05 &&
@@ -322,21 +473,35 @@ function selfTest() {
 
   const early = a.conditioned[0];
   const pooled = a.conditioned[1];
-  ok('corpus: against the early rate, n1b9h reads 0.16 and 77gz8 reads 0.072',
-    Math.abs(early.others[0].pAtMost - 0.160) < 5e-3 && Math.abs(early.others[1].pAtMost - 0.072) < 5e-3);
-  ok('corpus: against the pooled rate, 77gz8 reads 5.9e-05',
-    Math.abs(pooled.others[1].pAtMost - 5.89e-5) < 1e-6);
+  // RECOMPUTED ON THE CORRECTED DENOMINATOR. 77gz8's 2 of 19 reads 0.0894 and
+  // 1.15e-4; on the stale 2 of 20 the same two figures were 0.0721 and 5.89e-5.
+  ok('corpus: against the early rate, n1b9h reads 0.160 and 77gz8 reads 0.089',
+    Math.abs(early.others[0].pAtMost - 0.160) < 5e-3 && Math.abs(early.others[1].pAtMost - 0.0894) < 5e-3);
+  ok('corpus: against the pooled rate, 77gz8 reads 1.15e-04 — not the stale 5.89e-05',
+    Math.abs(pooled.others[1].pAtMost - 1.149e-4) < 1e-6 && pooled.others[1].pAtMost > 6e-5);
+  ok('corpus: against the pooled rate, n1b9h reads 0.0099', Math.abs(pooled.others[0].pAtMost - 0.00995) < 5e-4);
+  // AND THE DIRECTION OF THE REPAIR IS PINNED: dropping a refused run that had
+  // been counted LOW can only make the short session look LESS extreme, so both
+  // corrected figures must sit ABOVE their stale counterparts. A future change
+  // that silently re-admitted a refused control would push them back down.
+  ok('corpus: the repair moved both 77gz8 figures UPWARD, as dropping a false low must',
+    early.others[1].pAtMost > 0.0721 && pooled.others[1].pAtMost > 5.89e-5);
 
   // --- THE BOUND, pinned hardest of all -----------------------------------
   // This is the half a write-up is most likely to lose, so it is the half the
   // fixtures hold most tightly.
   const b = byDir['alloc-9jrhi'];
-  ok('bound: the bisect carries exactly one high run', b.K === 1 && b.N === 8);
+  ok('bound: the bisect carries exactly one high run among SEVEN admissible', b.K === 1 && b.N === 7);
   const idx = b.runs.findIndex((r) => r.high);
-  ok('bound: its high run is SECOND of eight, not third', idx === 1);
+  ok('bound: its high run is SECOND, not third', idx === 1);
   ok('bound: its high run sits at +3.6 min in a 14.9 min session',
     Math.abs((b.runs[idx].at - b.runs[0].at) / 60000 - 3.6) < 0.05 && Math.abs(b.minutes - 14.9) < 0.05);
   ok('bound: it is in the EARLY half, where the gradient predicts fewest highs', idx < b.N / 2);
+  // THE BOUND SURVIVES THE ADMISSIBILITY REPAIR, and that is the point of
+  // pinning it here: the run excluded from the bisect sits at +11.3 min, LATE,
+  // so removing it can only make the surviving high run look earlier still.
+  ok('bound: the excluded bisect run is NOT the high one', !/bisect-5/.test(b.runs[idx].file));
+  ok('bound: excluding it left the session span unchanged at 14.9 min', Math.abs(b.minutes - 14.9) < 0.05);
 
   return checks;
 }
@@ -359,6 +524,7 @@ module.exports = {
   analyse,
   report,
   selfTest,
+  admit,
   runsOf,
   sessionOf,
   hypergeometric,
