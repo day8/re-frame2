@@ -6,8 +6,21 @@ estimator produced three incompatible rates for the elevated floor mode.
 
 **No allocation window was taken for this page, and no rig file was edited.**
 Every figure is re-derived from datasets already committed under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/`. The analysis was run
-against the tree at commit `a51138e93b`.
+`implementation/hicasso/test/re_frame/bench/hicasso/data/`.
+
+> **CORRECTED 2026-08-21 — the admissibility rule.** The first version of this
+> page admitted two runs whose own positive control had FAILED, and counted both
+> as low-mode observations. **A failed positive control is not a low-mode
+> observation**, and counting one as low biases every rate here downward. The two
+> runs are `alloc-77gz8/run12-a4a1537cb71` and
+> `alloc-9jrhi/bisect-5-a-4a1537cb71-replicate`, both `alloc.controlVerdict.ok =
+> false`. Excluding them moves the two short-session rates from 2 of 20 to
+> **2 of 19** and from 1 of 8 to **1 of 7**, and moves the conditioned binomial
+> figures with them. **Every finding on this page survives the repair**; the
+> `alloc-c4hhk` gradient, the Mann-Whitney result and the bound are untouched
+> because that session carries no refused control. The rule is now the same one
+> [the eight signs are one block](the-eight-signs-are-one-block.md) applies to
+> the same corpus.
 
 **τ was not moved, in either direction.** No gate, band, threshold, budget or
 tolerance was widened, narrowed or touched. The 21,000 B/write high-mode
@@ -22,11 +35,11 @@ passes or fails on it and no run is refused by it.
 real but weaker than a quartile cut makes it look. It does NOT explain the
 bisect's high run, and it does NOT discharge `rf2-9jrhi`.**
 
-- **The three rates reproduce exactly**, and so does the finding that they are
-  not an arming effect: 0 of 6, 2 of 20, 37 of 69 = 53.6%, with 18 of 34 armed
-  against 19 of 35 unarmed. Both arms moved together, which is what an
-  environment term does and an arming term does not.
-- **Session duration orders them**: 8.2 min → 0%, 19.7 min → 10%, 88.3 min →
+- **The three rates reproduce on the admissible corpus**, and so does the
+  finding that they are not an arming effect: 0 of 6, 2 of 19, 37 of 69 = 53.6%,
+  with 18 of 34 armed against 19 of 35 unarmed. Both arms moved together, which
+  is what an environment term does and an arming term does not.
+- **Session duration orders them**: 8.2 min → 0%, 19.7 min → 10.5%, 88.3 min →
   53.6%. That relation is four points once the bisect is added and it is
   described, not fitted.
 - **Within the long session the gradient is real but modest.** The
@@ -34,8 +47,9 @@ bisect's high run, and it does NOT discharge `rf2-9jrhi`.**
   0.0054 — and that figure moves eightfold, 0.0210 to 0.0025, across a two-run
   choice of where the cut falls. **The cut is a choice; quote the rank test.**
 - **THE BOUND, and it is the half that must not be lost.** The bisect session's
-  single high run sits at **+3.6 minutes, second of eight** in a 14.9-minute
-  session. The gradient says an early run is where a high is LEAST likely, so
+  single high run sits at **+3.6 minutes, second of seven admissible** in a
+  14.9-minute session. The gradient says an early run is where a high is LEAST
+  likely, so
   **elapsed time does not explain this run**. `rf2-9jrhi`'s open question —
   whether the second mode is revision-dependent — is **not** discharged by
   anything here, and the two questions stay separate.
@@ -45,17 +59,31 @@ bisect's high run, and it does NOT discharge `rf2-9jrhi`.**
 Statistic: the median of `legMedian` over each run's CERTIFIED floor windows,
 per segment. A run is HIGH when either segment reads at or above 21,000 B/write.
 
-| session | runs | high | rate | minutes | inadmissible |
+| session | runs | high | rate | minutes | inadmissible, and why |
 |---|---|---|---|---|---|
 | `workcount-n1b9h` | 6 | 0 | 0.0% | 8.2 | — |
-| `alloc-9jrhi` | 8 | 1 | 12.5% | 14.9 | — |
-| `alloc-77gz8` | 20 | 2 | 10.0% | 19.7 | — |
-| `alloc-c4hhk` | 69 | 37 | **53.6%** | 88.3 | `armed-25-a4a1537cb71` |
+| `alloc-9jrhi` | 7 | 1 | 14.3% | 14.9 | `bisect-5-a-4a1537cb71-replicate` — control refused |
+| `alloc-77gz8` | 19 | 2 | 10.5% | 19.7 | `run12-a4a1537cb71` — control refused |
+| `alloc-c4hhk` | 69 | 37 | **53.6%** | 88.3 | `armed-25-a4a1537cb71` — no `alloc` block |
 
-`armed-25` carries no `alloc` block at all, so it holds no reading. It is named
-as inadmissible rather than dropped silently and **is never counted low** —
-counting it low would move the headline rate, and a dataset with no reading is
-not a reading of zero.
+**The runs count admissible READINGS, and inadmissible means no reading at all —
+never a low one.** Three exclusions, of two kinds, and both kinds bias the same
+way if mishandled:
+
+- **`armed-25` carries no `alloc` block**, so it holds no reading. Counting it
+  low would move the headline rate, and a dataset with no reading is not a
+  reading of zero.
+- **`run12` and `bisect-5` carry `alloc.controlVerdict.ok = false`.** Their
+  own positive control did not certify, which says the instrument was not
+  reading correctly while they ran — so the arm figures beside them are not a
+  measurement of anything. **Both read comfortably below the bar**
+  (19,100 / 19,540 and 19,108 / 19,540 B/write), which is exactly why nothing
+  but the control catches them and why the first version of this page counted
+  both as low.
+
+Every exclusion is NAMED with its reason, here and in the reader's own output.
+A count that did not say what it left out, and why, is the defect this page was
+corrected for.
 
 **Not an arming effect.** `alloc-c4hhk` alternated armed and unarmed runs
 strictly: **18 of 34 armed (52.9%) against 19 of 35 unarmed (54.3%)**. An arming
@@ -68,15 +96,18 @@ exclude.
 | session | minutes | rate |
 |---|---|---|
 | `workcount-n1b9h` | 8.2 | 0.0% |
-| `alloc-9jrhi` | 14.9 | 12.5% |
-| `alloc-77gz8` | 19.7 | 10.0% |
+| `alloc-9jrhi` | 14.9 | 14.3% |
+| `alloc-77gz8` | 19.7 | 10.5% |
 | `alloc-c4hhk` | 88.3 | 53.6% |
 
 **Four sessions, monotone but for one inversion at 14.9 against 19.7 minutes,
-where the two rates are 12.5% and 10% on 8 and 20 runs.** No test is offered on
-this table and none should be: four points, three of them at durations that are
-also three different clock times on two different dates, and the rates carry
-sampling error of their own. It is stated as an ORDERING and not as a fit.
+where the two rates are 14.3% and 10.5% on 7 and 19 runs.** No test is offered
+on this table and none should be: four points, three of them at durations that
+are also three different clock times on two different dates, and the rates carry
+sampling error of their own. It is stated as an ORDERING and not as a fit. **The
+admissibility repair widened that inversion slightly** — it dropped one run from
+each of the two sessions, and both were low — which is a further reason not to
+read a fit into four points.
 
 **The bisect is on this table rather than beside it**, which matters twice over.
 Its rate fits the duration relation perfectly well. Its internal ordering, below,
@@ -131,15 +162,21 @@ Read against the long session's own EARLY rate rather than its pooled rate, the
 two short sessions are unremarkable. Read against the pooled rate, one of them is
 extreme. One-tailed binomial, P(at most the observed count):
 
-| reference rate | `workcount-n1b9h`, 0 of 6 | `alloc-77gz8`, 2 of 20 |
+| reference rate | `workcount-n1b9h`, 0 of 6 | `alloc-77gz8`, 2 of 19 |
 |---|---|---|
-| early prefix, 5 of 19 = 26.3% | 0.160 | 0.072 |
-| pooled, 37 of 69 = 53.6% | 0.0099 | **5.89e-5** |
+| early prefix, 5 of 19 = 26.3% | 0.160 | 0.089 |
+| pooled, 37 of 69 = 53.6% | 0.0099 | **1.15e-4** |
 
 **That contrast is the whole of the claim.** Against 53.6%, `alloc-77gz8`'s 2 of
-20 is a 1-in-17,000 event and the three sessions genuinely do contradict each
+19 is a 1-in-8,700 event and the three sessions genuinely do contradict each
 other. Against 26.3% — the rate the long session itself ran at while it was as
 young as the short ones were when they ended — nothing needs explaining.
+
+**Both `alloc-77gz8` figures moved UPWARD under the admissibility repair**, from
+0.072 and 5.89e-5, and that direction is not a coincidence: the run dropped had
+been counted low, so removing it can only make the session look less extreme.
+The reader pins the direction as well as the values, so a future change that
+silently re-admitted a refused control would push them back down and red.
 
 **This is conditional and it is not a test.** The reference rate is taken from
 the same data the gradient was found in, so the second row is not an independent
@@ -159,15 +196,24 @@ partly does.
 | +5.7 min | `bisect-2-m-a158c40288` | 19,386 | low |
 | +7.3 min | `bisect-3-b-48c715f97c` | 19,378 | low |
 | +9.4 min | `bisect-4-p-9d20be1d00` | 19,054 | low |
-| +11.3 min | `bisect-5-a-4a1537cb71-replicate` | 19,108 | low |
 | +13.2 min | `bisect-6-a-4a1537cb71-replicate2` | 19,100 | low |
 | +14.9 min | `bisect-7-head-88411ed803` | 19,378 | low |
 
-**The single high run is the SECOND of eight, at +3.6 minutes of a 14.9-minute
-session.** Under the within-`c4hhk` gradient — 27.8% in the first quarter against
-52.9-68.8% after — an early run is precisely where a high run is least likely.
-So one of two things is true, and this page does not choose between them: the
-gradient is noisy at n = 1, or something else is also in play.
+**`bisect-5-a-4a1537cb71-replicate` sat at +11.3 min and is not on this table**:
+its control was refused, so it carries no reading. Its `reagent-subs` figure
+would have been 19,108 B/write — below the bar — and the first version of this
+page listed it as a low run.
+
+**The single high run is the SECOND of seven admissible, at +3.6 minutes of a
+14.9-minute session.** Under the within-`c4hhk` gradient — 27.8% in the first
+quarter against 52.9-68.8% after — an early run is precisely where a high run is
+least likely. So one of two things is true, and this page does not choose between
+them: the gradient is noisy at n = 1, or something else is also in play.
+
+**The bound strengthens rather than weakens under the repair.** The run removed
+sat LATE, at +11.3 of 14.9 minutes, so dropping it leaves the surviving high run
+earlier in the session than before, and the session span is unchanged at 14.9
+minutes because the excluded run was neither the first nor the last.
 
 ### What that means for `rf2-9jrhi`, exactly
 
@@ -182,9 +228,19 @@ the mode's REVISION-DEPENDENCE (`rf2-9jrhi`) do not collapse into one another.
 Nothing on this page should be cited as bearing on the second. See
 [the bisect is flat and the floor has a second mode](the-bisect-is-flat-and-the-floor-has-a-second-mode.md).
 
-## Two corrections to the earlier read
+## Three corrections to the earlier read
 
-- **The bisect's high run is the SECOND-earliest of eight, not the third.** The
+- **Two control-refused runs were counted LOW, and are now excluded.** This is
+  the correction that moves numbers on this page, and it is set out in the box
+  at the top. `alloc-77gz8/run12` and `alloc-9jrhi/bisect-5` both carry
+  `alloc.controlVerdict.ok = false`. The reader that produced the first version
+  of this page admitted any dataset with an `alloc.perRound` array and treated
+  an unreadable or uncertified one as low; it now fails closed on three shapes —
+  no `alloc` block, a refused control, and no certified segment level — and
+  names every exclusion with its reason. **The direction of the error was
+  systematic, not random**: a false low can only depress a rate, so every
+  affected figure moved the same way.
+- **The bisect's high run is the SECOND-earliest, not the third.** The
   earlier note's own ordered list has `pilot-rounds6` at +0.0 and `bisect-1-a` at
   +3.6, which makes it second; the prose beside that list said third. The
   direction of the bound is unaffected — second is, if anything, earlier — but
@@ -228,10 +284,21 @@ node implementation/hicasso/test/re_frame/bench/hicasso/alloc_mode_rate_session.
 
 It launches nothing, reads no rig file and writes nothing. Its fixtures run under
 `--self-test` and pin the bound hardest of all — that the bisect's high run is
-second of eight and in the early half — because that is the half a write-up is
-most likely to lose.
+second of the admissible runs and in the early half — because that is the half a
+write-up is most likely to lose.
 
-The fixtures also **discriminate rather than restate**: they require the prefix
-sweep to move at least fourfold across the cut, and require the boundary-free
-rank test to come out WEAKER than the best cut. A change that made the quartile
-figure look robust would red them.
+The fixtures **discriminate rather than restate**: they require the prefix sweep
+to move at least fourfold across the cut, and require the boundary-free rank test
+to come out WEAKER than the best cut. A change that made the quartile figure look
+robust would red them.
+
+**The admissibility rule is pinned from both ends.** Synthetic fixtures exercise
+each of the three refusal shapes as a pure function, so they hold even if the
+corpus one day carries none of them; corpus fixtures then check the rule reaches
+the committed data, naming `armed-25`, `run12` and `bisect-5` with the reason
+each was refused. One fixture re-admits each refused record with a passing
+control and confirms it would have read LOW — which is what makes the exclusion
+discriminating rather than decorative, since nothing but the control distinguishes
+those runs from genuine low ones. Two more pin the DIRECTION of the repair: both
+`alloc-77gz8` conditioned figures must sit above their pre-repair values, because
+dropping a false low can only move them that way.
