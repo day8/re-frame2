@@ -632,8 +632,69 @@
   value)
 
 ;; ---------------------------------------------------------------------------
+;; Serial promise chains
+;; ---------------------------------------------------------------------------
+
+(defn chain
+  "Fold `xs` into a serial promise chain, threading an accumulator.
+
+  Defined HERE rather than beside the write helpers it was written for,
+  because [[rounds-async!]] below is its second consumer and a var cannot
+  be used above its definition."
+  [init xs f]
+  (reduce (fn [p x] (.then p (fn [acc] (f acc x)))) (js/Promise.resolve init) xs))
+
+;; ---------------------------------------------------------------------------
 ;; Rounds
 ;; ---------------------------------------------------------------------------
+
+(defn- visit-plan
+  "The visits ONE run makes, in execution order, as
+  `{:round :arm :measured?}`.
+
+  THE SCHEDULE IS STATED ONCE, HERE, and both loops below walk it.
+  [[rounds!]] is synchronous and [[rounds-async!]] is not, and the
+  obvious way to write the second is to give it its own nested loops —
+  which would be a second copy of the reflecting order, the warm-up
+  boundary and the round boundary, with nothing holding it in step with
+  the first. This file already prices that shape twice: [[slot-order]]'s
+  `k = 2` degeneracy survived a fix to its own sibling because
+  `b6-harness` held a copy, and [[observe!]]'s missing call was repaired
+  privately in the two hand-rolled loops while the ten apps riding the
+  shared one kept the fault. A plan both loops consume cannot disagree
+  with itself, and `lane-schedule-async-cljs-test` asserts that they do
+  not rather than trusting this paragraph."
+  [arms {:keys [warmup samples] :as _sampling} rounds]
+  (let [k (count arms)]
+    (for [round (range rounds)
+          s     (range (+ warmup samples))
+          j     (slot-order k s)]
+      {:round round :arm (nth arms j) :measured? (>= s warmup)})))
+
+(defn- fresh-readings
+  "One empty reading vector per arm, per round."
+  [arms rounds]
+  (atom (vec (repeat rounds (zipmap (map :id arms) (repeat []))))))
+
+(defn- bank-visit!
+  "Bank one visit's reading — or, for a warm-up visit, record only that it
+  RAN.
+
+  DISCARDED, BUT NOT UNSEEN. A warm-up sample is what the next measured
+  sample actually followed; [[observe!]] carries that across the gap so
+  the guard's `:predecessor` factor stratifies what ran rather than what
+  was banked."
+  [coll readings label {:keys [round arm measured?]} ms]
+  (if measured?
+    (do (collect! coll (label arm) ms)
+        (swap! readings update-in [round (:id arm)] conj ms))
+    (observe! coll (label arm)))
+  nil)
+
+(defn- default-label
+  "An arm names itself to the guard unless the caller says otherwise."
+  [arm]
+  (name (:id arm)))
 
 (defn rounds!
   "Run `rounds` rounds of `sampling` over `arms`, calling
@@ -682,29 +743,60 @@
   bench apps ride this loop and every one of them would inherit the new
   schedule, so the trigger is stated here rather than left to judgement."
   ([arms sampling rounds measure-one!]
-   (rounds! arms sampling rounds measure-one! (fn [arm] (name (:id arm)))))
-  ([arms {:keys [warmup samples] :as _sampling} rounds measure-one! label]
-   (let [k    (count arms)
-         coll (sample-collector)
-         out  (mapv
-                (fn [_round]
-                  (let [acc (atom (zipmap (map :id arms) (repeat [])))]
-                    (dotimes [s (+ warmup samples)]
-                      (doseq [j (slot-order k s)]
-                        (let [arm (nth arms j)
-                              ms  (measure-one! arm)]
-                          (if (>= s warmup)
-                            (do (collect! coll (label arm) ms)
-                                (swap! acc update (:id arm) conj ms))
-                            ;; DISCARDED, BUT NOT UNSEEN. A warm-up sample
-                            ;; is what the next measured sample actually
-                            ;; followed; [[observe!]] carries that across
-                            ;; the gap so the guard's `:predecessor` factor
-                            ;; stratifies what ran rather than what was banked.
-                            (observe! coll (label arm))))))
-                    @acc))
-                (range rounds))]
-     {:readings out :samples (:samples @coll)})))
+   (rounds! arms sampling rounds measure-one! default-label))
+  ([arms sampling rounds measure-one! label]
+   (let [coll     (sample-collector)
+         readings (fresh-readings arms rounds)]
+     (doseq [visit (visit-plan arms sampling rounds)]
+       (bank-visit! coll readings label visit (measure-one! (:arm visit))))
+     {:readings @readings :samples (:samples @coll)})))
+
+(defn rounds-async!
+  "[[rounds!]]'s schedule, driven by a `measure-one!` that answers a
+  PROMISE of the reading rather than the reading. Answers a promise of
+  the same `{:readings :samples}` map.
+
+  ## Why the lane needed this, and what its absence cost
+
+  [[rounds!]] calls `measure-one!` and takes a NUMBER back, so an arm it
+  can schedule is an arm whose whole window closes inside one synchronous
+  call. **A window that ends at a PAINT cannot.** The browser produces the
+  frame after the task returns and the only handle on it is a callback, so
+  every arm this lane could schedule was one bracketed by
+  `react-dom/flushSync` — a commit, and not a paint.
+
+  That is not an accident of what happened to get written. It is the shape
+  the only shared schedule allowed, and it is the reason both of the clock
+  drivers pointed at the package measure a mount:
+  `docs/design/hicasso/product/budgets.md` §4 registers `U1`–`U4` over
+  *latency to visible echo* and *latency to next paint* and records, in
+  those words, that the population is what still blocks them.
+
+  ## It is the same schedule, and that is asserted rather than claimed
+
+  Same [[visit-plan]], same warm-up boundary, same `:predecessor` and
+  `:position` tagging, same answer shape. `lane-schedule-async-cljs-test`
+  runs one deterministic stub through both loops and asserts the banked
+  samples and readings are `=`, so the two cannot drift into two
+  schedules the way [[slot-order]]'s copy once did.
+
+  ## What it does NOT change
+
+  The visits stay SERIAL. [[chain]] starts visit *n+1* only once visit
+  *n*'s promise has resolved, exactly as the synchronous loop makes its
+  next call only once the previous one has returned — so an arm still
+  measures with no sibling running beside it, which is the whole premise
+  the arm-order guard adjudicates under."
+  ([arms sampling rounds measure-one!]
+   (rounds-async! arms sampling rounds measure-one! default-label))
+  ([arms sampling rounds measure-one! label]
+   (let [coll     (sample-collector)
+         readings (fresh-readings arms rounds)]
+     (.then (chain nil (visit-plan arms sampling rounds)
+                   (fn [_ visit]
+                     (.then (js/Promise.resolve (measure-one! (:arm visit)))
+                            (fn [ms] (bank-visit! coll readings label visit ms)))))
+            (fn [_] {:readings @readings :samples (:samples @coll)})))))
 
 (defn normalise
   "One round's raw readings as `{:p50 {id ms} :ratio {id r}}`, every ratio
@@ -1004,11 +1096,6 @@
   exactly one cell, so its probe seq is that cell and nothing else."
   [rotor n]
   [(mod rotor n) (dec n) 0])
-
-(defn chain
-  "Fold `xs` into a serial promise chain, threading an accumulator."
-  [init xs f]
-  (reduce (fn [p x] (.then p (fn [acc] (f acc x)))) (js/Promise.resolve init) xs))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive control
