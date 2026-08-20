@@ -86,12 +86,12 @@
 
   ## Why it sits at the `examples/` root
 
-  It was written twice — once for the slice and once for the Todo
-  witness, in parallel off one base, so neither branch could `:require`
-  the other's namespace and both copies were the same file bar the
-  docstring. This is the one copy, at the root every witness sits under,
-  consumed by all six `surface-cljs-test` namespaces — the slice, the Todo, the forms
-  recipes, the ledger, the typeahead, and the editor/grid pair.
+  It was written twice — once for the slice and once for the Todo witness, in
+  parallel off one base, so neither branch could `:require` the other's
+  namespace and both copies were the same file bar the docstring. This is the
+  one copy, at the root every witness sits under, consumed by all six
+  `surface-cljs-test` namespaces — the slice, the Todo, the forms recipes, the
+  ledger, the typeahead, and the editor/grid pair.
 
   ## Scope
 

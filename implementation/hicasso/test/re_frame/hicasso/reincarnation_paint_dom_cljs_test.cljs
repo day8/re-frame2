@@ -327,9 +327,9 @@
 (deftest restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail
   ;; The same transition as W1, with `queueMicrotask` routed through
   ;; `setTimeout 0` for the width of the transition — a macrotask-deferred
-  ;; `invalidate-cell!`, restored for real rather than simulated: the collector is unmodified and unaware, and React keeps the
-  ;; original function because `react-dom` bound it by value at module
-  ;; evaluation.
+  ;; `invalidate-cell!`, restored for real rather than simulated: the
+  ;; collector is unmodified and unaware, and React keeps the original
+  ;; function because `react-dom` bound it by value at module evaluation.
   ;;
   ;; The red asserted here is CATEGORICAL, which is why it is worth
   ;; committing rather than running by hand once. A task cannot be dequeued

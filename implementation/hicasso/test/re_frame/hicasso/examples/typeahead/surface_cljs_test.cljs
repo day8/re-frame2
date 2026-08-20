@@ -1,9 +1,9 @@
 (ns re-frame.hicasso.examples.typeahead.surface-cljs-test
   "THE IMPORT DISCIPLINE, MECHANICALLY.
 
-  This application is the evidence the resource-demand verdict decides
-  the flagship resource experiment on. It is worth exactly as much as the claim that it
-  was written on the PUBLIC DOOR — a witness that reached inside the
+  This application is the evidence the resource-demand verdict decides the
+  flagship resource experiment on. It is worth exactly as much as the claim
+  that it was written on the PUBLIC DOOR — a witness that reached inside the
   runtime to make its ceremony smaller would be measuring something no
   consumer can write.
 

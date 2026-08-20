@@ -317,11 +317,12 @@
 ;; from and nothing tested: "A registry keyed by frame cannot work — several
 ;; roots may intentionally share a frame."
 ;;
-;; Under such a registry these two roots would look up ONE window, so root
-;; A's closer would shut the window root B is still adopting in — the exact
-;; page-global defect the per-root window closes, reintroduced at frame granularity
-;; and invisible to every landed row, because every landed row gives each
-;; root a frame of its own and a frame-keyed registry is per-root there.
+;; Under such a registry these two roots would look up ONE window, so root A's
+;; closer would shut the window root B is still adopting in — the exact
+;; page-global defect the per-root window closes, reintroduced at frame
+;; granularity and invisible to every landed row, because every landed row
+;; gives each root a frame of its own and a frame-keyed registry is per-root
+;; there.
 ;;
 ;; The two readings that discriminate are both taken by CONSTRUCTION rather
 ;; than on a timer. `hydrate-root!` returns before its tree is adopted, so

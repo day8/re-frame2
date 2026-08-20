@@ -21,14 +21,14 @@
 
   ## The arm is HERE, and the application is untouched
 
-  `examples.grid.subs` and `examples.grid.views` are byte-identical to
-  what they were before this file existed, and the fence over this
-  measurement is why: *the witness applications model proper re-frame2 and
-  are evidence about the public door. If a layer-2 spelling wins, changing
-  `examples/grid` is a separate decision with its own bead — this file
-  measures a contrast, it does not adopt one.* So the contrast arm lives in the suite, beside
-  `grid.scaling-dom-cljs-test`'s coarse anti-shapes, for the same reason
-  those do.
+  `examples.grid.subs` and `examples.grid.views` are byte-identical to what
+  they were before this file existed, and the fence over this measurement is
+  why: *the witness applications model proper re-frame2 and are evidence about
+  the public door. If a layer-2 spelling wins, changing `examples/grid` is a
+  separate decision with its own bead — this file measures a contrast, it does
+  not adopt one.* So the contrast arm lives in the suite, beside
+  `grid.scaling-dom-cljs-test`'s coarse anti-shapes, for the same reason those
+  do.
 
   ## Both arms on ONE instrument, in one file
 

@@ -59,14 +59,14 @@
   What the rows assert is two things React cannot forge or repair:
 
   1. **The exact refusal identity, as a map.** `:rf.error/id`, the
-     emitting function, the recovery keyword, and the query — compared
-     whole. Comparing the whole map is not fastidiousness: removing
-     `read-key!`'s nil-frame guard leaves the escaped reads *still
-     throwing*, from `subscribe-once`, carrying
-     `:rf.error/no-frame-context`. A row written `(is (thrown? ...))`
-     stays **green under that named sabotage**. In a layered runtime there is nearly
-     always a second defence, and a bare throw assertion buys the second
-     defence's silence rather than the first one's conduct.
+     emitting function, the recovery keyword, and the query — compared whole.
+     Comparing the whole map is not fastidiousness: removing `read-key!`'s
+     nil-frame guard leaves the escaped reads *still throwing*, from
+     `subscribe-once`, carrying `:rf.error/no-frame-context`. A row written
+     `(is (thrown? ...))` stays **green under that named sabotage**. In a
+     layered runtime there is nearly always a second defence, and a bare throw
+     assertion buys the second defence's silence rather than the first one's
+     conduct.
   2. **Reader membership on the refused key** (`inventory/cell-readers`),
      against membership on the key the body legally read. A refusal that
      also *recorded* — a key pushed on the scratch before the guard, an

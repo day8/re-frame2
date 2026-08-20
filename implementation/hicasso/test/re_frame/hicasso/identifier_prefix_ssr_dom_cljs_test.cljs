@@ -89,12 +89,12 @@
 
   ## The harness
 
-  The server bytes come from `react-dom/server`'s own `renderToString`,
-  called by hand with React's own `identifierPrefix` option — the only
-  server path this package has, and exactly the call a consumer makes. The client half is the product door
-  `impl.mount/hydrate-root!` and never `hydrateRoot` directly: what is
-  under test is the door's pass-through, so a row reaching past it would
-  witness React rather than this arm.
+  The server bytes come from `react-dom/server`'s own `renderToString`, called
+  by hand with React's own `identifierPrefix` option — the only server path
+  this package has, and exactly the call a consumer makes. The client half is
+  the product door `impl.mount/hydrate-root!` and never `hydrateRoot`
+  directly: what is under test is the door's pass-through, so a row reaching
+  past it would witness React rather than this arm.
 
   `roots-frames-support/server-html!` is deliberately NOT the harness
   here: it renders on an ordinary client root and reads `innerHTML`,

@@ -14,10 +14,11 @@
 
   ## The subject: presence, because it is the reason the door exists
 
-  `h/presence` retains a dismissed child for `:timeout-ms` and drops it
-  when the deadline passes. It is the shipped feature whose next step is
-  a `setTimeout`, and it is what Story's presence bridge is blocked on.
-  Two facts about it decide the shape of the whole control, and both are asserted below rather than assumed:
+  `h/presence` retains a dismissed child for `:timeout-ms` and drops it when
+  the deadline passes. It is the shipped feature whose next step is a
+  `setTimeout`, and it is what Story's presence bridge is blocked on. Two
+  facts about it decide the shape of the whole control, and both are asserted
+  below rather than assumed:
 
   - the retirement is a `setTimeout` the React half arms
     (`impl.presence-react`), so the timer has to be virtual;

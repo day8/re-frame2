@@ -29,13 +29,14 @@
 
   ## Why no adapter is installed
 
-  This file's fixture installs none, deliberately, and that makes the
-  whole namespace the adapter-timing witness constraint 3 asks for. Core's view registration consults the `:adapter/wrap-view`
-  hook AT REGISTRATION TIME (`re-frame.views/apply-adapter-wrap-view`),
-  and a `defview` is declared at namespace load — routinely before
-  `rf/init!` has installed anything. The declarations here are made at
-  exactly that moment, with no adapter present, and the rows below assert
-  the entry is intact anyway. Nothing mounts, so nothing needs one.
+  This file's fixture installs none, deliberately, and that makes the whole
+  namespace the adapter-timing witness constraint 3 asks for. Core's view
+  registration consults the `:adapter/wrap-view` hook AT REGISTRATION TIME
+  (`re-frame.views/apply-adapter-wrap-view`), and a `defview` is declared at
+  namespace load — routinely before `rf/init!` has installed anything. The
+  declarations here are made at exactly that moment, with no adapter present,
+  and the rows below assert the entry is intact anyway. Nothing mounts, so
+  nothing needs one.
 
   ## What this file does NOT assert
 

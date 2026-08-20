@@ -14,13 +14,14 @@
   the frame's cached reactions — including across a same-id
   reincarnation*.
 
-  **The deferral is a microtask and not a `setTimeout 0`.** Design law
-  React 3 requires a render/commit tear to be corrected before visible
-  paint, and a later task carries no such ordering promise. So every wait below is [[re-frame.hicasso.checkpoint-support/drain-checkpoint]]
-  rather than a timer: it asserts the repair completed *inside the
-  current microtask checkpoint*, which is the property the law needs and
-  a duration cannot express. `reincarnation_paint_dom_cljs_test` is the
-  same claim read in a real browser, where the paint is.
+  **The deferral is a microtask and not a `setTimeout 0`.** Design law React 3
+  requires a render/commit tear to be corrected before visible paint, and a
+  later task carries no such ordering promise. So every wait below is
+  [[re-frame.hicasso.checkpoint-support/drain-checkpoint]] rather than a
+  timer: it asserts the repair completed *inside the current microtask
+  checkpoint*, which is the property the law needs and a duration cannot
+  express. `reincarnation_paint_dom_cljs_test` is the same claim read in a
+  real browser, where the paint is.
 
   ## Why the DOM cannot see this and `snapshot-of` can
 

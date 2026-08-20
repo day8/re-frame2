@@ -2,9 +2,9 @@
   "THE THREE SEAMS THAT BYPASS THE PINNED AMBIENT DISPATCHER, measured
   across a same-public-id reincarnation.
 
-  `reincarnation_routing_cljs_test` establishes the contract for the one
-  path the pinning repair covers: the ambient dispatch a boundary body
-  lowers into its callbacks. Three operations in this arm reach a frame WITHOUT that
+  `reincarnation_routing_cljs_test` establishes the contract for the one path
+  the pinning repair covers: the ambient dispatch a boundary body lowers into
+  its callbacks. Three operations in this arm reach a frame WITHOUT that
   closure, and each is a candidate for the same fault:
 
   | seam | the call | what it carries across the gap |
