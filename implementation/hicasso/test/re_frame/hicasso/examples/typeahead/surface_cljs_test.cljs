@@ -1,8 +1,8 @@
 (ns re-frame.hicasso.examples.typeahead.surface-cljs-test
   "THE IMPORT DISCIPLINE, MECHANICALLY.
 
-  This application is the evidence `rf2-hic-050` decides the flagship
-  resource experiment on. It is worth exactly as much as the claim that it
+  This application is the evidence the resource-demand verdict decides
+  the flagship resource experiment on. It is worth exactly as much as the claim that it
   was written on the PUBLIC DOOR — a witness that reached inside the
   runtime to make its ceremony smaller would be measuring something no
   consumer can write.
@@ -38,8 +38,7 @@
   [[the-witness-registers-no-route]] is an absent edge, here for the same
   reason its two siblings carry one: route PATHS are plain strings in a
   process-global registry and this repository's node bundle loads every
-  application in the tree into one process (rf2-hic-025 finding 8, filed
-  as rf2-wqnl)."
+  application in the tree into one process."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             ;; Required so the analyzer has analysed them when the macro

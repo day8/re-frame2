@@ -6,7 +6,8 @@
   the top.
 
   The `:<-` chain rather than `reg-sub`'s two-fn form throughout, and for
-  the reason rf2-hic-025 recorded: the two-fn form puts a ONE-argument
+  the reason the slice authoring report records: the two-fn form puts a
+  ONE-argument
   input fn beside a TWO-argument computation fn in the same form, the
   mistake compiles, and the chain has no such adjacency. Confirmed here
   from a second application.

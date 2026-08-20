@@ -14,9 +14,9 @@
      {…} \"Active\")` inside a body, where every other markup-producing
      thing on the page is `[some-view {…}]`. It is a plain function on
      purpose — a link is not a unit of re-render — and nothing at the
-     call site says which grammar applies. rf2-hic-025 recorded this and
-     it is confirmed here: three filter tabs, three calls, and the
-     one-time cost paid once.
+     call site says which grammar applies. The slice authoring report
+     records this and it is confirmed here: three filter tabs, three
+     calls, and the one-time cost paid once.
 
   2. **`:on-key-down` takes a MAP.** `{\"Enter\" [::events/commit-edit
      id] \"Escape\" [::h/clear db/draft id]}` is a first-class lowered
@@ -26,15 +26,13 @@
      reaches for the one callback form and a hand-written `.-key` test —
      losing the composition gate with it.
 
-     It was **absent from the door** when this application was written:
-     `re-frame.hicasso`'s own docstrings never mentioned it, and the only
-     statement of the four event-value shapes a runtime reader could
-     reach was `re-frame.hicasso.impl.intent`'s, in the namespace the
-     door tells authors they never need to open. That was rf2-lu0s, and
-     it is fixed: `defview`'s docstring now carries a *FOUR shapes*
-     section with this Enter/Escape example and the central composition
-     gate named. (The draft guide and `docs/design/hicasso/authoring.md`
-     teach it too; neither is what an editor shows on `h/`.)
+     **The door states it.** `defview`'s docstring carries a *FOUR
+     shapes* section with this Enter/Escape example and the central
+     composition gate named, which is what an editor shows on `h/`;
+     leaving the only statement of the four event-value shapes in
+     `re-frame.hicasso.impl.intent` would put it in the namespace the
+     door tells authors they never need to open. (The draft guide and
+     `docs/design/hicasso/authoring.md` teach it too.)
 
   3. **A `:ref` must be a STABLE function**, so [[focus-on-mount]] is a
      top-level `def`. React detaches and re-attaches a ref whose identity
@@ -104,8 +102,8 @@
   Escape is `[::h/clear db/draft id]` — removal, back to the default —
   and it needs no `::h/revision`, because clearing the draft UNMOUNTS the
   field rather than handing a still-mounted one a value it is already
-  showing. That is the boundary of rf2-hic-025's fifth finding, from the
-  other side: the revision counter is what a reset needs when the field
+  showing. That is the boundary of the slice report's fifth finding, from
+  the other side: the revision counter is what a reset needs when the field
   SURVIVES it."
   [{:keys [id title done?]}]
   (let [draft (h/sub [db/draft id])]

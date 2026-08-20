@@ -20,8 +20,8 @@
   Nothing would have warned. `reg-route` emits
   `:rf.warning/route-shadowed-by-equal-score` for a co-matchable
   EQUAL-RANK pattern, and differing ranks silence it while the
-  resolution is wrong anyway — which is how rf2-hic-025's slice broke
-  twelve RealWorld assertions with every other gate green. The prefix is
+  resolution is wrong anyway — which is how the slice once broke twelve
+  RealWorld assertions with every other gate green. The prefix is
   the whole fix, and a consumer's own application never meets the
   problem, because their registry holds only their routes.
 
@@ -43,8 +43,8 @@
   `re-frame.test-support`'s reset fixture restores the registrar to a
   baseline captured when the `use-fixtures` FORM is evaluated, and a
   route registered before that snapshot is rolled back before the first
-  `deftest` runs. rf2-hic-025 found this and it reproduces here
-  unchanged: `reg-sub` and `reg-event` survive, routes do not. A
+  `deftest` runs. The slice authoring report found this and it reproduces
+  here unchanged: `reg-sub` and `reg-event` survive, routes do not. A
   consumer never meets it; a test meets it on its first row."
   (:require [re-frame.routing :as routing]))
 

@@ -24,7 +24,7 @@
   this; a test does, on the first row it writes. `reg-route` is
   idempotent for an unchanged registration, so calling both is free.
 
-  That is the rf2-hic-025 authoring report's second finding, and it is a
+  That is the slice authoring report's second finding, and it is a
   TESTING-surface finding rather than an authoring one: nothing in the
   application had to change, but the shape a consumer copies from a
   guide (`reg-route` at the top level, once) does not survive the

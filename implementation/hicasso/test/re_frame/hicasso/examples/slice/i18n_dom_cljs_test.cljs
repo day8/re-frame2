@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.slice.i18n-dom-cljs-test
-  "THE RUNTIME LOCALE AND THEME WITNESS (rf2-hic-025; specification §7's
-  i18n / theming row).
+  "THE RUNTIME LOCALE AND THEME WITNESS (specification §7's i18n /
+  theming row).
 
   The row's claim is a NEGATIVE one, and negative claims are the ones a
   test has to be built around rather than pointed at: *strings and theme

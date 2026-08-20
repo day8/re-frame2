@@ -23,8 +23,8 @@
   foreign namespaces the whole application depends on. It is pinned, and
   it is the one that goes red when the application quietly grows a
   dependency: a fence cannot see a new PUBLIC door being reached for,
-  and the facade freeze at rf2-hic-026 wants to know about that more
-  than about anything else in this file.
+  and the ordinary-facade freeze wants to know about that more than about
+  anything else in this file.
 
   ## And the population is asked for too
 

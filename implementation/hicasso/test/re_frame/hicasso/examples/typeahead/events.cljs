@@ -70,7 +70,7 @@
   [[::typed]] takes a POSITIONAL argument because it carries `::h/value`,
   which `impl.intent/materialize` substitutes at the intent vector's top
   level only. Everything else takes the canonical trailing map. This is
-  the rf2-hic-025 authoring report's first finding, met again here."
+  the slice authoring report's first finding, met again here."
   (:require [re-frame.core :as rf]
             [re-frame.hicasso.examples.typeahead.db :as db]
             [re-frame.hicasso.examples.typeahead.service :as service]))
