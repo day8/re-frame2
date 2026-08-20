@@ -7,7 +7,7 @@ So a figure quoted from this arm out of a single run has been a coin toss betwee
 13–21% apart, and nothing in the rig said so.
 
 Written 2026-08-19 and re-derived 2026-08-20 on `worker/levelwit-a233t`, off
-`9476293ae8b087f1125f9a721a339892a01c7b8b`, which is `origin/main` at the time of
+`f7fb0271ac6f38a1d1979e1fd40d9d843db783b2`, which is `origin/main` at the time of
 writing and therefore an anchor a fresh clone resolves. The three commits between that
 and the page's first base `fcb0afb36d` are tracker checkpoints; no dataset and no bench
 file differs across them, and every figure below was recomputed on this base.
@@ -288,10 +288,16 @@ reds is specific rather than incidental:
   ramp-fallback reading count goes 1 → 99, and the 0.4% tightening control collapses
   60 → 6.
 
-The file was then restored and its content hash compared against the committed object —
-`3dd95e0c268db8b517c802142b2a37de0acbae67` both before the plant and after the restore —
-and the gate re-run green at 9/9. A green run under sabotage would have meant the gate
-was not reading this tree; it was not green.
+The file was then restored, and the restore verified by content hash rather than by eye:
+`git hash-object` reported the identical SHA-1 blob
+`3dd95e0c268db8b517c802142b2a37de0acbae67` before the plant and after it, matching the
+object the index already held. The gate then re-ran green at 9/9. A green run under
+sabotage would have meant the gate was not reading this tree; it was not green.
+
+*(That forty-hex token is a **blob** hash — the content digest of the witness source, not
+a revision of this repository. Nothing resolves it with `git rev-parse`; `git cat-file -t`
+answers `blob`. It is recorded because a diff cannot tell a correct restore from a patch
+that never applied, and a hash can.)*
 
 ## The rig is not touched
 
@@ -341,7 +347,7 @@ arm, not of a build.
 ## Reproduction
 
 From `implementation/`, on this page's base
-`9476293ae8b087f1125f9a721a339892a01c7b8b`. Nothing here opens a browser; the whole
+`f7fb0271ac6f38a1d1979e1fd40d9d843db783b2`. Nothing here opens a browser; the whole
 control is a read over committed JSON and takes a few seconds.
 
 ```bash
