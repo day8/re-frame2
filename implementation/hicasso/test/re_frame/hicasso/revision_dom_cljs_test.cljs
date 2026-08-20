@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.revision-dom-cljs-test
-  "THE REVISION PROP ON A CONTROLLED ELEMENT (rf2-zq8kh, the shape ruled in
-  `docs/design/hicasso/studio/revision-prop-spec.md`).
+  "THE REVISION PROP ON A CONTROLLED ELEMENT — the shape ruled in
+  `docs/design/hicasso/studio/revision-prop-spec.md`.
 
   `::h/revision` — `:re-frame.hicasso/revision` — re-baselines a controlled
   text field to the model on an EXPLICIT CALLER REVISION change, and never

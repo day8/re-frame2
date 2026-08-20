@@ -1,10 +1,10 @@
 (ns re-frame.hicasso.reincarnation-seams-cljs-test
   "THE THREE SEAMS THAT BYPASS THE PINNED AMBIENT DISPATCHER, measured
-  across a same-public-id reincarnation (rf2-q9cf, follow-up to rf2-x874).
+  across a same-public-id reincarnation.
 
   `reincarnation_routing_cljs_test` establishes the contract for the one
-  path rf2-x874 repaired: the ambient dispatch a boundary body lowers into
-  its callbacks. Three operations in this arm reach a frame WITHOUT that
+  path the pinning repair covers: the ambient dispatch a boundary body
+  lowers into its callbacks. Three operations in this arm reach a frame WITHOUT that
   closure, and each is a candidate for the same fault:
 
   | seam | the call | what it carries across the gap |
@@ -15,7 +15,7 @@
 
   ## The axis, and why \"it resolves late\" is not the fault
 
-  rf2-x874 is routinely mis-stated as *late resolution is wrong*. It is
+  The repair is routinely mis-stated as *late resolution is wrong*. It is
   not. `impl.collector/dispatch!`'s own docstring draws the line, and
   section 1 measures it: a caller handing a BARE KEYWORD is naming an
   ADDRESS and gets the frame at that address, now; a lowered callback
@@ -29,7 +29,7 @@
   address, whether the frame it names is the same one the surrounding
   runtime is reading from at that instant. A seam whose reads and writes
   disagree is exactly the \"perfect markup above dead controls\" symptom
-  rf2-x874 deleted; a seam whose reads and writes are both
+  the pinning deletes; a seam whose reads and writes are both
   address-directed has no disagreement to have.
 
   ## Why these observables and not rendered markup
@@ -56,7 +56,7 @@
     deliberately (`activate-link!`: *the dispatch always lands on the
     CURRENTLY-committed frame (retarget-safe)*). Section 4 measures what
     pinning it would cost, and the answer is that the link goes dead —
-    rf2-x874's warm branch, reintroduced.
+    the late-binding warm branch, reintroduced.
 
   Sections 2 and 4 each end with the counterfactual measured rather than
   argued, because \"it did not reproduce\" and \"it cannot happen\" are
@@ -129,7 +129,7 @@
 
 (defn- render!
   "Leave the arm's memo row describing the incarnation live NOW — what a
-  boundary's render does, and the posture rf2-x874's warm branch is about.
+  boundary's render does, and the posture the warm branch is about.
 
   **Every row below that models a predecessor calls this, and the reason is
   not thoroughness — it is that WARM is the only posture these three seams can
@@ -140,7 +140,7 @@
   — none of these seams is reachable without its incarnation having rendered
   first, so a row that measured them cold would be measuring a state the
   runtime cannot be in when the seam fires. It would also be a row the
-  pre-rf2-x874 mechanism passes, which is the same mistake in its detectable
+  late-binding mechanism passes, which is the same mistake in its detectable
   form."
   []
   (collector/frame-dispatch frame-id))
@@ -400,7 +400,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The one seam where a frame keyword is closed over at RENDER and resolved at
-;; CLICK — structurally the shape rf2-x874 repaired. It is nonetheless the
+;; CLICK — structurally the shape the pinning repairs. It is nonetheless the
 ;; deliberate semantics, and not Hicasso's to change: `route-link` "restates NO
 ;; routing law", and routing's own `activate-link!` names the behaviour in
 ;; terms — *`:frame render-frame` is an explicit dispatch opt … so the dispatch

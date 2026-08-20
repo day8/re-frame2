@@ -48,9 +48,9 @@
 
   ## The observables, and why they can see the fault
 
-  **Not the painted value, and not the text.** rf2-hic-016 established on
-  the controlled-input surface that React's own end-of-event restore
-  repairs value-level faults inside the same discrete event, so a text
+  **Not the painted value, and not the text.** On the controlled-input
+  surface React's own end-of-event restore repairs value-level faults
+  inside the same discrete event, so a text
   assertion in a real browser goes green over a real regression. Text
   appears here only as a *poll condition* — a way to know a commit
   happened before a reading is taken — and never as the thing a row
@@ -60,12 +60,11 @@
 
   1. **The exact refusal identity, as a map.** `:rf.error/id`, the
      emitting function, the recovery keyword, and the query — compared
-     whole. This is the one the bead insists on and it is not
-     fastidiousness. rf2-hic-011's own P1 control removed `read-key!`'s
-     nil-frame guard and the escaped reads *still threw*, from
-     `subscribe-once`, carrying `:rf.error/no-frame-context`. A row
-     written `(is (thrown? ...))` would have stayed **green under the
-     bead's own named sabotage**. In a layered runtime there is nearly
+     whole. Comparing the whole map is not fastidiousness: removing
+     `read-key!`'s nil-frame guard leaves the escaped reads *still
+     throwing*, from `subscribe-once`, carrying
+     `:rf.error/no-frame-context`. A row written `(is (thrown? ...))`
+     stays **green under that named sabotage**. In a layered runtime there is nearly
      always a second defence, and a bare throw assertion buys the second
      defence's silence rather than the first one's conduct.
   2. **Reader membership on the refused key** (`inventory/cell-readers`),
@@ -95,12 +94,12 @@
 
   ## The complaint prose is deliberately not asserted here
 
-  rf2-hic-007 will replace the `:where` symbol with a real file/line
-  coordinate and rf2-hic-021 will re-route the message through
-  `re-frame.error`. The Node matrix owns the prose contract — it asserts
-  that the message names the recovery route — and it is the pre-image
-  those two beads will re-point. Copying that assertion into a second
-  file would double the surface they have to move for no new information
+  The `:where` symbol stands in for a real file/line coordinate, and the
+  message's route through `re-frame.error` is the complaint catalogue's
+  to settle. The Node matrix owns the prose contract — it asserts that
+  the message names the recovery route — and it is the pre-image either
+  of those would re-point. Copying that assertion into a second file
+  would double the surface they have to move for no new information
   about the browser lane, so `:reason` is projected out of every
   comparison below and the message is never matched. The `:recovery`
   keyword in the exact map is the machine-readable half, and it is the
@@ -142,7 +141,7 @@
 ;; count must stay zero while `:red/painted` and `:red/sibling` each hold
 ;; exactly one. A row whose deferral and whose body shared a key could not
 ;; tell a refusal from an accumulation: both would resolve to the same
-;; set. rf2-hic-011's timer row was bitten by precisely that.
+;; set. A timer row sharing a key is bitten by precisely that.
 (rf/reg-sub :red/painted   (fn [db _] (:painted db)))
 (rf/reg-sub :red/sibling   (fn [db _] (:sibling db)))
 (rf/reg-sub :red/escaped   (fn [db _] (:escaped db)))
@@ -151,8 +150,8 @@
 (rf/reg-event :red/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :red/bump (fn [{:keys [db]} _] {:db (update db :painted inc)}))
 
-;; The UIx adapter, for the reason the package smoke gives and
-;; rf2-hic-010 repeats: plain-atom has no reactivity layer, so a
+;; The UIx adapter, for the reason the package smoke gives and the
+;; commit-owns suite repeats: plain-atom has no reactivity layer, so a
 ;; subscription under it never notifies and every commit assertion would
 ;; pass vacuously by never firing. `:ambient-frame nil` because this suite
 ;; seats its own.
@@ -224,8 +223,8 @@
   that was refused.
 
   `:reason` is not here and is projected out of every comparison — see the
-  namespace docstring. It is prose, rf2-hic-021 owns re-routing it, and
-  the Node matrix is where it is pinned."
+  namespace docstring. It is prose, re-routing it is the complaint
+  catalogue's, and the Node matrix is where it is pinned."
   [query-v]
   {:rf.error/id :rf.error/hicasso-sub-outside-render
    :where       're-frame.hicasso.impl.collector/read-key!
@@ -299,7 +298,7 @@
   "Unmount, settle at the runtime's own horizon, ASSERT, and only then
   release. `mount/release!` resets the runtime, so a census taken after it
   reads zeros whether teardown released anything or not — the shape of
-  gate that cannot go red (`impl.mount/unmount!`, rf2-2rtt6.48)."
+  gate that cannot go red (`impl.mount/unmount!`)."
   [handle]
   (mount/unmount! handle)
   (.then (inventory/quiesced!)

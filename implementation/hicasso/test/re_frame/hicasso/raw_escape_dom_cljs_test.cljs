@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.raw-escape-dom-cljs-test
-  "THE `[:>]` RAW ESCAPE AGAINST A REAL REACT (HD-011, rf2-2rtt6.103).
+  "THE `[:>]` RAW ESCAPE AGAINST A REAL REACT (HD-011).
 
   The element-level contract — the carrier, the prop walk, the value
   roster, `:&`, `:key`, refs, the mis-parse regression — is

@@ -1,7 +1,7 @@
 (ns re-frame.hicasso.reincarnation-cells-cljs-test
   "SAME-PUBLIC-ID FRAME REINCARNATION, COMMITTED SIDE — the held cell, the
   number React re-reads, and the repair that lands before control returns
-  to the event loop (rf2-hic-013, rescheduled by rf2-2l17).
+  to the event loop.
 
   `reincarnation_routing_cljs_test` takes the transition on the WRITE
   path. This file takes it on the committed READ path, where the delayed
@@ -14,10 +14,9 @@
   the frame's cached reactions — including across a same-id
   reincarnation*.
 
-  **The deferral used to be a `setTimeout 0`, and rf2-2l17 moved it.**
-  Design law React 3 requires a render/commit tear to be corrected
-  before visible paint, and a later task carries no such ordering
-  promise. So every wait below is [[re-frame.hicasso.checkpoint-support/drain-checkpoint]]
+  **The deferral is a microtask and not a `setTimeout 0`.** Design law
+  React 3 requires a render/commit tear to be corrected before visible
+  paint, and a later task carries no such ordering promise. So every wait below is [[re-frame.hicasso.checkpoint-support/drain-checkpoint]]
   rather than a timer: it asserts the repair completed *inside the
   current microtask checkpoint*, which is the property the law needs and
   a duration cannot express. `reincarnation_paint_dom_cljs_test` is the
@@ -230,9 +229,9 @@
   ;; synchronous phase has already dropped the reference and before the
   ;; deferred phase runs.
   ;;
-  ;; rf2-2l17 narrowed that window from a whole macrotask to the current
-  ;; microtask checkpoint, and the row keeps its meaning unchanged because it
-  ;; seats the successor SYNCHRONOUSLY: only the fire time moved earlier. A
+  ;; That window is the current microtask checkpoint rather than a whole
+  ;; macrotask, and the row keeps its meaning either way because it seats
+  ;; the successor SYNCHRONOUSLY. A
   ;; successor seated in a later task now finds the cell disposed and recovers
   ;; through `cold-read!`'s probe on the next render instead, which is the
   ;; recovery a key that never had a cell already gets.

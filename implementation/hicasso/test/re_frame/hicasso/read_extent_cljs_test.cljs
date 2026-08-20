@@ -47,8 +47,8 @@
   Every legality row asserts on the **read set** the render resolved
   (`collector/reads-of`) and on **reader membership** at the commit
   (`inventory/cell-readers`), never on what a body painted. That is
-  rf2-hic-010's lesson, inherited: a read attributed to the wrong boundary
-  paints an identical page, and a read set that accumulated a previous
+  the commit-owns suite's lesson, inherited: a read attributed to the
+  wrong boundary paints an identical page, and a read set that accumulated a previous
   body's keys paints an identical page too. What changes is what is
   retained and what will be notified.
 
@@ -125,7 +125,7 @@
        (catch :default e {:refused (ex-data e) :message (ex-message e)})))
 
 ;; The UIx adapter rather than plain-atom, for the reason the package smoke
-;; gives and rf2-hic-010 repeats: plain-atom has no reactivity layer, so a
+;; and the commit-owns suite repeat: plain-atom has no reactivity layer, so a
 ;; subscription under it never notifies and every commit assertion would
 ;; pass vacuously by never firing. `:async? true` selects the MAP form,
 ;; which the `(async done …)` rows require; `:ambient-frame nil` because
@@ -143,7 +143,7 @@
 
 (defn- seeded!
   "A frame with a known db. `IS_REACT_ACT_ENVIRONMENT` is set outright for
-  the reason rf2-hic-010's harness gives: nothing here runs inside React's
+  the reason the commit-owns harness gives: nothing here runs inside React's
   `act` queue, and the prototype helper that carries the line lives in the
   bench tree the freeze gate forbids this package from importing."
   []
@@ -195,9 +195,9 @@
   The four keys are the contract: the stable id, the source coordinate as
   the runtime can state one today, the actionable recovery, and the query
   that was refused. `:reason` is deliberately NOT frozen here — it is
-  prose, and rf2-hic-021 rules on re-routing the complaint text through
-  `re-frame.error` while rf2-hic-007 adds the file/line/column coordinate
-  this `:where` symbol currently stands in for. The rows assert the reason
+  prose, and re-routing the complaint text through `re-frame.error` is
+  the complaint catalogue's to rule on, as the file/line/column coordinate
+  this `:where` symbol stands in for is the source-coordinate arm's. The rows assert the reason
   NAMES the recovery route instead, which is the part of it I7 requires."
   [query-v]
   {:rf.error/id :rf.error/hicasso-sub-outside-render
@@ -252,8 +252,8 @@
 
 (deftest a-branch-records-the-arm-it-took-and-nothing-else
   (seeded!)
-  ;; rf2-hic-010 witnessed the untaken arm contributing no edge. The row
-  ;; here is the other direction and the one the matrix needs: BOTH arms
+  ;; The commit-owns suite witnesses the untaken arm contributing no edge.
+  ;; The row here is the other direction and the one the matrix needs: BOTH arms
   ;; are legal, and which keys are recorded is a function of the control
   ;; flow the render actually took rather than of the text of the body.
   (let [body (fn [_] [:p (if (h/sub [:re/flag])
@@ -613,9 +613,9 @@
   ;; frame and is satisfied.
   ;;
   ;; **The limit is ratified, so this row's green is a decision and not an
-  ;; oversight.** rf2-djxr weighed closing it and ruled otherwise: the runtime
-  ;; does not chase deferred reads hidden in mutable references, I7's text now
-  ;; says so, and the guide warns rather than the runtime enforcing. Do not
+  ;; oversight.** Closing it was weighed and ruled against: the runtime does
+  ;; not chase deferred reads hidden in mutable references, I7's text says so,
+  ;; and the guide warns rather than the runtime enforcing. Do not
   ;; weaken or delete this row — it is the standing measurement of a boundary
   ;; the product chose. If enforcement is ever extended here, this is the row
   ;; that goes red, and that is what it is for.
@@ -646,8 +646,8 @@
   ;; Every `✗` row above asserts through [[outcome]] and
   ;; [[escaped-extent-refusal]]. If that pair could only ever report a
   ;; refusal, the greens would be the instrument's silence rather than the
-  ;; runtime's conduct — the same failure mode rf2-hic-010's residue census
-  ;; guarded against, in this file's own currency.
+  ;; runtime's conduct — the same failure mode the commit-owns residue
+  ;; census guards against, in this file's own currency.
   (let [!seen (atom nil)]
     (probe! (fn [_]
               (reset! !seen (outcome (fn [] (h/sub [:re/right]))))
@@ -674,7 +674,7 @@
     ;; and this is the row that says the census agrees.
     ;;
     ;; **This row is insurance rather than a measurement, and it is worth
-    ;; saying which.** No perturbation in rf2-hic-011's ledger reds it: with
+    ;; saying which.** No perturbation in the read-extent ledger reds it: with
     ;; the extent guard removed the escaped reads reach `subscribe-once`,
     ;; which refuses before acquiring anything, so the zeros hold either
     ;; way. What keeps it from being a zero the instrument cannot make

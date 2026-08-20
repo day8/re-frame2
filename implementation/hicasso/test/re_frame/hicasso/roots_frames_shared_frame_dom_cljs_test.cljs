@@ -319,7 +319,7 @@
 ;;
 ;; Under such a registry these two roots would look up ONE window, so root
 ;; A's closer would shut the window root B is still adopting in — the exact
-;; page-global defect rf2-6tmu repaired, reintroduced at frame granularity
+;; page-global defect the per-root window closes, reintroduced at frame granularity
 ;; and invisible to every landed row, because every landed row gives each
 ;; root a frame of its own and a frame-keyed registry is per-root there.
 ;;

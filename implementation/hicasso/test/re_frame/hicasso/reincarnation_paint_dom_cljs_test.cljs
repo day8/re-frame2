@@ -23,7 +23,7 @@
   ties, React schedules nothing, and the committed fiber goes on holding
   the PREDECESSOR's value. The correction is
   `re-frame.hicasso.impl.collector/invalidate-cell!`'s deferred phase,
-  and rf2-2l17 moved it from `setTimeout 0` to `queueMicrotask` for one
+  and it is a `queueMicrotask` rather than a `setTimeout 0` for one
   reason: the HTML event loop drains the microtask checkpoint in full
   before the *update the rendering* step that may follow the same task,
   and grants a later task no such promise. \"Corrected before paint\" is
@@ -162,8 +162,8 @@
   own poll can time out, and a throw anywhere in the body above the inner
   chain unwinds straight past it. Reporting and finishing there leaves a
   mounted React root and its container standing in the document for the
-  NEXT namespace to inherit, which is the very contamination rf2-d3tc's
-  repair is about, arriving by a second door."
+  NEXT namespace to inherit, which is the very contamination this
+  teardown exists to prevent, arriving by a second door."
   []
   (run! mount/release! @!minted)
   (reset! !minted [])
@@ -326,9 +326,8 @@
 
 (deftest restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail
   ;; The same transition as W1, with `queueMicrotask` routed through
-  ;; `setTimeout 0` for the width of the transition — the scheduling
-  ;; `invalidate-cell!` had before rf2-2l17, restored for real rather than
-  ;; simulated: the collector is unmodified and unaware, and React keeps the
+  ;; `setTimeout 0` for the width of the transition — a macrotask-deferred
+  ;; `invalidate-cell!`, restored for real rather than simulated: the collector is unmodified and unaware, and React keeps the
   ;; original function because `react-dom` bound it by value at module
   ;; evaluation.
   ;;
