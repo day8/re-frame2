@@ -385,9 +385,9 @@ figure from this page should be restated without one:
 cd implementation && npm ci
 for i in $(seq 1 8); do
   HCLOCK_ONLY=M1,bulk300 HCLOCK_SAMPLES=20 HCLOCK_JSON=out/run$i.json \
-    node freehand/test/re_frame/bench/hicasso/clock_run.cjs
+    node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
 done
-node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
 ```
 
 The single-run form this page's ensemble was taken with, retained because it is

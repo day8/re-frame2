@@ -711,8 +711,8 @@ questions from one ensemble.
 
 ```bash
 cd implementation
-HCLOCK_JSON=out/window/run1.json node freehand/test/re_frame/bench/hicasso/clock_run.cjs
-node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/window/run*.json
+HCLOCK_JSON=out/window/run1.json node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/window/run*.json
 ```
 
 The driver's exit code is a whole-run verdict and is **not** a row's licence:

@@ -375,20 +375,20 @@ Reproduce the published run:
 
 ```bash
 HCLOCK_ONLY=bulk300,bulk100,narrow HCLOCK_SAMPLES=20 \
-  node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
+  node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs
 ```
 
 Reproduce the falsification, which exits 1 naming the control:
 
 ```bash
 HCLOCK_ONLY=bulk300 HCLOCK_SAMPLES=20 HCLOCK_CTL3_SABOTAGE=140 \
-  node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
+  node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs
 ```
 
 Reproduce the adjudicators' fixtures, with no browser and in under a second:
 
 ```bash
-node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs --self-test
+node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs --self-test
 ```
 
 Every figure on this page is recomputable from the dataset the run writes when

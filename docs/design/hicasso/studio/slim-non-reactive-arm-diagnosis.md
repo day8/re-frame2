@@ -56,11 +56,11 @@ Two corrections to the bead's statement of the symptom fall out of this:
 
 ```bash
 cd C:/path/to/re-frame2
-node implementation/freehand/test/re_frame/bench/hicasso/z3vlz_run.cjs
+node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
 
 # one rung at a time
 Z3VLZ_ONLY=slim-only Z3VLZ_PORT=8171 \
-  node implementation/freehand/test/re_frame/bench/hicasso/z3vlz_run.cjs
+  node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
 ```
 
 Exit codes: `0` every declared bundle matched and every page ran; `1` a build

@@ -1472,14 +1472,14 @@ both clocks, [the band re-calibrated](the-band-re-calibrated.md). Neither
 failure mode can recur: `ladder_band.cjs` recomputes every figure from the
 driver's own datasets using `seam.cjs`'s exported adjudicators, and the compact
 per-block dataset it emits is **committed** at
-`implementation/freehand/test/re_frame/bench/hicasso/data/ladder-ymi6j.json`.
+`implementation/hicasso/test/re_frame/bench/hicasso/data/ladder-ymi6j.json`.
 That is the one command this section's own audit asked for, and it runs from a
 clean clone against a file the clone already has:
 
 ```bash
 cd implementation
-node freehand/test/re_frame/bench/hicasso/ladder_band.cjs \
-  --from freehand/test/re_frame/bench/hicasso/data/ladder-ymi6j.json
+node hicasso/test/re_frame/bench/hicasso/ladder_band.cjs \
+  --from hicasso/test/re_frame/bench/hicasso/data/ladder-ymi6j.json
 ```
 
 It regenerates every published aggregate of the re-taken ladder — every band,

@@ -465,8 +465,9 @@ ensemble was taken at, so it is filed rather than done here.
 > corpus, printed by the canonical tool and quoted from nowhere else:
 >
 > ```bash
-> node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
->   freehand/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
+> cd implementation
+> node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+>   hicasso/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
 > # exit 0 — ROW M1, PAIR hicasso / uix-subs:
 > #   point 1.1718x  95% CI [1.1263 – 1.2190]  over 8 reportable run(s)
 > #   VERDICT K1 MISSED, DECISIVELY — the whole interval is above the 1.1x mount gate
@@ -912,8 +913,8 @@ git rev-parse <candidate>:$P   # must print 84aa25d93b65ee55f3d28d339d57720e3a50
 
 ```bash
 cd implementation && npm ci
-node freehand/test/re_frame/bench/hicasso/clock_run.cjs           # one run, all five rows
-node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+node hicasso/test/re_frame/bench/hicasso/clock_run.cjs           # one run, all five rows
+node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
 ```
 
 ### 7.1 What this page cannot regenerate
@@ -969,9 +970,9 @@ readjudicator can adjudicate on all thirteen axes without re-running the box.
 
 ```bash
 cd implementation
-node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
-  freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json \
-  freehand/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json
+node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+  hicasso/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json \
+  hicasso/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json
 # exit 3 — neither file carries a `canonical` verdict, both are printed in
 #          full, and no reportable subset is drawn from either
 ```
@@ -982,7 +983,7 @@ in both directions:
 
 ```bash
 cd implementation
-node freehand/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
+node hicasso/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
 ```
 
 The cross-check probe in [§2.1](#21-what-the-correction-therefore-does-not-reach)
@@ -1097,8 +1098,8 @@ ensembles, and the seven runs this page was written on are untouched.
 
 ```bash
 cd implementation
-node freehand/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
-  freehand/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
+node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
+  hicasso/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
 # exit 0 — all eight datasets are eligible published evidence, every run is
 #          printed with its own magnitude and its own refusals beside it, and
 #          the reportable subset is drawn only where the gates left one

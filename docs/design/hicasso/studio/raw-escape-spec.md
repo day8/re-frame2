@@ -548,7 +548,7 @@ The *mechanism* exists as `codec/as-element`; the *taught name* does not. **This
 called that mechanism "public" until 2026-08-06, where A, B, C and `decisions.md` all call
 it INTERNAL — and the operative fact is neither word.** `as-element` is a non-private
 `defn`, so a fixture that requires `re-frame.bench.hicasso.front.codec` can call it; but
-that namespace lives in the bench tree under `implementation/freehand/test/`,
+that namespace lives in the bench tree under `implementation/hicasso/test/`,
 `arm1/lang.clj` does not export it, and the guide's `h` is `re-frame.hicasso` — a package
 that does not exist yet. Reachable from a test, reachable from nothing an author writes:
 that is the sense in which the sibling records are right, and the sense a reader of this
