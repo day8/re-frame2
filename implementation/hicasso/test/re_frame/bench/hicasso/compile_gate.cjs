@@ -149,8 +149,9 @@
 // (2026-08-14). No retirement covers this directory: rf2-0yp7w retires
 // `implementation/freehand/` and `implementation/ui/`, and hicasso is the
 // survivor of that ruling — a Reagent adapter, a UIx adapter, and hicasso as
-// re-frame2 native. The sibling coupling in rf2-d19nf is live because
-// Freehand's tree has a scheduled deletion; this one does not, and may never.
+// re-frame2 native. The sibling coupling in rf2-d19nf was live because
+// Freehand's tree had a scheduled deletion, since executed by PR #8322; this
+// directory has none, and may never.
 //
 // WHAT A RELOCATION WOULD NEED, recorded now so the decision is cheap when it
 // is actually due: somewhere to compile from. This gate takes NO new build id
