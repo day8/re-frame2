@@ -326,18 +326,354 @@ the identifier.*
 
 ## The answer, first
 
+**The design did what phase 2's could not: it identified.** All four runs were
+admitted, `q · p` read 0 inside every run and 0 over the pooled forty-eight
+blocks, and the estimator had been proved to recover a pure pass effect and a
+pure parity effect on each of those four schedules *before any of them ran*.
+
+**And the pre-registered band refuses the answer it produced.** Both terms fall
+an order of magnitude below it. Under the pre-registration this window therefore
+reads as **outcome 3 — both terms below the band** — and it does **not** establish
+the pass-position term.
+
+- **The PASS term is positive in all four runs**: **+0.65%**, **+0.64%**,
+  **+0.20%**, **+0.29%**, pooling to **+0.45%** over 48 blocks.
+- **The PARITY term is not**: **−0.23%**, **−0.06%**, **+0.24%**, **+0.34%** — two
+  of each sign — pooling to **+0.02%**. On the two complementary pairs, which are
+  the only contrasts here balanced against the round INDEX rather than only its
+  parity, it reads **+0.01%** and **−0.00%**.
+- **The band is 610 B per boundary** — ten times this window's own null-arm 90th
+  percentile of 61 B — and the pass term's implied Δ at the mid rungs is
+  **21.4 – 77.0 B per boundary**, 37.8 B at the median `d_all` of 8,354. The
+  parity term's is **1.7 B**. Both are below the band; the pass term by a factor
+  of about 16.
+- **Second-lower read in 34 of 48 blocks**, median second−first **−0.50%**. It is
+  reported and it is not the headline, for the reason phase 2 established.
+- **A defect in this window's OWN pre-registered band was found and is RECORDED
+  rather than repaired.** See [the band, which refuses](#c-the-band-which-refuses).
+- **The instrument's published non-cancellation floor does not hold on this
+  corpus, and phase 2's explanation for that is refuted at four times the sample
+  size.** 23.2% of null-arm cells sit above the published 45 B/boundary bar. See
+  [the null arm](#d-the-null-arm-and-the-published-floor).
+
+**`rf2-fk6pj` therefore stays OPEN.** No rig file was edited, τ was not read or
+moved in either direction, and no gate, band, threshold or budget constant was
+touched.
+
 ## Runtime, beside every figure
+
+Chromium via Playwright at build **`chromium/147.0.7727.15`**, Node **v24.13.0**,
+`win32/x64/10.0.26200` (all recorded by the run, `rf2-24o2z`). shadow-cljs
+`release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+`goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`. Every
+run's build reports **195 files, 140 compiled, 0 warnings**, and every run's
+`shadow-cljs - config:` line names this worktree's own
+`implementation/shadow-cljs.edn`, so none of them compiled a sibling checkout's
+sources. No `java` process existed on the box when the window opened, so no
+shadow-cljs server could have served a stale build.
+
+**Nothing was widened.** `ALLOC_LEG_TOLERANCE` stayed the declared 0.25
+placeholder and `ALLOC_FALL_THRESHOLD_B` stayed 600,000. W stayed 6 measured
+writes after one prime (7 window writes), three warm-up windows, four roots,
+B = 4 boundaries, R = 20 on the ladder, `segOrder: parity`, `controlSlot: first`.
+The only parameters that moved from phase 2 are the round count and the seeds.
+
+**All four runs captured exit 1**, this row's code for a run carrying refused
+windows, on the falls gate and the leg-tolerance gate. **No slope is quotable
+from such a run and none is quoted here**; every figure on this page is a
+per-window figure off certified windows.
+
+| run | opened (UTC) | wall clock | falls in measured windows | refused windows | busy fraction | free memory at open | session |
+|---|---|---|---|---|---|---|---|
+| 1 | 22:13:58 | 3 m 29 s | 99 | 98 | 0.238 | 14.46 GB of 68.11 | first of the session |
+| 2 | 22:17:50 | 3 m 28 s | 102 | 96 | 0.225 | 14.89 GB of 68.11 | second, same session |
+| 3 | 22:21:22 | 3 m 26 s | 104 | 101 | 0.231 | 15.11 GB of 68.11 | third, same session |
+| 4 | 22:24:55 | 3 m 30 s | 102 | 95 | 0.203 | 14.55 GB of 68.11 | fourth, same session |
+
+**ALL FOUR RUNS ARE ONE SESSION**, taken back to back on one box over fourteen
+minutes — `session.runsInSession` reads 1, 2, 3, 4 against a single
+`sessionStartedAt`. **The independent block count for anything session-level is
+therefore 1, not 4 and certainly not 48**, which is this bead's own standing
+complaint applied to its own successor. Every nominal test below is quoted as
+what the nominal test says and nothing more.
+
+**This is an ALLOCATION estimand, so it took no quiet-box slot** — a census of
+monotone byte counters reads the same on a loaded machine (`rf2-ojehu`). The box
+was not exempt for CAPACITY and it was not shared: the peer browser build that
+was running when this window was dispatched had finished, no other bench-class
+run was on the box, and the four runs were taken strictly one at a time.
+
+**One attempt produced no window and is reported rather than dropped.** The first
+invocation of run 1 failed in under a second with `Cannot find module …
+shadow-cljs`: this worktree had no `implementation/node_modules`. It measured
+nothing, wrote no dataset and is not a run of the window; the junction was made
+and run 1 was taken. It is recorded because the stopping rule says every attempt
+is reported.
 
 ## The instrument did not move
 
+Read before the first run and again after the last, with the same command:
+
+| file | blob hash, before and after |
+|---|---|
+| `implementation/core/test/re_frame/bench/p0_run.cjs` | the identical blob hash `ddc4f137bc2b5ee5ac7952dcb4f2cded7fcd0ca0` |
+| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs` | the identical blob hash `0d5b2c5f9df3d216f3aef4370b15557ba350e741` |
+| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs` | the identical blob hash `cffd220eb74f18ed9d9088b3b90774311440f5f5` |
+
+The rig and both readers are byte-identical across the window. `p0_run.cjs` was
+not edited by this window at all.
+
 ## Admissibility, per run
+
+`alloc_pass_design.cjs --admit` over the four datasets, before anything was read:
+
+| run | seed | pass order | parity-tied | schedule drove what it drew | `q·p` | control | B/double | differential | unverified | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `fk6pj-9` | `seeded` | no | yes | 0 | OK | 8.08 | **8.00** | 0 | ADMITTED |
+| 2 | `fk6pj-11` | `seeded` | no | yes | 0 | OK | 8.08 | **8.00** | 0 | ADMITTED |
+| 3 | `fk6pj-2386` | `seeded` | no | yes | 0 | OK | 8.08 | **8.00** | 0 | ADMITTED |
+| 4 | `fk6pj-33` | `seeded` | no | yes | 0 | OK | 8.08 | **8.00** | 0 | ADMITTED |
+
+The differential — D = 1,000 less D = 400 — reads **8.00 B/double against a
+predicted 8** in all four runs, replicating every previous window. **The schedules
+drove what they drew**, checked round by round against `passSchedule.flips` rather
+than assumed. And the estimator reproduced the window it is read against:
+`alloc_pass_position.cjs --self-test` passes, exit 0.
 
 ## A. The round blocks
 
+Forty-eight blocks — four runs of twelve rounds — over **316 certified mid-rung
+cells**, 3 to 8 per block. `second−first` is the same per-round statistic
+re-signed by which pass ran second; it is arithmetic on the column beside it, not
+a further estimator.
+
+| run | round | pass that ran FIRST | parity | n mid cells | median `(page−all)/all` | second−first |
+|---|---|---|---|---|---|---|
+| 1 | 0 | `page` | even | 4 | +0.79% | -0.79% |
+| 1 | 1 | `all` | odd | 8 | -0.78% | -0.78% |
+| 1 | 2 | `all` | even | 7 | -1.05% | -1.05% |
+| 1 | 3 | `page` | odd | 5 | +2.81% | -2.81% |
+| 1 | 4 | `page` | even | 7 | +0.08% | -0.08% |
+| 1 | 5 | `all` | odd | 4 | -0.34% | -0.34% |
+| 1 | 6 | `all` | even | 8 | +0.14% | +0.14% |
+| 1 | 7 | `page` | odd | 3 | +0.74% | -0.74% |
+| 1 | 8 | `page` | even | 6 | +1.22% | -1.22% |
+| 1 | 9 | `all` | odd | 4 | +0.43% | +0.43% |
+| 1 | 10 | `all` | even | 8 | -0.71% | -0.71% |
+| 1 | 11 | `page` | odd | 8 | +0.71% | -0.71% |
+| 2 | 0 | `page` | even | 4 | +1.97% | -1.97% |
+| 2 | 1 | `all` | odd | 7 | +0.02% | +0.02% |
+| 2 | 2 | `all` | even | 7 | -1.10% | -1.10% |
+| 2 | 3 | `page` | odd | 7 | +1.29% | -1.29% |
+| 2 | 4 | `page` | even | 7 | +2.08% | -2.08% |
+| 2 | 5 | `all` | odd | 8 | -1.84% | -1.84% |
+| 2 | 6 | `all` | even | 8 | -0.20% | -0.20% |
+| 2 | 7 | `page` | odd | 8 | +0.91% | -0.91% |
+| 2 | 8 | `all` | even | 7 | -0.16% | -0.16% |
+| 2 | 9 | `page` | odd | 7 | -0.97% | +0.97% |
+| 2 | 10 | `page` | even | 7 | +0.00% | +0.00% |
+| 2 | 11 | `all` | odd | 7 | +0.05% | +0.05% |
+| 3 | 0 | `all` | even | 3 | -1.38% | -1.38% |
+| 3 | 1 | `page` | odd | 7 | +0.27% | -0.27% |
+| 3 | 2 | `page` | even | 6 | +0.54% | -0.54% |
+| 3 | 3 | `all` | odd | 7 | +0.36% | +0.36% |
+| 3 | 4 | `all` | even | 8 | +0.77% | +0.77% |
+| 3 | 5 | `page` | odd | 6 | +0.09% | -0.09% |
+| 3 | 6 | `page` | even | 7 | +1.10% | -1.10% |
+| 3 | 7 | `all` | odd | 7 | -0.72% | -0.72% |
+| 3 | 8 | `all` | even | 7 | -0.33% | -0.33% |
+| 3 | 9 | `page` | odd | 4 | -0.13% | +0.13% |
+| 3 | 10 | `page` | even | 8 | +0.82% | -0.82% |
+| 3 | 11 | `all` | odd | 7 | +0.96% | +0.96% |
+| 4 | 0 | `all` | even | 3 | +0.02% | +0.02% |
+| 4 | 1 | `page` | odd | 7 | +0.47% | -0.47% |
+| 4 | 2 | `page` | even | 8 | +1.03% | -1.03% |
+| 4 | 3 | `all` | odd | 7 | -1.23% | -1.23% |
+| 4 | 4 | `all` | even | 7 | +0.38% | +0.38% |
+| 4 | 5 | `page` | odd | 7 | +1.34% | -1.34% |
+| 4 | 6 | `page` | even | 8 | +0.56% | -0.56% |
+| 4 | 7 | `all` | odd | 8 | +0.03% | +0.03% |
+| 4 | 8 | `page` | even | 6 | +0.01% | -0.01% |
+| 4 | 9 | `all` | odd | 7 | -1.27% | -1.27% |
+| 4 | 10 | `all` | even | 8 | -0.16% | -0.16% |
+| 4 | 11 | `page` | odd | 7 | -0.96% | +0.96% |
+
+**The pass that ran second read lower in 34 of the 48 blocks**, median −0.50%.
+Phase 2 read 7 of 12 and `rf2-0gjqi` 10 of 12, so across three windows this count
+has read 83%, 58% and 71%. Its nominal one-sided binomial p over 48 is 0.0028,
+and **that number is quoted only as what the nominal test says**: the 48 blocks
+are 4 runs in 1 session, not 48 independent trials.
+
+**The design came out as drawn.** `q · p` reads **0 inside every run** and 0 over
+the pooled forty-eight — the first allocation corpus that can say the first of
+those. On a `parity` corpus the same reader reads ±n.
+
 ## B. The decomposition, on both groupings
 
-## C. The band
+| block set | grouping | group A | group B | half-difference: THE TERM | half-sum |
+|---|---|---|---|---|---|
+| run 1 | PASS (`page`-first vs `all`-first) | +0.76% (n=6) | −0.53% (n=6) | **PASS +0.65%** | write +0.12% |
+| run 1 | PARITY (even vs odd round) | +0.11% (n=6) | +0.57% (n=6) | PARITY −0.23% | write +0.34% |
+| run 2 | PASS | +1.10% (n=6) | −0.18% (n=6) | **PASS +0.64%** | write +0.46% |
+| run 2 | PARITY | −0.08% (n=6) | +0.04% (n=6) | PARITY −0.06% | write −0.02% |
+| run 3 | PASS | +0.41% (n=6) | +0.01% (n=6) | **PASS +0.20%** | write +0.21% |
+| run 3 | PARITY | +0.65% (n=6) | +0.18% (n=6) | PARITY +0.24% | write +0.42% |
+| run 4 | PASS | +0.51% (n=6) | −0.07% (n=6) | **PASS +0.29%** | write +0.22% |
+| run 4 | PARITY | +0.20% (n=6) | −0.47% (n=6) | PARITY +0.34% | write −0.13% |
+| pair A (runs 1 + 3) | PASS | — | — | **PASS +0.53%** | — |
+| pair A (runs 1 + 3) | PARITY | — | — | PARITY **+0.01%** | — |
+| pair B (runs 2 + 4) | PASS | — | — | **PASS +0.45%** | — |
+| pair B (runs 2 + 4) | PARITY | — | — | PARITY **−0.00%** | — |
+| pooled 48 | PASS | +0.72% (n=24) | −0.18% (n=24) | **PASS +0.45%** | write +0.27% |
+| pooled 48 | PARITY | +0.11% (n=24) | +0.07% (n=24) | PARITY **+0.02%** | write +0.09% |
 
-## D. The null arm
+**No two groupings returned the same pair of medians anywhere**, which is what
+phase 2's design could not manage and what the round count was moved to buy.
+
+**The two complementary pairs are the strongest contrasts on this page**, because
+they are the only ones balanced against the round INDEX rather than only against
+its parity and its trend. Both put the PARITY term at essentially exactly zero —
++0.01% and −0.00% — while the PASS term reads +0.53% and +0.45%. Two pairs is
+two, and neither is a session of its own.
+
+**A per-round-index term is visible, and the pooled design is what removes it.**
+Within each complementary pair the PASS term is larger in the original schedule
+than in its complement — +0.65% against +0.20%, and +0.64% against +0.29% — by
+half-differences of +0.22% and +0.17%. Complementing inverts `q` at every round
+index, so a contrast that changes with the complement is a term tied to the round
+index rather than to the pass. **That is exactly the class of nuisance the
+complementary pairing was chosen to cancel**, it cancels in each pair and in the
+pool, and it is reported here rather than left as a residual nobody looked at.
+`q · (r mod 4)` is one such column and it flips sign with the complement by
+construction; nothing here identifies which index-tied column it is, and no
+mechanism is proposed.
+
+## C. The band, which refuses
+
+The block statistic is a ratio, so a term of *x* implies a Δ of `x · d_all` bytes
+per boundary. The mid-rung `d_all` population, over the same 316 certified cells:
+
+| population | n | min | median | max | implied Δ of the pooled PASS term |
+|---|---|---|---|---|---|
+| R3 | 164 | 4,740 | 6,563 | 8,583 | 29.7 B/boundary |
+| R7 | 152 | 10,466 | 13,668 | 17,032 | 61.8 B/boundary |
+| both rungs | 316 | 4,740 | 8,354 | 17,032 | 37.8 B/boundary (21.4 – 77.0 over the range) |
+
+**The pre-registered band is ten times this window's own null-arm 90th percentile
+on Δ**, which is 61 B/boundary, so the band is **610 B/boundary**.
+
+| term | pooled reading | implied Δ at the median `d_all` | band | verdict |
+|---|---|---|---|---|
+| PASS | +0.45% | 37.8 B/boundary | 610 B/boundary | **below — not read** |
+| PARITY | +0.02% | 1.7 B/boundary | 610 B/boundary | **below — not read** |
+
+**Under the pre-registration this is outcome 3, and the window does not establish
+the pass-position term.** The reading is published anyway, because the
+pre-registration says every term is reported whatever it says, and because a term
+refused by the band is a different statement from a term that read zero: this one
+read positive in four runs of four and is refused on magnitude, not on sign.
+
+### The defect in this band, recorded and NOT repaired
+
+**The band as written compares an aggregate against a per-observation noise
+scale.** The PASS term is a contrast of two medians, each taken over 24 block
+medians, each of those taken over 3 to 8 cells — 316 cells in all. The null arm's
+90th percentile is a property of ONE cell. A statistic aggregated over hundreds
+of observations does not have to clear a single observation's tail to be real,
+and a band built that way is too strict by roughly the square root of the count.
+The published 45 B/boundary bar it was modelled on was set for **per-boundary
+cell medians** — single published figures — and this page's pre-registration said
+it was applying "the same construction", which it was not entitled to.
+
+**It is recorded and not repaired, and that is the correct outcome rather than a
+concession.** Choosing the statistic after seeing the answer is the precise thing
+a pre-registration exists to prevent, and the answer is already on the screen. A
+band computed now, against a term already known, would carry none of the
+authority the refused one carries. What the successor owes is a band derived from
+the DISPERSION OF THE AGGREGATE — the spread of the per-run terms, or a null-arm
+contrast pushed through the identical block-and-decompose pipeline so that the
+noise scale and the signal scale are the same object — declared before its runs.
+
+## D. The null arm, and the published floor
+
+The R = 0 arm reads nothing, so `arm − floor` must be zero under either write. It
+is the only population here whose true value is known in advance.
+
+| window | n | median Δ | absolute median | 90th percentile | max | over the 45 B/boundary bar |
+|---|---|---|---|---|---|---|
+| run 1 | 37 | 0 | 3 | 59.5 | 62.5 | — |
+| run 2 | 42 | 0 | 8.25 | 64 | 76 | — |
+| run 3 | 42 | 0 | 2.25 | 53.5 | 61 | — |
+| run 4 | 43 | 0 | 3 | 62.5 | 135.5 | — |
+| this window, pooled | 164 | 0 | 3 | **61** | 135.5 | **38 of 164 (23.2%)** |
+| phase 2, pooled | 40 | 0 | 3 | 56.5 | 62.5 | 4 of 40 (10.0%) |
+| `rf2-0gjqi`, pooled | 38 | 0 | 1.5 | 4.5 | 96.5 | 2 of 38 (5.3%) |
+
+**The median is 0 in every run and the absolute median holds at 3 B/boundary**, so
+the instrument still cancels in the centre, and the mid-rung figures — thousands
+of bytes per boundary — are read far above it.
+
+**But phase 2's explanation of its own 90th percentile is refuted here.** Phase 2
+read 56.5 against `rf2-0gjqi`'s 4.5 and wrote that the jump was *an artefact of
+the count* — four outliers in forty putting one exactly at the 90th-percentile
+index. **At n = 164 that no longer holds**: the fraction of the zero-signal
+population above the published 45 B/boundary bar is 5.3%, then 10.0%, then
+**23.2%**, and a quarter of the null arm sitting above the bar is a distribution
+rather than an index. The full quantile ladder is p50 = 3, p75 = 19.5,
+p80 = 54.5, p85 = 59.5, p90 = 61, p95 = 64.
+
+**This is a claim about the instrument, not about this bead**, and it says the
+non-cancellation floor `rf2-2rtt6.140` published — 1.5 B median, 4.5 B p90, bar at
+45 B — **does not describe the corpus the instrument is producing now**. Nothing
+is widened here and no bar is moved: the finding is filed and the published bar
+stands until a window that owns it says otherwise.
 
 ## What this window establishes, and what it does not
+
+**ESTABLISHED.**
+
+1. **A design that identifies exists, is cheap, and is proved before it is run.**
+   Twelve rounds with `q · p = 0` and `q · l = 0` inside each run, four runs, two
+   complementary pairs. The estimator recovers a pure pass effect, a pure parity
+   effect and an unequal mixture of both on every one of the four schedules, and
+   fails all three fixtures on phase 2's schedules. The whole control costs no
+   build, no server and no Chromium.
+2. **No balanced six-round schedule can identify at all**, so phase 2's own
+   successor plan — both seeds at symmetric difference 4 — would have bought four
+   more runs of the same confound. `q · p = 4a − R` is never zero at R = 6.
+3. **Under a design proved to separate them, the PARITY column is where the
+   nothing is.** Both complementary pairs put it at +0.01% and −0.00% and the
+   pooled forty-eight at +0.02%, while the PASS column reads +0.45% and is
+   positive in four runs of four.
+4. **The instrument's zero-signal Δ distribution has a much heavier tail than the
+   published floor describes**, 23.2% of it above the published refusal bar at
+   n = 164, and the count-artefact explanation offered for that is refuted.
+
+**NOT ESTABLISHED, so it is not rediscovered as new.**
+
+1. **THE PASS TERM IS NOT ESTABLISHED.** The pre-registered band refuses it, this
+   window reads as outcome 3, and the band's own defect does not license reading
+   past it inside the window that declared it.
+2. **FOUR RUNS ARE ONE SESSION.** Every figure here is one session on one box in
+   fourteen minutes. The session-level independent count is 1.
+3. **NO MECHANISM IS PROPOSED AND NONE IS EXCLUDED.**
+4. **THE MAGNITUDE IS STILL NOT COMPARABLE TO THE OLD EFFECT.** +0.45% is a
+   within-round pass-position term; the published mid-rung absolute median of
+   1.68% is a between-process quantity. Right sign, wrong size, different
+   estimand.
+5. **THE INDEX-TIED TERM IS SEEN, NOT IDENTIFIED.** The complementary pairs
+   disagree by +0.22% and +0.17%, which locates a per-round-index nuisance and
+   names no column.
+
+**WHAT THE SUCCESSOR OWES**, in terms a dispatch can act on, and none of it a rig
+change:
+
+1. **A BAND ON THE AGGREGATE, declared before its runs** — the dispersion of the
+   per-run terms, or a null-arm contrast pushed through the identical
+   block-and-decompose pipeline. This is the one thing that would let a window of
+   this design return a verdict rather than a refusal.
+2. **MORE THAN ONE SESSION.** Four runs in fourteen minutes is one session, and
+   the session is the block that has never been replicated on this estimand.
+3. **THE READER'S FAIL-CLOSED BOUNDARY** (audit #8601, item 2) still belongs in
+   `alloc_pass_position.cjs` rather than in front of it. It was left unrepaired
+   here on purpose and it is not repaired by this page.
