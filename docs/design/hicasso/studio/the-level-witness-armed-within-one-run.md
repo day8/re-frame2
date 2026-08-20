@@ -277,8 +277,8 @@ directions are asserted in the test:
 
 And a planted mutation shows the gate reaches the code it claims to. Turning BEFORE's
 minimum into a maximum — one character, `<` to `>`, at the `reduce` that picks the lowest
-certified early window — takes the gate from **9/9 to 3/9**, and every one of the six
-reds is specific rather than incidental:
+certified early window — takes the gate from **14/14 to 7/14**, and every one of the
+seven reds is specific rather than incidental:
 
 - the two fixtures that pin the minimum fail *by name* — "certified ramp rounds do not
   raise BEFORE" and "one inflated early round does not raise BEFORE";
@@ -286,18 +286,67 @@ reds is specific rather than incidental:
   which is the failure the bound exists to prevent;
 - the refusal count falls 40 → 38, the worst normal step inverts to −216 B, the
   ramp-fallback reading count goes 1 → 99, and the 0.4% tightening control collapses
-  60 → 6.
+  60 → 6;
+- and the worked step on the committed record the roster proof mutates inverts
+  +168 B → −40 B.
+
+Four of the five roster checks below stayed **green** under this plant, and the fifth
+went red only on the *step* it asserts in passing, not on the refusal it exists for. That
+is the point of naming the reds individually: a mutation to the estimator does not
+collapse the gate wholesale, it fails exactly the checks that read the estimator.
 
 The file was then restored, and the restore verified by content hash rather than by eye:
-`git hash-object` reported the identical SHA-1 blob
-`3dd95e0c268db8b517c802142b2a37de0acbae67` before the plant and after it, matching the
-object the index already held. The gate then re-ran green at 9/9. A green run under
-sabotage would have meant the gate was not reading this tree; it was not green.
+`git hash-object` reported the identical **blob** hash
+`e5a7f195baa95c1db768cdd7eb073f848072b171` before the plant and after it. The gate then
+re-ran green at 14/14. A green run under sabotage would have meant the gate was not
+reading this tree; it was not green.
 
 *(That forty-hex token is a **blob** hash — the content digest of the witness source, not
 a revision of this repository. Nothing resolves it with `git rev-parse`; `git cat-file -t`
 answers `blob`. It is recorded because a diff cannot tell a correct restore from a patch
 that never applied, and a hash can.)*
+
+### The fail-open this control did not catch
+
+**The corpus control could not have found it, and neither could the fixtures.** Both only
+ever see records that carry every segment the arm measures, and the defect was in what
+happened to a record that did not.
+
+`segmentsOf` built its per-segment map by instantiating an entry the first time a segment
+name **occurred**, and the consumer loop then iterated over exactly what existed. The only
+guard fired when **zero** segments occurred. So a record carrying `reagent-subs` alone was
+adjudicated on `reagent-subs` alone, and certified — half the arm's measurement gone, the
+verdict line still reading "every segment holds its level across the transition", and not
+a word about the missing half. Measured on the committed `alloc-77gz8/run01` with
+`uix-subs` deleted from every one of its rounds: **CERTIFIED**.
+
+That is worse than a loose bound. A loose bound quotes a number that is wrong; this quoted
+a number that was never checked, while saying it had been. And it defeated the clause the
+witness leans on hardest — *"a run is refused on EITHER segment's step rather than on the
+pair agreeing"* — because a segment that is absent cannot refuse anything.
+
+**The repair is to declare the roster rather than discover it.** `MEASURED_SEGMENTS` names
+what the floor arm measures, `segmentsOf` seeds its map from that roster so an absent
+segment arrives at the consumer loop as an empty row list rather than as no entry at all,
+and a declared segment with no window in any round is refused under its own code,
+`level-segment`. A segment present but **not** declared is still adjudicated: the roster
+is a floor on what must be there, not a whitelist of what may be.
+
+**It costs the corpus nothing, measured.** All 103 records carrying an `alloc` object
+carry exactly `reagent-subs` and `uix-subs`, in every one of their rounds. So the corpus
+control is unchanged in every figure — 101 admissible, 100 scored, 40 elevated, 60 normal,
+zero false refusals, zero misses, and the same 96–194 B and 2,616–3,984 B bands — with
+`missing-segment 0` beside them. If a later plan measures a different roster this gate
+turns red and someone declares the new one, which is the behaviour wanted rather than a
+defect.
+
+**And it is proved against a real record, not only a fixture.** The gate now reads
+`alloc-77gz8/run01` from disk, asserts it certifies intact, deletes one whole segment from
+the in-memory copy, and asserts the result refuses with `level-segment`, reports the
+absent segment rather than dropping it, still reads the surviving one, and no longer
+formats CERTIFIED. Reverting the witness to its pre-repair state takes the gate to
+**9/14** with those checks failing by name, the operative one reading "a record missing
+half its measurement still certified — the fail-open is back".
 
 ## The rig is not touched
 
@@ -357,7 +406,8 @@ node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --corpus
 # the fixtures alone
 node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --self-test
 
-# fixtures plus the corpus control plus the loosen/tighten mutation proofs
+# fixtures, the corpus control, the loosen/tighten mutation proofs, and the
+# missing-segment proof against a committed record
 node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.test.cjs
 
 # one run, or a window's worth: exits non-zero on any refusal
