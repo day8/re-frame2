@@ -52,7 +52,7 @@
 // removes bytes; the collector does" — so a certified window is not available
 // to be spuriously low. The minimum of the certified early windows is
 // therefore the best estimate of the level the run started at, and a median
-// over as few as one or two windows is not: four runs read a NEGATIVE step
+// over as few as one or two windows is not: FIVE runs read a NEGATIVE step
 // under the median form, the worst at -1,014 B, every one of them a normal run
 // with a single inflated early round inside a two-window median.
 //
@@ -185,9 +185,10 @@ function median(xs) {
 }
 
 // PER-SEGMENT, NOT PER-ROUND. A round holds one window per segment and the
-// levels are page-global — rf2-c4hhk found the offset identical on both
-// segments in 34 of 37 elevated runs — but the two segments sit at different
-// absolute levels (19,100 against 19,540), so they are never pooled.
+// levels are page-global — in all 37 of `alloc-c4hhk`'s elevated runs BOTH
+// segments are elevated, never one alone — but the two segments sit at
+// different absolute levels (19,100 against 19,540), so they are never pooled.
+// A run is refused on EITHER segment's step rather than on the pair agreeing.
 function segmentsOf(alloc) {
   const out = new Map();
   for (const round of alloc.perRound || []) {
