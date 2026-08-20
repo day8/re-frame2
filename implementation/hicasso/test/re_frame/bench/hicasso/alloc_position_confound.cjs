@@ -59,6 +59,28 @@
 // difference measured across it is not a difference in the work unit. Nothing
 // here reads, moves or is calibrated against tau in either direction.
 //
+// ## THE PUBLISHED STATISTIC, AND WHY ITS CONVENTION IS WRITTEN DOWN
+//
+// The two records state a `z` beside each of their rate comparisons. Every one
+// of them is a TWO-PROPORTION z-test on the POOLED proportion, with NO
+// continuity correction and no conversion to a tail probability:
+//
+//     p1 = k1/n1 , p2 = k2/n2 , p = (k1 + k2)/(n1 + n2)
+//     z  = (p1 - p2) / sqrt( p (1 - p) (1/n1 + 1/n2) )
+//
+// The convention is named rather than left implicit because THREE of them land
+// within half a z of each other on these counts and only this one reproduces
+// the records to the published digits: on `parity`'s 25/40 against 3/49 the
+// pooled form gives 5.6975 (published 5.70), the unpooled form 6.7229 and the
+// continuity-corrected form 5.4681. `selfTest` pins all ten published figures
+// on their own input counts AND requires the other two forms to disagree with
+// every one of them, so a change to the formula reds rather than drifting.
+//
+// SIGN. `z` is signed `(a - b)` with the two groups taken IN THE READER'S OWN
+// CANONICAL ORDER — the order this report already lists them in, which is
+// ascending by position and sorted by schedule name. The sign is therefore a
+// property of the report and not of whichever sentence cites it.
+//
 // ## WHAT THIS IS NOT
 //
 // It is not a gate. No run passes or fails on it, no threshold here is a
@@ -81,12 +103,47 @@ const RIDER_HI_B = 800;
 // band is a leg that carries nothing.
 const JITTER_B = 36;
 
+// The SECONDARY cluster the position record filed rather than chased and
+// `rf2-csca8` carries: "position 1 carries a cluster of 8 of 38 windows whose
+// worst leg sits at 1,050-1,224 B". Like the rider band above this is a
+// DESCRIPTION of an already-measured population, not a threshold anything is
+// adjudicated against, and it is here only so the published 8 / 1 / 0 counts
+// are re-derivable rather than taken on trust.
+const CLUSTER_LO_B = 1050;
+const CLUSTER_HI_B = 1224;
+
 const median = (xs) => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
+
+// The distinct values in `xs`, most frequent first and ties broken by value —
+// the "modal values" column both records publish beside their rider legs.
+const modal = (xs, top = 4) => {
+  const counts = new Map();
+  for (const x of xs) counts.set(x, (counts.get(x) || 0) + 1);
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value - b.value)
+    .slice(0, top);
+};
+
+// --- the published statistic ------------------------------------------------
+//
+// See the header. Pooled two-proportion z, no continuity correction, signed
+// `(a - b)`. Returns `null` rather than a number wherever the statistic is not
+// defined — an empty group, or a pooled proportion of 0 or 1, where the
+// standard error is zero and every difference would divide to Infinity.
+function twoProportionZ(k1, n1, k2, n2) {
+  if (!n1 || !n2) return null;
+  const p = (k1 + k2) / (n1 + n2);
+  if (p <= 0 || p >= 1) return null;
+  const se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
+  if (!se) return null;
+  return (k1 / n1 - k2 / n2) / se;
+}
 
 // --- the window sequence, IN THE ORDER THE PAGE DROVE IT --------------------
 //
@@ -196,11 +253,25 @@ function windowsOf(dataset, runId) {
 // instrument's and not the arm's.
 function controlLegsOf(dataset, runId) {
   const row = dataset.alloc || dataset;
+  // The control windows carry the SAME group labels their run's arms do, for
+  // the same defaults, because both records publish the control-leg count per
+  // schedule ("960 under `first`, 972 under `last`, 972 under `mid`") and a
+  // pooled total cannot be split back into those three after the fact.
+  const segOrder = row.segOrder || 'parity';
+  const controlSlot = row.controlSlot || 'first';
   const out = [];
   for (const r of row.perRound || []) {
     for (const [kind, c] of Object.entries(r.controls || {})) {
       if (!c || c.falls !== 0) continue;
-      out.push({ runId, round: r.round, kind, legs: c.legs || [], legMedian: c.legMedian });
+      out.push({
+        runId,
+        segOrder,
+        controlSlot,
+        round: r.round,
+        kind,
+        legs: c.legs || [],
+        legMedian: c.legMedian,
+      });
     }
   }
   return out;
@@ -208,6 +279,23 @@ function controlLegsOf(dataset, runId) {
 
 // A leg's excess over its own window's cohort median, in BYTES.
 const excesses = (w) => (w.legs || []).map((x) => x - w.legMedian);
+
+// The window's WORST leg, in bytes and SIGNED — the excess furthest from the
+// cohort median in either direction. This is `legWorstDeviation` re-derived
+// from the legs rather than read off the rig's own field, and the sign is
+// load-bearing twice over: the pooling-trap table publishes a -6 B cell, and
+// the secondary cluster reads 8 of 38 this way against 9 of 38 read as "the
+// largest POSITIVE excess". The self-test pins both halves.
+const worstExcessSignedB = (w) => {
+  const e = excesses(w);
+  if (!e.length) return null;
+  return e.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a));
+};
+
+const inCluster = (w) => {
+  const b = worstExcessSignedB(w);
+  return b !== null && b >= CLUSTER_LO_B && b <= CLUSTER_HI_B;
+};
 
 // Riders, by the band above. Returns the leg ORDINALS as well as the values,
 // because `rf2-rs8q6` found the rider lands late (ordinals 3/4/5 hold 100 of
@@ -272,6 +360,12 @@ function analyse(datasets) {
           acc[x.ordinal] = (acc[x.ordinal] || 0) + 1;
           return acc;
         }, {}),
+        // The "modal values" column of both records' "It is the same term"
+        // table — the rider legs' distinct byte values with their counts.
+        riderModalB: modal(riderLegs.map((x) => x.bytes)),
+        // The pooling-trap table's cell, and the secondary cluster's count.
+        worstExcessSignedMedianB: median(ws.map(worstExcessSignedB).filter((x) => x !== null)),
+        clusterWindows: ws.filter(inCluster).length,
         // THE MAGNITUDE, and the `Math.abs` is not cosmetic. `legWorstDeviation`
         // is SIGNED — it is the deviation FURTHEST from the cohort median in
         // either direction — so a median over the signed field mixes a window
@@ -301,6 +395,34 @@ function analyse(datasets) {
       const cell = `pos${w.position}/${w.repeatsSubstrate ? 'repeat' : 'switch'}`;
       crossTab[cell] = (crossTab[cell] || 0) + 1;
     }
+    // The same cross-tab counting only the windows that CARRY a rider, which is
+    // the position record's "all 25 position-0 rider windows repeated the
+    // previous window's substrate / all 21 of them switched it". `crossTab`
+    // itself is left as the window counts it has always been, because the two
+    // fixtures below pin it.
+    const crossTabRiders = {};
+    for (const w of adj.filter((x) => ridersOf(x).length > 0)) {
+      const cell = `pos${w.position}/${w.repeatsSubstrate ? 'repeat' : 'switch'}`;
+      crossTabRiders[cell] = (crossTabRiders[cell] || 0) + 1;
+    }
+    // The re-taken `parity` arm's own table: rider windows by SUBSTRATE and
+    // position, which is what excludes substrate IDENTITY where the adjacency
+    // above excludes the substrate RELATION.
+    const segments = [...new Set(clean.map((w) => w.segment))].sort();
+    const perSegmentPosition = [];
+    for (const segment of segments) {
+      for (const p of positions) {
+        const ws = clean.filter((w) => w.segment === segment && w.position === p);
+        if (!ws.length) continue;
+        perSegmentPosition.push({
+          segment,
+          position: p,
+          windows: ws.length,
+          riderWindows: ws.filter((w) => ridersOf(w).length > 0).length,
+          clusterWindows: ws.filter(inCluster).length,
+        });
+      }
+    }
     const byRepeat = [true, false].map((rep) => {
       const ws = adj.filter((w) => w.repeatsSubstrate === rep);
       return {
@@ -315,8 +437,10 @@ function analyse(datasets) {
       windows: mine.length,
       cleanWindows: clean.length,
       perPosition,
+      perSegmentPosition,
       adjacencyWindows: adj.length,
       crossTab,
+      crossTabRiders,
       byRepeat,
     };
   }
@@ -343,11 +467,25 @@ function analyse(datasets) {
         riderWindows: ws.filter((w) => ridersOf(w).length > 0).length,
         riderLegs: riderLegs.length,
         riderMedianB: median(riderLegs.map((x) => x.bytes)),
+        riderModalB: modal(riderLegs.map((x) => x.bytes)),
+        riderOrdinals: riderLegs.reduce((acc, x) => {
+          acc[x.ordinal] = (acc[x.ordinal] || 0) + 1;
+          return acc;
+        }, {}),
         worstDeviationMedianAbsFraction: median(
           ws
             .map((w) => w.legWorstDeviationFraction)
             .filter((x) => typeof x === 'number')
             .map(Math.abs)
+        ),
+        worstExcessSignedMedianB: median(ws.map(worstExcessSignedB).filter((x) => x !== null)),
+        // The control-slot record states the prime excess BY CELL rather than
+        // by position, and under `last` the two differ: cell (A) holds 43
+        // windows where position 0 holds 44, and their medians read 6,884 B
+        // and 6,882 B. Reading the published figure off the position is the
+        // 2 B error that difference costs.
+        primeExcessMedianB: median(
+          ws.map((w) => w.primeExcess).filter((x) => typeof x === 'number')
         ),
       };
     };
@@ -367,16 +505,142 @@ function analyse(datasets) {
     };
   }
 
+  // --- PER RUN (rf2-rs8q6) --------------------------------------------------
+  //
+  // Both records publish an "It holds in every run separately" table, and the
+  // control-slot record publishes a second per-run table for the pooling trap
+  // it laid — pooled by slot, position 1 looks like it carries a ~2,400 B term
+  // under two slots and nothing under the third, and per RUN it splits 1/3,
+  // 2/3, 3/3. A reader that only ever pooled could not show that.
+  const cleanAll = all.filter((w) => w.falls === 0);
+  const perRun = [];
+  for (const runId of [...new Set(all.map((w) => w.runId))].sort()) {
+    for (const p of [...new Set(cleanAll.filter((w) => w.runId === runId).map((w) => w.position))].sort()) {
+      const ws = cleanAll.filter((w) => w.runId === runId && w.position === p);
+      perRun.push({
+        runId,
+        segOrder: ws[0].segOrder,
+        controlSlot: ws[0].controlSlot,
+        position: p,
+        windows: ws.length,
+        riderWindows: ws.filter((w) => ridersOf(w).length > 0).length,
+        worstExcessSignedMedianB: median(ws.map(worstExcessSignedB).filter((x) => x !== null)),
+      });
+    }
+  }
+
+  // --- THE NAMED COMPARISONS, AND THEIR z (rf2-rs8q6) -----------------------
+  //
+  // Every z either record publishes, built from the cells above rather than
+  // stated, so the figure and the counts it was taken on cannot drift apart.
+  // Each comparison names its two groups in the reader's canonical order and
+  // the sign follows that order — see the header.
+  const rate = (label, ws) => ({
+    label,
+    riderWindows: ws.filter((w) => ridersOf(w).length > 0).length,
+    windows: ws.length,
+  });
+  const comparisons = [];
+  const compare = (name, a, b) => {
+    if (!a.windows || !b.windows) return;
+    comparisons.push({ name, a, b, z: twoProportionZ(a.riderWindows, a.windows, b.riderWindows, b.windows) });
+  };
+  const allPositions = [...new Set(cleanAll.map((w) => w.position))].sort();
+
+  // (1) within one segment order: position against position.
+  for (const mode of modes) {
+    const mine = cleanAll.filter((w) => w.segOrder === mode);
+    for (let i = 0; i < allPositions.length; i++) {
+      for (let j = i + 1; j < allPositions.length; j++) {
+        compare(
+          `segment order ${mode}: position ${allPositions[i]} against position ${allPositions[j]}`,
+          rate(`position ${allPositions[i]}`, mine.filter((w) => w.position === allPositions[i])),
+          rate(`position ${allPositions[j]}`, mine.filter((w) => w.position === allPositions[j]))
+        );
+      }
+    }
+  }
+  // (2) one position, across two segment orders — "the mode changed nothing
+  //     about the position effect".
+  for (let i = 0; i < modes.length; i++) {
+    for (let j = i + 1; j < modes.length; j++) {
+      for (const p of allPositions) {
+        compare(
+          `position ${p}: ${modes[i]} against ${modes[j]}`,
+          rate(modes[i], cleanAll.filter((w) => w.segOrder === modes[i] && w.position === p)),
+          rate(modes[j], cleanAll.filter((w) => w.segOrder === modes[j] && w.position === p))
+        );
+      }
+    }
+  }
+  // (3) within one control slot: the after-controls windows against the rest.
+  //     This is the z column of the control-slot record's answer table, and one
+  //     rule covers all three rows — under `mid` "the rest" IS the separated
+  //     opens-round cell, which is what that row compares.
+  for (const slot of slots) {
+    const mine = cleanAll.filter((w) => w.controlSlot === slot);
+    compare(
+      `control slot ${slot}: after the controls against the rest`,
+      rate('after controls', mine.filter((w) => w.afterControls)),
+      rate('the rest', mine.filter((w) => !w.afterControls))
+    );
+  }
+  // (4) and across slots. A slot SEPARATES the two properties when they
+  //     disagree on every one of its clean windows, and is COUPLED otherwise —
+  //     measured off the records, never assumed from the slot's name.
+  const separates = (slot) => {
+    const mine = cleanAll.filter((w) => w.controlSlot === slot);
+    return mine.length > 0 && mine.every((w) => w.afterControls !== w.roundFirst);
+  };
+  const separating = slots.filter(separates);
+  const coupled = slots.filter((s) => !separates(s));
+  const coupledClean = cleanAll.filter((w) => coupled.includes(w.controlSlot));
+  for (let i = 0; i < coupled.length; i++) {
+    for (let j = i + 1; j < coupled.length; j++) {
+      compare(
+        `after the controls: ${coupled[i]} against ${coupled[j]}`,
+        rate(coupled[i], coupledClean.filter((w) => w.controlSlot === coupled[i] && w.afterControls)),
+        rate(coupled[j], coupledClean.filter((w) => w.controlSlot === coupled[j] && w.afterControls))
+      );
+    }
+  }
+  for (const slot of separating) {
+    const mine = cleanAll.filter((w) => w.controlSlot === slot);
+    compare(
+      `opens the round ALONE: ${slot} against the coupled slots' not-after-controls windows`,
+      rate(`${slot} opens round`, mine.filter((w) => w.roundFirst && !w.afterControls)),
+      rate('coupled, not after controls', coupledClean.filter((w) => !w.afterControls))
+    );
+    compare(
+      `after the controls ALONE: ${slot} against the coupled slots' coincident windows`,
+      rate(`${slot} after controls`, mine.filter((w) => w.afterControls && !w.roundFirst)),
+      rate('coupled, both properties', coupledClean.filter((w) => w.afterControls && w.roundFirst))
+    );
+  }
+
   const controlLegs = controls.flatMap((c) => c.legs.map((x) => x - c.legMedian));
+  const controlGroup = (key, value) => {
+    const mine = controls.filter((c) => c[key] === value);
+    const legs = mine.flatMap((c) => c.legs.map((x) => x - c.legMedian));
+    return {
+      windows: mine.length,
+      legs: legs.length,
+      riderLegs: legs.filter((b) => b >= RIDER_LO_B && b <= RIDER_HI_B).length,
+    };
+  };
   return {
     modes,
     byMode,
     slots,
     bySlot,
+    perRun,
+    comparisons,
     controls: {
       windows: controls.length,
       legs: controlLegs.length,
       riderLegs: controlLegs.filter((b) => b >= RIDER_LO_B && b <= RIDER_HI_B).length,
+      bySlot: Object.fromEntries(slots.map((s) => [s, controlGroup('controlSlot', s)])),
+      byMode: Object.fromEntries(modes.map((m) => [m, controlGroup('segOrder', m)])),
     },
   };
 }
@@ -384,6 +648,11 @@ function analyse(datasets) {
 // --- printing ---------------------------------------------------------------
 
 const pct = (f) => (typeof f === 'number' ? `${(f * 100).toFixed(3)}%` : 'n/a');
+const bytes = (b) => (typeof b === 'number' ? `${b} B` : 'n/a');
+const modalStr = (ms) => (ms && ms.length ? ms.map((m) => `${m.value} B x${m.count}`).join(', ') : 'none');
+const zStr = (z) => (typeof z === 'number' ? (z >= 0 ? `+${z.toFixed(2)}` : z.toFixed(2)) : 'n/a');
+const rateStr = (r) =>
+  `${r.label} ${r.riderWindows} of ${r.windows} (${((r.riderWindows / r.windows) * 100).toFixed(1)}%)`;
 
 function report(a) {
   const out = [];
@@ -406,7 +675,24 @@ function report(a) {
           `${p.primeExcessMedianB === null ? 'n/a' : `${p.primeExcessMedianB} B`}`
       );
     }
+    for (const p of m.perPosition) {
+      out.push(
+        `    position ${p.position} rider legs: modal ${modalStr(p.riderModalB)}; ` +
+          `ordinals ${JSON.stringify(p.riderOrdinals)}`
+      );
+      out.push(
+        `    position ${p.position} worst leg (SIGNED) median ${bytes(p.worstExcessSignedMedianB)}; ` +
+          `${CLUSTER_LO_B}-${CLUSTER_HI_B} B cluster ${p.clusterWindows} of ${p.windows}`
+      );
+    }
+    for (const s of m.perSegmentPosition) {
+      out.push(
+        `    ${s.segment} at position ${s.position}: ${s.riderWindows} of ${s.windows} carry a rider, ` +
+          `${s.clusterWindows} in the ${CLUSTER_LO_B}-${CLUSTER_HI_B} B cluster`
+      );
+    }
     out.push(`  adjacency (${m.adjacencyWindows} paired windows): ${JSON.stringify(m.crossTab)}`);
+    out.push(`    of which carry a rider: ${JSON.stringify(m.crossTabRiders)}`);
     for (const r of m.byRepeat) {
       out.push(
         `    substrate ${r.repeatsSubstrate ? 'REPEATS' : 'SWITCHES'}: ` +
@@ -421,21 +707,53 @@ function report(a) {
       `CONTROL SLOT = ${slot}   ${s.runs} run(s), ${s.cleanWindows} collection-free arm ` +
         `windows, ${s.separatedWindows} on which the two properties DISAGREE`
     );
-    out.push('  after controls | opens round | windows | rider windows | rider legs | median |worst dev|');
+    out.push('  after controls | opens round | windows | rider windows | rider legs | median |worst dev| | prime excess');
     for (const c of s.cells) {
       out.push(
         `  ${(c.afterControls ? 'yes' : 'no').padEnd(14)} | ${(c.roundFirst ? 'yes' : 'no').padEnd(11)} | ` +
           `${String(c.windows).padStart(7)} | ${String(c.riderWindows).padStart(13)} | ` +
           `${String(c.riderLegs).padStart(10)} | ` +
-          `${pct(c.worstDeviationMedianAbsFraction).padStart(16)}`
+          `${pct(c.worstDeviationMedianAbsFraction).padStart(16)} | ${bytes(c.primeExcessMedianB)}`
       );
+      if (c.windows) {
+        out.push(
+          `      rider legs: modal ${modalStr(c.riderModalB)}; ordinals ${JSON.stringify(c.riderOrdinals)}; ` +
+            `worst leg (SIGNED) median ${bytes(c.worstExcessSignedMedianB)}`
+        );
+      }
     }
     out.push('');
   }
+
+  out.push('PER RUN — the pooled figures above split by browser launch');
+  out.push('  run | segment order | control slot | position | windows | rider windows | worst leg (SIGNED) median');
+  for (const r of a.perRun) {
+    out.push(
+      `  ${r.runId} | ${r.segOrder} | ${r.controlSlot} | ${r.position} | ` +
+        `${String(r.windows).padStart(3)} | ${String(r.riderWindows).padStart(3)} | ` +
+        `${bytes(r.worstExcessSignedMedianB)}`
+    );
+  }
+  out.push('');
+
+  out.push('COMPARISONS — two-proportion z on the POOLED proportion, no continuity correction');
+  out.push('  the sign is (first group - second group), in the order each line names them');
+  for (const c of a.comparisons) {
+    out.push(`  z = ${zStr(c.z).padStart(6)}   ${c.name}`);
+    out.push(`             ${rateStr(c.a)}  against  ${rateStr(c.b)}`);
+  }
+  out.push('');
+
   out.push(
     `CONTROLS (the null arm): ${a.controls.riderLegs} of ${a.controls.legs} legs in the band, ` +
       `over ${a.controls.windows} collection-free control windows`
   );
+  for (const [slot, g] of Object.entries(a.controls.bySlot || {})) {
+    out.push(`    control slot ${slot}: ${g.riderLegs} of ${g.legs} legs in the band, over ${g.windows} windows`);
+  }
+  for (const [mode, g] of Object.entries(a.controls.byMode || {})) {
+    out.push(`    segment order ${mode}: ${g.riderLegs} of ${g.legs} legs in the band, over ${g.windows} windows`);
+  }
   return out;
 }
 
@@ -446,31 +764,57 @@ function report(a) {
 // its own negative: a rider planted where the reader must see it, and a record
 // with none where it must report none.
 
-function synthRound(round, segments, riderAt) {
+// `riderAt` is a `round:position:ordinal` key, which plants one +748 B rider —
+// or a MAP of such keys to byte excesses, which plants whatever the fixture
+// needs. The string form is the whole of what the pre-existing fixtures use and
+// is unchanged by the map form.
+const plantedAt = (riderAt, key) => {
+  if (!riderAt) return 0;
+  if (typeof riderAt === 'string') return riderAt === key ? 748 : 0;
+  return riderAt[key] || 0;
+};
+
+function synthRound(round, segments, riderAt, controlLegs) {
   const arms = {};
   segments.forEach((segment, i) => {
     const legMedian = 19280;
-    const legs = [0, 1, 2, 3, 4, 5].map((o) => legMedian + (riderAt === `${round}:${i}:${o}` ? 748 : 0));
+    const legs = [0, 1, 2, 3, 4, 5].map((o) => legMedian + plantedAt(riderAt, `${round}:${i}:${o}`));
     arms[`${segment}|grid/floor`] = {
       segment,
       falls: 0,
       legs,
       legMedian,
-      legWorstDeviation: (Math.max(...legs) - legMedian) / legMedian,
+      // The rig's own field, and the SIGNED furthest-from-median leg rather
+      // than the largest one, because that is what `p0_run.cjs` writes and
+      // what the records' "worst leg" figures are. On a record whose only
+      // planted leg is a positive rider the two forms agree, so every fixture
+      // written before the map form above reads exactly as it did.
+      legWorstDeviation:
+        legs.map((x) => x - legMedian).reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a)) / legMedian,
       primeExcess: 6864,
       certified: true,
     };
   });
-  return { round, arms, segments, controls: {} };
+  const controls = {};
+  for (const [kind, excess] of Object.entries(controlLegs || {})) {
+    const legMedian = 12040;
+    controls[kind] = { falls: 0, legMedian, legs: [legMedian, legMedian + excess, legMedian] };
+  }
+  return { round, arms, segments, controls };
 }
 
-function synth(segOrder, rounds, riderAt) {
+function synth(segOrder, rounds, riderAt, controlLegs) {
   const order = ['reagent-subs', 'uix-subs'];
   return {
     alloc: {
       segOrder,
       perRound: Array.from({ length: rounds }, (_, r) =>
-        synthRound(r, segOrder === 'fixed' || r % 2 === 0 ? order : [...order].reverse(), riderAt)
+        synthRound(
+          r,
+          segOrder === 'fixed' || r % 2 === 0 ? order : [...order].reverse(),
+          riderAt,
+          controlLegs
+        )
       ),
     },
   };
@@ -501,6 +845,27 @@ function synthSlot(controlSlot, rounds, riderAt) {
   }
   return d;
 }
+
+// EVERY z EITHER RECORD PUBLISHES, with the counts it was taken on, verbatim
+// from the two pages — `[what it is, k1, n1, k2, n2, the published z]`. The
+// pair is in the reader's canonical order, which is the order `comparisons`
+// emits them in and the order the sign follows; where a page's prose names the
+// two groups the other way round the magnitude is unchanged and only the sign's
+// reading is, which is why the pages now state the convention beside the table.
+const PUBLISHED_Z = [
+  // docs/design/hicasso/studio/the-rider-follows-the-position-not-the-substrate.md
+  ['position record: `parity`, position 0 against position 1', 25, 40, 3, 49, 5.7],
+  ['position record: `fixed`, position 0 against position 1', 21, 43, 1, 38, 4.67],
+  ['position record: position 0, `fixed` against `parity`', 21, 43, 25, 40, -1.25],
+  ['position record: position 1, `fixed` against `parity`', 1, 38, 3, 49, -0.77],
+  // docs/design/hicasso/studio/the-rider-follows-the-controls-not-the-round-boundary.md
+  ['control-slot record: `first`, after the controls against the rest', 18, 39, 2, 46, 4.53],
+  ['control-slot record: `last`, after the controls against the rest', 26, 43, 3, 44, 5.31],
+  ['control-slot record: `mid`, after the controls against the rest', 9, 37, 3, 44, 2.21],
+  ['control-slot record: opens the round alone, `mid` against the coupled slots', 3, 44, 5, 90, 0.29],
+  ['control-slot record: after the controls alone, `mid` against the coincident cells', 9, 37, 44, 82, -2.98],
+  ['control-slot record: after the controls, `first` against `last`', 18, 39, 26, 43, -1.3],
+];
 
 const slotCell = (a, slot, afterControls, roundFirst) =>
   a.bySlot[slot].cells.find(
@@ -646,6 +1011,173 @@ function selfTest() {
     assert.throws(() => analyse([{ id: 'x', data: d }]), /contradicts itself about the one sequence/);
   });
 
+  // --- THE PUBLISHED STATISTIC (rf2-rs8q6) ---------------------------------
+  //
+  // The gap the merged-PR audits of #8545 and #8555 named twice: both records
+  // say every figure on them is re-derived by this reader, and the reader
+  // computed no z at all. These fixtures are the control that closes it. The
+  // input counts are LITERALS taken from the two records, so the pin is
+  // hermetic — it needs no corpus and cannot go stale against one — and the
+  // negative below is what makes it a control rather than a restatement.
+
+  ok('the ten published z-scores are reproduced to the digit by the pooled two-proportion z', () => {
+    for (const [name, k1, n1, k2, n2, z] of PUBLISHED_Z) {
+      assert.strictEqual(Number(twoProportionZ(k1, n1, k2, n2).toFixed(2)), z, name);
+    }
+  });
+
+  ok('and NOT by the unpooled or continuity-corrected forms — the pin DISCRIMINATES', () => {
+    // Without this, "the formula reproduces the records" would be a claim about
+    // a formula nobody could vary. Three conventions are in play on a 2x2 of
+    // counts and they land within half a z of each other; this requires the
+    // other two to miss EVERY published figure at the published precision.
+    const unpooled = (k1, n1, k2, n2) => {
+      const p1 = k1 / n1;
+      const p2 = k2 / n2;
+      return (p1 - p2) / Math.sqrt((p1 * (1 - p1)) / n1 + (p2 * (1 - p2)) / n2);
+    };
+    const corrected = (k1, n1, k2, n2) => {
+      const p1 = k1 / n1;
+      const p2 = k2 / n2;
+      const p = (k1 + k2) / (n1 + n2);
+      const se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
+      return (Math.sign(p1 - p2) * (Math.abs(p1 - p2) - 0.5 * (1 / n1 + 1 / n2))) / se;
+    };
+    for (const [name, k1, n1, k2, n2, z] of PUBLISHED_Z) {
+      assert.notStrictEqual(Number(unpooled(k1, n1, k2, n2).toFixed(2)), z, `unpooled reads ${name}`);
+      assert.notStrictEqual(Number(corrected(k1, n1, k2, n2).toFixed(2)), z, `corrected reads ${name}`);
+    }
+  });
+
+  ok('the statistic is ANTISYMMETRIC — the sign is the order of the two groups', () => {
+    for (const [, k1, n1, k2, n2] of PUBLISHED_Z) {
+      const f = twoProportionZ(k1, n1, k2, n2);
+      const r = twoProportionZ(k2, n2, k1, n1);
+      assert.ok(Math.abs(f + r) < 1e-12, `${f} vs ${r}`);
+    }
+  });
+
+  ok('and it REFUSES rather than returning a number where it is undefined', () => {
+    assert.strictEqual(twoProportionZ(0, 0, 3, 44), null, 'an empty group');
+    assert.strictEqual(twoProportionZ(3, 44, 0, 0), null, 'an empty group, the other side');
+    assert.strictEqual(twoProportionZ(0, 10, 0, 12), null, 'pooled proportion 0');
+    assert.strictEqual(twoProportionZ(10, 10, 12, 12), null, 'pooled proportion 1');
+  });
+
+  ok('the named comparisons are built from the record’s own cells, not stated', () => {
+    const a = analyse([{ id: 'm', data: synthSlot('mid', 6, '2:1:3') }]);
+    const c = a.comparisons.find((x) => x.name === 'control slot mid: after the controls against the rest');
+    assert.deepStrictEqual(
+      [c.a.riderWindows, c.a.windows, c.b.riderWindows, c.b.windows],
+      [1, 6, 0, 6],
+      'the after-controls cell carries the planted rider'
+    );
+    assert.strictEqual(c.z, twoProportionZ(1, 6, 0, 6));
+  });
+
+  ok('and they MOVE with the record — the same rider at the other cell flips the sign', () => {
+    const a = analyse([{ id: 'm', data: synthSlot('mid', 6, '2:0:3') }]);
+    const c = a.comparisons.find((x) => x.name === 'control slot mid: after the controls against the rest');
+    assert.deepStrictEqual([c.a.riderWindows, c.b.riderWindows], [0, 1]);
+    assert.ok(c.z < 0, `expected a negative z, read ${c.z}`);
+  });
+
+  // --- THE OTHER PAGE-ONLY SUMMARIES (rf2-rs8q6) ---------------------------
+  //
+  // The second audit named these beside the z-scores: the per-run tables, the
+  // modal rider terms, and the secondary cluster.
+
+  ok('the per-run table separates the runs rather than pooling them', () => {
+    const a = analyse([
+      { id: 'r1', data: synth('fixed', 3, '0:0:3') },
+      { id: 'r2', data: synth('fixed', 3, null) },
+    ]);
+    assert.deepStrictEqual(
+      a.perRun.filter((r) => r.position === 0).map((r) => [r.runId, r.riderWindows, r.windows]),
+      [
+        ['r1', 1, 3],
+        ['r2', 0, 3],
+      ]
+    );
+  });
+
+  ok('the modal rider values are counted and ranked, most frequent first', () => {
+    const a = analyse([
+      { id: 'f', data: synth('fixed', 3, { '0:0:3': 748, '1:0:3': 748, '2:0:4': 736 }) },
+    ]);
+    const p0 = a.byMode.fixed.perPosition.find((p) => p.position === 0);
+    assert.strictEqual(p0.riderLegs, 3);
+    assert.deepStrictEqual(p0.riderModalB, [
+      { value: 748, count: 2 },
+      { value: 736, count: 1 },
+    ]);
+    assert.deepStrictEqual(p0.riderOrdinals, { 3: 2, 4: 1 });
+  });
+
+  ok('the worst leg is the SIGNED furthest-from-median one, and agrees with the record’s own field', () => {
+    const a = analyse([{ id: 'w', data: synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }) }]);
+    const p1 = a.byMode.fixed.perPosition.find((p) => p.position === 1);
+    assert.strictEqual(p1.worstExcessSignedMedianB, -1400, 'the -1,400 B leg is further out than the +1,100 B one');
+    // and the same window read off `legWorstDeviation`, which is what the rig
+    // wrote — the two must not disagree, because the records cite both.
+    const w = windowsOf(synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }), 'w')[1];
+    assert.strictEqual(Math.round(w.legWorstDeviationFraction * w.legMedian), -1400);
+  });
+
+  ok('so the secondary cluster EXCLUDES a window whose furthest leg is out of band', () => {
+    // The published "8 of 38" reads 9 of 38 if the cluster is taken on the
+    // largest POSITIVE excess instead: one `fixed` position-1 window has a
+    // +1,056 B leg and a larger negative one. This is that window, in
+    // miniature, and it is the fixture that holds the published figure.
+    const a = analyse([{ id: 'w', data: synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }) }]);
+    assert.strictEqual(a.byMode.fixed.perPosition.find((p) => p.position === 1).clusterWindows, 0);
+    assert.strictEqual(Math.max(...excesses(windowsOf(synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }), 'w')[1])), 1100);
+  });
+
+  ok('and COUNTS one whose furthest leg is the in-band one', () => {
+    const a = analyse([{ id: 'w', data: synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -300 }) }]);
+    const p1 = a.byMode.fixed.perPosition.find((p) => p.position === 1);
+    assert.strictEqual(p1.clusterWindows, 1);
+    assert.strictEqual(p1.worstExcessSignedMedianB, 1100);
+  });
+
+  ok('control legs split by the schedule they were driven under, and an in-band one is COUNTED', () => {
+    // "0 of 2,904 legs in the band, in every slot" is a MEASUREMENT, and this
+    // is what makes it one: plant a control leg in the band and the count moves.
+    const withControls = (slot, excess) => {
+      const d = synth('fixed', 2, null, { 'control/idle': 0, 'control/d1': excess, 'control/d2': 0 });
+      d.alloc.controlSlot = slot;
+      return d;
+    };
+    const a = analyse([
+      { id: 'c1', data: withControls('first', 0) },
+      { id: 'c2', data: withControls('mid', 748) },
+    ]);
+    assert.strictEqual(a.controls.legs, 36);
+    assert.strictEqual(a.controls.riderLegs, 2);
+    assert.deepStrictEqual(a.controls.bySlot.first, { windows: 6, legs: 18, riderLegs: 0 });
+    assert.deepStrictEqual(a.controls.bySlot.mid, { windows: 6, legs: 18, riderLegs: 2 });
+  });
+
+  ok('rider windows are cross-tabbed by substrate relation as well as counted', () => {
+    const a = analyse([{ id: 'p', data: synth('parity', 6, '2:0:4') }]);
+    assert.deepStrictEqual(a.byMode.parity.crossTabRiders, { 'pos0/repeat': 1 });
+    assert.deepStrictEqual(a.byMode.parity.crossTab, { 'pos0/repeat': 5, 'pos1/switch': 6 });
+  });
+
+  ok('and broken out by SUBSTRATE and position, which is what excludes substrate identity', () => {
+    const a = analyse([{ id: 'p', data: synth('parity', 6, '2:0:4') }]);
+    assert.deepStrictEqual(
+      a.byMode.parity.perSegmentPosition.map((s) => [s.segment, s.position, s.riderWindows, s.windows]),
+      [
+        ['reagent-subs', 0, 1, 3],
+        ['reagent-subs', 1, 0, 3],
+        ['uix-subs', 0, 0, 3],
+        ['uix-subs', 1, 0, 3],
+      ]
+    );
+  });
+
   return checks;
 }
 
@@ -707,10 +1239,15 @@ module.exports = {
   adjacency,
   ridersOf,
   excesses,
+  worstExcessSignedB,
+  twoProportionZ,
   analyse,
   report,
   selfTest,
+  PUBLISHED_Z,
   RIDER_LO_B,
   RIDER_HI_B,
   JITTER_B,
+  CLUSTER_LO_B,
+  CLUSTER_HI_B,
 };
