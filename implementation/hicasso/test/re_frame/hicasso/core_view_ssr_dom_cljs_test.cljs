@@ -257,9 +257,9 @@
   `done` call, so a row that called `done` from inside its assertions
   would leave this root and this container standing under every
   namespace that followed and run its teardown only when that whole
-  continuation returned. Merged-PR audit #7966 found exactly that in the
-  native tier's suite; the order here — assert, tear down, `done` last —
-  is the shape that repair settled on.
+  continuation returned. The order here — assert, tear down, `done` last
+  — is the shape that avoids it, and the native tier's suite follows the
+  same one.
 
   Adoption is read through an EXPANDO stamped before hydration
   (`sup/stamp-server-nodes!`), which does not round-trip through

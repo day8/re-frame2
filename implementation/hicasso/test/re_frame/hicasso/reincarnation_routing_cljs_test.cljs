@@ -260,13 +260,12 @@
 ;;    MINTED, in every state the memo can be in when it fires
 ;; ---------------------------------------------------------------------------
 
-;; This section replaces the DEFECT recording PR #7749 shipped here. That
-;; recording measured a callback that closed over the frame KEYWORD and
-;; resolved its bundle at FIRE time, and it had three branches because the
-;; memo's state at that instant chose which of two different wrong answers you
-;; got. The repair pins the incarnation into the closure at mint time, so the
-;; memo's state stops being an input — and the way to say that is to assert the
-;; SAME contract in all three states rather than to assert it once.
+;; A callback that closed over the frame KEYWORD and resolved its bundle at
+;; FIRE time needs three branches to describe, because the memo's state at that
+;; instant chooses which of two different wrong answers you get. Pinning the
+;; incarnation into the closure at mint time takes the memo's state out of the
+;; inputs — and the way to say that is to assert the SAME contract in all
+;; three states rather than to assert it once.
 ;;
 ;; The two halves are asserted together on purpose. Before the repair, cache
 ;; warmth traded them off: a warm memo refused the retained callback (safe) AND

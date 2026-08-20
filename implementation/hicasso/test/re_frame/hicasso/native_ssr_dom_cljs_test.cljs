@@ -1,13 +1,13 @@
 (ns re-frame.hicasso.native-ssr-dom-cljs-test
   "THE NATIVE TIER'S SERVER POLICY, MEASURED AS BYTES.
 
-  `n/defcomponent`'s `:server` declaration used to be VALIDATED and read
-  by nothing. Merged-PR audit #7839 named the
-  consequence exactly: the landed fence suite server-rendered a
-  declaration-less island — nominally Client-only, the conservative
-  default — to `<output>42</output>`, while every normative source says a
-  Client-only surface is *absent from the server bytes*. A recorded
-  policy that nothing consults is not a policy; it is a comment that
+  `n/defcomponent`'s `:server` declaration is READ, not merely validated,
+  and these rows are what says so. A declaration that is validated and
+  consulted by nothing has an exact consequence: a declaration-less island
+  — nominally Client-only, the conservative default — server-renders to
+  `<output>42</output>`, while every normative source says a Client-only
+  surface is *absent from the server bytes*. A recorded policy that
+  nothing consults is not a policy; it is a comment that
   refuses typos.
 
   So this file's subject is the EFFECT, and never the marker. Every row
@@ -169,8 +169,8 @@
   (atom 0))
 
 (n/defcomponent plain-island
-  "NO declaration map — Client-only by default, which is the case audit
-  #7839 measured rendering into a server response."
+  "NO declaration map — Client-only by default, and the case that renders
+  into a server response when the declaration is not read."
   [^js props]
   (swap! !runs inc)
   (n/$ :div #js {"className" "island" "data-live" "yes"}
@@ -427,12 +427,12 @@
   alike. Adopted and re-created are indistinguishable in the markup and
   opposites here.
 
-  THE ROW OWNS `done`, and `after` is assertion-only — deliberately, and
-  merged-PR audit #7966 is why. `cljs.test/run-block` continues the rest
-  of the run SYNCHRONOUSLY from the `done` call, so a row whose `after`
-  called `done` itself left its console interception, its React root and
-  its container standing for every test and namespace that followed, and
-  ran the teardown only when that whole continuation returned. The order
+  THE ROW OWNS `done`, and `after` is assertion-only, deliberately.
+  `cljs.test/run-block` continues the rest of the run SYNCHRONOUSLY from
+  the `done` call, so a row whose `after` called `done` itself would leave
+  its console interception, its React root and its container standing for
+  every test and namespace that followed, and run the teardown only when
+  that whole continuation returned. The order
   below is therefore load-bearing: assert, then restore/unmount/remove/
   reset, then `done` as the last act with nothing after it.
   [[the-next-row-sees-no-residue]] is the control that reads it."

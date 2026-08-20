@@ -34,12 +34,12 @@
   The rows compare the ex-data map — id, `:where` and `:recovery`.
 
   **Where a row's refusal is the RUNTIME's, the table says so in
-  `:where`.** A second audit (PR #7796) found the covered corpus stopping
-  one layer short: it held a VALID raw escape, for which opacity is the
-  honest answer, and no malformed one — so the claim that the two sides
-  cannot disagree quietly was not load-bearing on that arm, and in fact
-  they did. An empty vector and a malformed `[:> …]` are refused by the
-  runtime, and the kit now raises those refusals rather than its own by
+  `:where`.** A corpus holding only a VALID raw escape, for which opacity
+  is the honest answer, stops one layer short of the claim: with no
+  malformed one beside it, *the two sides cannot disagree quietly* is not
+  load-bearing on that arm — and they can. An empty vector and a malformed
+  `[:> …]` are refused by the runtime, and the kit raises those refusals
+  rather than its own by
   running the runtime's guards (`codec/vector-kind`). Asserting `:where`
   is what makes that structural rather than coincidental: a kit
   paraphrase would carry `re-frame.hicasso.test` and red."

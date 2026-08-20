@@ -60,8 +60,7 @@
      :ambient-frame nil
      ;; The MAP shape, because rows here are `async`: `cljs.test` refuses
      ;; an async test under a fn-form fixture and aborts the NAMESPACE —
-     ;; and, as of 2026-08-12, every namespace the runner had not reached
-     ;; yet along with it.
+     ;; and every namespace the runner has not reached yet along with it.
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)

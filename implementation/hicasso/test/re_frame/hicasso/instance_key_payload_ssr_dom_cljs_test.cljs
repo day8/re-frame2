@@ -6,7 +6,7 @@
   [[re-frame.hicasso/reg-state]] puts a widget's own state at
   `[:ui ::concern ikey]`, which is APP-SPACE data — so whether it reaches
   the client is decided by the hydration payload policy and by nothing
-  else. The 2026-08-04 ruling states the obligation that follows:
+  else. The ruling states the obligation that follows:
 
   > an allowlist MUST name `:ui` whenever server-side events write
   > render-affecting instance state; strip it only if the server never

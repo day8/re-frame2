@@ -2,13 +2,12 @@
   "DEFHOST'S `:server` POLICY, PROVEN IN ALL THREE PLACES IT HAS TO HOLD
   (HD-011).
 
-  HD-011 listed \"SSR placeholder\" among `defhost`'s strong defaults;
-  HD-020(d) left it inert in v0; the operator's 2026-08-04 ruling makes
-  SSR required scope. The 2026-08-04 runtime audit then found the
-  placeholder was not inert but ABSENT — `mint-host!` read `:callbacks`
-  and silently ignored every other option — so activating it is two
-  jobs: give the declaration a policy, and make an option it does not
-  know a refusal rather than a shrug.
+  HD-011 lists \"SSR placeholder\" among `defhost`'s strong defaults, and
+  SSR is required scope. A placeholder that is not inert but ABSENT is the
+  failure this file forbids — a `mint-host!` that reads `:callbacks` and
+  silently ignores every other option — so the surface is two jobs: give
+  the declaration a policy, and make an option it does not know a refusal
+  rather than a shrug.
 
   ## The policy
 
@@ -658,12 +657,11 @@
   that was never applied on either side. Shared by the two policies
   because the difference between them is the markup, not the procedure.
 
-  THE ROW OWNS `done`, and `after` is assertion-only — merged-PR audit
-  #7966 named this exact shape in the native tier's suite, and THIS file
-  had it too. `cljs.test/run-block` continues the remainder of the run
-  SYNCHRONOUSLY from the `done` call, so while `after` called `done`
-  itself, the `finally` below ran only once that whole continuation
-  returned: this suite's `console.error` interception and its React root
+  THE ROW OWNS `done`, and `after` is assertion-only. `cljs.test/run-block`
+  continues the remainder of the run SYNCHRONOUSLY from the `done` call, so
+  an `after` that called `done` itself would leave the `finally` below to
+  run only once that whole continuation returned: this suite's
+  `console.error` interception and its React root
   stayed live under every namespace that followed. Measured rather than
   reasoned — `native-ssr-dom-cljs-test`'s `the-next-row-sees-no-residue`
   read a wrapped `console.error` still standing four namespaces later,

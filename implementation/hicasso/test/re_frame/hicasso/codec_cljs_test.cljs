@@ -228,11 +228,11 @@
     (is (= "a b c" (prop (codec/as-element [:div.a {:class "b" :x/class "c"}]) "className")))))
 
 (deftest the-shorthand-id-loses-to-an-explicit-one-however-it-is-spelled
-  ;; The other half of merged-PR audit #7332. `#tag` is the weakest source
-  ;; of an id there is, and the rule "an explicit :id wins" was stated on
-  ;; the raw key — so `[:div#tag {"id" "explicit"}]` kept BOTH, landed both
-  ;; on React's one `id` slot, and left which one survived to the order the
-  ;; props map happened to iterate in.
+  ;; The other half of the spelling-aware rule. `#tag` is the weakest
+  ;; source of an id there is, and stating "an explicit :id wins" on the
+  ;; RAW KEY is what these rows forbid: `[:div#tag {"id" "explicit"}]`
+  ;; then keeps BOTH, lands both on React's one `id` slot, and leaves
+  ;; which one survives to the order the props map happens to iterate in.
   (testing "written on the element"
     (doseq [k [:id "id" 'id :x/id]]
       (is (= "explicit" (prop (codec/as-element [:div#tag {k "explicit"}]) "id"))

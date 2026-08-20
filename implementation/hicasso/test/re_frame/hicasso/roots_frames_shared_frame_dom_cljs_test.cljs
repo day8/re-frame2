@@ -425,8 +425,8 @@
 ;; SHARED does a frame-keyed window collapse two roots into one, and then
 ;; root A's closer silences root B's genuine mismatch — a diagnostic
 ;; missing from the instrumentation stream while the page's own error
-;; channel still shows both, which is precisely how the original
-;; page-global presented (PR #7751).
+;; channel still shows both, which is precisely how a page-global window
+;; presents.
 ;;
 ;; So the row is read against React's own count rather than against a
 ;; literal, and then against the literal too. The equality catches a

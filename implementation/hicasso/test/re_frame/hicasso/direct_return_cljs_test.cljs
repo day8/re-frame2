@@ -86,10 +86,10 @@
   **The control that moves every one of them is one line**: write
   [[direct-body]] as hiccup and the four rows read 4 / 3 / 2 / 3 against
   floors of 1 / 0 / 0 / 0, all four go red, and so do the hook row and
-  the L2 row. Taken 2026-08-12 on this revision; the table is the
-  reading, `walks-past` is the gate, and the gate is deliberately the
-  weaker `direct = floor < hiccup` so that a codec refactor which moves a
-  call site does not red a file whose subject is the escape.
+  the L2 row. The table is the reading, `walks-past` is the gate, and the
+  gate is deliberately the weaker `direct = floor < hiccup` so that a codec
+  refactor which moves a call site does not red a file whose subject is the
+  escape.
 
   This is the delta that can be taken on a loaded machine, and it is not
   the whole of the delta the bead asks for: see **What is NOT here**.
