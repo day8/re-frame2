@@ -16,9 +16,9 @@ matched the enumerated list it introduces.  Examples caught manually:
     (omitting explain-variant); the four category counts summed to 19,
     not the claimed 20.
 
-This script generalises those into two automated checks, driven by a small
-registry (`INVENTORY_REGISTRY` below) so it stays maintainable rather than a
-pile of special-cases:
+This script generalises those into three automated checks, driven by small
+registries (`LAYOUT_CHECKS` / `COUNT_CHECKS` / `NAME_SET_CHECKS` below) so it
+stays maintainable rather than a pile of special-cases:
 
   1. LAYOUT-MAP <-> DISK BIJECTION.  For a README carrying a fenced
      layout/directory-tree block, parse the *top-level* (shallowest-indent)
@@ -33,6 +33,19 @@ pile of special-cases:
      The enumerated list is either a bullet list of backticked code-spans or
      a markdown table whose body rows are counted.
 
+  3. NAME-SET CHECK.  Assert that the first column of a README table equals
+     a name list held OUTSIDE that README — for pair-mcp, the `tools/list`
+     contract snapshot at `test/fixtures/tool-names.json`.
+
+     Check 2 alone cannot see the defect this file was written for.  Its
+     source of truth is the README's OWN table, so a table that has fallen
+     behind its registry while the prose agrees with the table is invisible
+     to it: both numbers match, and both are wrong.  That is exactly how the
+     pair-mcp table drifted twice (24 rows for a 28-tool registry, then 30
+     for 33; rf2-664t7 measured the second).  Check 3 closes it by naming an
+     external source of truth, and it reports WHICH names are missing rather
+     than only that a count differs.
+
 Exit code:
     0  no violations
     1  at least one violation (printed in file:line form)
@@ -46,6 +59,7 @@ Windows dev box and the Linux CI runners.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -306,11 +320,11 @@ def count_bullet_code_spans(body: str) -> int:
     return len(re.findall(r"`[^`]+`", body))
 
 
-def count_table_body_rows(lines: list[str]) -> int:
-    """Count body rows of the first markdown pipe-table in *lines*.
+def table_body_rows(lines: list[str]) -> list[str]:
+    """Return the body rows of the first markdown pipe-table in *lines*.
 
     A table is: a header row (``| ... |``), a delimiter row (``|---|---|``),
-    then N body rows.  Returns N (body rows only).
+    then N body rows.  Returns the body rows only (stripped), in order.
     """
     rows: list[str] = []
     in_table = False
@@ -331,7 +345,31 @@ def count_table_body_rows(lines: list[str]) -> int:
                 seen_delim = True
             continue
         rows.append(line)
-    return len(rows)
+    return rows
+
+
+def count_table_body_rows(lines: list[str]) -> int:
+    """Count body rows of the first markdown pipe-table in *lines*."""
+    return len(table_body_rows(lines))
+
+
+def table_first_column_names(lines: list[str]) -> list[str]:
+    """Extract the first column of each body row as a bare name.
+
+    The idiom these tables use is a leading backticked code-span —
+    ``| `discover-app` | ... | ... |``.  Returns the span's text with the
+    backticks stripped; a row whose first cell carries no code-span yields
+    its stripped text, so a malformed row surfaces as a mismatch rather
+    than vanishing.
+    """
+    names: list[str] = []
+    for row in table_body_rows(lines):
+        # ``| a | b |`` splits to ['', ' a ', ' b ', ''] — cell 1 is first.
+        cells = row.split("|")
+        first = cells[1].strip() if len(cells) > 1 else ""
+        m = re.search(r"`([^`]+)`", first)
+        names.append(m.group(1) if m else first)
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -447,12 +485,65 @@ COUNT_CHECKS: tuple[CountCheck, ...] = (
         claim_re=r"\*\*Write\*\*\s*\((\d+)(?:,[^)]*)?\)",
         counter=_count_bullet_after,
     ),
-    # pair-mcp — prose 'twenty-eight ... ops' vs Tool-surface table rows.
+    # pair-mcp — prose '33 ... ops' vs Tool-surface table rows.  The numeral
+    # group admits BOTH forms this module's docstring promises: a digit run
+    # and an English number word.  It was word-only (``[a-z\-]+``) until
+    # rf2-664t7, which is narrower than ``parse_numeral`` accepts and than
+    # the contract advertises — so when the GDS restyle rewrote 'thirty' to a
+    # digit (rf2-aw1ez) the count did not become wrong, it became UNREADABLE,
+    # and the check reported 'claim pattern not found' rather than a
+    # mismatch.  Widening here is not loosening the gate: the count is still
+    # compared, and ``parse_numeral`` still rejects a non-numeral.
     CountCheck(
         readme="tools/re-frame2-pair-mcp/README.md",
         label="prose tool count vs Tool-surface table",
-        claim_re=r"exposes the ([a-z\-]+)\s+re-frame2-pair",
+        claim_re=r"exposes the (\d+|[a-z\-]+)\s+re-frame2-pair",
         counter=_count_named_table("Tool surface"),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class NameSetCheck:
+    """A README table's first column <-> an external JSON name list.
+
+    The COUNT check above compares a prose claim against the README's own
+    table, so a table that has fallen behind its registry is INVISIBLE to
+    it — prose and table agree with each other while both under-list the
+    source of truth.  That is exactly how the pair-mcp table drifted twice
+    (24 rows for a 28-tool registry, then 30 for 33; rf2-664t7), and this
+    check is what closes it: the table is compared against a name list
+    OUTSIDE the README.
+    """
+
+    readme: str           # repo-relative README path
+    label: str            # human label for diagnostics
+    section: str          # heading whose table carries the names
+    source_json: str      # repo-relative JSON file holding the truth
+    json_key: str         # key in that file whose value is the name list
+    source_note: str = ""  # why that file is the source of truth
+
+
+NAME_SET_CHECKS: tuple[NameSetCheck, ...] = (
+    # pair-mcp Tool-surface table <-> the tools/list contract snapshot.
+    #
+    # WHY THIS FIXTURE AND NOT registry.cljs.  `tool-names.json` is the
+    # canonical `tools/list` snapshot shared by the stdio round-trip test
+    # and the cross-server MCP conformance harness (rf2-drke0), and
+    # `test/stdio-roundtrip.js` asserts it equals the names a LIVE
+    # `tools/list` returns.  So it already tracks `registry/tools` under
+    # test, and gating on it keeps this script stdlib-only and free of any
+    # coupling to ClojureScript source layout — no regex over `.cljs`.
+    NameSetCheck(
+        readme="tools/re-frame2-pair-mcp/README.md",
+        label="Tool-surface table vs the tools/list contract snapshot",
+        section="Tool surface",
+        source_json="tools/re-frame2-pair-mcp/test/fixtures/tool-names.json",
+        json_key="names",
+        source_note=(
+            "the tools/list snapshot pinned against a live server by "
+            "tools/re-frame2-pair-mcp/test/stdio-roundtrip.js"
+        ),
     ),
 )
 
@@ -543,6 +634,61 @@ def _run_count_check(repo_root: Path, chk: CountCheck) -> list[Violation]:
     return []
 
 
+def _run_name_set_check(repo_root: Path, chk: NameSetCheck) -> list[Violation]:
+    path = repo_root / chk.readme
+    if not path.is_file():
+        return [Violation(chk.readme, 0, f"README not found: {path}")]
+    src = repo_root / chk.source_json
+    if not src.is_file():
+        return [Violation(chk.readme, 0,
+                          f"{chk.label}: source of truth not found: {src}")]
+    try:
+        payload = json.loads(src.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        return [Violation(chk.readme, 0,
+                          f"{chk.label}: could not read {chk.source_json}: {exc}")]
+    expected_list = payload.get(chk.json_key) if isinstance(payload, dict) else None
+    if not isinstance(expected_list, list) or not expected_list:
+        return [Violation(chk.readme, 0,
+                          f"{chk.label}: {chk.source_json} has no non-empty "
+                          f"{chk.json_key!r} list")]
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    sec = _section_body(text, chk.section)
+    if sec is None:
+        return [Violation(chk.readme, 0,
+                          f"{chk.label}: section {chk.section!r} not found")]
+    start_line, body = sec
+    listed = table_first_column_names(body.splitlines())
+    if not listed:
+        return [Violation(chk.readme, start_line,
+                          f"{chk.label}: no table body rows under "
+                          f"{chk.section!r}")]
+
+    expected = set(expected_list)
+    actual = set(listed)
+    violations: list[Violation] = []
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing:
+        violations.append(Violation(
+            chk.readme, start_line,
+            f"{chk.label}: table is MISSING {len(missing)} name(s) present in "
+            f"{chk.source_note or chk.source_json}: {', '.join(missing)}"))
+    if extra:
+        violations.append(Violation(
+            chk.readme, start_line,
+            f"{chk.label}: table lists {len(extra)} name(s) absent from "
+            f"{chk.source_note or chk.source_json}: {', '.join(extra)}"))
+    dupes = sorted({n for n in listed if listed.count(n) > 1})
+    if dupes:
+        violations.append(Violation(
+            chk.readme, start_line,
+            f"{chk.label}: table repeats {len(dupes)} name(s): "
+            f"{', '.join(dupes)}"))
+    return violations
+
+
 def check(repo_root: Path, verbose: bool = False) -> list[Violation]:
     """Run every registered check; return the flat list of violations."""
     violations: list[Violation] = []
@@ -558,6 +704,12 @@ def check(repo_root: Path, verbose: bool = False) -> list[Violation]:
         if verbose and not vs:
             sys.stderr.write(
                 f"  OK  count:  {chk.readme} — {chk.label}\n")
+        violations.extend(vs)
+    for chk in NAME_SET_CHECKS:
+        vs = _run_name_set_check(repo_root, chk)
+        if verbose and not vs:
+            sys.stderr.write(
+                f"  OK  names:  {chk.readme} — {chk.label}\n")
         violations.extend(vs)
     return violations
 
@@ -650,6 +802,40 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("not-a-number", parse_numeral("frame"), None)
     expect("twenty", parse_numeral("twenty"), 20)
 
+    # The pair-mcp claim pattern must admit BOTH numeral forms the module
+    # docstring promises (rf2-664t7).  It was word-only, so the GDS restyle's
+    # digit rewrite made the count unreadable rather than wrong (rf2-aw1ez) —
+    # the check reported 'claim pattern not found' and stopped comparing.
+    _pair_claim = next(c.claim_re for c in COUNT_CHECKS
+                       if c.readme.endswith("re-frame2-pair-mcp/README.md"))
+
+    def _claim(text: str):
+        m = re.search(_pair_claim, text)
+        return m.group(1) if m else None
+
+    expect("pair-claim-word",
+           _claim("exposes the thirty-three re-frame2-pair ops"), "thirty-three")
+    expect("pair-claim-digit",
+           _claim("exposes the 33 re-frame2-pair ops"), "33")
+    expect("pair-claim-wraps-newline",
+           _claim("exposes the 33\nre-frame2-pair ops"), "33")
+    # Widened, not loosened: a non-numeral still reaches parse_numeral and is
+    # still rejected there, so the gate keeps its teeth.
+    expect("pair-claim-non-numeral-rejected",
+           parse_numeral(_claim("exposes the many re-frame2-pair ops") or ""),
+           None)
+
+    # first-column name extraction backing the NameSetCheck (rf2-664t7)
+    named = [
+        "| MCP tool | What |",
+        "|---|---|",
+        "| `discover-app` | x |",
+        "| `read-ui`      | y |",
+        "| plain-text     | z |",
+    ]
+    expect("table-first-col", table_first_column_names(named),
+           ["discover-app", "read-ui", "plain-text"])
+
     # layout top-level dir extraction — root label + indented entries
     blk = FencedBlock(open_line=1, lines=[
         "testbeds/",
@@ -724,6 +910,51 @@ def _run_self_tests(verbose: bool = False) -> int:
             (base / d).mkdir()
         expect("disk-dirs-skips-build-artefacts",
                _disk_dirs(base), {"core", "adapters"})
+
+    # NameSetCheck end-to-end (rf2-664t7) — the regression this check exists
+    # for is a table that under-lists its registry while the PROSE agrees
+    # with the table, which the count check cannot see by construction.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        chk = NameSetCheck(
+            readme="tools/R.md", label="T", section="Tool surface",
+            source_json="tools/names.json", json_key="names")
+
+        def _write(rows: list[str]) -> None:
+            (root / "tools" / "R.md").write_text(
+                "# T\n\n## Tool surface\n\n| A | B |\n|---|---|\n"
+                + "".join(f"| `{r}` | x |\n" for r in rows),
+                encoding="utf-8")
+
+        (root / "tools" / "names.json").write_text(
+            '{"names": ["alpha", "beta", "gamma"]}', encoding="utf-8")
+
+        _write(["alpha", "beta", "gamma"])
+        expect("nameset-in-sync", _run_name_set_check(root, chk), [])
+
+        _write(["alpha", "beta"])
+        vs = _run_name_set_check(root, chk)
+        expect("nameset-missing-count", len(vs), 1)
+        expect("nameset-missing-names", "gamma" in vs[0].message, True)
+
+        _write(["alpha", "beta", "gamma", "delta"])
+        vs = _run_name_set_check(root, chk)
+        expect("nameset-extra-count", len(vs), 1)
+        expect("nameset-extra-names", "delta" in vs[0].message, True)
+
+        _write(["alpha", "beta", "gamma", "gamma"])
+        vs = _run_name_set_check(root, chk)
+        expect("nameset-duplicate", any("repeats" in v.message for v in vs), True)
+
+        # A missing / unreadable source of truth must be a VIOLATION, never a
+        # silent pass — an absent fixture is no verdict, not a green one.
+        _write(["alpha", "beta", "gamma"])
+        missing_src = NameSetCheck(
+            readme="tools/R.md", label="T", section="Tool surface",
+            source_json="tools/nope.json", json_key="names")
+        expect("nameset-absent-source-is-violation",
+               len(_run_name_set_check(root, missing_src)), 1)
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
