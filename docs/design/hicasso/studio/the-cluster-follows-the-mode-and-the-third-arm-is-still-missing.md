@@ -49,10 +49,10 @@ one.
 
 **The MODE is the only arm still standing, and it is an ASSOCIATION rather than
 a result. Position is unresolved, not refuted. Substrate is associated but not
-necessary. The rig change the bead asks for is STILL REQUIRED — and it is
-required more plainly than the first version of this page implied, because the
-one property that survives is the one the committed corpus cannot separate and
-the one whose exposure is three runs.**
+necessary. The discriminating arm the bead asks for is STILL OWED A WINDOW — and
+more plainly than the first version of this page implied, because the one
+property that survives is the one the committed corpus cannot separate and the
+one whose exposure is three runs.**
 
 | arm of the question | verdict | the counts it rests on | Fisher, two-sided |
 |---|---|---|---|
@@ -309,7 +309,7 @@ and no arithmetic on the windows inside them can turn three runs into a
 controlled comparison. **A replication of the `fixed` arm at higher n against
 same-session `parity` is what would settle it**, and that is an allocation
 window rather than an analysis. That the mode arm is the only one still standing
-makes the rig change more clearly necessary, not less.
+makes the reversed-`fixed` window more clearly necessary, not less.
 
 The negative control on the same contrast: `reagent` at position 0, `fixed`
 against `parity`, reads **0 of 43 against 2 of 666, `p` = 1.0**. Reagent does not
@@ -348,11 +348,19 @@ for another when a verdict weakened. The arithmetic is exactly what the first
 version computed, on a corrected corpus; what changed is what it is said to
 show.
 
-## Why the rig change is still needed
+## Why the discriminating arm is still owed a window
 
 The bead names its discriminator: *a fixed run with the segment order REVERSED
 (uix leading), which `p0_run.cjs` does not currently offer.* **That remains the
-right instrument, and the reason it is needed has changed rather than gone away.**
+right instrument, the reason it is needed has changed rather than gone away —
+and since this page was first written the arm itself has LANDED.**
+
+`P0_ALLOC_SEG_ORDER=fixed-reversed` is now one of three names in
+`ALLOC_SEG_ORDERS`, and it drives the plan reversed every round: the mode held
+constant, the second substrate at position 0. **So what is outstanding is no
+longer the rig change. It is the WINDOW** — a `fixed-reversed` run at adequate
+n, read against the `fixed` and `parity` arms already in the corpus. That is
+bench-slot-bound rather than quiet-box-bound, and it is why this bead stays open.
 
 The bead's stated reason was that no position arm existed. That reason is
 superseded — `parity` supplies uix at both positions, 1,445 windows of it, and
@@ -371,29 +379,28 @@ Inside `fixed` the confound is untouched:
 **A `fixed` run with the order reversed puts uix at position 0 while holding the
 mode constant, and it is the only arrangement that does.** If the cluster follows
 uix to position 0, the carrier is the substrate under `fixed`; if it stays at
-position 1 with reagent now in it, the carrier is the slot. Nothing already
-committed answers that, and nothing can, because no committed run drives `fixed`
-in the other order.
+position 1 with reagent now in it, the carrier is the slot. **No committed run
+answers that**, because none was taken in the reversed order — the arm exists in
+the rig now, but no dataset has been recorded through it.
 
-### What it costs, since this page sizes it rather than making it
+### What it cost, now that it has been made
 
-Measured against `p0_run.cjs` at blob
-`1be8e793d070b9b4797503d40e5798b2fb7b325e`. **Three lines**, and no reader,
-schema or record change:
-
-| what | where | change |
-|---|---|---|
-| the mode roster | `p0_run.cjs:1717` | one more name in `ALLOC_SEG_ORDERS` |
-| the order itself | `p0_run.cjs:1821`–`:1824` | one branch in `allocSegmentOrder`, returning the reversed plan every round |
-| the preflight refusal | `p0_run.cjs:2582`–`:2585` | **nothing** — it already interpolates `ALLOC_SEG_ORDERS.join(' \| ')`, so a new name is refused by name for free |
+This page sized the change at **three lines** and that sizing held. It landed in
+`p0_run.cjs` bundled with `rf2-fk6pj` and `rf2-24o2z`: one more name in
+`ALLOC_SEG_ORDERS`, one branch in `allocSegmentOrder` returning the reversed
+plan every round, and **nothing** in the preflight, which already interpolates
+the roster and so refuses an unknown name for free.
 
 The record already carries `segOrder` per run and `segments` per round, and both
-readers group on the field rather than recomputing a parity rule, so a third
-mode is read correctly by everything that exists without being taught about.
+readers group on that field rather than recomputing a parity rule, so the third
+mode is read correctly by everything on this page without being taught about it.
+**No reader, schema or record change was needed, and none was made.**
 
-**This page does not make that change.** `p0_run.cjs` is shared with `rf2-fk6pj`
-and `rf2-onozm`, which want their own arms in the same file; it is one-toucher,
-and bundling is the mayor's call rather than this bead's.
+The outcomes are pre-registered in the source rather than chosen after the run:
+the cluster FOLLOWS uix to position 0 and the carrier is the substrate under
+`fixed`; it STAYS at position 1 and the carrier is the second-driven slot,
+whichever substrate occupies it; BOTH or NEITHER and neither property is the
+carrier as stated.
 
 ## What the earlier read got wrong, and one thing it did not
 
@@ -441,6 +448,11 @@ not absent.
   bound is available at a useful width on eleven in-band windows.
 - **Three `fixed` runs is three.** 81 windows, one box, one session, one
   revision. Every `fixed` figure on this page rests on them.
+- **The reversed-`fixed` arm now EXISTS in the rig and has never been RUN.**
+  `P0_ALLOC_SEG_ORDER=fixed-reversed` landed after this analysis was first
+  written, so the discriminator is available; no dataset has been recorded
+  through it, so nothing here is read against it. **The arm existing is not the
+  arm answering.**
 - **The last-leg term at `parity` position 0 is described and not chased.** Its
   ordinal signature is published above because it decides the band question; its
   identity is nobody's yet.
