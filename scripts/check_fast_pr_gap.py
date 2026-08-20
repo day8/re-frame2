@@ -84,6 +84,8 @@ constant, because the two constants rot in OPPOSITE directions.
     CLASSIFICATION rather than the pattern -- see the comment on that constant
     for why a per-pattern "matches at least one step" floor does not work here.
 
+MODES.
+
     python scripts/check_fast_pr_gap.py              audit the map (default)
     python scripts/check_fast_pr_gap.py --list       full report + local commands
     python scripts/check_fast_pr_gap.py --brief      the digest the spine prints
