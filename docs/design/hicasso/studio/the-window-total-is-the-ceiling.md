@@ -48,9 +48,14 @@ reason is arithmetic rather than luck.**
 - **At WINDOW granularity the separator is ONE-SIDED, and that is the finding
   rather than a caveat.** The highest would-be total any certified window in the
   corpus carries is **884,280 B**. **Zero of the 72 windows above it certify;
-  420 of the 456 at or below it do (92.1%).** So the total is a **NECESSARY**
-  condition for certification, **not a sufficient one** — 36 refusals sit below
-  the ceiling, 16 of them with a collection inside the window and 20 without.
+  420 of the 456 at or below it do (92.1%).** **What that observation bounds, it
+  bounds from BELOW.** 884,280 B is the largest observed success, so a real
+  maximum certifiable total is at least that — a finite corpus sampled at one
+  page size cannot exclude a certifying window above it. And it is plainly **not
+  sufficient** either: 36 refusals sit below it, 16 of them with a collection
+  inside the window and 20 without. **It is an observed ceiling, not a necessary
+  cap**, and [section 3](#3-the-ceiling-which-is-what-the-sixteen-cells-were-measuring)
+  says what may and may not be built on it.
 - **The refusal signature is AT LEAST ONE collection, whose dominant leg is of
   near-constant size.** All 72 R = 20 refusals carry a negative leg — but **76
   negative legs fall across those 72 windows**, three of them carrying more than
@@ -183,6 +188,16 @@ is an intra-leg one, because `P0_ALLOC_BY_SITE` was unset and
 certified window (884,280 B) and the lowest refusing R = 20 cell median
 (1,028,670 B) lies **168,036 B of territory this corpus never sampled**. The
 ceiling is bounded from below by an observation and from above by nothing.
+
+**So it may be used as a CAP only under an explicit condition, never as a
+necessity.** *"The largest total ever seen to certify"* and *"the largest total
+that can certify"* are different quantities, and this corpus fixes only the
+first. Any arithmetic that divides by 884,280 B — including the ladder
+projection in
+[the fixed cost binds on one rung](the-fixed-cost-binds-on-one-rung.md#4-the-same-question-in-live-terms) —
+is conditioned on *treat the corpus's largest observed success as a cap*, and
+carries whatever that assumption is worth and no more. **Deciding it needs a
+window above the ceiling, and this corpus holds none.**
 
 ## 4. The refusal signature
 
@@ -333,6 +348,14 @@ take one.
   highest certified observation in one corpus. **No gate, constant, threshold or
   rung parameter is added, moved or proposed on this page**, and none should be
   added for it.
+- **The ceiling is NOT an upper cap on what can certify.** It is the largest
+  observed success, which bounds any real maximum from **below**. Zero
+  certifications above it, from a corpus sampled at one page size with
+  168,036 B unsampled directly above, cannot exclude a certifying window higher
+  up. Anything that treats 884,280 B as a cap is **conditioned on that
+  assumption** and is labelled as such wherever it appears — corrected
+  2026-08-21 on the merged-PR audit of PR #8602
+  ([section 3](#3-the-ceiling-which-is-what-the-sixteen-cells-were-measuring)).
 - **The window total is NOT sufficient for certification.** Thirty-six windows
   below the ceiling refused, twenty of them without any collection inside. A
   reader who inverts the ceiling into "under 884,280 B certifies" has the
