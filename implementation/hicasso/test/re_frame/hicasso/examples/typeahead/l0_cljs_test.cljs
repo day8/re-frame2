@@ -88,8 +88,8 @@
 ;; `make-reset-runtime-fixture` restores the registrar to the baseline it
 ;; captured when the `use-fixtures` FORM was evaluated, so a handler
 ;; registered after that form is wiped before the first row runs and every
-;; dispatch of it is a silent no-op. That is rf2-hic-025's third finding,
-;; met here for a third time.
+;; dispatch of it is a silent no-op. That is the slice authoring report's
+;; third finding, met here for a third time.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event ::unguarded-suggestions

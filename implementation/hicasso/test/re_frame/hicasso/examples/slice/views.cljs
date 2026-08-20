@@ -1,10 +1,9 @@
 (ns re-frame.hicasso.examples.slice.views
   "THE SLICE'S VIEWS — the whole application's markup, on the public door.
 
-  Thirteen boundaries — the original slice's six, and the seven
-  rf2-hic-074 added for pagination, runtime-selected content and a
-  nested error region: a pager, a digest region, its body, and four
-  block renderers. Everything they reach for is `h/…`: `defview`, `sub`,
+  Thirteen boundaries — the slice's original six, and seven more for
+  pagination, runtime-selected content and a nested error region: a
+  pager, a digest region, its body, and four block renderers. Everything they reach for is `h/…`: `defview`, `sub`,
   `use-subs`, `boundary`, `route-link`, and the `::h/value` /
   `::h/checked` markers. There is no `impl` namespace anywhere in the
   `:require` list above, and no `re-frame.core` either — a view neither
@@ -25,7 +24,7 @@
   are written differently, and the difference is not visible at either
   call site: nothing about `route-link` says *call me*.
 
-  That is the rf2-hic-025 authoring report's third finding. It is a
+  That is the slice authoring report's third finding. It is a
   ONE-TIME cost — the mistake is loud when made, because a function in
   head position is `:rf.error/hicasso-function-in-head-position` and the
   clj-kondo export flags it before the build — but it is the only place
@@ -354,12 +353,12 @@
 
   ## NO `::h/revision`, and that is the finding rather than a gap
 
-  Both fields carried one until rf2-36bd measured it. Deleting the
-  counter's bump from `::discard` left the browser lane at exactly its
-  control — the reset law's trigger was inert here, because the whole of
-  what a revision does is re-run the body, and a discard already moves
-  three of the reads below. The commit that follows re-asserts the model
-  over the fields on its own.
+  Neither field carries one, and that is measured rather than assumed:
+  deleting the counter's bump from `::discard` leaves the browser lane at
+  exactly its control. The reset law's trigger is inert here, because the
+  whole of what a revision does is re-run the body, and a discard already
+  moves three of the reads below. The commit that follows re-asserts the
+  model over the fields on its own.
 
   A consumer needs `::h/revision` where a reset leaves every read its body
   makes `=` — a normalising or refusing field whose typed value lands back

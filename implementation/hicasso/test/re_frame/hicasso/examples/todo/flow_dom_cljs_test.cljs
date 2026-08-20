@@ -15,7 +15,7 @@
   each, and writing them here keeps the whole witness, application and
   suite, readable as something a consumer could have written.
 
-  ## TWO CLICKS, TWO SETTLING RULES (rf2-hic-025's finding 6, confirmed)
+  ## TWO CLICKS, TWO SETTLING RULES (the slice report's finding 6, confirmed)
 
   A Hicasso intent dispatches through the runtime's own SYNCHRONOUS
   frame-locked door, so after a real click on `.destroy` or

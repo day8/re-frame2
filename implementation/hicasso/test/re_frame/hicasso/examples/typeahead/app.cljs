@@ -3,9 +3,9 @@
 
   The third witness application under `examples/`, and the one written to
   be MEASURED rather than to be read: the slice is the RealWorld-class
-  arm, the Todo is the keyed-list arm, and this one exists so that
-  `rf2-hic-050` can decide whether committed-read resource demand earns
-  adoption against the criteria frozen at `afbb58febc`.
+  arm, the Todo is the keyed-list arm, and this one exists so that the
+  resource-demand verdict can decide whether committed-read resource
+  demand earns adoption against the criteria frozen at `afbb58febc`.
 
   It reaches four namespaces and every one of them is public:
 
@@ -24,9 +24,8 @@
 
   Deliberately, and the surface suite asserts the absent edge. Route paths
   are plain strings in a process-global registrar and the shared node
-  bundle loads every application in the tree into one process
-  (rf2-hic-025 finding 8, rf2-wqnl). Nothing about a resource witness
-  needs a URL."
+  bundle loads every application in the tree into one process. Nothing
+  about a resource witness needs a URL."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]

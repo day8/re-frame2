@@ -373,8 +373,8 @@
 (deftest neither-text-field-carries-a-reset-trigger
   ;; The ABSENCE, pinned at the tier that can read a marker off an authored
   ;; form — because an absence nothing asserts is an absence somebody
-  ;; re-adds. rf2-36bd deleted the counter's bump from `::discard` and the
-  ;; browser lane did not move: a discard already re-runs this body three
+  ;; re-adds. Deleting the counter's bump from `::discard` moves the
+  ;; browser lane not at all: a discard already re-runs this body three
   ;; times over, and the commit re-asserts the model on its own.
   (is (= 0 (ht/revision [:input {:value "T" :re-frame.hicasso/revision 0}]))
       "the kit CAN read a trigger off an authored form, which is what makes
