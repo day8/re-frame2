@@ -316,6 +316,25 @@ function analyse(datasets, opts = {}) {
         compare('SUBSTRATE | parity pooled, uix vs reagent', pick('parity', 'uix-subs', null), pick('parity', 'reagent-subs', null)),
         compare('MODE      | uix at pos1, fixed vs parity', pick('fixed', 'uix-subs', 1), pick('parity', 'uix-subs', 1)),
         compare('MODE      | reagent at pos0, fixed vs parity', pick('fixed', 'reagent-subs', 0), pick('parity', 'reagent-subs', 0)),
+        // --- THE REVERSED ARM (rf2-csca8) ---------------------------------
+        //
+        // These four rows were added to this reader BEFORE the first
+        // `fixed-reversed` record existed, so what they compute was fixed in
+        // advance of what they would find. Under `fixed-reversed` the plan is
+        // driven reversed every round: the mode is held constant and `uix-subs`
+        // moves to position 0, which is the one arrangement no committed run
+        // supplied.
+        //
+        // CARRIER is the PRIMARY row and the only WITHIN-RUN one on this list.
+        // Both of its cells come from the same runs, the same session and the
+        // same mode, so every per-run term — the box that minute, the revision,
+        // the level the floor settled at — is held constant by construction
+        // rather than by matching. The three rows under it are between-mode and
+        // carry the repeated-measures bound every other row here carries.
+        compare('CARRIER   | fixed-reversed, uix pos0 vs reagent pos1', pick('fixed-reversed', 'uix-subs', 0), pick('fixed-reversed', 'reagent-subs', 1)),
+        compare('FOLLOWS   | uix, fixed pos1 vs fixed-reversed pos0', pick('fixed', 'uix-subs', 1), pick('fixed-reversed', 'uix-subs', 0)),
+        compare('STAYS     | pos1, fixed uix vs fixed-reversed reagent', pick('fixed', 'uix-subs', 1), pick('fixed-reversed', 'reagent-subs', 1)),
+        compare('MODE      | uix pooled, fixed-reversed vs parity', pick('fixed-reversed', 'uix-subs', null), pick('parity', 'uix-subs', null)),
       ];
     }
 
@@ -336,6 +355,42 @@ function analyse(datasets, opts = {}) {
     legs: controlLegs.length,
     band: controlLegs.filter((b) => inBand(b, BAND_LO_B, BAND_HI_B)).length,
   };
+
+  // --- THE LEVEL EACH RUN SETTLED AT (rf2-csca8) --------------------------
+  //
+  // The floor arm at this configuration is MULTI-MODAL — see
+  // `the-second-mode-a-pre-registered-twenty-run-window.md`, which pre-registered
+  // this estimator and this criterion, and both are reused here verbatim rather
+  // than re-invented: the MEDIAN, over CERTIFIED windows at ROUND INDEX >= 6, of
+  // that window's `legMedian`, per segment; HIGH MODE is either segment at or
+  // above 21,000 B/write.
+  //
+  // IT IS A READ AND NOT A FILTER. Nothing here excludes a run, and no census
+  // above consults it. Its job is to make a level excursion VISIBLE before a
+  // comparative is quoted over it, because a window whose arms separate on level
+  // rather than on the property under test has found something about the box and
+  // not about the property — and an unexplained excursion reported plainly is
+  // worth more than a clean-looking number taken over it.
+  const LEVEL_FROM_ROUND = 6;
+  const HIGH_MODE_B = 21000;
+  const median = (xs) => {
+    const s = xs.slice().sort((x, y) => x - y);
+    return s.length ? s[s.length >> 1] : null;
+  };
+  const levels = {};
+  for (const w of all) {
+    if (!w.certified || w.round < LEVEL_FROM_ROUND) continue;
+    const r = (levels[w.runId] = levels[w.runId] || { runId: w.runId, segOrder: w.segOrder, segments: {} });
+    (r.segments[w.segment] = r.segments[w.segment] || []).push(w.legMedian);
+  }
+  out.levels = Object.values(levels)
+    .map((r) => {
+      const per = {};
+      for (const [seg, xs] of Object.entries(r.segments)) per[seg] = { n: xs.length, median: median(xs) };
+      const highest = Math.max(...Object.values(per).map((x) => x.median));
+      return { runId: r.runId, segOrder: r.segOrder, per, highMode: highest >= HIGH_MODE_B };
+    })
+    .sort((p, q) => p.runId.localeCompare(q.runId));
 
   // AND THE READER'S OWN CONTROL: the published 14-run parity figures. If this
   // reader's window extraction has drifted, these move. Computed over
@@ -425,6 +480,41 @@ function report(a) {
   L.push('');
   L.push(`NULL ARM — control legs ${a.control.legs}, of which in the ${BAND_LO_B}-${BAND_HI_B} B band: ${a.control.band}`);
   L.push('');
+
+  // THE LEVEL READ, printed BEFORE any comparative below it, deliberately.
+  if (a.levels && a.levels.length) {
+    const byMode = {};
+    for (const r of a.levels) {
+      byMode[r.segOrder] = byMode[r.segOrder] || { runs: 0, high: 0 };
+      byMode[r.segOrder].runs++;
+      if (r.highMode) byMode[r.segOrder].high++;
+    }
+    L.push('LEVEL — median legMedian over certified windows at round >= 6, per segment.');
+    L.push('  High mode is either segment at or above 21,000 B/write, the criterion');
+    L.push('  `the-second-mode-a-pre-registered-twenty-run-window.md` pre-registered. A READ, NOT A FILTER:');
+    L.push('  no census here consults it and no run is excluded on it.');
+    for (const [mode, s] of Object.entries(byMode).sort()) {
+      L.push(`    ${mode.padEnd(16)}${String(s.runs).padStart(5)} runs, ${String(s.high).padStart(4)} high mode`);
+    }
+    // The per-run rows, for the segment-order windows only: a directory that
+    // carries a non-`parity` mode is a MATCHED window, and its arms' levels are
+    // exactly what a comparative between them can be confounded by.
+    const dirsWithModes = new Set(
+      a.levels.filter((r) => r.segOrder !== 'parity').map((r) => r.runId.split('/')[0])
+    );
+    const rows = a.levels.filter((r) => dirsWithModes.has(r.runId.split('/')[0]));
+    if (rows.length) {
+      L.push('');
+      L.push('  PER RUN, for the matched segment-order windows:');
+      const segs = [...new Set(rows.flatMap((r) => Object.keys(r.per)))].sort();
+      L.push(`    ${'run'.padEnd(30)}${'mode'.padEnd(16)}${segs.map((s) => s.padStart(14)).join('')}   level`);
+      for (const r of rows) {
+        const cells = segs.map((s) => String((r.per[s] || {}).median ?? '-').padStart(14)).join('');
+        L.push(`    ${r.runId.padEnd(30)}${r.segOrder.padEnd(16)}${cells}   ${r.highMode ? 'HIGH' : 'low'}`);
+      }
+    }
+    L.push('');
+  }
 
   for (const [name, s] of Object.entries(a.byStatistic)) {
     L.push(`=== worst leg read as ${name.toUpperCase()} ===`);
