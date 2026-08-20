@@ -299,11 +299,10 @@
 ;; An `h/error-boundary` is the right reader for two reasons rather than
 ;; one. It is what a real app has above an overlay, so the row measures
 ;; the path a consumer is actually on. And it CONTAINS the throw: an
-;; uncaught `pageerror` fails the whole browser run by policy
-;; (rf2-mwx08), green `cljs.test` summary or not — measured, on the first
-;; run of this row, which reported `0 failures, 0 errors` and still
-;; exited 1. A deliberate refusal has to be caught by something, or the
-;; suite pays for it.
+;; uncaught `pageerror` fails the whole browser run by policy, whatever
+;; the `cljs.test` summary says — a row of this shape can report
+;; `0 failures, 0 errors` and still exit 1. A deliberate refusal has to
+;; be caught by something, or the suite pays for it.
 (def ^:private !anchor-refusal (atom nil))
 
 ;; --- the clipping fixture --------------------------------------------------

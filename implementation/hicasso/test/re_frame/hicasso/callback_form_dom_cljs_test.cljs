@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.callback-form-dom-cljs-test
-  "THE ONE CALLBACK FORM, DRIVEN BY A REAL BROWSER EVENT
-  (rf2-2rtt6.35, HD-024).
+  "THE ONE CALLBACK FORM, DRIVEN BY A REAL BROWSER EVENT (HD-024).
 
   [[re-frame.hicasso.intent-cljs-test]] proves the position table's
   algebra against stand-in events, which is the right altitude for it —

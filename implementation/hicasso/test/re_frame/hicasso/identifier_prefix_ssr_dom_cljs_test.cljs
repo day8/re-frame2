@@ -338,7 +338,7 @@
               {:keys [seen stop!]} (sup/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape of
               ;; call site at which swallowing an uncaught error is not the
-              ;; fail-open rf2-mwx08 forbids. React routes a hydration
+              ;; fail-open the pageerror rule forbids. React routes a hydration
               ;; failure to `reportError`, and the browser runner fails a
               ;; run on any uncaught pageerror.
               {:keys [captured close!]} (sup/open-console-capture!

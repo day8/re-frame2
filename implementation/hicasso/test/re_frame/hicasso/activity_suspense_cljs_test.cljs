@@ -71,11 +71,10 @@
   ## The observable is IDENTITY, never a count
 
   Every ownership assertion here names the surviving registration by
-  `identical?`, not by `count`. `rf2-hic-011`'s ledger records why: a
-  runtime that **leaks the predecessor and fails to acquire for the
-  successor** still counts one. The two failures are opposite and the
-  count is blind to both, so the count is asserted beside the identity
-  and never instead of it.
+  `identical?`, not by `count`. A runtime that **leaks the predecessor
+  and fails to acquire for the successor** still counts one. The two
+  failures are opposite and the count is blind to both, so the count is
+  asserted beside the identity and never instead of it.
 
   Nothing here asserts on rendered markup, for the reason
   `reincarnation_routing_cljs_test` states in full: this arm's read path
@@ -450,7 +449,7 @@
       (let [before (collector/body-runs)
             ;; React renders hidden children at lower priority. Three runs,
             ;; because a leak of one membership per hidden render is
-            ;; invisible in a single one — the shape `rf2-hic-011` names.
+            ;; invisible in a single one.
             entries (doall (repeatedly 3 #(render! conditional-body)))
             delta   (- (collector/body-runs) before)]
 
@@ -737,7 +736,7 @@
          (finally (error-emit/unregister-error-listener! key)))))
 
 (deftest an-intent-retained-across-a-hidden-window-obeys-the-incarnation-rule
-  ;; The Activity form of `rf2-hic-013`'s rule. A hidden subtree keeps its
+  ;; The Activity form of the reincarnation rule. A hidden subtree keeps its
   ;; UI state, so it keeps every callback its last render lowered — and a
   ;; hidden window is exactly where a route change has time to destroy and
   ;; re-seat the frame under the same public id. The rule is that the
@@ -855,9 +854,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-three-lifecycle-states-are-distinguishable-and-one-pair-needs-react
-  ;; ASSERTION ONLY. The Xray view is `rf2-hic-023`'s; this row says what
-  ;; that view has to read, and — the part worth writing down — what it
-  ;; cannot read from these tables alone.
+  ;; ASSERTION ONLY. The lifecycle view itself belongs to Xray; this row
+  ;; says what that view has to read, and — the part worth writing down —
+  ;; what it cannot read from these tables alone.
   (async done
     (seeded!)
     (let [entry     (render! panel-body)

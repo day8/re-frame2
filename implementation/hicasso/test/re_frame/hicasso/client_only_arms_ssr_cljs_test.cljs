@@ -8,11 +8,11 @@
   source, with its recovery — an unproved refusal is not a
   disposition* — against the tree, and four rows came back Client-only
   with nothing behind them. This file is what three of those rows now
-  point at. `rf2-cfriw` is the bead.
+  point at.
 
   ## What this file found, and it is not what the rows claimed
 
-  The bead expected the cheap half of a Client-only row: server-render
+  What was expected was the cheap half of a Client-only row: server-render
   the surface, watch the refusal fire, name its recovery. **Two of the
   three surfaces do not refuse at all**, and that is the finding rather
   than a gap in this file:
@@ -46,9 +46,9 @@
   An anchored `overlay/popover` USED TO bake a CSS anchor name into its
   `style` attribute, and that name is minted from
   `impl.overlay/!anchor-seq` — a page-wide `defonce` counter. On a
-  client that counter is right, and deliberately so (`globals.md`,
-  `rf2-hic-017`: a CSS anchor name lives in one namespace per DOCUMENT,
-  not one per React root). On a server it was scoped to nothing: two
+  client that counter is right, and deliberately so (`globals.md`: a CSS
+  anchor name lives in one namespace per DOCUMENT, not one per React
+  root). On a server it was scoped to nothing: two
   renders of ONE immutable request snapshot produced
   `position-anchor:--rf-overlay-5` and `position-anchor:--rf-overlay-6`,
   and a long-lived process drifted further from a fresh client's counter
@@ -57,7 +57,7 @@
   unreachable for the anchored arm by construction, and the attribute it
   failed on is one hydration must match.
 
-  `rf2-9zz0y` repaired it, and NOT by making the counter deterministic.
+  The repair was NOT to make the counter deterministic.
   The ident is a client lifecycle token — its whole job is telling two
   overlays that share a trigger apart at teardown — so the repair stops
   SERIALIZING it: the panel's `position-anchor` is now claimed in the
@@ -224,7 +224,7 @@
 
 (h/defview activity-native-page
   "HS-23 through `n/$`, which the lane note recommends first and which
-  `rf2-9ywe`'s client witness uses. Constructed exactly as
+  the client witness uses. Constructed exactly as
   `native-hooks-dom-cljs-test`'s Activity row constructs it."
   [{:keys [mode]}]
   [:div.owner

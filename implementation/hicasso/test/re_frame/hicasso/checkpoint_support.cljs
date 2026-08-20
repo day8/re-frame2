@@ -55,9 +55,9 @@
 
   ## The sabotage
 
-  [[with-macrotask-deferral]] restores the pre-rf2-2l17 scheduling for
-  the width of one synchronous form, and restores it for real: the
-  collector is unmodified and unaware. It is Evidence law 3's sabotage
+  [[with-macrotask-deferral]] defers `invalidate-cell!`'s correction by a
+  whole macrotask for the width of one synchronous form, and does it for
+  real: the collector is unmodified and unaware. It is Evidence law 3's sabotage
   control, and the reason the instrument's green means something."
   (:require [cljs.test :refer-macros [is]]))
 
@@ -106,8 +106,8 @@
 
   **It replaces a 30 ms timer, and the replacement is the point.** A
   duration cannot tell a microtask-deferred repair from a
-  macrotask-deferred one — 30 ms was green for both — and after rf2-2l17
-  that difference IS the invariant.
+  macrotask-deferred one — 30 ms is green for both — and that difference
+  IS the invariant.
 
   Two failure modes, both loud, and they bracket the checkpoint from
   either side. `ready?` holding **synchronously** means the row watched
@@ -135,9 +135,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn with-macrotask-deferral
-  "Run `f` with `js/queueMicrotask` routed through `setTimeout 0` — the
-  scheduling `invalidate-cell!` had before rf2-2l17 — and restore the
-  global afterwards, whatever `f` does.
+  "Run `f` with `js/queueMicrotask` routed through `setTimeout 0`, so
+  `invalidate-cell!`'s correction lands a whole macrotask late — and
+  restore the global afterwards, whatever `f` does.
 
   **It has no collateral, and that is checkable rather than hoped for.**
   React 19 binds `scheduleMicrotask = queueMicrotask` *by value* when

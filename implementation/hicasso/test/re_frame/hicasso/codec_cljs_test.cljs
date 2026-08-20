@@ -75,7 +75,7 @@
         "the three seeded entries and nothing else — the refusal is on the write")))
 
 (deftest a-literal-named-after-an-inherited-property-cannot-be-served-one
-  ;; rf2-2rtt6.63. Both caches are `Object.create(null)`, so a lookup can
+  ;; Both caches are `Object.create(null)`, so a lookup can
   ;; only ever answer an own property. Keyed against `#js {}` these
   ;; literals would read `Object.prototype`'s OWN members — a function
   ;; where a ParsedTag or a PropSlot belongs — and the codec would emit
@@ -168,7 +168,7 @@
       (is (= "className" (codec/canonical-slot k)) (str "spelled " (pr-str k))))))
 
 (deftest the-cached-classification-is-spelling-aware-and-no-spelling-poisons-another
-  ;; rf2-y1jkm: the prop cache's entries carry the POSITION CLASSIFICATION
+  ;; The prop cache's entries carry the POSITION CLASSIFICATION
   ;; beside the React name, and the entry is keyed by name — so a symbol
   ;; spelled `on-click` shares the keyword's entry while `event-prop?`
   ;; answers false for it. The flag must therefore be minted from the NAME
@@ -196,19 +196,15 @@
            frame in this test"))))
 
 (deftest the-shorthand-composes-with-a-class-however-it-is-spelled
-  ;; THIS TEST WAS THE OTHER WAY ROUND (rf2-2rtt6.36, merged-PR audit
-  ;; #7332). Under rf2-y1jkm's lane 2 the shorthand's className was written
-  ;; over whatever the loop had emitted, and an exotic spelling that
-  ;; canonicalises onto the same slot lost outright — `[:div.a {:x/class
-  ;; "b"}]` was pinned at "a". It was pinned because it MATCHED the general
-  ;; path, and the general path was itself wrong: the shorthand merge read
-  ;; `:class` and `:className` off the map by raw key, so it saw three of
-  ;; the spellings this codec accepts and silently dropped the rest.
+  ;; THE SHORTHAND IS FOLDED ONTO THE EMITTED OBJECT, where there is no
+  ;; spelling left to miss, so every spelling this codec accepts composes
+  ;; with it.
   ;;
-  ;; The shorthand is folded onto the EMITTED object now, where there is
-  ;; no spelling left to miss, so every one of them composes. The
-  ;; assertion below is the flipped one and it is the whole repair in a
-  ;; line.
+  ;; Folding it over the MAP instead is what the rows below forbid: the
+  ;; merge then reads `:class` and `:className` off the map by raw key,
+  ;; sees three of the spellings and silently drops the rest, so an
+  ;; exotic spelling that canonicalises onto the same slot loses outright
+  ;; and `[:div.a {:x/class "b"}]` pins at "a".
   (testing "a namespaced class spelling composes with the shorthand rather
             than losing to it"
     (is (= "a b" (prop (codec/as-element [:div.a {:x/class "b"}]) "className"))))
@@ -408,8 +404,8 @@
         (is (= :call-it-or-make-it-a-view (:recovery (ex-data e))))))))
 
 (deftest an-empty-hiccup-vector-and-a-nonsense-head-are-loud-errors
-  ;; The prose is the CATALOGUED prose (rf2-hic-007 moved the package's
-  ;; refusals to `impl.error/fail!` under `check_complaint_catalogue.py`),
+  ;; The prose is the CATALOGUED prose (the package's refusals are minted
+  ;; by `impl.error/fail!` under `check_complaint_catalogue.py`),
   ;; so each row pins the id — the stable contract — beside the wording.
   (is (thrown-with-msg? js/Error #"must have a head" (codec/as-element [])))
   (is (= :rf.error/hicasso-empty-vector
@@ -420,8 +416,7 @@
          (try (codec/as-element [42 {}]) nil (catch :default e (:rf.error/id (ex-data e)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:&` — one merge, and the owned-literal law unconditional
-;; (HD-023, rf2-2rtt6.36)
+;; `:&` — one merge, and the owned-literal law unconditional (HD-023)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-caller-remainder-merges-under-the-literals-that-are-written
@@ -614,7 +609,7 @@
       (is (= "owned" (prop e "value"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The reserved `:ref` value-space (HD-022, rf2-2rtt6.38)
+;; The reserved `:ref` value-space (HD-022)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-callback-ref-is-the-v0-surface-and-reaches-react-by-identity
@@ -1009,7 +1004,7 @@
                             (codec/as-element [a-host {:ref reserved}]))))))
 
 ;; ---------------------------------------------------------------------------
-;; The `[:>]` raw escape (HD-011, rf2-2rtt6.103)
+;; The `[:>]` raw escape (HD-011)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The escape is `defhost` with the declaration erased, so almost every

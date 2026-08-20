@@ -632,7 +632,7 @@
             ;; client rendering, and React says so: it queues a hydration
             ;; error, which reaches the root's `onRecoverableError` — the one
             ;; `impl.mount/hydrate-root!` installs, which always delegates to
-            ;; React's default (rf2-mwx08's fail-open) — and so reaches the
+            ;; React's default (the pageerror fail-open) — and so reaches the
             ;; window uncaught, where the browser runner treats it as fatal.
             ;;
             ;; That rule is right and this row does not soften it. The row

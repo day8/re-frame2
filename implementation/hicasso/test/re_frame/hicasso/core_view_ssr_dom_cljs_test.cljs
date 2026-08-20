@@ -4,13 +4,12 @@
   application writes before it reaches a host, an escape or a module.
 
   Those nine rows all carry a **Render** target and all read
-  *Client-only — refusal until rf2-hic-046* in the operative column, and
-  they read that for one reason: no witness had ever server-rendered a
-  `h/defview`. This file is that witness. It runs the surfaces through
-  `react-dom/server`'s own `renderToString` — which per rf2-ggnp's
-  census is the only server path this package has, and is exactly the
-  call a consumer makes — and then hydrates those same bytes through the
-  product door.
+  *Client-only* in the operative column, and they read that for one
+  reason: nothing else server-renders a `h/defview`. This file is that
+  witness. It runs the surfaces through `react-dom/server`'s own
+  `renderToString` — the only server path this package has, and exactly
+  the call a consumer makes — and then hydrates those same bytes through
+  the product door.
 
   ## What a row here has to show, and why the list is not negotiable
 
@@ -25,7 +24,7 @@
   ## The one thing these rows deliberately do NOT claim
 
   A hydrating root's tree is `Fragment[closer, adoption-provider[…]]`
-  (`impl.mount/tree`, rf2-6tmu) and the server path emits no counterpart
+  (`impl.mount/tree`) and the server path emits no counterpart
   to that fork, so a tree containing a `useId` hydrates into an id
   mismatch — HS-11's obstruction 2, measured in
   `identifier-prefix-ssr-dom-cljs-test` and unrepaired. **No surface in
@@ -592,7 +591,7 @@
               {:keys [seen stop!]} (sup/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape
               ;; of call site at which swallowing an uncaught error is
-              ;; not the fail-open rf2-mwx08 forbids.
+              ;; not the fail-open the pageerror rule forbids.
               {:keys [captured close!]} (sup/open-console-capture!
                                           {:swallow-uncaught? true})]
           ;; The request the client renders is not the request the server

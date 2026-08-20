@@ -445,7 +445,7 @@
           (let [{:keys [seen stop!]}      (sup/watch-mismatches!)
                 ;; MANUFACTURED here and asserted on here — the only shape of
                 ;; call site at which swallowing an uncaught error is not the
-                ;; fail-open rf2-mwx08 forbids.
+                ;; fail-open the pageerror rule forbids.
                 {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
                 ha (mount/hydrate-root! ca shared-frame [screen {:title "client-A"}])
                 hb (mount/hydrate-root! cb shared-frame [screen {:title "client-B"}])]
