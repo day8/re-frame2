@@ -399,8 +399,9 @@ are the frozen evidence surface, and the `docs/design/hicasso/studio/README.md` 
 the next paragraph goes on to say the studio "stays exactly as its own programme left it". All
 four of the inbound links measured below land inside it. Its numbers, evidence ids and window
 dates are the baseline a live chain cites, so revising them is not a prose fix but an edit to
-another programme's evidence. **So, in one line: outside `studio/`, correct stale status and
-broken links and add nothing; inside `studio/`, nothing; delete nothing anywhere.**
+another programme's evidence. **So, in one line: outside `studio/`, correct stale status, broken
+links, factual errors and contradictions with rulings — all four of the EP-0036 classes quoted
+above, and no fifth — and add nothing; inside `studio/`, nothing; delete nothing anywhere.**
 
 **The deciding reason is the hicasso coupling.** `docs/design/hicasso/` is itself ruled kept, and it
 anchors its measurement numbers to the frozen studio tree — `docs/design/hicasso/studio/README.md`
