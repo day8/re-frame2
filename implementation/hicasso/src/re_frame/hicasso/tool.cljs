@@ -390,10 +390,10 @@
   and this read is complete for it. What the empty does NOT establish is
   that nothing is retained above — an Activity-hidden subtree that has
   released its reads leaves the same empty census as an unmounted one, and
-  only a later re-subscribe distinguishes them, retrospectively (audit
-  #7792). Read the other way round, a row here is not proof the boundary
-  is on SCREEN: a Suspense-fallback-hidden subtree stays subscribed and
-  stays in this roster.
+  only a later re-subscribe distinguishes them, retrospectively. Read the
+  other way round, a row here is not proof the boundary is on SCREEN: a
+  Suspense-fallback-hidden subtree stays subscribed and stays in this
+  roster.
 
   Everything this read does not know is in `:naming` and `:host`, which
   are projections of their own with their own bases and their own losses —
