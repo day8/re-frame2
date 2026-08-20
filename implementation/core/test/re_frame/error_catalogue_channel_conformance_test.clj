@@ -1116,9 +1116,12 @@
 
   ZERO-WIDTH ON PURPOSE. The match is the pipe alone: the run in front of it
   is INSPECTED, never consumed, so the change moves only WHERE columns break
-  and no cell loses a character it used to carry. Consuming the even run
-  instead would leave the preceding cell neither raw (`b\\\\`) nor rendered
-  (`b\\`), which is a third thing that is true of nothing.
+  and no cell loses a character it used to carry. The obvious alternative —
+  `(?<!\\\\)(?:\\\\\\\\)*\\|`, which splits at the right places by EATING the
+  even run — would leave a cell reading `b\\\\` in the file as plain `b`:
+  neither the raw text nor the `b\\` a reader sees, but a third string that is
+  neither what the file says nor what markdown renders. This arm harvests from
+  cells verbatim, so raw is the one of the two it wants.
 
   Java's lookbehind needs an obvious maximum length, hence `{0,16}` rather than
   `*` — thirty-two backslashes in front of one pipe, which no catalogue cell
