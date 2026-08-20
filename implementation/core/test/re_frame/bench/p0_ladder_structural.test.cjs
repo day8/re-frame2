@@ -2427,9 +2427,13 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
 // perfectly confounded: with the plan as shipped, `uix-subs` is position 1 in
 // every `fixed` window there has ever been, so the 8-of-38 cluster is equally
 // consistent with "uix under `fixed`" and with "the SECOND-driven arm under
-// `fixed`". PR #8593 refuted POSITION on 3,140 windows and found SUBSTRATE
-// associated but not necessary, which leaves the MODE — and no committed run
-// puts uix at position 0 while HOLDING THE MODE CONSTANT.
+// `fixed`". On the ADMISSIBLE corpus that analysis read — 116 runs, 3,090
+// positional windows, two control-refused runs excluded — PR #8593 left
+// POSITION UNRESOLVED rather than refuted (`p` = 0.2253 is a failure to
+// reject, not a demonstration of equality) and found SUBSTRATE associated but
+// not necessary, so none of the three candidates was eliminated and the MODE
+// still could not be read against itself from one orientation — no committed
+// run put uix at position 0 while HOLDING THE MODE CONSTANT.
 //
 // `fixed-reversed` is that arrangement and nothing else, so the pin drives the
 // sequence and reads the three properties that make it the discriminator: it

@@ -1936,16 +1936,22 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 // been. The 1,050-1,224 B cluster that bead names sits at 8 of 38 such
 // windows, and 8 of 38 is equally consistent with "uix under `fixed`" and
 // with "the SECOND-driven arm under `fixed`". No committed run separates
-// them: the analysis on PR #8593 re-derived POSITION as refuted (parity uix
-// 8/747 at position 0 against 3/724 at position 1, Fisher two-sided
-// p = 0.2254) and SUBSTRATE as associated but NOT necessary (reagent carries
-// the term twice in 1,588), which leaves the MODE as the only surviving arm
-// — and the mode cannot be read against itself from one orientation.
+// them. On the ADMISSIBLE corpus PR #8593's analysis read — 116 runs, 3,090
+// positional windows, two control-refused runs excluded — POSITION came out
+// UNRESOLVED (parity uix 8/733 at position 0 against 3/712 at position 1,
+// Fisher two-sided p = 0.2253) and SUBSTRATE ASSOCIATED BUT NOT NECESSARY
+// (reagent carries the term twice in 1,564). p = 0.2253 IS A FAILURE TO
+// REJECT AND NOT A REFUTATION: on eleven in-band windows nothing there bounds
+// a position effect at any useful width, so POSITION was left standing rather
+// than knocked out, and NONE of the three candidates was eliminated. What
+// that analysis could not supply was a CONTRAST — uix at position 0 with the
+// mode held still — and the mode cannot be read against itself from one
+// orientation.
 //
 // `fixed-reversed` drives the plan REVERSED every round, so it puts the
 // second substrate at position 0 while HOLDING THE MODE CONSTANT. That is
 // the one arrangement the corpus lacks. Parity already supplies uix at
-// position 0 for 747 windows, but it supplies it UNDER PARITY, which is the
+// position 0 for 733 windows, but it supplies it UNDER PARITY, which is the
 // term the contrast is trying to hold still.
 //
 // WHAT EACH OUTCOME SETTLES, pre-registered here rather than chosen after the
