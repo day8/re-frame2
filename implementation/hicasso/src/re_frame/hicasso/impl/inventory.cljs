@@ -52,7 +52,17 @@
   boundary, on exactly the rung being measured, in the direction that
   flatters this arm. Filed here it over-counts in the coincident-sequence
   case, which is the direction a candidate's own instrument should err
-  in."
+  in.
+
+  **The `:what` strings are DATA, held byte-for-byte against the measured
+  table.** Thirteen of the fourteen are identical to
+  `re-frame.bench.hicasso.arm1.runtime/retained-inventory`'s, and the
+  fourteenth — `:react/use-context` — differs only by the namespace the
+  copy renamed. That tree is the artefact the heap ladders were read off,
+  so a ladder is compared against these rows on the assumption they still
+  say what the measurement said. Rewriting one for its prose silently
+  moves the baseline a published row was taken against; whoever needs one
+  changed re-measures rather than re-words."
   []
   {:per-boundary
    [{:token :registration
