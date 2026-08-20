@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.editor.events
-  "THE FOUR-FIELD EDITOR'S MODEL — ordinary re-frame2, and nothing else
-  (rf2-hic-078).
+  "THE FOUR-FIELD EDITOR'S MODEL — ordinary re-frame2, and nothing else.
 
   Four fields, one address each, and every handler a plain
   `(fn [coeffects event-v] → effect-map)`. This namespace requires
@@ -56,8 +55,7 @@
 
   [[::discard]] bumps `:revision` with `(fnil inc 0)`, which is
   rf2-hic-025's finding 5. What this application adds is the measurement
-  the report could not make, and it took two attempts to get one
-  (rf2-5h9k).
+  the report could not make, and it took two attempts to get one.
   `editor.flow-dom-cljs-test/what-the-revision-bump-is-actually-load-bearing-FOR`
   names the one state in which the bump is the only thing that repairs a
   field — a value written onto the glass by something that fired no

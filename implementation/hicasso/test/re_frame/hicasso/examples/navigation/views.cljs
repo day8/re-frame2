@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.navigation.views
-  "THE NAVIGATION WITNESS'S VIEWS — two panes, on the public door
-  (rf2-hic-042).
+  "THE NAVIGATION WITNESS'S VIEWS — two panes, on the public door.
 
   Everything reached for is `h/…`: `defview`, `sub`, `route-link`, the
   `::h/value` marker. No `impl` namespace and no `re-frame.core`; a view

@@ -90,8 +90,7 @@
   3)
 
 (def digest
-  "THE EDITOR'S DIGEST — the runtime-selected content, as data
-  (rf2-hic-074).
+  "THE EDITOR'S DIGEST — the runtime-selected content, as data.
 
   A vector of BLOCKS. Each carries its own `:block/kind`, and the view
   layer picks the renderer for that kind at render time

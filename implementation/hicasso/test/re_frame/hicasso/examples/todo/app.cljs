@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.todo.app
-  "THE ENTRY POINT — the four lines that start a Todo-class application
-  (rf2-hic-086).
+  "THE ENTRY POINT — the four lines that start a Todo-class application.
 
   `re-frame.hicasso.consumer-app` is the smallest complete Hicasso
   application; `…examples.slice.app` is the RealWorld-class arm — two

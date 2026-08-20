@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.events
-  "THE TYPEAHEAD'S MODEL TIER — and the ceremony census, in the source
-  (rf2-hic-044).
+  "THE TYPEAHEAD'S MODEL TIER — and the ceremony census, in the source.
 
   Ordinary re-frame2: every handler is `(fn [coeffects event-v] →
   effect-map)`, nothing here knows a view substrate exists, and the whole

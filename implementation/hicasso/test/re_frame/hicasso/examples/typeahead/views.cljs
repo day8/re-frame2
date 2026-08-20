@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.views
-  "THE TYPEAHEAD'S VIEWS — five boundaries on the public door
-  (rf2-hic-044).
+  "THE TYPEAHEAD'S VIEWS — five boundaries on the public door.
 
   Everything reached for is `h/…`: `defview`, `sub`, and the `::h/value` /
   `::h/revision` markers. No `impl` namespace, no `re-frame.core` — a view

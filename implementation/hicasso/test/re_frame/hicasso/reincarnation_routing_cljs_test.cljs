@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.reincarnation-routing-cljs-test
-  "SAME-PUBLIC-ID FRAME REINCARNATION — where a delayed operation lands
-  (rf2-hic-013).
+  "SAME-PUBLIC-ID FRAME REINCARNATION — where a delayed operation lands.
 
   A frame is destroyed and a new one created under the SAME public keyword
   id. Every handle, bundle and lowered callback the arm minted against the

@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.require-graph
-  "READ A WITNESS APPLICATION'S DEPENDENCY EDGES OFF THE ANALYZER
-  (rf2-hic-025, rf2-hic-086).
+  "READ A WITNESS APPLICATION'S DEPENDENCY EDGES OFF THE ANALYZER.
 
   Both witness applications under `examples/` are evidence about the
   PUBLIC DOOR, and each is worth exactly as much as the claim that it was

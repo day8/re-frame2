@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.slice.i18n
-  "THE SLICE'S STRINGS AND TOKENS — ordinary data, and nothing else
-  (rf2-hic-025).
+  "THE SLICE'S STRINGS AND TOKENS — ordinary data, and nothing else.
 
   Specification §7 rows i18n and theming together, and the row's whole
   claim is that a Hicasso application needs **no subsystem** for either:

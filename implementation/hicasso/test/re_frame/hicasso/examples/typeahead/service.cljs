@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.service
-  "THE STAND-IN SEARCH SERVICE — the network, and nothing else
-  (rf2-hic-044).
+  "THE STAND-IN SEARCH SERVICE — the network, and nothing else.
 
   A typeahead is a witness about resources, so it needs something that
   behaves like one: a request that takes time to answer, that can be

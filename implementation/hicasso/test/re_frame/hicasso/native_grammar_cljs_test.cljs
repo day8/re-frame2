@@ -27,7 +27,6 @@
   `impl/slot` was extracted to guarantee one layer down.
 
   ## And the expansion path itself, witnessed rather than inferred
-  (rf2-h63i)
 
   That equality pins the RULE the macro applies. It does not pin that
   the macro applies it AT EXPANSION: `$` could stop calling

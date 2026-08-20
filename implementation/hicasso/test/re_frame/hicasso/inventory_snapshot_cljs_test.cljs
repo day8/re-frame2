@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.inventory-snapshot-cljs-test
-  "THE INSTRUMENT'S OWN CONTRACT — `cell-readers` answers a SNAPSHOT
-  (rf2-0oy4).
+  "THE INSTRUMENT'S OWN CONTRACT — `cell-readers` answers a SNAPSHOT.
 
   Every reader-counting row in this package captures
   [[re-frame.hicasso.impl.inventory/cell-readers]], performs an action,

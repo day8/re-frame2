@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.native-abi-dom-cljs-test
-  "THE TWO EMBEDDING DIRECTIONS, AND THE HELPERS, UNDER A REAL REACT
-  (rf2-hic-032).
+  "THE TWO EMBEDDING DIRECTIONS, AND THE HELPERS, UNDER A REAL REACT.
 
   A wrapper that preserves the ABI on its FIRST render and loses it on
   the second is the characteristic defect this bead is about, and no

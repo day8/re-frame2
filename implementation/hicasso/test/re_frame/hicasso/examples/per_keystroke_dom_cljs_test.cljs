@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.per-keystroke-dom-cljs-test
-  "L3 — THE PER-KEYSTROKE CENSUS, BOTH WITNESS PAGES, ONE INSTRUMENT SET
-  (rf2-hic-045).
+  "L3 — THE PER-KEYSTROKE CENSUS, BOTH WITNESS PAGES, ONE INSTRUMENT SET.
 
   Specification §6 asks the four-field editor and the 100-cell grid to
   publish *the mechanical per-keystroke path: state writes, subscription

@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.test-kit-cljs-test
-  "THE TEST KIT'S OWN WITNESSES — L1 and L2, positive and sabotaged
-  (rf2-hic-020).
+  "THE TEST KIT'S OWN WITNESSES — L1 and L2, positive and sabotaged.
 
   `re-frame.hicasso.test` is an instrument, and an instrument is only
   worth the controls that can make it go red. Every claim below is
