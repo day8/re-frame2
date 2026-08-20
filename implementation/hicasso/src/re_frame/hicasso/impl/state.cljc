@@ -1,14 +1,14 @@
 (ns re-frame.hicasso.impl.state
-  "`h/reg-state` — THE INSTANCE-KEY SUGAR (rf2-2rtt6.98, HD-009 as amended
-  by the 2026-08-04 explicit-key ruling).
+  "`h/reg-state` — THE INSTANCE-KEY SUGAR (HD-009, as amended by the
+  explicit-key ruling).
 
   A widget that wants a scrap of its own state — a disclosure's open flag,
   a tab strip's selection, a row's draft text — has to answer one question
-  first: *which* instance's flag is this? The guide's own answer, before
-  this ruling, was a pitfall written out in prose: pick an app-db path by
-  hand, forget to vary it per instance, and **every instance on the page
-  silently shares one value**. Two accordions open together. Nothing
-  throws, nothing logs, and the screen is simply wrong.
+  first: *which* instance's flag is this? Answering it by hand is a
+  pitfall: pick an app-db path, forget to vary it per instance, and
+  **every instance on the page silently shares one value**. Two accordions
+  open together. Nothing throws, nothing logs, and the screen is simply
+  wrong.
 
   This namespace converts that silence into a loud error, and it does so
   with **no new machinery at all**.
@@ -105,9 +105,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
-;; package, and the ambient view and source coordinate come with it
-;; (rf2-hic-007). The eight lines that stood here were one of six identical
-;; copies.
+;; package, and the ambient view and source coordinate come with it.
 
 ;; ---------------------------------------------------------------------------
 ;; Instance keys

@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.evidence
   "ONE versioned, adapter-neutral evidence schema — and the four things
-  every projection in it has to say about itself (rf2-hic-023).
+  every projection in it has to say about itself.
 
   Spec SN §10 rules that Hicasso exposes one dev-only evidence surface
   that Xray and the AI pair consume UNCHANGED, and that every envelope

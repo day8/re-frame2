@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.forms
-  "FORMS — the optional module, and the one view it exists for (rf2-sh56).
+  "FORMS — the optional module, and the one view it exists for.
 
       (ns my.app
         (:require [re-frame.hicasso :as h]
@@ -20,18 +20,17 @@
   hard is not holding one — it is deciding, later, whether a commit that
   arrives is still the one the user meant.
 
-  ## The ruling this module ships under
+  ## The scope this module ships under
 
-  Operator ruling (Mike, 2026-08-12): **the forms module is V0 scope**,
-  and `docs/design/hicasso/draft-guide/05-forms.md` stands as its draft
-  spec — the code catches up to the chapter rather than the chapter being
-  rewritten onto the doors that existed. For this feature only, that
-  overrides the second-caller extraction gate `specification.md` §7
-  states and the post-v0 positioning in `decisions.md`; the extraction
-  gate stands everywhere else. `rf2-hic-051` had refused the extraction
-  hours earlier and its arithmetic was sound at the time — one caller,
-  and `h/reg-state` already the addressed-draft door. The ruling is on
-  different ground: a guide teaching a namespace the code lacks is the
+  **The forms module is V0 scope**, and
+  `docs/design/hicasso/draft-guide/05-forms.md` stands as its draft spec —
+  the code catches up to the chapter rather than the chapter being
+  rewritten onto the doors. For this feature only, that overrides the
+  second-caller extraction gate `specification.md` §7 states and the
+  post-v0 positioning in `decisions.md`; the extraction gate stands
+  everywhere else. A single caller would otherwise refuse the extraction,
+  `h/reg-state` being already the addressed-draft door, but the governing
+  ground is different: a guide teaching a namespace the code lacks is the
   defect.
 
   The buffered/draft/baseline/revision LAW is D016
@@ -185,12 +184,12 @@
   function of the control address.
 
   The handlers below write it directly instead of dispatching the setter
-  `reg-state` mints, and that is this module's one sharp edge — the same
-  one `rf2-hic-051`'s recipes met and wrote down. Ending a session must
-  be ONE turn: the record has to be gone in the same `:db` that hands the
-  caller its commit, or the turn in between renders a field whose session
-  has ended and whose draft has not. `reg-state` states that the `:ui`
-  tier is app-space and that an ordinary handler may read and write it;
+  `reg-state` mints, and that is this module's one sharp edge. Ending a
+  session must be ONE turn: the record has to be gone in the same `:db`
+  that hands the caller its commit, or the turn in between renders a
+  field whose session has ended and whose draft has not. `reg-state`
+  states that the `:ui` tier is app-space and that an ordinary handler
+  may read and write it;
   this is the case that needs the second half."
   [control]
   [impl-state/ui-root drafts control])

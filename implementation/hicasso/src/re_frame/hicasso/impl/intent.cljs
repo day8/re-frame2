@@ -368,9 +368,7 @@
      (body-fn))))
 
 ;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
-;; package, and the ambient view and source coordinate come with it
-;; (rf2-hic-007). The eight lines that stood here were one of six identical
-;; copies.
+;; package, and the ambient view and source coordinate come with it.
 
 (defn- require-dispatch
   "The frame-locked dispatch this lowering needs, or the loud refusal.

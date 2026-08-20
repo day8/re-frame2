@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.overlay
-  "OVERLAYS — the optional module, and the posture it exists to state
-  (rf2-hic-052).
+  "OVERLAYS — the optional module, and the posture it exists to state.
 
       (ns my.app
         (:require [re-frame.hicasso :as h]
@@ -162,19 +161,16 @@
   controls inside anyway, and the wrap yields to a press one of them has
   already claimed with `preventDefault`.
 
-  ## An `:anchor` that names no element now REFUSES
+  ## An `:anchor` that names no element REFUSES
 
-  It used to be a no-op — the panel opened in the top layer at the UA's
-  default position, visibly unanchored, and said nothing. rf2-1ppe0
-  promoted the reservation, which per
-  `docs/design/hicasso/product/complaints.md` is ONE act and not three:
-  the emitter, the `spec/009-Instrumentation.md` row and the move of the
-  register row to `live` land together, because R3 and R6 of
-  `check_complaint_catalogue.py` red on either half alone. The spelling
-  was already settled by the naming packet (rf2-hic-065; ledger rows 30
-  and 40 applied their defaults, and row 30 records it as the corpus's
-  single deliberate mint), so what this took was the act rather than a
-  ruling.
+  The alternative is a silent no-op — the panel opening in the top layer
+  at the UA's default position, visibly unanchored, saying nothing. Per
+  `docs/design/hicasso/product/complaints.md` promoting the reservation
+  is ONE act and not three: the emitter, the `spec/009-Instrumentation.md`
+  row and the move of the register row to `live` land together, because
+  R3 and R6 of `check_complaint_catalogue.py` red on either half alone.
+  The spelling is the naming packet's — ledger rows 30 and 40 apply their
+  defaults, and row 30 records it as the corpus's single deliberate mint.
 
   `:rf.error/hicasso-overlay-anchor-missing` is raised from
   [[re-frame.hicasso.impl.overlay/claim-anchor!]] — the ref callback, the
