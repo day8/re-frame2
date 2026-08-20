@@ -22,8 +22,7 @@
   structurally nothing. **A query that can only answer what the fixture
   just told it proves nothing**, however green.
 
-  So the population here is the `rf2-hic-025` SLICE APPLICATION, entire
-  and unmodified: its routes, its seed, its six views, its events, its
+  So the population here is the SLICE APPLICATION, entire and unmodified: its routes, its seed, its six views, its events, its
   subscriptions. Nothing below registers a subscription, an event or a
   view. Every id that appears in a read's answer was written by another
   bead for another purpose, and the answers are asserted against the
@@ -122,8 +121,8 @@
   the list, and one row per seeded article — the row props coming from
   the application's own `::subs/feed`, never from a literal here.
 
-  rf2-hic-074 added two more boundaries to that route — the pager and the
-  digest region — and they are deliberately NOT mounted here. This spike
+  Two further boundaries sit on that route — the pager and the digest
+  region — and they are deliberately NOT mounted here. This spike
   measures four envelopes over a known population, and every pin below is
   about the reads the bodies above make; widening the population would
   move each of them for a reason that has nothing to do with what the
@@ -323,9 +322,9 @@
       (testing "what only the feed holds"
         (is (contains? feed-ids ::subs/feed))
         (is (not (contains? art-ids ::subs/feed))))
-      ;; THREE, and it was four until rf2-36bd. `::subs/revision` was the
-      ;; fourth, and the slice no longer has one: the counter behind it was
-      ;; measured inert and removed. See the slice's `db` namespace docstring.
+      ;; THREE. There is no `::subs/revision` among them: the slice carries
+      ;; no revision counter, the counter behind it having been measured
+      ;; inert. See the slice's `db` namespace docstring.
       (testing "what only the article holds — the editor's three reads"
         (is (contains? art-ids ::subs/draft))
         (is (contains? art-ids ::subs/dirty?))

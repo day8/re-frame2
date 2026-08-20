@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.presence-cljs-test
   "PRESENCE AS DATA, HEADLESSLY — the machine, the transform, and the
-  census-real toast tray ported both ways (rf2-2rtt6.37, HD-025).
+  census-real toast tray ported both ways (HD-025).
 
   Every row here runs with **no React, no browser and no clock**: `step`
   and `expire` take `now` as an argument, which is itself one of the

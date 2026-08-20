@@ -404,8 +404,7 @@
         (is (= [[:touch 3]] @!seen))))))
 
 ;; ---------------------------------------------------------------------------
-;; ONE callback form, and the POSITION selects the contract
-;; (HD-024, rf2-2rtt6.35)
+;; ONE callback form, and the POSITION selects the contract (HD-024)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One test per position, plus the row that deletes the predecessor's fifth

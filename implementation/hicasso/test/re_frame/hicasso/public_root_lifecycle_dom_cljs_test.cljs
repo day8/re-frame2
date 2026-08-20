@@ -35,7 +35,7 @@
   `impl.mount/release!`, the fixture door that detaches the container and
   empties the runtime. This one cannot: what it is measuring is the
   PUBLIC teardown, whose contract is that the caller's node survives
-  (rf2-31xm), so the very act that would clean up is the act under test.
+  so the very act that would clean up is the act under test.
   The suite therefore removes its own nodes, in [[detach!]] — and only in
   `finally`, AFTER the readings that prove the door left them alone. The
   reset fixture is no help here: it restores registrars and frames and
@@ -150,8 +150,8 @@
   taken. The mirror of `fresh-container!`, and the reason it is written
   out here rather than borrowed: `impl.mount/release!` is the door that
   would do it, and it also empties the runtime — total teardown, right
-  for a fixture that owns the page and exactly the meaning rf2-31xm took
-  off the public facade.
+  for a fixture that owns the page, and exactly the meaning the public
+  facade does not carry.
 
   **Placement is the whole of it.** Every call sits in `finally`, after
   the assertions that the container was still connected once its root
@@ -279,15 +279,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- pre-rf2-31xm-teardown!
-  "The public teardown door AS IT WAS BEFORE rf2-31xm narrowed it: take
-  this root down, drop its container, and empty the process-global
-  runtime.
+  "The public teardown door AS IT WOULD BE UNNARROWED: take this root
+  down, drop its container, and empty the process-global runtime.
 
   **The sabotage needs no mock and no seam, because that door still
   exists under an honest name.** `impl.mount/release!` is `unmount!` plus
   the container removal plus `collector/reset-runtime!` — precisely the
-  meaning rf2-31xm took off the public facade, retained as the fixture
-  door for a suite that owns the whole page. So the mutation is not a
+  meaning the public facade does not carry, retained as the fixture door
+  for a suite that owns the whole page. So the mutation is not a
   hypothetical reconstruction: it is the shipped page-wide door, called
   where the root-scoped one belongs.
 
@@ -295,7 +294,7 @@
   rather than taking a reading, and the header's rule survives it whole.
   That rule forbids the impl door from doing what the PUBLIC door is
   supposed to be able to do; total teardown is the one thing the public
-  door must NOT be able to do, which is the whole of rf2-31xm."
+  door must NOT be able to do, which is the whole of the narrowing."
   [handle]
   (mount/release! handle))
 
@@ -303,9 +302,9 @@
 ;; — *independent roots and SSR requests cannot reset, adopt, dirty, or release
 ;; one another's state* — is a correctness gate, and that register's gate
 ;; construction rule asks every one of them for "a sabotage mutation that makes
-;; each correctness gate red". Until rf2-1mmn this family had none that ran:
-;; this suite and `roots-frames-isolation-dom-cljs-test` carried no sabotage in
-;; any form, and a reviewer cannot re-run what is not there.
+;; each correctness gate red". A sabotage that does not RUN is no answer:
+;; a reviewer cannot re-run what is not there, so this suite and
+;; `roots-frames-isolation-dom-cljs-test` each carry one that executes.
 ;;
 ;; The mutation is the register's own first verb. `collector/reset-runtime!`
 ;; empties every table this arm holds, and every one of them is one-per-page

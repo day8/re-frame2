@@ -42,7 +42,8 @@
   what work each arm does, never how long that work takes.** No wall
   clock is taken, because a duration cannot be attributed on a machine
   that may be carrying another worker's compile; that is the standard
-  `rf2-hic-033` set and `rf2-5yn9` inherited. Retention is read as live
+  the direct-return rung set and the clock row inherits. Retention is
+  read as live
   subscription-cache ENTRIES, a count, and never as retained bytes — the
   `D9`/`S5` distinction governs, and a comparator that conflated them
   would be claiming a heap result it did not take.

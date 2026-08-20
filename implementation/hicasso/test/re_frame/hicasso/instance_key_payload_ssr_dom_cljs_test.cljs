@@ -1,7 +1,7 @@
 (ns re-frame.hicasso.instance-key-payload-ssr-dom-cljs-test
-  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS (rf2-wehh0,
-  re-expressing the prototype's `ssr/instance_key_payload_dom_cljs_test`
-  on [[re-frame.hicasso.server]]).
+  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS — the
+  prototype's `ssr/instance_key_payload_dom_cljs_test`, re-expressed on
+  [[re-frame.hicasso.server]].
 
   [[re-frame.hicasso/reg-state]] puts a widget's own state at
   `[:ui ::concern ikey]`, which is APP-SPACE data — so whether it reaches
@@ -223,8 +223,8 @@
   event carrying exactly the slice `re-frame.ssr.hydrate`'s own
   `:rf/hydrate` handler installs. It is spelled this way rather than by
   driving `ssr/hydrate!` off the emitted script because THAT round trip
-  already has a package owner — `server_render_ssr_dom_cljs_test` §5,
-  rf2-lb1xi — and what is under test here is the CONTENT of the payload,
+  already has a package owner — `server_render_ssr_dom_cljs_test` §5 —
+  and what is under test here is the CONTENT of the payload,
   so the seeding door is deliberately the least interesting part of the
   row."
   [payload]

@@ -3,8 +3,8 @@
   digest.
 
   `arm1/lang.clj` defines the three macros a consumer writes against, and
-  until rf2-hic-009 split the runtime its row in `frozen-sources.edn` held
-  each of them to its donor. The split made that row inexpressible —
+  its row in `frozen-sources.edn` once held each of them to its donor.
+  Splitting the runtime made that row inexpressible —
   `defview`'s expansion target moved from `impl.runtime/mint-view!` to
   `impl.collector/mint-view!`, and `:renames` is a one-to-one table that
   cannot say which of six modules a call site should now name — so the row
@@ -145,11 +145,11 @@
 ;; Witness C — `h/defview`, and the name its emitted fn does NOT bind
 ;; ---------------------------------------------------------------------------
 ;;
-;; rf2-jan2. The macro used to name the fn it emits `<sym>-body`, and a
-;; NAMED `fn` binds its own name inside its body — so the ordinary
-;; extract-a-helper spelling below expanded to
-;; `(fn ticket-body [p] (ticket-body p))` and recursed until the stack
-;; overflowed. Under React the symptom was `Maximum call stack size
+;; The emitted fn is ANONYMOUS, and that is the contract this witness
+;; holds. A NAMED `fn` binds its own name inside its body, so naming it
+;; `<sym>-body` makes the ordinary extract-a-helper spelling below expand
+;; to `(fn ticket-body [p] (ticket-body p))` and recurse until the stack
+;; overflows. Under React the symptom is `Maximum call stack size
 ;; exceeded` with no id, no view name and nothing pointing at the macro.
 ;;
 ;; The helper is named after the view DELIBERATELY: that is the collision,

@@ -7,12 +7,12 @@
   > broad dirty set is the union of all readers of any dirty sub; (6) an
   > unknown dirty sub yields the empty set — no phantom boundaries.
   >
-  > — `docs/design/hicasso/architecture.md` §2, restated verbatim when
-  >   rf2-dabt3 retired `front.sub-index` and fused the reverse edge onto
-  >   the key cell. *Nothing about the laws themselves changed.*
+  > — `docs/design/hicasso/architecture.md` §2, restated verbatim across
+  >   the fusion of the reverse edge onto the key cell. *Nothing about the
+  >   laws themselves changed.*
 
   These six are the whole contract of the subscription→boundary index,
-  and since the fusion the package has had no witness for any of them.
+  and this file is the package's witness for them.
   `inventory_snapshot_cljs_test` asserts that `cell-readers` answers a
   SNAPSHOT, which is a claim about the instrument. `kernel_commit_owns_cljs_test`
   asserts ACQUISITION — which keys a commit takes and which readers it

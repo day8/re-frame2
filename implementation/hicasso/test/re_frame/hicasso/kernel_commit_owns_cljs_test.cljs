@@ -58,7 +58,7 @@
   Where a property is only true after the reapers run, the settle is
   [[re-frame.hicasso.impl.inventory/quiesced!]] — the runtime's own
   horizon — and never a `setTimeout` of this file's choosing. A copy of
-  the horizon is what drifted in rf2-981nt, and
+  the horizon is exactly the thing that drifts, and
   `collector/entry-reap-horizon-ms` is explicitly a margin no caller may
   rely on. Nothing here reads it, waits a multiple of it, or assumes a
   reaper has run at any point the runtime has not said it has.

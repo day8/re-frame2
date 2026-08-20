@@ -2,8 +2,8 @@
   "CODE SPLITTING — WHAT CROSSES A `React.lazy` BOUNDARY, AND WHAT A
   REJECTED ONE NEVER DOES AGAIN.
 
-  The bridge itself is `n/lazy` and it landed with the ABI helpers
-  (rf2-hic-032): a `react/lazy` record carrying the tier marker, its
+  The bridge itself is `n/lazy`, one of the ABI helpers: a `react/lazy`
+  record carrying the tier marker, its
   `:name` filled in on arrival, its `:server` pinned to Client-only.
   [[re-frame.hicasso.native-abi-cljs-test]] settles the marker and
   [[re-frame.hicasso.native-abi-dom-cljs-test]] settles the arrival.
@@ -125,7 +125,7 @@
    :platforms #{:client}}
   (fn [_ctx _spec] (swap! !module-loads inc) nil))
 
-;; THE GATE, with the repair rf2-hic-041 was filed for.
+;; THE GATE, and the repair the rows below hold it to.
 ;;
 ;; The set is `#{:loading :loaded}` and not `#{:loaded}`. Warming a module
 ;; from a hover or focus intent is the documented reason to dispatch this
@@ -635,11 +635,10 @@
            [host {}]]]]))
 
 (deftest a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads
-  ;; The repair rf2-hic-041 was filed for. Both `n/lazy`'s docstring and
-  ;; the code-splitting guide said that changing the error boundary's
-  ;; `:reset-key` retries the lazy subtree. It clears the boundary — that
-  ;; part is true and `kernel_commit_owns_dom_cljs_test` measures it — but
-  ;; it cannot retry the CHUNK, because the payload `react/lazy` minted is
+  ;; Changing the error boundary's `:reset-key` does NOT retry the lazy
+  ;; subtree, whatever a reader might expect. It clears the boundary —
+  ;; that part is true and `kernel_commit_owns_dom_cljs_test` measures it
+  ;; — but it cannot retry the CHUNK, because the payload `react/lazy` minted is
   ;; the thing that remembers the rejection and neither this tier nor
   ;; React's public API can reset it.
   (async done

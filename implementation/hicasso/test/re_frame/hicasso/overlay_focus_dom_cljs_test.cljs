@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.overlay-focus-dom-cljs-test
-  "L4 — WHAT A KEYBOARD CAN REACH WHILE AN OVERLAY IS OPEN
-  (rf2-hic-049, over rf2-hic-052's overlay module).
+  "L4 — WHAT A KEYBOARD CAN REACH WHILE AN OVERLAY IS OPEN, over the
+  overlay module.
 
   > | Accessibility | Semantic Hiccup and native controls | Structural
   > a11y assertions plus browser focus tests | Names, roles, keyboard,
@@ -59,8 +59,8 @@
   Asking is not quite tabbing, though, and this file's central claim is
   about what a keyboard user can REACH. [[reachable]] answers *which
   elements would take focus if asked*; a trap is *where Tab goes when it
-  runs out of panel*. The two agree here, and since rf2-il7b that
-  agreement is measured rather than assumed:
+  runs out of panel*. The two agree here, and that agreement is measured
+  rather than assumed:
   [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]]
   presses Tab through the browser gate's trusted-input bridge
   (`re-frame.hicasso.trusted-input-support`, whose other half is
@@ -71,8 +71,8 @@
   presses BOTH directions, because a wrap is two edges. The same row then
   presses a real Escape and gets the page back.
 
-  It also found something no amount of asking would have, and rf2-hic-052
-  then fixed rather than blessed: left to itself the engine wraps through
+  It also found something no amount of asking would have, and the module
+  fixed rather than blessed it: left to itself the engine wraps through
   the DOCUMENT, and `document.activeElement` reads `<body>` for one press
   between the panel's last control and its first — focus resting nowhere,
   which in a browser with UI is the browser's own UI. Inertness was never
@@ -118,8 +118,8 @@
   implementation in the node lane at all, so every row states a skip
   there rather than a false green. The trusted-input row is `async` —
   the press happens in another process — which is why the fixture below
-  is the MAP shape (rf2-u0j8: an async row under a POSITIONAL fixture
-  aborts the whole run)."
+  is the MAP shape (an async row under a POSITIONAL fixture aborts the
+  whole run)."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -743,8 +743,8 @@
 ;; what `peek` returns, so Tab off the real final control matches no
 ;; edge at all, the handler declines, and the engine's own end-of-scope
 ;; step puts `document.activeElement` on `<body>` — the exact leak this
-;; handler was written to close, reached by a fourth route. rf2-5lzq
-;; measured it on the one of those four cases that is ordinary markup: a
+;; handler was written to close, reached by a fourth route. It is
+;; measured on the one of those four cases that is ordinary markup: a
 ;; conditionally-hidden final button.
 ;;
 ;; The row names `body` explicitly for the reason the two above do.
@@ -822,12 +822,11 @@
 ;; answers true for both, measured, and no amount of visibility reasoning
 ;; will exclude them.
 ;;
-;; They were left counted with the argument that a surplus candidate only
-;; ever costs a wrap that does not fire. rf2-5lzq had already priced that
-;; wrong at the last position — a surplus at the END is what `peek`
-;; returns — and the reason given for leaving these two anyway was that no
-;; measured markup puts either of them last. These two pages are that
-;; markup, and both are the ordinary kind: the wizard step not yet reached,
+;; The argument for leaving them counted is that a surplus candidate only
+;; ever costs a wrap that does not fire. That is priced wrong at the last
+;; position — a surplus at the END is what `peek` returns — and the only
+;; thing holding it up was that no measured markup put either of them
+;; last. These two pages are that markup, and both are the ordinary kind: the wizard step not yet reached,
 ;; and the form section a prior answer has not unlocked. Both were measured
 ;; taking `document.activeElement` to `<body>` on BOTH edges.
 

@@ -7,8 +7,8 @@
   value. If it is a live view of the cell's reader array, the baseline
   mutates into the result and the comparison is between a thing and
   itself — a correct runtime reads exactly like a leak, and, by symmetry,
-  a leaking one reads clean. That is not hypothetical: rf2-vsgq's HMR
-  baseline was read that way, and this file is the bead that came of it.
+  a leaking one reads clean. That is not hypothetical: an HMR baseline
+  was read that way once, and this file is what came of it.
 
   ## Why `vec` was not enough
 
@@ -130,7 +130,7 @@
 
 (deftest a-snapshot-keeps-the-reader-it-captured-across-a-remount
   (seeded!)
-  ;; The rf2-vsgq shape exactly: capture the sole reader, unmount it,
+  ;; That shape exactly: capture the sole reader, unmount it,
   ;; mount a fresh one. `.splice` empties the array and `.push` refills
   ;; it, so an aliasing snapshot silently BECOMES the post-remount list —
   ;; and a runtime that correctly replaced its reader reads as one that
