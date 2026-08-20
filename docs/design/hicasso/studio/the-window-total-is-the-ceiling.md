@@ -188,20 +188,31 @@ ceiling is bounded from below by an observation and from above by nothing.
 
 **The count and the magnitude are two different claims, and only the second is
 near-constant.** The corpus supports a **lower bound** on the number of
-collections per refusing window, not an equality, and the table separates the
-event census from the two per-window statistics for that reason.
+collections per refusing window — **one per window** — not an equality, and the
+table separates the leg census from the two per-window statistics for that reason.
+
+**A NEGATIVE LEG IS AN OBSERVATION, NOT A COLLECTION EVENT.** Corrected
+2026-08-21 on the merged-PR audit of PR #8597 (`rf2-onozm`), which found this
+table naming its 76 readings *events* and the record offering them as a lower
+bound on the **number of collections**. That does not follow from this
+instrument, and it contradicted this page's own surviving caveat. It fails in
+**both directions**: one collection spanning a leg boundary can make several legs
+negative, so 76 legs are not 76 collections; and one leg can contain several
+collections that are never separately observable, so it is not a bound the other
+way either. **The raw census below is unchanged and correct** — only what it is
+called, and what is inferred from it, moves.
 
 | quantity | reading | what it counts |
 |---|---|---|
 | R = 20 refusals carrying **at least one** negative leg | **72 of 72** | windows |
 | negative legs **per window** | 1 × 69, 2 × 2, 3 × 1 | windows |
-| negative-leg **events** across those 72 windows | **76** | events |
+| negative-leg **observations** across those 72 windows | **76** | leg readings — **not** collections |
 | position of the **first** negative leg (of 6) | leg 6 × 39, leg 5 × 31, leg 4 × 1, leg 3 × 1 | windows — blind to the 4 later legs |
 | **deepest** leg per window, median | **−803,634 B** | windows — a magnitude, not a count |
 | **deepest** leg per window, range | **−817,444 to −792,368 B** (3.2% span) | windows |
-| all 76 events, median | −803,480 B | events |
-| all 76 events, range | −817,444 to −25,704 B | events |
-| the 4 legs the per-window statistics drop | −377,744, −312,396, −48,940, −25,704 B | events |
+| all 76 negative legs, median | −803,480 B | leg readings |
+| all 76 negative legs, range | −817,444 to −25,704 B | leg readings |
+| the 4 legs the per-window statistics drop | −377,744, −312,396, −48,940, −25,704 B | leg readings |
 | cohort `legMedian`, median | 174,308 B | windows |
 | windows with a negative leg, corpus-wide | 88 of 528, **0 certified**; **5 carry more than one** | windows |
 
@@ -220,7 +231,9 @@ window that allocates past roughly 880 KB meets **at least one** collection, and
 a window under it meets none. **Exposing the four extra legs does not weaken
 that magnitude reading** — every one of them is smaller than the dominant leg of
 its own window, so the −803,634 B figure is unmoved. What it does is separate the
-magnitude from a **count**, and the count is a lower bound.
+magnitude from a **count of leg readings**, which is a different quantity again
+from a count of collections. **The collection-count lower bound stays where it
+already was: one per refusing window.** The 76 does not raise it.
 
 **One fact from the rig makes that consistent rather than merely suggestive, and
 it is read from the rig's own record rather than proposed here.** Every window
@@ -327,15 +340,20 @@ take one.
 - **The COLLECTOR's behaviour is not established.** The dominant reclaim is
   near-constant and the ceiling is close to it; that is an observation, and no
   nursery size, generational policy or V8 internal is read, inferred or claimed.
-- **The NUMBER of collections per window is a lower bound, not a count.** The
-  corpus establishes *at least one* per refusing window, and 76 negative legs
-  fall across the 72. The reader's position and magnitude censuses take one
-  reading per window each and structurally cannot count events; **an earlier
-  version of this page read the signature as exactly one collection, which the
-  raw corpus disproves in three windows** (corrected 2026-08-21, on the merged-PR
-  audit of PR #8591 — [section 4](#4-the-refusal-signature)). Whether the extra
-  legs are separate collections or one collection spanning a leg boundary is
-  **not established**, and no window was taken to decide it.
+- **The NUMBER of collections per window is a lower bound of ONE, and nothing
+  here raises it.** The corpus establishes *at least one* per refusing window;
+  76 negative-leg **observations** fall across the 72, and that is a count of
+  readings rather than of collections. The reader's position and magnitude
+  censuses take one reading per window each and structurally cannot even count
+  negative legs. **Two corrections, both on merged-PR audits.** An earlier
+  version read the signature as *exactly one* collection, which the raw corpus
+  disproves in three windows (PR #8591); a later one called the 76 readings
+  *events* and offered them as a lower bound on collections, which **this
+  instrument cannot support in either direction** — one collection can span a leg
+  boundary and mark several legs, and one leg can hide several collections
+  (PR #8597, 2026-08-21 — [section 4](#4-the-refusal-signature)). Whether the
+  extra legs are separate collections or one collection spanning a leg boundary
+  remains **not established**, and no window was taken to decide it.
 - **The five-write projection is not a measurement**, its in-band support is not
   independent of the family confound, and its worst cell clears the ceiling by
   0.6%. See [section 5](#5-the-five-write-projection-and-what-it-rests-on).
