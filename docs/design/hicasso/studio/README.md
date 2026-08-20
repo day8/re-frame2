@@ -16,11 +16,17 @@ left it.
 
 **This index is exempt from the repository's GDS README restyle** (PR #8529),
 for the same reason the restyle already kept evidence identifiers and ISO window
-dates on the bench data pages it points at. The bold and the italics here mark
-verdict status — REFUTED, WITHDRAWN, SUPERSEDED, UNRESOLVED, NOT-COMPARABLE, and
-the standing labels a row carries — rather than emphasising prose, so stripping
-them changes what a row asserts. The numerals are measured figures with units.
-And the prose immediately to the left of a commit hash is what
+dates on the bench data pages it points at. The bold and the italics here do
+several jobs, and only reading the row tells them apart. Both mark verdict and
+status — REFUTED, WITHDRAWN, SUPERSEDED, UNRESOLVED, NOT-COMPARABLE, and the
+standing labels a row carries. Bold also carries the load-bearing finding a row
+exists to assert, and the figures it turns on. Italics also carry notation,
+where the slant is the symbol rather than stress — variables like `*r*` and
+`*2D*`, sample sizes like `*(n=8)*`. The rest is ordinary prose emphasis, most
+of it contrastive: `*inside*` rather than beside, `*what*` rather than
+`*where*`. A mechanical restyle tells none of these apart, and stripping a
+verdict changes what a row asserts. The numerals are measured figures with
+units. And the prose immediately to the left of a commit hash is what
 `scripts/check_provenance_pins.py` classifies that hash by, so rewording around
 one moves it between citation classes.
 
