@@ -423,6 +423,19 @@ Read before the first run and again after the last, with the same command:
 The rig and both readers are byte-identical across the window. `p0_run.cjs` was
 not edited by this window at all.
 
+**THE RIG FILE MOVED UNDER THIS BRANCH AFTER THE LAST RUN, AND THE CHANGE IS
+COMMENT-ONLY.** PR #8613 (`rf2-ylmat`) landed on the trunk while this window was
+being read, so a rebase carried `p0_run.cjs` from the blob hash `ddc4f137` above
+to the blob hash `ebb08f9f10171d8b67cecee98cb7e85c0a5b9e42`. Its diff is 25
+insertions and 8 deletions and **not one of them is an executable line** — the
+whole of it is rationale prose, filtered and checked rather than assumed. Every
+control was re-run on the rebased base: the design control passes, the
+estimator's self-test passes, `--select` draws the same four schedules from the
+same four seeds, all four runs are still admitted, and the reading is
+**byte-identical** to the one taken before the rebase. The figures on this page
+are therefore measured on the blob hash `ddc4f137` and reproduce unchanged on the
+blob hash `ebb08f9f10171d8b67cecee98cb7e85c0a5b9e42`.
+
 ## Admissibility, per run
 
 `alloc_pass_design.cjs --admit` over the four datasets, before anything was read:
