@@ -1071,6 +1071,55 @@
   inside a link — so the rule is a hardening, not a corpus change."
   #"\[[^\]]*\]\([^)]*\)")
 
+(def ^:private table-delimiter-re
+  "A markdown table COLUMN DELIMITER — a `|` that markdown itself would treat
+  as a cell boundary rather than as content.
+
+  THE RULE IS BACKSLASH-RUN PARITY, not \"is there a backslash in front of it\"
+  (rf2-1t0er). A backslash escapes the character after it, INCLUDING another
+  backslash, so it is the LENGTH of the run immediately before the pipe that
+  decides: an ODD run (`\\|`, `\\\\\\|`) spends its last backslash on the pipe
+  and the pipe is content, while an EVEN run (`\\\\|`, `\\\\\\\\|`) pairs off
+  entirely and the pipe is a bare delimiter. Measured against Python-Markdown's
+  `tables` extension, which is the reference this reader is trying to agree
+  with; `table-delimiter-honours-backslash-run-parity` pins all four.
+
+  WHY THE ESCAPE IS HONOURED AT ALL. `\\|` is how markdown writes a literal
+  pipe inside a cell, so a cell containing one is correct prose rather than a
+  typo — `:rf.error/infinite-missing-next-page-param` spells its
+  `:next-page-param` contract `(last-page → next-param \\| nil)`. Splitting on
+  it yielded NINE fields where the table has eight and slid every column one
+  place left, so that row's `:tags` cell was read from its `Default :recovery`
+  column. Harmless only by luck: no `InfiniteMissingNextPageParamTags` schema
+  exists to pair with the row, so the mis-read cell was never compared against
+  anything, and the day one is added the pairing arm would diff a recovery
+  sentence against a tag key set. Fixing the reader rather than the spec is the
+  right side to fix — the escape is valid markdown that any catalogue row may
+  legitimately use.
+
+  WHY PARITY AND NOT THE SIMPLER `(?<!\\\\)\\|`. That lookbehind reads one
+  character, so it treats EVERY backslash-prefixed pipe as escaped. It happens
+  to be right on the odd runs and is wrong on the even ones, in the direction
+  that HIDES a defect: a cell ending `\\\\` before a pipe really has broken
+  its row into an extra column, and a reader that swallows the delimiter
+  reports the sibling field count and slides its cells silently. That is
+  exactly the blind spot `tags-column-reader-honours-the-escaped-pipe`'s
+  column-alignment invariant exists to catch, so an under-splitting reader
+  disarms the guard rather than merely disagreeing with markdown.
+
+  ZERO-WIDTH ON PURPOSE. The match is the pipe alone: the run in front of it
+  is INSPECTED, never consumed, so the change moves only WHERE columns break
+  and no cell loses a character it used to carry. Consuming the even run
+  instead would leave the preceding cell neither raw (`b\\\\`) nor rendered
+  (`b\\`), which is a third thing that is true of nothing.
+
+  Java's lookbehind needs an obvious maximum length, hence `{0,16}` rather than
+  `*` — thirty-two backslashes in front of one pipe, which no catalogue cell
+  approaches. Beyond that bound the reader falls back to reading the pipe as
+  content, which is the same direction the pre-parity reader erred in, i.e. no
+  worse than the state this replaces."
+  #"(?<=(?<!\\)(?:\\\\){0,16})\|")
+
 (defn- cell-tag-keys
   "The keys a `:tags` cell DOCUMENTS — every back-ticked lone keyword outside a
   markdown cross-reference link (see `markdown-link-re` for why the link goes
@@ -1091,26 +1140,20 @@
   is its only consumer: a row that splits to a different count than its siblings
   has slid its columns, and every cell the arm reads from it is off by one.
 
-  The split skips a BACKSLASH-ESCAPED pipe (rf2-1t0er). `\\|` is how markdown
-  writes a literal pipe inside a table cell, so a cell containing one is
-  correct prose rather than a typo — `:rf.error/infinite-missing-next-page-param`
-  spells its `:next-page-param` contract `(last-page → next-param \\| nil)`.
-  Splitting on it anyway yielded NINE fields where the table has eight and slid
-  every column one place left, so that row's `:tags` cell was read from its
-  `Default :recovery` column. Harmless only by luck: no
-  `InfiniteMissingNextPageParamTags` schema exists to pair with the row, so the
-  mis-read cell was never compared against anything, and the day one is added
-  the pairing arm would diff a recovery sentence against a tag key set. The
-  lookbehind fixes the reader rather than the spec, which is the right side to
-  fix — the escape is valid markdown that any catalogue row may legitimately
-  use."
+  The split is `table-delimiter-re`, which honours markdown's backslash-run
+  parity (rf2-1t0er): the corpus's one escaped-pipe row —
+  `:rf.error/infinite-missing-next-page-param`, whose `:next-page-param`
+  contract reads `(last-page → next-param \\| nil)` — keeps its eight fields,
+  and a row whose cell ends in an EVEN backslash run is reported at the nine
+  fields markdown gives it rather than silently re-joined to eight. See that
+  var for why the parity, and not the presence of a backslash, is the rule."
   ([] (parse-catalogue-tag-rows (slurp spec-009-file)))
   ([text]
    (->> (str/split-lines text)
         (catalogue-section-lines)
         (keep (fn [line]
                 (when-let [[_ cat-str] (re-find catalogue-tag-row-re line)]
-                  (let [cells (str/split line #"(?<!\\)\|" -1)]
+                  (let [cells (str/split line table-delimiter-re -1)]
                     (when (>= (count cells) 7)
                       {:category    (keyword (subs cat-str 1))
                        :tags-cell   (str/trim (nth cells 6))
@@ -2400,3 +2443,76 @@
       (is (empty? (tags-column-findings rows pre-wsopx-schemas))
           "…so the arm greens on a row that documents every key its schema
            declares, instead of redding at the recovery sentence"))))
+
+(deftest table-delimiter-honours-backslash-run-parity
+  (testing "A PURE PARSER FIXTURE for `table-delimiter-re` (rf2-1t0er), fed
+            constructed rows rather than the live corpus — the corpus carries
+            exactly one escaped pipe and no even-backslash run at all, so the
+            even half of the rule is unreachable from it and would be pinned by
+            nothing.
+
+            Markdown decides by the PARITY of the backslash run immediately
+            before the pipe, because a backslash escapes the character after it
+            including another backslash. An ODD run spends its last backslash on
+            the pipe, which is then content; an EVEN run pairs off entirely and
+            the pipe is a bare delimiter. The four cases below are the two rules
+            and their first repeat, checked against Python-Markdown's `tables`
+            extension.
+
+            The pre-parity `#\"(?<!\\\\)\\|\"` read ONE character, so it called
+            every backslash-prefixed pipe escaped: right on the odd runs by
+            luck, wrong on the even ones. That error runs in the direction that
+            HIDES a defect rather than manufacturing one, which is why it is
+            worth fixing in a test file — a row whose cell ends in `\\\\` before
+            a pipe really has broken itself into an extra column, and a reader
+            that swallows the delimiter hands the column-alignment invariant in
+            `tags-column-reader-honours-the-escaped-pipe` a field count matching
+            the row's siblings. The guard then passes a row whose every cell has
+            slid one place left, which is the exact failure it exists to catch."
+    (let [row          (fn [pipe-run]
+                         (str "| `:rf.error/resource-route-plan` | `:error` "
+                              "| diagnostic | A plan step returns `next "
+                              pipe-run " nil`. | `:no-recovery` "
+                              "| `:route-id`, `:reason` |"))
+          parse        (fn [pipe-run]
+                         (first (parse-catalogue-tag-rows
+                                  (catalogue-fixture (row pipe-run)))))
+          fields       #(:field-count (parse %))
+          tags         #(:tags-cell (parse %))
+          tags-col     "`:route-id`, `:reason`"
+          recovery-col "`:no-recovery`"]
+
+      (testing "the CONTROL: no pipe inside a cell at all"
+        (is (= 8 (fields ""))
+            "a six-column row splits to eight fields — the columns plus the
+             empties either side of the leading and trailing pipes")
+        (is (= tags-col (tags ""))
+            "…and the sixth column is where the `:tags` cell is read from"))
+
+      (testing "an ODD run ESCAPES the pipe, so the row keeps its columns"
+        (doseq [[n pipe-run] [[1 "\\|"] [3 "\\\\\\|"]]]
+          (is (= 8 (fields pipe-run))
+              (str n " backslashes before the pipe is an ODD run, so the pipe "
+                   "is CONTENT and the row still has six columns. Splitting on "
+                   "it anyway yields nine fields and slides every cell one "
+                   "place left — the live defect, on "
+                   "`:rf.error/infinite-missing-next-page-param`."))
+          (is (= tags-col (tags pipe-run))
+              (str "…so with " n " backslashes the `:tags` cell is still the "
+                   "TAGS column and not `Default :recovery`."))))
+
+      (testing "an EVEN run leaves the pipe a DELIMITER, so the row gains one"
+        (doseq [[n pipe-run] [[2 "\\\\|"] [4 "\\\\\\\\|"]]]
+          (is (= 9 (fields pipe-run))
+              (str n " backslashes before the pipe is an EVEN run: they escape "
+                   "each other, the pipe is BARE, and markdown gives this row "
+                   "seven columns. Reading eight here is the pre-parity "
+                   "reader — it re-joins a row that has genuinely split, and "
+                   "the column-alignment invariant sees a field count matching "
+                   "the row's siblings on a row whose cells have all slid."))
+          (is (= recovery-col (tags pipe-run))
+              (str "…and the slide is REAL rather than notional: with " n
+                   " backslashes the sixth field is the `Default :recovery` "
+                   "column, so an arm reading `:tags` positionally would diff a "
+                   "recovery value against a tag key set. Reporting nine fields "
+                   "is what lets the alignment invariant convict the row.")))))))
