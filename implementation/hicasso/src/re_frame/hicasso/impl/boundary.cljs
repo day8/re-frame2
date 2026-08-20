@@ -66,7 +66,7 @@
   silent trap has a second door. [[report!]] is `(cond (vector? …) …
   (fn? …) … :else nil)`, so `{:on-error :app/boundary-failed}` — a bare
   intent keyword, which is what somebody writes who has not yet noticed
-  intents are vectors here — swallowed every caught error and returned
+  intents are vectors here — would swallow every caught error and return
   nil.
 
   ### Why the shape is refused HERE and not in `report!`
@@ -84,7 +84,7 @@
   ordinary course of loading the page, rather than on the first failure.
   By the time [[report!]] runs, `:on-error` is nil, a vector or a
   function, and its last arm means *no `:on-error` was declared* — which
-  is what it now says.
+  is what it says.
 
   ### Why a throw from `render` is acceptable when one from `report!` is not
 
