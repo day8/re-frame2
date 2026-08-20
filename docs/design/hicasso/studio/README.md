@@ -66,11 +66,11 @@ npm run bench:hicasso
 HICASSO_INIT_FN=re-frame.bench.hicasso.<arm>-app/-main \
 HICASSO_OUT_DIR=out/hicasso-<arm> \
 HICASSO_PORT=8132 \
-  node freehand/test/re_frame/bench/hicasso/run.cjs
+  node hicasso/test/re_frame/bench/hicasso/run.cjs
 
 # an arm that needs more than one page load brings its own thin driver on
 # the same build id — e.g. the converged clock table, one row per page
-node freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs
+node hicasso/test/re_frame/bench/hicasso/p0_converge_run.cjs
 ```
 
 Exit codes: `0` measured and clean, `1` the run failed, **`2` the arm-order
