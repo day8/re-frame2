@@ -59,15 +59,24 @@
 // the instrument actually exhibits — the observed would-be-total ceiling from
 // section 3 — and gets a DIFFERENT answer. The bead's `R20 forces B = 0` is an
 // artefact of the deleted constant's tightness: a 300,000 B window bracket
-// against a 884,280 B observed ceiling. Restated live, the full ladder admits
+// against a 884,280 B observed ceiling. Restated live, the full ladder PROJECTS
 // B <= 3.
 //
-// THAT IS A NECESSARY CONDITION AND NOT A SUFFICIENT ONE, and section 7 prints
-// its own limits rather than leaving them to the page: the ceiling admits 36
-// windows the certificate refuses, the model is fitted at the single page size
-// the corpus holds, and at that page size it reduces ALGEBRAICALLY to the
-// ceiling test, so the agreement it reports there is not independent evidence
-// for the extrapolation.
+// THAT B <= 3 IS A MODEL-CONDITIONED PROJECTION, NOT A NECESSARY CONDITION, and
+// the condition is: TREAT THE CORPUS'S LARGEST OBSERVED SUCCESS AS A CAP.
+// Corrected on the merged-PR audit of #8602, which found section 7 using
+// 884,280 B as an upper cap and calling B <= 3 necessary. It is not one. The
+// largest observed success bounds a real maximum certifiable total FROM BELOW:
+// zero certified windows above it, in a finite corpus sampled only at B = 4,
+// cannot exclude a certifying window higher up, and the 168,036 B directly above
+// it was never sampled. The projection is kept because a stated conditional is
+// useful; what was missing was the condition.
+//
+// NOR IS THE CEILING SUFFICIENT, and section 7 prints both limits rather than
+// leaving them to the page: 36 windows at or below the ceiling refuse anyway,
+// the model is fitted at the single page size the corpus holds, and at that page
+// size it reduces ALGEBRAICALLY to the ceiling test, so the agreement it reports
+// there is not independent evidence for the extrapolation.
 //
 // ## ADMISSIBILITY — A FAILED POSITIVE CONTROL IS NOT AN OBSERVATION
 //
@@ -240,11 +249,17 @@ function ceiling(ws) {
   return Math.max(...certified.map((c) => c.total));
 }
 
-// SECTION 7's model, and it is a MODEL. The would-be total is taken as
-// `total(R, B) ~= T0 + B * t(R)`, where T0 is the floor arm's own would-be total
-// -- the six writes with no subscription under them -- and `t(R)` is fitted from
-// the single page size the corpus holds, B = 4. The largest page a rung admits
-// under the OBSERVED ceiling is then `floor((CEIL - T0) / t(R))`.
+// SECTION 7's model, and it is a MODEL ON TOP OF AN ASSUMPTION. The would-be
+// total is taken as `total(R, B) ~= T0 + B * t(R)`, where T0 is the floor arm's
+// own would-be total -- the six writes with no subscription under them -- and
+// `t(R)` is fitted from the single page size the corpus holds, B = 4. The page a
+// rung PROJECTS is then `floor((CEIL - T0) / t(R))`.
+//
+// `maxB` HERE IS A PROJECTION, NOT A CEILING ON THE LADDER. It is conditioned on
+// treating CEIL -- the corpus's largest observed success -- as a cap on what can
+// certify, which is not what an observed maximum is: it bounds a real maximum
+// from BELOW. Nothing that consumes this number may restate it as a necessary
+// condition (rf2-2k3vo, merged-PR audit of #8602).
 //
 // Fitted PER FAMILY rather than per rung, because at R = 20 the pooled rung
 // median is not representative of any family: six families sit at 1.03 - 1.05 MB
@@ -284,8 +299,9 @@ function liveLadder(ws) {
   return { B, CEIL, fams };
 }
 
-// The largest page every rung in `set` admits, across every family -- the
-// binding rung of the binding family, since one ladder holds ONE B.
+// The largest page every rung in `set` PROJECTS, across every family -- the
+// binding rung of the binding family, since one ladder holds ONE B. Conditioned
+// on the observed ceiling being a cap; see `liveLadder` above.
 const ladderMaxB = (fams, set) => {
   const all = fams.flatMap((f) => set.map((g) => f.rungs.get(g)).filter(Boolean).map((r) => r.maxB));
   return all.includes(null) ? null : Math.min(...all);
@@ -378,7 +394,11 @@ function report() {
   say(`    windows AT OR BELOW: ${below.length}, certified ${below.filter((c) => c.certified).length}` +
       ` (${pc((100 * below.filter((c) => c.certified).length) / below.length)})`);
   say('');
-  say(`    So the total is NECESSARY, not SUFFICIENT. The ${below.length - below.filter((c) => c.certified).length}` +
+  say(`    THE CEILING IS AN OBSERVED MAXIMUM, SO IT BOUNDS FROM BELOW. It is the largest`);
+  say(`    would-be total ever seen to certify here -- NOT the largest that CAN certify. A`);
+  say(`    corpus sampled at one page size cannot exclude a certifying window above it, and`);
+  say(`    the interval directly above it is unsampled. It is not NECESSARY.`);
+  say(`    It is not SUFFICIENT either. The ${below.length - below.filter((c) => c.certified).length}` +
       ` refusals below the ceiling, by rung:`);
   const lowRef = below.filter((c) => !c.certified);
   const byRung = {};
@@ -555,11 +575,17 @@ function report() {
   say(`    Section 6 divides by a DELETED constant. This section asks the bead's question of`);
   say(`    the quantity the instrument exhibits: the observed ceiling from section 3.`);
   say('');
+  say(`    THE MODEL CONDITION, STATED BEFORE THE ARITHMETIC THAT ASSUMES IT: everything`);
+  say(`    below holds ONLY IF the corpus's largest observed success is treated as a CAP on`);
+  say(`    what can certify. It is not one on the evidence -- an observed maximum bounds a`);
+  say(`    real maximum FROM BELOW -- so every max B below is a PROJECTION under that`);
+  say(`    assumption and NOT a necessary condition on the ladder.`);
+  say('');
   say(`    total(R,B) ~= T0 + B x t(R), t fitted at the corpus's only page B = ${L.B};`);
   say(`    T0 = the family's own floor-arm would-be total; ceiling = ${n0(L.CEIL)} B (observed).`);
-  say(`    max B = floor((${n0(L.CEIL)} - T0) / t(R)).`);
+  say(`    projected max B = floor((${n0(L.CEIL)} - T0) / t(R)), conditioned on that cap.`);
   say('');
-  say('    family                            T0        R1    R3    R7   R20   <- max B under the ceiling');
+  say('    family                            T0        R1    R3    R7   R20   <- PROJECTED max B');
   for (const f of L.fams) {
     const cells = ['R1', 'R3', 'R7', 'R20'].map((g) => {
       const r = f.rungs.get(g);
@@ -572,15 +598,20 @@ function report() {
   const bFull = ladderMaxB(L.fams, FULL);
   const bShort = ladderMaxB(L.fams, SHORT);
   say('');
-  say(`    ONE B ACROSS ALL RUNGS AND ALL FAMILIES, so the binding cell decides:`);
-  say(`      full 1/3/7/20 ladder : B <= ${bFull}      (binding rung R20)`);
-  say(`      reduced 1/3/7 ladder : B <= ${bShort}      (binding rung R7)`);
+  say(`    ONE B ACROSS ALL RUNGS AND ALL FAMILIES, so the binding cell decides -- under the`);
+  say(`    cap assumption above, and only there:`);
+  say(`      full 1/3/7/20 ladder : projected B <= ${bFull}      (binding rung R20)`);
+  say(`      reduced 1/3/7 ladder : projected B <= ${bShort}      (binding rung R7)`);
   say('');
-  say(`    THE BEAD'S CONCLUSION DOES NOT SURVIVE THE RESTATEMENT. "At six writes there is no`);
-  say(`    page of one boundary or more that certifies the 1/3/7/20 ladder" is carried by the`);
-  say(`    RETIRED bound's tightness -- a ${n0(MASKING_BOUND_B)} B window bracket against an observed`);
-  say(`    ${n0(L.CEIL)} B ceiling, ${(L.CEIL / MASKING_BOUND_B).toFixed(2)}x looser. On the live ceiling the full ladder admits`);
-  say(`    B <= ${bFull}, which is one boundary UNDER the page this corpus runs, not zero.`);
+  say(`    THE BEAD'S CONCLUSION DOES NOT SURVIVE THE RESTATEMENT, and it falls with the`);
+  say(`    constant that carried it rather than because this projection replaces it. "At six`);
+  say(`    writes there is no page of one boundary or more that certifies the 1/3/7/20 ladder"`);
+  say(`    rests on the RETIRED bound's tightness -- a ${n0(MASKING_BOUND_B)} B window bracket against an`);
+  say(`    observed ${n0(L.CEIL)} B ceiling, ${(L.CEIL / MASKING_BOUND_B).toFixed(2)}x looser. Take the observed ceiling as a cap and`);
+  say(`    the same arithmetic projects B <= ${bFull}, one boundary UNDER the page this corpus runs.`);
+  say(`    DO NOT READ THAT AS THE PAGE-SIZE NECESSITY THE BEAD CLAIMED: it is the same shape`);
+  say(`    of claim with an observation in place of the constant, and an observed maximum is`);
+  say(`    not a cap.`);
   say('');
   say(`    WHAT THE EMPIRICAL COLUMN CAN AND CANNOT CHECK. At B = ${L.B} the prediction is exact:`);
   const admits = L.fams.filter((f) => f.rungs.get('R20').maxB >= L.B);
@@ -596,18 +627,26 @@ function report() {
   say(`    "total <= ceiling", which is section 3's test restated per family. It confirms the`);
   say(`    ceiling, not the linear extrapolation to any other page.`);
   say('');
-  say(`    AND THE CEILING IS NECESSARY, NOT SUFFICIENT -- section 3's own result. ` +
-      `${ws.filter((c) => c.total <= L.CEIL && !c.certified).length} windows`);
-  say(`    sit at or below it and refuse anyway, ` +
-      `${ws.filter((c) => c.total <= L.CEIL && !c.certified && !c.legs.some((l) => l < 0)).length} of them carrying no collection at all. So`);
-  say(`      B <= ${bFull} is a NECESSARY condition the full ladder can meet, NOT a certifying page.`);
+  say(`    AND THE CEILING IS NEITHER NECESSARY NOR SUFFICIENT -- section 3's own result, in`);
+  say(`    both halves.`);
+  say(`      NOT NECESSARY: ${n0(L.CEIL)} B is the corpus's largest OBSERVED success, so it bounds a`);
+  say(`      real maximum certifiable total from BELOW. ${ws.filter((c) => c.total > L.CEIL).length} windows sit above it and`);
+  say(`      ${ws.filter((c) => c.total > L.CEIL && c.certified).length} certified -- but one page size and a finite corpus exclude nothing above`);
+  say(`      it. So B <= ${bFull} is what the arithmetic yields when that observation is ASSUMED`);
+  say(`      to be a cap, and nothing follows from it about a ladder that exceeds B = ${bFull}.`);
+  say(`      NOT SUFFICIENT: ` +
+      `${ws.filter((c) => c.total <= L.CEIL && !c.certified).length} windows sit at or below it and refuse anyway, ` +
+      `${ws.filter((c) => c.total <= L.CEIL && !c.certified && !c.legs.some((l) => l < 0)).length} of them`);
+  say(`      carrying no collection at all, so B <= ${bFull} is NOT a certifying page.`);
   say(`      No committed dataset holds a window at any page size but B = ${L.B}, so whether B = ${bFull}`);
-  say(`      certifies is UNMEASURED. Answering it needs a window, and none was taken here.`);
+  say(`      certifies -- and whether anything above it does -- is UNMEASURED in both`);
+  say(`      directions. Answering either needs a window, and none was taken here.`);
   say('');
   say(`    WHAT SURVIVES, STATED AT THE STRENGTH THE EVIDENCE CARRIES: R = 20 is where the`);
-  say(`    ladder binds, on the live ceiling as on the retired bound; at B = ${L.B} it binds hard,`);
-  say(`    ${sum(excl)}/${cnt(excl)} in ${excl.length} of ${L.fams.length} families; and the largest full-ladder page the ceiling`);
-  say(`    admits is B = ${bFull}. That is a one-rung constraint. It is NOT an impossibility result.`);
+  say(`    ladder binds, on the observed ceiling as on the retired bound; at B = ${L.B} it binds`);
+  say(`    hard, ${sum(excl)}/${cnt(excl)} in ${excl.length} of ${L.fams.length} families. That is a MEASURED one-rung result and it is`);
+  say(`    NOT an impossibility result. The B <= ${bFull} projection travels beside it as a`);
+  say(`    conditional, not as a result.`);
 
   return out.join('\n');
 }
@@ -710,19 +749,30 @@ function selfTest() {
 
   // SECTION 7's ANSWER, pinned against the corpus for the same reason. The bead's
   // conclusion is that no page of one boundary or more certifies the full ladder;
-  // the live ceiling admits B <= 3, so the guard that matters is the one that
-  // fires if that ever silently returns 0 -- the reconstruction's answer arriving
-  // in the live section would be exactly the defect rf2-2k3vo exists to fix.
+  // the projection on the observed ceiling gives B <= 3, so the guard that matters
+  // is the one that fires if that ever silently returns 0 -- the reconstruction's
+  // answer arriving in the live section would be exactly the defect rf2-2k3vo
+  // exists to fix.
+  //
+  // NOTE THE UNITS, corrected on the merged-PR audit of #8602. These are
+  // PROJECTIONS under an assumed cap, not necessary conditions, and the check
+  // names say so: an observed maximum bounds a real maximum from BELOW, so 0 of
+  // 72 above it excludes nothing.
   const L = liveLadder(cws);
   ck('the observed ceiling is the corpus maximum certified would-be total', L.CEIL, 884280);
-  ck('the full 1/3/7/20 ladder admits a page of one boundary or more',
+  ck('the full 1/3/7/20 ladder PROJECTS a page of one boundary or more',
     ladderMaxB(L.fams, ['R1', 'R3', 'R7', 'R20']) >= 1, true);
-  ck('and that page is B <= 3', ladderMaxB(L.fams, ['R1', 'R3', 'R7', 'R20']), 3);
-  ck('the reduced 1/3/7 ladder admits B <= 8', ladderMaxB(L.fams, ['R1', 'R3', 'R7']), 8);
-  // The ceiling is NECESSARY and not SUFFICIENT, so a guard that only checked the
-  // admitting side would license reading max B as a certifying page.
+  ck('and that projection is B <= 3', ladderMaxB(L.fams, ['R1', 'R3', 'R7', 'R20']), 3);
+  ck('the reduced 1/3/7 ladder projects B <= 8', ladderMaxB(L.fams, ['R1', 'R3', 'R7']), 8);
+  // Neither necessary nor sufficient, and the guard checks BOTH sides. Checking
+  // only the refusals below would license reading max B as a certifying page;
+  // checking only that nothing certified above would license reading the observed
+  // maximum as a cap. The corpus is unsampled above the ceiling, and 72 windows
+  // over it is what "unsampled" looks like here -- all six refusing families.
   ck('the ceiling still admits windows the certificate refuses',
     cws.filter((c) => c.total <= L.CEIL && !c.certified).length, 36);
+  ck('and nothing above it was ever sampled at another page size',
+    new Set(cws.map((c) => c.boundaries)).size, 1);
 
   // An empty certified set must be NO CEILING rather than -Infinity, which would
   // place every window above the ceiling and read as a unanimous finding.
