@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.intent
-  "INTENT LOWERING — deliverable 3 of the Wave-1 shared front half
-  (rf2-2rtt6.8). Ergonomics-as-data: the author writes what should
+  "INTENT LOWERING — the shared front half's ergonomics-as-data.
+  The author writes what should
   happen, and the front half, not the author, turns it into the closure
   the browser calls.
 
@@ -138,7 +138,7 @@
   [[hframe]] (`h/frame` in the authoring surface) is the AUTHOR-facing
   half of the same binding — the one door an author has to the frame
   identity the lowering reads implicitly. See its docstring; the design
-  record is `docs/design/hicasso/studio/hframe-design.md` (rf2-841vn).
+  record is `docs/design/hicasso/studio/hframe-design.md`.
 
   A RENDER callback ([[render-callback]]) re-establishes that ambient
   context for its own invocation, out of what it captured when it was
@@ -146,7 +146,7 @@
   boundary that SUPPLIED the callback — the only frame that can own it.
   The render-position refusal is scoped to the invocation and not to
   everything the invocation lowered: poison while the call is running,
-  forward to the owner after it returns (rf2-2rtt6.74).
+  forward to the owner after it returns.
 
   ## The marker roster and its one pure materializer
 
@@ -200,7 +200,7 @@
     of key-string → handler, so an event is one `.-key` lookup and no
     allocation.
 
-  ## The navigate head (rf2-2rtt6.54)
+  ## The navigate head
 
   The SECOND reserved head, and the router-owned counterpart of
   `::h/prevent`: `[::h/navigate {…}]` at an event position is the click
@@ -246,7 +246,7 @@
   emitter rather than the lowering:
   [[re-frame.hicasso.impl.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
-  lowering changes because of it (rf2-fki5d)."
+  lowering changes because of it."
   (:require [re-frame.frame :as frame]
             [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.late-bind :as late-bind]))
@@ -272,10 +272,10 @@
   nil)
 
 (def ^:private ambient-frame-refusal
-  "The detail this arm hands core's refusal tier (rf2-2rtt6.122). One
+  "The detail this arm hands core's refusal tier. One
   module-level constant, so the prose — which is nearly all of it — is
   built once at load and never per body. [[with-frame]] stamps the
-  rendering boundary's own frame onto a copy of it (rf2-nqj22); that
+  rendering boundary's own frame onto a copy of it; that
   `assoc` is the whole per-extent cost, and it buys the one property a
   shared constant cannot express: which frame THIS body has.
 
@@ -285,7 +285,7 @@
   boundary, so following it would change nothing and the boundary would go
   on quietly not re-rendering.
 
-  IT HAS TO ADDRESS THREE DOORS, NOT TWO (rf2-hnrww). The ambient scope is
+  IT HAS TO ADDRESS THREE DOORS, NOT TWO. The ambient scope is
   one door with three consumers — a read, a dispatch, and a CARRY — and
   this text was written for the first two. An author who trips the refusal
   through `rf/capture-frame` is doing neither: `capture-frame` is Spec
@@ -325,7 +325,7 @@
   alone (the 2-arity), and anything frame-keyword-dependent it lowers
   stays a loud error rather than a silent guess.
 
-  THE THIRD VAR IS CORE'S REFUSAL TIER (rf2-2rtt6.122). This extent is
+  THE THIRD VAR IS CORE'S REFUSAL TIER. This extent is
   exactly the render extent HD-002 clause (a) governs, so it is exactly
   where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
   bound HERE, fused into the binding this function already performs, rather
@@ -344,7 +344,7 @@
   naming THIS boundary's frame still answers inside a body. The refusal
   deletes the ambient FIND, not the carrying.
 
-  A BODY HAS ONE FRAME, AND NOW BY CONSTRUCTION (rf2-nqj22). The one thing
+  A BODY HAS ONE FRAME, AND NOW BY CONSTRUCTION. The one thing
   the sentence above did not cover: an `rf/with-frame :b` ENCLOSING a
   boundary that renders `:a`. Core was behaving exactly as EP-0002 says —
   `:b` was carried, so `:b` answered — but the boundary is rendering `:a`,
@@ -374,7 +374,7 @@
   "The frame-locked dispatch this lowering needs, or the loud refusal.
 
   **The message offers TWO readings, because the runtime cannot tell
-  them apart** (rf2-2rtt6.103). `*dispatch*` being `nil` says only that
+  them apart**. `*dispatch*` being `nil` says only that
   no render window is binding one; it does not say why, and the two
   whys want opposite repairs:
 
@@ -410,7 +410,7 @@
              {:intent intent})))
 
 ;; ---------------------------------------------------------------------------
-;; The author-facing frame read — `h/frame` (rf2-841vn)
+;; The author-facing frame read — `h/frame`
 ;; ---------------------------------------------------------------------------
 
 (defn hframe
@@ -612,7 +612,7 @@
 
   — closes over the poison and raises at the USER'S CLICK, for a click:
   a legitimate event position that merely happened to be LOWERED during a
-  render (rf2-2rtt6.74). The law is \"dispatching from inside the call\",
+  render. The law is \"dispatching from inside the call\",
   and a closure that will dispatch later is not that.
 
   **The row above is written as hiccup, and hiccup is not what this
@@ -768,11 +768,11 @@
 
 (defn- target-value
   "The event target's current value — `.value`, except on the two controls
-  where `.value` is not it. One is corrected (rf2-42vlw), one is refused
-  (rf2-lhsvs), and the difference between those two answers is the whole
+  where `.value` is not it. One is corrected, one is refused
+ , and the difference between those two answers is the whole
   of this docstring.
 
-  ## The file input, refused (rf2-lhsvs)
+  ## The file input, refused
 
   On an `<input type=\"file\">`, `HTMLInputElement.value` is in FILENAME
   MODE: it answers the literal fiction `C:\\fakepath\\` followed by the
@@ -803,7 +803,7 @@
   because this is the one control that must not reach `.value` at all —
   the cost is one property read on the marker path, and no allocation.
 
-  ## The multi-select, corrected (rf2-42vlw)
+  ## The multi-select, corrected
 
   HTML defines `HTMLSelectElement.value` as *the value of the first
   option in tree order whose selectedness is set*, and that definition
