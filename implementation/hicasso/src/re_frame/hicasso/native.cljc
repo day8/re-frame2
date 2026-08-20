@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native
-  "**THE NATIVE TIER** (rf2-hic-030) — explicit React, past the fence.
+  "**THE NATIVE TIER** — explicit React, past the fence.
 
   Most applications never require this namespace. Ordinary Hicasso —
   hiccup, `h/sub` where you read, events as data — is the product; this
@@ -18,7 +18,7 @@
   The declaration map carries `:server` and nothing else, its key and
   its value are both refused off their rosters at the declaration, and
   the policy **decides what the component contributes to a server
-  render** (rf2-hic-046): `:render` mints the author's own function as
+  render**: `:render` mints the author's own function as
   the element type and it runs everywhere, `:client-only` — the default
   — mints a gate that contributes nothing to the server response and
   renders the component once the client has adopted it. See
@@ -70,11 +70,12 @@
   ## Refusals
 
   Every refusal is minted by [[re-frame.hicasso.impl.error/fail!]], so
-  it carries rf2-hic-007's shape whole — id, the fn that refused, the
-  reason, an actionable recovery, and the ambient view and coordinate
+  it carries the package's one refusal shape whole — id, the fn that
+  refused, the reason, an actionable recovery, and the ambient view and
+  coordinate
   when a declaration extent is open. Seven ids — five reserved for this
   tier by the complaint register before it existed, plus the two the
-  declaration door minted when it gained its rosters (rf2-u9lk):
+  declaration door minted when it gained its rosters:
 
   | Id | Raised when |
   |---|---|
@@ -145,7 +146,7 @@
   component [[defcomponent]] mints, so it is REACHABLE rather than a
   dead literal an optimiser could delete out from under the proof.
 
-  ## The public surface, classified (rf2-e0d2)
+  ## The public surface, classified
 
   `specification.md` §12 has Phase 3 freeze *the grammar and the ABI*,
   and a freeze is a deterministic act over a STATED membership. This is
@@ -155,7 +156,7 @@
   the compiler's own census, so a var added without a line here reds at
   the diff that adds it — the rule the repository already applies to a
   facade export. No name is renamed by this record; spellings remain the
-  naming ledger's (rf2-hic-065), and `declared-server`'s own is still
+  naming ledger's, and `declared-server`'s own is still
   open there.
 
   **SURFACE** — the tier's public contract. A consumer writes it, or a
@@ -292,11 +293,10 @@
   ClojureScript seqs, which are ES6-iterable and are therefore React
   children already.
 
-  **Private, and that is a classification rather than a narrowing**
-  (rf2-e0d2). Its two callers are both in this file — [[$]] on child
+  **Private, and that is a classification rather than a narrowing.**
+  Its two callers are both in this file — [[$]] on child
   FORMS at expansion, [[checked]] on values at render — so no expansion
-  names it in a consumer's namespace and nothing outside reached it. It
-  was public only because nothing had ruled."
+  names it in a consumer's namespace and nothing outside reaches it."
   [c where]
   (cond
     (map? c)
@@ -325,8 +325,7 @@
 #?(:cljs
    (do
      (def tier-sentinel
-       "**The native tier's production sentinel** (rf2-hic-034 owns the
-  proof; this bead plants it).
+       "**The native tier's production sentinel.**
 
   A unique string that appears in a bundle if and only if this namespace
   is reachable from it. It is the marker property name [[component]]
@@ -385,10 +384,9 @@
        "Every key an [[defcomponent]] declaration map may carry.
 
   ONE today, and the roster exists precisely because it is one: a
-  declaration read for `:server` and silent about everything else
-  accepted `{:ssr :render}` — the spelling `defhost` carried until
-  rf2-mo4o — and `{:sever :render}`, and stamped Client-only in both
-  cases while the author read the source and saw a policy (rf2-u9lk)."
+  declaration read for `:server` and silent about everything else would
+  accept `{:ssr :render}` and `{:sever :render}`, and stamp Client-only
+  in both cases while the author read the source and saw a policy."
        #{:server})
 
      (def ^:private server-policies
@@ -406,7 +404,7 @@
      (defn declared-server
        "The `:server` policy `decl` carries, VALIDATED — the two rosters
   `mint-host!` has, at the one declaration door in the package that had
-  neither (rf2-u9lk).
+  neither.
 
   Absent means `:client-only`: the conservative answer, so an author who
   writes nothing and an author who writes the default explicitly get the
@@ -422,15 +420,15 @@
   at all, so a compile-time refusal would be witnessed by nothing this
   repo runs.
 
-  ## And it is now READ (rf2-hic-046)
+  ## And it is now READ
 
   The value is stamped on the tier marker, where a tool reads it, and
   [[component]] branches on it: `:render` answers the author's own
-  function and `:client-only` answers a gate. Until rf2-hic-046 it was
-  recorded and consulted by nothing, so an undeclared island — nominally
-  Client-only — rendered into the server response exactly as a declared
-  `:render` one did, which is the silent matrix enlargement the default
-  exists to prevent (merged-PR audit #7839)."
+  function and `:client-only` answers a gate. Were it recorded and
+  consulted by nothing, an undeclared island — nominally Client-only —
+  would render into the server response exactly as a declared `:render`
+  one does, which is the silent matrix enlargement the default exists to
+  prevent."
        [component-name decl]
        (doseq [k (keys decl)]
          (when-not (contains? component-options k)
@@ -520,7 +518,7 @@
        "Mint what [[defcomponent]] `def`s: the element type for this
   island, stamped with its `displayName` and the tier marker.
 
-  **`server` decides which element type that is** (rf2-hic-046). Under
+  **`server` decides which element type that is**. Under
   `:render` it is the author's own function — HD-011's zero-wrapper,
   zero-fiber, zero-hook shape, one tree on the server, on hydration and
   on a fresh mount, so no snapshot pair, no adoption event and NO
@@ -539,10 +537,10 @@
   I9's two-hook ceiling is untouched: it is a statement about Hicasso's
   BOUNDARY shells, and a gate is not a boundary — it holds no
   subscription and reads no frame. `defhost` priced the identical fiber
-  the identical way (rf2-2rtt6.85).
+  the identical way.
 
   **Allocation, never a lookup by name**, and that is the HMR contract
-  (rf2-hic-015) rather than an implementation detail. A reload
+  rather than an implementation detail. A reload
   re-evaluates the module, this runs again, and the element type at that
   position is a NEW object — so React replaces the subtree outright and
   the default expectation across a save is a clean remount. A component's
@@ -551,7 +549,7 @@
   across a reload and quietly contradict the recorded contract.
 
   ## The island is its own declaration extent, so its refusals are
-  ## SOURCE-LOCATED (rf2-dva6)
+  ## SOURCE-LOCATED
 
   A grammar refusal raised while the body runs — a hiccup vector reaching
   [[check-child!]] through a let-bound local, a slot collision reaching
@@ -601,7 +599,7 @@
        (when (some? x) (unchecked-get x tier-sentinel)))
 
      ;; ----------------------------------------------------------------
-     ;; The two ABI helpers (rf2-hic-032)
+     ;; The two ABI helpers
      ;; ----------------------------------------------------------------
      ;;
      ;; TWO, and refs make a third that needs no code. React 19 hands a
@@ -622,8 +620,8 @@
      ;; [[lazy]] carries one thing more, because a lazy head's `:server`
      ;; is a POLICY and a policy that only the marker knows about is a
      ;; comment. React calls a pending loader while it is producing
-     ;; server bytes — measured, not assumed (merged-PR audit #7969) —
-     ;; so the head goes behind [[mint-server-gate]], the same gate a
+     ;; server bytes — measured, not assumed — so the head goes behind
+     ;; [[mint-server-gate]], the same gate a
      ;; Client-only `defcomponent` wears. No second mechanism, and the
      ;; marker then DESCRIBES the gate instead of standing in for one.
 
@@ -662,7 +660,7 @@
   **It does not survive a hot reload, and must not.** A save
   re-evaluates the module, [[component]] allocates a fresh function, this
   allocates a fresh memo around it, and React replaces the subtree. A
-  clean remount across a save is the designed conduct (rf2-hic-015); a
+  clean remount across a save is the designed conduct; a
   helper that preserved identity here would be fighting the contract."
        ([f] (carry! (react/memo f) f))
        ([f props=] (carry! (react/memo f props=) f)))
@@ -699,10 +697,9 @@
   payload as rejected, and every read afterwards re-throws the cached
   error without going near the loader. The payload belongs to
   `react/lazy`, and neither this tier nor React's public API can reset
-  it. **This docstring claimed the opposite until rf2-hic-041 measured
-  it**, and the paint is the reason it survived: a fallback that stays
-  put looks the same whether React re-threw a cached rejection or
-  fetched again and failed again.
+  it. The paint is what hides this: a fallback that stays put looks the
+  same whether React re-threw a cached rejection or fetched again and
+  failed again.
 
   So the retry a failed chunk needs is a NEW HEAD — the same allocation a
   hot reload performs, which is why the retry fact and the HMR fact have
@@ -778,7 +775,7 @@
          head))
 
      ;; ----------------------------------------------------------------
-     ;; The two hooks (rf2-hic-031)
+     ;; The two hooks
      ;; ----------------------------------------------------------------
      ;;
      ;; Two, and there will not be a third by accident. Everything else a
@@ -824,7 +821,7 @@
   What it is keyed on is the load-bearing part. A frame's public keyword
   is an ADDRESS, not an object: destroy `:watchlist` and create another
   under the same id and the ops captured against the first belong to the
-  first forever (rf2-hic-013). The row carries the incarnation it was
+  first forever. The row carries the incarnation it was
   minted under and is replaced when that incarnation is superseded, so
   the next render gets ops pinned to the successor while a callback
   still holding the predecessor's is refused by core's own fence
@@ -1074,7 +1071,7 @@
   declaration, where the author's stack still points at it
   ([[declared-server]]).
 
-  **The policy decides what a server render contains** (rf2-hic-046).
+  **The policy decides what a server render contains**.
   `:render` is the author asserting *this component is safe to run on
   the server*, and under it the island IS the element type: it renders
   into the server response, hydrates against those bytes and never
@@ -1086,13 +1083,13 @@
   `react-dom/server` and the policy is honoured by rendering.
 
   Like `defview` this is not a compiler: it reads no body, expands to a
-  `def`, and captures the name and the source coordinate (rf2-hic-007)
+  `def`, and captures the name and the source coordinate
   so every refusal raised while the declaration is minted names the
   file and line that is wrong. The extent closes in a `finally`, so a
   declaration that throws does not leave its own name ambient for
   whatever an HMR runtime keeps rendering afterwards.
 
-  **HMR conduct is `defview`'s, unchanged** (rf2-hic-015): a reload
+  **HMR conduct is `defview`'s, unchanged**: a reload
   re-evaluates the module, [[component]] allocates a fresh function, the
   element type at that position changes, and React replaces the subtree.
   A clean remount is the default expectation across a save, never

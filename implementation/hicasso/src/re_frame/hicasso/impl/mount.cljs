@@ -6,7 +6,7 @@
   whole execution contract this arm needs; the names stay unfrozen
   (HD-021 pins the semantics, not the spelling).
 
-  ## Three of these vars ARE the public door (rf2-31xm, rf2-e2al)
+  ## Three of these vars ARE the public door
 
   `re-frame.hicasso` re-exports [[root!]], [[render!]] and [[unmount!]],
   so a consumer's whole root lifecycle — mount, re-render after a hot
@@ -14,7 +14,7 @@
   it takes a handle (or makes one) and reaches nothing another root owns.
 
   **Two of the three keep their spelling on the door and [[root!]] does
-  not** (rf2-7mtcf, naming-ledger row 13): it is published as `h/mount!`,
+  not** (naming-ledger row 13): it is published as `h/mount!`,
   over the `(node config view)` contract row 20 settles, and the config
   map is what carries [[ensure-frame!]]'s `:initial-events` alongside
   `:identifier-prefix` without a second arity. [[hydrate-root!]] is
@@ -47,7 +47,7 @@
   browser's, which is the right tool for an effect-ordering test and the
   wrong one for a witness that reads the page.
 
-  **[[hydrate-root!]] is the exception, and deliberately** (rf2-2rtt6.84).
+  **[[hydrate-root!]] is the exception, and deliberately.**
   Adoption is React's own concurrent business and nothing in this tree
   forces it synchronously; wrapping `hydrateRoot` in a `flushSync` would
   be inventing a schedule to make a witness easier to write. So that one
@@ -88,17 +88,15 @@
   tree's SHAPE is decided**, and the reason it is a function of the
   handle rather than of its two callers.
 
-  **Public because the SERVER half calls it too** (rf2-b6jkj).
+  **Public because the SERVER half calls it too.**
   `re-frame.hicasso.server/render` builds its element from this exact
   function, with a handle carrying a per-request `:adoption` window, so
   the bytes it emits and the tree [[hydrate-root!]] adopts are the same
   shape by CONSTRUCTION rather than by two implementations agreeing.
-  That is HS-11 obstruction 2's first candidate repair — *a matching
-  server-render entry* — and taking it here is what makes it a repair
-  rather than a second renderer: were the server to build its own
-  element, the fork this function decides would have to be mirrored in a
-  place nothing forces to follow it, which is the shape of the bug, not
-  of the fix.
+  That is what makes the server a matching entry rather than a second
+  renderer: were the server to build its own element, the fork this
+  function decides would have to be mirrored in a place nothing forces to
+  follow it, which is the shape of the bug rather than of the fix.
 
   A hydrated root carries [[adoption-window-closer]] and its own
   adoption-window provider as a Fragment around the app subtree, and it
@@ -110,14 +108,13 @@
   established. Measured: the first `render!` after a hydration re-ran all
   four boundary bodies and replaced all four DOM nodes.
 
-  **The window is what says a root is hydrated** (rf2-6tmu). The handle
-  used to carry a separate `:hydrated?` boolean to drive this branch;
-  now the presence of `:adoption` says the same thing and is the thing
-  the wrapper is FOR, so there is one fact here rather than two that
-  could disagree.
+  **The window is what says a root is hydrated.** The presence of
+  `:adoption` drives this branch, and it is the thing the wrapper is FOR,
+  so there is one fact here rather than a separate `:hydrated?` flag that
+  could disagree with it.
 
   An ordinary root gets no wrapper at all, which keeps the tree the whole
-  bench lane measures exactly what it was — no extra fiber, no extra
+  bench lane measures free of it — no extra fiber, no extra
   passive effect, no context provider, and nothing new in
   `re-frame.hicasso.impl.inventory/retained-inventory`."
   [handle hiccup]
@@ -135,7 +132,7 @@
   handle.
 
   **The public door's re-render, and the whole of a consumer's hot-reload
-  hook** (rf2-e2al):
+  hook**:
 
       (defonce ^:private !root (atom nil))
 
@@ -155,8 +152,8 @@
   The root hiccup is interpreted through
   [[re-frame.hicasso.impl.codec/root-element]] rather than
   `as-element`, because the root is the one creator with no ancestor body
-  to inherit the frame from — the case rf2-2rtt6.39's frame-as-a-prop
-  variant needs named. The context provider is installed regardless: it
+  to inherit the frame from — the case the frame-as-a-prop variant needs
+  named. The context provider is installed regardless: it
   is what the substrate's other React-shaped adapters read, and what the
   error boundary and the presence tray resolve their frame from.
 
@@ -166,7 +163,7 @@
   handle)
 
 ;; ---------------------------------------------------------------------------
-;; The one root option a CALLER may name (rf2-hic-046)
+;; The one root option a CALLER may name
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `identifierPrefix` is React's own, and `:identifier-prefix` is a
@@ -177,13 +174,12 @@
 ;; must be given the prefix its server render used, or every `useId` in
 ;; the tree resolves to a different string on the client and React
 ;; recovers by throwing the server's nodes away. Neither is a fact about
-;; this arm. The only thing missing was a way to say the word through
-;; these doors, and until rf2-hic-046 there was none.
+;; this arm. These doors are what let a caller say the word.
 ;;
 ;; **The PREFIX's server half is React's too, and it needs no door
 ;; here.** A consumer server-renders through `react-dom/server` itself —
 ;; `renderToString(element, #js {"identifierPrefix" "a-"})` — which per
-;; rf2-ggnp's census, re-run, is the only server path this package has.
+;; the census is the only server path this package has.
 ;; So the two sides already meet in React's own vocabulary and what
 ;; matters is that the caller hands BOTH of them the same string.
 ;; Agreement is the contract; presence on one side proves nothing.
@@ -219,7 +215,7 @@
 (defn ensure-frame!
   "ENSURE `frame-kw` before its root's first render: create the frame if
   it is absent, seeding it with `initial-events`; JOIN it untouched if it
-  is already live (rf2-7mtcf). Answers `frame-kw`.
+  is already live. Answers `frame-kw`.
 
   ## This is core's `frame-root` vocabulary, not a second one
 
@@ -279,11 +275,11 @@
   `:initial-events` seeds the frame this root names, through
   [[ensure-frame!]] and before React renders anything — ordinary events,
   in the order given, run once when this mount CREATES the frame and
-  never when it joins one (rf2-7mtcf). It is core's `:initial-events`
+  never when it joins one. It is core's `:initial-events`
   reaching `rf/make-frame` untouched, not a spelling this arm owns.
 
   `:identifier-prefix` is handed straight to `createRoot` as React's
-  `identifierPrefix` (rf2-hic-046). A page mounting two roots gives them
+  `identifierPrefix`. A page mounting two roots gives them
   distinct prefixes so their `useId` values cannot collide; a page with
   one root names none, and passing no `opts` is how it says so — the call
   React receives is then the bare one it always was."
@@ -301,7 +297,7 @@
 
 (defn adoption-window-closer
   "The component that CLOSES **its own root's** adoption window, on that
-  root's hydration commit and not before (rf2-2rtt6.84, rf2-6tmu).
+  root's hydration commit and not before.
 
   Lifted in shape from the spine's own
   `re-frame.substrate.spine/adoption-window-closer`, down to taking the
@@ -334,7 +330,7 @@
 (unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
 ;; ---------------------------------------------------------------------------
-;; The recoverable-error reporter (rf2-2rtt6.97)
+;; The recoverable-error reporter
 ;; ---------------------------------------------------------------------------
 ;;
 ;; React reports the adoption divergences it RECOVERS FROM — a text
@@ -355,8 +351,8 @@
   "React's own default reporting, replicated.
 
   Installing ANY `onRecoverableError` takes React's default OFF, so a
-  reporter that only emitted would SWALLOW the error — the fail-open
-  `rf2-mwx08` exists to prevent. This door composes over React's default
+  reporter that only emitted would SWALLOW the error, which the
+  fail-open rule forbids. This door composes over React's default
   and never clobbers it: the uncaught error a runner treats as fatal is
   still uncaught, and the diagnostic is added beside it."
   [error]
@@ -382,8 +378,8 @@
                 :recovery :warned-and-replaced}))
 
 (defn hydration-reporter
-  "BUILD the `onRecoverableError` for the root that owns `window`
-  (rf2-6tmu). A builder, exactly as the spine's
+  "BUILD the `onRecoverableError` for the root that owns `window`.
+  A builder, exactly as the spine's
   `re-frame.substrate.spine/native-hydration-reporter` is a builder, and
   for the spine's reason: the window it consults belongs to ONE root, so
   the callback has to close over it.
@@ -404,9 +400,8 @@
       genuine mismatch.
 
   The delegation is unconditional in both cases — installing ANY
-  `onRecoverableError` takes React's default off, so `rf2-mwx08`'s
-  fail-open is preserved by reporting whether or not the framework
-  emitted.
+  `onRecoverableError` takes React's default off, so the fail-open rule
+  is preserved by reporting whether or not the framework emitted.
 
   Public because that is what lets a witness drive the REAL callback
   across the window boundary rather than a copy of it — the spine's own
@@ -428,8 +423,8 @@
   `:on-recoverable-error`, and this arm has no host-authored callback to
   compose with.
 
-  **`:identifier-prefix` is NOT gated, and that asymmetry is the point**
-  (rf2-hic-046). The reporter is a diagnostic and a release build is
+  **`:identifier-prefix` is NOT gated, and that asymmetry is the point.**
+  The reporter is a diagnostic and a release build is
   entitled to lose it; the prefix is BEHAVIOUR — it decides what `useId`
   answers, and a release build that dropped it would hydrate every server
   `useId` into a mismatch. So a caller who names one gets it in every
@@ -442,7 +437,7 @@
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
   `frame-kw` and `hiccup`, by adoption. [[root!]]'s hydrating twin, and
-  the client half every SSR route shares (rf2-2rtt6.84).
+  the client half every SSR route shares.
 
   Returns the same handle shape [[root!]] does — `{:root :frame
   :container}` — so [[render!]], [[dispatch!]], [[unmount!]] and
@@ -477,13 +472,13 @@
   [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
   divergence React recovers from surfaces as Spec 011's
   `:rf.ssr/hydration-mismatch` instead of only as an uncaught window
-  error (rf2-2rtt6.97). It is the SPINE's arrangement, and it does not
-  soften `rf2-mwx08`: the reporter always reports, so the uncaught error
-  is still uncaught and the diagnostic is added beside it.
+  error. It is the SPINE's arrangement, and it does not soften the
+  fail-open rule: the reporter always reports, so the uncaught error is
+  still uncaught and the diagnostic is added beside it.
 
   `opts` is the caller's half and carries ONE key,
   `:identifier-prefix` — React's `identifierPrefix`, passed through
-  untouched (rf2-hic-046). **Hand it the same string the server render
+  untouched. **Hand it the same string the server render
   used.** `useId` is numbered per root and prefixed by this option, so a
   hydrating root given a different prefix (or none, where the server had
   one) resolves every id in the tree differently from the bytes it is
@@ -501,34 +496,29 @@
   `react-dom/server`'s own render and the same string here — the
   [[root-options]] section comment is where that is set out.
 
-  **Matching root STRUCTURE was the other half, and it is now produced**
-  (`dispositions.md` HS-11 obstruction 2, MEASURED; obstruction 1 was
-  the prefix and rf2-hic-046 cleared it). React derives a `useId` from
-  tree POSITION as well as from the prefix, and a hydrating root's tree
-  is NOT the app subtree: [[tree]] wraps it in a Fragment whose first
-  child is [[adoption-window-closer]], with the adoption-window provider
-  around the app. For as long as this package's only server path was a
-  hand-rolled `renderToString` (rf2-ggnp's census) that emitted no
-  counterpart to that fork, bytes a consumer could bake hydrated into a
-  text mismatch whose two ids agreed on the prefix and differed after
-  it.
+  **Matching root STRUCTURE is the other half** (`dispositions.md`
+  HS-11 obstruction 2). React derives a `useId` from tree POSITION as
+  well as from the prefix, and a hydrating root's tree is NOT the app
+  subtree: [[tree]] wraps it in a Fragment whose first child is
+  [[adoption-window-closer]], with the adoption-window provider around
+  the app. A server path emitting no counterpart to that fork bakes
+  bytes that hydrate into a text mismatch whose two ids agree on the
+  prefix and differ after it.
 
-  `re-frame.hicasso.server/render` is HS-11's first candidate repair —
-  *a matching server-render entry of this arm's own* — and it takes the
-  repair by calling [[tree]], the same function this door calls, with a
-  handle carrying its own per-request window (rf2-b6jkj). So the fork is
+  `re-frame.hicasso.server/render` is the matching server-render entry,
+  and it matches by calling [[tree]], the same function this door calls,
+  with a handle carrying its own per-request window. So the fork is
   decided once for both halves, the closer occupies the same tree
   position on both sides, and the adoption provider presence reads to
   start an adopted child `:present` rather than `:mounting` has its
   server counterpart. `hydration-tree-parity-ssr-dom-cljs-test` is the
-  witness, and it fails on the pre-repair shape.
+  witness.
 
-  **So this door is now on the `re-frame.hicasso` facade, as
-  `h/hydrate!`** (rf2-b6jkj lifting rf2-k1mp's hold, under naming-ledger
-  row 13's `hydrate-root!`→`hydrate!` recommendation and row 20's
-  `(node config view)` contract shape).
+  **This door is on the `re-frame.hicasso` facade as `h/hydrate!`**,
+  under naming-ledger row 13's `hydrate-root!`→`hydrate!` spelling and
+  row 20's `(node config view)` contract shape.
 
-  ## The handle carries `:adoption` — this root's OWN window (rf2-6tmu)
+  ## The handle carries `:adoption` — this root's OWN window
 
   [[root!]]'s three keys are all here and every door takes this handle
   unchanged. The fourth key is not decoration and it is not a flag: it is
@@ -562,14 +552,14 @@
   "Take THIS root down, and touch nothing else. `re-frame.hicasso`'s
   public teardown door and [[root!]]'s exact inverse.
 
-  Two things it deliberately does not do, and each is a fault that was
-  once shipped through the public facade (rf2-31xm):
+  Two things it deliberately does not do, and each would be a fault on a
+  public teardown door:
 
   **It touches nothing the runtime holds.** Whatever edges, cells and
   cached closures survive are the ones React's own cleanup failed to
   release, which is what makes this the half a residue gate can read: a
   teardown that emptied the tables first answers `0` whether it released
-  anything or not, and that is a gate that cannot go red (rf2-2rtt6.48).
+  anything or not, and that is a gate that cannot go red.
   It is also what makes teardown ROOT-scoped in a multi-root page —
   every table this arm holds is one-per-page and keyed by frame, so a
   door that reset them would tear down every sibling root's state along
@@ -582,12 +572,12 @@
   consumer already knows. Detaching is [[release!]]'s, where the
   container is one [[fresh-container!]] minted for the occasion.
 
-  **Shuts this root's adoption window first** (rf2-6tmu). A root torn
+  **Shuts this root's adoption window first.** A root torn
   down before its passive effects ever ran never gets its closer, and an
   open window that outlives its root is a window nothing can ever shut.
   Root teardown owns root state, so it is this door's job and not a
   page-wide reset's — closing a sibling's window from a reset is exactly
-  the cross-root reach that bead removed.
+  the cross-root reach this door must not have.
 
   Idempotent: `roots/close-adoption-window!` is idempotent and
   nil-tolerant, so an ordinary handle (which carries no window) and a
@@ -600,7 +590,7 @@
 
 (defn release!
   "Unmount the root, drop its container, and empty the runtime. **The
-  fixture door, and it is not on the public facade** (rf2-31xm): it ends
+  fixture door, and it is not on the public facade.** It ends
   with a page that holds nothing, whatever this test left behind, which
   is right when one app owns the page and wrong for a consumer who has
   two roots and meant to tear down one.

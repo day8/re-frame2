@@ -1,5 +1,5 @@
 (ns re-frame.hicasso
-  "HICASSO — the public door (rf2-hic-001).
+  "HICASSO — the public door.
 
   Everything an author writes against lives here, and everything below is
   `re-frame.hicasso.impl.*`. The intended spelling is one alias:
@@ -11,48 +11,30 @@
         (let [todo (h/sub [:todo/by-id id])]
           [:li {:on-click [:todo/toggle id]} (:text todo)]))
 
-  ## Provenance — this package is the prototype, MOVED
+  ## What this namespace is
 
-  The runtime was measured as `re-frame.bench.hicasso.{front,arm1}.*`, now
-  at `implementation/hicasso/test/re_frame/bench/hicasso/`. rf2-hic-001
-  copied it here **mechanically**: namespaces renamed, nothing else. The
-  bench tree still stands, still runs, and is pinned file-by-file by
-  `frozen-sources.edn` beside this source root, so \"the package is the
-  prototype\" is a checked claim rather than a remembered one.
+  **The three authoring macros live HERE**, because this is the authoring
+  surface. `hframe` is the one name still awaiting its respelling:
+  naming-ledger row 18 RETIRES the verb rather than respelling it, in
+  favour of core's `rf/current-frame-id` and a zero-arity
+  `rf/capture-frame` — and that one waits on a seam, because zero-arity
+  `rf/capture-frame` refuses inside a Hicasso body today.
 
-  Two consequences of the move are worth naming, because neither is a
-  decision this bead took:
-
-  - **`arm1/lang.clj`'s three macros live in THIS namespace.** They are
-    the authoring surface, so this is where the bead puts them; their
-    bodies are the prototype's, with only the emitted target namespaces
-    renamed. The macro names WERE the prototype's too — `hfn` rather than
-    `fn`, `hframe` rather than `frame` — because rf2-hic-001 renamed
-    nothing and left the gap to the bead that owns naming.
-
-    **Half that gap is now closed.** `hfn` is `event`, taught and exported
-    alike as `h/event` (naming-ledger row 1, operator ruling; swept by
-    rf2-hic-066). `hframe` still stands: row 18 RETIRES the verb rather
-    than respelling it, in favour of core's `rf/current-frame-id` and a
-    zero-arity `rf/capture-frame` — and that one waits on a seam, because
-    zero-arity `rf/capture-frame` refuses inside a Hicasso body today.
-  - **Every var below keeps its prototype name.** This namespace adds no
-    behaviour: each `def` is an alias, and the value on the right is the
-    one the bench suites measured.
+  **Every other var below is an ALIAS.** This namespace adds no
+  behaviour: each `def` names a value `re-frame.hicasso.impl.*` owns.
 
   ## The marker keywords need no export
 
   `::h/value`, `::h/prevent`, `::h/navigate`, `::h/mounting`,
-  `::h/unmounting`, `::h/revision`, `::h/checked` and `::h/clear` already
-  read `:re-frame.hicasso/…` in the prototype — the package's name was
-  anticipated when they were minted. Alias this namespace as `h` and the
-  auto-resolved spelling the guide teaches resolves for the first time,
-  with no keyword changing value.
+  `::h/unmounting`, `::h/revision`, `::h/checked` and `::h/clear` read
+  `:re-frame.hicasso/…`. Alias this namespace as `h` and the
+  auto-resolved spelling the guide teaches resolves, with no keyword
+  changing value.
 
-  ## What this door does NOT carry — the optional modules (rf2-hic-053)
+  ## What this door does NOT carry — the optional modules
 
-  `presence` used to be a var here and is now
-  [[re-frame.hicasso.motion/presence]], required separately:
+  `presence` is [[re-frame.hicasso.motion/presence]], required
+  separately:
 
       (:require [re-frame.hicasso :as h]
                 [re-frame.hicasso.motion :as motion])
@@ -72,7 +54,7 @@
   ;; binds Clojure's `*file*` during expansion, so a naive read bakes the
   ;; `"NO_SOURCE_PATH"` sentinel into every declaration; core solved that
   ;; once, absolutises the classpath-relative path while it is there, and
-  ;; is already this package's only dependency (rf2-hic-007).
+  ;; is already this package's only dependency.
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
   #?(:cljs
      (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
@@ -86,17 +68,15 @@
   #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost event]])))
 
 ;; ---------------------------------------------------------------------------
-;; The three macros — `re-frame.bench.hicasso.arm1.lang`, moved
+;; The three macros
 ;; ---------------------------------------------------------------------------
 ;;
-;; Bodies verbatim from the prototype; only the three emitted target
-;; namespaces are renamed. The prototype kept them in a `.clj` on the
-;; grounds that a `.cljc` "would invite a JVM-side implementation this arm
-;; does not have". That reason survives the move: this file is a `.cljc`
-;; only because a CLJS namespace cannot otherwise hand its macros to a
-;; consumer, and its `:clj` side is these three macros and nothing else —
-;; no runtime namespace is required on the JVM, so there is still no JVM
-;; render path for a reader to mistake for one.
+;; This file is a `.cljc` only because a CLJS namespace cannot otherwise
+;; hand its macros to a consumer, and its `:clj` side is these three macros
+;; and nothing else — no runtime namespace is required on the JVM, so there
+;; is no JVM render path for a reader to mistake for one. A `.cljc` that
+;; carried more would invite a JVM-side implementation this arm does not
+;; have.
 
 #?(:clj
    (defmacro defview
@@ -152,7 +132,6 @@
   [[re-frame.hicasso.impl.intent]]'s position table.
 
   ## The fn this expands to is ANONYMOUS, and that is the contract
-  (rf2-jan2)
 
   The expansion binds NO name inside your body, so every symbol a body
   resolves is one you wrote. The ordinary extract-a-helper spelling is
@@ -161,25 +140,24 @@
       (defn todo-row-body [props] …)
       (h/defview todo-row [props] (todo-row-body props))
 
-  It was not always. The macro used to name the fn it emits
-  `<sym>-body`, and a named `fn` binds its own name for its own body — so
-  the pair above expanded to `(fn todo-row-body [p] (todo-row-body p))`
-  and recursed until the stack overflowed, under React exactly as under
-  the test kit, reporting `Maximum call stack size exceeded` and naming
-  neither the view nor the macro that shadowed the helper.
+  Naming the emitted fn after `sym` would break exactly that: a named
+  `fn` binds its own name for its own body, so the pair above would
+  expand to `(fn todo-row-body [p] (todo-row-body p))` and recurse until
+  the stack overflowed — under React exactly as under the test kit,
+  reporting `Maximum call stack size exceeded` and naming neither the
+  view nor the macro that shadowed the helper.
 
   Anonymity rather than a gensym or a reserved prefix, because those make
   the collision improbable where this makes it unrepresentable: a fn with
-  no name has nothing to shadow with. Nothing was spent for it. The
+  no name has nothing to shadow with, and it costs nothing. The
   identifiers this macro decides are the `\"<ns>/<sym>\"` view name and
   the coordinate below, both computed here and both passed as VALUES —
   `mint-view!` stamps the view name as `displayName` on the body and on
   the component, and Spec 009 keys its render measure `rf:render:<view
-  name>` off the same string. The emitted fn's own symbol fed none of
-  them; it reached nothing but a stack frame.
+  name>` off the same string. The emitted fn's own symbol feeds none of
+  them; it would reach nothing but a stack frame.
 
   ## Hooks do not belong in the body — a law, and why not a refusal
-  (rf2-hic-033)
 
   A body is dynamically composed: its branches, its `for`s and its
   early returns are all free to follow the data it reads. React's rules
@@ -200,7 +178,7 @@
   The shell's own two hooks are unaffected and are the whole budget (I9,
   HD-020(b)); `hook-budget-cljs-test` counts them at React's dispatcher.
 
-  ## The source coordinate (rf2-hic-007)
+  ## The source coordinate
 
   The expansion opens a declaration extent around the mint, carrying the
   `:ns` / `:file` / `:line` / `:column` this macro read off its own form.
@@ -220,7 +198,7 @@
   that never completed.
 
   ## The name is also REGISTERED — an AUTHORING-TIME ALIAS FOR FORWARD
-  RESOLUTION ONLY (rf2-5qaf4)
+  RESOLUTION ONLY
 
   The declaration publishes one entry in re-frame's `:view` registrar,
   under `(keyword \"<ns>\" \"<sym>\")` — the id `rf/reg-view` derives
@@ -235,11 +213,10 @@
   an editor jumping to source — reaches the view they meant. It mints no
   runtime identity: a MOUNTED boundary is still keyed by its read set
   and still unnamed, and the tool tier
-  ([[re-frame.hicasso.tool]]) is unchanged. The refusals that say so —
-  rf2-jkdy, rf2-l86mm, rf2-2og6s — are NOT overturned by this, because
-  they answer the BACKWARD question *which view is this runtime
-  boundary?* and this answers the forward one, where the author already
-  knows and is naming it in source.
+  ([[re-frame.hicasso.tool]]) is unchanged. The refusals that say so are
+  NOT overturned by this, because they answer the BACKWARD question
+  *which view is this runtime boundary?* and this answers the forward
+  one, where the author already knows and is naming it in source.
 
   The name itself is not new. It is the `displayName` React DevTools
   shows, the `rf:render:<name>` User-Timing id Spec 009 keys off, and
@@ -260,7 +237,7 @@
      (let [doc       (when (string? (first more)) (first more))
            [argv & body] (if doc (rest more) more)
            view-name (str (ns-name *ns*) "/" sym)
-           ;; rf2-5qaf4 — the registrar id, derived by `reg-view`'s own
+           ;; The registrar id, derived by `reg-view`'s own
            ;; rule (`core-reg-view-macro/expand-reg-view`) so the two
            ;; substrates spell one convention. No `^{:rf/id …}` override
            ;; here: a `defview` has exactly one name and this is it.
@@ -279,13 +256,13 @@
             (try
               (let [head# (re-frame.hicasso.impl.collector/mint-view!
                             ~view-name
-                            ;; ANONYMOUS — see the docstring's rf2-jan2
-                            ;; section. A named `fn` binds its own name
+                            ;; ANONYMOUS — see the docstring's section on
+                            ;; naming. A named `fn` binds its own name
                             ;; for its own body, so any name derived from
                             ;; `sym` shadows the author's helper of that
                             ;; name.
                             (fn ~argv ~@body))]
-                ;; rf2-5qaf4 — inside the extent, so a refusal the
+                ;; Inside the extent, so a refusal the
                 ;; registration raised would name this declaration; after
                 ;; the mint, because the head is what the entry carries.
                 ;; The head is still what the `def` binds: registration is
@@ -303,7 +280,7 @@
      "**The one callback form** (HD-024). `h/event` in the authoring
   surface, and `event` here — the same name, since the door is reached
   qualified. It was `hfn` until naming-ledger row 1 was swept
-  (rf2-hic-066): the guide had always taught `h/fn`, which is a name the
+ : the guide had always taught `h/fn`, which is a name the
   door could never carry, because a bare `fn` shadows `cljs.core/fn` for
   anyone who `:refer`s it. `h/handler` was rejected as a cross-adaptor
   false friend — `handler` means return-ignored imperative work in the
@@ -311,7 +288,7 @@
 
   **The name states ONE of the three contracts this form can carry**, and
   which one is selected by POSITION rather than by the name, so the three
-  travel with the name here rather than a page away (rf2-0fd3b):
+  travel with the name here rather than a page away:
 
   | Position | Contract |
   |---|---|
@@ -445,7 +422,7 @@
   coordinate — the name for `displayName`, and both for every diagnostic
   the crossing raises.
 
-  ## Two shapes, and a tail is REFUSED rather than dropped (rf2-3f11)
+  ## Two shapes, and a tail is REFUSED rather than dropped
 
       (defhost name component)
       (defhost name component opts)
@@ -477,7 +454,7 @@
   options map into the discarded tail, so it is refused at whichever of
   the two guards it reaches first rather than accommodated.
 
-  ## The declaration extent earns its keep here (rf2-hic-007)
+  ## The declaration extent earns its keep here
 
   `defview` opens one so that a refusal from a body can name the boundary
   it came from. `defhost` opens one for a nearer reason: the refusals
@@ -500,7 +477,7 @@
      (let [doc         (when (string? (first more)) (first more))
            forms       (if doc (rest more) more)
            [component opts] forms
-           ;; THE TAIL, refused rather than dropped (rf2-3f11). The
+           ;; THE TAIL, refused rather than dropped. The
            ;; destructure above is fixed-width over a seq of arbitrary
            ;; length, so everything past `opts` used to vanish silently
            ;; — `defview`'s `[argv & body]` has no such tail to lose,
@@ -558,8 +535,7 @@
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
 
   Named for React's own term of art, which is also what the naming ledger
-  ruled (row 12, rf2-g8rb). A bare `boundary` would have been the wrong
-  word twice over: every minted `defview` is already *a boundary* here,
+  rules (row 12). A bare `boundary` would be the wrong word twice over: every minted `defview` is already *a boundary* here,
   and React has a second kind — the Suspense boundary — that this one is
   not. [[re-frame.hicasso.impl.boundary/boundary]]."}
        error-boundary impl-boundary/boundary)
@@ -569,7 +545,7 @@
   and nothing else. [[re-frame.hicasso.impl.state/reg-state]]."}
        reg-state impl-state/reg-state)
 
-     (def ^{:doc "`h/portal` — **hiccup into `createPortal`** (rf2-hic-028).
+     (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
   A legal hiccup head taking `:target`, the DOM container the subtree
   renders into, and optionally `:fallback`, markup for the portal's own
   tree position while the page is server-rendered:
@@ -604,7 +580,7 @@
        route-link impl-route-link/route-link)
 
      (def ^{:doc "`h/as-element` — **the one explicit hiccup→ReactNode
-  conversion** (rf2-hic-035). Answers the React element a hiccup form
+  conversion**. Answers the React element a hiccup form
   lowers to, under the frame of the boundary currently rendering:
 
       [virtual-list
@@ -646,7 +622,7 @@
   [[re-frame.hicasso.impl.codec/as-element]]."}
        as-element impl-codec/as-element)
 
-     (def ^{:doc "`h/as-component` — **the outward bridge** (rf2-hic-032).
+     (def ^{:doc "`h/as-component` — **the outward bridge**.
   Answers a real React component for a hiccup head, so a native parent —
   `n/defcomponent`, UIx, or plain JavaScript — mounts a minted Hicasso
   view under the frame it is already in:
@@ -667,48 +643,41 @@
      ;;
      ;; Three doors, one handle, and every one of them ROOT-SCOPED — a page
      ;; may hold as many roots as it likes and no call here reaches a root
-     ;; the caller did not name. That is the property rf2-31xm restored and
-     ;; the reason `release!` is no longer among them.
+     ;; the caller did not name. That is the reason `release!` is not
+     ;; among them.
      ;;
-     ;; **The HYDRATING door is HERE now, and rf2-k1mp's hold is lifted**
-     ;; (rf2-b6jkj). The hold was never about the door: `hydrate-root!`
-     ;; was built, witnessed, and took `:identifier-prefix` exactly as
-     ;; `root!` does (rf2-hic-046). What was missing was the OTHER half
-     ;; of the pair — a hydrating door adopts bytes something produced,
-     ;; and this package published no server-render door to produce
-     ;; them. `dispositions.md` HS-11 measured what an improvised
-     ;; counterpart did: the adoption closer rides as a SIBLING of the
-     ;; app subtree (`impl.mount/tree`, rf2-6tmu), React derives a
-     ;; `useId` from tree POSITION as well as from the prefix, and bytes
-     ;; a consumer could bake hydrated into a text mismatch.
+     ;; **The HYDRATING door is HERE**, and it is only useful paired with a
+     ;; server-render door: a hydrating door adopts bytes something
+     ;; produced. `dispositions.md` HS-11 records what an improvised
+     ;; counterpart costs — the adoption closer rides as a SIBLING of the
+     ;; app subtree (`impl.mount/tree`), React derives a `useId` from tree
+     ;; POSITION as well as from the prefix, and bytes a consumer bakes by
+     ;; hand hydrate into a text mismatch.
      ;;
-     ;; `re-frame.hicasso.server` is HS-11's first candidate repair and
-     ;; it takes it by CALLING `impl.mount/tree` — one function deciding
-     ;; the root's shape for both halves — so the counterpart now exists
-     ;; and emits the tree this door adopts, position for position.
+     ;; `re-frame.hicasso.server` is the matching entry, and it matches by
+     ;; CALLING `impl.mount/tree` — one function deciding the root's shape
+     ;; for both halves — so the counterpart emits the tree this door
+     ;; adopts, position for position.
      ;;
-     ;; The SPELLING is naming-ledger row 13's recommendation
-     ;; (`hydrate-root!`→`hydrate!`) applied as a default, which is what
-     ;; the ledger header says a recommendation does before the sitting
-     ;; and the route rows 21 and 23 already took (rf2-mo4o, rf2-0ckh).
-     ;; The CONTRACT SHAPE is row 20's `(node config view)` with
+     ;; The SPELLING is naming-ledger row 13 (`hydrate-root!`→`hydrate!`)
+     ;; applied as a default, as the ledger header says a recommendation
+     ;; is applied before the sitting, and as route rows 21 and 23 take
+     ;; it. The CONTRACT SHAPE is row 20's `(node config view)` with
      ;; `:frame` + `:identifier-prefix`, kept as taught.
      ;;
-     ;; **Row 13's other half — `root!`→`mount!` — is taken now, and it
-     ;; was never a rename** (rf2-7mtcf). The packet's instruction reads
-     ;; *"rename two constructors"*, and for this one that is false: the
+     ;; **Row 13's other half — `root!`→`mount!` — is not a rename.** The
      ;; guide teaches `h/mount!` over row 20's config map carrying
-     ;; `:frame` AND `:initial-events`, and shipped `root!` took the
-     ;; frame POSITIONALLY and implemented `:initial-events` nowhere. So
-     ;; the var rename alone would have published this name against every
-     ;; taught call site and failed at runtime under a green compile —
-     ;; new behaviour wearing a spelling's clothes. Row 20 is the half
-     ;; that settles it, and it is already ruled *keep as taught*, on the
-     ;; ground that `:initial-events` is **borrowed from core's
-     ;; `frame-root` vocabulary rather than minted here**. So the door
-     ;; below takes the contract, `impl.mount/ensure-frame!` supplies the
-     ;; behaviour by calling `rf/make-frame` exactly as a consumer's own
-     ;; boot line did, and inventory row HS-10 moves with the name.
+     ;; `:frame` AND `:initial-events`, where a bare `root!` takes the
+     ;; frame POSITIONALLY and implements `:initial-events` nowhere, so a
+     ;; var rename alone would publish this name against every taught call
+     ;; site and fail at runtime under a green compile — new behaviour
+     ;; wearing a spelling's clothes. Row 20 settles it and is ruled *keep
+     ;; as taught*, on the ground that `:initial-events` is **borrowed
+     ;; from core's `frame-root` vocabulary rather than minted here**. So
+     ;; the door below takes the contract, `impl.mount/ensure-frame!`
+     ;; supplies the behaviour by calling `rf/make-frame` exactly as a
+     ;; consumer's own boot line does, and inventory row HS-10 goes with
+     ;; the name.
 
      (def ^{:doc "`h/mount!` — **the root door**: ensure a frame,
   associate it with a DOM container and one root view, and answer the
@@ -726,8 +695,8 @@
   **`:frame`** is the frame keyword this root scopes, and mounting
   ENSURES it: the frame is created if it does not exist, or JOINED as it
   stands if another root already uses it. Nothing else in this arm makes
-  a frame, so before rf2-7mtcf a consumer's boot line spelled the id
-  twice — once to `rf/make-frame` and again to the root door.
+  a frame, so a consumer's boot line names the id once here rather than
+  twice — to `rf/make-frame` and again to the root door.
 
   **`:initial-events`** is an ordered vector of ordinary event vectors,
   dispatched synchronously into the frame **when this mount CREATES it**,
@@ -741,7 +710,7 @@
   arrives through events, and there is no separate `:db` seed option.
 
   **`:identifier-prefix`** is React's own `identifierPrefix`, handed to
-  `createRoot` untouched (rf2-hic-046). It exists because `useId` numbers
+  `createRoot` untouched. It exists because `useId` numbers
   every root from the same start, so a page mounting two roots gives them
   distinct prefixes or watches their generated ids collide. A page with
   one root names none. No default, no coercion, no validation: React owns
@@ -770,7 +739,7 @@
 
      (def ^{:doc "`h/hydrate!` — **adopt a container's existing
   server-rendered DOM** rather than replacing it; [[mount!]]'s hydrating
-  twin, and the client half of every SSR route (rf2-b6jkj):
+  twin, and the client half of every SSR route:
 
       (h/hydrate! (js/document.getElementById \"app\")
                   {:frame :app/main :identifier-prefix \"main\"}
@@ -822,7 +791,7 @@
          (impl-mount/hydrate-root! container (:frame config) hiccup config)))
 
      (def ^{:doc "Re-render a mounted root in place, synchronously, and
-  answer its handle — **the hot-reload door** (rf2-e2al):
+  answer its handle — **the hot-reload door**:
 
       (defn ^:dev/after-load reload! []
         (h/render! @!root [app {}]))
