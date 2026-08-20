@@ -24,6 +24,23 @@
 // 0 alone still follows the controls. This reader is what turns the resulting
 // records into the three-way answer the mode was pre-registered against.
 //
+// ## AND THE SECOND CONFOUND, WHICH `fixed` LEFT STANDING
+//
+// `fixed` answered "position, not substrate" and its record named what it could
+// not reach: position 0 is BOTH
+//
+//   (A) the first arm window after the round's THREE CONTROL WINDOWS, and
+//   (B) the first arm window after the ROUND-LOOP BOUNDARY.
+//
+// `P0_ALLOC_CONTROL_SLOT` moves the three controls within the round, and only
+// `mid` separates those two — under `last` the cyclic loop puts the previous
+// round's controls immediately before position 0 again, so the confound is
+// intact in every round but the first. So this reader indexes arm windows on
+// the two predicates DIRECTLY, read off each round's recorded `windowOrder`,
+// rather than on the position they happen to coincide with under one schedule.
+// Position stays in the report beside them, because it is the index the earlier
+// records are stated in.
+//
 // ## THE UNIT, STATED FIRST BECAUSE IT HAS ALREADY MISLED A READER
 //
 // `legWorstDeviation` is a **FRACTION**, not a percentage — `worst / legMedian`
@@ -84,13 +101,49 @@ const median = (xs) => {
 // are CROSS-CHECKED rather than one being trusted: a disagreement means the
 // record's own two statements about its order do not match, which is a fault in
 // the record and not something to average over.
+const isControlWindow = (id) => typeof id === 'string' && id.startsWith('control/');
+
+// The window sequence ONE ROUND drove, controls included, in drive order.
+// Rounds taken since the control-slot mode record it as `windowOrder`; rounds
+// taken before it were all driven `first` — three controls, then the arms in
+// the order `arms` is keyed — so the fallback is the truth about them rather
+// than a guess.
+//
+// AND IT IS CROSS-CHECKED against `arms` rather than trusted, for `segments`'
+// reason: a `windowOrder` whose arm entries disagree with the keys the round
+// actually filled means the record's two statements about its own sequence do
+// not match, and this reader's whole index is built on that sequence.
+function roundWindowOrder(round, keys, runId) {
+  if (!round.windowOrder) return ['control/idle', 'control/d1', 'control/d2', ...keys];
+  const armEntries = round.windowOrder.filter((w) => !isControlWindow(w));
+  if (JSON.stringify(armEntries) !== JSON.stringify(keys)) {
+    throw new Error(
+      `${runId} round ${round.round}: the round's stated window order names arm windows ` +
+        `${JSON.stringify(armEntries)} where its \`arms\` were filled as ` +
+        `${JSON.stringify(keys)} — the record contradicts itself about the one sequence ` +
+        'this reader is built on'
+    );
+  }
+  return round.windowOrder;
+}
+
 function windowsOf(dataset, runId) {
   const row = dataset.alloc || dataset;
   // Records taken before this bead carry no `segOrder` field. They were all
   // taken on the flipping schedule, which is what `parity` names, so the
   // default is the truth about them rather than a guess.
   const segOrder = row.segOrder || 'parity';
+  // Likewise the control slot: every record taken before the mode drove its
+  // three controls before the round's arms, which is what `first` names.
+  const controlSlot = row.controlSlot || 'first';
   const out = [];
+  // THE RUN'S FLATTENED DRIVE STREAM, controls included and NOT reset at a
+  // round boundary. That last part is the whole point: under `last` the window
+  // immediately before a round's first arm is the PREVIOUS round's third
+  // control, and a stream that restarted each round would report it as having
+  // no predecessor and manufacture the separation the mode is being tested for.
+  // Runs are not chained — a new browser process is a new stream.
+  const stream = [];
   for (const r of row.perRound || []) {
     const keys = Object.keys(r.arms || {});
     const driven = keys.map((k) => r.arms[k].segment);
@@ -102,14 +155,21 @@ function windowsOf(dataset, runId) {
           'the one index this reader is built on'
       );
     }
-    keys.forEach((key, position) => {
-      const a = r.arms[key];
-      out.push({
+    const order = roundWindowOrder(r, keys, runId);
+    let position = 0;
+    for (const id of order) {
+      if (isControlWindow(id)) {
+        stream.push({ control: true });
+        continue;
+      }
+      const a = r.arms[id];
+      const w = {
         runId,
         segOrder,
+        controlSlot,
         round: r.round,
         position,
-        key,
+        key: id,
         segment: a.segment,
         falls: a.falls,
         legs: a.legs || [],
@@ -117,8 +177,15 @@ function windowsOf(dataset, runId) {
         legWorstDeviationFraction: a.legWorstDeviation,
         primeExcess: a.primeExcess,
         certified: a.certified,
-      });
-    });
+        // (B) — this window opens its round.
+        roundFirst: position === 0,
+        // (A) — filled below, once the stream has a predecessor to read.
+        afterControls: stream.length > 0 && stream[stream.length - 1].control === true,
+      };
+      position++;
+      stream.push({ control: false });
+      out.push(w);
+    }
   }
   return out;
 }
@@ -254,10 +321,58 @@ function analyse(datasets) {
     };
   }
 
+  // --- AND THE CONTROL-SLOT CROSS-TAB (rf2-rs8q6) --------------------------
+  //
+  // The 2x2 the whole second window exists to fill. Under `first` and `last`
+  // two of its four cells are empty by construction, which is exactly the
+  // statement that those schedules do not separate the two properties; under
+  // `mid` all four are populated and the rider's cell is the answer.
+  const slots = [...new Set(all.map((w) => w.controlSlot))].sort();
+  const bySlot = {};
+  for (const slot of slots) {
+    const clean = all.filter((w) => w.controlSlot === slot && w.falls === 0);
+    const cell = (afterControls, roundFirst) => {
+      const ws = clean.filter(
+        (w) => w.afterControls === afterControls && w.roundFirst === roundFirst
+      );
+      const riderLegs = ws.flatMap(ridersOf);
+      return {
+        afterControls,
+        roundFirst,
+        windows: ws.length,
+        riderWindows: ws.filter((w) => ridersOf(w).length > 0).length,
+        riderLegs: riderLegs.length,
+        riderMedianB: median(riderLegs.map((x) => x.bytes)),
+        worstDeviationMedianAbsFraction: median(
+          ws
+            .map((w) => w.legWorstDeviationFraction)
+            .filter((x) => typeof x === 'number')
+            .map(Math.abs)
+        ),
+      };
+    };
+    bySlot[slot] = {
+      runs: [...new Set(all.filter((w) => w.controlSlot === slot).map((w) => w.runId))].length,
+      cleanWindows: clean.length,
+      // Whether this slot's records SEPARATE the two properties at all,
+      // measured off the records rather than asserted from the slot's name: the
+      // count of clean windows on which the two predicates disagree.
+      separatedWindows: clean.filter((w) => w.afterControls !== w.roundFirst).length,
+      cells: [
+        cell(true, true),
+        cell(true, false),
+        cell(false, true),
+        cell(false, false),
+      ],
+    };
+  }
+
   const controlLegs = controls.flatMap((c) => c.legs.map((x) => x - c.legMedian));
   return {
     modes,
     byMode,
+    slots,
+    bySlot,
     controls: {
       windows: controls.length,
       legs: controlLegs.length,
@@ -296,6 +411,23 @@ function report(a) {
       out.push(
         `    substrate ${r.repeatsSubstrate ? 'REPEATS' : 'SWITCHES'}: ` +
           `${r.riderWindows} of ${r.windows} windows carry a rider`
+      );
+    }
+    out.push('');
+  }
+  for (const slot of a.slots || []) {
+    const s = a.bySlot[slot];
+    out.push(
+      `CONTROL SLOT = ${slot}   ${s.runs} run(s), ${s.cleanWindows} collection-free arm ` +
+        `windows, ${s.separatedWindows} on which the two properties DISAGREE`
+    );
+    out.push('  after controls | opens round | windows | rider windows | rider legs | median |worst dev|');
+    for (const c of s.cells) {
+      out.push(
+        `  ${(c.afterControls ? 'yes' : 'no').padEnd(14)} | ${(c.roundFirst ? 'yes' : 'no').padEnd(11)} | ` +
+          `${String(c.windows).padStart(7)} | ${String(c.riderWindows).padStart(13)} | ` +
+          `${String(c.riderLegs).padStart(10)} | ` +
+          `${pct(c.worstDeviationMedianAbsFraction).padStart(16)}`
       );
     }
     out.push('');
@@ -343,6 +475,37 @@ function synth(segOrder, rounds, riderAt) {
     },
   };
 }
+
+// AND THE SAME RECORD UNDER A CONTROL SLOT (rf2-rs8q6). `windowOrder` is built
+// here the way `p0_run.cjs` builds it — the three controls at the slot's index
+// among the round's arm passes — so the reader is driven over the shape the rig
+// actually emits rather than over a hand-written idea of it.
+//
+// `riderAt` is `round:position:ordinal`, unchanged, so a rider can be planted
+// at a POSITION and the reader asked which PROPERTY it lands on.
+function synthSlot(controlSlot, rounds, riderAt) {
+  const d = synth('fixed', rounds, riderAt);
+  d.alloc.controlSlot = controlSlot;
+  for (const r of d.alloc.perRound) {
+    const keys = Object.keys(r.arms);
+    const ctl = ['control/idle', 'control/d1', 'control/d2'];
+    const at = controlSlot === 'last' ? keys.length : controlSlot === 'mid' ? 1 : 0;
+    const orderOut = [];
+    keys.forEach((k, i) => {
+      if (i === at) orderOut.push(...ctl);
+      orderOut.push(k);
+    });
+    if (at >= keys.length) orderOut.push(...ctl);
+    r.windowOrder = orderOut;
+    r.controlIndex = at;
+  }
+  return d;
+}
+
+const slotCell = (a, slot, afterControls, roundFirst) =>
+  a.bySlot[slot].cells.find(
+    (c) => c.afterControls === afterControls && c.roundFirst === roundFirst
+  );
 
 function selfTest() {
   const assert = require('node:assert');
@@ -411,6 +574,78 @@ function selfTest() {
     assert.deepStrictEqual(a.modes, ['parity']);
   });
 
+  // --- THE CONTROL SLOT (rf2-rs8q6) ----------------------------------------
+  //
+  // The reader's new index, and the claim that decides which slot was worth
+  // the machine: under `first` and `last` the two properties are the same
+  // predicate on all but one window, and only `mid` separates them at full n.
+
+  ok('a pre-bead record with no `controlSlot` reads as `first`', () => {
+    const d = synth('parity', 4, null);
+    const a = analyse([{ id: 'o', data: d }]);
+    assert.deepStrictEqual(a.slots, ['first']);
+    // and with no `windowOrder` either, the fallback puts the three controls
+    // before the round's arms — so position 0 is "after controls" every round.
+    assert.strictEqual(slotCell(a, 'first', true, true).windows, 4);
+    assert.strictEqual(slotCell(a, 'first', false, false).windows, 4);
+    assert.strictEqual(a.bySlot.first.separatedWindows, 0);
+  });
+
+  ok('`first` CONFOUNDS the two properties — they never disagree', () => {
+    const a = analyse([{ id: 'f', data: synthSlot('first', 6, null) }]);
+    assert.strictEqual(a.bySlot.first.separatedWindows, 0);
+    assert.strictEqual(slotCell(a, 'first', true, false).windows, 0);
+    assert.strictEqual(slotCell(a, 'first', false, true).windows, 0);
+  });
+
+  ok('`last` separates them in exactly ONE window per run — round 0, position 0', () => {
+    const a = analyse([{ id: 'l', data: synthSlot('last', 6, null) }]);
+    assert.strictEqual(a.bySlot.last.separatedWindows, 1);
+    // the separated window OPENS a round and does NOT follow the controls
+    assert.strictEqual(slotCell(a, 'last', false, true).windows, 1);
+    assert.strictEqual(slotCell(a, 'last', true, false).windows, 0);
+  });
+
+  ok('and the stream is NOT reset at a round boundary — `last` would read 6 if it were', () => {
+    // The failure this guards: a reader that restarted its stream each round
+    // would find every round's first arm with no predecessor and report all six
+    // as separated, manufacturing exactly the result the window tests for.
+    const a = analyse([{ id: 'l', data: synthSlot('last', 6, null) }]);
+    assert.notStrictEqual(a.bySlot.last.separatedWindows, 6);
+    assert.strictEqual(slotCell(a, 'last', true, true).windows, 5);
+  });
+
+  ok('`mid` separates them at FULL n — every window disagrees', () => {
+    const a = analyse([{ id: 'm', data: synthSlot('mid', 6, null) }]);
+    assert.strictEqual(a.bySlot.mid.cleanWindows, 12);
+    assert.strictEqual(a.bySlot.mid.separatedWindows, 12);
+    // "opens the round" is position 0 and never follows the controls;
+    // "follows the controls" is position 1 and never opens a round.
+    assert.strictEqual(slotCell(a, 'mid', false, true).windows, 6);
+    assert.strictEqual(slotCell(a, 'mid', true, false).windows, 6);
+    assert.strictEqual(slotCell(a, 'mid', true, true).windows, 0);
+    assert.strictEqual(slotCell(a, 'mid', false, false).windows, 0);
+  });
+
+  ok('and a rider planted at position 0 under `mid` lands in the OPENS-ROUND cell', () => {
+    const a = analyse([{ id: 'm', data: synthSlot('mid', 6, '2:0:3') }]);
+    assert.strictEqual(slotCell(a, 'mid', false, true).riderWindows, 1);
+    assert.strictEqual(slotCell(a, 'mid', false, true).riderMedianB, 748);
+    assert.strictEqual(slotCell(a, 'mid', true, false).riderWindows, 0);
+  });
+
+  ok('and one planted at position 1 under `mid` lands in the AFTER-CONTROLS cell', () => {
+    const a = analyse([{ id: 'm', data: synthSlot('mid', 6, '2:1:3') }]);
+    assert.strictEqual(slotCell(a, 'mid', true, false).riderWindows, 1);
+    assert.strictEqual(slotCell(a, 'mid', false, true).riderWindows, 0);
+  });
+
+  ok('a `windowOrder` disagreeing with the round’s own `arms` REFUSES', () => {
+    const d = synthSlot('mid', 2, null);
+    d.alloc.perRound[1].windowOrder = [...d.alloc.perRound[1].windowOrder].reverse();
+    assert.throws(() => analyse([{ id: 'x', data: d }]), /contradicts itself about the one sequence/);
+  });
+
   return checks;
 }
 
@@ -467,6 +702,7 @@ if (require.main === module) {
 
 module.exports = {
   windowsOf,
+  roundWindowOrder,
   controlLegsOf,
   adjacency,
   ridersOf,
