@@ -51,7 +51,7 @@ overall; see [§6](#6-what-this-still-does-not-certify).
 | base | `2f96ecc98c36ce0c6c845969e39566134351dea1`, `origin/main` at 2026-08-20 23:40 AUSEST. The gates began at 23:42 and ran past midnight; the page is dated for the run's start, as the dispatch was. |
 | worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
 | `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
-| open PRs touching a family 1–4 surface | **none**. Only two PRs are open: `#8559` is `docs/design/hicasso/product/dispositions.md`, and `#8555` is the bench trees plus `docs/design/hicasso/studio/`. `#8555` does touch `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. |
+| open PRs touching a family 1–4 surface, at the base | **none**. Two PRs were open: `#8559` on `docs/design/hicasso/product/dispositions.md`, and `#8555` on the bench trees plus `docs/design/hicasso/studio/`. `#8555` touched `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. **Both merged while this ran**; [§8](#8-the-trunk-moved-while-this-was-written-and-it-does-not-reach-here) records what they carried. |
 | the box at the first heavy gate | free physical **17.30 GB of 63.43 GB**; `java` **0**, `node` 20, `chrome` 96, at 23:42:48 AUSEST |
 
 **Every family was run one at a time and never in parallel**, and the reason is not politeness about
@@ -172,8 +172,12 @@ forbid.
 
 Two further facts point the same way and neither is needed to reach the conclusion.
 
-- **The instrument is still moving.** PR `#8555` is open at this base and touches `p0_run.cjs` again. A
-  second reading taken now would be superseded by a merge that is already in the queue.
+- **The instrument is still moving, and it moved again while this page was being written.** PR `#8555`
+  was open at this base and touched `p0_run.cjs`; it merged during this run, and the driver at
+  `origin/main` now carries the blob `7df8d016de55eeee0d80fc980cccbe7c8ccc2c93` — a **second** move since the
+  2026-08-19 anchor, on top of `e27c2a3b26`'s. A reading taken at this base would therefore have been
+  superseded within the hour, which is not an argument for taking it faster; it is the measurement that
+  makes the re-pin in §4.3 the actual blocker.
 - **The box is not drained.** Three workers were alive throughout this run and this page's own gates were
   the heaviest thing on the machine. The anchor page's §2 refuses a contended reading *"which lands
   within a byte"* as evidence, so a reading taken alongside these suites could not have cleared its own
@@ -365,22 +369,6 @@ back green reads as *the control does not bite*, which is a reason to stop rathe
 disagreement is not a curiosity here: it is the difference between a certification and a retraction. **The
 number quoted throughout this page is the captured one in every case.**
 
-## 8. The trunk moved while this was written, and it does not reach here
-
-The two previous pages record the same check and it is worth keeping, because a record anchored to a
-commit is only useful if a reader can see how far the trunk has travelled past it.
-
-`origin/main` advanced **9** commits beyond `2f96ecc98c` while these gates ran.
-`git diff --name-only 2f96ecc98c..origin/main` names exactly **two** paths — `.beads/issues.jsonl` and
-`docs/design/hicasso/product/dispositions.md` — and `git diff --stat 2f96ecc98c..origin/main --
-implementation` is **empty**. The tracker export is not a family surface and the dispositions page is
-prose, so **nothing in the interval reaches any instrument or subject this page measures.**
-
-This is a claim about a window that closed when the sentence was written, not a standing property. What
-generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
-to know whether it still describes the trunk can re-run the two commands above rather than take this
-paragraph's word for it.
-
 ### 7.2 What was NOT proved
 
 **Family 4's elision arm carries no plant**, exactly as the 2026-08-18 page recorded, and the reason it
@@ -394,14 +382,39 @@ than a gap in this section. Sabotaging the ladder would demonstrate that the lad
 2026-08-19 anchor already demonstrated three times — and would say nothing about the comparison that is
 missing.
 
-### 7.3 Two gates bit unplanned, and both are recorded because an accidental control is still a control
+### 7.3 The doc-surface gate was planted deliberately, and it bit
+
+A recertification's own record page is gated too, and the gate is cheap enough to sabotage in seconds, so
+it was. A link to a page that does not exist —
+`post-rename-recertification-no-such-page.md` — was planted on one line of this page and
+`scripts/check_doc_slugs.py` was run over the tree.
+
+| What was planted | Gate under the plant | Captured exit | What the red said |
+|---|---|---|---|
+| one markdown link to a non-existent sibling page | `python scripts/check_doc_slugs.py` | `1` | `BROKEN TARGET: … post-rename-recertification-2026-08-20.md:251 -> post-rename-recertification-no-such-page.md`, naming the missing file |
+
+| File | Baseline blob | Under the plant | After restore |
+|---|---|---|---|
+| `docs/design/hicasso/product/post-rename-recertification-2026-08-20.md` | `118d2784d0ab5103fa9d793fff738c22ec58f9b1` | `9ff00cbf18bd752432a01b39b66f7c0eab6ae863` | `118d2784d0ab5103fa9d793fff738c22ec58f9b1` |
+
+Both hash columns are **blob** hashes, and the restored value equals the baseline. The plant existed only
+in this worktree, so this is also the tree-verification route for the two doc gates, neither of which
+prints a root. **`mkdocs build --strict` is not among them and was not run**: `mkdocs.yml`'s
+`exclude_docs` block carries `design/hicasso/`, read at source, so the site build cannot see this page at
+all and nominating it would be nominating a gate that returns green by not looking.
+
+### 7.4 Two more gates bit unplanned, and both are recorded because an accidental control is still a control
 
 - **`scripts/check_provenance_pins.py` returned exit `1` on this page's first draft.** §4.3 originally
   carried a shortened driver blob in prose, and the checker classified it as a commit citation because the
   nearest describing word on its left was *re-pin*: `1 unresolvable`, naming the token and the line. The
   fix was to name the blob rather than to re-pin anything, and the second run reported **2 pages inspected,
   26 cited pins — 26 landed, 0 stranded, 0 unresolvable, 0 foreign, 0 findings**, exit `0`. This is the
-  hazard that gate exists for and it caught it unprompted.
+  hazard that gate exists for and it caught it unprompted. **It recurred once more**, on §4.2's
+  second-move blob, where the nearest describing words were *at `origin/main` is now*; the gate excused it
+  under its accompanying-SHA rule rather than failing, and the wording was still repaired — putting the
+  word *blob* immediately before the token — because a pin excused is not a pin classified correctly. The
+  final run reads **33 cited pins — 33 landed, 0 unresolvable, 0 findings**.
 - **A fixed-string search of the browser runner reported that the elision arm's
   `--duplicate-done-drift-unverifiable` flag no longer existed, and the search was wrong.** The flag is
   live: `rf2-u0cy4` moved its literal into `scripts/lib/browser-runner-drift-env.cjs` and the runner now
@@ -409,3 +422,33 @@ missing.
   nothing while `package.json`'s `test:browser-prod-elision` still passes the flag verbatim. **A search
   that returns zero is not a check that passed**, and this one was caught by reading the script that
   invokes the runner rather than by trusting the count. No command in §5 has ceased to exist.
+
+## 8. The trunk moved while this was written, and it does not reach here
+
+The two previous pages record the same check and it is worth keeping, because a record anchored to a
+commit is only useful if a reader can see how far the trunk has travelled past it.
+
+`origin/main` advanced **14** commits beyond `2f96ecc98c` while these gates ran, read at 2026-08-21
+00:12 AUSEST. `git diff --name-only 2f96ecc98c..origin/main` names **18** paths: the tracker export, two
+`.claude/commands/` files, three pages under `docs/design/hicasso/`, and twelve under `implementation/`.
+
+**The twelve are the ones worth checking, and every one of them is under a bench tree.**
+`git diff --name-only 2f96ecc98c..origin/main -- implementation | grep -v /bench/` returns **nothing**:
+they are `#8555`'s `p0_run.cjs`, its structural test, one allocation driver and nine measurement-data
+JSON files. **No family 1–4 instrument or subject moved**, so every figure in §3 and §5 still describes
+the trunk as well as the base.
+
+**Family 5 is the exception, and the interval is exactly why.** `#8555` merged inside this window and
+moved `p0_run.cjs` a second time — see [§4.2](#42-and-family-5-still-reports-no-verdict-here-for-a-different-and-much-narrower-reason).
+That does not weaken §4's refusal; it is the refusal's own evidence, arriving while the page was open.
+
+This is a claim about a window that closed when the sentence was written, not a standing property. What
+generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
+to know whether it still describes the trunk can re-run the commands above rather than take this
+paragraph's word for it.
+
+This is a claim about a window that closed when the sentence was written, not a standing property. What
+generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
+to know whether it still describes the trunk can re-run the two commands above rather than take this
+paragraph's word for it.
+
