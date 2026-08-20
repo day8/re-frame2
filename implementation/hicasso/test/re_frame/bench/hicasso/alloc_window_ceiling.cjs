@@ -111,8 +111,13 @@ const med = (a) => {
 const pos = (x) => (x > 0 ? x : 0);
 // Every negative leg in a window, not just the first or the deepest. A fresh
 // array each call, so callers may sort it in place. This is the reader's only
-// EVENT-level view of collections: the position and magnitude censuses below
-// both take one reading per window and so cannot count collections at all.
+// PER-LEG view: the position and magnitude censuses below both take one reading
+// per window, so they cannot even count negative LEGS, let alone collections.
+//
+// A NEGATIVE LEG IS AN OBSERVATION, NOT A COLLECTION EVENT (rf2-onozm). The
+// instrument samples one delta per leg, so it cannot resolve collections within
+// a leg or across a leg boundary, and the count below bounds the number of
+// collections in NEITHER direction -- see the census in section 4.
 const negLegs = (c) => c.legs.filter((l) => l < 0);
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const pc = (v) => v.toFixed(1) + '%';
@@ -402,22 +407,37 @@ function report() {
   say(`    R = 20 refusals with AT LEAST ONE negative leg: ${r20neg.length} of ` +
       `${ws.filter((c) => c.rungKey === 'R20' && !c.certified).length}`);
 
-  // THE CARDINALITY CENSUS. Both per-window statistics below take ONE reading
-  // from each window -- the FIRST negative leg's position, and the DEEPEST
-  // leg's magnitude -- so neither can distinguish one collection from several.
-  // The count that can is this one, and it is printed FIRST for that reason.
+  // THE NEGATIVE-LEG CENSUS. Both per-window statistics below take ONE reading
+  // from each window -- the FIRST negative leg's position, and the DEEPEST leg's
+  // magnitude -- so neither can see a window's later negative legs at all. This
+  // census can, and it is printed FIRST for that reason.
+  //
+  // IT COUNTS LEG OBSERVATIONS, NOT COLLECTIONS (rf2-onozm, merged-PR audit of
+  // #8597). An earlier version called these 76 readings "EVENTS" and offered them
+  // as a lower bound on the number of collections. That does not follow from this
+  // instrument and it contradicted the page's own surviving caveat. It fails in
+  // BOTH directions: one collection spanning a leg boundary can make several legs
+  // negative, so 76 legs are not 76 collections; and one leg can contain several
+  // collections that are never separately observable, so it is not a bound the
+  // other way either. What the census DOES establish is unchanged and is stated
+  // below -- every refusing window carries at least one negative leg, so the
+  // collection-count lower bound is ONE PER WINDOW, exactly where it already was.
   const perWin = {};
   r20neg.forEach((c) => {
     const k = negLegs(c).length;
     perWin[k] = (perWin[k] || 0) + 1;
   });
-  const events = r20neg.flatMap((c) => negLegs(c));
+  const negObs = r20neg.flatMap((c) => negLegs(c));
   const multi = r20neg.filter((c) => negLegs(c).length > 1);
   say(`      negative legs per window: ` +
       Object.keys(perWin).sort((a, b) => a - b).map((k) => `${k} x ${perWin[k]}`).join(', ') +
-      `  ->  ${events.length} EVENTS over ${r20neg.length} windows`);
-  say(`      so the signature is AT LEAST ONE collection per refusing window. It is NOT`);
-  say(`      exactly one, and neither per-window census below can show the difference.`);
+      `  ->  ${negObs.length} NEGATIVE-LEG OBSERVATIONS over ${r20neg.length} windows`);
+  say(`      All ${r20neg.length} refusing windows carry at least one, so each is`);
+  say(`      collection-affected and the lower bound is ONE COLLECTION PER WINDOW.`);
+  say(`      ${negObs.length} IS A COUNT OF LEG OBSERVATIONS, NOT OF COLLECTIONS, and does not`);
+  say(`      raise that bound: one collection spanning a leg boundary can make several`);
+  say(`      legs negative, and one leg can hide several collections. The number of`);
+  say(`      collections within a window is UNKNOWN to this instrument.`);
   say(`      the ${multi.length} multi-negative windows, named in full:`);
   for (const c of multi) {
     const posns = c.legs.map((l, i) => (l < 0 ? i + 1 : null)).filter(Boolean);
@@ -428,19 +448,20 @@ function report() {
   say(`      position of the FIRST negative leg (of ${W}): ` +
       Object.keys(at).sort((a, b) => a - b).map((k) => `leg ${k} x ${at[k]}`).join(', '));
   say(`        (${r20neg.length} windows, one reading each; it cannot see the ` +
-      `${events.length - r20neg.length} later legs above.)`);
+      `${negObs.length - r20neg.length} later legs above.)`);
   say(`      DEEPEST leg per window: median ${n0(med(mags))} B, ` +
       `range ${n0(Math.min(...mags))} to ${n0(Math.max(...mags))} B`);
   say(`        (${r20neg.length} windows, one reading each. A MAGNITUDE statistic, NOT a count`);
   say(`         of collections -- what it establishes is the near-constant dominant reclaim.)`);
   const extras = r20neg.flatMap((c) => negLegs(c).sort((a, b) => a - b).slice(1));
-  say(`      all ${events.length} events: median ${n0(med(events))} B, ` +
-      `range ${n0(Math.min(...events))} to ${n0(Math.max(...events))} B`);
+  say(`      all ${negObs.length} negative legs: median ${n0(med(negObs))} B, ` +
+      `range ${n0(Math.min(...negObs))} to ${n0(Math.max(...negObs))} B`);
   say(`        the ${extras.length} legs the per-window statistic drops: ` +
       extras.sort((a, b) => a - b).map(n0).join(' B, ') + ' B');
   say(`        -- every one SMALLER in magnitude than the dominant leg of its own window, so`);
   say(`           exposing them does not weaken the dominant-reclaim reading. It separates`);
-  say(`           that reading from a COUNT of collections, which is a different claim.`);
+  say(`           that reading from a COUNT of collections -- a claim this instrument`);
+  say(`           cannot make in either direction, and does not make here.`);
   say(`      against a cohort legMedian of ${n0(med(r20neg.map((c) => c.legMedian)))} B`);
 
   say('');
@@ -629,21 +650,34 @@ function selfTest() {
 
   // THE CARDINALITY GUARD, added when the merged-PR audit of #8591 caught this
   // page claiming "one collection" where the corpus holds three windows with
-  // more than one. These checks pin the DISTINCTION rather than the figures:
-  // a per-window reading must not be read as a count of collections.
+  // more than one NEGATIVE LEG. These checks pin the DISTINCTION rather than the
+  // figures: a per-window reading must not be read as a count of negative legs.
+  //
+  // NOTE THE UNITS, corrected on the merged-PR audit of #8597 (rf2-onozm). These
+  // guards are about LEG OBSERVATIONS throughout. An earlier version wrote them
+  // as "3 collections vs 1", which smuggled back in the very inference the same
+  // audit struck from the report -- a synthetic window has three negative LEGS,
+  // and how many collections produced them is not something this instrument, or
+  // this guard, can say.
   const synth = { legs: [100, -700, 100, -300, 100, -50] };
   ck('negLegs counts every negative leg', negLegs(synth).length, 3);
   ck('first-negative-leg position sees only the first', synth.legs.findIndex((l) => l < 0) + 1, 2);
   ck('deepest-leg magnitude sees only the deepest', Math.min(...synth.legs), -700);
-  // The two per-window readings above agree on a window with THREE collections
+  // The two per-window readings above agree on a window with THREE negative legs
   // and on one with a single -700 B leg. That is exactly the blindness the
   // audit found, so it is asserted rather than described.
   const single = { legs: [100, -700, 100, 100, 100, 100] };
-  ck('first-position cannot separate 3 collections from 1',
+  ck('first-position cannot separate 3 negative legs from 1',
     (synth.legs.findIndex((l) => l < 0) + 1) === (single.legs.findIndex((l) => l < 0) + 1), true);
-  ck('deepest-magnitude cannot separate 3 collections from 1',
+  ck('deepest-magnitude cannot separate 3 negative legs from 1',
     Math.min(...synth.legs) === Math.min(...single.legs), true);
   ck('negLegs CAN separate them', negLegs(synth).length !== negLegs(single).length, true);
+  // And the claim the census may NOT make, pinned so it cannot creep back: the
+  // collection-count lower bound is one PER WINDOW, and the leg count does not
+  // raise it. Both synthetic windows are one collection-affected window each,
+  // whatever their leg counts.
+  ck('a 3-negative-leg window still bounds collections at >= 1, not >= 3',
+    Math.min(negLegs(synth).length, 1), 1);
 
   // THE SET-RELATIONSHIP GUARD, added when the merged-PR audit of #8591 caught
   // this page asserting that the retired bound "refuses nothing the certificate
