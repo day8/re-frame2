@@ -1,8 +1,7 @@
 (ns re-frame.hicasso.impl.codec
-  "THE HICCUP CODEC — deliverable 1 of the Wave-1 shared front half
-  (rf2-2rtt6.8). Runtime interpretation of arbitrary hiccup into React
-  elements, built by extracting reagent-slim's *measured* tag/prop/child
-  plumbing.
+  "THE HICCUP CODEC — the shared front half's hiccup interpreter.
+  Runtime interpretation of arbitrary hiccup into React elements, over
+  reagent-slim's *measured* tag/prop/child plumbing.
 
   ## What was taken, and what was deliberately left
 
@@ -19,14 +18,11 @@
   ratoms, and the scheduler. None of them is here, none of them is
   reachable from here, and the codec requires nothing from a donor.
 
-  The argv-equality memoization was on that list until rf2-2rtt6.52.
-  HD-006 held that narrow updates come from boundary placement and that
-  every default comparison is a cost every render pays — and it
-  pre-registered its own reopen condition, keyed to broad-witness
-  evidence. The tier-1 roster produced it: a page-chrome write re-ran the
-  page and all 300 card boundaries beneath it with every card's inputs
-  value-equal. So a value-equality bail-out is now the boundary
-  **default**, as one stable internal memo wrapper per head
+  The argv-equality memoization is NOT among them. HD-006 as amended
+  makes a value-equality bail-out the boundary **default**, because
+  without one a page-chrome write re-runs the page and all 300 card
+  boundaries beneath it with every card's inputs value-equal. It is one
+  stable internal memo wrapper per head
   ([[memoize-boundary!]]). It is a comparison of a boundary's props map
   and nothing else — the element and prop-object caches HD-004 refuses
   are still refused, and still absent below.
@@ -38,14 +34,13 @@
   has no public boundary, and the pre-alpha stance is to trust the
   programmer). `defhost` — HD-011's taught door — is NOT absent any
   more: [[mint-host!]] is the declaration and the host head is the
-  fourth element class, §Host heads below (rf2-2rtt6.65). Nor is the
+  fourth element class, §Host heads below. Nor is the
   `[:>]` raw escape, which HD-011 keeps explicitly secondary and which
   is now built as [[raw-element]] — the same crossing with the
-  declaration erased (rf2-2rtt6.103).
+  declaration erased.
   Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
   the operator ruled SSR into scope: `:server` is a declaration option
-  with two values, and `:fallback` is its sibling (rf2-2rtt6.85,
-  rf2-l0wfx, rf2-mo4o). Under `:client-only` [[mint-host-gate!]] is the
+  with two values, and `:fallback` is its sibling. Under `:client-only` [[mint-host-gate!]] is the
   one mechanism that serves the server render, hydration's first client
   pass and a fresh `createRoot` mount alike; `:server :render` mints no
   gate and renders the component itself server-side, which is the only
@@ -65,7 +60,7 @@
 
   A [[PropSlot]] is the React name the cache always held plus the four
   classifications that are pure functions of the same literal — reserved
-  slot, event position, ref slot, class slot (rf2-y1jkm, rf2-2rtt6.36).
+  slot, event position, ref slot, class slot.
   Same keys, same lifetime, same guard; one lookup now answers everything
   the per-prop walk used to re-derive per element per render.
 
@@ -92,18 +87,18 @@
   Analysis — tag parse, prop names, class merge, child realization, head
   classification — is arm-neutral and is what both tournament arms share.
   **Emission is not**, and this file emits React elements, i.e. Arm 1's
-  representation. Hicasso/PATCH (rf2-2rtt6.10) reuses the analysis and
+  representation. Hicasso/PATCH reuses the analysis and
   brings its own emitter; that is the honest shape of \"the arm's element
   representation\" in architecture.md, and it is the reason the two are
   kept visibly apart below rather than interleaved.
 
-  ## The one behaviour emission adds (rf2-fki5d)
+  ## The one behaviour emission adds
 
   Everything else here translates what the author wrote. A controlled
   `<input>` or `<textarea>` gets one thing more: its change handler is
   wrapped so the field converges against the model **inside the discrete
   event, with the caret where the edit left it** — the half neither
-  React nor UIx's port gives on its own (rf2-n3dxw).
+  React nor UIx's port gives on its own.
 
   It belongs at emission rather than in a boundary because that is what
   makes it free at the authoring surface: the view writes an ordinary
@@ -118,7 +113,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame (rf2-hic-035), `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/event` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag, an `h/event` at any slot none of those claimed REFUSED, everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -137,9 +132,7 @@
 
   All three are attribute *keys*, not forms — so the merge survives into a
   structural test and into tooling, and none adds a public concept in the
-  K5 sense. (K5 — the ergonomics kill criterion — was removed by operator
-  ruling on 2026-08-04; this records the reason the shape was chosen, not
-  a live gate.)
+  K5 sense.
 
   ## One canonical slot, and every rule asks it
 
@@ -153,7 +146,7 @@
   written against the raw key is a rule that `\"key\"`, `:x/ref` and
   `:onInput` walk straight past.
 
-  **The rule itself is not in this file** (rf2-ani6y). It is
+  **The rule itself is not in this file**. It is
   [[re-frame.hicasso.impl.slot/prop-name]], in `.cljc`, because
   the `[:>]` migration codemod decides the same slots on the JVM and a
   reimplementation there would be the codemod's own defect class turned
@@ -181,11 +174,11 @@
   ordinary DOM attribute in others — a worse outcome than the exception,
   and the reason the collision argument settles the spelling.
 
-  The reasoning is recorded here because the doctrine has since been
-  reinforced by name twice — rf2-vrvv9 (\"a rule written against the
-  spelling is a rule the other spellings walk past\") and rf2-2rtt6.119
-  (the class slot is a position at the crossing too) — so the next reader
-  arrives with that fresh and should find the exception argued. Note also
+  The reasoning is recorded here because the doctrine is stated twice
+  elsewhere — \"a rule written against the spelling is a rule the other
+  spellings walk past\", and the class slot being a position at the
+  crossing too — so a reader arrives with that fresh and should find the
+  exception argued. Note also
   that `:key` has BOTH halves, an exact match in the walk *and* a
   canonical-slot denial in [[structural-slots]]; the revision takes only
   the first, and closes the same gap from the other end — its read is
@@ -215,13 +208,12 @@
 (declare as-element)
 
 ;; ---------------------------------------------------------------------------
-;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s (rf2-hic-007)
+;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s
 ;; ---------------------------------------------------------------------------
 ;;
-;; This file's `fail!` was the general one, and rf2-hic-007 generalised it
-;; the rest of the way: the same id / position / reason / recovery a test
-;; can assert on, plus the ambient view and source coordinate no call site
-;; is in a position to supply.
+;; One constructor for the whole package: the same id / position / reason
+;; / recovery a test can assert on, plus the ambient view and source
+;; coordinate no call site is in a position to supply.
 
 ;; ---------------------------------------------------------------------------
 ;; Cache hygiene — the own-property guard both caches share
@@ -235,11 +227,11 @@
   is the whole predicate.
 
   Three `===` string compares rather than the set lookup this began as
-  (rf2-y1jkm): a set lookup pays a string hash for a roster of three —
+ : a set lookup pays a string hash for a roster of three —
   36.9 ns against 9.6 on the census page's own literals, measured by
   `walk_profile_app`'s micro table.
 
-  **It is asked on the cache MISS path only** (rf2-2rtt6.63). The caches
+  **It is asked on the cache MISS path only**. The caches
   below carry no prototype, so a hostile literal cannot make a lookup
   answer wrongly and the guard has only one job left: keep the three
   names out of the caches, and out of the emitted props object — which
@@ -252,10 +244,9 @@
       (identical? "constructor" n)))
 
 (defn- empty-cache
-  "A codec cache: a JS object with **no prototype at all**
-  (rf2-2rtt6.63).
+  "A codec cache: a JS object with **no prototype at all**.
 
-  Both caches are keyed by the author's literal, so both had to answer
+  Both caches are keyed by the author's literal, so both must answer
   two hostile questions on every lookup: could a literal named
   `__proto__` poison a write, and could a literal named `toString` or
   `constructor` hit an INHERITED property and be served a value nobody
@@ -325,11 +316,11 @@
 ;; [[re-frame.hicasso.impl.slot/prop-name]], in `.cljc`, because
 ;; the `[:>]` migration codemod has to ask the same question on the JVM
 ;; and a tool that reimplemented it would reproduce — inside the tool —
-;; the silent divergence the codemod exists to delete (rf2-ani6y). Only
+;; the silent divergence the codemod exists to delete. Only
 ;; the CACHING of its answers is codec work, and that is what follows.
 
 (deftype PropSlot [js-name reserved? event? ref? class?]
-  ;; What the prop cache holds for one prop literal (rf2-y1jkm): the React
+  ;; What the prop cache holds for one prop literal: the React
   ;; name the codec always cached, PLUS the four classifications the
   ;; per-prop walk used to re-derive per element per render — is the
   ;; emitted slot reserved, is the position an event position, is it the
@@ -375,7 +366,7 @@
 
   **The seeded entries are the RULE, not memos of one** — so each slot
   name is ASKED of [[re-frame.hicasso.impl.slot/prop-name]]
-  rather than written out again here (rf2-ani6y). A hand-spelled seed is
+  rather than written out again here. A hand-spelled seed is
   the one place this file could still answer a slot the shared rule
   would not, which is this bead's own defect class one level in; and the
   seed was written out TWICE, here and in [[reset-caches!]], so a drift
@@ -435,7 +426,7 @@
       (.-js-name s))))
 
 ;; ---------------------------------------------------------------------------
-;; The canonical structural-slot filter (rf2-2rtt6.36)
+;; The canonical structural-slot filter
 ;; ---------------------------------------------------------------------------
 
 (def canonical-slot
@@ -577,7 +568,7 @@
   identity**, deliberately: rewrapping them would defeat `React.memo` and
   every downstream bail-out that compares handler identity.
 
-  `string?` is asked first (rf2-y1jkm): a string is the overwhelming prop
+  `string?` is asked first: a string is the overwhelming prop
   value on a census page — `href`, `class`, `data-testid`, `src`, `type`
   — and it previously proved itself *not* a fn, map, keyword, symbol or
   collection on its way to `:else`, two of those being the dear
@@ -654,7 +645,7 @@
                {:value caller})))))
 
 ;; ---------------------------------------------------------------------------
-;; `::h/revision` — the controlled element's reset trigger (rf2-zq8kh)
+;; `::h/revision` — the controlled element's reset trigger
 ;; ---------------------------------------------------------------------------
 
 (def revision-key
@@ -676,7 +667,7 @@
   exception is right here rather than assumed. Every other spelling —
   bare `:revision`, `\"revision\"`, `:x/revision` — flows on as an
   ordinary DOM attribute, which is the honest loss the guide's
-  troubleshooting line describes: post-rf2-vrvv9 the NATIVE walk still
+  troubleshooting line describes: the NATIVE walk
   answers `(name v)` for a keyword ([[convert-prop-value]]), so a
   misspelled bare `:revision` carrying the most natural revision value
   there is — a namespaced keyword — emits `revision=\"rev-3\"` with the
@@ -767,7 +758,7 @@
   v)
 
 ;; ---------------------------------------------------------------------------
-;; A presence override that no tray can reach (rf2-34a7)
+;; A presence override that no tray can reach
 ;; ---------------------------------------------------------------------------
 
 (defn- refuse-misplaced-override!
@@ -932,7 +923,7 @@
   `:class` and `:id`, and costs the walk one comparison it already had
   the value for.
 
-  ## The two lanes (rf2-y1jkm, narrowed by rf2-2rtt6.36)
+  ## The two lanes
 
   The walk-cost profile (`walk_profile_app`, census page: 1,202
   elements, 567 of them with no attribute map, 924 with a `.class`
@@ -1033,8 +1024,7 @@
 
 (defn mark-frame-prop!
   "Record that `f` — an already-marked boundary head — takes its frame as
-  an ordinary ELEMENT PROP rather than from React context, and return it
-  (rf2-2rtt6.39).
+  an ordinary ELEMENT PROP rather than from React context, and return it.
 
   ## Why the codec can supply it at all
 
@@ -1052,8 +1042,7 @@
   React component that mounts Hicasso itself — and that creator names the
   frame explicitly ([[root-element]]).
 
-  **This is a MEASUREMENT variant, not the default** (rf2-2rtt6.39 is a
-  hypothesis to price, not a ruling). Both variants live here so the
+  **This is a MEASUREMENT variant, not the default.** Both variants live here so the
   comparison is like-for-like: an unmarked head pays exactly what it
   always paid, because the marker is read where the head's memo wrapper
   is already read and the prop is written only when it is set."
@@ -1071,23 +1060,22 @@
 
 (defn retain-body!
   "**Dev only.** Record the body function a minted head runs, ON the head,
-  and return the head (rf2-kjf5).
+  and return the head.
 
   ## What it is for, and what it deliberately is not
 
   A boundary head is a React component: it runs its body inside
   [[re-frame.hicasso.impl.collector/shell]], under two React hooks, and
-  the body is otherwise reachable only through that shell. So the L0–L2
-  test kit — which mounts nothing and runs no hook — could take a minted
-  `h/defview` head and have no route back to the function the author
-  wrote. It refused, and pointed at L3.
+  the body is otherwise reachable only through that shell. Without this,
+  the L0–L2 test kit — which mounts nothing and runs no hook — would take
+  a minted `h/defview` head and have no route back to the function the
+  author wrote.
 
-  The operator ruled (rf2-kjf5, 2026-08-10) that the kit should render a
-  minted head, so the head carries its body. **One own property, no
-  registry and no map** — the same shape as [[mark-boundary!]] and
-  [[mark-frame-prop!]] beside it, and the reason `rf2-2rtt6.52` is
-  untouched: the head is still the function, still what a `defview` hands
-  back, and no new object escapes.
+  The kit renders a minted head, so the head carries its body. **One own
+  property, no registry and no map** — the same shape as
+  [[mark-boundary!]] and [[mark-frame-prop!]] beside it, and the reason
+  the memo contract is untouched: the head is still the function, still
+  what a `defview` hands back, and no new object escapes.
 
   ## It is not there in production, and that is the point
 
@@ -1131,8 +1119,8 @@
   render re-renders, which is the safe direction and the one Reagent's
   `shouldComponentUpdate` errs in too.
 
-  **Fails OPEN, and that polarity is a ruling rather than a taste
-  (rf2-5al9d7).** `=` over an app-owned value can throw — a type with a
+  **Fails OPEN, and that polarity is deliberate rather than incidental.**
+  `=` over an app-owned value can throw — a type with a
   throwing `-equiv`, a foreign object mutated in place — and this runs
   inside React's comparator, where an escaping throw is a render crash and
   not a slow render. reagent-slim met the identical hazard on the
@@ -1152,7 +1140,7 @@
   re-evaluating a `defview` here re-mints the head and its wrapper — a new
   React element *type*, which HMR replaces outright.
 
-  ## `rfFrame` is compared too, and it has to be (rf2-2rtt6.39)
+  ## `rfFrame` is compared too, and it has to be
 
   A context-fed boundary is safe from this comparator by construction:
   React propagates a context change to its consumers directly, ahead of
@@ -1182,10 +1170,10 @@
   "Give a marked head **one stable internal memo wrapper**, and return the
   head — still the function it was.
 
-  ## Why the wrapper is internal (HD-006 as amended, rf2-2rtt6.52)
+  ## Why the wrapper is internal (HD-006 as amended)
 
   A value-equality bail-out is the boundary DEFAULT: without one, a write
-  moving a key the PAGE reads re-rendered the page and then all 300 card
+  moving a key the PAGE reads re-renders the page and then all 300 card
   boundaries beneath it, every card's props and every card's subscription
   values equal. React re-renders the children of a re-rendered parent
   unless the element is referentially identical (a `for` builds fresh
@@ -1240,11 +1228,10 @@
 ;; author spells the prop — while an undeclared `onFoo` never becomes an
 ;; event position no matter how event-shaped its name is.
 ;;
-;; ## The `:server` policy — HD-011's placeholder, activated (rf2-2rtt6.85)
+;; ## The `:server` policy — HD-011's placeholder, activated
 ;;
-;; HD-011 listed "SSR placeholder" among `defhost`'s strong defaults and
-;; HD-020(d) left it inert; the operator's 2026-08-04 ruling makes SSR
-;; required scope, so the placeholder is now real. TWO POLICIES, and a
+;; HD-011 lists "SSR placeholder" among `defhost`'s strong defaults, and
+;; SSR is required scope, so the placeholder is real. TWO POLICIES, and a
 ;; sibling option that belongs to one of them:
 ;;
 ;;     :server :client-only     ; THE DEFAULT — omit :server and this is it
@@ -1262,19 +1249,18 @@
 ;; from the door guessing.
 ;;
 ;; **The key is `:server` and the values are the two sides that render**
-;; (rf2-mo4o, applying naming-ledger row 21). `:ssr` named the TECHNIQUE
-;; and admitted the fallback as a third value shape — an enum sometimes
+;; (naming-ledger row 21). `:ssr` would name the TECHNIQUE
+;; and admit the fallback as a third value shape — an enum sometimes
 ;; replaced by a nested map — while `n/defcomponent`, the sibling door in
-;; this same package, already took `:server` with these two values and
-;; refused the `:ssr` spelling outright
+;; this same package, takes `:server` with these two values and
+;; refuses the `:ssr` spelling outright
 ;; ([[re-frame.hicasso.native/declared-server]]). One library, one policy
 ;; concept, one spelling; and a fallback reads as what it is, markup at
 ;; the crossing rather than a policy value.
 ;;
-;; **`:render` is rf2-l0wfx's ruling** (2026-08-05), and the case that
-;; filed it is a context PROVIDER: a transparent wrapper that
-;; contributes no markup of its own and exists solely to carry a
-;; subtree. Under Client-only the unadopted arm returns something that
+;; **`:render` exists for the context PROVIDER case**: a transparent
+;; wrapper that contributes no markup of its own and exists solely to
+;; carry a subtree. Under Client-only the unadopted arm returns something that
 ;; is not the component, so the crossing's
 ;; CHILDREN are dropped and the provider deletes the whole application
 ;; from the server response — silently, because the server snapshot and
@@ -1318,7 +1304,7 @@
 ;; context DEFAULT server-side (silent-absent becomes silent-wrong), and
 ;; then remounts the whole just-hydrated subtree at adoption.
 ;;
-;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
+;; **The price, stated because it changed**: the door used
 ;; to mint no wrapper, no fiber and no hook — the foreign component was
 ;; the element's own type. A gated declaration mints ONE gate, so a
 ;; Client-only crossing costs one fiber and one hook; a `:render`
@@ -1339,15 +1325,15 @@
   #{:event :handler :render})
 
 (def ^:private host-options
-  "Every key a declaration may carry. [[mint-host!]] read `:callbacks`
-  and SILENTLY IGNORED everything else until rf2-2rtt6.85 — so a
-  misspelled `:server`, or a policy invented by an author reading the
-  wrong docstring, was a no-op that looked like a setting. That is the
-  same defect class as an intent crossing as inert data, and it gets
-  the same treatment: refused, at the declaration.
+  "Every key a declaration may carry. A door that read `:callbacks` and
+  SILENTLY IGNORED everything else would make a misspelled `:server`, or
+  a policy invented by an author reading the wrong docstring, a no-op
+  that looked like a setting. That is the same defect class as an intent
+  crossing as inert data, and it gets the same treatment: refused, at the
+  declaration.
 
   `:ssr` is not in the roster and is not aliased to `:server`: this is
-  pre-alpha and a rename is a rename (rf2-mo4o), so the retired spelling
+  pre-alpha and a rename is a rename, so the retired spelling
   lands on [[mint-host!]]'s unknown-option refusal, which names the four
   keys that exist."
   #{:callbacks :slots :server :fallback})
@@ -1390,7 +1376,7 @@
   (react/useSyncExternalStore gate-no-subscribe gate-adopted gate-unadopted))
 
 ;; ---------------------------------------------------------------------------
-;; The adoption crossing, observed once — `:rf.ssr/host-adopted` (rf2-oaksj)
+;; The adoption crossing, observed once — `:rf.ssr/host-adopted`
 ;; ---------------------------------------------------------------------------
 ;;
 ;; [[adopted?]] above is the whole client-only mechanism, and it is
@@ -1494,7 +1480,7 @@
   (or (unchecked-get x "displayName") "<unnamed>"))
 
 (defn- refuse-deferring-heads-in-fallback!
-  "A DECLARED FALLBACK IS INERT MARKUP, ENFORCED (rf2-nv07k). Walks
+  "A DECLARED FALLBACK IS INERT MARKUP, ENFORCED. Walks
   `form` structurally and refuses a `defview` or `defhost` head at any
   position, naming the host, the head and where it sits.
 
@@ -1531,11 +1517,10 @@
   free: a frame-fed head is a boundary head, and the walk asks the
   marker rather than the mint.
 
-  **The workaround it deletes is superseded, not merely removed.**
-  Writing a provider's subtree a second time as the declaration's
-  fallback was `rf2-l0wfx`'s only recovery; `:server :render` is now the
-  honest one, and it renders the real subtree with the real context
-  value and no duplication.
+  **`:server :render` is the honest recovery**, against writing a
+  provider's subtree a second time as the declaration's fallback: it
+  renders the real subtree with the real context value and no
+  duplication.
 
   `path` is the index route into the declared form — `[]` is the
   fallback itself, `[0]` its head position, `[2 0]` the head of its
@@ -1581,7 +1566,7 @@
   at every site of the host: React elements are immutable values, and a
   placeholder that differs per site is not a placeholder.
 
-  ## And that is now ENFORCED rather than merely stated (rf2-nv07k)
+  ## And that is now ENFORCED rather than merely stated
 
   This docstring used to draw the corollary the guide teaches — *\"a
   fallback is inert markup\"* — while only half of it held: the walk
@@ -1642,8 +1627,8 @@
   nothing gets the conservative answer and an author who writes the
   default explicitly gets the same one.
 
-  `:render` is rf2-l0wfx's value (2026-08-05) and it is an ASSERTION:
-  *this component is safe to render on the server*. The spellings an
+  `:render` is an ASSERTION: *this component is safe to render on the
+  server*. The spellings an
   author reaches for instead — `:children`, `:transparent`,
   `:passthrough` — stay refused. They assert a structural property nobody
   can check and deliver the subtree under the WRONG context value;
@@ -1660,7 +1645,7 @@
 
 (defn- declared-fallback
   "The hiccup this declaration carries at `:fallback`, or nil when it
-  carries none. A sibling option rather than a policy VALUE (rf2-mo4o):
+  carries none. A sibling option rather than a policy VALUE:
   `:server` answers which arm applies and `:fallback` is the Client-only
   arm's payload. That is the split the guide teaches, and it is what
   makes the policy displayable — an enum, rather than an enum sometimes
@@ -1688,7 +1673,7 @@
           {:server server :fallback nil}))
       fallback)))
 
-;; --- The declared ReactNode positions (rf2-hic-035) ------------------------
+;; --- The declared ReactNode positions ------------------------
 ;;
 ;; A foreign component's props are DATA, and a host prop is converted
 ;; shallowly for exactly that reason ([[host-prop-value]]). But some of a
@@ -1725,14 +1710,14 @@
 ;; malformed policy.
 ;;
 ;; **A declaration that mints and can never fire is the trap wearing the
-;; fix's clothes** (rf2-hic-035, merged-PR audit of #7876). [[host-entry]]
+;; fix's clothes.** [[host-entry]]
 ;; skips the write entirely at a reserved emitted name — `__proto__`,
 ;; `prototype`, `constructor`, the roster [[reserved-name?]] holds — and
 ;; it does so ABOVE the declared-slot arm, because the props object handed
-;; to React has a prototype the caches no longer do. So
-;; `{:slots #{:constructor}}` used to mint, read correct, and silently
-;; never deliver: markup written there could not reach the component and
-;; nothing threw. That is the SAME silent-declaration failure `:slots`
+;; to React has a prototype the caches do not. Otherwise
+;; `{:slots #{:constructor}}` mints, reads correct, and silently
+;; never delivers: markup written there cannot reach the component and
+;; nothing throws. That is the SAME silent-declaration failure `:slots`
 ;; exists to delete, so it is refused at the declaration beside the other
 ;; five, on the same id.
 ;;
@@ -1849,7 +1834,7 @@
   React has a prototype even though the caches no longer do — so a
   contract declared at one of them would mint, read correct, and never
   once be applied. That is the same silent declaration `:slots` refuses
-  at [[declared-slots]] (rf2-hic-035), one roster over, and the recovery
+  at [[declared-slots]], one roster over, and the recovery
   the id already carried — *declare contracts on ordinary props only* —
   is the sentence both conditions were always waiting for."
   [host-name k why data]
@@ -1912,7 +1897,7 @@
                  "`:default` against a library with no default export.")
             :hand-the-declaration-a-real-component
             {:host host-name}))
-   ;; THE SHAPE, before the roster (rf2-3f11). Without this the doseq
+   ;; THE SHAPE, before the roster. Without this the doseq
    ;; below hands a non-map to `keys`, and what the author gets is
    ;; whichever internal error `keys` raises on their value — not a
    ;; declaration refusal naming the offending form, which is the whole
@@ -2073,7 +2058,7 @@
   "The `:server` policy `head` was declared with — `:client-only` or
   `:render`, the same two `n/marker` records on the sibling door. The
   declaration read back as data, for a server walk that wants to state
-  the policy it is honouring (rf2-2rtt6.86) and for the witnesses that
+  the policy it is honouring and for the witnesses that
   assert on it. Nothing on the render path reads it: the policy is
   enforced by WHICH TYPE the declaration mints — a gate for Client-only,
   the foreign component itself for `:render`. A declared `:fallback` is
@@ -2093,7 +2078,7 @@
   (map? (nth argv i nil)))
 
 ;; ---------------------------------------------------------------------------
-;; The minted key warnings — DEVELOPMENT ONLY (rf2-2rtt6.104)
+;; The minted key warnings — DEVELOPMENT ONLY
 ;; ---------------------------------------------------------------------------
 ;;
 ;; React already warns about an unkeyed list, and this does not replace it
@@ -2203,8 +2188,7 @@
   `pr-str` inside a diagnostic, and the author already knows what they
   wrote — what they need is the view, the child and the hazard.
 
-  TOTAL over everything [[check-member-key!]] rejects, which is the
-  repair rf2-2rtt6.104 asked for. The strings below are the ONLY text
+  TOTAL over everything [[check-member-key!]] rejects. The strings below are the ONLY text
   this diagnostic can produce, so the totality and the never-print
   guarantee are one property: no arm falls through to the value.
   `coll?` sits here rather than at the call site because it is the
@@ -2269,7 +2253,7 @@
   boundary-headed vector React will reconcile by position — no `:key`, or
   a `:key` whose value is not one React can coerce to a stable identity.
 
-  ## The classification is TOTAL (rf2-2rtt6.104)
+  ## The classification is TOTAL
 
   This `cond` shipped with two arms and no `:else`, so every non-nil
   `:key` that was neither primitive nor a CLJS collection fell out of the
@@ -2306,7 +2290,7 @@
   The reason to warn on BOTH rather than defer the collision half to
   React is cost, and here it is zero: see the ordering note below. The
   cost argument that keeps this lane quiet where React already speaks
-  (rf2-2rtt6.134, the missing key on a host or `[:>]` child) is an
+  (the missing key on a host or `[:>]` child) is an
   argument about a ~150 ns/member charge on the hot walk. Nothing here
   touches the hot walk.
 
@@ -2329,10 +2313,10 @@
   lookup are protocol dispatches through real function calls here, where
   the analytic estimate priced them as the inlined shapes `:advanced`
   produces — and under `:advanced` the check does not exist at all. The
-  figure is recorded rather than argued with; rf2-2rtt6.32 is this lane's
-  standing reminder of what an unclocked micro-claim is worth.
+  figure is recorded rather than argued with, because an unclocked
+  micro-claim is worth nothing here.
 
-  Two shapes were measured and rejected on the way to this one:
+  Two other shapes are measured and rejected:
 
   - **A pre-pass over the seq before the expansion loop** (the design's
     proposal, chosen there to leave the shipping loop untouched):
@@ -2419,7 +2403,7 @@
   those members into direct arguments — which React marks validated and
   therefore never warns about. This branch, where the seq is still in hand
   and the enclosing body's owner slot is still set, is the only chance
-  anything has to say so (rf2-2rtt6.104)."
+  anything has to say so."
   [argv first-child]
   (when (< first-child (count argv))
     (let [flat (reduce (fn [acc c]
@@ -2439,10 +2423,9 @@
 ;; mint a fresh function object on every collection visited, and `run!`
 ;; mints one of its own. Named here, the walk allocates nothing at all.
 
-;; A map entry is TWO reachable positions, not one. Keys were skipped
-;; here until rf2-2rtt6.32 on the argument that hashing a seq realises
-;; it, so nothing unrealised can already be a key — and that argument is
-;; wrong twice. A `delay` hashes by object identity (cljs.core extends
+;; A map entry is TWO reachable positions, not one. Skipping keys here on
+;; the argument that hashing a seq realises it, so nothing unrealised can
+;; already be a key, is wrong twice. A `delay` hashes by object identity (cljs.core extends
 ;; `IHash` on `default` to `goog/getUid`), so hashing never forces one;
 ;; and a small map literal is a `PersistentArrayMap`, which compares keys
 ;; with `=` against the entries already accumulated and hashes nothing at
@@ -2458,7 +2441,7 @@
 ;; the path. `keyword?` is one `instanceof`. Prop-map keys are keywords
 ;; essentially always, and skipping the no-op for them is the difference
 ;; between the key half costing +51–67% of the walk and costing almost
-;; nothing (rf2-2rtt6.32, table in [[realize-deep]]).
+;; nothing (table in [[realize-deep]]).
 (defn- realize-entry [_ k x]
   (when-not (keyword? k) (realize-deep k))
   (realize-deep x)
@@ -2520,7 +2503,7 @@
   to the wrong boundary; and because a `LazySeq` caches, that boundary
   re-renders exactly once, reads nothing the second time, and drops the
   edges. The value is then correct on screen and frozen for the life of
-  the mount. rf2-2rtt6.45.
+  the mount.
 
   One walk at the hand-off closes it, and pays where the escape is: the
   read is forced by the same pass that turns hiccup into elements, inside
@@ -2556,7 +2539,7 @@
   before `map?` so a scalar — the overwhelming case — costs exactly one
   predicate.
 
-  ### What the key half costs (rf2-2rtt6.32)
+  ### What the key half costs
 
   Not nothing, and it was measured rather than assumed. Three walks
   A/B/C'd in one process on an otherwise idle box, rounds interleaved,
@@ -2646,8 +2629,7 @@
 
   The dev-only [[check-member-key!]] call RIDES this loop rather than
   pre-scanning the seq, which costs the predicates and no second spine
-  traversal (rf2-2rtt6.104 clocked the difference; the fn's docstring
-  carries the numbers).
+  traversal (the fn's docstring carries the numbers).
 
   **The index it reports is `(.-length a)`, not a loop variable**, and
   that is the reason the loop still has exactly the shape it had: one
@@ -2693,10 +2675,10 @@
   EMITTED element — a controlled `value`, a change handler, a type with
   a caret — and those are canonical slots rather than spellings. It is
   one JS `switch` on the tag for every element that is not an `:input`
-  or a `:textarea`, which is nearly all of them. rf2-fki5d.
+  or a `:textarea`, which is nearly all of them.
 
-  It also **answers what to render the props as**, which since rf2-digtt
-  is the tag for everything except a controlled `input`/`textarea` —
+  It also **answers what to render the props as**, which is the tag for
+  everything except a controlled `input`/`textarea` —
   those get the composition shadow's component, and the tag it renders
   is the tag parsed here. The codec asks one question and takes one
   answer; which of the two it is belongs entirely to that namespace.
@@ -2727,7 +2709,7 @@
         props       (if has-props? (nth argv 1) nil)
         ;; nil, not `(or props {})` — the absent attribute map is
         ;; [[convert-props]]'s first lane, and wrapping it in an empty
-        ;; map was the whole cost of telling it so (rf2-y1jkm).
+        ;; map was the whole cost of telling it so.
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
                       (unchecked-set js-props controlled/revision-slot r))
@@ -2760,19 +2742,18 @@
         ;; frozen, because a realised `LazySeq` is never walked a second
         ;; time. [[realize-deep]] returns the map by identity and covers
         ;; `:children` in the same pass, which is where the one-level
-        ;; flatten leaves a nested seq. rf2-2rtt6.45.
+        ;; flatten leaves a nested seq.
         ;;
         ;; The same pass refuses the one carrier it may not repair — an
         ;; unforced `delay`, whose meaning is precisely that it is not
         ;; forced here. The refusal fires inside THIS body's render, so
         ;; the author who wrote the crossing is the one who sees it.
-        ;; rf2-2rtt6.32.
         body-props (realize-deep (cond-> (dissoc props :key)
                                    children (assoc :children children)))
         head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    ;; THE FRAME AS DATA (rf2-2rtt6.39). Only for a head that asked for
+    ;; THE FRAME AS DATA. Only for a head that asked for
     ;; it, so the context-fed incumbent's element carries exactly what it
     ;; always carried and the two variants are comparable. `intent/*frame*`
     ;; is bound by the ancestor body this element is being created inside;
@@ -2821,7 +2802,7 @@
   guessing at which nested maps are options and which are data is the
   documented support burden the shallow default deletes.
 
-  ## The named value crosses whole (rf2-vrvv9)
+  ## The named value crosses whole
 
   This branch read `(name v)` for every named value at every host prop,
   which is stock Reagent's rule — and it silently deleted half of a
@@ -2849,7 +2830,7 @@
   ([[convert-prop-value]]) and the answer the server serializer gives, so
   the two crossings agree on every attribute both can carry.
 
-  **`className` no longer arrives here at all** (rf2-2rtt6.119).
+  **`className` no longer arrives here at all**.
   [[host-entry]] takes the class slot ahead of this function and hands it
   to [[class-names]], which is the coercion the native walk takes and the
   only one that answers a COLLECTION correctly — the arm the named-value
@@ -2883,7 +2864,7 @@
   ORDINARY function at an undeclared prop is different and legal: it is
   a value handed to a foreign API — not a position — so it crosses by
   identity and simply runs (the position table's deletion row). The
-  MARKED form is not, since rf2-2rtt6.116:
+  MARKED form is not:
   [[refuse-unclaimed-host-callback!]] takes an `h/event` at the same
   position, because that one asked for a contract."
   [^js head k v]
@@ -2919,10 +2900,10 @@
   every loud error in this codec exists to delete. An `h/event` returning
   that same vector is that defect one level of indirection down.
 
-  **This is derived, not new policy** (`rf2-2rtt6.116`). `mint-host!`
+  **This is derived, not new policy.** `mint-host!`
   already refuses an option it does not know, on the reasoning HD-011's
-  addendum records: a policy could be written and never applied, and the
-  silent-ignore was its own defect. An `h/event` whose contract is never
+  addendum records: a policy could be written and never applied, and a
+  silent ignore is its own defect. An `h/event` whose contract is never
   selected IS a policy written and never applied.
 
   **A PLAIN function at the same slot stays legal and untouched.** It is
@@ -2933,7 +2914,7 @@
   claims.
 
   **A declared ReactNode slot is one of the positions that leaves it
-  unanswered** (rf2-hic-035), and the message says so rather than
+  unanswered**, and the message says so rather than
   claiming nothing claims the prop. A slot claims the position for
   MARKUP: it lowers hiccup ([[as-element]]) and has no callback contract
   to select, so an `h/event` there is the same policy written and never
@@ -2978,13 +2959,13 @@
   event-spelled slot the declaration does not name is refused rather
   than inferred; an `h/event` at any slot nothing claimed is refused too,
   because the mark is a request for a contract and no position selected
-  one ([[refuse-unclaimed-host-callback!]], rf2-2rtt6.116); everything
+  one ([[refuse-unclaimed-host-callback!]]); everything
   else crosses shallowly. `event?` is gated on
   `keyword?` for the same reason the native walk gates it — a symbol
   spelled `on-click` shares the cache entry and is not an event
   position.
 
-  ## The class slot is a POSITION here too (rf2-2rtt6.119)
+  ## The class slot is a POSITION here too
 
   `className` is the one slot whose value has a coercion of its own —
   [[class-names]] — rather than the position's ordinary conversion, and
@@ -2997,13 +2978,13 @@
   wherever the component passes it on, so nothing threw and the styling
   was simply wrong.
 
-  rf2-vrvv9 already settled the principle and applied half of it: at
-  `className`, `id`, `role` and the `data-*`/`aria-*` families the value
+  The principle is already settled at
+  `className`, `id`, `role` and the `data-*`/`aria-*` families: the value
   is bound for an HTML attribute, so a named value keeps `(name v)` there
   — *\"which is also the answer the NATIVE walk gives at the same
-  names\"* ([[host-prop-value]]). That sentence is the law; the
-  collection arm was the half of it still unwritten, because a collection
-  never reached the named-value branch. Asking `class?` here — the flag
+  names\"* ([[host-prop-value]]). That sentence is the law, and the
+  collection arm is the half of it a collection would otherwise miss,
+  never reaching the named-value branch. Asking `class?` here — the flag
   the [[PropSlot]] already carries, so a declared-slot lookup pays one
   property read and a string key one compare — makes the two crossings
   agree at the class slot for **every** value shape.
@@ -3012,7 +2993,7 @@
   of one element's class are two map keys and one React slot, and letting
   the last write win drops a class silently.
 
-  ## The declared ReactNode slot (rf2-hic-035)
+  ## The declared ReactNode slot
 
   `slots` is the declaration's other roster, and its arm sits BESIDE the
   callback one for the same reason: a declared position means what the
@@ -3029,7 +3010,7 @@
   instead, and it is paid on BOTH rosters: [[declared-slots]] refuses a
   slot at a reserved emitted name and [[refuse-callback-position!]]
   refuses a contract at one, so the only shape either arm can be
-  unreachable for is one that never minted (rf2-hic-035).
+  unreachable for is one that never minted.
 
   **That sentence is exact, and it was not always true.** It was written
   when only the slot half of the guard existed, and it claimed the whole
@@ -3089,8 +3070,8 @@
 
             ;; The slot's own coercion, and the slot's own composition —
             ;; the same law [[convert-entry]] takes at the native
-            ;; position, taken here so the two crossings agree
-            ;; (rf2-2rtt6.119). Below the declaration, because HD-011's
+            ;; position, taken here so the two crossings agree.
+            ;; Below the declaration, because HD-011's
             ;; whole point is that a DECLARED position means what the
             ;; declaration says it means.
             class?
@@ -3100,7 +3081,7 @@
             (do (when (and event? (or (vector? v) (map? v)))
                   (refuse-undeclared-host-event! head k v))
                 ;; Beside its sibling, and for the sibling's own stated
-                ;; reason one indirection down (rf2-2rtt6.116). It is
+                ;; reason one indirection down. It is
                 ;; last of the two because `event?` is a flag already
                 ;; read, so that test costs a boolean, while this one
                 ;; costs a `fn?` — and it is ahead of
@@ -3113,7 +3094,7 @@
                   (refuse-unclaimed-host-callback! head k false))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
-                ;; against where the value lands (rf2-vrvv9).
+                ;; against where the value lands.
                 (host-prop-value slot v)))))
       o)))
 
@@ -3134,7 +3115,7 @@
   ([[re-frame.hicasso.impl.intent/lower-declared-prop]] — an
   `h/event` takes the contract's wrapper, an intent vector or key-map
   lowers as at a native position), lower every declared `:slots`
-  position hiccup→ReactNode ([[as-element]], rf2-hic-035), refuse an
+  position hiccup→ReactNode ([[as-element]]), refuse an
   event-spelled intent at an UNDECLARED slot and an `h/event` at any
   UNCLAIMED one, and convert everything else shallowly
   ([[host-prop-value]]) under its camelCased name.
@@ -3197,7 +3178,7 @@
 ;;    reading a [[raw-crossing]] stand-in for the declaration it does not
 ;;    have. That is what makes `[:> X …]` → `(defhost x X {})` a
 ;;    behaviour-preserving rewrite, which is the whole theorem of the
-;;    migration codemod (rf2-2rtt6.106). A refusal that is right in
+;;    migration codemod. A refusal that is right in
 ;;    isolation and wrong in composition is wrong: whatever is ruled at
 ;;    the door, the escape does the same thing.
 ;;
@@ -3464,7 +3445,7 @@
   this fn's only caller, which is why it is private — dispatches on that
   answer. So position 1 is read here rather than re-derived, and the
   escape's grammar is enforced in exactly one place for the runtime and
-  for `re-frame.hicasso.test` alike (rf2-hic-020)."
+  for `re-frame.hicasso.test` alike."
   [argv]
   (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
@@ -3492,10 +3473,10 @@
 
 (defn- raw-head?
   "Is this the raw-escape spelling? Compared with `=` for
-  [[fragment-head?]]'s own reason, and it is sharper here: `:>` was NOT
-  an error before rf2-2rtt6.103 — [[hiccup-tag?]] accepted any keyword
-  that is not `:<>`, so `[:> Foo {}]` asked React for an element
-  literally named `<>`. An `identical?` test would work under
+  [[fragment-head?]]'s own reason, and it is sharper here: a
+  [[hiccup-tag?]] accepting any keyword that is not `:<>` would let
+  `[:> Foo {}]` ask React for an element literally named `<>`. An
+  `identical?` test would work under
   `:advanced`, where the build interns keyword literals, and silently
   route every escape back into that native path everywhere else."
   [head]
@@ -3515,7 +3496,7 @@
   (or (keyword? head) (symbol? head) (string? head)))
 
 ;; ---------------------------------------------------------------------------
-;; The discriminations, each named once (rf2-hic-020)
+;; The discriminations, each named once
 ;; ---------------------------------------------------------------------------
 ;;
 ;; [[vec->element]] and [[as-element]] each answer a question before they do
@@ -3524,27 +3505,26 @@
 ;; as data, and it cannot inspect a React element to find out — so it has to
 ;; discriminate the author's hiccup itself.
 ;;
-;; It used to do that in a `cond` of its own, and rf2-hic-020's merged-PR
-;; audit found NINE ways the two answers had drifted: `:<>` recorded as an
-;; element named `:<>`, a keyword child refused where the runtime renders it
-;; as text, a `true` child dropped where the runtime raises. Every one was a
-;; branch that existed twice and agreed once.
+;; A classifier duplicated in a `cond` of its own drifts: `:<>` recorded as
+;; an element named `:<>`, a keyword child refused where the runtime renders
+;; it as text, a `true` child dropped where the runtime raises — each one a
+;; branch that exists twice and agrees once.
 ;;
 ;; So each question is asked in exactly one place — here — and its answer is
 ;; a keyword both callers dispatch on. The arms below keep the COSTED ORDER
-;; the two `cond`s were tuned to (see [[as-element]]'s accounting); moving a
-;; test here moves it for the runtime and the kit together, which is the
-;; whole point.
+;; the walk is tuned to (see [[as-element]]'s accounting); moving a test
+;; here moves it for the runtime and the kit together, which is the whole
+;; point.
 ;;
-;; A SECOND audit (PR #7796) found that sharing the answers was not yet
-;; enough, because [[vec->element]] does not only classify: it REFUSES two
-;; shapes before and around the classification — an empty vector, which has
-;; no head to classify, and a raw escape whose Component slot holds
-;; something React will not mint a fiber for. Those refusals were the
-;; runtime's alone, so the kit met the same two forms and answered with ids
-;; of its own: a generic malformed head for `[]`, and an L3 opacity pointer
-;; for `[:> :div]` — telling the programmer to go mount, at L3, a form that
-;; cannot mount anywhere. Wrong advice, not merely a different id.
+;; Sharing the ANSWERS is not enough on its own, because [[vec->element]]
+;; does not only classify: it REFUSES two shapes before and around the
+;; classification — an empty vector, which has no head to classify, and a
+;; raw escape whose Component slot holds something React will not mint a
+;; fiber for. Left to the runtime alone, the kit meets the same two forms
+;; and answers with ids of its own: a generic malformed head for `[]`, and
+;; an L3 opacity pointer for `[:> :div]` — telling the programmer to go
+;; mount, at L3, a form that cannot mount anywhere. Wrong advice, not merely
+;; a different id.
 ;;
 ;; [[vector-kind]] is where that stops. It is the discrimination WITH the
 ;; guards that have to pass before there is anything to discriminate, so a
@@ -3657,7 +3637,7 @@
   The child discrimination, named once. [[as-element]] dispatches on it
   to build React's child; the test kit dispatches on it to build a Spec
   004B child. The two used to ask separately and disagreed about
-  keywords, symbols and `true` (rf2-hic-020).
+  keywords, symbols and `true`.
 
       :nothing        renders nothing — `nil`, `false`
       :text           renders as itself — a string or a number
@@ -3690,7 +3670,7 @@
   "Interpret any hiccup form. `nil` and `false` render nothing; `true` is
   an error (HD-016); an existing React element passes through.
 
-  ## Why `string?` is asked before `vector?` (rf2-2rtt6.63)
+  ## Why `string?` is asked before `vector?`
 
   The branches are MUTUALLY EXCLUSIVE — a value satisfies at most one of
   `nil?`, `false?`, `string?`, `vector?`, `number?`, `seq?`, `true?` —
@@ -3733,7 +3713,7 @@
 (defn root-element
   "[[as-element]] for a hiccup form written OUTSIDE any boundary body —
   the root, or an outward React bridge that mounts Hicasso from foreign
-  code (rf2-2rtt6.39).
+  code.
 
   Every other element in the tree is created by an ancestor body, which
   is already running inside
@@ -3752,7 +3732,7 @@
     (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------
-;; THE OUTWARD BRIDGE (rf2-hic-032) — the codec's other half
+;; THE OUTWARD BRIDGE — the codec's other half
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Every other function in this file ENCODES: a hiccup form goes in and a
@@ -3940,7 +3920,7 @@
   because those are the rule and not a memo of one — and it re-seeds
   through [[seed-prop-cache!]], the same one the `def` uses, so a
   suite's `:each` fixture cannot leave the cache holding a different
-  spelling from a cold build's (rf2-ani6y)."
+  spelling from a cold build's."
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))
