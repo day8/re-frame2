@@ -223,8 +223,8 @@ revision on one instrument.
 *Retired* rather than *left failing*, because "FAILS by 16 – 20%" asserts something the
 evidence does not support. A control reporting a 16 – 20% failure on a quantity whose own
 ladder spans 19.4 – 19.8% is reporting the arm's dispersion. Leaving the verdict standing
-would keep a number on the record that has been shown to be indistinguishable from the
-instrument reading itself twice.
+would keep a number on the record that cannot be told apart from the arm reading two of
+its own rungs.
 
 **V1's FIRST clause is untouched and stands.** `F_old` flat in B is confirmed on
 certified windows, and it is the clause that does the work `F_old` was introduced for.
@@ -261,12 +261,14 @@ named three, and the corpus holds six besides this page and the studio index:
 
 - **NOT that the 2026-08-08 figure was wrong.** It is reproduced to within 0.01 – 1.60%
   by a run of the same arm at the same substrate revision. This page finds it *correct*.
-- **NOT that the 2026-08-17 figures were wrong.** They are the low rung, which 32 of 69
-  runs also produce.
+- **NOT that the 2026-08-17 figures were wrong.** On the `legMedian` basis they read
+  19,250 – 19,360 and 19,696 – 19,866 against this ladder's low rung of 19,100 and
+  19,540 — 150 – 260 B and 156 – 326 B away, at a different substrate revision. They are
+  the low rung, which 32 of 69 runs also produce.
 - **NOT that nothing moved.** Every variant leaves the 2026-08-08 row 2 – 373 B *above*
   the top rung, and the sign is consistent across all sixteen cells. A residual of that
-  size is not excluded — it is merely two orders of magnitude short of a rig having
-  changed. **Which of the two readings moved is still not determined, and this page does
+  size is not excluded — it is between **10× and 2,500× smaller** than the gap the clause
+  reported. **Which of the two readings moved is still not determined, and this page does
   not determine it.** What it shows is that the question no longer needs an across-time
   term to answer it: no such term is *required*, and none is *established*.
 - **NOT a mechanism.** The ladder is described, not explained. `rf2-6kxub` carries the
