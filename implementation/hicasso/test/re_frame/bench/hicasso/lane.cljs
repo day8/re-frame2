@@ -648,9 +648,27 @@
 ;; Rounds
 ;; ---------------------------------------------------------------------------
 
-(defn- visit-plan
+(defn visit-plan
   "The visits ONE run makes, in execution order, as
   `{:round :arm :measured?}`.
+
+  ## Why it is PUBLIC
+
+  A driver that banks something PER VISIT beside the reading — a
+  decomposition, a counter, a per-sample structural part — banks it from
+  inside its own `measure-one!`, which is handed an arm and not a visit.
+  It therefore cannot tell a warm-up visit from a measured one, and a
+  driver that publishes both under one heading publishes a distribution
+  whose population is not the population of the `:summary` it decomposes.
+  `slice-echo-clock-app` did exactly that: `100` banked values per arm
+  against a `60`-value summary at `{:warmup 8 :samples 12}` over five
+  rounds.
+
+  The repair is to derive the measured mask FROM THIS PLAN rather than
+  from a second reading of the schedule — `(count arms)`, [[slot-order]]
+  and the warm-up boundary re-implemented in a driver is the copy this
+  whole namespace is written to avoid. Answering the plan is cheaper than
+  answering a mask, because the plan is the thing that cannot drift.
 
   THE SCHEDULE IS STATED ONCE, HERE, and both loops below walk it.
   [[rounds!]] is synchronous and [[rounds-async!]] is not, and the
