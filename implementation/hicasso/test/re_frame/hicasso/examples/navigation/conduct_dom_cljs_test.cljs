@@ -73,8 +73,11 @@
   **Prefetch.** `re-frame.routing` warms a destination from all three
   credible-intent positions (`:on-mouse-enter` / `:on-focus` /
   `:on-touch-start`, the closed class `re-frame.routing.link/
-  prefetch-intent-keys` holds), and `re-frame.ui.route-link-dom-cljs-test`
-  drives them with real DOM events. Hicasso's own `h/route-link` DECLINES
+  prefetch-intent-keys` holds), and `re-frame.route-link-cljs-test`
+  drives each of them — with a SYNTHETIC event, not a real DOM one: the
+  suite that drove them through the browser retired with the compiled-view
+  substrate (rf2-0yp7w), so no browser-level witness survives it.
+  Hicasso's own `h/route-link` DECLINES
   `:prefetch` outright in v0 and fails loud at the link site
   (`:rf.error/hicasso-route-link-prefetch-declined`), so there is nothing
   on this application's surface to witness. Admitting the key is a

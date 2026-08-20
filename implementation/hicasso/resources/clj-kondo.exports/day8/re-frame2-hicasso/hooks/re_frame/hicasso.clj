@@ -344,8 +344,11 @@
 
 (def ^:private naming-attributes
   "The attributes that give an element an accessible name on their own.
-  The same three the compiled substrates' a11y pass names
-  (`re-frame.ui.compiler.a11y`, `:rf.ui.compile/a11y-missing-accessible-name`)."
+  The same three this project's retired compiled-view substrate named in its
+  a11y pass (`re-frame.ui.compiler.a11y`,
+  `:rf.ui.compile/a11y-missing-accessible-name`) — inherited from it rather
+  than invented here. That substrate went with rf2-0yp7w; the rule it agreed
+  with is what stayed."
   #{:aria-label :aria-labelledby :title})
 
 (defn- needs-an-accessible-name?

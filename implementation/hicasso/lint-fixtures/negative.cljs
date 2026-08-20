@@ -134,8 +134,9 @@
    [:button props]
    [:a {:href "/help"} "Help"]
    ;; An <a> with NO href is not a link and not focusable, so it needs no
-   ;; accessible name. The tag set and this condition are the compiled
-   ;; substrates' (`re-frame.ui.compiler.a11y`), not invented here.
+   ;; accessible name. The tag set and this condition were inherited from
+   ;; this project's retired compiled-view substrate
+   ;; (`re-frame.ui.compiler.a11y`, gone with rf2-0yp7w), not invented here.
    [:a {:name "section-3"}]
    [:a {:class "anchor-target"}]])
 
