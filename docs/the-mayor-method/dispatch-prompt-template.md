@@ -798,7 +798,7 @@ reads clean too**, because "unchanged" and "not attempted" are the same diff. Th
 plant that silently no-ops makes the sabotage run come back green, so the worker reports a guard that fired when
 nothing was ever broken — a false proof of a real guard, which is worse than no proof.
 
-Hash the file before the plant and compare after the restore. Four cautions:
+Hash the file before the plant and compare after the restore. Five cautions:
 
 * **On a checkout whose line endings are translated, use version control's own content hash against the committed
   object, not a plain byte digest of the working file.** A checkout during a rebase can rewrite the working file
@@ -814,6 +814,12 @@ Hash the file before the plant and compare after the restore. Four cautions:
   loses to whatever sits closer.
 * **Anchor a patch to a single line.** One worker's multi-line anchor matched nothing, with no error and no edit,
   and only the hash caught it.
+* **A pattern anchored at the end of a line matches nothing where line endings are translated** — a carriage
+  return sits between the text and the line ending, so the anchor never reaches the text. This defeats a
+  single-line anchor exactly as readily as a multi-line one, so the caution above does not cover it. And the
+  detector here is cheaper and earlier than the hash: **read the match count before you run the gate.** Zero is
+  unambiguous and free, where the hash convicts a no-op plant only after a whole gate run has been spent, and
+  convicts it as a signal the worker still has to interpret.
 * **A hash proves the SOURCE changed, not that the runtime ever saw it.** One worker planted a one-line fault and
   its live witness came back green. The hashes differed, so the plant had genuinely applied and the rule above
   reported success — but the file was not in the host build's module graph, so the watcher never noticed the edit
