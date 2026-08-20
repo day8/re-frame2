@@ -64,6 +64,23 @@
   and adjudicating it on a shared runner would be a latency threshold in a
   PR gate by another name.
 
+  ## THE HARNESS HALF, WHICH COST A CI CYCLE TO FIND
+
+  Every DOM row here boots on FRESH frame ids. That is not hygiene: a
+  second mount on a used id leaves the Hicasso arm rendered and DEAF,
+  because the collector's cell table is process-global and keyed by
+  `(frame, query)` while the fixture retires a frame without going through
+  the disposal hook that repairs those cells. [[with-both-arms]] and
+  `clock/boot!`'s §MOUNTING TWICE carry the mechanism and the measurement.
+
+  Two of the rows below are what found it, and they were written for
+  something else — which is the argument for having them. The read-roster
+  row reported the Hicasso arm's cache as `#{}` against the donor's 34,
+  and the schedule row reported `9 unverified of 18`, exactly the nine
+  Hicasso-side windows. The same schedule row also caught a real
+  disagreement in the driver's own contract: `clock/visits` published the
+  last visit INDEX under a docstring promising a COUNT.
+
   ## Runtime
 
   The DOM rows need a real browser and the `-dom-cljs-test` suffix puts
@@ -126,17 +143,36 @@
 ;; Both arms mounted, both torn down again
 ;; ---------------------------------------------------------------------------
 
+(defonce ^:private !frame-n (atom 0))
+
+(defn- fresh-frame-ids
+  "A pair of frame ids no earlier row in this process has used."
+  []
+  (let [n (swap! !frame-n inc)]
+    {:hicasso (keyword "re-frame.bench.hicasso.slice-broad-window-dom-cljs-test"
+                       (str "hicasso-" n))
+     :donor   (keyword "re-frame.bench.hicasso.slice-broad-window-dom-cljs-test"
+                       (str "donor-" n))}))
+
 (defn- with-both-arms
   "Mount both arms through the instrument's own [[clock/boot!]], run `f` —
   which answers a promise — and tear both roots down afterwards whatever
   happened.
 
-  `boot!` names its own frames and makes its own containers, so there is
-  nothing to hand it. The `:each` fixture resets `frame/frames` between
-  rows, which is what lets two rows boot the same two frame ids without
-  the second inheriting the first's `app-db`."
+  FRESH FRAME IDS PER MOUNT, and this is load-bearing rather than tidy.
+  `clock/boot!`'s §MOUNTING TWICE carries the measurement: the Hicasso
+  collector's `!cells` table is process-global and keyed by
+  `(frame, query)`, the repair for a retired reaction rides a disposal
+  hook, and the `:each` fixture retires a frame by resetting
+  `re-frame.frame/frames` rather than through that hook. A second mount on
+  a used id therefore renders once and is then DEAF — empty sub-cache, no
+  watches, no re-render — while looking perfectly healthy on the glass.
+
+  This suite's first cut booted on `clock/`'s two default ids and CI read
+  exactly that: the mount row green, and every row after it red. It is the
+  discipline `slice-echo-window-dom-cljs-test` already keeps."
   [f]
-  (-> (clock/boot!)
+  (-> (clock/boot! (fresh-frame-ids))
       (.then (fn [_] (f)))
       (.then (fn [v] (clock/teardown!) v)
              (fn [e] (clock/teardown!) (throw e)))))
@@ -155,15 +191,27 @@
   per-frame cache BOTH substrates go through — Hicasso's collector calls
   `subs/subscribe` for every `h/sub` edge, and the UIx adapter's
   `use-subscribe` calls it for every hook — so the two rosters are
-  comparable without either arm being asked to report on itself."
+  comparable without either arm being asked to report on itself.
+
+  IT IS THE REALISED SUBGRAPH, NOT THE BOUNDARY READ SET, and the
+  difference is worth stating because it makes this comparison STRONGER
+  rather than looser. A cache entry exists for every reaction that was
+  materialised, so a `:<-` sub's inputs are in here beside the values a
+  body asked for: reading `[::subs/current-page]` puts `[::subs/listed]`,
+  `[::subs/page]`, `[:rf.route/query]` and `[:rf/route]` in the roster
+  too. A donor whose extra read were hidden one layer down — a different
+  input chain reaching the same value — would still show up."
   [frame-id]
   (set (keys (subs-tooling/sub-cache-snapshot frame-id))))
+
+(defn- hicasso-roster [] (roster (:hicasso (clock/frames))))
+(defn- donor-roster [] (roster (:donor (clock/frames))))
 
 (defn- donor-only
   "What the donor arm reads that the Hicasso arm does not. THE ONE THAT
   MATTERS: an entry here is work in the denominator of `C3`."
   []
-  (set/difference (roster clock/donor-frame) (roster clock/hicasso-frame)))
+  (set/difference (donor-roster) (hicasso-roster)))
 
 (defui empty-label-probe
   "One UNCONDITIONAL read of `[::subs/t :feed/empty]` on the donor frame.
@@ -191,7 +239,7 @@
         drop! (fn []
                 (uix-dom/unmount-root root)
                 (when (.-parentNode c) (.removeChild (.-parentNode c) c)))]
-    (uix-dom/render-root ($ uixa/frame-provider {:frame clock/donor-frame}
+    (uix-dom/render-root ($ uixa/frame-provider {:frame (:donor (clock/frames))}
                             ($ empty-label-probe {}))
                          root)
     (-> (echo/after-paint)
@@ -417,8 +465,8 @@
       (async done
         (-> (with-both-arms
               (fn []
-                (let [hic (roster clock/hicasso-frame)
-                      don (roster clock/donor-frame)]
+                (let [hic (hicasso-roster)
+                      don (donor-roster)]
                   ;; ANTI-VACUITY FIRST. An empty roster would make every
                   ;; difference below empty and every claim vacuous, and a
                   ;; production compile elides the snapshot's body entirely.
@@ -432,6 +480,11 @@
                   (is (contains? hic [::subs/t :app/title])
                       "and both read the title string")
                   (is (contains? don [::subs/t :app/title]))
+                  (is (contains? don [:rf.route/query])
+                      "and the roster reaches INPUTS, not just the values a body
+                       asked for: neither page reads the route's query directly,
+                       and it is here because `[::subs/page]` is `:<-` it — so a
+                       read hidden one layer down would still show up")
 
                   (is (empty? (set/difference don hic))
                       (str "the donor reads NOTHING the Hicasso arm does not — "

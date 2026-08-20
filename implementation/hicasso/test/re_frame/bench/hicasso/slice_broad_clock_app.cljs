@@ -346,13 +346,19 @@
   0.5)
 
 (def hicasso-frame
-  "The Hicasso arm's frame. Its own, because frames are isolated
-  contexts: the two arms hold two copies of the same seeded `app-db` and
-  neither can see the other's."
+  "The Hicasso arm's DEFAULT frame id. Its own, because frames are
+  isolated contexts: the two arms hold two copies of the same seeded
+  `app-db` and neither can see the other's.
+
+  A DEFAULT rather than a constant, because [[boot!]] takes a pair of ids
+  and a caller that mounts REPEATEDLY IN ONE PROCESS must hand it fresh
+  ones — see [[boot!]]'s §MOUNTING TWICE. The bench page mounts once and
+  takes these."
   ::hicasso-frame)
 
 (def donor-frame
-  "The UIx arm's frame."
+  "The UIx arm's default frame id. [[hicasso-frame]] carries why it is a
+  default."
   ::donor-frame)
 
 (def initial-events
@@ -376,6 +382,7 @@
          :donor-root        nil
          :echo-tally        nil
          :first-refusal     nil
+         :frames            nil
          :visits            {}
          :aux               {}}))
 
@@ -390,12 +397,27 @@
   "`{arm-id n}` — how many windows each arm has taken since the last
   [[boot!]], warm-up visits included.
 
-  Exposed because it is the INDEX [[pre-state]] is a function of, so a
-  suite that wants to check the pre-state the driver actually established
-  against the one the schedule predicts needs to see the counter as well
-  as the rule."
+  A COUNT, not the last index. [[pre-state]] is a function of the INDEX,
+  which is one less, and [[claim-visit!]] is the one place that conversion
+  happens. The distinction is worth a line because the first cut of this
+  reader published the index under this docstring's words, and the suite
+  row that compares it against `lane/visit-plan`'s per-arm visit count is
+  what found the disagreement.
+
+  Exposed because a suite that wants to check the pre-state the driver
+  actually established against the one the schedule predicts needs to see
+  the counter as well as the rule."
   []
   (:visits @!state))
+
+(defn frames
+  "`{:hicasso id :donor id}` — the frame ids THIS boot mounted on.
+
+  Read this rather than [[hicasso-frame]] / [[donor-frame]]: those are
+  defaults, and a caller that mounts repeatedly hands [[boot!]] fresh ones
+  for the reason its §MOUNTING TWICE gives."
+  []
+  (:frames @!state))
 
 (def populations
   "Which visits each published figure is taken over.
@@ -779,18 +801,26 @@
     {:locale (if (and flip? (= :locale alternates)) (other-locale seed-locale) seed-locale)
      :theme  (if (and flip? (= :theme  alternates)) (other-theme  seed-theme)  seed-theme)}))
 
-(defn- frame-for [side]
-  (case side
-    :hicasso hicasso-frame
-    :donor   donor-frame))
+(defn- frame-for
+  "The frame id THIS boot gave `side` — read from the live pair rather
+  than from [[hicasso-frame]] / [[donor-frame]], which are only its
+  defaults. A caller that mounts twice on fresh ids and then dispatched
+  into the default would be writing to a frame nothing renders from."
+  [side]
+  (get (frames) side))
 
 (defn- claim-visit!
-  "Take this arm's next visit index, counting from zero. Called once per
-  [[measure-one!]] and by nothing else, so the index an arm's `n`th window
-  runs under is `n`."
+  "Bank this arm's visit and answer its INDEX, counting from zero. Called
+  once per [[measure-one!]] and by nothing else, so the index an arm's
+  `n`th window runs under is `n - 1`.
+
+  The stored value is the COUNT and the answer is the index. Storing the
+  index instead would make [[visits]] read one short of the plan's own
+  per-arm visit count, which is exactly the disagreement the suite's
+  schedule row is written to catch."
   [arm-id]
-  (-> (swap! !state update-in [:visits arm-id] (fnil inc -1))
-      (get-in [:visits arm-id])))
+  (dec (get-in (swap! !state update-in [:visits arm-id] (fnil inc 0))
+               [:visits arm-id])))
 
 (defn establish-pre-state!
   "Put `arm`'s own frame into [[pre-state]] for `visit`, and answer a
@@ -894,47 +924,88 @@
 
   INSTALLING THE ADAPTER AND LEAVING REACT'S `act` ENVIRONMENT ARE NOT
   DONE HERE. Both are process-wide and belong to [[-main]], which owns
-  the bench page."
-  []
-  (let [hic-container (lane/fresh-container!)
-        don-container (lane/fresh-container!)
-        handle        (h/mount! hic-container
-                                {:frame             hicasso-frame
-                                 :identifier-prefix "hic"
-                                 :initial-events    initial-events}
-                                [slice-views/app {}])
-        _             (rf/make-frame {:id             donor-frame
-                                      :initial-events initial-events})
-        don-root      (uix-dom/create-root don-container {:identifier-prefix "don"})]
-    (uix-dom/render-root (donor/root donor-frame) don-root)
-    (swap! !state assoc
-           :hicasso-container hic-container
-           :hicasso-handle    handle
-           :donor-container   don-container
-           :donor-root        don-root
-           :first-refusal     nil
-           :visits            {}
-           :aux               {}
-           :echo-tally        (lane/tally))
-    (.then (settle!)
-           (fn [_]
-             (doseq [side [:hicasso :donor]]
-               (when (nil? (locale-select side))
-                 (throw (ex-info (str "the " (name side) " arm mounted but its feed did not: "
-                                      "#slice-locale is not on its page, so there is no "
-                                      "published control to switch")
-                                 {:rf.error/id ::feed-absent
-                                  :side        side})))
-               (when (nil? (page-root side))
-                 (throw (ex-info (str "the " (name side) " arm rendered no main.slice root, "
-                                      "so the theme echo has nothing to read")
-                                 {:rf.error/id ::root-absent
-                                  :side        side}))))
-             nil))))
+  the bench page.
+
+  ## MOUNTING TWICE: THE FRAME IDS ARE AN ARGUMENT, AND FRESH ONES ARE
+  ## MANDATORY FOR A CALLER THAT MOUNTS REPEATEDLY
+
+  The bench page boots once and the no-arg arity is for it. A SUITE boots
+  once per row, and handing this the same pair of ids each time does not
+  merely inherit the previous row's `app-db` — **it leaves the Hicasso arm
+  RENDERED BUT DEAF**, and that is measured rather than feared.
+
+  `re-frame.hicasso.impl.collector`'s `!cells` is a process-global table
+  keyed by `(frame, query)`, and its own comment states that isolation
+  between roots is a property of THAT KEYING rather than anything React
+  provides. A cell holds its reaction for the life of every boundary that
+  reads the key, and `invalidate-cell!` is the repair for a reaction that
+  has been retired — including, in its own words, *across a same-id
+  reincarnation*. But that repair rides the reaction's DISPOSAL hook, and
+  a test fixture that resets `re-frame.frame/frames` to `{}` retires the
+  frame without disposing through it. The second mount on the same id then
+  finds a live cell holding a dead reaction: `subs/subscribe` is never
+  called again, so the new frame's sub-cache stays EMPTY, and no watch is
+  installed, so nothing on the page ever re-renders.
+
+  The symptom is silent in the worst way — the first render is perfect.
+  PR #8606's first cut booted every row on these two defaults and CI read
+  it exactly so: the mount row passed, the Hicasso arm's captured read
+  roster came back `#{}` against the donor's 34, every locale and theme
+  pre-state failed to reach the page, and all nine Hicasso-side windows
+  went unverified while all six donor-side ones verified.
+
+  So a repeat caller passes fresh ids, which is the discipline
+  `slice-echo-window-dom-cljs-test` already keeps against a milder form of
+  the same hazard. [[frames]] answers the pair this boot actually used;
+  read that rather than the defaults."
+  ([] (boot! {:hicasso hicasso-frame :donor donor-frame}))
+  ([{hic-frame :hicasso don-frame :donor}]
+   (let [hic-container (lane/fresh-container!)
+         don-container (lane/fresh-container!)
+         handle        (h/mount! hic-container
+                                 {:frame             hic-frame
+                                  :identifier-prefix "hic"
+                                  :initial-events    initial-events}
+                                 [slice-views/app {}])
+         _             (rf/make-frame {:id             don-frame
+                                       :initial-events initial-events})
+         don-root      (uix-dom/create-root don-container {:identifier-prefix "don"})]
+     (uix-dom/render-root (donor/root don-frame) don-root)
+     (swap! !state assoc
+            :hicasso-container hic-container
+            :hicasso-handle    handle
+            :donor-container   don-container
+            :donor-root        don-root
+            :first-refusal     nil
+            :frames            {:hicasso hic-frame :donor don-frame}
+            :visits            {}
+            :aux               {}
+            :echo-tally        (lane/tally))
+     (.then (settle!)
+            (fn [_]
+              (doseq [side [:hicasso :donor]]
+                (when (nil? (locale-select side))
+                  (throw (ex-info (str "the " (name side) " arm mounted but its feed did not: "
+                                       "#slice-locale is not on its page, so there is no "
+                                       "published control to switch")
+                                  {:rf.error/id ::feed-absent
+                                   :side        side})))
+                (when (nil? (page-root side))
+                  (throw (ex-info (str "the " (name side) " arm rendered no main.slice root, "
+                                       "so the theme echo has nothing to read")
+                                  {:rf.error/id ::root-absent
+                                   :side        side}))))
+              nil)))))
 
 (defn teardown!
   "Take both roots down and drop both containers. Exposed for a caller
-  that mounts and unmounts around each of its rows."
+  that mounts and unmounts around each of its rows.
+
+  It does NOT make a re-mount on the same frame ids safe, and could not:
+  the table that goes stale is `collector/!cells`, which is
+  process-global, keyed by `(frame, query)` and reached through a disposal
+  hook this cannot reach. [[boot!]]'s §MOUNTING TWICE carries the
+  measurement and the remedy."
   []
   (let [{:keys [hicasso-container hicasso-handle donor-container donor-root]} @!state]
     (when hicasso-handle (h/unmount! hicasso-handle))
@@ -1013,7 +1084,7 @@
         ;; exactly the class of thing a control is supposed to survive.
         now         (keyword (.-value (locale-select :donor)))
         other       (other-locale now)
-        to-locale!  (fn [l] (rf/with-frame donor-frame
+        to-locale!  (fn [l] (rf/with-frame (frame-for :donor)
                               (rf/dispatch-sync [::slice-events/set-locale (name l)])))
         restore     (fn [] (to-locale! now))
         break       (fn [] (to-locale! other))]
