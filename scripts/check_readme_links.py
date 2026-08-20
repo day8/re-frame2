@@ -35,10 +35,26 @@ authority and scheduling, not on findings:
       guard), where the docs gate is documentation-surface-gated.  Root
       markdown gets the stronger of the two lanes for free.
 
-The root roster is GIT-TRACKED and NON-RECURSIVE (see `_iter_root_markdown`),
-so it cannot grow into `implementation/`, `tools/`, `node_modules` or any
-generated tree, and an untracked scratch file dropped at the repo root
-cannot red the gate on an author's machine (the rf2-k30r7 lesson).
+NON-README MARKDOWN BESIDE SOURCE IS THE SAME SURFACE AGAIN (rf2-i4nb2), and
+for the same three reasons.  `implementation/SECURITY.md` is cited from the root
+`README.md`, carries 36 relative targets including cross-file anchors into
+`spec/`, renders on GitHub — and was covered by NOTHING.  It is not a README, so
+`_iter_readmes` never saw it; it has a `/` in its path, so `_iter_root_markdown`
+dropped it; it is outside DEFAULT_ROOTS, so the docs gate never opened it.  A
+broken target planted in it returned exit 0 from BOTH gates.  Eight documents
+sat in that hole, the two `tools/mcp-conformance/` vocabularies among them,
+which `spec/Conventions.md` and `spec/Tool-Pair.md` cite normatively.
+
+`_iter_source_markdown` closes it and needs NO new exclusion to do so: the
+existing `_is_excluded` already refuses the gate fixture trees, the docs-gate
+roots and `tools/*/spec/`.  What it must NOT take, and why, is written on that
+function; the self-test asserts each refusal rather than only the membership.
+
+All three rosters are GIT-TRACKED, so an untracked scratch file dropped anywhere
+in the tree cannot red the gate on an author's machine while CI, running on a
+clean clone, stays green (the rf2-k30r7 lesson).  The root roster is
+additionally NON-RECURSIVE (see `_iter_root_markdown`), so it cannot grow into
+`implementation/`, `tools/`, `node_modules` or any generated tree.
 
 What this validates per file:
 
@@ -329,25 +345,77 @@ def _iter_root_markdown(repo_root: Path) -> Iterable[Path]:
             yield path
 
 
-def _iter_scanned(repo_root: Path) -> Iterable[Path]:
-    """Yield every file this gate validates: the README corpus plus root markdown.
+def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
+    """Yield every GIT-TRACKED non-README markdown file beside source (rf2-i4nb2).
 
-    Deduplicated by resolved path, because the repo-root `README.md` is a
-    member of both rosters.
+    THE GAP THIS CLOSES.  `implementation/SECURITY.md` is cited from the repo
+    root `README.md` and carries 36 relative targets, several of them cross-file
+    anchors into `spec/`.  It was covered by NOTHING: not by `check_doc_slugs.py`
+    (outside DEFAULT_ROOTS), and not here either, because `_iter_readmes` wants
+    the name `README.md` and `_iter_root_markdown` drops anything with a `/` in
+    it.  A broken target planted in it returned exit 0 from both gates.  Seven
+    more documents sat in the same hole -- `examples/TESTING.md`,
+    `implementation/adapters/TESTING.md`, the mutually-linked reagent-slim
+    design trio, and the two `tools/mcp-conformance/` vocabularies that
+    `spec/Conventions.md` and `spec/Tool-Pair.md` cite normatively.
+
+    NO NEW EXCLUSION WAS NEEDED, which is the measurement that settled the
+    scope.  `_is_excluded` already drops everything a wider roster must not
+    take: `_test_fixtures` (137 files of deliberately-broken markdown that exist
+    to be flagged -- covering them would red this gate permanently), the
+    docs-gate roots, and `tools/*/spec/` -- which is what keeps the four
+    `tools/*/spec/findings/` design records out.  Those four were measured, not
+    assumed: they carry 33 stale relative targets between them (`../spec/…` from
+    inside `tools/xray/spec/findings/` resolves to `tools/xray/spec/spec/…`),
+    exactly the link rot that `check_doc_slugs.py`'s `findings` exclusion --
+    "excludes exploratory work" -- exists to leave alone.
+
+    The one addition this roster makes beyond the eight is
+    `.../_shared/README_with_ssr.md`, a template payload whose sibling
+    `.../root/README.md` this gate ALREADY walks under the same `_MUSTACHE_RE`
+    guard.  Taking it is the consistent answer, and it is clean today.
+
+    GIT-TRACKED, NOT A FILESYSTEM WALK, for the rf2-k30r7 reason `_iter_root_markdown`
+    records: an author's untracked scratch note must not red a gate that CI runs
+    on a clean clone.
+    """
+    commands = {p.resolve() for p in _iter_command_files(repo_root)}
+    for rel in _git_ls_files(repo_root, "*.md"):
+        if "/" not in rel:
+            continue                      # _iter_root_markdown's roster
+        path = repo_root / rel
+        if path.name == "README.md":
+            continue                      # _iter_readmes' roster
+        if _is_excluded(path, repo_root):
+            continue
+        if not path.is_file():
+            # Tracked but absent mid-rename; the index still lists it.
+            continue
+        # The mayor-loop command files are the THIRD arm's surface (rf2-1yy75),
+        # where they are scanned for path-shaped REFERENCES rather than anchors.
+        # They carry no headings and no markdown links, so taking them here
+        # would find nothing and double-scan seven files -- measured: zero
+        # findings either way.
+        if path.resolve() in commands:
+            continue
+        yield path
+
+
+def _iter_scanned(repo_root: Path) -> Iterable[Path]:
+    """Yield every file this gate validates for links and anchors.
+
+    Three rosters: the README corpus, repo-root markdown (rf2-znup0) and
+    non-README markdown beside source (rf2-i4nb2).  Deduplicated by resolved
+    path, because the repo-root `README.md` is a member of the first two.
     """
     seen: set[Path] = set()
-    for path in _iter_readmes(repo_root):
-        ap = path.resolve()
-        if ap in seen:
-            continue
-        seen.add(ap)
-        yield path
-    for path in _iter_root_markdown(repo_root):
-        ap = path.resolve()
-        if ap in seen:
-            continue
-        seen.add(ap)
-        yield path
+    for roster in (_iter_readmes, _iter_root_markdown, _iter_source_markdown):
+        for path in roster(repo_root):
+            ap = path.resolve()
+            if ap in seen:
+                continue
+            seen.add(ap)
+            yield path
 
 
 # --------------------------------------------------------------------------
@@ -1131,11 +1199,101 @@ def _run_self_tests(verbose: bool = False) -> int:
             "gate while tracked command files stay covered\n"
         )
 
+    # rf2-i4nb2 — the beside-source roster, asserted against the real tree.
+    # Membership is only half of it: what makes this roster safe is what it
+    # REFUSES, and each refusal below is a measured one rather than a taste.
+    live_root = Path(__file__).resolve().parent.parent
+    source_roster = {
+        p.relative_to(live_root).as_posix() for p in _iter_source_markdown(live_root)
+    }
+    must_hold = (
+        # The originating instance: cited from the root README, 36 relative
+        # targets, and no gate opened it before this roster existed.
+        ("implementation/SECURITY.md" in source_roster,
+         "the beside-source roster lost implementation/SECURITY.md"),
+        # Fixture trees are deliberately-broken markdown. Covering them reds the
+        # gate on a correct tree, permanently.
+        (not any(p.startswith("scripts/_test_fixtures/") for p in source_roster),
+         "a gate fixture reached the beside-source roster"),
+        # Exploratory design records: 33 stale targets between the four of them,
+        # left alone on the same standing decision that excludes `ai/`.
+        (not any("/findings/" in p for p in source_roster),
+         "an exploratory findings/ document reached the beside-source roster"),
+        # The third arm's surface -- scanned for path-shaped references, not
+        # anchors. Taking them here would double-scan seven files.
+        (not any(p.startswith(".claude/commands/") for p in source_roster),
+         "a mayor-loop command file is double-covered"),
+        # Rosters must stay disjoint: the other two own these.
+        (not any(p.rsplit("/", 1)[-1] == "README.md" or "/" not in p
+                 for p in source_roster),
+         "the beside-source roster overlaps the README or root-markdown roster"),
+    )
+    for ok, message in must_hold:
+        if not ok:
+            sys.stderr.write(f"self-test FAIL: {message}\n")
+            failures += 1
+    if all(ok for ok, _ in must_hold) and verbose:
+        sys.stderr.write(
+            "self-test PASS: the beside-source roster takes the navigated "
+            f"documents ({len(source_roster)}) and refuses fixtures, findings/ "
+            "and the command files\n"
+        )
+
+    # ... and the same causality tooth the two rosters above carry: an untracked
+    # scratch note beside source must be poisonous to a walk and absent from the
+    # tracked roster. CI runs on a clean clone; an author's scratch must not red
+    # it here (rf2-k30r7).
+    src_scratch = live_root / "implementation" / "i4nb2_untracked_scratch.md"
+    try:
+        src_scratch.write_text(
+            "# Untracked scratch\n\n"
+            "[a link nobody tracked](i4nb2-no-such-file.md)\n",
+            encoding="utf-8",
+        )
+        scratch_is_poisonous = not (
+            live_root / "implementation" / "i4nb2-no-such-file.md"
+        ).exists()
+        walk_roster = {
+            p.name for p in (live_root / "implementation").glob("*.md")
+        }
+        tracked_roster = {
+            p.relative_to(live_root).as_posix()
+            for p in _iter_source_markdown(live_root)
+        }
+    finally:
+        src_scratch.unlink(missing_ok=True)
+
+    if not (scratch_is_poisonous and src_scratch.name in walk_roster):
+        sys.stderr.write(
+            "self-test FAIL: the beside-source scratch fixture is not actually "
+            "poisonous to a walk-based roster, so the tracking tooth proves "
+            f"nothing (broken-target={scratch_is_poisonous}, "
+            f"in-walk={src_scratch.name in walk_roster})\n"
+        )
+        failures += 1
+    elif f"implementation/{src_scratch.name}" in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: an untracked scratch note beside source reached "
+            "the beside-source roster\n"
+        )
+        failures += 1
+    elif "implementation/SECURITY.md" not in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: the beside-source roster lost a tracked document "
+            "while excluding the untracked one\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: an untracked scratch note beside source cannot red "
+            "the gate while tracked beside-source markdown stays covered\n"
+        )
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 3} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases) + 5} self-tests passed.\n")
     return 0
 
 
