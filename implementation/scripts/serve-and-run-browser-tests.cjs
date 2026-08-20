@@ -357,8 +357,9 @@ async function run() {
 }
 
 // rf2-u0cy4: guard the real launch behind require.main. Matches the
-// established convention (e.g. check-ui-adapter-isolation.cjs's
-// `--self-test`). Production invocation is always `node
+// established convention (e.g. run-hicasso-native-ime-witness.cjs, the
+// sibling that pairs a `--self-test` with the same guard). Production
+// invocation is always `node
 // scripts/serve-and-run-browser-tests.cjs ...` (require.main === module is
 // always true there), so this changes nothing about how the two production
 // browser gates run this file.
