@@ -39,6 +39,7 @@
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const DRIVER = path.join(__dirname, 'p0_run.cjs');
@@ -68,6 +69,21 @@ const {
   // The confound-breaking segment order (rf2-rs8q6), pure and driven below.
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
+  // The write-leg order (rf2-fk6pj), pure and driven below for the reason the
+  // two either side of it are: what it changes is a property of a SEQUENCE of
+  // rounds, and the property that matters most — that a `seeded` schedule is
+  // not a function of round parity — is not readable off a ternary.
+  allocSeedHash,
+  allocSeedRandom,
+  allocPassFlips,
+  allocPassOrder,
+  ALLOC_PASS_ORDERS,
+  // The box provenance riders (rf2-24o2z), pure of the run and driven below.
+  boxSnapshot,
+  boxBusyFraction,
+  boxSessionOpen,
+  boxSessionClose,
+  boxRecord,
   // And the control slot (rf2-rs8q6), pure and driven below for the same
   // reason: what it moves is a property of a SEQUENCE of rounds.
   allocControlIndex,
@@ -2359,7 +2375,7 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
       allocSegmentOrder(plan, r, mode).map((s) => s.segment)
     );
 
-  assert.deepStrictEqual(ALLOC_SEG_ORDERS, ['parity', 'fixed']);
+  assert.deepStrictEqual(ALLOC_SEG_ORDERS, ['parity', 'fixed', 'fixed-reversed']);
   assert.strictEqual(constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: '' }), 'parity');
   assert.strictEqual(
     constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: 'fixed' }),
@@ -2403,6 +2419,358 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
     repeats('fixed').every((x) => x.repeat === false),
     'and under `fixed` no window repeats its predecessor, at either position'
   );
+});
+
+// --- AND THE ARM `fixed` ALONE CANNOT SUPPLY (rf2-csca8) -------------------
+//
+// Inside a `fixed` run the substrate and the within-round position are
+// perfectly confounded: with the plan as shipped, `uix-subs` is position 1 in
+// every `fixed` window there has ever been, so the 8-of-38 cluster is equally
+// consistent with "uix under `fixed`" and with "the SECOND-driven arm under
+// `fixed`". PR #8593 refuted POSITION on 3,140 windows and found SUBSTRATE
+// associated but not necessary, which leaves the MODE — and no committed run
+// puts uix at position 0 while HOLDING THE MODE CONSTANT.
+//
+// `fixed-reversed` is that arrangement and nothing else, so the pin drives the
+// sequence and reads the three properties that make it the discriminator: it
+// is `fixed`'s orientation reversed, it is constant across rounds like `fixed`
+// rather than alternating like `parity`, and it puts the other substrate at
+// position 0 at EVERY round rather than at half of them.
+test('THE REVERSED FIXED ARM — `fixed`, held constant, in the other orientation', () => {
+  const plan = [{ segment: 'reagent-subs' }, { segment: 'uix-subs' }];
+  const seqOf = (mode, rounds) =>
+    Array.from({ length: rounds }, (_, r) =>
+      allocSegmentOrder(plan, r, mode).map((s) => s.segment)
+    );
+
+  assert.strictEqual(
+    constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: 'fixed-reversed' }),
+    'fixed-reversed',
+    'the third arm is reachable by naming it'
+  );
+  has(
+    /drives the segments in one of \$\{ALLOC_SEG_ORDERS\.join\(' \| '\)\} order/,
+    'and the preflight names the roster rather than a hard-coded pair, so the ' +
+      'new arm is refused-by-name-or-accepted with no second edit'
+  );
+
+  // The same order EVERY round — the property that makes it `fixed`'s
+  // counterpart and not a second `parity`.
+  assert.deepStrictEqual(seqOf('fixed-reversed', 4), [
+    ['uix-subs', 'reagent-subs'],
+    ['uix-subs', 'reagent-subs'],
+    ['uix-subs', 'reagent-subs'],
+    ['uix-subs', 'reagent-subs'],
+  ]);
+
+  // And it is EXACTLY `fixed` reversed, driven rather than restated.
+  for (let r = 0; r < 6; r++) {
+    assert.deepStrictEqual(
+      allocSegmentOrder(plan, r, 'fixed-reversed').map((s) => s.segment),
+      allocSegmentOrder(plan, r, 'fixed')
+        .map((s) => s.segment)
+        .reverse()
+    );
+  }
+
+  // IT MAY NOT REORDER THE CALLER'S PLAN. `fixed` returns the shipped array
+  // itself; the reversed arm must return a copy, or the ladder plan every
+  // later round is handed would come back already reversed — a fault that
+  // would look exactly like a working mode for one round and then invert.
+  const before = plan.map((s) => s.segment);
+  allocSegmentOrder(plan, 0, 'fixed-reversed');
+  allocSegmentOrder(plan, 1, 'fixed-reversed');
+  assert.deepStrictEqual(plan.map((s) => s.segment), before, 'the plan is not reversed in place');
+
+  // THE PROPERTY THE ARM IS FOR: uix sits at position 0 in EVERY round under
+  // the reversed arm, at NO round under `fixed`, and at half of them under
+  // `parity` — which is the state of the corpus that made the mode unreadable.
+  const uixAtZero = (mode) => seqOf(mode, 8).filter((r) => r[0] === 'uix-subs').length;
+  assert.strictEqual(uixAtZero('fixed'), 0, 'the confound `fixed` builds in');
+  assert.strictEqual(uixAtZero('fixed-reversed'), 8, 'and the arm that breaks it');
+  assert.strictEqual(uixAtZero('parity'), 4, 'while parity supplies it under the OTHER mode');
+});
+
+// --- THE WRITE-LEG ORDER, AND THE PARITY TIE IT BREAKS (rf2-fk6pj) ---------
+//
+// rf2-0gjqi's paired window measured the SECOND pass of a round reading lower
+// than the first in 10 of 12 blocks, whichever write occupied it. The rig
+// cannot say why, because the leg order was `round % 2` — every page-first
+// round was an even round, so the pass-position term and every other
+// even/odd property of a round are one column. `seeded` draws the order from
+// a seed instead.
+//
+// EVERY PROPERTY BELOW IS A CLAIM ABOUT A WHOLE RUN'S SCHEDULE and none is
+// readable off the source, so the pin DRIVES the draw:
+//
+//   - `parity` is the pre-bead expression, round for round, so no committed
+//     corpus is reinterpreted;
+//   - a `seeded` schedule is BALANCED, because an unbalanced one would trade
+//     the parity tie for the write/position confound the alternation exists
+//     to remove;
+//   - a `seeded` schedule is NOT a function of round parity, which is the
+//     entire deliverable;
+//   - the same seed gives the same schedule, which is what makes a `seeded`
+//     window re-readable rather than a one-shot.
+const LEGS = [{ selector: 'page' }, { selector: 'all' }];
+const legSeqOf = (mode, rounds, schedule) =>
+  Array.from({ length: rounds }, (_, r) =>
+    allocPassOrder(LEGS, r, mode, schedule).map((l) => l.selector).join('>')
+  );
+
+test('THE LEG ORDER — `parity` is the default and is the pre-bead rule, round for round', () => {
+  assert.deepStrictEqual(ALLOC_PASS_ORDERS, ['parity', 'seeded']);
+  assert.strictEqual(constUnderEnv('ALLOC_PASS_ORDER', { P0_ALLOC_PASS_ORDER: '' }), 'parity');
+  assert.strictEqual(
+    constUnderEnv('ALLOC_PASS_ORDER', { P0_ALLOC_PASS_ORDER: 'seeded' }),
+    'seeded',
+    'the parity-breaker is reachable by naming it'
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_PASS_ORDER', { P0_ALLOC_PASS_ORDER: 'praity' }), 'praity');
+  has(/unknown P0_ALLOC_PASS_ORDER/, 'and the preflight refuses a mistyped order BY NAME');
+
+  // THE DEFAULTS-UNCHANGED PROOF, and it is the load-bearing assertion of this
+  // whole change: the shipped function under the default mode must produce the
+  // expression that stood in the round loop before it, ROUND FOR ROUND, over a
+  // range wider than any run takes. Anything else silently reinterprets every
+  // committed corpus.
+  const preBead = (round) => (round % 2 === 0 ? LEGS : [...LEGS].reverse());
+  for (let r = 0; r < 64; r++) {
+    assert.deepStrictEqual(
+      allocPassOrder(LEGS, r, 'parity', allocPassFlips(6, 'ignored-under-parity')).map(
+        (l) => l.selector
+      ),
+      preBead(r).map((l) => l.selector),
+      `round ${r}: \`parity\` must be the expression that stood in the loop`
+    );
+  }
+  // Even rounds hand back the CALLER'S array, not a copy — the pre-bead
+  // expression did, and the pass loop below it takes the legs by identity.
+  assert.strictEqual(allocPassOrder(LEGS, 0, 'parity', null), LEGS);
+  assert.strictEqual(allocPassOrder(LEGS, 2, 'parity', null), LEGS);
+
+  // A ONE-LEG RUN IS INERT UNDER BOTH MODES, which is what makes `page` and
+  // `all` — the selections every floor corpus is taken under — untouched by
+  // this change whatever the operator sets.
+  const one = [{ selector: 'page' }];
+  for (const mode of ALLOC_PASS_ORDERS) {
+    for (let r = 0; r < 8; r++) {
+      assert.deepStrictEqual(
+        allocPassOrder(one, r, mode, allocPassFlips(8, 'seed')).map((l) => l.selector),
+        ['page'],
+        'off `paired` there is one leg and no order to flip'
+      );
+    }
+  }
+});
+
+test('THE LEG ORDER — a `seeded` schedule is balanced, parity-free and reproducible', () => {
+  // BALANCED, at every round count a window might take. `parity` leads each
+  // leg exactly `floor(rounds / 2)` times; the draw must match it, or the
+  // write is confounded with the pass position — a worse column than the one
+  // being removed.
+  for (const rounds of [4, 5, 6, 8, 12, 20]) {
+    for (const seed of ['a', 'b', 'window-1', '12345', 'rf2-fk6pj']) {
+      const s = allocPassFlips(rounds, seed);
+      assert.strictEqual(s.flips.length, rounds);
+      assert.strictEqual(
+        s.flips.filter(Boolean).length,
+        Math.floor(rounds / 2),
+        `rounds=${rounds} seed=${seed}: the draw must be balanced exactly as parity is`
+      );
+      assert.strictEqual(s.parityTied, false, `rounds=${rounds} seed=${seed}`);
+    }
+  }
+
+  // NOT A FUNCTION OF ROUND PARITY — the deliverable. Both parity schedules
+  // are rejected: the alternating one AND its complement. A draw that returned
+  // either would separate nothing while costing a full allocation window.
+  for (const rounds of [4, 6, 8, 12]) {
+    for (let i = 0; i < 40; i++) {
+      const { flips } = allocPassFlips(rounds, `probe-${rounds}-${i}`);
+      assert.ok(
+        !flips.every((f, r) => f === (r % 2 === 1)) && !flips.every((f, r) => f === (r % 2 === 0)),
+        `rounds=${rounds} probe ${i}: a parity schedule is exactly what this mode may not return`
+      );
+    }
+  }
+
+  // AND THE DRAW IS ACTUALLY VARYING, not one schedule wearing many seeds. A
+  // generator that returned a constant would pass every assertion above.
+  const drawn = new Set(
+    Array.from({ length: 40 }, (_, i) => allocPassFlips(6, `vary-${i}`).flips.join(''))
+  );
+  assert.ok(drawn.size > 3, `the draw must vary with the seed — saw ${drawn.size} distinct`);
+
+  // REPRODUCIBLE FROM THE RECORDED SEED. This is what `legSeed` in the record
+  // is for: the schedule is recoverable from nothing else.
+  for (const seed of ['rf2-fk6pj', '1755000000000', 'zz']) {
+    assert.deepStrictEqual(allocPassFlips(6, seed), allocPassFlips(6, seed));
+    assert.deepStrictEqual(allocPassFlips(6, seed), allocPassFlips(6, String(seed)));
+  }
+  // The seed is TEXT, so an operator may use a memorable one; the two
+  // primitives underneath it are deterministic and total.
+  assert.strictEqual(allocSeedHash('abc'), allocSeedHash('abc'));
+  assert.notStrictEqual(allocSeedHash('abc'), allocSeedHash('abd'));
+  const rand = allocSeedRandom(allocSeedHash('abc'));
+  const draws = Array.from({ length: 8 }, () => rand());
+  assert.ok(draws.every((x) => x >= 0 && x < 1), 'the generator stays inside [0, 1)');
+  assert.deepStrictEqual(
+    Array.from({ length: 8 }, allocSeedRandom(allocSeedHash('abc'))),
+    draws,
+    'and the same seed replays the same stream'
+  );
+
+  // THE SCHEDULE IS WHAT THE ROUND LOOP DRIVES, read off the leg sequence
+  // rather than the flips array — the two could drift and only this catches it.
+  const s = allocPassFlips(6, 'rf2-fk6pj');
+  assert.deepStrictEqual(
+    legSeqOf('seeded', 6, s),
+    s.flips.map((f) => (f ? 'all>page' : 'page>all'))
+  );
+  // And under `seeded` the sequence is NOT the parity sequence, at this seed
+  // or any other — the same claim as above, now at the call site.
+  assert.notDeepStrictEqual(legSeqOf('seeded', 6, s), legSeqOf('parity', 6, s));
+
+  // AT TWO ROUNDS OR FEWER THERE IS NO UNTIED SCHEDULE, and the draw says so
+  // rather than looping forever or returning a parity schedule under a name
+  // that says it is not one. The preflight turns that into a refusal.
+  //
+  // THE BOUNDARY IS DRIVEN, NOT ASSERTED FROM THE PROSE. It falls at three and
+  // not at four: the three-round balanced set is the three single-flip
+  // schedules and only one of them alternates, where at two rounds BOTH
+  // balanced schedules are parity schedules. This test read four on its first
+  // pass and the draw contradicted it.
+  for (const rounds of [0, 1, 2]) {
+    assert.strictEqual(
+      allocPassFlips(rounds, 'any').parityTied,
+      true,
+      `rounds=${rounds}: every balanced schedule this short IS a parity schedule`
+    );
+  }
+  for (const seed of ['a', 'b', 'c', 'd', 'e']) {
+    const s3 = allocPassFlips(3, seed);
+    assert.strictEqual(s3.parityTied, false, 'three rounds is the first count that can separate');
+    assert.strictEqual(s3.flips.filter(Boolean).length, 1, 'and it is balanced as parity is');
+  }
+  has(
+    /P0_ALLOC_PASS_ORDER=seeded over \$\{ALLOC_ROUNDS\} round\(s\) has no schedule/,
+    'and the preflight refuses a `seeded` run that cannot separate anything'
+  );
+
+  // A SCHEDULE SHORTER THAN THE RUN FALLS BACK TO PARITY rather than driving
+  // `undefined` — total, for the reason every other pure function here is.
+  const short = allocPassFlips(4, 'short');
+  assert.deepStrictEqual(legSeqOf('seeded', 6, short).slice(4), legSeqOf('parity', 6, short).slice(4));
+});
+
+// --- WHAT THE BOX WAS DOING, WHICH NO DATASET EVER SAID (rf2-24o2z) --------
+//
+// Three riders on the record, each free: the Chromium build string, the box's
+// load at window open, and the elapsed time since the previous run in the same
+// session. Nothing here measures anything inside a window, and the pin drives
+// all three without a build, a server or a Chromium.
+test('THE BOX RIDERS — a snapshot, a busy fraction and a session gap', () => {
+  const snap = boxSnapshot();
+  for (const k of ['at', 'loadavg', 'cpus', 'cpuIdleMs', 'cpuBusyMs', 'freeMemB', 'totalMemB']) {
+    assert.ok(k in snap, `the snapshot states ${k}`);
+  }
+  assert.ok(Date.parse(snap.at) > 0, 'and it is stamped');
+  assert.ok(snap.cpus > 0 && snap.totalMemB > 0, 'and it read a real machine');
+  // `loadavg` IS `[0, 0, 0]` ON WINDOWS, which is where these windows are
+  // taken, so the record states whether the number means anything. A rider a
+  // reader cannot tell apart from a genuinely idle box is not a rider.
+  assert.strictEqual(snap.loadavgSupported, process.platform !== 'win32');
+
+  // The busy fraction is a DIFFERENCE of two snapshots — the load the run
+  // saw — and is `null`, never a fabricated zero, where it cannot be taken.
+  assert.strictEqual(boxBusyFraction(null, snap), null);
+  assert.strictEqual(boxBusyFraction(snap, null), null);
+  assert.strictEqual(boxBusyFraction(snap, snap), null, 'a zero interval is not a zero load');
+  const busy = boxBusyFraction(
+    { cpuBusyMs: 1000, cpuIdleMs: 9000 },
+    { cpuBusyMs: 1300, cpuIdleMs: 9700 }
+  );
+  assert.strictEqual(busy, 0.3);
+
+  // THE SESSION, DRIVEN OVER A MARKER OF THE PIN'S OWN — never the shipped
+  // path, which carries the real state of whatever run last used this box.
+  const marker = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'p0-box-pin-')),
+    'session.json'
+  );
+  // A first run has no marker and says so rather than inventing a gap.
+  const t0 = Date.parse('2026-08-21T00:00:00.000Z');
+  const first = boxSessionOpen(t0, marker);
+  assert.strictEqual(first.previousRun, null, 'no marker, no previous run');
+  assert.strictEqual(first.runsInSession, 1);
+  assert.strictEqual(first.sessionStartedAt, first.startedAt);
+  assert.strictEqual(boxSessionClose(first, '2026-08-21T00:30:00.000Z', marker), null);
+
+  // A second run 10 minutes later CONTINUES the session, and the two gaps are
+  // different quantities: since the previous run STARTED, and since it ENDED.
+  // The idle gap is the one rf2-6kxub's confirming move is defined on.
+  const t1 = Date.parse('2026-08-21T00:40:00.000Z');
+  const second = boxSessionOpen(t1, marker);
+  assert.strictEqual(second.runsInSession, 2);
+  assert.strictEqual(second.sessionStartedAt, first.startedAt, 'the session is the same one');
+  assert.strictEqual(second.previousRun.sameSession, true);
+  assert.strictEqual(second.previousRun.sinceStartMs, 40 * 60 * 1000);
+  assert.strictEqual(second.previousRun.sinceEndMs, 10 * 60 * 1000);
+  assert.strictEqual(boxSessionClose(second, '2026-08-21T01:00:00.000Z', marker), null);
+
+  // A run after a gap wider than the recorded threshold OPENS A NEW SESSION,
+  // and still states the gap — the previous run is not erased, only re-placed.
+  const t2 = Date.parse('2026-08-21T05:00:00.000Z');
+  const third = boxSessionOpen(t2, marker);
+  assert.strictEqual(third.runsInSession, 1, 'four hours is a new session at the 60-min default');
+  assert.strictEqual(third.sessionStartedAt, third.startedAt);
+  assert.strictEqual(third.previousRun.sameSession, false);
+  assert.strictEqual(third.previousRun.sinceEndMs, 4 * 60 * 60 * 1000);
+  // The threshold travels in the record, so an analysis may redraw the
+  // boundary from the raw timestamps instead of inheriting this one.
+  assert.strictEqual(third.sessionGapMs, 60 * 60 * 1000);
+
+  // A MALFORMED MARKER IS A MISSING ONE. A provenance rider may not refuse a
+  // window, and an unwritable path is reported rather than thrown.
+  fs.writeFileSync(marker, 'not json at all');
+  assert.strictEqual(boxSessionOpen(t2, marker).previousRun, null);
+  assert.ok(
+    typeof boxSessionClose(first, '2026-08-21T00:30:00.000Z', path.join(marker, 'nope', 'x.json')) ===
+      'string',
+    'an unwritable marker comes back as a message, not an exception'
+  );
+  fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+
+  // AND THE RIDER AS IT APPEARS IN THE RECORD. A run that launched no browser
+  // says `null` for the two riders a launch supplies — which a reader must be
+  // able to tell apart from a launched run that found the box idle.
+  const empty = boxRecord({ session: first, chromium: null, open: null, close: null });
+  assert.strictEqual(empty.chromium, null);
+  assert.strictEqual(empty.load.open, null);
+  assert.strictEqual(empty.load.busyFraction, null);
+  assert.strictEqual(empty.session.runsInSession, 1);
+  const full = boxRecord({
+    session: second,
+    chromium: 'chromium/140.0.7339.16',
+    open: { cpuBusyMs: 1000, cpuIdleMs: 9000 },
+    close: { cpuBusyMs: 1300, cpuIdleMs: 9700 },
+  });
+  assert.strictEqual(full.chromium, 'chromium/140.0.7339.16');
+  assert.strictEqual(full.load.busyFraction, 0.3);
+  assert.match(full.platform, /\//, 'and the platform is stated too');
+
+  // THE MARKER PATH IS NOT IN THE RECORD. A dataset is committed and the
+  // shipped marker lives under a home directory; the gaps travel, the path
+  // does not.
+  assert.ok(!JSON.stringify(full).includes(os.tmpdir()), 'no machine path rides into a dataset');
+
+  // AND THE DRIVER FILLS IT WHERE THE EVIDENCE SURVIVES A REFUSAL, beside the
+  // raw write rather than inside the try that a failed gate leaves early.
+  has(/out\.box = boxRecord\(\);/, 'the record carries the rider');
+  has(/if \(BOX\.open === null\) BOX\.open = boxSnapshot\(\);/, 'and the load is read at the launch');
+  has(/BOX\.chromium = `\$\{browser\.browserType\(\)\.name\(\)\}\/\$\{browser\.version\(\)\}`;/,
+    'and the build string comes off the launched browser');
 });
 
 // --- THE CONTROL SLOT, AND WHICH SLOT ACTUALLY SEPARATES (rf2-rs8q6) -------
@@ -2912,9 +3280,17 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // `:cells` at `cells-n` and a page leg following it on an unseeded frame
   // would rebuild 300 cells and BE the bulk write, reading back correctly and
   // saying nothing.
+  // AND THE RULE IT ALTERNATES UNDER IS A MODE NOW (rf2-fk6pj), so the pin
+  // reads the CALL rather than the ternary that stood here. `parity` is still
+  // the default and `allocPassOrder` is still the same expression under it —
+  // both driven, not matched, in the leg-order test below.
   has(
-    /const legs = round % 2 === 0 \? ALLOC_WRITE_LEGS : \[\.\.\.ALLOC_WRITE_LEGS\]\.reverse\(\);/,
-    'the leg order alternates on round parity'
+    /const legs = allocPassOrder\(ALLOC_WRITE_LEGS, round, ALLOC_PASS_ORDER, ALLOC_PASS_SCHEDULE\);/,
+    'the leg order comes from the shipped rule, whichever mode this run drives'
+  );
+  lacks(
+    /const legs = round % 2 === 0 \?/,
+    'and no parity ternary survives beside it, which would pin the loop to one mode'
   );
   has(
     /const passes = segs\.flatMap\(\(\{ segment, arms \}\) =>\s*legs\.map\(\(leg\) => \(\{ segment, arms, leg \}\)\)\s*\);/,

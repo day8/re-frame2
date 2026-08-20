@@ -153,6 +153,7 @@
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
@@ -191,6 +192,201 @@ const ONLY = (() => {
   const i = process.argv.indexOf('--only');
   return i === -1 ? null : process.argv[i + 1];
 })();
+
+// ---------------------------------------------------------------------------
+// WHAT THE BOX WAS DOING, WHICH NO DATASET HAS EVER SAID (rf2-24o2z)
+// ---------------------------------------------------------------------------
+//
+// rf2-6kxub measured the floor arm's high-mode RATE tracking ELAPSED TIME
+// WITHIN A SESSION — 0/6 at 8.2 min, 1/8 at 14.9, 2/20 at 19.7, 37/69 at 88.3,
+// with a within-session gradient at one-tail p = 0.0198 on a boundary-free
+// Mann-Whitney. That locates the rate on elapsed-time-within-session and NAMES
+// NO MECHANISM: thermal state, V8 tier accumulation and heap fragmentation
+// over a long session all survive it equally, and across sessions the duration
+// is confounded with the date and the clock time.
+//
+// IT WAS ANSWERABLE AT ALL ONLY BECAUSE `generatedAt` HAPPENED TO BE IN THE
+// RECORD. Nothing else about the machine is. Three more riders of exactly that
+// kind cost the runner nothing and convert the NEXT window into evidence about
+// the rate rather than another instance of it:
+//
+//   - the CHROMIUM BUILD STRING, which playwright pins and no dataset states.
+//     Two windows taken weeks apart may be two different V8s, and the tier-up
+//     account is a claim about V8;
+//   - the BOX'S LOAD at window open, and again at close, which is the only one
+//     of the three that can be read against thermal or contention accounts;
+//   - the ELAPSED TIME SINCE THE PREVIOUS RUN in the same session, which is
+//     the axis the gradient was measured on and which a single record cannot
+//     currently place itself on at all.
+//
+// THIS IS THE CHEAP MOVE AND DELIBERATELY NOT THE OTHER ONE. rf2-6kxub's own
+// note holds that the same-plan cold / hot / after-an-idle-gap variation is
+// the CONFIRMING second move and must not be taken first. Nothing here varies
+// anything: it records.
+//
+// AND IT MEASURES NOTHING INSIDE A WINDOW. Every reading below is taken from
+// `node:os` outside any measured window — at the first browser launch and once
+// more when the record is written — so it cannot perturb a byte of what the
+// row publishes.
+//
+// `loadavg` IS NOT ENOUGH ON ITS OWN, and the reason is the box this
+// instrument runs on. Node's `os.loadavg()` is `[0, 0, 0]` on Windows, which
+// is where these windows are taken, so a record carrying only that would carry
+// nothing. The portable reading is the CPU time accumulated across all cores:
+// a snapshot at window open gives the busy fraction since boot, and the
+// difference between the open and close snapshots gives the busy fraction
+// ACROSS THE RUN — which is the quantity a contention account actually wants
+// and which costs no sleep to obtain.
+const BOX_SESSION_GAP_MS = Number(process.env.P0_BOX_SESSION_GAP_MIN || 60) * 60 * 1000;
+
+// Where one run leaves a note for the next. It lives in the OS temp directory
+// and NOT in the repository: a session marker is machine state, a dataset is
+// committed, and a path under a home directory has no business travelling into
+// either. The resolved path is deliberately NOT recorded for that same reason.
+const BOX_MARKER = process.env.P0_BOX_MARKER || path.join(os.tmpdir(), 'p0-run-session.json');
+
+// One snapshot. Pure of the run: it reads the machine and nothing this process
+// owns, so the pin can call it without a build, a server or a Chromium.
+function boxSnapshot() {
+  const cpus = os.cpus() || [];
+  let idle = 0;
+  let busy = 0;
+  for (const c of cpus) {
+    idle += c.times.idle;
+    busy += c.times.user + c.times.nice + c.times.sys + c.times.irq;
+  }
+  return {
+    at: new Date().toISOString(),
+    // `[0, 0, 0]` on Windows, and the record says so rather than leaving a
+    // reader to wonder whether the box was genuinely idle.
+    loadavg: os.loadavg(),
+    loadavgSupported: os.platform() !== 'win32',
+    cpus: cpus.length,
+    cpuIdleMs: idle,
+    cpuBusyMs: busy,
+    freeMemB: os.freemem(),
+    totalMemB: os.totalmem(),
+    // A box that rebooted between two runs is not the same box under the
+    // thermal account, and this is the one number that says so.
+    uptimeS: os.uptime(),
+  };
+}
+
+// The busy fraction BETWEEN two snapshots — the load the run actually saw,
+// rather than the average since boot. `null` where the two snapshots cannot
+// support the arithmetic, which a reader must be able to tell from a zero.
+function boxBusyFraction(open, close) {
+  if (!open || !close) return null;
+  const busy = close.cpuBusyMs - open.cpuBusyMs;
+  const total = busy + (close.cpuIdleMs - open.cpuIdleMs);
+  return total > 0 ? busy / total : null;
+}
+
+// WHAT THE PREVIOUS RUN LEFT, AND WHAT THIS ONE LEAVES. Read once at require,
+// so `sinceMs` is measured from the previous run rather than from wherever in
+// this one the record happens to be assembled.
+//
+// THE SESSION IS DEFINED BY A RECORDED THRESHOLD, not by a hunch. A run that
+// starts within `P0_BOX_SESSION_GAP_MIN` of the previous run's END continues
+// that session; otherwise it opens a new one. The threshold travels in the
+// record, so an analysis that wants a different boundary can redraw it from
+// the raw timestamps rather than inherit this one.
+//
+// AND IT NEVER FAILS A RUN. A missing, unreadable or malformed marker yields
+// `null` — the honest answer for the first run on a box, or one whose temp
+// directory was cleared — and a marker that cannot be written is recorded and
+// otherwise ignored. A provenance rider may not be able to refuse a window.
+//
+// THE MARKER PATH IS A PARAMETER, not a read of the constant, and that is what
+// makes the pin possible at all: a self-test that drove the shipped path would
+// read — and then OVERWRITE — the marker of whatever real run last used this
+// box, which is the one piece of state here that cannot be reconstructed.
+function boxSessionRead(marker = BOX_MARKER) {
+  try {
+    const prev = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (!prev || typeof prev.startedAt !== 'string') return null;
+    return prev;
+  } catch {
+    return null;
+  }
+}
+
+function boxSessionOpen(now = Date.now(), marker = BOX_MARKER) {
+  const prev = boxSessionRead(marker);
+  const prevEnd = prev && prev.endedAt ? Date.parse(prev.endedAt) : null;
+  const prevStart = prev ? Date.parse(prev.startedAt) : null;
+  const sinceEndMs = Number.isFinite(prevEnd) ? now - prevEnd : null;
+  const continues = prev !== null && sinceEndMs !== null && sinceEndMs <= BOX_SESSION_GAP_MS;
+  return {
+    startedAt: new Date(now).toISOString(),
+    sessionStartedAt: continues ? prev.sessionStartedAt : new Date(now).toISOString(),
+    runsInSession: continues ? (prev.runsInSession || 1) + 1 : 1,
+    sessionGapMs: BOX_SESSION_GAP_MS,
+    previousRun:
+      prev === null
+        ? null
+        : {
+            startedAt: prev.startedAt,
+            endedAt: prev.endedAt || null,
+            sinceStartMs: Number.isFinite(prevStart) ? now - prevStart : null,
+            sinceEndMs,
+            sameSession: continues,
+          },
+  };
+}
+
+function boxSessionClose(session, endedAt = new Date().toISOString(), marker = BOX_MARKER) {
+  try {
+    fs.writeFileSync(
+      marker,
+      JSON.stringify({
+        startedAt: session.startedAt,
+        endedAt,
+        sessionStartedAt: session.sessionStartedAt,
+        runsInSession: session.runsInSession,
+      })
+    );
+    return null;
+  } catch (e) {
+    return String((e && e.message) || e);
+  }
+}
+
+// The one place the three riders accumulate. `chromium` is filled by the first
+// browser launch — see `newPage` — because the build string is a property of a
+// launched browser and there is nowhere earlier to read it from.
+const BOX = {
+  session: boxSessionOpen(),
+  chromium: null,
+  open: null,
+  close: null,
+};
+
+// The rider as it appears in the record, beside `generatedAt` and for the same
+// reason. Pure of the module's own state — it takes the accumulator — so the
+// pin can DRIVE a box with a launch and one without and read both shapes out.
+//
+// A RUN THAT LAUNCHED NOTHING SAYS SO. `chromium` and `load.open` are `null`
+// on a run that never reached a browser, which a reader must be able to tell
+// apart from a run that launched one and found the box idle. Nothing here
+// substitutes a plausible value for a missing one.
+function boxRecord(box = BOX) {
+  return {
+    bead: 'rf2-24o2z',
+    chromium: box.chromium,
+    node: process.version,
+    platform: `${os.platform()}/${os.arch()}/${os.release()}`,
+    load: {
+      open: box.open,
+      close: box.close,
+      // The busy fraction the RUN saw, which is the reading a contention or
+      // thermal account is actually about — the open snapshot alone can only
+      // give the average since boot.
+      busyFraction: boxBusyFraction(box.open, box.close),
+    },
+    session: box.session,
+  };
+}
 
 // The heap families, and which segment each arm needs. `null` is the
 // floor, which needs whichever adapter the segment it is being read in
@@ -491,6 +687,23 @@ async function newPage(chromium, query, jsFlags = '--expose-gc') {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', `--js-flags=${jsFlags}`],
   });
+  // THE TWO RIDERS THAT ONLY A LAUNCH CAN SUPPLY (rf2-24o2z). The build string
+  // is a property of a launched browser and there is nowhere earlier to read
+  // it from; the load snapshot is taken here rather than at require because
+  // "at window open" is what the mechanism question asks for, and the first
+  // launch is the closest thing this driver has to one — `--only alloc` runs
+  // NOTHING else, so under the selection every allocation window is taken with
+  // this IS the alloc page. FIRST LAUNCH ONLY: the clock row takes one page
+  // per round, and a snapshot per page would record the last round rather than
+  // the open. Neither read touches a measured window.
+  if (BOX.chromium === null) {
+    try {
+      BOX.chromium = `${browser.browserType().name()}/${browser.version()}`;
+    } catch (e) {
+      BOX.chromium = `unavailable: ${String((e && e.message) || e)}`;
+    }
+  }
+  if (BOX.open === null) BOX.open = boxSnapshot();
   const page = await browser.newPage();
   // Every `;; P0` record, and EVERY warning or error the page emits. The
   // second half is not debug scaffolding: a React warning about a root
@@ -1710,11 +1923,49 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 // (`segments`), on criterion 6's rule that a reader of any row can tell FROM
 // THE ROW how it was taken.
 //
-// THE WRITE-LEG ORDER IS NOT TOUCHED. It flips on the same parity and carries
-// its own within-round position confound, which is a different question with
-// a different discriminator; under `P0_ALLOC_WRITE=all` — the selection every
-// floor corpus is taken under — there is ONE leg and the flip is inert.
-const ALLOC_SEG_ORDERS = ['parity', 'fixed'];
+// THE WRITE-LEG ORDER IS NOT TOUCHED HERE. It has its own mode below
+// (`ALLOC_PASS_ORDERS`, rf2-fk6pj) because it carries its own within-round
+// position confound, which is a different question with a different
+// discriminator; under `P0_ALLOC_WRITE=all` — the selection every floor
+// corpus is taken under — there is ONE leg and any flip is inert.
+//
+// AND `fixed-reversed`, THE ARM `fixed` ALONE CANNOT SUPPLY (rf2-csca8).
+// `fixed` drives ONE orientation, so inside a `fixed` run the substrate and
+// the within-round position are perfectly confounded again — with the plan as
+// shipped, `uix-subs` is position 1 in every `fixed` window there has ever
+// been. The 1,050-1,224 B cluster that bead names sits at 8 of 38 such
+// windows, and 8 of 38 is equally consistent with "uix under `fixed`" and
+// with "the SECOND-driven arm under `fixed`". No committed run separates
+// them: the analysis on PR #8593 re-derived POSITION as refuted (parity uix
+// 8/747 at position 0 against 3/724 at position 1, Fisher two-sided
+// p = 0.2254) and SUBSTRATE as associated but NOT necessary (reagent carries
+// the term twice in 1,588), which leaves the MODE as the only surviving arm
+// — and the mode cannot be read against itself from one orientation.
+//
+// `fixed-reversed` drives the plan REVERSED every round, so it puts the
+// second substrate at position 0 while HOLDING THE MODE CONSTANT. That is
+// the one arrangement the corpus lacks. Parity already supplies uix at
+// position 0 for 747 windows, but it supplies it UNDER PARITY, which is the
+// term the contrast is trying to hold still.
+//
+// WHAT EACH OUTCOME SETTLES, pre-registered here rather than chosen after the
+// run, on the same rule as the three above:
+//
+//   - the cluster FOLLOWS uix to position 0  -> the carrier is the SUBSTRATE
+//     under `fixed`, and the position reading of 8/38 is a coincidence of
+//     the shipped plan's order;
+//   - the cluster STAYS at position 1        -> the carrier is the
+//     SECOND-DRIVEN slot under `fixed`, whichever substrate occupies it;
+//   - the cluster appears at BOTH or NEITHER -> neither property is the
+//     carrier as stated, and the segment order has said all it can say.
+//
+// IT IS A DIAGNOSTIC ROW ON `fixed`'s OWN TERMS. Everything the paragraph
+// above says about a `fixed` row — that it gives up the between-substrate
+// comparison and may not be quoted for one — holds here unchanged, and the
+// row states which of the three orders it was taken under (`segOrder`) for
+// exactly that reason. No gate, band, threshold or budget constant moves in
+// any of the three, and τ is untouched in either direction.
+const ALLOC_SEG_ORDERS = ['parity', 'fixed', 'fixed-reversed'];
 const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
 
 // THE CONTROL SLOT — THE LAST CONFOUND THE SCHEDULE BUILDS IN (rf2-rs8q6).
@@ -1820,8 +2071,166 @@ function allocRoundWindowKinds(passCount, slot) {
 // sequence out, rather than read the source and hope.
 function allocSegmentOrder(plan, round, order) {
   if (order === 'fixed') return plan;
+  // AND ITS REVERSED COUNTERPART (rf2-csca8), which is `fixed` in the other
+  // orientation and nothing else: the same plan every round, so the mode is
+  // held constant, with the substrate that `fixed` pins to position 1 now at
+  // position 0. A fresh array per round rather than a cached one, for the
+  // reason `parity`'s odd branch takes one — the plan the caller handed in is
+  // the shipped ladder plan and this function may not reorder it in place.
+  if (order === 'fixed-reversed') return [...plan].reverse();
   return round % 2 === 0 ? plan : [...plan].slice().reverse();
 }
+
+// ---------------------------------------------------------------------------
+// THE WRITE-LEG ORDER, AND WHY IT MAY NOT KEEP RIDING ON ROUND PARITY
+// (rf2-fk6pj)
+// ---------------------------------------------------------------------------
+//
+// Under `P0_ALLOC_WRITE=paired` the two write legs of every arm run as two
+// passes inside ONE round, and the round loop below alternates which leads.
+// rf2-0gjqi's paired window measured that THE PASS THAT RAN SECOND READS
+// LOWER — 10 of 12 round blocks, 6 of 6 in run 1 and 4 of 6 in run 2, median
+// second-minus-first −0.59%, WHICHEVER WRITE OCCUPIED IT. Decomposed under an
+// additive position model the pass-order half-difference reads +0.68% and
+// +0.21%, the same sign on both runs, while the order-free write half-sum
+// reads −0.33% and +0.24%, opposite signs. It is the class of term that
+// manufactured this instrument's last inferential finding, and it is still in
+// the instrument.
+//
+// AND THE INSTRUMENT CANNOT CURRENTLY ANSWER WHY, because the alternation is
+// `round % 2`: EVERY page-first round is an even round. Any other even/odd
+// property of a round that acts differently on a first and a second pass —
+// and a round is a long-lived, stateful thing — reads EXACTLY the same way.
+// The pass-position term and every other parity-indexed term are one column
+// in the design matrix, and no estimator over a parity-driven corpus can
+// split them. The other committed corpora do not break the tie either:
+// `segorder-rs8q6` varies the SEGMENT order and `ctrlslot-rs8q6` varies the
+// control SLOT, and neither reaches the write-leg order.
+//
+// `seeded` DRAWS THE LEG ORDER FROM A SEED AND THE ROUND INDEX INSTEAD, which
+// separates the two in one window: the leg order still varies round to round,
+// but it is no longer a function of round parity, so a term that tracks the
+// pass position and a term that tracks the parity now load on different
+// columns. `parity` is the pre-bead expression verbatim and stays the
+// default, so every committed corpus is read under the rule it was taken
+// under and no published row is reinterpreted.
+//
+// THE DRAW IS BALANCED, AND THAT IS NOT A REFINEMENT. `parity` guarantees
+// each leg leads exactly half the rounds, and that balance is what keeps the
+// WRITE from being confounded with the pass position — the defect the
+// alternation was landed for. An unbalanced Bernoulli draw would break the
+// parity tie by reintroducing the write/position confound, which is trading
+// one column for a worse one. So the schedule is a seeded permutation of a
+// BALANCED multiset: `floor(rounds / 2)` flipped rounds, exactly as parity
+// gives.
+//
+// AND A DRAW THAT REPRODUCES PARITY IS REDRAWN. Of the twenty balanced
+// six-round schedules, two ARE the parity schedules — the alternating one and
+// its complement — and a window that drew one of those would separate
+// nothing while costing a full allocation window. They are rejected and the
+// draw repeated. This needs a third balanced schedule to exist at all, which
+// it does from THREE rounds up: at three the balanced set is the three
+// single-flip schedules and only one of them alternates, while at two rounds
+// BOTH balanced schedules are parity schedules and the mode can separate
+// nothing. `parityTied` reports that, the preflight refuses on it, and the
+// pin drives both sides of the boundary rather than taking this paragraph's
+// word for where it falls.
+//
+// THE SEED IS RECORDED (`passSeed`), and that is what makes a `seeded` window
+// re-readable at all: the schedule is not recoverable from the mode name, so
+// a record that stated only `seeded` would be a record whose own schedule was
+// unknown. Re-passing the recorded seed reproduces the schedule exactly. The
+// round record also states the order it ACTUALLY drove, in `writeLegs`, for
+// the reason it always did — an estimator must never recompute the rule.
+//
+// IT IS `PASS` AND NOT `LEG`, AND THAT IS DELIBERATE. The obvious env name
+// for a mode over the write legs would put it under the same `P0_ALLOC_`
+// prefix that `ALLOC_LEG_TOLERANCE` would take if it ever acquired an env
+// route — and that prefix is BANNED, in a pin that refuses any occurrence of
+// it ANYWHERE in this file, comments included. τ decides whether a window may
+// be PUBLISHED, and this file's standing rule is that a gate with a dial on it
+// is a gate that gets dialled off; a switch sharing the prefix is one
+// careless grep away from looking like exactly that dial. `pass` is also the
+// more accurate word for what is ordered: the round loop drives `passes`, and
+// the measured term is a PASS-POSITION term. (The ban is the reason this
+// paragraph names no token — writing the forbidden one to explain the ban
+// trips it, which is how it was found.)
+const ALLOC_PASS_ORDERS = ['parity', 'seeded'];
+const ALLOC_PASS_ORDER = process.env.P0_ALLOC_PASS_ORDER || 'parity';
+// Drawn when it is not given, and recorded either way. It is INERT under
+// `parity` — the default, and the mode every published row was taken under —
+// and the record states the mode beside it so no reader can take a seed for
+// evidence that a seeded schedule ran.
+const ALLOC_PASS_SEED = process.env.P0_ALLOC_PASS_SEED || String(Date.now());
+
+// FNV-1a over the seed text, so the seed may be any string an operator finds
+// memorable rather than a number they have to invent. Pure and total.
+function allocSeedHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// mulberry32 — a small, fully specified, deterministic 32-bit generator. The
+// requirement here is REPRODUCIBILITY from a recorded seed and nothing more:
+// no statistical quality claim is made or needed, because the schedule it
+// draws is checked for the one property the mode exists for.
+function allocSeedRandom(state) {
+  let s = state >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// TRUE where the round drives its legs REVERSED. Pure, for `allocSegmentOrder`'s
+// reason: it needs neither a release build nor a Chromium, so the pin can DRIVE
+// the schedule over a seed and a round count and read its properties out —
+// balance, and independence from parity — rather than read the source and hope.
+function allocPassFlips(rounds, seed) {
+  const flipped = Math.floor(rounds / 2);
+  const base = Array.from({ length: rounds }, (_, i) => i < flipped);
+  // Parity is what this mode exists to escape, so a schedule that is a
+  // function of round parity is not a schedule this mode may return — the
+  // alternating one and its complement alike. An untied one exists from THREE
+  // rounds up; at two or fewer `parityTied` is the honest answer and the
+  // caller's window separates nothing.
+  const tiedToParity = (flips) =>
+    flips.every((f, r) => f === (r % 2 === 1)) || flips.every((f, r) => f === (r % 2 === 0));
+  const rand = allocSeedRandom(allocSeedHash(String(seed)));
+  // Bounded, because an unbounded redraw on a round count that admits no
+  // untied schedule would hang the run rather than tell the operator.
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const flips = base.slice();
+    for (let i = flips.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const t = flips[i];
+      flips[i] = flips[j];
+      flips[j] = t;
+    }
+    if (!tiedToParity(flips)) return { flips, attempts: attempt + 1, parityTied: false };
+  }
+  return { flips: base.slice(), attempts: 64, parityTied: true };
+}
+
+// The legs ONE ROUND drives, in drive order. `parity` is the pre-bead
+// expression verbatim, to the character; `seeded` indexes the drawn schedule.
+// Pure for the reason above, and total on a schedule shorter than the round
+// index — a run that drove more rounds than it drew for falls back to parity
+// for that round rather than driving `undefined`.
+function allocPassOrder(legs, round, order, schedule) {
+  const seeded = order === 'seeded' && schedule && round < schedule.flips.length;
+  const flip = seeded ? schedule.flips[round] : round % 2 !== 0;
+  return flip ? [...legs].reverse() : legs;
+}
+
+const ALLOC_PASS_SCHEDULE = allocPassFlips(ALLOC_ROUNDS, ALLOC_PASS_SEED);
 
 // The plan a shape admits, as a PURE FUNCTION of the full plan and the shape
 // — the same reason `allocArmSizing` and `allocSteps` are pure: it needs
@@ -2599,6 +3008,34 @@ async function allocRow(chromium) {
         '`first` is the default every published row is taken under'
     );
   }
+  // AND THE FIFTH, ON THE SAME RULE (rf2-fk6pj). A mistyped leg order is
+  // undetectable after the fact for the segment order's reason exactly: a
+  // `seeded` run that quietly ran on `parity` produces a record carrying a
+  // seed, a mode name and a set of rounds whose leg order IS parity-derived —
+  // and the whole point of the window is that those two are distinguishable,
+  // so the run would arrive pre-refuted under a name that says it separates
+  // them.
+  if (!ALLOC_PASS_ORDERS.includes(ALLOC_PASS_ORDER)) {
+    throw new Error(
+      `unknown P0_ALLOC_PASS_ORDER ${JSON.stringify(ALLOC_PASS_ORDER)} — the allocation row ` +
+        `alternates its write legs under one of ${ALLOC_PASS_ORDERS.join(' | ')}, and \`parity\` ` +
+        'is the default every published row is taken under'
+    );
+  }
+  // AND A `seeded` RUN THAT CANNOT ESCAPE PARITY IS REFUSED RATHER THAN
+  // TAKEN (rf2-fk6pj). At two rounds or fewer every balanced schedule IS a
+  // parity schedule, so the draw has nothing to return and `allocPassFlips`
+  // says so. The window would cost the same and separate nothing, and a record
+  // stating `seeded` over a parity-derived schedule is the one artefact this
+  // mode may not produce.
+  if (ALLOC_PASS_ORDER === 'seeded' && ALLOC_PASS_SCHEDULE.parityTied) {
+    throw new Error(
+      `P0_ALLOC_PASS_ORDER=seeded over ${ALLOC_ROUNDS} round(s) has no schedule that is not a ` +
+        'function of round parity — at two rounds or fewer every balanced schedule alternates. ' +
+        'The mode exists to separate the pass-position term from round parity and cannot do it ' +
+        'here: RAISE P0_ALLOC_ROUNDS to at least 3, or take the window under `parity`'
+    );
+  }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
@@ -2812,7 +3249,15 @@ async function allocRow(chromium) {
     // defect this switch exists to remove, and a drift within a run would be
     // read as a difference between the writes. Over the six default rounds
     // each leg leads three times.
-    const legs = round % 2 === 0 ? ALLOC_WRITE_LEGS : [...ALLOC_WRITE_LEGS].reverse();
+    //
+    // AND UNDER WHICH RULE IT ALTERNATES IS ITSELF A MODE NOW (rf2-fk6pj).
+    // `parity` is the expression that stood here — `round % 2 === 0`, and
+    // `allocPassOrder` is that expression verbatim under it, so every
+    // committed corpus is read under the rule it was taken under. `seeded`
+    // draws a balanced schedule from `passSeed` instead, which is the only way
+    // to separate the measured pass-position term from every other even/odd
+    // property of a round. See `allocPassFlips` for what the draw guarantees.
+    const legs = allocPassOrder(ALLOC_WRITE_LEGS, round, ALLOC_PASS_ORDER, ALLOC_PASS_SCHEDULE);
     const passes = segs.flatMap(({ segment, arms }) =>
       legs.map((leg) => ({ segment, arms, leg }))
     );
@@ -3171,6 +3616,27 @@ async function allocRow(chromium) {
     // flip was landed for, so a reader has to be able to tell from the row
     // whether the row is entitled to make one. `parity` on every published row.
     segOrder: ALLOC_SEG_ORDER,
+    // AND UNDER WHICH PASS-ORDER RULE ITS WRITE LEGS ALTERNATED (rf2-fk6pj),
+    // on that same criterion-6 rule and with one thing on top of it that the
+    // three modes above do not need. `parity` names a schedule a reader can reconstruct from the round
+    // index; `seeded` names one that NOTHING recovers except the seed, so the
+    // seed travels in the row. Re-passing it as `P0_ALLOC_PASS_SEED` reproduces
+    // the schedule exactly, which is what makes a `seeded` window re-readable
+    // rather than a one-shot.
+    //
+    // THE SEED IS RECORDED UNDER `parity` TOO, AND IS INERT THERE. It is
+    // resolved once at require whichever mode runs, so a row states the seed
+    // it HELD rather than the seed it USED; `passOrder` beside it is what says
+    // whether anything was drawn from it. `parity` on every published row.
+    passOrder: ALLOC_PASS_ORDER,
+    passSeed: ALLOC_PASS_SEED,
+    // AND WHAT THE DRAW ACTUALLY RETURNED, for the reason `windowOrder` and
+    // `segments` are recorded per round: an estimator must be able to read the
+    // schedule off the record rather than re-run the generator. `flips[r]` is
+    // TRUE where round r drove its legs reversed. Under `parity` this is the
+    // schedule that was drawn and NOT driven — `writeLegs` on each round is
+    // always the order that ran.
+    passSchedule: ALLOC_PASS_SCHEDULE,
     // AND WHICH CONTROL SLOT (rf2-rs8q6), on that same criterion-6 rule. The
     // controls are this row's null arm and every studio page reads them against
     // the arms window for window; a row whose controls were taken at another
@@ -4460,6 +4926,29 @@ module.exports = {
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
   ALLOC_SEG_ORDER,
+  // The write-leg order's three pure functions (rf2-fk6pj), exported on the
+  // rule above and with one more reason than the segment order has: the
+  // properties that matter — that `parity` is the pre-bead expression to the
+  // character, that a `seeded` schedule is BALANCED, and that it is not a
+  // function of round parity — are claims about a whole run's schedule, and
+  // none of the three is readable off a ternary in the source.
+  allocSeedHash,
+  allocSeedRandom,
+  allocPassFlips,
+  allocPassOrder,
+  ALLOC_PASS_ORDERS,
+  ALLOC_PASS_ORDER,
+  ALLOC_PASS_SEED,
+  ALLOC_PASS_SCHEDULE,
+  // The box riders (rf2-24o2z), pure of the run for the same reason: the pin
+  // can DRIVE a session over a marker it wrote itself and read the gap and the
+  // session arithmetic out, with no build, no server and no Chromium.
+  boxSnapshot,
+  boxBusyFraction,
+  boxSessionRead,
+  boxSessionOpen,
+  boxSessionClose,
+  boxRecord,
   // The control slot's two pure functions, so the pin can DRIVE the multi-round
   // window sequence and read the two properties this mode separates off it,
   // rather than match the source for a ternary (rf2-rs8q6).
@@ -4696,6 +5185,18 @@ if (require.main === module) (async () => {
   // 2026-08-16 and 2026-08-17 windows published records and no dataset, so the
   // same question is not askable of them at all. The convention has paid for
   // itself once; the three windows that skipped it cannot be made to pay later.
+  // AND WHAT THE BOX WAS DOING WHILE IT RAN (rf2-24o2z), closed here rather
+  // than in the try above so a REFUSED run carries it too — the evidence
+  // surviving the refusal is this file's own rule, and a window that refused
+  // is exactly the kind whose machine conditions a later reader will want.
+  BOX.close = boxSnapshot();
+  out.box = boxRecord();
+  // AND THE NOTE THIS RUN LEAVES FOR THE NEXT ONE. It is the only write here
+  // that is not into the record, and it is what makes `session.previousRun`
+  // answerable at all. A failure to write it is recorded and never thrown:
+  // this rider may not refuse a window.
+  const markerErr = boxSessionClose(BOX.session);
+  if (markerErr) out.box.session.markerError = markerErr;
   const raw = process.env.P0_RAW_OUT;
   if (raw) {
     fs.mkdirSync(path.dirname(raw), { recursive: true });
