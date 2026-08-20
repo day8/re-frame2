@@ -51,11 +51,18 @@ reason is arithmetic rather than luck.**
   420 of the 456 at or below it do (92.1%).** So the total is a **NECESSARY**
   condition for certification, **not a sufficient one** — 36 refusals sit below
   the ceiling, 16 of them with a collection inside the window and 20 without.
-- **The refusal signature is one collection of near-constant size.** All 72
-  R = 20 refusals carry a negative leg: at leg 6 in 39 of them and leg 5 in 31,
-  with one each at legs 3 and 4. Magnitude median **−803,634 B**, range
-  **−817,444 to −792,368 B** — a 3.2% span on a quantity of 800 KB — against a
-  cohort `legMedian` of **174,308 B**.
+- **The refusal signature is AT LEAST ONE collection, whose dominant leg is of
+  near-constant size.** All 72 R = 20 refusals carry a negative leg — but **76
+  negative legs fall across those 72 windows**, three of them carrying more than
+  one, so this is a **lower bound on the count and not an equality**. The
+  *first* negative leg sits at leg 6 in 39 windows and leg 5 in 31, with one
+  each at legs 3 and 4. The *deepest* leg per window has median **−803,634 B**,
+  range **−817,444 to −792,368 B** — a 3.2% span on a quantity of 800 KB —
+  against a cohort `legMedian` of **174,308 B**. **Both of those are
+  one-reading-per-window censuses, so neither can count collections**; the four
+  legs they drop are all much smaller (−377,744 to −25,704 B), which is why the
+  near-constant *magnitude* survives while the *count* does not. See
+  [section 4](#4-the-refusal-signature).
 - **The rig change is SIZED, and the triage's own statement of it was too
   strong.** Dropping the top rung from six measured writes to five projects the
   twelve refusing cells to **857,225 – 879,190 B**. Against the certifying
@@ -179,19 +186,41 @@ ceiling is bounded from below by an observation and from above by nothing.
 
 ## 4. The refusal signature
 
-| quantity | reading |
-|---|---|
-| R = 20 refusals carrying a negative leg | **72 of 72** |
-| position of the first negative leg (of 6) | leg 6 × 39, leg 5 × 31, leg 4 × 1, leg 3 × 1 |
-| magnitude, median | **−803,634 B** |
-| magnitude, range | **−817,444 to −792,368 B** (3.2% span) |
-| cohort `legMedian`, median | 174,308 B |
-| windows with a negative leg, corpus-wide | 88 of 528, **0 certified** |
+**The count and the magnitude are two different claims, and only the second is
+near-constant.** The corpus supports a **lower bound** on the number of
+collections per refusing window, not an equality, and the table separates the
+event census from the two per-window statistics for that reason.
 
-**The reclaimed quantity is near-constant across the corpus** while the arm costs
+| quantity | reading | what it counts |
+|---|---|---|
+| R = 20 refusals carrying **at least one** negative leg | **72 of 72** | windows |
+| negative legs **per window** | 1 × 69, 2 × 2, 3 × 1 | windows |
+| negative-leg **events** across those 72 windows | **76** | events |
+| position of the **first** negative leg (of 6) | leg 6 × 39, leg 5 × 31, leg 4 × 1, leg 3 × 1 | windows — blind to the 4 later legs |
+| **deepest** leg per window, median | **−803,634 B** | windows — a magnitude, not a count |
+| **deepest** leg per window, range | **−817,444 to −792,368 B** (3.2% span) | windows |
+| all 76 events, median | −803,480 B | events |
+| all 76 events, range | −817,444 to −25,704 B | events |
+| the 4 legs the per-window statistics drop | −377,744, −312,396, −48,940, −25,704 B | events |
+| cohort `legMedian`, median | 174,308 B | windows |
+| windows with a negative leg, corpus-wide | 88 of 528, **0 certified**; **5 carry more than one** | windows |
+
+**The three multi-negative R = 20 windows, named in full**, because a census that
+reports only the first position and only the deepest magnitude conceals them:
+
+| window | negative legs | at | `falls` |
+|---|---|---|---|
+| `paired-run1` round 1, `uix-subs \| lad/hicasso @all` | **3** | legs 3, 5, 6 | 3 |
+| `paired-run1` round 4, `reagent-subs \| lad/hicasso @page` | **2** | legs 5, 6 | 2 |
+| `paired-run1` round 5, `reagent-subs \| lad/hicasso @all` | **2** | legs 4, 5 | 3 |
+
+**The DOMINANT reclaim is near-constant across the corpus** while the arm costs
 that fill the window are not, and it sits within 10% of the observed ceiling: a
-window that allocates past roughly 880 KB meets one collection, and a window
-under it meets none.
+window that allocates past roughly 880 KB meets **at least one** collection, and
+a window under it meets none. **Exposing the four extra legs does not weaken
+that magnitude reading** — every one of them is smaller than the dominant leg of
+its own window, so the −803,634 B figure is unmoved. What it does is separate the
+magnitude from a **count**, and the count is a lower bound.
 
 **One fact from the rig makes that consistent rather than merely suggestive, and
 it is read from the rig's own record rather than proposed here.** Every window
@@ -203,7 +232,10 @@ excluded from the leg cohort, from `rise`, from `falls`, from `perWrite` and fro
 the certificate for that reason. So each window starts from a known-collected
 heap and accumulates from there, and *"how much can a window allocate before the
 next collection"* is a question with a single answer per window rather than a
-function of what ran before it.
+function of what ran before it. **That fixes where the FIRST collection falls.
+It says nothing about how many follow it inside the same window, and three
+windows carry more than one**, so it does not license reading the signature as
+exactly one collection.
 
 **No mechanism is asserted beyond that.** The reader measures the reclaim and the
 ceiling; it does not open the collector, and no nursery size, generational policy
@@ -292,9 +324,18 @@ take one.
   below the ceiling refused, twenty of them without any collection inside. A
   reader who inverts the ceiling into "under 884,280 B certifies" has the
   implication backwards.
-- **The COLLECTOR's behaviour is not established.** The reclaim is near-constant
-  and the ceiling is close to it; that is an observation, and no nursery size,
-  generational policy or V8 internal is read, inferred or claimed.
+- **The COLLECTOR's behaviour is not established.** The dominant reclaim is
+  near-constant and the ceiling is close to it; that is an observation, and no
+  nursery size, generational policy or V8 internal is read, inferred or claimed.
+- **The NUMBER of collections per window is a lower bound, not a count.** The
+  corpus establishes *at least one* per refusing window, and 76 negative legs
+  fall across the 72. The reader's position and magnitude censuses take one
+  reading per window each and structurally cannot count events; **an earlier
+  version of this page read the signature as exactly one collection, which the
+  raw corpus disproves in three windows** (corrected 2026-08-21, on the merged-PR
+  audit of PR #8591 — [section 4](#4-the-refusal-signature)). Whether the extra
+  legs are separate collections or one collection spanning a leg boundary is
+  **not established**, and no window was taken to decide it.
 - **The five-write projection is not a measurement**, its in-band support is not
   independent of the family confound, and its worst cell clears the ceiling by
   0.6%. See [section 5](#5-the-five-write-projection-and-what-it-rests-on).

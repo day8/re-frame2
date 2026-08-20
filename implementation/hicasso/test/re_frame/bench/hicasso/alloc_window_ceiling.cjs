@@ -70,6 +70,11 @@ const med = (a) => {
   return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
 };
 const pos = (x) => (x > 0 ? x : 0);
+// Every negative leg in a window, not just the first or the deepest. A fresh
+// array each call, so callers may sort it in place. This is the reader's only
+// EVENT-level view of collections: the position and magnitude censuses below
+// both take one reading per window and so cannot count collections at all.
+const negLegs = (c) => c.legs.filter((l) => l < 0);
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const pc = (v) => v.toFixed(1) + '%';
 
@@ -256,6 +261,7 @@ function report() {
   const neg = ws.filter((c) => c.legs.some((l) => l < 0));
   say(`    windows with a negative leg: ${neg.length} of ${ws.length}; ` +
       `certified among them: ${neg.filter((c) => c.certified).length}`);
+  say(`      of those ${neg.length}, ${neg.filter((c) => negLegs(c).length > 1).length} carry MORE THAN ONE.`);
   const r20neg = ws.filter((c) => c.rungKey === 'R20' && !c.certified && c.legs.some((l) => l < 0));
   const at = {};
   r20neg.forEach((c) => {
@@ -263,11 +269,48 @@ function report() {
     at[i] = (at[i] || 0) + 1;
   });
   const mags = r20neg.map((c) => Math.min(...c.legs));
-  say(`    R = 20 refusals with a negative leg: ${r20neg.length} of ` +
+  say(`    R = 20 refusals with AT LEAST ONE negative leg: ${r20neg.length} of ` +
       `${ws.filter((c) => c.rungKey === 'R20' && !c.certified).length}`);
-  say(`      position of the first negative leg (of ${W}): ` +
+
+  // THE CARDINALITY CENSUS. Both per-window statistics below take ONE reading
+  // from each window -- the FIRST negative leg's position, and the DEEPEST
+  // leg's magnitude -- so neither can distinguish one collection from several.
+  // The count that can is this one, and it is printed FIRST for that reason.
+  const perWin = {};
+  r20neg.forEach((c) => {
+    const k = negLegs(c).length;
+    perWin[k] = (perWin[k] || 0) + 1;
+  });
+  const events = r20neg.flatMap((c) => negLegs(c));
+  const multi = r20neg.filter((c) => negLegs(c).length > 1);
+  say(`      negative legs per window: ` +
+      Object.keys(perWin).sort((a, b) => a - b).map((k) => `${k} x ${perWin[k]}`).join(', ') +
+      `  ->  ${events.length} EVENTS over ${r20neg.length} windows`);
+  say(`      so the signature is AT LEAST ONE collection per refusing window. It is NOT`);
+  say(`      exactly one, and neither per-window census below can show the difference.`);
+  say(`      the ${multi.length} multi-negative windows, named in full:`);
+  for (const c of multi) {
+    const posns = c.legs.map((l, i) => (l < 0 ? i + 1 : null)).filter(Boolean);
+    say(`        ${c.run} round ${c.round}  ${c.family.padEnd(30)} ` +
+        `${negLegs(c).length} neg legs at [${posns.join(',')}]  falls=${c.falls}`);
+  }
+
+  say(`      position of the FIRST negative leg (of ${W}): ` +
       Object.keys(at).sort((a, b) => a - b).map((k) => `leg ${k} x ${at[k]}`).join(', '));
-  say(`      magnitude: median ${n0(med(mags))} B, range ${n0(Math.min(...mags))} to ${n0(Math.max(...mags))} B`);
+  say(`        (${r20neg.length} windows, one reading each; it cannot see the ` +
+      `${events.length - r20neg.length} later legs above.)`);
+  say(`      DEEPEST leg per window: median ${n0(med(mags))} B, ` +
+      `range ${n0(Math.min(...mags))} to ${n0(Math.max(...mags))} B`);
+  say(`        (${r20neg.length} windows, one reading each. A MAGNITUDE statistic, NOT a count`);
+  say(`         of collections -- what it establishes is the near-constant dominant reclaim.)`);
+  const extras = r20neg.flatMap((c) => negLegs(c).sort((a, b) => a - b).slice(1));
+  say(`      all ${events.length} events: median ${n0(med(events))} B, ` +
+      `range ${n0(Math.min(...events))} to ${n0(Math.max(...events))} B`);
+  say(`        the ${extras.length} legs the per-window statistic drops: ` +
+      extras.sort((a, b) => a - b).map(n0).join(' B, ') + ' B');
+  say(`        -- every one SMALLER in magnitude than the dominant leg of its own window, so`);
+  say(`           exposing them does not weaken the dominant-reclaim reading. It separates`);
+  say(`           that reading from a COUNT of collections, which is a different claim.`);
   say(`      against a cohort legMedian of ${n0(med(r20neg.map((c) => c.legMedian)))} B`);
 
   say('');
@@ -364,11 +407,29 @@ function selfTest() {
   ck('median, odd n', med([3, 1, 2]), 2);
   ck('pos clamps', pos(-1) + pos(5), 5);
 
+  // THE CARDINALITY GUARD, added when the merged-PR audit of #8591 caught this
+  // page claiming "one collection" where the corpus holds three windows with
+  // more than one. These checks pin the DISTINCTION rather than the figures:
+  // a per-window reading must not be read as a count of collections.
+  const synth = { legs: [100, -700, 100, -300, 100, -50] };
+  ck('negLegs counts every negative leg', negLegs(synth).length, 3);
+  ck('first-negative-leg position sees only the first', synth.legs.findIndex((l) => l < 0) + 1, 2);
+  ck('deepest-leg magnitude sees only the deepest', Math.min(...synth.legs), -700);
+  // The two per-window readings above agree on a window with THREE collections
+  // and on one with a single -700 B leg. That is exactly the blindness the
+  // audit found, so it is asserted rather than described.
+  const single = { legs: [100, -700, 100, 100, 100, 100] };
+  ck('first-position cannot separate 3 collections from 1',
+    (synth.legs.findIndex((l) => l < 0) + 1) === (single.legs.findIndex((l) => l < 0) + 1), true);
+  ck('deepest-magnitude cannot separate 3 collections from 1',
+    Math.min(...synth.legs) === Math.min(...single.legs), true);
+  ck('negLegs CAN separate them', negLegs(synth).length !== negLegs(single).length, true);
+
   if (fail.length) {
     console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
     process.exit(1);
   }
-  console.log(`self-test OK (${6} checks)`);
+  console.log(`self-test OK (${12} checks)`);
 }
 
 if (require.main === module) {
