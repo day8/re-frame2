@@ -21,6 +21,19 @@ stayed 2. The only file this window changed in the working tree was
 `implementation/core/src`, checked out whole at each bisect point and restored
 to `88411ed803` afterwards.
 
+> **ONE CLAIM ON THIS PAGE IS WITHDRAWN AND NARROWED — 2026-08-21, `rf2-9jrhi`,
+> from the merged-PR audit of PR #8457.** The exclusion of the heap trajectory
+> read that the opening heap "tracks within 8 KB … across all eighteen rounds".
+> It does not: round by round the quoted pair diverges by up to 40,127 B, and
+> the pair was cross-revision. The **closing**-level observation the follow-on
+> page rests on is correct and untouched; the across-all-rounds generalisation is
+> withdrawn and the exclusion narrowed. See [The second mode](#the-second-mode).
+> **Nothing else on this page moves** — the bisect is still flat, the
+> event-pipeline candidate still unsupported, the 3,792 B mode still real and
+> still certifying. **No window was re-taken, no browser launched and no rig
+> file touched**; the corrected figures are re-derived from this page's own
+> committed datasets by `alloc_heap_trajectory.cjs`.
+
 ## The answer, first
 
 **The bisect is FLAT. No ~1 – 3.5 KB drop is located anywhere in
@@ -290,16 +303,68 @@ asks whether a window's legs are alike, and in both windows they are. It has
 nothing to say about which of two levels the window sits at, and that is not a
 defect in the witness so much as a question nobody had asked it.
 
-**It is not the heap trajectory.** The absolute used-heap level at each window's
-opening — recoverable for the first time, because `rf2-erre5` retains
-`samples[0]` — tracks within 8 KB between the high run and a low one across all
-eighteen rounds, ending at 6,191,823 B against 6,184,236 B. The two runs climb
-the same heap and allocate different amounts per write on it.
+> ~~**It is not the heap trajectory.** The absolute used-heap level at each
+> window's opening — recoverable for the first time, because `rf2-erre5` retains
+> `samples[0]` — tracks within 8 KB between the high run and a low one across all
+> eighteen rounds, ending at 6,191,823 B against 6,184,236 B. The two runs climb
+> the same heap and allocate different amounts per write on it.~~
+>
+> **THE ACROSS-ALL-ROUNDS FORM IS WITHDRAWN — merged-PR audit of PR #8457,
+> re-derived 2026-08-21 (`rf2-9jrhi`).** The two endpoints are correct and the
+> closing observation stands; the generalisation from them to the whole
+> trajectory does not, and the pair chosen was cross-revision. Replaced by the
+> two paragraphs below. **No window was re-taken and no rig file was touched** —
+> every figure is re-derived from this page's own eight committed datasets by
+> `alloc_heap_trajectory.cjs`, which prints them.
+
+**The two modes CLOSE at the same heap, and that is a closing-level observation
+rather than a trajectory one.** Against the high run's own same-revision,
+control-passing low replicate, the opening heap at the last round agrees to
+**4,812 B** on `reagent-subs` and **4,940 B** on `uix-subs` — the figure the
+follow-on page prices 743,232 B of extra allocation against to conclude the
+extra bytes are transient garbage rather than retained structure. That
+conclusion is untouched by this correction, because it only ever needed the
+closing levels.
+
+**The trajectories do NOT track, and no exclusion may rest on their tracking.**
+Round by round the same same-revision pair diverges by up to **23,676 B**
+(`reagent-subs`, round 4) and **23,572 B** (`uix-subs`, round 4). The pair the
+withdrawn sentence actually quoted — `bisect-1-a` against `bisect-2-m`, which is
+at `a158c40288` and so is not a replicate of the high run's commit at all —
+diverges by up to **40,127 B** and **28,951 B**, closing at 7,587 B and
+15,595 B. Every one of those is several times the 3,792 B step under
+explanation, so "within 8 KB" describes the last round and not the eighteen.
+
+**What survives as evidence points the other way, and it is worth more than what
+it replaces.** The high-mode run opens round 4 — the round it steps at —
+**23,492 B and 23,676 B BELOW** its two same-revision replicates, and takes a
+round-3 → round-4 heap step some 25.5 KB **smaller** than either (+137,736 B
+against +163,260 and +163,428). It then allocates 3,792 B **more** per write for
+the remaining fourteen rounds. A monotone "a higher heap costs more per write"
+mechanism needs the opposite sign at exactly that boundary, and does not get it.
+**Stated at its true strength: there is one high-mode run in the corpus, so this
+bounds the monotone form of the candidate rather than excluding the trajectory.**
+
+**So the heading is narrowed, not restored.** What this page's data support is
+*the mode is not explained by the high run sitting on a higher heap* — a claim
+about level, in one direction, at the boundary where the mode appears. What they
+do not support is the broader *it is not the heap trajectory*, and nothing here
+excludes a non-monotone or timing-shaped heap effect. The **collection and
+GC-promotion** forms of that candidate are separately **EXCLUDED** by the
+follow-on page's table
+([the second mode is per-write](the-second-mode-is-per-write-and-the-controls-never-move.md#the-candidates-and-which-the-evidence-excludes)),
+on zero falling steps, byte-stability over fourteen rounds and the same closing
+levels quoted above — grounds that never used the withdrawn sentence, so that
+row is untouched by this correction and the follow-on's two survivors still
+stand.
 
 **What the mode IS was not identified, and identifying it needs an instrument
 this window may not build.** Three candidates are open and none is preferred: a
 V8 tier or deoptimisation transition in the compiled write path, a page-global
 allocation the counter attributes to the leg, and a `:advanced` build artefact.
+(The correction above does not add a fourth: it withdraws an over-broad
+exclusion, and the heap forms that would have been candidates are excluded by
+the follow-on page on independent grounds.)
 **Filed as `rf2-77gz8` rather than chased** — a measurement window may not
 improve the rig it is measuring on, and every reading above would have been
 taken on a different instrument from the ones after the fix.
@@ -358,6 +423,15 @@ The eight datasets are committed beside this page under
 convention `rf2-2rtt6.138` set and `rf2-erre5` wrote down. Each retains every
 window's raw sample stream, so the estimator above can be re-derived, and a
 different one driven, without re-running a browser.
+
+That is what the 2026-08-21 correction did, and it needed no browser at all —
+every figure in the withdrawn-and-narrowed passage above is printed by:
+
+```bash
+node implementation/hicasso/test/re_frame/bench/hicasso/alloc_heap_trajectory.cjs
+```
+
+It reads the eight committed datasets, launches nothing and writes nothing.
 
 ## Related
 
