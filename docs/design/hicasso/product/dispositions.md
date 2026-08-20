@@ -257,10 +257,11 @@ against the tree.** Until 2026-08-14 HS-23, HS-31, HS-32, HS-34 and HS-35 — an
 nothing, so `rf2-2ius2` rewrote each cell to say who owned it if anyone did and **no live owner** where nobody did.
 `rf2-cfriw` then took note 3 below at its word and server-rendered the four that still owed a witness, and **only one of
 the four turned out to be an ordinary unproved refusal.** HS-35 owes no witness at all — the condition in its own name
-failed. HS-34 has no module to refuse: the namespace has not been built and its name is still an open ledger row.
-HS-31 and HS-32 do not refuse on any path — both emit their live surface into the server bytes, and HS-32's anchored
-door does not reach Render either, though `rf2-9zz0y` has since discharged the first of the five clauses it owes and
-that cell records which. HS-23 alone carries a real declaration-source refusal, and only on
+failed. HS-34 has no module to refuse: the namespace has not been built, and its name is a *provisional* default on a
+ledger row that is dispositioned rather than open. HS-31 and HS-32 do not refuse on any path — both emit their live
+surface into the server bytes, and HS-32's anchored door does not reach Render either, though `rf2-9zz0y` has since
+discharged the first of the five clauses it owes and that cell records which.
+HS-23 alone carries a real declaration-source refusal, and only on
 one of the three routes an author has. The operative column is still the upgrade slot and the route out of it is still
 [2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s; what changed is that the slot no longer has a standing owner,
 so a row leaves Client-only when some *live* bead proves it.
