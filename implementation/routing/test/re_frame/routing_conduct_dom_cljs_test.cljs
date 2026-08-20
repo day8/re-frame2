@@ -37,11 +37,16 @@
 
   **Prefetch.** All three positions of the closed intent class
   (`re-frame.routing.link/prefetch-intent-keys` — `:on-mouse-enter` /
-  `:on-focus` / `:on-touch-start`) are driven with REAL DOM events in
-  the retired compiled tier's route-link DOM suite (rf2-2n3p, PR #8017), which also
-  carries an assertion that reds the moment the class grows. Rebuilding
-  that here would add a second copy of a covered proof and a second thing
-  to keep in step with the law.
+  `:on-focus` / `:on-touch-start`) are exercised by
+  `re-frame.route-link-cljs-test`, but SYNTHETICALLY: it reads the handler
+  off the rendered attrs map and calls it, rather than firing a browser
+  gesture at a mounted anchor, and it names the three positions literally
+  instead of reading the class. The suite that drove them through the real
+  DOM, and the roster assertion that pinned its gestures against the class,
+  both retired with the compiled-view substrate (rf2-0yp7w), and nothing
+  replaced either. So this paragraph records a GAP rather than declining a
+  covered proof: no browser-level witness of prefetch survives on any
+  surface, and this file does not supply one.
 
   ## The URL is borrowed, and given back
 
