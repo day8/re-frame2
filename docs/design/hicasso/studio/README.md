@@ -14,6 +14,16 @@ studio at `docs/design/freehand/studio/` is frozen and is never extended** — i
 is the predecessor programme's record and it stays exactly as its own programme
 left it.
 
+**This index is exempt from the repository's GDS README restyle** (PR #8529),
+for the same reason the restyle already kept evidence identifiers and ISO window
+dates on the bench data pages it points at. The bold and the italics here mark
+verdict status — REFUTED, WITHDRAWN, SUPERSEDED, UNRESOLVED, NOT-COMPARABLE, and
+the standing labels a row carries — rather than emphasising prose, so stripping
+them changes what a row asserts. The numerals are measured figures with units.
+And the prose immediately to the left of a commit hash is what
+`scripts/check_provenance_pins.py` classifies that hash by, so rewording around
+one moves it between citation classes.
+
 ## What a page in here owes its reader
 
 The measurement discipline in [validation.md](../validation.md) is binding, and
