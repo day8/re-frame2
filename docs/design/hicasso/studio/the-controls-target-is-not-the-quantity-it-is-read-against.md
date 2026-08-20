@@ -378,11 +378,27 @@ operator rather than to rewrite it from inside the window that found it.
   comparable. Three candidates survive untested and none is preferred over the
   others: drift in the event pipeline between 2026-08-08 and 2026-08-13, a
   resident-runtime difference the identical pins cannot see, and an
-  unquantified selection effect. Twenty-two commits landed under
+  unquantified selection effect. ~~Twenty-two commits~~ **ELEVEN commits**
+  landed under
   `implementation/core/src` in that interval and **none was shown to be it**.
   Naming one would take a bisection window this page may not spend, and
   `rf2-9jrhi` carries that as a **hypothesis test on those candidates**, not as
   the location of a proven drop.
+
+    > **COUNT CORRECTED AND ENDPOINTS PINNED — 2026-08-20 (`rf2-nkeba`),
+    > discharging the merged-PR audit of PR #8442.** That audit found the
+    > twenty-two carried here without verification and asked that the next edit
+    > to this record either pin the interval or drop the count. Pinned: the
+    > 2026-08-08 small-witness run ran at commit
+    > `42cf8db7da2d821df740008830c4aecd46591f9d` and the comparison run off commit
+    > `457ac7f173cf189b3c4858db63a09fcaff6d8332` — both ancestors of `origin/main`
+    > — and
+    > `git rev-list --count 42cf8db7da..457ac7f173 -- implementation/core/src`
+    > returns **11**. The same stale twenty-two appears in `rf2-9jrhi`'s
+    > description, which is closed. **Nothing else on this page changes** — the
+    > count was always incidental, and `rf2-9jrhi` has since run the bisection
+    > and found it FLAT, so no commit in the interval is the drop whatever the
+    > interval's size.
 - **Whether the 2026-08-08 windows would certify today is CONDITIONAL, not
   established.** Under `rf2-oiy1`'s model none of the twelve certifies; under
   another arrangement of the same recorded scalars **all twelve** do, and every
