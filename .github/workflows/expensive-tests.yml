@@ -80,7 +80,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # rf2-wh5to — the eleven gates below used to be ONE unnamed
       # `set -euo pipefail` step. That structure is why the
@@ -337,7 +337,7 @@ jobs:
 
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       - name: Run template emitted-app smoke
         env:
@@ -426,7 +426,7 @@ jobs:
 
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       - name: Run re-frame2-pair live conformance suite (hermetic)
         run: npm run test:re-frame2-pair-live-hermetic-suite

@@ -128,7 +128,17 @@ SETUP_PATTERNS = (
     # trailing quote is optional -- a missed quote here re-reports the Clojure
     # installer as an unrun gate in all twenty-three JVM jobs.
     r"install-clojure-cli\.sh[\"']?$",
-    r"^npx playwright install\b",
+    # The `timeout` prefix is OPTIONAL and its shape is pinned tight (rf2-mul6w).
+    # Fourteen of the seventeen Playwright installs carry an in-command deadline
+    # -- `timeout -k 10 720 npx playwright install ...` -- because a step the
+    # RUNNER guillotines is killed rather than failed, so its `|| <handler>` arm
+    # never runs and the checks page carries no verdict at all.  Without this
+    # optional group those fourteen bodies stop matching, drop out of the setup
+    # set, and get reported as UNRUN GATES: a fail-open in the very map the merge
+    # criterion consults.  Keep the group narrow -- a literal `timeout`, an
+    # optional `-k <secs>`, one numeric deadline -- so it can admit nothing but
+    # this shape.  See .github/scripts/playwright-install-failed.sh.
+    r"^(?:timeout (?:-k \d+ )?\d+ )?npx playwright install\b",
     r"^sudo apt-get\b",
     r"^apt-get\b",
     # The clj-kondo installer step (lint.yml). It fetches the pinned release

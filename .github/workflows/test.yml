@@ -1691,7 +1691,7 @@ jobs:
       # Do not move this step out of `implementation`, and do not reorder it
       # before `npm ci`.
       - name: Install pinned Chromium + Firefox + WebKit
-        run: npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       - name: I15 three-engine controlled-input gate
         run: npm run test:hicasso-controlled
@@ -1801,7 +1801,7 @@ jobs:
       # this step out of `implementation`, and do not reorder it before
       # `npm ci`.
       - name: Install pinned Chromium + Firefox + WebKit
-        run: npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       - name: HMR contract gate — 36 real shadow reloads in three engines
         run: npm run test:hicasso-hmr
@@ -3470,7 +3470,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       - name: Compile :browser-test, serve, and run Playwright runner
         run: npm run test:browser
@@ -3611,7 +3611,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # Production-mode CLJS smoke for `:rf.schema/at-boundary`
       # (Spec 010 §Production builds, rf2-r2uh / rf2-84e9). Compiles
@@ -3675,7 +3675,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # Production-mode CLJS elision smokes:
       #   - rf2-2zdu: re-frame.trace/emit! must NOT fire under :advanced +
@@ -4035,7 +4035,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # rf2-9grp6 — narrow scope. The orchestrator at
       # implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs supports a
@@ -4139,7 +4139,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # PR-smoke tier (rf2-wa3oo + rf2-og36y). The full feature-load +
       # full Xray matrix + Story static-export sweep sat on the critical
@@ -4405,15 +4405,29 @@ jobs:
       # here. Measured 2026-08-13, and every claim below is from a CI log or
       # from `playwright-core` at the pinned version, not from taste:
       #
-      #   * THE CAP IS NOT TIGHT. 183 samples of this step across 2026-08-10
-      #     to 2026-08-13 (every `Install Playwright*` step of the last ~46
-      #     completed test.yml runs): 183 successes, 0 failures, min 10s,
-      #     p50 13s, p90 21s, max 49s. The 300s cap is 6.1x the observed
-      #     worst case. Raising it re-widens the open-ended window the cap
-      #     exists to bound — the rf2-e6enf failure above, where four PRs
-      #     (#2304/#2311/#2316/#2324) each sat 15-75+ min on a wedged
-      #     apt/dpkg lock and blocked the merge queue. That trade is a
-      #     regression, not a fix.
+      #   * THE CAP IS STILL CLEAR OF THIS SITE, BUT THE HEADROOM IS NOT WHAT
+      #     IT WAS, AND THE OLD NUMBER HERE WAS STALE. The 2026-08-13 reading
+      #     was 183 samples, 183 successes, 0 failures, p50 13s, p90 21s,
+      #     max 49s — "6.1x the observed worst case". Re-derived 2026-08-20
+      #     over the 140 most recent completed test.yml runs (2026-08-18T05:11Z
+      #     .. 2026-08-20T10:13Z, ALL attempts, every `Install Playwright*`
+      #     step): 377 non-skipped samples, 370 successes, 7 non-successes.
+      #     The successes have grown a long tail — p50 14s and p90 34s still,
+      #     but p95 113s, p99 424s, MAX 621s, and four of the 370 finished
+      #     ABOVE 300s. Every one of those four sits at a job with no step
+      #     cap; across the three step-capped sites the worst success is 164s
+      #     over 80 samples, so this cap is 1.8x its own site's worst case
+      #     rather than 6.1x. That is clear, not comfortable, and the trend is
+      #     the thing to watch: re-derive before quoting, do not carry the
+      #     number forward.
+      #
+      #     rf2-g3lv's conclusion is UNCHANGED by that. Raising the cap
+      #     re-widens the open-ended window it exists to bound — the rf2-e6enf
+      #     failure above, where four PRs (#2304/#2311/#2316/#2324) each sat
+      #     15-75+ min on a wedged apt/dpkg lock and blocked the merge queue.
+      #     That trade is a regression, not a fix. But the 1.8x is now close
+      #     enough that it is a judgement for Mike rather than an arithmetic
+      #     certainty, and rf2-mul6w files it as such rather than acting on it.
       #
       #   * THE APT HOP IS ALREADY MINIMAL. On ubuntu-24.04 the hop reports
       #     `0 upgraded, 9 newly installed, 0 to remove` — invariant across
@@ -4448,15 +4462,32 @@ jobs:
       #     anyway. A hit skips the DOWNLOAD; this failure is in the apt hop,
       #     which runs either way.
       #
-      # One real gap stays open and is deliberately not patched here: a step
-      # the runner guillotines on `timeout-minutes` is killed rather than
-      # failing, so the `|| playwright-install-failed.sh` handler never runs
-      # and this mode prints no "no gate ran" annotation. Moving the cap into
-      # the command (`timeout 270 npx playwright install …`) would fix that,
-      # but it breaks `scripts/check_fast_pr_gap.py`'s `^npx playwright
-      # install\b` setup pattern and would fail-open the gap map — see the
-      # header of .github/scripts/playwright-install-failed.sh. At 0 failures
-      # in 183 samples that trade is not worth taking.
+      # THE GAP THIS COMMENT USED TO LEAVE OPEN IS NOW CLOSED ELSEWHERE, AND
+      # THIS SITE IS ONE OF THE THREE THAT DELIBERATELY DOES NOT TAKE THE FIX
+      # (rf2-mul6w). A step the runner guillotines on `timeout-minutes` is
+      # killed rather than failing, so the `|| playwright-install-failed.sh`
+      # handler never runs. The old note said moving the cap into the command
+      # would fix that but would fail-open `scripts/check_fast_pr_gap.py`'s
+      # `^npx playwright install\b` setup pattern, and declined the trade at
+      # "0 failures in 183 samples". Both halves have moved. The rate is no
+      # longer zero — 5 install stalls in 377 samples in the window above, all
+      # on 2026-08-19, two of which reddened `main` — and the pattern now
+      # carries a narrow optional `timeout` group, so widening it fails nothing
+      # open. Fourteen sites therefore run `timeout -k 10 720 npx playwright
+      # install … || <handler> $?`.
+      #
+      # This site keeps the bare form because the gap is not open HERE, and
+      # that was measured rather than assumed. A step-cap guillotine already
+      # posts `The action 'Install Playwright (Chromium + system deps)' has
+      # timed out after 5 minutes` — verbatim from job 95932283494 — which
+      # names the step, so a reader sees provisioning without opening a log.
+      # It is the JOB-cap guillotine that says nothing usable: jobs
+      # 95959283484 and 95932283700 carry only `The job has exceeded the
+      # maximum execution time of 15m0s` and `The operation was canceled.`,
+      # with every later step `skipped`. Adding a redundant in-command
+      # deadline here would thin the 1.8x margin above to restate an
+      # annotation the runner already gives. See the header of
+      # .github/scripts/playwright-install-failed.sh for the full derivation.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -5117,7 +5148,7 @@ jobs:
 
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # tools/template is a deps-new template (rf2-dolpf §2; clj-new
       # body dropped in §2.5 / rf2-40vmd) — its tests
@@ -6073,7 +6104,7 @@ jobs:
             ${{ runner.os }}-playwright-playground-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
+        run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
       # Build BOTH bundles from source — the committed esbuild bootstrap
       # (playground.js + playground.css) and the untracked, generated
