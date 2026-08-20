@@ -5,12 +5,11 @@
   > where relevant, tree path or host-prop position, offending value,
   > expected shape, and actionable recovery.
 
-  Before this namespace there were SIX copies of `fail!` — codec,
-  collector, intent, presence, route-link and state each carried the same
-  eight lines, because the prototype was one file per lane and the copy
-  moved them verbatim. Six copies is not six risks of divergence; it is
-  six places where a NEW field of the shape has to be added, which is the
-  same as saying the shape cannot grow. It grew here, once.
+  ONE constructor, for the whole package. A copy of it per lane — codec,
+  collector, intent, presence, route-link, state — is not six risks of
+  divergence; it is six places where a NEW field of the shape has to be
+  added, which is the same as saying the shape cannot grow. Here it
+  grows once.
 
   ## What the constructor knows that a call site does not
 
@@ -58,13 +57,12 @@
   It reads the map it is ABOUT TO THROW rather than the arguments it was
   handed, and the distinction is the whole of the guarantee. A guard that
   validates its inputs and then merges a call site's payload over them
-  has checked a map that no longer exists: `extra` carrying
-  `{:recovery nil}` used to win outright, so the one field the guard
-  exists to insist on could be erased immediately after it was insisted
-  on. [[required]] and [[ambient]] are now the CONSTRUCTOR's — the
-  required four merged over `extra` rather than under it, the ambient
-  pair stripped from `extra` outright — and [[missing-fields]] reads the
-  result."
+  has checked a map that no longer exists: were `extra` carrying
+  `{:recovery nil}` to win outright, the one field the guard exists to
+  insist on could be erased immediately after it was insisted on.
+  [[required]] and [[ambient]] are the CONSTRUCTOR's — the required four
+  merged over `extra` rather than under it, the ambient pair stripped
+  from `extra` outright — and [[missing-fields]] reads the result."
   (:require [clojure.string :as str]
             [re-frame.interop :as interop]))
 
@@ -125,8 +123,8 @@
   attributed to whichever view happened to be declared last.
 
   **A mint that THROWS closes the extent too**, and the `finally` is the
-  reason. It used to be skipped on the argument that the namespace was
-  not going to finish loading anyway — but a declaration refusal is
+  reason. Skipping it on the argument that the namespace is not going to
+  finish loading anyway does not hold: a declaration refusal is
   routinely CAUGHT, by a module loader or by an HMR runtime whose already
   mounted page keeps rendering, and the slot then named a `def` that
   never completed. Every refusal raised afterwards — from an event
@@ -155,7 +153,7 @@
   **Dev only, and applied by the mint door under its own gate**, so
   `(if interop/debug-enabled? (traced-boundary …) component)` folds to
   `component` under `:advanced` + `goog.DEBUG=false` and the boundary
-  React calls is byte-for-byte the one that existed before this bead.
+  React calls is byte-for-byte the undecorated component.
 
   It wraps the COMPONENT rather than the body, which buys the shell's own
   two refusals — `:rf.error/no-frame-context` and
@@ -336,12 +334,12 @@
   every declaration extent, and in every production build. A forged
   `:view` there had nothing to lose to.
 
-  The merge used to run the other way, on the reading that a call site might
-  know better than the ambient ledger — but no call site in the package
-  ever did, and the cost of the option was that the four fields the guard
-  had just insisted on could be erased one line later. An `extra` of
+  Running the merge the other way — on the reading that a call site might
+  know better than the ambient ledger — costs more than it buys: no call
+  site in the package knows better, and the four fields the guard has
+  just insisted on could then be erased one line later. An `extra` of
   `{:rf.error/id :other :where nil :reason \"replaced\" :recovery nil}`
-  emitted exactly that map. The guard now reads the merged result, so its
+  would emit exactly that map. The guard reads the merged result, so its
   claim is about the refusal a catch site receives."
   [id where reason recovery extra]
   (let [data (merge (apply dissoc extra ambient)

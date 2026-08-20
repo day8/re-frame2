@@ -38,8 +38,7 @@
   `[:>]` raw escape, which HD-011 keeps explicitly secondary and which
   is now built as [[raw-element]] — the same crossing with the
   declaration erased.
-  Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
-  the operator ruled SSR into scope: `:server` is a declaration option
+  Neither is HD-011's SSR placeholder: `:server` is a declaration option
   with two values, and `:fallback` is its sibling. Under `:client-only` [[mint-host-gate!]] is the
   one mechanism that serves the server render, hydration's first client
   pass and a fresh `createRoot` mount alike; `:server :render` mints no
@@ -61,8 +60,8 @@
   A [[PropSlot]] is the React name the cache always held plus the four
   classifications that are pure functions of the same literal — reserved
   slot, event position, ref slot, class slot.
-  Same keys, same lifetime, same guard; one lookup now answers everything
-  the per-prop walk used to re-derive per element per render.
+  Same keys, same lifetime, same guard; one lookup answers everything a
+  per-prop walk would otherwise re-derive per element per render.
 
   That is the whole of the accelerant HD-004 permits in the lean arm.
   There is **no template extraction, no hole plan, no node reference, and
@@ -321,8 +320,8 @@
 
 (deftype PropSlot [js-name reserved? event? ref? class?]
   ;; What the prop cache holds for one prop literal: the React
-  ;; name the codec always cached, PLUS the four classifications the
-  ;; per-prop walk used to re-derive per element per render — is the
+  ;; React name, PLUS the four classifications a per-prop walk would
+  ;; otherwise re-derive per element per render — is the
   ;; emitted slot reserved, is the position an event position, is it the
   ;; ref slot, is it the class slot. Each is a pure function of the
   ;; literal's NAME, so caching them beside the name changes what a lookup
@@ -366,13 +365,12 @@
 
   **The seeded entries are the RULE, not memos of one** — so each slot
   name is ASKED of [[re-frame.hicasso.impl.slot/prop-name]]
-  rather than written out again here. A hand-spelled seed is
-  the one place this file could still answer a slot the shared rule
-  would not, which is this bead's own defect class one level in; and the
-  seed was written out TWICE, here and in [[reset-caches!]], so a drift
-  had two chances and the suites' `:each` fixture made the second copy
-  the live one. There is one copy now, and it cannot disagree with the
-  rule because it does not restate it.
+  rather than written out again here. A hand-spelled seed is the one
+  place this file could answer a slot the shared rule would not; and a
+  seed written out twice, here and in [[reset-caches!]], gives a drift
+  two chances, with the suites' `:each` fixture making the second copy
+  the live one. There is ONE copy, and it cannot disagree with the rule
+  because it does not restate it.
 
   None of the three is reserved, an event position, or the ref slot;
   `class` IS the class slot, which is the whole reason the rule is
@@ -818,9 +816,9 @@
   function, hoisted as a named var so the walk allocates no closure (the
   same accounting as [[realize-entry]]).
 
-  The literal `:key` is skipped here — the in-loop form of the `dissoc`
-  the walk used to pay a map copy for; every other spelling flows
-  through, exactly as it survived the `dissoc`. The literal
+  The literal `:key` is skipped here — the in-loop form of a `dissoc`,
+  and without the map copy one would cost; every other spelling flows
+  through. The literal
   [[revision-key]] is skipped beside it, for the same reason and at the
   same price: [[native-element]] has already read it off the author's own
   PRE-MERGE map, so by the time the walk sees it there is nothing left to
@@ -843,8 +841,7 @@
   value is coerced by [[class-names]] — a string, a keyword, a symbol or
   a collection of those, nils dropped — rather than by
   [[convert-prop-value]], which would hand React the `clj->js` array of
-  `{:class [\"a\" nil :b]}`; that coercion used to live in the map surgery
-  this walk replaced, and it is on the emitted slot now, so it holds for
+  `{:class [\"a\" nil :b]}`. The coercion is on the emitted slot, so it holds for
   `\"class\"` and `:x/class` as well as for `:class`. And it COMPOSES
   with whatever is already in the slot: two spellings of the class of one
   element are two map keys and one React slot, so letting the last write
@@ -949,8 +946,8 @@
   original map.
 
   Per prop, one [[prop-slot]] lookup answers the React name AND the
-  classifications the walk used to re-derive per element — reserved slot,
-  event position, ref slot, class slot — so a non-event prop no longer
+  classifications a walk would otherwise re-derive per element — reserved
+  slot, event position, ref slot, class slot — so a non-event prop never
   pays [[re-frame.hicasso.impl.intent/event-prop?]]'s regex, and
   only a lowerable value at an event position (a vector, a map, a
   function) enters
@@ -1566,15 +1563,15 @@
   at every site of the host: React elements are immutable values, and a
   placeholder that differs per site is not a placeholder.
 
-  ## And that is now ENFORCED rather than merely stated
+  ## And that is ENFORCED rather than merely stated
 
-  This docstring used to draw the corollary the guide teaches — *\"a
-  fallback is inert markup\"* — while only half of it held: the walk
-  refused what it could EVALUATE (an intent vector, a `sub` call in the
-  form, hiccup that is not hiccup) and never looked inside a head whose
-  body runs later. [[refuse-deferring-heads-in-fallback!]] closes that,
-  structurally and ahead of the walk, so the sentence is true as
-  written. Its docstring carries the two measurements that decided it;
+  The corollary the guide teaches — *\"a fallback is inert markup\"* —
+  holds only halfway if the walk refuses just what it can EVALUATE (an
+  intent vector, a `sub` call in the form, hiccup that is not hiccup) and
+  never looks inside a head whose body runs later.
+  [[refuse-deferring-heads-in-fallback!]] closes that, structurally and
+  ahead of the walk, so the sentence is true as written. Its docstring
+  carries the two measurements that decided it;
   `re-frame.hicasso.fallback-contents-cljs-test` is the contract.
 
   The gate hands its own props straight through to the foreign
@@ -2255,10 +2252,10 @@
 
   ## The classification is TOTAL
 
-  This `cond` shipped with two arms and no `:else`, so every non-nil
-  `:key` that was neither primitive nor a CLJS collection fell out of the
-  check in silence. The shape that made that a bug rather than a gap is
-  the FOREIGN JS ENTITY OBJECT: `createElement` does `key = '' + key`, so
+  A `cond` with two arms and no `:else` would let every non-nil `:key`
+  that is neither primitive nor a CLJS collection fall out of the check
+  in silence. The shape that makes that a bug rather than a gap is the
+  FOREIGN JS ENTITY OBJECT: `createElement` does `key = '' + key`, so
   every plain object reaches `Object.prototype.toString` and every member
   of the list is keyed `[object Object]`. Distinct rows, one key. The
   codec was already careful never to PRINT such a value ([[key-shape]]);
@@ -2351,11 +2348,11 @@
   The one population whose cost MOVED is a list keyed by `uuid`, and it
   got cheaper. `coll?` — the dearest predicate on this path, because
   anything without the `ICollection` marker falls through to
-  `native-satisfies?` — used to be asked on the walk, so a legitimate
-  UUID-keyed member paid it on every member of every render only to fall
-  out of the `cond` unhandled. It now lives in [[key-shape]], which runs
-  on detection, and a UUID leaves at [[stable-object-key?]] on two
-  `instanceof`-class tests instead.
+  `native-satisfies?` — is NOT asked on the walk. Asked there, a
+  legitimate UUID-keyed member would pay it on every member of every
+  render only to fall out of the `cond` unhandled. It lives in
+  [[key-shape]], which runs on detection, and a UUID leaves at
+  [[stable-object-key?]] on two `instanceof`-class tests instead.
 
   Every member is checked every time, uniform with the keyed steady
   state. Stopping at the first offender would save work only on the
@@ -3485,11 +3482,10 @@
 (defn- hiccup-tag?
   "Is this head a native tag? Asked AFTER the fragment and raw arms in
   [[head-kind]]'s `cond`, which is its only caller — so the
-  `(not (fragment-head? head))` this body used to re-ask was provably
-  dead, and every native tag on every page paid the fragment `=` twice
-  for it. Dropping it is what pays for [[raw-head?]] exactly: a keyword
-  tag paid two `=` and one type predicate before, and pays two `=` and
-  one type predicate now. This codec has costed a `keyword?`
+  `(not (fragment-head? head))` this body could re-ask is provably dead,
+  and asking it would make every native tag on every page pay the
+  fragment `=` twice. Its absence is what pays for [[raw-head?]] exactly:
+  a keyword tag pays two `=` and one type predicate either way. This codec has costed a `keyword?`
   short-circuit at ±51–67% of a walk, so a new head test is not free by
   assertion on this surface — it is free by accounting."
   [head]
@@ -3581,11 +3577,10 @@
 
   **What it costs**, on the accounting this file keeps: one direct call,
   and one keyword `=` against a keyword produced two lines above it. The
-  `count` guard and the [[head-kind]] call were already on every vector's
-  path; nothing was added to them and nothing was reordered. Only the
-  `:raw` population pays anything more — [[raw-component]]'s `cond`,
-  which [[raw-element]] used to run and no longer does, so an escape pays
-  it exactly once, as before."
+  `count` guard and the [[head-kind]] call are on every vector's path
+  regardless. Only the `:raw` population pays anything more —
+  [[raw-component]]'s `cond`, which [[raw-element]] does not also run, so
+  an escape pays it exactly once."
   [argv]
   (when (zero? (count argv))
     (fail! :rf.error/hicasso-empty-vector
@@ -3636,8 +3631,8 @@
 
   The child discrimination, named once. [[as-element]] dispatches on it
   to build React's child; the test kit dispatches on it to build a Spec
-  004B child. The two used to ask separately and disagreed about
-  keywords, symbols and `true`.
+  004B child. Asked separately, the two drift apart over keywords,
+  symbols and `true`.
 
       :nothing        renders nothing — `nil`, `false`
       :text           renders as itself — a string or a number
@@ -3677,11 +3672,11 @@
   so their order cannot change an answer, only what each population
   pays. And `vector?` is the dear one: it is `IVector` satisfaction,
   which for anything without the marker falls through to
-  `native-satisfies?`, so every string, number and lazy seq on a page
-  used to prove itself not-a-vector the expensive way before reaching
-  its own branch.
+  `native-satisfies?`, so asking it first makes every string, number and
+  lazy seq on a page prove itself not-a-vector the expensive way before
+  reaching its own branch.
 
-  Costed over the census page's whole child roster before it was changed
+  Costed over the census page's whole child roster
   (`walk_vs_reagent_app` candidate table: 1,908 children, of which 567
   strings, 1,201 vectors, 69 numbers, 71 seqs): the shipping order 22.5
   ns/child, this order **8.9** — and on the strings alone 31.7 -> 5.3.

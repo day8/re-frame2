@@ -267,8 +267,7 @@
   render. [[re-frame.hicasso.impl.route-link/route-link]] reads it
   to capture the render frame into its navigate vector — a browser click
   fires long after the render's dynamic extent has unwound, so the frame
-  must travel as data (the same render-time capture the prototype's
-  `v/route-link` performed with `require-current-frame!`)."
+  must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
@@ -306,9 +305,7 @@
                    "and then mutate the subscription cache during the render phase "
                    "while contributing ZERO collector edges — leaving a boundary that "
                    "never re-renders when that subscription moves, which is HD-002 "
-                   "clause (a)'s forbidden class. It used to succeed silently under "
-                   "some adapters and throw under others; now it refuses under all "
-                   "of them. "
+                   "clause (a)'s forbidden class. It refuses under every adapter. "
                    "CARRYING a frame out of the render is a THIRD thing, and its "
                    "recovery is neither of the above: `(rf/capture-frame)` resolves "
                    "ambiently, so it refuses here, but `(rf/capture-frame <frame-id>)` "
@@ -436,10 +433,10 @@
   answer. An fx handler already receives the frame id in its ctx and
   `:dispatch-later` already expresses delay as data; a `setTimeout` in a
   view that dispatches is mis-layered, and no primitive here is designed
-  for it. `h/frame` does make that spelling *work* where it used to fail
-  — that softening is stated on the design record rather than argued
-  away, and the compensation is that every guide row putting `h/frame` on
-  the page puts `:fx` first.
+  for it. `h/frame` does make that spelling *work* — that softening is
+  stated on the design record rather than argued away, and the
+  compensation is that every guide row putting `h/frame` on the page puts
+  `:fx` first.
 
   ## The carry spelling is COMPOSITION, not a second primitive
 

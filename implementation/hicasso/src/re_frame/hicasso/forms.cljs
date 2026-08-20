@@ -48,7 +48,7 @@
   the substrate already delivers), the commit protocol is three ordinary
   re-frame events, and the field is one `h/defview` boundary. Everything
   this module knows is written in this file and reads as application
-  code, because that is what it was until this bead.
+  code.
 
   Three consequences worth stating, because each is a property somebody
   would otherwise have to go and check:

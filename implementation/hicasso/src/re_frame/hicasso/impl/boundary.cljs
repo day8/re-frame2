@@ -107,14 +107,10 @@
   `arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`
   mounts the failing tree in StrictMode and reads one record.
 
-  This started life with an instance flag gating the report, on the
-  reasoning the prototype's boundary USED for its generation counter (its
-  `componentDidUpdate` promoted too, so it genuinely needed one; that
-  substrate has since been retired). Removing the flag changed no
-  witness — **the mutation went green**, which is the definition of a
-  line nothing observes — so it is gone. That law is not being
-  contradicted; it is being told apart, and the difference is that this
-  boundary reports from one lifecycle rather than three.
+  An instance flag gating the report would be a line nothing observes:
+  removing it changes no witness, because this boundary reports from ONE
+  lifecycle. A boundary whose `componentDidUpdate` promoted as well would
+  genuinely need one; this one does not.
 
   The frame reaches the class through `contextType` — the substrate's one
   internal React context, the same object `collector/shell` reads with

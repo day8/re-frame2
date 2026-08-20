@@ -553,8 +553,8 @@
 
   A grammar refusal raised while the body runs — a hiccup vector reaching
   [[check-child!]] through a let-bound local, a slot collision reaching
-  [[prop-slots]] through an [[props]] operand — used to carry neither
-  `:view` nor `:source`. `error/fail!` reads both from
+  [[prop-slots]] through an [[props]] operand — would otherwise carry
+  neither `:view` nor `:source`. `error/fail!` reads both from
   `impl.error`'s ambient origin, which `declaring!` opens for the
   DECLARATION and closes in the `def`'s `finally`; by the time React
   calls the island, that extent is long shut and the enclosing
