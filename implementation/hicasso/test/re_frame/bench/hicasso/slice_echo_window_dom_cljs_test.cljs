@@ -7,6 +7,28 @@
   than a benchmark: **no assertion here is a line on a latency**, no
   figure is published, and nothing is compared to `U1`–`U4`.
 
+  ## The two claims this file exists to discriminate
+
+  There are two, and they fail in opposite directions.
+
+  **Does the window reach a PAINT?**
+  [[the-window-extends-past-the-commit-by-the-injected-cost]] answers it,
+  and it is described below.
+
+  **Does the echo prove a SLICE-APPLICATION echo?** A scripted
+  interaction sets its control up by mutating it, so a check taken over
+  that same control's state can read true with the application removed —
+  and the first version of this instrument had two of them. The three
+  SABOTAGE rows are the answer:
+  [[the-echo-refuses-the-setup-mutation-alone]] runs the driver's own
+  built-in negative control, and
+  [[a-keystroke-whose-handler-never-runs-does-not-verify]] and
+  [[a-toggle-whose-handler-never-runs-does-not-verify]] fire the real DOM
+  event with the React root cut off from it in the capture phase, so the
+  user agent's own mutation still happens and nothing else does. All three
+  must REFUSE. A green here is the failure: it would mean the arms verify
+  something the application never did.
+
   ## The one inequality that carries the whole claim
 
   [[the-window-extends-past-the-commit-by-the-injected-cost]] is the
@@ -123,6 +145,36 @@
     (done)))
 
 ;; ---------------------------------------------------------------------------
+;; The sabotage — the React root cut off from its own events
+;; ---------------------------------------------------------------------------
+
+(defn- with-events-suppressed
+  "Run `f` — which answers a promise — with `types` stopped in the CAPTURE
+  phase at `js/document`, and restore the document afterwards whatever
+  happened.
+
+  WHY THE CAPTURE PHASE AT THE DOCUMENT. React 19 attaches its listeners
+  to the ROOT CONTAINER, which `lane/fresh-container!` appends to
+  `document.body` — so the container sits strictly below `js/document` on
+  every propagation path, and a capture-phase `stopPropagation` here means
+  the event never descends to it. The Hicasso handler does not run, so
+  nothing dispatches, nothing writes and nothing commits.
+
+  WHAT IT DOES NOT SUPPRESS, and that is the point: the USER AGENT'S OWN
+  mutation. `stopPropagation` is not `preventDefault`, so a checkbox's
+  activation behaviour still flips `checkedness` and this file's own
+  `set-native-value!` still writes the property. A check taken over
+  either of those would pass under this sabotage; the mirror check
+  cannot."
+  [types f]
+  (let [stop (fn [e] (.stopPropagation e))
+        off! (fn [] (doseq [t types] (.removeEventListener js/document t stop true)))]
+    (doseq [t types] (.addEventListener js/document t stop true))
+    (-> (js/Promise.resolve (f))
+        (.then (fn [v] (off!) v)
+               (fn [e] (off!) (throw e))))))
+
+;; ---------------------------------------------------------------------------
 ;; The mount
 ;; ---------------------------------------------------------------------------
 
@@ -176,9 +228,14 @@
                          (is (:verified? echo)
                              "the typed character was on the glass inside the frame's
                               rendering steps, before style, layout and paint")
+                         (is (= (:expect (:echo echo)) (:rendered (:echo echo)))
+                             "and the APPLICATION is what put it there: the mirror the
+                              plan blanked before the interaction — the `value` content
+                              attribute, which only React's commit writes — carries the
+                              typed title again")
                          (is (= (.-value (js/document.querySelector "#slice-title"))
-                                (:echo echo))
-                             "and it is still there afterwards")
+                                (:expect (:echo echo)))
+                             "and it is still on the glass afterwards")
                          (is (<= commit-ms to-raf-ms ms)
                              "the decomposition is ordered: commit, then the frame's
                               rendering steps, then the task after the paint")
@@ -201,8 +258,109 @@
                        (fn [{:keys [echo ms commit-ms]}]
                          (is (:verified? echo)
                              "the checkbox had flipped by the frame's rendering steps")
+                         (is (= (:want-checked (:echo echo)) (:checked (:echo echo)))
+                             "the user agent's activation left the box where the arm
+                              predicted — a real fact, and NOT the discriminating one")
+                         (is (= (:expect (:echo echo)) (:rendered (:echo echo)))
+                             "THE DISCRIMINATING HALF: the title field's mirror, blanked
+                              before the click, carries the model's title again — which
+                              only a commit of the draft `::toggle-published` moved could
+                              have written, and which clicking a checkbox cannot touch")
                          (is (> ms commit-ms)
                              "and this window too runs past the commit")))))
+            (.then (fn [_] (done)) (fail-async done)))))))
+
+;; ---------------------------------------------------------------------------
+;; The sabotage rows — every one of them must REFUSE
+;; ---------------------------------------------------------------------------
+
+(deftest the-echo-refuses-the-setup-mutation-alone
+  (testing "The driver's OWN negative control, exercised. `clock/
+           echo-discrimination!` performs the keystroke arm's setup
+           mutation and nothing else — the native `value` write, with no
+           DOM event and therefore no handler, no dispatch, no state write
+           and no commit — and requires the arms' own check to refuse it.
+
+           It answers the refused observation and REJECTS if the check
+           passed, so this row resolving at all is the proof; the
+           assertions below say which half did the discriminating."
+    (if-not (browser?)
+      (skip! off-browser)
+      (async done
+        (-> (with-mounted-slice
+              (fn []
+                (.then (clock/echo-discrimination!)
+                       (fn [seen]
+                         (is (= (:expect seen) (:glass seen))
+                             "the setup mutation DID reach the glass — which is exactly
+                              why a check over `.value` alone would have verified a
+                              window in which the application did nothing")
+                         (is (= clock/committed-value-sentinel (:rendered seen))
+                             "and the mirror still carries the sentinel, because no
+                              commit ran to overwrite it")
+                         (is (not= (:expect seen) (:rendered seen))
+                             "so the check refuses")))))
+            (.then (fn [_] (done)) (fail-async done)))))))
+
+(deftest a-keystroke-whose-handler-never-runs-does-not-verify
+  (testing "THE SABOTAGE, on the arm the instrument actually schedules.
+           The real `input` event fires on the real field, and the React
+           root is cut off from it in the capture phase — so the Hicasso
+           handler never runs, `::events/edit` is never dispatched, the
+           draft never moves and nothing commits.
+
+           `set-native-value!` still put the character on the glass. The
+           version of this arm that shipped verified exactly that and
+           would have passed here."
+    (if-not (browser?)
+      (skip! off-browser)
+      (async done
+        (-> (with-mounted-slice
+              (fn []
+                (with-events-suppressed
+                  ["input"]
+                  (fn []
+                    (.then (one-window :keystroke)
+                           (fn [{:keys [echo]}]
+                             (is (not (:verified? echo))
+                                 "the arm REFUSES a window in which the application
+                                  never saw the keystroke")
+                             (is (= (:expect (:echo echo)) (:glass (:echo echo)))
+                                 "even though the typed character is on the glass, put
+                                  there by this file's own setup write")
+                             (is (= clock/committed-value-sentinel
+                                    (:rendered (:echo echo)))
+                                 "the mirror is untouched — no commit reached the
+                                  field")))))))
+            (.then (fn [_] (done)) (fail-async done)))))))
+
+(deftest a-toggle-whose-handler-never-runs-does-not-verify
+  (testing "The same sabotage on the second event path. `HTMLElement.
+           click()`'s activation behaviour is the user agent's and runs
+           whatever any listener does, so `checked` still flips; only the
+           application is missing.
+
+           This is the row that retires the old toggle check: it asserted
+           `checked`, and `checked` is true here."
+    (if-not (browser?)
+      (skip! off-browser)
+      (async done
+        (-> (with-mounted-slice
+              (fn []
+                (with-events-suppressed
+                  ["click"]
+                  (fn []
+                    (.then (one-window :toggle)
+                           (fn [{:keys [echo]}]
+                             (is (not (:verified? echo))
+                                 "the arm REFUSES a window in which the application
+                                  never saw the click")
+                             (is (= (:want-checked (:echo echo)) (:checked (:echo echo)))
+                                 "while the checkbox flipped anyway — the user agent
+                                  did it, and a check over this would have passed")
+                             (is (= clock/committed-value-sentinel
+                                    (:rendered (:echo echo)))
+                                 "and the mirror is untouched")))))))
             (.then (fn [_] (done)) (fail-async done)))))))
 
 (deftest the-window-extends-past-the-commit-by-the-injected-cost
@@ -263,8 +421,71 @@
                                    :unverified 0}
                                   (clock/verification))
                                "0 unverified of M — every window, warm-up included,
-                                reached a frame that carried its own echo")))))
+                                reached a frame that carried its own echo")
+                           (let [banked    (clock/banked-structure)
+                                 published (clock/structure-over-measured
+                                             clock/arms sampling rounds banked)
+                                 measured  (reduce
+                                             (fn [m round]
+                                               (reduce-kv
+                                                 (fn [m id xs]
+                                                   (update m id (fnil + 0) (count xs)))
+                                                 m round))
+                                             {} readings)]
+                             (doseq [{:keys [id]} clock/arms]
+                               (is (= (get measured id)
+                                      (:n (:commit (get published id)))
+                                      (:n (:to-raf (get published id)))
+                                      (:n (:raf-to-paint (get published id))))
+                                   (str "THE POPULATIONS AGREE on " id ": every part of
+                                         the published decomposition has the `n` of the
+                                         summary it decomposes")))
+                             (is (< (get measured :keystroke)
+                                    (count (:commit (get banked :keystroke))))
+                                 "and the two populations are genuinely different at this
+                                  schedule — warm-up visits ARE banked — so a narrowing
+                                  that silently became a no-op would fail the rows
+                                  above rather than pass them vacuously"))))))
               (.then (fn [_] (done)) (fail-async done))))))))
+
+;; ---------------------------------------------------------------------------
+;; The populations, where the arithmetic can be pinned without a browser
+;; ---------------------------------------------------------------------------
+
+(deftest the-measured-mask-is-the-lanes-own-schedule
+  (testing "`clock/measured-mask` is derived from `lane/visit-plan` — the
+           one statement of the schedule both of the lane's loops walk —
+           and not re-derived from `warmup`, `samples` and `slot-order`
+           inside the driver. A mask that had drifted from the schedule
+           would not fail; it would publish a distribution over the wrong
+           visits and say nothing about it."
+    (let [sampling {:warmup 2 :samples 3}
+          rounds   2
+          mask     (clock/measured-mask clock/arms sampling rounds)]
+      (is (= (set (map :id clock/arms)) (set (keys mask)))
+          "every arm has a mask")
+      (doseq [{:keys [id]} clock/arms]
+        (is (= (* rounds (+ (:warmup sampling) (:samples sampling)))
+               (count (get mask id)))
+            (str id " is visited once per sample index per round"))
+        (is (= (* rounds (:samples sampling))
+               (count (filter true? (get mask id))))
+            (str id "'s measured visits are `samples` per round")))
+      (is (= [false false true true true false false true true true]
+             (get mask :keystroke))
+          "and the warm-up block leads EVERY round, not just the first —
+           `lane/rounds!`'s own docstring prices that asymmetry"))))
+
+(deftest the-record-labels-which-population-each-figure-is-taken-over
+  (testing "`:summary` and `:structure` share the measured population
+           because the second is published as the decomposition of the
+           first. `:echo` deliberately does not: it is a count of
+           refusals rather than a distribution, it decomposes nothing, and
+           a verification is worth more the more windows it covers."
+    (is (= {:summary   :measured-visits
+            :structure :measured-visits
+            :echo      :all-visits}
+           clock/populations))))
 
 ;; ---------------------------------------------------------------------------
 ;; The control's arithmetic, where it cannot flake

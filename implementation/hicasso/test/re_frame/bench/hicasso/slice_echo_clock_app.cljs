@@ -54,13 +54,21 @@
      browser produced no frame produces no reading — it hangs, and
      `run.cjs`'s sentinel kills the run. A `flushSync` window crosses no
      frame boundary and would answer instantly.
-  2. THE ECHO, CHECKED PER SAMPLE. The typed character, or the flipped
-     checkbox, is read out of the DOM INSIDE those rendering steps —
-     before style, layout and paint — so a verified sample is one whose
-     painted frame carried the echo. It banks into `lane/tally` and
+  2. THE ECHO, CHECKED PER SAMPLE — and checked against something the
+     BROWSER'S OWN MUTATION COULD NOT HAVE PRODUCED. See §THE ECHO IS
+     READ OFF THE MIRROR THE APPLICATION WRITES below: the check is
+     read out of the DOM INSIDE those rendering steps, before style,
+     layout and paint, so a verified sample is one whose painted frame
+     carried the echo. It banks into `lane/tally` and
      `lane/assert-verified!` refuses the run at `N unverified of M`.
-  3. THE POSITIVE CONTROL, which is the discriminating one and is
-     described next.
+  3. THE NEGATIVE CONTROL ON THE ECHO ITSELF, taken once at boot:
+     [[echo-discrimination!]] performs the keystroke's SETUP MUTATION
+     ALONE — the native value write, with no DOM event and therefore no
+     handler, no dispatch, no state write and no commit — and requires
+     the very check the arms use to REFUSE it. Nothing is measured if it
+     does not.
+  4. THE POSITIVE CONTROL, which adjudicates the window rather than the
+     echo, and is described next.
 
   Every reading is also published DECOMPOSED — `:commit`, `:to-raf`,
   `:raf-to-paint` — so a reader can see how much of a window closed
@@ -98,6 +106,24 @@
   It publishes `{:n :min :max :p50 :p95 :p99}` per arm, the guard's
   verdict, the control's verdict, and the runtime label — and it compares
   none of them to anything.
+
+  **`:summary` and `:structure` are published over ONE population and
+  `:populations` says which.** `:structure` is documented as the
+  decomposition of `:summary`, so a decomposition taken over a different
+  set of visits than the whole it decomposes is not a decomposition. The
+  banked parts cover every visit, warm-up included — [[bank-aux!]] is
+  called from inside [[measure-one!]], which the lane calls for both —
+  and [[structure-over-measured]] narrows them to the visits
+  `lane/rounds-async!` actually returned, using the MASK the lane's own
+  [[re-frame.bench.hicasso.lane/visit-plan]] produces rather than a second
+  reading of the schedule. At `{:warmup 8 :samples 12}` over five rounds
+  that is `60` values per arm on both, against the `100` an unnarrowed
+  tally would have carried.
+
+  The one figure deliberately left over ALL visits is `:echo`, the
+  verification tally, and `:populations` labels it as such: a
+  verification is worth more the more windows it covers, and it is a
+  count of refusals rather than a distribution, so it decomposes nothing.
 
   **There is no threshold in this file, no band around a latency, and no
   pinned figure.** `U1`'s one-60-Hz-frame line, `U2`'s 50 ms `p95` and
@@ -163,6 +189,53 @@
   makes the event a real one.
   `examples.per-keystroke-dom-cljs-test` carries the same capture for the
   same reason.
+
+  ## THE ECHO IS READ OFF THE MIRROR THE APPLICATION WRITES
+
+  **A scripted interaction sets the control up by mutating it, so the
+  control's own state is the one thing an echo check may not be taken
+  over.** This instrument's first version did exactly that on both
+  measured arms: `keystroke` wrote `want` onto `input.value` and then
+  verified `input.value`; `toggle` called `HTMLElement.click()`, whose
+  activation behaviour flips `checkedness` in the user agent, and then
+  verified `checked`. Remove the Hicasso handler, the re-frame dispatch,
+  the state write or the React commit and BOTH checks could still read
+  true — so what the window timed was a native control mutation surviving
+  to the next frame, which is not what `U1`–`U4` are stated over.
+  `examples.per-keystroke-dom-cljs-test` names this shape in its own
+  §*The echo is read BEFORE the flush*: *a scripted keystroke reaches the
+  real code path only by writing the accepted text onto the control and
+  then firing the event*, and it reaches for a field whose model answers
+  something ELSE. This lane cannot — the slice's `::events/edit` takes
+  what it is given, verbatim, and no field on the page normalises.
+
+  So the discriminator here is not a different VALUE, it is a different
+  PLACE. React keeps a controlled `input`'s committed value in TWO
+  places: the `value` PROPERTY, which the user agent and this file both
+  write, and the `value` CONTENT ATTRIBUTE — `defaultValue` — which
+  **only React's own commit writes**. `react-dom` 19's `updateInput` ends
+  every controlled-input update with `setDefaultValue(element, type,
+  value)`, unconditionally whenever a `value` prop is present, and
+  `per-keystroke-dom-cljs-test`'s measured mutation trace carries the
+  matching record (`INPUT@value`, once per keystroke, `\"…dataa\" ->
+  \"…dataab\"`). Neither `HTMLInputElement.prototype`'s `value` setter
+  nor a checkbox's activation behaviour touches it.
+
+  [[blank-committed-title!]] therefore scribbles
+  [[committed-value-sentinel]] over that mirror OUTSIDE the window,
+  before every measured interaction, and the check inside the frame asks
+  whether the APPLICATION put the model's own title back. It cannot have
+  come from the setup mutation, because the setup mutation writes a
+  different property; and it cannot be left over from the previous
+  sample, because the sentinel is written between them.
+
+  **The checkbox arm reads the same mirror**, and that is the point of it
+  rather than a convenience: `::events/toggle-published` writes the
+  draft, the editor's body re-runs, and React reconciles the title input
+  along with the checkbox — so a restored title mirror is evidence that
+  the toggle reached the model and came back through a commit. Reading
+  the checkbox's own `defaultChecked` would NOT have served: `updateInput`
+  writes it only when the element has no `checked` prop, and this one has.
 
   Owner: rf2-xa8wo."
   (:require [re-frame.adapter.uix :as uix-adapter]
@@ -265,6 +338,28 @@
   []
   (lane/tally-value (:echo-tally @!state)))
 
+(defn banked-structure
+  "[[bank-aux!]]'s raw per-arm `{:commit :to-raf :raf-to-paint}` vectors,
+  over EVERY visit this run has taken.
+
+  Exposed so the DOM self-test can compare the population that is BANKED
+  against the population that is PUBLISHED, which is the pair that drifted
+  apart the first time."
+  []
+  (:aux @!state))
+
+(def populations
+  "Which visits each published figure is taken over.
+
+  A def rather than a literal inside [[take-plan!]] so the claim is
+  citable from the suite: the audit that reopened `rf2-xa8wo` found
+  `:structure` published over `100` values per arm against a `:summary`
+  of `60` while the record described the first as a decomposition of the
+  second, and a label nobody can assert is how that recurs."
+  {:summary   :measured-visits
+   :structure :measured-visits
+   :echo      :all-visits})
+
 ;; ---------------------------------------------------------------------------
 ;; The glass
 ;; ---------------------------------------------------------------------------
@@ -286,6 +381,68 @@
 
 (defn- title-field [] (node-at "#slice-title"))
 (defn- published-box [] (node-at "#slice-published"))
+
+;; ---------------------------------------------------------------------------
+;; The mirror — the one place on the glass ONLY a React commit writes
+;; ---------------------------------------------------------------------------
+
+(def committed-value-sentinel
+  "What [[blank-committed-title!]] scribbles over the title field's
+  committed mirror before an interaction.
+
+  It has to be a string the model cannot be holding when the check runs,
+  and it is: the checks are EQUALITIES against either the seeded
+  article's title plus one letter of [[rotor]] ([[keystroke-plan]]) or
+  the title the application is already showing ([[toggle-plan]]), and the
+  only door into `[:drafts slug :title]` is `::events/edit` carrying
+  `::h/value` off a real `input` event — which is to say, off a value
+  this file typed.
+
+  PRINTABLE ASCII, and that is not cosmetic. The first spelling of this
+  def wrapped the text in NUL codepoints, on the reasoning that a
+  codepoint nothing can type is the strongest sentinel there is. It is
+  also the strongest way to make a source file BINARY: `git` classifies a
+  file containing a NUL as binary, which cost the file its line-ending
+  normalisation, its diffs and its greps in one move. The sentinel does
+  not need to be untypable — it needs to be unequal."
+  "<< no commit reached this field >>")
+
+(defn committed-title
+  "The title the application's LAST REACT COMMIT wrote onto the editor's
+  title field — read off `defaultValue`, which is the `value` CONTENT
+  ATTRIBUTE and not the property.
+
+  See the namespace docstring §THE ECHO IS READ OFF THE MIRROR THE
+  APPLICATION WRITES for why this and not `.-value`."
+  []
+  (when-some [f (title-field)] (.-defaultValue f)))
+
+(defn blank-committed-title!
+  "Scribble [[committed-value-sentinel]] over that mirror.
+
+  ALWAYS OUTSIDE A WINDOW — every caller is a plan builder, and
+  [[measure-one!]] builds the plan after its frame alignment and before
+  `t0`. It is one attribute write on one element, it runs identically for
+  every sample of every measured arm, and it touches nothing React tracks:
+  React's change tracker watches the `value` PROPERTY, so a scribble on
+  the attribute cannot turn the interaction that follows into a no-op."
+  []
+  (when-some [f (title-field)]
+    (set! (.-defaultValue f) committed-value-sentinel))
+  nil)
+
+(defn- note-refusal!
+  "Keep the FIRST refusal's detail, so a run that dies on `N unverified of
+  M` says which conjunct went and against what.
+
+  `lane/tally` counts and does not describe, and a bare count over a
+  two-part check is a diagnosis the operator has to reproduce. One
+  `swap!` on a slot that is written at most once a run is cheaper than
+  that."
+  [arm-id echo]
+  (swap! !state update :first-refusal
+         (fn [prev] (or prev (assoc echo :arm arm-id))))
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The window
@@ -376,10 +533,36 @@
 (defn- idle-plan
   "The floor. No interaction at all — what one settle costs when the
   application does nothing. `:echo` is `:n/a` and banks as verified,
-  because there is no echo to be late."
+  because there is no echo to be late.
+
+  It does NOT blank the mirror, and that is the arm rather than an
+  omission: nothing here asks the application for anything, so nothing
+  would put the mirror back, and a blank taken here would refuse every
+  floor sample for the correct reason. What this row measures is the wait
+  for a rendering opportunity with no application work in it at all."
   [_]
   {:interact!        (fn [] nil)
    :observe-at-frame (fn [] {:verified? true :echo :n/a})})
+
+(defn title-echo-check
+  "The observation both measured arms take: did the application commit
+  `expect` onto the title field's mirror by the time the frame's rendering
+  steps ran?
+
+  ONE function, shared by [[keystroke-plan]], [[toggle-plan]] and
+  [[echo-discrimination!]], so the negative control adjudicates the code
+  the readings use rather than a copy of it. `:glass` is carried beside
+  `:rendered` because the property staying put is a real fact whose
+  opposite is a real regression — but it is NOT the discriminating half,
+  and a reader of a refusal needs to see which of the two went."
+  [expect]
+  (let [f (title-field)]
+    {:expect   expect
+     :glass    (some-> f .-value)
+     :rendered (committed-title)}))
+
+(defn- title-echo-verified? [{:keys [expect glass rendered]}]
+  (and (= expect rendered) (= expect glass)))
 
 (defn- keystroke-plan
   "One character typed OVER the last one, so the field's length — and
@@ -389,17 +572,23 @@
   value moves first, the `input` event fires second. Appending instead
   would grow the title by one character per sample and make a run's last
   readings a different amount of work from its first, which is precisely
-  the ramp the guard's `:position` factor exists to catch."
+  the ramp the guard's `:position` factor exists to catch.
+
+  The mirror is blanked before the interaction and checked inside the
+  frame, so `want` reaching the glass proves the application put it there
+  and not this file's own setup write. Namespace docstring, §THE ECHO IS
+  READ OFF THE MIRROR THE APPLICATION WRITES."
   [_]
   (let [field (title-field)
         want  (str (:base-title @!state)
                    (nth rotor (mod (next-tick!) (count rotor))))]
+    (blank-committed-title!)
     {:interact!        (fn []
                          (set-native-value! field want)
                          (.dispatchEvent field (js/Event. "input" #js {:bubbles true})))
      :observe-at-frame (fn []
-                         (let [got (.-value field)]
-                           {:verified? (= want got) :echo got}))}))
+                         (let [seen (title-echo-check want)]
+                           {:verified? (title-echo-verified? seen) :echo seen}))}))
 
 (defn- toggle-plan
   "A real click on the published checkbox.
@@ -407,14 +596,31 @@
   `HTMLElement.click()` and not a synthesised `change`: the user agent's
   activation behaviour flips `checkedness` WITHOUT going through the
   JavaScript property setter React tracks, which is what leaves React's
-  tracked value stale and makes the change a real one."
+  tracked value stale and makes the change a real one.
+
+  **And that same activation is why `checked` cannot be this arm's
+  witness.** The flip happens in the user agent, before any handler runs,
+  so a check over `checked` reads true whether or not the application ever
+  saw the click. The witness is therefore the TITLE field's mirror, which
+  the click cannot touch and which React rewrites when
+  `::events/toggle-published` moves the draft and the editor's body
+  re-runs. `title` is read off the property BEFORE the mirror is blanked —
+  the application's current committed title, which a toggle does not
+  change — so the arm asks *did a commit happen* rather than *did the
+  title change*."
   [_]
-  (let [box  (published-box)
-        want (not (.-checked box))]
+  (let [box   (published-box)
+        want  (not (.-checked box))
+        title (some-> (title-field) .-value)]
+    (blank-committed-title!)
     {:interact!        (fn [] (.click box))
      :observe-at-frame (fn []
-                         (let [got (.-checked box)]
-                           {:verified? (= want got) :echo got}))}))
+                         (let [seen (assoc (title-echo-check title)
+                                           :want-checked want
+                                           :checked      (.-checked box))]
+                           {:verified? (and (title-echo-verified? seen)
+                                            (= want (:checked seen)))
+                            :echo      seen}))}))
 
 (defn- busy-wait!
   "Block the main thread for `ms`. A spin and not a `setTimeout`, because
@@ -453,11 +659,26 @@
 
   The decomposition is kept per arm because the control's claim is about
   WHERE in the window the injected cost lands, and that cannot be
-  re-derived from `:ms` afterwards. Warm-up samples bank here too — a
-  verification is worth more the more of them there are, and the count
-  published beside the tally says how many."
+  re-derived from `:ms` afterwards.
+
+  ## WARM-UP VISITS BANK HERE, AND ARE NARROWED OUT AGAIN BEFORE PUBLICATION
+
+  This function is called from inside [[measure-one!]], which the lane
+  calls for warm-up and measured visits alike and which is handed an ARM
+  rather than a visit — so it cannot tell them apart, and it does not try.
+  It banks everything, and [[structure-over-measured]] narrows the parts
+  down to the measured population before they are published, using the
+  mask `lane/visit-plan` produces.
+
+  The two consumers want different populations, which is why the
+  narrowing is at publication rather than here. The TALLY wants every
+  window: a verification is worth more the more of them it covers, and a
+  warm-up window that failed to echo is exactly as damning as a measured
+  one. The DISTRIBUTIONS want the measured visits only, because they are
+  published as the decomposition of a summary taken over those."
   [arm-id {:keys [commit-ms to-raf-ms raf-to-paint-ms echo]}]
   (let [t (:echo-tally @!state)]
+    (when-not (:verified? echo) (note-refusal! arm-id (:echo echo)))
     (swap! t (fn [{:keys [of bad]}]
                {:of  (inc of)
                 :bad (if (:verified? echo) bad (inc bad))})))
@@ -523,6 +744,74 @@
                   (fn [r] (bank-aux! (:id arm) r) (:ms r))))))
 
 ;; ---------------------------------------------------------------------------
+;; The negative control on the ECHO — taken once, before anything is measured
+;; ---------------------------------------------------------------------------
+
+(defn echo-discrimination!
+  "THE SABOTAGE, BUILT IN. Perform the keystroke arm's SETUP MUTATION AND
+  NOTHING ELSE — the native `value` write, with no DOM event, and
+  therefore no Hicasso handler, no re-frame dispatch, no state write and
+  no React commit — take one window over it, and require
+  [[title-echo-check]] to REFUSE.
+
+  Answers a promise of the refused observation, and REJECTS if the check
+  passed.
+
+  ## Why it is here rather than only in the suite
+
+  The claim this instrument makes is that its window times a SLICE-APP
+  ECHO. A check that would read true with the application removed cannot
+  carry that claim however carefully the arm around it is written, and the
+  version of this file that shipped had two such checks. A suite row is
+  the right place to prove a repair; it is the wrong place to keep a
+  driver honest, because the driver is what a quiet-box window runs and
+  the suite is not. So the run itself asks the question, once, at a cost
+  of one frame, and refuses to measure anything if the answer is wrong.
+
+  ## What it suppresses, and why that is the whole chain
+
+  Not firing the event removes every link at once: handler, dispatch,
+  state write, commit. That is deliberate — a control that suppressed only
+  one of them would prove the check sees THAT link and say nothing about
+  the others. The window it takes is a real one, on the real page, through
+  the same [[window!]] and the same observation the arms use; the only
+  difference is the missing `dispatchEvent`.
+
+  ## It leaves the page as it found it
+
+  Both restoring writes undo scribbles THIS FUNCTION made — the property
+  through the same pristine setter, the mirror by assignment — and neither
+  is a model change, so neither needs a dispatch to unwind. React's change
+  tracker still holds the application's own title afterwards, which is what
+  keeps the first real keystroke a real change."
+  []
+  (let [field (title-field)
+        model (.-value field)
+        want  (str model (nth rotor 0))]
+    (blank-committed-title!)
+    (-> (window!
+          {:interact!        (fn [] (set-native-value! field want))
+           :observe-at-frame (fn []
+                               (let [seen (title-echo-check want)]
+                                 {:verified? (title-echo-verified? seen)
+                                  :echo      seen}))})
+        (.then (fn [{:keys [echo]}]
+                 (set-native-value! field model)
+                 (set! (.-defaultValue field) model)
+                 (when (:verified? echo)
+                   (throw (ex-info
+                            (str "the echo check does not discriminate: a window whose "
+                                 "interaction was the SETUP MUTATION ALONE — no DOM event, "
+                                 "so no handler, no dispatch, no state write and no commit "
+                                 "— still verified. Every reading this instrument could "
+                                 "take would be timing a native control mutation through "
+                                 "to the next frame rather than a slice-application echo, "
+                                 "so nothing may be measured")
+                            {:rf.error/id ::echo-not-discriminating
+                             :observed    (:echo echo)})))
+                 (:echo echo))))))
+
+;; ---------------------------------------------------------------------------
 ;; Boot
 ;; ---------------------------------------------------------------------------
 
@@ -554,6 +843,7 @@
            :handle handle
            :tick 0
            :aux {}
+           :first-refusal nil
            :echo-tally (lane/tally))
     (-> (after-paint)
         (.then (fn [_] (after-paint)))
@@ -589,6 +879,60 @@
           {}
           readings))
 
+(defn measured-mask
+  "Per arm id, the `:measured?` flag of each of that arm's visits IN THE
+  ORDER [[bank-aux!]] appended them.
+
+  Taken from `lane/visit-plan` — the schedule both of the lane's loops
+  walk — rather than re-derived from `warmup`, `samples` and
+  `lane/slot-order` here. A second reading of the schedule is the exact
+  shape this lane has paid for twice, and it would be worse here than
+  usual: a mask that drifted would not fail, it would publish a
+  distribution over the wrong visits and say nothing.
+
+  The order is safe to rely on because `lane/rounds-async!` runs its
+  visits SERIALLY — visit *n+1* starts only once *n*'s promise has
+  resolved — so [[bank-aux!]]'s appends happen in plan order."
+  [arms sampling rounds]
+  (reduce (fn [m {:keys [arm measured?]}]
+            (update m (:id arm) (fnil conj []) measured?))
+          {}
+          (lane/visit-plan arms sampling rounds)))
+
+(defn- keep-measured
+  "`xs` narrowed to the visits the lane measured. REFUSES rather than
+  truncating when the mask and the banked vector disagree, because the two
+  disagreeing is exactly the drift the mask exists to prevent and a silent
+  `map` over the shorter of them would hide it."
+  [arm-id mask xs]
+  (when-not (= (count mask) (count xs))
+    (throw (ex-info (str "the measured mask and the banked decomposition disagree on "
+                         arm-id ": the schedule plans " (count mask) " visits and "
+                         (count xs) " were banked, so no narrowing of one by the other "
+                         "is meaningful")
+                    {:rf.error/id ::mask-mismatch
+                     :arm         arm-id
+                     :planned     (count mask)
+                     :banked      (count xs)})))
+  (into [] (keep-indexed (fn [i x] (when (nth mask i) x))) xs))
+
+(defn structure-over-measured
+  "`aux` — [[bank-aux!]]'s per-arm `{:commit :to-raf :raf-to-paint}`
+  vectors — summarised over the MEASURED visits only, so `:structure`
+  decomposes the `:summary` it is published beside rather than a larger
+  population that happens to include it.
+
+  Namespace docstring, §WHAT THIS FILE PUBLISHES, for the numbers."
+  [arms sampling rounds aux]
+  (let [mask (measured-mask arms sampling rounds)]
+    (into {}
+          (map (fn [[id {:keys [commit to-raf raf-to-paint]}]]
+                 (let [m (get mask id)]
+                   [id {:commit       (lane/summarise (keep-measured id m commit))
+                        :to-raf       (lane/summarise (keep-measured id m to-raf))
+                        :raf-to-paint (lane/summarise (keep-measured id m raf-to-paint))}])))
+          aux)))
+
 (defn control-per-round
   "One adjudicated figure per round: the difference between
   `:ctl-blocked`'s median and `:keystroke`'s, in milliseconds.
@@ -623,18 +967,21 @@
                        :population {:app   're-frame.hicasso.examples.slice
                                     :route :article
                                     :slug  article-slug}
-                       :schedule   (assoc sampling :rounds rounds)
+                       :schedule   (assoc sampling
+                                          :rounds           rounds
+                                          :visits-per-arm   (* (+ (:warmup sampling)
+                                                                  (:samples sampling))
+                                                               rounds)
+                                          :measured-per-arm (* (:samples sampling) rounds))
+                       :populations populations
                        :summary    (into {} (map (fn [[id xs]] [id (lane/summarise xs)])) by-arm)
-                       :structure  (into {}
-                                         (map (fn [[id {:keys [commit to-raf raf-to-paint]}]]
-                                                [id {:commit       (lane/summarise commit)
-                                                     :to-raf       (lane/summarise to-raf)
-                                                     :raf-to-paint (lane/summarise raf-to-paint)}]))
-                                         (:aux @!state))
+                       :structure  (structure-over-measured arms sampling rounds (:aux @!state))
                        :control    control
                        :guard      (select-keys verdict [:refuse? :contaminated?
                                                          :unchecked? :tolerance])
-                       :echo       (lane/tally-value (:echo-tally @!state))
+                       :echo       (cond-> (lane/tally-value (:echo-tally @!state))
+                                     (:first-refusal @!state)
+                                     (assoc :first-refusal (:first-refusal @!state)))
                        :runtime    (lane/runtime-label)
                        :note       (str "No line is applied to any figure above. U1-U4 are "
                                         "read against this instrument in their own quiet-box "
@@ -653,6 +1000,11 @@
                      "the one the .cjs drivers use, so nothing may be measured"))
     (-> (boot! (or (js/document.getElementById "app") (lane/fresh-container!))
                ::frame)
+        ;; The echo's negative control runs BEFORE the first warm-up
+        ;; visit and its throw travels the same `.catch` as any other
+        ;; failure, so a run whose check does not discriminate dies here
+        ;; rather than publishing a record nobody should read.
+        (.then (fn [_] (echo-discrimination!)))
         (.then (fn [_] (take-plan!)))
         (.catch (fn [e] (lane/fail! (lane/describe-throw "slice-echo-clock-app" e))))
         (.then (fn [_] (lane/done!)))))
