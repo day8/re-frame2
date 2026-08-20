@@ -217,6 +217,34 @@ const CTL3_SABOTAGE = Number(process.env.HCLOCK_CTL3_SABOTAGE || 0) || null;
 // prose, and this is how a reader runs them in a second.
 const SELFTEST_ONLY = process.argv.includes('--self-test');
 
+// AND THE FLAG VOCABULARY IS CLOSED — these two, and no positional argument at
+// all, because every other knob this driver has is an `HCLOCK_*` environment
+// variable. So an argument that is not on this list is not a knob the driver
+// has: it is a typo, and a typo can only be answered two ways — refuse it, or
+// spend an hour of somebody's afternoon on a run they did not ask for. It used
+// to be answered the second way. `--self-test` was spelt without its hyphen
+// until rf2-xk4is, and #8616's merged-PR audit found the retirement unsafe for
+// exactly this reason: nothing here validated its arguments, so the old token
+// was SILENTLY IGNORED and fell straight through into the `:advanced` release
+// build and the headless Chromium below.
+//
+// There is deliberately no alias. This is pre-alpha and an alias for a spelling
+// nothing depends on is a compatibility shim. But retiring a spelling and
+// swallowing it are different acts, and only the general rule performs the
+// first: a list of dead tokens would be the shim wearing a refusal's clothes,
+// and would still swallow the next typo.
+//
+// Nor is this an argument parser. The vocabulary IS the list, the check is the
+// list, and there is no help text to generate and no near-miss to guess at —
+// guessing would be the nag this repo rejects. What it buys is the difference
+// between refusing in twenty milliseconds and refusing in twenty minutes.
+const FLAGS = ['--no-build', '--self-test'];
+
+// Exported rather than inlined, for this file's own lesson: a rule a test can
+// only quote is not a checked rule (`clock_exit_path.test.cjs`, on the exit
+// decision this driver used to get wrong).
+const unknownFlags = (argv) => argv.filter((a) => !FLAGS.includes(a));
+
 const ALL_ROWS = ['M1', 'bulk300', 'bulk100', 'narrow', 'keystroke'];
 const ONLY = (process.env.HCLOCK_ONLY || '').trim();
 const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r)) : ALL_ROWS;
@@ -3086,6 +3114,19 @@ function datasetFor(outcomes, meta) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // THE ARGUMENTS FIRST, before a single adjudicator runs. A refusal that
+  // arrives after the build has already cost what the refusal was for
+  // (rf2-xk4is).
+  const unknown = unknownFlags(process.argv.slice(2));
+  if (unknown.length > 0) {
+    console.error(`[clock] unknown argument${unknown.length > 1 ? 's' : ''}: ${unknown.join(' ')}`);
+    console.error(
+      `[clock] this driver takes ${FLAGS.join(' ')} and nothing else; ` +
+        `every other knob is an HCLOCK_* environment variable. Nothing was built.`
+    );
+    process.exit(2);
+  }
+
   // THE ADJUDICATORS' SELF-TESTS, and they run before anything is built or
   // launched. `ctl3SelfTest` is the one that matters for this driver's new
   // control: its cases are the REFUSALS — superlinear work, an arm that does
@@ -3461,6 +3502,9 @@ async function main() {
 }
 
 module.exports = {
+  // The CLI surface, exported so its pin can drive it (rf2-xk4is).
+  FLAGS,
+  unknownFlags,
   reportability,
   rowAdjudication,
   rowRegime,
