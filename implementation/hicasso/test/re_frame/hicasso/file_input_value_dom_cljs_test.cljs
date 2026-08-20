@@ -118,7 +118,7 @@
   when that api is renamed (the complaint register's own ruling). Both
   rows below assert it, so a rename that moves the door and forgets these
   emitters reds here rather than shipping advice naming a form nobody
-  exports — which is exactly what rf2-15bqc found."
+  exports."
   [e]
   (:recovery (ex-data e)))
 
@@ -126,7 +126,7 @@
   "A real `<input type=file>` in the document, at the given SPELLING of
   the type attribute — `setAttribute`, so the attribute keeps the
   author's case and only the IDL normalises it, which is the asymmetry
-  rf2-h6qm7 turns on."
+  the rows below turn on."
   ([] (file-input! "file"))
   ([spelling]
    (let [n (js/document.createElement "input")]

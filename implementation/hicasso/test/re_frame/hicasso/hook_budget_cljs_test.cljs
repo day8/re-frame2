@@ -152,7 +152,7 @@
   (react/createElement "p" nil "control"))
 
 ;; ---------------------------------------------------------------------------
-;; The host crossing under the probe (rf2-wjag, ported from
+;; The host crossing under the probe (from
 ;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row)
 ;; ---------------------------------------------------------------------------
 
@@ -287,9 +287,9 @@
 ;; 5. The host crossing — the door's own cost, and whose the rest are
 ;; ---------------------------------------------------------------------------
 ;;
-;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row, re-authored package-side
-;; (rf2-wjag). It was the ONE row in that 1300-line suite that needed the
-;; dispatcher probe, which is why it was the row the port waited on; everything
+;; `arm1/host_hatch_dom_cljs_test`'s hook-budget row, re-authored package-side.
+;; It is the ONE row in that 1300-line suite that needs the dispatcher probe,
+;; which is why it is the row the port waited on; everything
 ;; else there is contract coverage this package already owns
 ;; (`intent_cljs_test`, `callback_form_dom_cljs_test`, `host_ssr_dom_cljs_test`,
 ;; the residue witnesses).

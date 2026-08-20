@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.host-ssr-dom-cljs-test
   "DEFHOST'S `:server` POLICY, PROVEN IN ALL THREE PLACES IT HAS TO HOLD
-  (rf2-2rtt6.85, HD-011).
+  (HD-011).
 
   HD-011 listed \"SSR placeholder\" among `defhost`'s strong defaults;
   HD-020(d) left it inert in v0; the operator's 2026-08-04 ruling makes
@@ -25,8 +25,8 @@
   third policy, and `:fallback` beside `:render` is refused: the
   component renders, so nothing stands in for it.
 
-  WHAT MAY BE WRITTEN IN THAT FALLBACK is settled (rf2-nv07k, ruled
-  2026-08-05): a fallback is inert markup, enforced — a `defview` or
+  WHAT MAY BE WRITTEN IN THAT FALLBACK is settled: a fallback is inert
+  markup, enforced — a `defview` or
   `defhost` head written there is refused at the declaration with
   `:rf.error/hicasso-host-fallback-boundary-head`. The contract is
   [[re-frame.hicasso.fallback-contents-cljs-test]]; nothing
@@ -178,8 +178,8 @@
 
 ;; --- the `:render` fixtures: a provider, and something that reads it -------
 ;;
-;; A context PROVIDER is the shape that filed rf2-l0wfx, and it is the
-;; shape that makes the policy legible: it contributes no markup of its
+;; A context PROVIDER is the shape the defect was filed against, and it
+;; is the shape that makes the policy legible: it contributes no markup of its
 ;; own, so under a gate its unadopted arm returns something that is not
 ;; the component and the ENTIRE subtree leaves the server response with
 ;; it. It is also the case where the author's assertion is trivially
@@ -273,7 +273,7 @@
     [:span.kid "slotted"]]])
 
 (h/defview provider-page
-  "THE PAGE THAT FILED rf2-l0wfx, under the policy that answers it. A
+  "THE PAGE THE DEFECT WAS FILED FROM, under the policy that answers it. A
   native sibling above the crossing so \"the subtree is absent\" stays
   distinguishable from \"nothing rendered\", markup inside it so the
   subtree is visible, and a consumer inside it so the context VALUE is
@@ -337,8 +337,8 @@
 
 (defn- server-html
   "The page as a server render — the SAME runtime, under React's server
-  renderer, which is the sibling Node entry's whole architecture
-  (rf2-2rtt6.86) reduced to one call."
+  renderer, which is the sibling Node entry's whole architecture reduced
+  to one call."
   [hiccup]
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))
@@ -518,8 +518,7 @@
 ;; ---------------------------------------------------------------------------
 ;; 3 — `:server :render`: the component runs, and so do its CHILDREN
 ;;
-;; The defect rf2-l0wfx filed and the ruling that answers it, in one
-;; place. Every row here is a `renderToString`, so they run under
+;; The defect and the ruling that answers it, in one place. Every row here is a `renderToString`, so they run under
 ;; `:node-test` as well.
 ;; ---------------------------------------------------------------------------
 

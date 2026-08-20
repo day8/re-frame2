@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.host-adoption-trace-dom-cljs-test
-  "**`:rf.ssr/host-adopted` — the client-only crossing, made observable
-  (rf2-oaksj).**
+  "**`:rf.ssr/host-adopted` — the client-only crossing, made observable.**
 
   `defhost`'s default policy is `:server :client-only`: the host region
   renders nothing on the server and nothing on hydration's first client

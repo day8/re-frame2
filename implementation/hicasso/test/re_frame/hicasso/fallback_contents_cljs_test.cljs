@@ -1,24 +1,23 @@
 (ns re-frame.hicasso.fallback-contents-cljs-test
-  "WHAT A `defhost` `:fallback` MAY CONTAIN — **THE CONTRACT**
-  (rf2-nv07k, ruled 2026-08-05).
+  "WHAT A `defhost` `:fallback` MAY CONTAIN — **THE CONTRACT**.
 
   [[re-frame.hicasso.impl.codec/mint-host-gate!]] states the rule
   the guide teaches: *\"a fallback is inert markup — it is not a body, so
   a subscription or an intent written there is the same loud error it
-  would be anywhere outside a boundary.\"* This namespace used to record
-  that half of it was enforced and half was not. It is now enforced, and
-  these rows are what enforces it.
+  would be anywhere outside a boundary.\"* These rows are what enforces
+  it, and the structural refusal beside the walk is why they can.
 
-  ## What was wrong, and it was the ABSENCE of a rule rather than a narrow one
+  ## Why a mint-time WALK is not enough on its own
 
   The fallback is walked into an element ONCE, at the declaration,
-  outside any frame. So what was refused was exactly *what that walk
-  could evaluate* — an intent vector, a `sub` call in the form, hiccup
-  that is not hiccup. A boundary head is none of those: it is a React
-  element whose body runs LATER, so the walk never looked inside it and
-  every refusal it carried was deferred past the declaration, which is
-  the one thing a mint-time walk exists to prevent. It was not a rule
-  about content at all; it was a property of the walk.
+  outside any frame, so a walk alone refuses exactly *what it can
+  evaluate* — an intent vector, a `sub` call in the form, hiccup that is
+  not hiccup. A boundary head is none of those: it is a React element
+  whose body runs LATER, so a walk never looks inside it and every
+  refusal it carries is deferred past the declaration, which is the one
+  thing a mint-time walk exists to prevent. The rule the fallback needs
+  is therefore STRUCTURAL, about the declared form, and not a property of
+  the walk.
 
   ## Two measurements decided it, and both are kept below
 
@@ -36,7 +35,7 @@
      [[re-frame.hicasso.impl.collector/mint-view!]] (context-fed,
      what `defview` mints) and
      [[re-frame.hicasso.impl.collector/mint-frame-prop-view!]]
-     (rf2-2rtt6.39). A frame-fed head reads `intent/*frame*` when its
+     A frame-fed head reads `intent/*frame*` when its
      ELEMENT is created — which in a fallback is mint time, where the
      var is `nil` — so it baked `nil` in, minted happily, and threw
      `:rf.error/no-frame-prop` one render into the server response.
@@ -51,8 +50,8 @@
   `:rf.error/hicasso-host-fallback-boundary-head`, at the declaration,
   naming the host, the offending head and its position in the declared
   form. The workaround this deletes — writing a provider's subtree a
-  second time as the declaration's fallback, which was `rf2-l0wfx`'s only
-  recovery — is SUPERSEDED rather than merely removed: `:server :render` now
+  second time as the declaration's fallback, once the only recovery — is
+  SUPERSEDED rather than merely removed: `:server :render` now
   renders the real subtree on the server, with the real context value and
   no duplication ([[re-frame.hicasso.host-ssr-dom-cljs-test]]).
 
@@ -175,9 +174,8 @@
 ;; 1 — what the mint-time WALK can see, it refuses (unchanged by the ruling)
 ;;
 ;; These three rows are about `as-element`'s own evaluation and not about
-;; the structural refusal beside it. They were green before rf2-nv07k was
-;; ruled and they are green after, under both mutations named in the ns
-;; docstring — which is why they are a separate deftest.
+;; the structural refusal beside it. They are green under both mutations
+;; named in the ns docstring — which is why they are a separate deftest.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallback-refuses-what-the-mint-time-walk-can-see

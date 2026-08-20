@@ -26,7 +26,7 @@
   4. **StrictMode's double-invoke is not additive** (W6) — the same value
      on both runs, and no second edge, entry or registration.
   5. **The `[:>]` value-first door dispatches through a plain closure
-     over the capture** (W7, rf2-zllp8). The escape carries no
+     over the capture** (W7). The escape carries no
      declaration, so its callback roster is EMPTY by construction and
      both spellings that would otherwise carry the frame for the author
      refuse at the prop — an intent vector is

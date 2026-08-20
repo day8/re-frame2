@@ -8,9 +8,9 @@
 
   ## The revision row is an EXPERIMENT, and it is not the recipes' one
 
-  `rf2-hic-051`'s mounted suite built a session whose draft ended EQUAL
+  The recipes' own mounted suite builds a session whose draft ends EQUAL
   to the committed value, because in that application ending a session
-  moved nothing else the field read. **That arrangement does not
+  moves nothing else the field reads. **That arrangement does not
   transplant**, and saying so is part of the deliverable: this module
   holds the draft in a record the field's own subscription reads, so
   ending a session always moves that read, always re-renders, and always

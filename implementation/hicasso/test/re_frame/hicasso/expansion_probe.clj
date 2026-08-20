@@ -41,8 +41,8 @@
   reduced to its head symbol and the set of qualified symbols it names —
   the first as the control proving the probe expanded the real macro
   rather than merely failing to throw, the second because *which vars an
-  expansion names* is the classification claim rf2-e0d2 makes about half
-  the namespace's public surface.
+  expansion names* is the classification claim the native tier's public
+  surface is pinned by.
 
   ## It carries no `deftest`, and the JVM probe lane still finds zero
 

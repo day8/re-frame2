@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.host-slots-dom-cljs-test
   "DECLARED ReactNode POSITIONS, AND THE ONE EXPLICIT CONVERSION
-  (rf2-hic-035, HD-011).
+  (HD-011).
 
   A foreign component's props are DATA — that is HD-011's shallow
   default and the reason `[provider {:value :theme/dark}]` hands the
@@ -63,8 +63,8 @@
   sits above both of them — so the silent declaration the slot rows
   below refuse had a second door standing open. `{:callbacks
   {:constructor :event}}` minted, read correct, and could never once be
-  applied, which is the same trap one roster over (rf2-hic-035, the
-  merged-PR audit of the slot half). The callback rows refuse it on the
+  applied, which is the same trap one roster over. The callback rows
+  refuse it on the
   id that roster already had, because it is the same fault with the same
   recovery: *this is not an ordinary prop*.
 

@@ -1,13 +1,13 @@
 (ns re-frame.hicasso.foreign-root-bridge-dom-cljs-test
-  "rf2-phabt — WHO OWNS THE ROOT IS NOT THE VARIABLE, AND AN INVALIDATED
-  CELL IS.
+  "WHO OWNS THE ROOT IS NOT THE VARIABLE, AND AN INVALIDATED CELL IS.
 
   ## What this file was written to settle, and what it found instead
 
-  rf2-phabt reported that a boundary crossed into from a REAGENT parent
-  *\"paints once and is then deaf to writes\"*, with `h/mount!` as a live
-  control, and asked whether a UIx parent was deaf too — because that
-  would make it the outward bridge generally rather than a Reagent story.
+  The report behind it was that a boundary crossed into from a REAGENT
+  parent *\"paints once and is then deaf to writes\"*, with `h/mount!` as a
+  live control, and it asked whether a UIx parent was deaf too — because
+  that would make it the outward bridge generally rather than a Reagent
+  story.
 
   **Neither is deaf.** §1 below drives FIVE mounting routes — Hicasso's
   own root, a Reagent root through each of the two bridge doors, a plain
@@ -263,8 +263,9 @@
 ;;
 ;; `invalidate-cell!` drops a cell's reaction now and rebuilds the
 ;; attachment at the microtask checkpoint. A boundary committing inside
-;; that window is handed the empty cell, and before rf2-phabt it was
-;; handed it as it stood — right value, no watch, no way to be notified.
+;; that window is handed the empty cell, and handing it over as it stands
+;; — right value, no watch, no way to be notified — is the defect §2 is
+;; about.
 ;;
 ;; The window is opened here the way a per-test fixture opens it: the
 ;; registrar is cleared and the query registered from cold, which is a

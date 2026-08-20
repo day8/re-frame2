@@ -455,11 +455,10 @@
 ;; 3. The five trap classes
 ;; ---------------------------------------------------------------------------
 ;;
-;; `rf2-hic-051`'s recipes carried these five and the module inherits
-;; every one, because it IS those recipes with the protocol moved behind
-;; a view. Three are decided here, one in §4, and two need a screen and
-;; are the mounted suite's. `forms-recipes.md` is where the table was
-;; first written down.
+;; The forms recipes carry these five and the module inherits every one,
+;; because it IS those recipes with the protocol moved behind a view.
+;; Three are decided here, one in §4, and two need a screen and are the
+;; mounted suite's. `forms-recipes.md` carries the table.
 
 (deftest trap-re-minted-ephemeral-state-two-fields-two-drafts
   ;; TRAP 5, the addressing half. A draft held in a render closure dies on
