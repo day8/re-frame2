@@ -7,9 +7,14 @@ filed rather than chased: the uix SUBSTRATE, the POSITION in the round, or the
 segment-order MODE.
 
 **No allocation window was taken for this page, and no rig file was edited.**
-Every figure is re-derived from datasets already committed under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/`. The extraction it
-rests on is `alloc_position_confound.cjs` at the identical blob
+Every figure this page DERIVES is re-derived from datasets already committed
+under `implementation/hicasso/test/re_frame/bench/hicasso/data/`. Figures QUOTED
+from
+[the reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+are that record's rather than this one's, and every paragraph carrying one says
+so where it stands; see [the corpus](#the-corpus) for the three populations in
+play. The extraction this page's own figures rest on is
+`alloc_position_confound.cjs` at the identical blob
 `cd1a80711ca1846cc6e4c5cfece0bbc6ad673164` — unchanged by this correction, which
 touched only the admissibility filter and the claims, never the window
 extraction.
@@ -64,8 +69,10 @@ separate and the one whose exposure is three runs.**
 > this page is the blockquote closing
 > [what the p-values are not](#what-the-p-values-are-not); the figures behind it
 > belong to the window's own record and are quoted from there. **Every number
-> here is read on the 116-run corpus of [the corpus](#the-corpus) below, and none
-> is re-derived against the 131-run corpus that window produced.**
+> this page DERIVES is read on the 116-run corpus of
+> [the corpus](#the-corpus) below; the window's figures appear here only inside
+> blocks that name it as their source; and nothing on this page is re-derived
+> against the 131-run corpus that window produced.**
 
 | arm of the question | verdict | the counts it rests on | Fisher, two-sided |
 |---|---|---|---|
@@ -156,12 +163,33 @@ run is `P0_ALLOC_PLAN=floor`, `P0_ALLOC_WRITE=all`, `P0_ROOTS=4`, B = 24, six
 writes, one instrument — checked rather than assumed, because a pooled census
 over unlike units would be meaningless and the byte band is absolute.
 
-**This is the corpus AS THIS PAGE READ IT, and every figure below is anchored to
-it.** [The reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
-has since added fifteen runs, taking the admissible corpus to **131 runs, 3,688
-collection-free, 3,520 positional** against 116 / 3,258 / 3,090 here. **Nothing
-on this page is re-derived against them**, so a figure quoted from here is a
-figure about the 116, and the two censuses must not be read across.
+**This is the corpus AS THIS PAGE READ IT.** Since it was read, a second corpus
+exists, so **three populations are now in play and they must not be read
+across**:
+
+- **the 116-run admissible corpus** — the table above, this page's own. Every
+  figure this page DERIVES is read on it, with one deliberate exception that
+  names itself where it stands: the reader control at
+  [a control on the reader itself](#and-a-control-on-the-reader-itself) is
+  computed BEFORE admissibility, on the fourteen runs an earlier record
+  published.
+- **the fifteen-run matched window** — five `fixed-reversed`, five `fixed`, five
+  `parity`, interleaved in one session, recorded by
+  [the reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md).
+  Its figures are QUOTED here, never re-derived, and they appear only inside
+  passages that mark themselves as superseding and name that record as their
+  source — as a blockquote, or as a paragraph that says so in its closing
+  sentence.
+- **the 131-run admissible corpus** — the two together, **3,688 collection-free,
+  3,520 positional**, against 116 / 3,258 / 3,090 here. **Nothing on this page is
+  read on it at all.**
+
+So a figure this page derives is a figure about the 116; a figure quoted inside a
+superseding block is a figure about the fifteen, or — where the block says so —
+about the two matched sessions pooled at RUN level: this page's three `fixed`
+runs with the window's five, and its three `parity` with the window's five, 8
+against 8, and no part of the rest of either corpus. And no figure anywhere on
+this page is a figure about the 131.
 
 **Two `plan=floor` runs are in the directory and out of this corpus**, and the
 reader names both rather than dropping them:
@@ -366,7 +394,9 @@ The run-level table in the census above is published for exactly this reason.
 Read against it:
 
 - **The `fixed` arm's 38 windows are 3 runs**, one of which supplies half the
-  in-band windows. Every `fixed` figure on this page inherits that.
+  in-band windows. Every `fixed` figure this page DERIVES inherits that; the
+  window's own `fixed` arm, quoted in the superseding blocks, is five runs in a
+  second session and does not.
 - **The `parity` cells are barely clustered at the primary band** — at most one
   in-band window per run — so the caveat bites hardest on the `fixed` arm, which
   is the arm the strongest claim rested on. That asymmetry is unfortunate and it
@@ -535,14 +565,17 @@ not absent.
   estimate near a 2.6x odds ratio is a failure to reject, and no equivalence
   bound is available at a useful width on eleven in-band windows.
 - **Three `fixed` runs is three.** 81 windows, one box, one session, one
-  revision. Every `fixed` figure on this page rests on them.
-- **The reversed-`fixed` arm has SINCE BEEN RUN, and nothing here is read against
-  it.** `P0_ALLOC_SEG_ORDER=fixed-reversed` landed after this analysis was first
-  written, and
+  revision. Every `fixed` figure this page DERIVES rests on them — the window's
+  five are a second session's, quoted and not counted in with these.
+- **The reversed-`fixed` arm has SINCE BEEN RUN, and nothing here is RE-DERIVED
+  against it.** `P0_ALLOC_SEG_ORDER=fixed-reversed` landed after this analysis was
+  first written, and
   [a pre-registered fifteen-run window](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
-  has since recorded five runs through it. Every number on this page is still the
-  116-run corpus it was computed on, so those runs bear on its verdicts without
-  being counted in any of its figures. **The arm answering is not this page
+  has since recorded five runs through it. Every number this page DERIVES is still
+  the 116-run corpus it was computed on — that window's own figures appear here
+  only inside the superseding blocks that quote them, and are marked there — so
+  those runs bear on its verdicts without being counted in any figure this page
+  computed. **The arm answering is not this page
   answering**: what that window settled, what it narrowed and what it could not
   reach are its record to state, not this one's.
 - **The last-leg term at `parity` position 0 is described and not chased.** Its
@@ -556,8 +589,8 @@ not absent.
 
 ## Reproduction
 
-Every measured figure on this page — every window and leg count, byte value,
-rate, ordinal and `p` — is re-derived from the committed records by:
+Every measured figure this page DERIVES — every window and leg count, byte value,
+rate, ordinal and `p` — was re-derived from the committed records by:
 
 ```bash
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
@@ -570,6 +603,18 @@ comes from, by:
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs \
   implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q6/*.json
 ```
+
+**The first of those two sweeps has since WIDENED, and re-running it today does
+not print this page's census.** The fifteen-run window's runs are committed under
+`data/revarm-csca8/`, so `--corpus` now admits them and reads the **131**-run
+corpus — the reader's own self-test pins `corpus: 131 admissible floor runs, of
+133`, and its header records both censuses in sequence. This page's figures are
+the 116-run reading that same command gave before that window landed. To read
+them again the file list has to be given explicitly — `--corpus` scans the whole
+data directory, while any other argument is taken as a file to load, which is how
+the second command above scopes itself — and the files wanted are those of the
+seven directories in [the corpus](#the-corpus), `revarm-csca8` excluded. The second sweep is
+unaffected: it is already path-scoped to `segorder-rs8q6`.
 
 That reader imports its window extraction from `alloc_position_confound.cjs`
 rather than restating it, so the two records cannot drift about what a window is,
