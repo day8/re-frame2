@@ -16,9 +16,8 @@
 
   `h/presence` retains a dismissed child for `:timeout-ms` and drops it
   when the deadline passes. It is the shipped feature whose next step is
-  a `setTimeout`, and it is what `rf2-5gka` — Story's presence bridge —
-  is blocked on. Two facts about it decide the shape of the whole
-  control, and both are asserted below rather than assumed:
+  a `setTimeout`, and it is what Story's presence bridge is blocked on.
+  Two facts about it decide the shape of the whole control, and both are asserted below rather than assumed:
 
   - the retirement is a `setTimeout` the React half arms
     (`impl.presence-react`), so the timer has to be virtual;
@@ -81,9 +80,9 @@
 (rf/reg-event ::boom
   ;; A setup step that FAILS, deterministically. The chain catches the
   ;; handler-body throw in band and strict construction turns it into
-  ;; `:rf.error/initial-events-step-failed` — which is the escape route
-  ;; rf2-4mvd is about: it leaves `mount!` from `mint-frame!`, before the
-  ;; frame, the container, the root or the handle exist.
+  ;; `:rf.error/initial-events-step-failed` — the escape route the clock
+  ;; rows below are about: it leaves `mount!` from `mint-frame!`, before
+  ;; the frame, the container, the root or the handle exist.
   (fn [_ _] (throw (js/Error. "the seeding step fails, deliberately"))))
 
 (def ^:private retention-ms

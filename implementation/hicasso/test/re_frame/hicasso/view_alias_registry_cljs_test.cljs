@@ -1,11 +1,10 @@
 (ns re-frame.hicasso.view-alias-registry-cljs-test
   "THE AUTHORING-TIME ALIAS — what `h/defview` publishes to core's `:view`
-  registrar, and what it deliberately does not (rf2-5qaf4, ruled on
-  rf2-1gy4e).
+  registrar, and what it deliberately does not.
 
   A Story variant names its subject with a KEYWORD and resolves it
-  through the framework registrar. Until this bead `h/defview` computed a
-  name, computed a coordinate, handed both to
+  through the framework registrar. Without the alias `h/defview` computes
+  a name, computes a coordinate, hands both to
   `impl.collector/mint-view!` and registered nothing — so a Hicasso
   boundary was the one view in the repository a keyword could not reach.
   It now publishes one entry, and the shape of that entry is the whole
@@ -31,8 +30,7 @@
   ## Why no adapter is installed
 
   This file's fixture installs none, deliberately, and that makes the
-  whole namespace the adapter-timing witness rf2-1gy4e's constraint 3
-  asks for. Core's view registration consults the `:adapter/wrap-view`
+  whole namespace the adapter-timing witness constraint 3 asks for. Core's view registration consults the `:adapter/wrap-view`
   hook AT REGISTRATION TIME (`re-frame.views/apply-adapter-wrap-view`),
   and a `defview` is declared at namespace load — routinely before
   `rf/init!` has installed anything. The declarations here are made at
@@ -168,7 +166,7 @@
     (is (some? (rf/view ::core-peer)))))
 
 ;; ---------------------------------------------------------------------------
-;; The adapter-timing witness (rf2-1gy4e constraint 3)
+;; The adapter-timing witness (constraint 3)
 ;; ---------------------------------------------------------------------------
 
 (deftest the-slot-is-written-adapter-neutrally
@@ -232,7 +230,7 @@
 ;; on the tag would decline to refresh on every Hicasso view edit. The slot
 ;; names `:hicasso/component` as its executable identity under
 ;; `:executable-key`, and `re-frame.registrar/executable-identity` reads the
-;; key the registration named (merged-PR audit #8332 on rf2-5qaf4).
+;; key the registration named.
 ;;
 ;; The HOOK is the seam asserted here rather than the trace bus, and it
 ;; covers both surfaces: `register!` binds `different?` ONCE and hands the

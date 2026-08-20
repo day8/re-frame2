@@ -12,7 +12,7 @@
 
   This file makes **the same claims through `re-frame.hicasso.test` and
   nothing else** — no `impl.*` require, no element surgery, no private
-  door. That is rf2-hic-020's acceptance criterion, and it is a real
+  door. That is the kit's acceptance criterion, and it is a real
   test of the design rather than a restatement: if a claim needed an
   escape hatch, the kit would not be sufficient and the honest answer
   would be to say so rather than to open one.

@@ -167,8 +167,8 @@
 
 ;; The pair the minted-head render rows below run, spelled the OTHER way —
 ;; a helper whose name is not derived from the view's — so those rows keep
-;; measuring the retention contract rather than doubling as the rf2-jan2
-;; witness.
+;; measuring the retention contract rather than doubling as the
+;; helper-naming witness.
 (defn- farewell-text [{:keys [who]}] [:p (str "bye " who)])
 (h/defview farewell [props] (farewell-text props))
 
@@ -433,8 +433,8 @@
 
 (deftest a-minted-boundary-head-renders-the-body-the-dev-build-retained
   ;; The inversion of `a-minted-boundary-head-refuses-because-its-body-is-not-
-  ;; retained`, under the rf2-kjf5 ruling: `mint-view!` now keeps the body ON
-  ;; the head under one dev-only property, so L2 renders `[some-view …]`.
+  ;; retained`: `mint-view!` keeps the body ON the head under one dev-only
+  ;; property, so L2 renders `[some-view …]`.
   ;; The refusal is not gone — the last row below is it, reached the one way
   ;; it can still be reached.
   (testing "a minted `h/defview` head renders, and answers the body's tree"
@@ -469,12 +469,12 @@
           "the message points up the ladder rather than restating the tier"))))
 
 (deftest a-body-may-call-a-helper-named-after-its-view
-  ;; rf2-jan2, at L2. `greeting`'s body calls `greeting-body` — the extract-a-
-  ;; helper spelling this file's own examples use — and until the macro stopped
-  ;; naming its emitted fn, that call resolved to the emitted fn itself and
-  ;; recursed until the stack overflowed. Rendered through the kit, the failure
-  ;; was a `Maximum call stack size exceeded` naming no view, no id and no
-  ;; macro.
+  ;; The helper-naming witness, at L2. `greeting`'s body calls
+  ;; `greeting-body` — the extract-a-helper spelling this file's own examples
+  ;; use — and a macro that NAMED its emitted fn would make that call resolve
+  ;; to the emitted fn itself and recurse until the stack overflowed. Rendered
+  ;; through the kit, the failure is a `Maximum call stack size exceeded`
+  ;; naming no view, no id and no macro.
   (testing "the helper the body calls is the author's, so a view whose helper
             is named after it renders rather than recursing"
     (let [tree (ht/tree [greeting {:who "ada"}])]
@@ -590,11 +590,11 @@
                     [])))))
 
 (deftest the-option-roster-is-closed-so-a-key-nothing-reads-cannot-look-set
-  ;; rf2-0ckh's residue. `{fixtures :subs}` reads one key off the options
-  ;; map and ignores every other, so a roster check is the only thing that
-  ;; can tell an author their option did nothing. The two rows below are the
-  ;; two ways that silence used to be reachable, and neither is caught by
-  ;; the missing-read detection above.
+  ;; `{fixtures :subs}` reads one key off the options map and ignores every
+  ;; other, so a roster check is the only thing that can tell an author
+  ;; their option did nothing. The two rows below are the two ways that
+  ;; silence is otherwise reachable, and neither is caught by the
+  ;; missing-read detection above.
   (testing "the RETIRED spelling on a body that reads NOTHING. This is the
             row the rename left uncovered: `{:reads …}` supplies no
             fixtures, the body needs none, so the render used to succeed

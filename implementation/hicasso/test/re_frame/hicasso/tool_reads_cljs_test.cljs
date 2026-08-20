@@ -521,7 +521,7 @@
                "different schemas")))))
 
 ;; ---------------------------------------------------------------------------
-;; The production arm — this side of rf2-hic-024's proof
+;; The production arm — this side of the production-erasure proof
 ;; ---------------------------------------------------------------------------
 
 (deftest every-read-answers-nil-when-the-debug-define-is-off

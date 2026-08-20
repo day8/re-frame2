@@ -16,9 +16,9 @@
      its children's key vectors — `(child-key row :detail)` allocates a
      fresh vector every time — and `React.memo`'s comparator is `=` on the
      props map, so a fresh-but-equal vector must NOT look like a changed
-     prop. If it did, this sugar would have re-introduced the 300-of-300
-     cascade rf2-2rtt6.52 killed, and it would have done it through the
-     very helper that makes nesting work.
+     prop. If it did, this sugar would re-introduce the 300-of-300
+     cascade the keyed reads exist to prevent, and it would do it through
+     the very helper that makes nesting work.
   3. **Two instances on one page are independent**, clicked in a real
      browser, read back out of the real DOM.
 

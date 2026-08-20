@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.substrate-react-shared-cljs-test
   "Hicasso's entry point into the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`, rf2-sx77q), enrolled by rf2-hvr5h.
+  (`re-frame.adapter.react-shared-suite`).
 
   `re-frame.hicasso.substrate` assembles its whole contract surface out of
   `spine/make-react-spine` and `spine/make-react-adapter`, which is precisely

@@ -508,7 +508,7 @@
   ;; seam (`rf/capture-frame` at render, the way `impl.frames/mint-row` takes
   ;; it) and fired at the same click.
   ;;
-  ;; It is rf2-x874's WARM branch, reintroduced on purpose: an anchor the
+  ;; It is the late-binding WARM branch, reintroduced on purpose: an anchor the
   ;; successor has just painted, whose click does nothing. The audit's stopping
   ;; rule asks whether a seam CAN revive a dead incarnation; here the answer is
   ;; that pinning it would instead kill a live one.

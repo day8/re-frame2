@@ -33,8 +33,8 @@
 
   The DOM half — two mounted instances, the hook ledger, and the memo
   bail-out over fresh-but-equal key vectors — is the sibling
-  [[re-frame.hicasso.state-dom-cljs-test]]. It named the prototype's
-  `arm1/state-dom-cljs-test` until rf2-3ewp moved that suite here."
+  [[re-frame.hicasso.state-dom-cljs-test]], which is where the
+  prototype's `arm1/state-dom-cljs-test` landed."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.hicasso.impl.state :as state]
             [re-frame.core :as rf]
