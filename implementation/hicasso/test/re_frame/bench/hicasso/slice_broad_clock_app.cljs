@@ -166,6 +166,23 @@
   the pages are not the same page. `run.cjs` builds this lane in
   `release` mode, where the emit is DCE'd on both sides.
 
+  ## AND WHAT THE GATE CANNOT SEE IS WHAT [[pre-state]] IS FOR
+
+  The gate runs ONCE, on the seeded page, before the first window. Every
+  arm moves its own page afterwards, and the arms are not symmetric across
+  the two frames — so two arms that started on the same page can spend the
+  run on different ones, and nothing in the paragraph above would notice.
+
+  PR #8599's audit measured exactly that on this file's first cut: at
+  `{:warmup 8 :samples 12}`, `:theme` ran in the non-seed locale on 4 of
+  its 12 measured visits per round and `:donor-theme` on 8 of 12, because
+  two arms move the Hicasso frame's locale and only one moves the donor's.
+  The comparative theme figure was therefore a ratio between two
+  populations. [[pre-state]] closes it by making each arm's page state a
+  pure function of its own visit index, and
+  `slice-broad-window-dom-cljs-test` asserts the closure over a replay of
+  the schedule rather than trusting this paragraph.
+
   ## THE ECHO IS READ OFF SOMETHING THE INTERACTION CANNOT HAVE WRITTEN
 
   The first driver's rule, applied to two different operations. A
@@ -287,7 +304,14 @@
 
   **A tail quantile over 12 is mostly interpolation** (`lane/quantile`
   prices it), so the run that reads this instrument will want more, and
-  raising these two is how it gets them."
+  raising these two is how it gets them.
+
+  RAISING THEM IS SAFE HERE, and that is a property of [[pre-state]]
+  rather than of these numbers. Each arm's page state is a function of its
+  own visit index, so two paired arms see the same state mix at every
+  `:samples` — where an instrument that let the arms inherit each other's
+  state has mixes that depend on how `slot-order`'s rotation lands on the
+  count, and equalises at 12 while diverging at 13."
   {:warmup 8 :samples 12})
 
 (def rounds
@@ -352,6 +376,7 @@
          :donor-root        nil
          :echo-tally        nil
          :first-refusal     nil
+         :visits            {}
          :aux               {}}))
 
 (defn verification
@@ -360,6 +385,17 @@
   more the more of them there are."
   []
   (lane/tally-value (:echo-tally @!state)))
+
+(defn visits
+  "`{arm-id n}` — how many windows each arm has taken since the last
+  [[boot!]], warm-up visits included.
+
+  Exposed because it is the INDEX [[pre-state]] is a function of, so a
+  suite that wants to check the pre-state the driver actually established
+  against the one the schedule predicts needs to see the counter as well
+  as the rule."
+  []
+  (:visits @!state))
 
 (def populations
   "Which visits each published figure is taken over.
@@ -503,9 +539,14 @@
   ALTERNATING and not fixed. The target is always the locale the page is
   not in, so a window that closed too early cannot pass the echo check by
   carrying the previous sample's answer — the sibling's rotor property,
-  over a roster of two. Over a run each arm takes both directions in
-  equal numbers, so neither arm's distribution is a distribution of one
-  direction's work."
+  over a roster of two.
+
+  WHAT ALTERNATES IS THE PRE-STATE, and this body reads the result rather
+  than deciding it: [[pre-state]] puts the frame in the seed locale on
+  even visits and the other one on odd ones, so `now` alternates and the
+  target with it. Each arm therefore takes both directions in equal
+  numbers over any even block of visits, which used to be a consequence of
+  the plan and is now a statement about the arm."
   [side]
   (fn [_]
     (let [select (locale-select side)
@@ -599,7 +640,8 @@
 
   ALTERNATING, like the locale arm and for the same reason: the target is
   always the theme the page is not in, so a window that closed too early
-  cannot pass by carrying the previous sample's answer."
+  cannot pass by carrying the previous sample's answer. [[pre-state]] is
+  what alternates, and [[theme-state]] reads the page it left."
   [side]
   (fn [_]
     (let [{:keys [target want]} (theme-state side)]
@@ -630,10 +672,143 @@
   It rides the LOCALE arm rather than the theme arm because
   [[control-per-round]] subtracts the two, and a control paired with the
   broader of the two operations is the pair whose difference is dominated
-  by the injected duration rather than by the operations' own spread."
+  by the injected duration rather than by the operations' own spread.
+
+  A SUBTRACTION IS A COMPARATIVE, so this arm is bound by the same
+  requirement the two published ones are: it declares `:locale` at
+  [[pre-state]] exactly as `:locale` does, and the two therefore run over
+  one population. Before that rule existed they did not — the audit's
+  replay puts this arm in the non-seed THEME on 8 of 12 measured visits
+  per round against `:locale`'s 4 of 12, the same divergence as the
+  published theme pair with the dimensions swapped."
   [state]
   (assoc ((locale-plan :hicasso) state)
          :after-commit! (fn [] (busy-wait! blocked-ms))))
+
+;; ---------------------------------------------------------------------------
+;; The pre-state — what each arm's page is in BEFORE its window opens
+;; ---------------------------------------------------------------------------
+
+(defn- settle!
+  "Two frames, outside every window. React's commit and the initial
+  events' drain are not the same tick."
+  []
+  (.then (echo/after-paint) (fn [_] (echo/after-paint))))
+
+(def seed-locale
+  "The locale both frames open in, taken from the application's own seed
+  rather than written out. A literal `:en` here would be a second
+  authority for a fact `db/seed` already states, and the first thing to go
+  stale when the slice ships a third locale and changes its default."
+  (:locale slice-db/seed))
+
+(def seed-theme
+  "The theme both frames open in, from the same seed and for the same
+  reason."
+  (:theme slice-db/seed))
+
+(defn- other-theme
+  "The theme the application's table names that is not `now`. The same
+  rule [[theme-state]] applies to the RENDERED page, applied to a value —
+  *the one it is not* — so neither depends on the map's order."
+  [now]
+  (first (remove #(= % now) themes)))
+
+(defn pre-state
+  "`{:locale l :theme t}` — the state `arm`'s own frame is put into before
+  its `visit`th window, counting from zero.
+
+  ## WHY AN ARM ESTABLISHES ITS PRE-STATE INSTEAD OF INHERITING IT
+
+  Every measured arm moves ONE dimension of its page and reads the other.
+  Left to inherit, what it reads is whatever the arms scheduled before it
+  happened to leave — and the arms are not symmetric across the two
+  frames, so the two halves of a comparative are not drawn from the same
+  population.
+
+  PR #8599's audit measured it on this file's own roster. `:locale` and
+  `:ctl-blocked` both move the HICASSO frame's locale while only
+  `:donor-locale` moves the donor's, so replaying `lane/visit-plan` at
+  `{:warmup 8 :samples 12}` puts `:theme` in the non-seed locale on 4 of
+  its 12 measured visits per round and `:donor-theme` on 8 of 12. The same
+  arithmetic in the other dimension splits the CONTROL from the arm it is
+  subtracted from: `:ctl-blocked` runs in the non-seed theme on 8 of 12
+  where `:locale` runs there on 4 of 12. Neither is visible to the
+  canonical-DOM gate, which runs on the seeded page before sampling
+  begins and is silent by design about everything after it.
+
+  ## WHAT THIS RULE GIVES, AND WHY IT IS THE RULE RATHER THAN THE OTHER ONE
+
+  The pre-state is a pure function of `(arm, visit)`. No arm's page state
+  depends on any other arm's, so two paired arms see IDENTICAL state
+  mixes at every schedule, by construction — which is the property
+  `slice-broad-window-dom-cljs-test` asserts over a replay of the plan.
+
+  The audit named a second candidate, ISOLATING THE CONTROL — restoring
+  the locale the control moved, or giving the control its own root — and
+  it is rejected on a replay rather than on taste. Both variants happen to
+  equalise `:theme` against `:donor-theme` at `{:warmup 8 :samples 12}`,
+  and both stop doing so at `{:warmup 8 :samples 13}` and at `{:warmup 8
+  :samples 20}`: the equality is an accident of how `slot-order`'s
+  rotation lands on twelve indices, not a property of the schedule. Since
+  [[sampling]]'s own docstring says a run reading this instrument will
+  RAISE those counts, a repair that holds at 12 and breaks at 13 is a
+  repair that breaks exactly when it is first relied on. The isolating
+  variant also leaves the control's own theme mix wrong — a control on its
+  own root never has its theme moved at all — so it does not close the
+  second divergence in any case.
+
+  ## THE ARM'S OWN DIMENSION STILL ALTERNATES, AND NOW IT IS GUARANTEED
+
+  `:alternates` names the dimension the arm MOVES; that one is put into
+  the seed value on even visits and the other value on odd ones, so the
+  arm's target — always *the one the page is not in* — alternates too.
+  The rotor property [[locale-plan]] and [[theme-plan]] are written for is
+  therefore no longer inherited from whatever ran before: it is stated
+  here, and each arm takes both directions in equal numbers over any even
+  block of visits rather than as a happy consequence of the plan.
+
+  The dimension the arm does NOT move is pinned to the seed's value. That
+  NARROWS each measured arm's population — `:theme` now always switches
+  theme on a page in the seeded locale — and the narrowing is the point: a
+  comparative is a statement about two arms, and two arms narrowed to the
+  same stated population are comparable where two arms drifting
+  independently are not."
+  [{:keys [alternates]} visit]
+  (let [flip? (odd? visit)]
+    {:locale (if (and flip? (= :locale alternates)) (other-locale seed-locale) seed-locale)
+     :theme  (if (and flip? (= :theme  alternates)) (other-theme  seed-theme)  seed-theme)}))
+
+(defn- frame-for [side]
+  (case side
+    :hicasso hicasso-frame
+    :donor   donor-frame))
+
+(defn- claim-visit!
+  "Take this arm's next visit index, counting from zero. Called once per
+  [[measure-one!]] and by nothing else, so the index an arm's `n`th window
+  runs under is `n`."
+  [arm-id]
+  (-> (swap! !state update-in [:visits arm-id] (fnil inc -1))
+      (get-in [:visits arm-id])))
+
+(defn establish-pre-state!
+  "Put `arm`'s own frame into [[pre-state]] for `visit`, and answer a
+  promise that resolves once the page shows it.
+
+  Through the APPLICATION'S OWN EVENTS, on the arm's own frame, and
+  strictly outside every window — the same door and the same settle
+  [[parity-discrimination!]] uses to move a frame between two states
+  without touching a clock. A locale or theme already at its wanted value
+  writes the same value back, `app-db` does not move, and nothing
+  re-renders; the cost is a dispatch and two frames either way, and both
+  are outside the reading."
+  [arm visit]
+  (let [{:keys [locale theme]} (pre-state arm visit)]
+    (rf/with-frame (frame-for (:side arm))
+      (rf/dispatch-sync [::slice-events/set-locale (name locale)])
+      (rf/dispatch-sync [::slice-events/set-theme {:theme theme}]))
+    (settle!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Sampling
@@ -668,29 +843,38 @@
 (defn measure-one!
   "One sample of `arm`, as a promise of its `:ms`.
 
-  The plan is built OUTSIDE the window — reading the node, deciding what
-  the echo must be — so nothing but the interaction and the frame is
-  inside it. `after-paint` runs first, also outside, so every window
-  starts in the first task after a paint: a paint-bounded window is
-  PREDECESSOR-DEPENDENT by construction, and aligning the phase makes it
-  a constant of the instrument rather than a property of whatever ran
-  before. The sibling's `measure-one!` carries the incident that
-  established this, and what the alignment costs the estimand."
+  Three things happen before the window and all of them are outside it.
+
+  [[establish-pre-state!]] runs FIRST, putting this arm's frame into the
+  state its own visit index names, so what the window measures does not
+  depend on which arms the schedule happened to run before it. Its
+  docstring carries the divergence that made this necessary and the
+  alternative that was rejected.
+
+  `after-paint` runs next, so every window starts in the first task after
+  a paint: a paint-bounded window is PREDECESSOR-DEPENDENT by
+  construction, and aligning the phase makes it a constant of the
+  instrument rather than a property of whatever ran before. The sibling's
+  `measure-one!` carries the incident that established this, and what the
+  alignment costs the estimand.
+
+  The plan is built last and still outside — reading the node, deciding
+  what the echo must be — so nothing but the interaction and the frame is
+  inside the window. It reads the page rather than the pre-state it was
+  just given, which is deliberate: the target stays *whichever value the
+  page is not showing*, so the echo is adjudicated against the rendered
+  page and a pre-state that failed to land cannot quietly become the
+  answer the arm expects."
   [arm]
-  (.then (echo/after-paint)
-         (fn [_]
-           (.then (echo/window! ((:plan arm) !state))
-                  (fn [r] (bank-aux! (:id arm) r) (:ms r))))))
+  (let [visit (claim-visit! (:id arm))]
+    (-> (establish-pre-state! arm visit)
+        (.then (fn [_] (echo/after-paint)))
+        (.then (fn [_] (echo/window! ((:plan arm) !state))))
+        (.then (fn [r] (bank-aux! (:id arm) r) (:ms r))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
 ;; ---------------------------------------------------------------------------
-
-(defn- settle!
-  "Two frames, outside every window. React's commit and the initial
-  events' drain are not the same tick."
-  []
-  (.then (echo/after-paint) (fn [_] (echo/after-paint))))
 
 (defn boot!
   "Mount both arms into their own containers on their own frames, and
@@ -729,6 +913,7 @@
            :donor-container   don-container
            :donor-root        don-root
            :first-refusal     nil
+           :visits            {}
            :aux               {}
            :echo-tally        (lane/tally))
     (.then (settle!)
@@ -939,13 +1124,27 @@
 ;; ---------------------------------------------------------------------------
 
 (def arms
-  "The measured arms, floor first so it leads the schedule."
-  [{:id :idle-frame   :plan idle-plan}
-   {:id :locale       :plan (locale-plan :hicasso)}
-   {:id :donor-locale :plan (locale-plan :donor)}
-   {:id :theme        :plan (theme-plan :hicasso)}
-   {:id :donor-theme  :plan (theme-plan :donor)}
-   {:id :ctl-blocked  :plan blocked-plan :control? true}])
+  "The measured arms, floor first so it leads the schedule.
+
+  `:side` is the frame the arm interacts with and reads, and
+  `:alternates` is the dimension of that frame's state it MOVES.
+  [[pre-state]] is a function of exactly those two and the arm's own visit
+  index, which is what makes two paired arms comparable: `:locale` and
+  `:donor-locale` declare the same `:alternates` on different sides, so
+  they see the same state mix on two frames, and so do `:theme` and
+  `:donor-theme`. `:ctl-blocked` declares `:locale` because it IS the
+  locale operation plus a blocked seam, which is what keeps
+  [[control-per-round]]'s subtraction over one population rather than two.
+
+  `:idle-frame` alternates NOTHING — it is the floor and it interacts with
+  nothing — so it holds the seeded state on every visit."
+  [{:id :idle-frame   :plan idle-plan              :side :hicasso :alternates nil}
+   {:id :locale       :plan (locale-plan :hicasso) :side :hicasso :alternates :locale}
+   {:id :donor-locale :plan (locale-plan :donor)   :side :donor   :alternates :locale}
+   {:id :theme        :plan (theme-plan :hicasso)  :side :hicasso :alternates :theme}
+   {:id :donor-theme  :plan (theme-plan :donor)    :side :donor   :alternates :theme}
+   {:id :ctl-blocked  :plan blocked-plan           :side :hicasso :alternates :locale
+    :control? true}])
 
 (defn- readings-by-arm [readings]
   (reduce (fn [m round]
