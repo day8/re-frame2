@@ -14,9 +14,14 @@ kept as evidence and is no part of this plan — is [`donor-surfaces.md`](donor-
 
 ## Why this page is not in `docs/design/freehand/`
 
-The obvious home is the withdrawn programme's own design tree — but that tree is one of the things
-this plan deletes, and a plan filed inside its own demolition site stops being readable at exactly
-the moment someone needs to check whether the demolition was complete. `docs/design/retirement/`
+The obvious home is the withdrawn programme's own design tree, and a plan filed inside its own
+subject stops being readable at exactly the moment someone needs to check whether the demolition
+was complete. **The stronger reason first given here — that the design tree was itself one of this
+plan's deletions — has been overtaken and must not be re-cited: `docs/design/freehand/` is KEPT,
+ruled `rf2-0moc4` on 2026-08-18. The record of that ruling is in
+[§What is in each phase](#what-is-in-each-phase) below, beside the R6 surface list that used to
+imply otherwise.** The separation stands on the readability reason alone, which is enough.
+`docs/design/retirement/`
 is a new sibling of `design/freehand/` and `design/hicasso/`, added to `mkdocs.yml`'s
 `exclude_docs` the same way they are: a working design record, tracked and greppable, not a page
 of the built site. `scripts/check_doc_slugs.py` still validates its links and anchors, and that
@@ -367,11 +372,40 @@ were re-measured immediately before the cut rather than inherited: external `FH-
 `check_doc_slugs.py` and `check_readme_links.py` both exited 0 afterwards. R5's own bead
 (rf2-0yp7w.8) closes as absorbed rather than being dispatched as a second corpus deletion.
 
-**R6** is the remaining ~237 prose files: `docs/design/freehand/`, the `docs/api` pages, `docs/skills`,
+**R6** is the remaining ~237 prose files: `docs/design/freehand/` — **in scope for editing and never
+for deletion; see the ruling immediately below** — the `docs/api` pages, `docs/skills`,
 `skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root `README.md`/`CHANGELOG.md`/`AGENTS.md`/
 `CLAUDE.md` mentions, `spec/Conventions.md`'s Freehand section and `:rf.adapter/*` row,
 `spec/006-ReactiveSubstrate.md`'s adapter table, `spec/API.md`'s rows, `spec/Ownership.md`, and the
 ~80 comment and docstring lines left in `core/src`, `ssr/src`, `ssr-ring/src` and `tools/xray/src`.
+
+**`docs/design/freehand/` is KEPT — ruled `rf2-0moc4` on 2026-08-18, after two workers in
+succession refused an instruction to delete it.** Its 37 tracked files stay where they are with
+their contents untouched. Appearing in the R6 list above means only that they are edited for stale
+status like any other prose surface; it has never meant they are removed, and a sweep that reads it
+as an instruction to delete has misread it twice.
+
+**The deciding reason is the hicasso coupling.** `docs/design/hicasso/` is itself ruled kept, and it
+anchors its measurement numbers to the frozen studio tree — `docs/design/hicasso/studio/README.md`
+records that `docs/design/freehand/studio/` "is frozen and is never extended", which is a statement
+about the tree's role, not merely about its contents. Deleting the design tree would pull that
+measurement baseline out from under a live evidence chain. That coupling is measured rather than asserted: deleting the
+37 files takes `scripts/check_doc_slugs.py` to **exit 1 with four broken targets**, all four inbound
+from `docs/design/hicasso/` — `hd-002-adjudication.md:158` and `:566` pointing at
+`../freehand/studio/bulk-rerender-where-the-time-goes.md`, and `product/requirements-mine.md:15`
+and `:108` pointing at `../../freehand/studio/fitness-harness.md`. Two dispatches two days apart
+derived that same figure independently.
+
+Two further facts stand behind the ruling, neither of them the deciding one. `docs/EP/EP-0036` —
+which the EP paragraph below rules is kept — states under §Design-record posture that the tree "is a
+durable, frozen supporting record" which "remains after spec graduation", so deleting it would make
+a kept EP false. And `mkdocs.yml`'s `exclude_docs` already holds `design/freehand/` out of the
+published site, so keeping the tree costs the docs build nothing.
+
+**One support the ruling originally leaned on has since lapsed, and citing it now would be wrong.**
+It rested partly on 11 markdown links from `spec/004-Views.md` that `check_doc_slugs.py` validated
+on every PR; that file has since been deleted and those links went with it. Nothing about the
+hicasso coupling depends on it, so the ruling stands unchanged on the four links above.
 
 **`docs/EP/EP-0030` through `EP-0036` are historical programme records and this plan does not
 delete them.** A withdrawn programme's EP is the reason the withdrawal is legible; deleting it
