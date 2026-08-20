@@ -104,10 +104,10 @@
   [:span.unreachable "never rendered"])
 
 (h/defview row-with-a-plain-function-child
-  "A VALID registered view whose BODY is malformed — PR #7822's audit
-  witness, kept. The view itself mounts; what the runtime refuses is the
-  child head inside its body, from inside React's own render, which is
-  the reason the refusal used to be lost."
+  "A VALID registered view whose BODY is malformed. The view itself mounts;
+  what the runtime refuses is the child head inside its body, from inside
+  React's own render, which is the position a refusal is most easily lost
+  from."
   [_]
   [:li.row [plain-child {}]])
 
@@ -354,8 +354,7 @@
                      ;; reading leaves the facade holding a mount that will
                      ;; never be read — and holds the reset gate off zero for
                      ;; every row after it. The tests for a cleanliness
-                     ;; instrument have to be clean themselves (PR #7822's
-                     ;; audit).
+                     ;; instrument have to be clean themselves.
                      (-> (hm/assert-clean! m)
                          (.then (fn [after]
                                   (is (true? (:clean? after))
@@ -508,11 +507,11 @@
 ;;   | W6c | adoption, which never completes | a rejection |
 ;;
 ;; And every row asserts the RESTORED STATE as well as the refusal, which is
-;; the difference between a row that would have caught PR #7822's audit
-;; finding and one that would not: the fault there was never that nothing
-;; was refused — React reported the error at the window — it was that
-;; `mount!` answered a handle and left a registered frame and an attached
-;; container behind. A row that merely observed a refusal passes against
+;; the difference between a row that catches the fault this family is
+;; about and one that does not: the fault is never that nothing was
+;; refused — React reports the error at the window — it is that `mount!`
+;; answers a handle and leaves a registered frame and an attached
+;; container behind. A row that merely observes a refusal passes against
 ;; every one of those leaks.
 
 (defn- body-children [] (.-childElementCount js/document.body))

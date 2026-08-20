@@ -9,12 +9,11 @@
 
   `reincarnation_cells_cljs_test` states the transition exactly at the
   commit seam and runs on every lane. **It cannot say anything about
-  paint**: it drives the commit itself, there is no rendering opportunity
-  in a Node process, and the merged-PR audit of PR #7749 said so in as
-  many words — *the non-browser commit-seam harness cannot prove React
-  law 3 before-visible-paint ordering*. This file is where that claim is
-  made, and it is made in Chromium with React 19 driving its own
-  schedule.
+  paint**: it drives the commit itself and there is no rendering
+  opportunity in a Node process — *the non-browser commit-seam harness
+  cannot prove React law 3 before-visible-paint ordering*. This file is
+  where that claim is made, and it is made in Chromium with React 19
+  driving its own schedule.
 
   ## The claim, and why it is about the event loop rather than the clock
 

@@ -100,7 +100,7 @@
 (defn- bk
   "One element of an EXPORTED boundary key: frame, registration id, and the
   projected query. Distinct from [[k]] on purpose — the raw key is what the
-  runtime holds, this is what the door is allowed to say (audit #7789)."
+  runtime holds, this is what the door is allowed to say."
   ([query-v] (bk frame-id query-v))
   ([fid query-v] [fid (first query-v) query-v]))
 

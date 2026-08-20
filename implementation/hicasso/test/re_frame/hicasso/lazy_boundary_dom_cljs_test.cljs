@@ -81,10 +81,9 @@
   a server response — and it renders through two Client-only hosts
   because that is the shape it is describing. Row 7 is about `n/lazy`
   ITSELF, so it must have nothing in front of it: under row 5's shape the
-  loader would stay uncalled even if the lazy head were server-active,
-  which is exactly what merged-PR audit #7969 found when row 5 was the
-  only server row here. A witness dominated by unrelated gates measures
-  the gates."
+  loader would stay uncalled even if the lazy head were server-active, so
+  row 5 alone cannot decide row 7's subject. A witness dominated by
+  unrelated gates measures the gates."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
@@ -266,8 +265,8 @@
 ;;
 ;; Scenario 6's row is dominated by two `defhost` declarations, each of
 ;; them independently Client-only, so it cannot distinguish `n/lazy`'s own
-;; policy from two unrelated gates in front of it (audit #7969). These two
-;; heads sit under NOTHING but React's own Suspense.
+;; policy from two unrelated gates in front of it. These two heads sit
+;; under NOTHING but React's own Suspense.
 
 (def ^:private bare-loader (deferred-loader))
 (def ^:private bare-head (n/lazy (:load bare-loader)))

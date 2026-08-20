@@ -61,12 +61,12 @@
   the Activity rows assert.
 
   So **no row in this file speaks for Suspense**. Section 6 drives the
-  detach/reacquire seam four times and once called itself a suspend/retry
-  witness, which was false evidence against the DOM measurement rather
-  than merely loose wording (merged-PR audit #7792): a reader taking it at
-  its name would have believed a retained subscription was released and
-  rebuilt four times over. The algebra was never the false part; the
-  mechanism it was claimed for was.
+  detach/reacquire seam four times, and naming that a suspend/retry
+  witness would be false evidence against the DOM measurement rather than
+  merely loose wording: a reader taking such a name at face value would
+  believe a retained subscription was released and rebuilt four times
+  over. The algebra is not the part at risk; the mechanism a name claims
+  it for is.
 
   ## The observable is IDENTITY, never a count
 
@@ -801,13 +801,13 @@
   ;; census, and a reveal that found its predecessor's subscription still
   ;; installed reads exactly like one that rebuilt its own.
   ;;
-  ;; **This row was named for suspend/retry until merged-PR audit #7792,
-  ;; and that name was false evidence.** The cycle below is the Activity
-  ;; detach/reacquire seam driven four times, and a Suspense fallback is
-  ;; not that mechanism — the DOM row named in this file's ns docstring
-  ;; measured the retained subscription and the retry's `identical?`
-  ;; registration. The arithmetic here was never the false part, so it is
-  ;; unchanged; the mechanism it was claimed for is.
+  ;; **This row is NOT a suspend/retry witness, and naming it one would be
+  ;; false evidence.** The cycle below is the Activity detach/reacquire
+  ;; seam driven four times, and a Suspense fallback is not that mechanism
+  ;; — the DOM row named in this file's ns docstring measures the retained
+  ;; subscription and the retry's `identical?` registration. The
+  ;; arithmetic here is sound either way; what a name would get wrong is
+  ;; the mechanism it claims the arithmetic for.
   (async done
     (seeded!)
     (let [!regs (atom [])]
