@@ -29,6 +29,10 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
+            ;; rf2-3u16e: the credible-intent position class is pinned against
+            ;; its one published definition, so this file's literal cannot
+            ;; silently fall behind it.
+            [re-frame.routing.link :as link]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -445,13 +449,25 @@
 (deftest prefetch-intent-dispatches-on-each-credible-intent-position
   (testing "hover, focus and touch-start each warm the link's own destination"
     (rf/reg-route :route/article {:params [:map [:slug :string]]} "/articles/:slug")
-    (doseq [pos [:on-mouse-enter :on-focus :on-touch-start]]
-      (let [{:keys [dispatched source installed?]}
-            (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos)]
-        (is installed? (str pos " is installed on a :prefetch :intent link"))
-        (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"}}] dispatched)
-            (str pos " dispatched the address-only prefetch event"))
-        (is (= :router source) "routing-substrate attribution")))))
+    (let [positions [:on-mouse-enter :on-focus :on-touch-start]]
+      ;; ROSTER PIN (rf2-3u16e). The positions stay written out, because naming
+      ;; them is what tells a reader which gestures this file exercises — but a
+      ;; literal alone fails CLOSED: `prefetch-intent-attrs` maps over
+      ;; `link/prefetch-intent-keys`, so a position added to that class would be
+      ;; installed correctly, go untested here, and nothing would say so.
+      ;; Iterating the class instead would absorb the new position silently and
+      ;; would not red either; only pinning the two against each other does.
+      (is (= (set link/prefetch-intent-keys) (set positions))
+          (str "the credible-intent class has changed to "
+               (pr-str link/prefetch-intent-keys)
+               " — extend this test's positions to match it"))
+      (doseq [pos positions]
+        (let [{:keys [dispatched source installed?]}
+              (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos)]
+          (is installed? (str pos " is installed on a :prefetch :intent link"))
+          (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"}}] dispatched)
+              (str pos " dispatched the address-only prefetch event"))
+          (is (= :router source) "routing-substrate attribution"))))))
 
 (deftest a-link-without-prefetch-installs-no-intent-handlers
   (testing "a passive link installs NONE of the three positions, so a caller's
