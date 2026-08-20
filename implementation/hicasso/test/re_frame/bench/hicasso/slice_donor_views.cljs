@@ -113,6 +113,38 @@
     fallback and the driver's canonical-DOM gate refuses two pages that
     differ before any clock is read.
 
+  ## THE READ ROSTER, COMPARED READ FOR READ (rf2-9wmqd, PR #8599's audit)
+
+  The three differences above are AUTHORING ones. A fourth was a
+  MEASUREMENT one, and it is repaired: this arm's `feed-page` read
+  `[::subs/t :feed/empty]` unconditionally where the Hicasso body reads it
+  only in its empty branch, so on a seed that is never empty the donor
+  carried a subscription and a hook the Hicasso arm did not. See
+  [[feed-empty]].
+
+  The rest of the page was then compared boundary by boundary, and what
+  the comparison found is stated here rather than left to be re-derived:
+
+  - **[[chrome]] 7, [[article-row]] 2, [[digest]] 5, [[digest-body]] 1,
+    [[callout-block]] 1, [[unsupported-block]] 1** — read for read with
+    their Hicasso counterparts, on the same registrations. `h/use-subs`
+    and two `use-subscribe` calls are one door and two doors onto the same
+    two edges, not two read sets.
+  - **[[pager]] 5 against 5 at the pinned seed**, from a body that reads
+    them unconditionally against one that reads three of them inside its
+    branch. INERT rather than hidden, and [[pager]] carries why the
+    [[feed-empty]] repair would make it worse rather than better.
+  - **[[app]] 3 against the Hicasso shell's 4** — this arm does not read
+    `[:rf.route/id]`, because it renders no route branch. The one
+    remaining asymmetry, it runs in the DENOMINATOR'S favour, and [[app]]
+    states it.
+
+  So the donor reads NOTHING the Hicasso arm does not, and the Hicasso arm
+  reads one thing the donor does not. That is an assertion rather than a
+  claim: `slice-broad-window-dom-cljs-test` takes both frames'
+  subscription caches on the seeded page and compares them, with a
+  negative control that re-plants exactly the read this repair removed.
+
   ## THE IDS ARE DUPLICATED ON PURPOSE
 
   `#slice-locale` is this page's id and it is also the Hicasso page's,
@@ -309,7 +341,23 @@
   shipped seed can express — seven articles over a page size of three is
   three pages, so both arms take the branch on every render — and the
   driver's population pin names the seed for exactly this class of
-  reason."
+  reason.
+
+  ## AND THAT IS WHY [[feed-empty]]'S REPAIR IS NOT APPLIED HERE
+
+  The two conditional reads look like one defect and are not. Splitting
+  this body the way [[feed-empty]] splits the empty state would put a
+  child boundary on the MEASURED page — the seed always renders a pager —
+  so this arm would render one component more than the Hicasso arm on
+  every visit, which is the same class of error in the same direction as
+  the one that repair removes, only larger and always on. The empty
+  state's boundary is free precisely because the branch that places it
+  never runs at the pinned seed.
+
+  What is left here is a difference that the seed makes INERT rather than
+  one it hides: at three pages both arms read the same five values, and a
+  seed that ever made the feed single-page would move the population
+  before it moved this."
   [_]
   (let [page                  (uixa/use-subscribe [::subs/current-page])
         pages                 (uixa/use-subscribe [::subs/page-count])
@@ -449,14 +497,38 @@
 ;; The feed page and the shell
 ;; ---------------------------------------------------------------------------
 
-(defui feed-page
-  "The list, keyed by slug. The digest and the pager are CHILD boundaries
-  rather than markup written here, which is what keeps this body's read
-  set to the rows and its heading."
+(defui feed-empty
+  "The empty state, and the one read on this page that belongs to a BRANCH
+  rather than to a body.
+
+  The Hicasso `feed-page` writes `[:p.feed-empty (h/sub [::subs/t
+  :feed/empty])]` inside its empty branch, so a feed with rows in it never
+  records an edge on that string. `use-subscribe` is a React hook and a
+  hook cannot be conditional, so the transcription that read it beside the
+  rows and the heading gave this arm ONE SUBSCRIPTION AND ONE HOOK THE
+  HICASSO ARM DOES NOT HAVE — on the shipped seed, which is seven
+  articles and never empty. That is work in the DENOMINATOR, and it moves
+  a `Hicasso / UIx` ratio in the numerator's favour.
+
+  A child boundary is the ordinary UIx repair and it costs the measured
+  population nothing: the branch that would place it never renders at the
+  pinned seed, so the arm pays neither the boundary nor the read. The DOM
+  is `<p class=\"feed-empty\">…` either way, so the driver's canonical-DOM
+  gate reads the same page in both states."
   [_]
-  (let [rows        (uixa/use-subscribe [::subs/feed])
-        heading     (uixa/use-subscribe [::subs/t :feed/heading])
-        empty-label (uixa/use-subscribe [::subs/t :feed/empty])]
+  ($ :p.feed-empty (uixa/use-subscribe [::subs/t :feed/empty])))
+
+(defui feed-page
+  "The list, keyed by slug. The digest, the pager and the empty state are
+  CHILD boundaries rather than markup written here, which is what keeps
+  this body's read set to the rows and its heading — the same two reads
+  the Hicasso body makes unconditionally, and no third.
+
+  [[feed-empty]] carries the reason the empty state is a boundary here and
+  is markup there."
+  [_]
+  (let [rows    (uixa/use-subscribe [::subs/feed])
+        heading (uixa/use-subscribe [::subs/t :feed/heading])]
     ($ :section.feed
        ($ :h2 heading)
        ($ digest {})
@@ -468,7 +540,7 @@
                               :title       (:title row)
                               :published?  (:published? row)
                               :tags        (:tags row)})))
-         ($ :p.feed-empty empty-label))
+         ($ feed-empty {}))
        ($ pager {}))))
 
 (defui app
