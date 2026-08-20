@@ -174,7 +174,8 @@ P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 ```
 
-Every figure on this page is re-derived from the committed records by:
+Every measured figure on this page — every window and leg count, byte value,
+percentage and `z` — is re-derived from the committed records by:
 
 ```bash
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs \
@@ -198,10 +199,12 @@ z  = (p1 - p2) / sqrt( p (1 - p) (1/n1 + 1/n2) )
 ```
 
 **The convention is written down because three of them land within half a z of
-each other on these counts.** On the first row's 25 of 40 against 3 of 49 the
-pooled form reads **5.6975** — the published 5.70 — where the unpooled form
-reads 6.7229 and the continuity-corrected form 5.4681. Anyone re-deriving these
-figures under a different convention will land near them and not on them.
+each other on these counts.** Worked on the first row's 25 of 40 against 3 of 49,
+the formula above gives **5.6975**, which is the published 5.70 and is what the
+reader prints; the unpooled form gives 6.7229 and the continuity-corrected form
+5.4681. Anyone re-deriving these figures under a different convention will land
+near them and not on them, which is why the reader prints every `z` at four
+decimals as well as at the published two.
 
 The sign is `(first group − second group)`, the two taken in the reader's own
 canonical order: the order its report already lists them in, ascending by
@@ -214,6 +217,19 @@ pin **all ten** z-scores across this page and the control-slot record on those
 same counts, as literals, **and require the unpooled and continuity-corrected
 forms to miss every one of them** — so the pin discriminates rather than
 restates, and a change to the formula reds `npm run test:script-helpers`.
+
+The reader also prints the worst deviation **both ways**, magnitude and signed,
+because the unit trap below turns on the pair and this page publishes both.
+
+### What that command does NOT print
+
+Stated so the claim above is exact rather than generous. Three kinds of number
+on this page are not figures of the runs and the reader does not emit them:
+the **environment of the reproduction block** (`P0_PORT`, `P0_ROOTS`,
+`P0_ALLOC_CELLS`, `P0_ALLOC_ROUNDS`) — that is how the runs were taken, not
+something read out of them; the **seat and bead identifiers**; and figures
+explicitly **cited from another record's corpus**, which are named as such where
+they appear. Everything else on the page comes out of the command.
 
 ## The unit trap, restated because it nearly published an error
 
