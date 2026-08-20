@@ -1068,14 +1068,28 @@
   "`[{:category <kw> :tags-cell <string>} …]` for every ACTIVE row of the
   canonical catalogue section. The `:tags` cell is the SIXTH column; `-1` keeps
   trailing empties so a row whose `:tags` cell is BLANK still parses (and so
-  still reds when its schema declares keys)."
+  still reds when its schema declares keys).
+
+  The split skips a BACKSLASH-ESCAPED pipe (rf2-1t0er). `\\|` is how markdown
+  writes a literal pipe inside a table cell, so a cell containing one is
+  correct prose rather than a typo — `:rf.error/infinite-missing-next-page-param`
+  spells its `:next-page-param` contract `(last-page → next-param \\| nil)`.
+  Splitting on it anyway yielded NINE fields where the table has eight and slid
+  every column one place left, so that row's `:tags` cell was read from its
+  `Default :recovery` column. Harmless only by luck: no
+  `InfiniteMissingNextPageParamTags` schema exists to pair with the row, so the
+  mis-read cell was never compared against anything, and the day one is added
+  the pairing arm would diff a recovery sentence against a tag key set. The
+  lookbehind fixes the reader rather than the spec, which is the right side to
+  fix — the escape is valid markdown that any catalogue row may legitimately
+  use."
   ([] (parse-catalogue-tag-rows (slurp spec-009-file)))
   ([text]
    (->> (str/split-lines text)
         (catalogue-section-lines)
         (keep (fn [line]
                 (when-let [[_ cat-str] (re-find catalogue-tag-row-re line)]
-                  (let [cells (str/split line #"\|" -1)]
+                  (let [cells (str/split line #"(?<!\\)\|" -1)]
                     (when (>= (count cells) 7)
                       {:category  (keyword (subs cat-str 1))
                        :tags-cell (str/trim (nth cells 6))})))))
