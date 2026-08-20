@@ -123,6 +123,14 @@ until a better rig is free. It is a measured result with three independent legs,
   masking bound's 42,857 B per write at the six-write averaging floor, that fixed term alone is 57% of the
   budget before a single boundary has been measured. Its conclusion is stated in terms: at six writes there is
   no page of one boundary or more that certifies the 1/3/7/20 ladder.
+  **NOT-COMPARABLE (2026-08-20, `rf2-nkeba`).** That pair is one run's reading of a floor arm since shown to
+  have **at least four settled levels spanning 3,784 B at a single revision**, and it is the **top** of them.
+  The figure is not withdrawn and is not wrong — it may not be differenced against a figure from any other run.
+  **This strengthens the non-claim rather than weakening it**: the leg said no fitted series clears the floor,
+  and the arm now turns out to carry a 19% level ladder no fitted series could have cleared. Both properties
+  this bullet actually rests on — that F does not shrink with B, and that 24.4 KB is 57% of the budget — are
+  within-run and unaffected. See
+  [the 2026-08-08 row is the arm's top level](../studio/the-2026-08-08-row-is-the-arms-top-level.md).
 - **`rf2-2rtt6.139`** retired the sizing constant `ALLOC_B_PER_BOUNDARY_WRITE = 1655`, because it was derived
   from a window the instrument itself refused. It is therefore a lower bound taken from an invalid
   measurement, and it is the single most available wrong answer on this page's subject.

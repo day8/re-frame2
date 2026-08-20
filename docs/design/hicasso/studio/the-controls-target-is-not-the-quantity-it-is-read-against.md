@@ -27,6 +27,21 @@ choice is defended under [why nothing was measured](#why-nothing-was-measured).
 > file was touched.** Nothing measured is withdrawn — every re-derivation from
 > the committed 2026-08-08 dataset stands exactly as taken.
 
+> **THE RESIDUAL IS NOW BOUNDED, AND THE CLAUSE IS RETIRED — 2026-08-20
+> (`rf2-nkeba`).** This page closed leaving the residual term UNRESOLVED and the
+> corpus question open for the operator. Both are now answered, and this page's
+> own reasoning is what made them answerable — its insistence that the two
+> quantities were never comparable was right, and the mechanism has since been
+> named. The floor arm carries a **level ladder spanning 3,784 B at a single
+> revision** (`rf2-c4hhk`, 69 scored runs with `implementation/core/src` pinned
+> at `4a1537cb71`), and placed on it the 2026-08-08 target lands on the **top
+> rung** to within **2 – 373 B**. So the residual this page could not bound is
+> bounded at **0.01 – 1.60%**, not 4.7 – 14.9% and not 16 – 20%; the across-time
+> clause is **retired**; and the 2026-08-08 rows are marked **NOT-COMPARABLE**
+> on the six pages that cite them. **Nothing on this page is withdrawn** — every
+> re-derivation here stands, and the placement below rests on it. See
+> [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
+
 ## The answer, first
 
 - **The clause compares two different quantities, and the difference is

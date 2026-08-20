@@ -27,7 +27,10 @@ that was outstanding.**
   **24,108**, and **19,712 – 20,696** on `uix-subs` against **24,730** — short
   by **17.8 – 19.7%** and **16.3 – 20.3%**. The prime `rf2-oiy1` introduced
   accounts for about 1,161 B of that gap; the remaining ≈ 3.1 – 3.6 KB is not
-  explained by anything this window measured.
+  explained by anything this window measured. **THE CLAUSE IS SINCE RETIRED
+  (2026-08-20, `rf2-nkeba`)** — the arm's level ladder spans 19.4 – 19.8% at one
+  revision, so this verdict reads the instrument's own dispersion and not a
+  change in the rig. The readings stand; the clause does not.
 - **V1's first clause is re-confirmed, and now on certified windows.** `F_old`
   is flat in B: `reagent-subs` reads a certified leg median of 19,250 – 19,360
   at B = 24 and 19,318 – 19,408 at B = 4; `uix-subs` reads 19,696 – 19,866 and
@@ -191,6 +194,27 @@ the certified readings are still ≈ 3.1 – 3.6 KB below that.
 > such figure differences the two incomparable populations, so all of them are
 > arithmetic without an estimand. **Nothing measured by this window is
 > withdrawn.**
+
+> **THE CLAUSE THIS TABLE ADJUDICATES IS RETIRED — 2026-08-20 (`rf2-nkeba`).**
+> The residual the block above left UNRESOLVED is now **bounded**, and the verdict
+> the table reports is now known to be **unreadable rather than negative**. The
+> floor arm carries a **level ladder spanning 3,784 B — the same figure on both
+> segments, 19.4 – 19.8% of the low level — at a single revision**, measured by
+> `rf2-c4hhk` over 69 scored runs with `implementation/core/src` pinned at
+> `4a1537cb71`, which is the commit the 2026-08-08 row was itself measured at.
+> **The shortfall in the table's last column is 16.3 – 20.3%.** The control is
+> being asked to decide an effect the size of the arm's own dispersion, and no
+> care in running it could have made it decide.
+>
+> Placed on that ladder the 2026-08-08 target lands on the **top rung** to within
+> **2 – 373 B** (0.01 – 1.60%) across eight conversions, so the two readings in
+> this table are **both correct** — one of the arm's top rung, one of its low
+> rung. **Every reading this window took stands exactly as taken**, and so does
+> the sentence below: the across-time half is not discharged and rows measured
+> today may not be differenced against the 2026-08-08 rows. What has changed is
+> only *why* — not that the rig moved, but that the arm has no single level for an
+> across-time control to test. See
+> [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
 
 **What that costs is specific and bounded.** `F_old`'s stated job is to say the
 rig has not moved and thereby license comparison between the two writes. The

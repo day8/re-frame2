@@ -124,6 +124,10 @@ window's `legMedian`. **The runner's exit code is not a criterion.**
 | +2,628 | 21,728 | 5 | 22,168 | 5 |
 | **+3,784** | **22,884** | **1** | **23,324** | **1** |
 
+Level labels are the modal offset; the readings grouped under `+2,532` are `+2,520` /
+`+2,532` / `+2,540` on `reagent-subs` and `+2,520` / `+2,532` / `+2,536` on `uix-subs`,
+which is `rf2-c4hhk`'s ±64 B margin and its fine structure, not a fourth and fifth rung.
+
 **Span `3,784 B` on both segments** — 19.81% of the low level on `reagent-subs`, 19.37%
 on `uix-subs`. The elevated mode ran at 37 of 69 (18 of 34 armed, 19 of 35 unarmed),
 which reproduces `rf2-c4hhk`'s figures exactly.
