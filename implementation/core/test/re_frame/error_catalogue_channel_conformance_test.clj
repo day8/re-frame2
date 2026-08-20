@@ -120,6 +120,17 @@
             ;; aliased `malli`, not `m` — `parse-tags-schemas` binds a local
             ;; `m` for its matcher and a shadowed alias reads as a bug.
             [malli.core :as malli]
+            ;; rf2-zk1xu — the hydration-mismatch witness drives the SHIPPED
+            ;; emitters and validates the envelopes `re-frame.trace/build-event`
+            ;; actually produced, which is the only way to see a schema that
+            ;; models one of a category's two runtime shapes. `re-frame.ssr` is
+            ;; a test-only dep of core (see implementation/core/deps.edn), so
+            ;; the hiccup-tier emitter is callable here; `interop` gates the
+            ;; emit-driven half so the `:prod-gate` lane (where every trace emit
+            ;; is a no-op by design) keeps running the corpus half beside it.
+            [re-frame.interop :as interop]
+            [re-frame.trace :as trace]
+            [re-frame.ssr.hydrate :as ssr-hydrate]
             ;; The shared definition of the implementation source corpus
             ;; (rf2-2cu7f). This scan and the egress-chokepoint scan used to
             ;; carry a copy each; the copies enumerated artefact roots at
@@ -928,18 +939,53 @@
                   (java.io.StringReader. (subs text idx)))]
     (edn/read {:eof nil :default (fn [_tag v] v)} r)))
 
+(def ^:private schema-arm-combinators
+  "The Malli heads whose direct vector children are ALTERNATIVE (or conjoined)
+  shapes of the same payload rather than entries of a map — so each child's
+  `[:map …]` is an arm of the schema and contributes its keys.
+
+  `:or` is the head rf2-zk1xu gave a live user: `HydrationMismatchTags` models
+  its two disjoint emit tiers as two arms, because a single map cannot (required
+  hashes invalidate every adoption-tier event; optional ones admit a shape
+  neither tier emits). `:and` was already reachable through the wrapping form
+  the reader below descends and is listed for the same reason."
+  #{:or :and})
+
+(defn- schema-arm-maps
+  "Every `[:map …]` a schema form presents as a TOP-LEVEL arm — the map itself
+  when the schema IS one, and each arm's map when the schema is an `:or` / `:and`
+  over maps. Recursion stops at any other head, so a `[:map …]` sitting inside an
+  ENTRY's value never counts as an arm."
+  [schema]
+  (when (vector? schema)
+    (cond
+      (= :map (first schema))
+      [schema]
+
+      (contains? schema-arm-combinators (first schema))
+      (mapcat schema-arm-maps (filter vector? (rest schema))))))
+
 (defn- schema-map-keys
-  "The top-level entry keys of the first `[:map …]` inside a parsed
-  `(def XxxTags …)` form. Descends because a schema may wrap its map
-  (`[:and [:map …] …]`); takes only DIRECT entries of that map, so a nested
-  `[:map …]` inside an entry's value does not contribute keys. A properties
-  map after `:map` is skipped (it is not a vector)."
+  "The union of the top-level entry keys of every `[:map …]` ARM of a parsed
+  `(def XxxTags …)` form. Takes only DIRECT entries of each arm, so a nested
+  `[:map …]` inside an entry's value does not contribute keys. A properties map
+  after `:map` is skipped (it is not a vector).
+
+  UNION, not first-match, since rf2-zk1xu. A one-map reading of a two-arm
+  schema is a SILENT NARROWING: `HydrationMismatchTags`' adoption keys would
+  simply never be diffed against the row, which is coverage lost with nothing
+  saying so. The legacy first-`[:map …]`-anywhere reading is retained beside the
+  arms so this reader can only ever WIDEN — measured at the change, all 111
+  `*Tags` schemas but the one edited here are `[:map`-headed, so their key sets
+  are byte-identical either way."
   [form]
-  (if-let [m (->> (tree-seq coll? seq form)
-                  (filter #(and (vector? %) (= :map (first %))))
-                  first)]
-    (into #{} (comp (filter vector?) (map first) (filter keyword?)) (rest m))
-    #{}))
+  (let [arm-maps (concat (schema-arm-maps (last form))
+                         (->> (tree-seq coll? seq form)
+                              (filter #(and (vector? %) (= :map (first %))))
+                              (take 1)))]
+    (into #{}
+          (comp (mapcat rest) (filter vector?) (map first) (filter keyword?))
+          arm-maps)))
 
 (defn- parse-tags-schemas
   "`{\"HandlerExceptionTags\" #{:category :failing-id …}, …}` — every
@@ -955,22 +1001,25 @@
 
 (defn- tags-schema-form
   "The Malli FORM a named `*Tags` schema declares in Spec-Schemas.md — the
-  `[:map …]` vector itself, not its key set.
+  top-level schema vector itself, not its key set.
 
   `parse-tags-schemas` throws the types away by design (its arm diffs key
   sets), so a slot's declared TYPE is unreachable through it. This reader
   keeps the form so the `:where` witness below can validate real payloads
-  against the schema the spec actually ships."
+  against the schema the spec actually ships.
+
+  TOP-LEVEL, not the first `[:map …]` found anywhere, since rf2-zk1xu: a
+  two-arm `HydrationMismatchTags` read down to its first arm would validate
+  every adoption-tier payload against the HICCUP map and report the shipped
+  schema rejecting events it accepts. For the 110 `[:map`-headed schemas the
+  two readings are the same vector."
   [schema-name]
   (let [text    (slurp spec-schemas-file)
         matcher (re-matcher tags-schema-def-re text)]
     (loop []
       (when (.find matcher)
         (if (= schema-name (.group matcher 1))
-          (let [form (read-form-at text (.start matcher))]
-            (->> (tree-seq coll? seq form)
-                 (filter #(and (vector? %) (= :map (first %))))
-                 first))
+          (last (read-form-at text (.start matcher)))
           (recur))))))
 
 (def ^:private tags-cell-key-re
@@ -1368,6 +1417,316 @@
                "`tags-column-paired-floor` still records "
                tags-column-paired-floor ". Raise it to " paired " in this PR: "
                "a floor below live coverage protects nothing above itself.")))))
+
+;; --- the two-tier `:rf.ssr/hydration-mismatch` category (rf2-zk1xu) ----------
+;;
+;; THE ARM ABOVE RUNS IN ONE DIRECTION, OVER KEY SETS, AND OVER NO RUNTIME
+;; EVENT. It proves every key a SCHEMA declares is named in its row's cell.
+;; Two things follow that it cannot see, and the PR #8544 merged-PR audit found
+;; `:rf.ssr/hydration-mismatch` carrying both:
+;;
+;;   1. A SCHEMA THAT MODELS ONE OF A CATEGORY'S RUNTIME SHAPES. This category
+;;      is the one whose tier split runs INSIDE the category rather than
+;;      between rows (009 §Reading the two right-hand columns says so in as
+;;      many words). `HydrationMismatchTags` required `:server-hash` and
+;;      `:client-hash`; the two ADOPTION-tier emitters carry neither, by
+;;      design — a React-element root has no structural render-tree to hash —
+;;      so a real adoption event could not satisfy its own category's canonical
+;;      schema. The keys-set diff stayed green throughout, because the cell
+;;      happened to name both hashes and the diff never looks at an event.
+;;
+;;   2. A CELL THAT NAMES A KEY NO PRODUCER SUPPLIES. The cell claimed a
+;;      `:head-id` (head) tag. `verify-hydration!` destructures exactly
+;;      `:first-diff-path` / `:failing-id` / `:server-hash` out of its opts and
+;;      merges nothing else, so no `:head-id` can reach this category's payload;
+;;      the head sub-arm is discriminated by `:failing-id` alone.
+;;
+;; WHY NOT SIMPLY RUN THE DIFF BACKWARDS. Because a `:tags` cell is prose, and
+;; the harvest that reads it is deliberately narrow for that reason (see
+;; `tags-cell-key-re`). This cell in particular states a NEGATIVE as part of its
+;; contract — "no `:root-id`, because a React-element root has none" — which a
+;; cell-key harvest reads as a listing. A cell → schema diff would red on that
+;; sentence and on every sibling like it. The direction that settles both
+;; questions without reading prose is EVENT → schema and EVENT → cell, so that
+;; is what this witness does: it drives the shipped emitters and asks whether
+;; the corpus describes what came out.
+;;
+;; WHAT IS DRIVEN FOR REAL. The hiccup tier is `re-frame.ssr.hydrate/verify-
+;; hydration!` — `.cljc`, and `day8/re-frame2-ssr` is a test-only dep of core
+;; (implementation/core/deps.edn) — so this JVM suite calls the SHIPPED emitter
+;; and reads the envelope `re-frame.trace/build-event` actually assembled. The
+;; two adoption emitters are `.cljs` and cannot be called from the JVM, so their
+;; payload MAPS are read out of the source files AS DATA and driven through the
+;; real `trace/emit!`; `:where` is taken from the source form rather than
+;; retyped, and the key set is pinned, so neither transcription can drift.
+
+(def ^:private hydration-mismatch-adoption-sites
+  "The two ADOPTION-tier emit sites, relative to `implementation/`. Both are
+  `(trace/emit! :warning :rf.ssr/hydration-mismatch {…})` with a `:warning`
+  envelope — which is why neither carries `[:tags :category]`."
+  ["core/src/re_frame/substrate/spine.cljs"
+   "hicasso/src/re_frame/hicasso/impl/mount.cljs"])
+
+(def ^:private adoption-emit-re
+  "The adoption emit's opening. The payload map begins at the match END, so
+  `read-form-at` reads it straight off the source."
+  #"emit!\s+:warning\s+:rf\.ssr/hydration-mismatch\s*")
+
+(defn- adoption-payload-form
+  "The literal payload map the adoption emit at `rel-path` passes, read as DATA.
+  `(some-> error .-message)` and `'re-frame…/…` are ordinary EDN forms, so this
+  reaches the whole map without evaluating a thing."
+  [rel-path]
+  (let [src (slurp (io/file corpus/implementation-root rel-path))
+        m   (re-matcher adoption-emit-re src)]
+    (when (.find m)
+      (read-form-at src (.end m)))))
+
+(defn- source-quoted-symbol
+  "The symbol a source form quotes, whichever way the reader hands it over.
+  `clojure.edn` has no quote macro, so `'re-frame.substrate.spine/make-render`
+  arrives as ONE symbol carrying the apostrophe in its namespace rather than as
+  a `(quote …)` list — strip it either way, so the value driven through the emit
+  below is the site's own `:where` and not a retyped copy of it."
+  [v]
+  (cond
+    (and (seq? v) (= 'quote (first v))) (second v)
+    (symbol? v)                         (symbol (str/replace-first (str v) "'" ""))
+    :else                               v))
+
+(def ^:private adoption-payload-keys
+  "The three slots BOTH adoption emitters pass. `:recovery` is among them and is
+  stripped by `build-event`, so it never reaches `:tags` — which the witness
+  asserts rather than assumes."
+  #{:error :where :recovery})
+
+(defn- catalogue-tags-cell
+  "The `:tags` cell of the ACTIVE catalogue row for `category`."
+  [category]
+  (->> (parse-catalogue-tag-rows)
+       (some (fn [row] (when (= category (:category row)) (:tags-cell row))))))
+
+(def ^:private witness-frame-id
+  "The frame id the hiccup witness names. A BARE keyword, deliberately naming no
+  registered frame: `verify-hydration!` reads the frame only to resolve the
+  stashed server hash and the two `:ssr` knobs, and `frame-meta` /
+  `frame-runtime-db-value` both answer `nil` for an unknown id — so the `nil`
+  runtime-db takes the `:server-hash` OPT override below and the knobs take
+  their documented defaults (detect on, `:warn`). That keeps this corpus suite
+  from installing an adapter and resetting the global registrar, which is
+  ambient state every other namespace in the run shares."
+  :rf.frame/hydration-mismatch-witness)
+
+(defn- capture-trace-events
+  "Every trace event emitted while `f` runs."
+  [f]
+  (let [seen (atom [])
+        id   (gensym "hydration-mismatch-witness")]
+    (trace/register-listener! id (fn [ev] (swap! seen conj ev)))
+    (try (f) (finally (trace/unregister-listener! id)))
+    @seen))
+
+(def ^:private pre-fix-hydration-mismatch-schema
+  "THE CONTROL — `HydrationMismatchTags` exactly as it stood before rf2-zk1xu:
+  one map, both hashes REQUIRED. It is what makes the witness below
+  discriminating rather than decorative. Every assertion this control fails and
+  the shipped schema passes is a defect the shipped schema removed; if the
+  control ever starts passing them too, the control is wrong, not the fix."
+  [:map
+   [:category        :keyword]
+   [:server-hash     :any]
+   [:client-hash     :any]
+   [:first-diff-path {:optional true} [:vector :any]]])
+
+(deftest hydration-mismatch-schema-models-both-emitted-tiers
+  (testing "SHAPE. The canonical schema is a two-arm `:or`, one arm per tier —
+            not one map with the tier-specific keys made optional, which would
+            admit a payload neither tier emits."
+    (let [form (tags-schema-form "HydrationMismatchTags")]
+      (is (some? form) "HydrationMismatchTags parsed out of Spec-Schemas.md")
+      (is (= :or (first form))
+          (str "`HydrationMismatchTags` must be a two-arm variant — the "
+               "category's two emit tiers share no payload key but `:where`. "
+               "Found head: " (pr-str (first form))))
+      (is (= 2 (count (rest form)))
+          (str "exactly two arms, one per tier. Found " (count (rest form))))
+      (is (every? #(and (vector? %) (= :map (first %))) (rest form))
+          "both arms are `[:map …]`")))
+
+  (testing "the keys-set reader sees BOTH arms. A first-arm-only reading would
+            drop the adoption keys from the arm above with nothing saying so —
+            that is coverage lost silently, which is the failure mode this whole
+            section exists to close."
+    (let [ks (get (parse-tags-schemas) "HydrationMismatchTags")]
+      (is (contains? ks :server-hash) "hiccup-arm key reached the reader")
+      (is (contains? ks :error)       "adoption-arm key reached the reader")))
+
+  (testing "THE ARMS ARE DISJOINT. A representative payload from either tier
+            validates against the whole schema and against its OWN arm, and is
+            REJECTED by the other — so the `:or` is genuinely two shapes rather
+            than one arm loose enough to swallow both."
+    (let [[hiccup-arm adoption-arm] (rest (tags-schema-form "HydrationMismatchTags"))
+          whole    (tags-schema-form "HydrationMismatchTags")
+          hiccup   {:category    :rf.ssr/hydration-mismatch
+                    :rf.error/id :rf.ssr/hydration-mismatch
+                    :where       'rf/verify-hydration!
+                    :server-hash "A" :client-hash "B"
+                    :frame       :app
+                    :failing-id  :rf/hydrate
+                    :reason      "Hydration mismatch: server hash 'A' != client hash 'B'."}
+          adoption {:error "Hydration failed because the initial UI does not match."
+                    :where 're-frame.substrate.spine/make-render}]
+      (is (malli/validate whole hiccup)        "hiccup payload validates")
+      (is (malli/validate whole adoption)      "adoption payload validates")
+      (is (malli/validate hiccup-arm hiccup)   "hiccup payload matches the hiccup arm")
+      (is (malli/validate adoption-arm adoption) "adoption payload matches the adoption arm")
+      (is (not (malli/validate adoption-arm hiccup))
+          "the hiccup payload must NOT satisfy the adoption arm")
+      (is (not (malli/validate hiccup-arm adoption))
+          "the adoption payload must NOT satisfy the hiccup arm")
+      (is (not (malli/validate pre-fix-hydration-mismatch-schema adoption))
+          (str "THE CONTROL. The pre-rf2-zk1xu single-map schema rejected the "
+               "adoption payload — that rejection IS the defect PR #8544's "
+               "audit found. If this assertion fails the control is wrong, not "
+               "the fix."))
+      (is (malli/validate pre-fix-hydration-mismatch-schema hiccup)
+          "…and accepted the hiccup one, so the control differs on the tier
+           that matters and not on both")))
+
+  ;; The emit-driven half. `interop/debug-enabled?` is false in the `:prod-gate`
+  ;; lane, where every trace emit is a deliberate no-op — guarding here keeps
+  ;; that lane running the corpus assertions above rather than reporting a
+  ;; failure about instrumentation it switched off on purpose.
+  (when interop/debug-enabled?
+    (testing "HICCUP TIER, driven through the SHIPPED emitter. The envelope is
+              the one `re-frame.trace/build-event` really assembled, so the
+              `:category` merge and the `:recovery` hoist are observed rather
+              than asserted."
+      (let [events   (capture-trace-events
+                       #(ssr-hydrate/verify-hydration!
+                          witness-frame-id
+                          "client-hash-B"
+                          {:server-hash     "server-hash-A"
+                           :first-diff-path [:main 0 :h1]}))
+            ev       (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                    events))
+            tags     (:tags ev)
+            schema   (tags-schema-form "HydrationMismatchTags")]
+        (is (some? ev)
+            (str "verify-hydration! emitted the category. Saw: "
+                 (pr-str (mapv :operation events))))
+        (is (= :error (:op-type ev))
+            "the hiccup emit routes through `emit-error!`, so `:op-type` is `:error`")
+        (is (= :warned-and-replaced (:recovery ev))
+            "`:recovery` is hoisted to the envelope top level")
+        (is (not (contains? tags :recovery))
+            "…and therefore absent from `:tags`, which is why no arm declares it")
+        (is (= :rf.ssr/hydration-mismatch (:category tags))
+            "`build-event` merged `{:category <operation>}` on the `:error` branch")
+        (is (malli/validate schema tags)
+            (str "the emitted hiccup `:tags` must validate against the shipped "
+                 "schema. Got: " (pr-str tags)))
+        (is (not (malli/validate pre-fix-hydration-mismatch-schema
+                                 (dissoc tags :server-hash)))
+            "the control still bites on a hash-less map, so it is not vacuous")))
+
+    (testing "ADOPTION TIER. The payload maps are read out of the two `.cljs`
+              emit sites as data — this JVM suite cannot call them — and driven
+              through the real `trace/emit!`, with each site's own `:where`
+              symbol taken from the source rather than retyped."
+      (let [schema (tags-schema-form "HydrationMismatchTags")]
+        (doseq [rel-path hydration-mismatch-adoption-sites]
+          (let [form (adoption-payload-form rel-path)]
+            (is (some? form)
+                (str rel-path " still carries a `(trace/emit! :warning "
+                     ":rf.ssr/hydration-mismatch {…})` site"))
+            (is (= adoption-payload-keys (set (keys form)))
+                (str rel-path "'s adoption payload keys moved — this witness "
+                     "transcribes representative values for exactly these "
+                     "slots, so a key added or removed there must be reflected "
+                     "here and in the row. Found: " (pr-str (sort (keys form)))))
+            (let [;; the site's OWN `:where`, unquoted — never a retyped copy.
+                  where    (source-quoted-symbol (:where form))
+                  events   (capture-trace-events
+                             #(trace/emit! :warning :rf.ssr/hydration-mismatch
+                                           {:error    "Hydration failed because the initial UI does not match."
+                                            :where    where
+                                            :recovery (:recovery form)}))
+                  ev       (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                          events))
+                  tags     (:tags ev)]
+              (is (and (symbol? where) (namespace where))
+                  (str rel-path " stamps a quoted, namespace-qualified symbol "
+                       "`:where`. Found: " (pr-str (:where form))))
+              (is (some? ev) (str rel-path ": the emit produced an envelope"))
+              (is (= :warning (:op-type ev))
+                  "the adoption emits use a `:warning` envelope")
+              (is (not (contains? tags :category))
+                  (str "a `:warning` envelope gets NO `[:tags :category]` — "
+                       "which is exactly why the adoption arm must not declare "
+                       "it, and why one map could not model both tiers"))
+              (is (= :warned-and-replaced (:recovery ev))
+                  "`:recovery` is hoisted on the success branch too")
+              (is (malli/validate schema tags)
+                  (str rel-path ": the emitted adoption `:tags` must validate "
+                       "against the shipped schema. Got: " (pr-str tags)))
+              (is (not (malli/validate pre-fix-hydration-mismatch-schema tags))
+                  (str rel-path ": THE CONTROL — the pre-rf2-zk1xu single-map "
+                       "schema rejects this real event. That rejection is the "
+                       "defect; if this passes, the control is wrong."))
+              ;; The `.message`-less error: `(some-> error .-message)` is nil
+              ;; when the recoverable error carries no message, which is why
+              ;; the arm declares `[:maybe :string]` rather than `:string`.
+              (is (malli/validate schema (assoc tags :error nil))
+                  "a nil `:error` (an error with no `.message`) validates"))))))
+
+    (testing "EVENT → CORPUS, both directions closed for this category. Every
+              key the SHIPPED emitters actually put on the wire is declared by
+              the schema AND named in the catalogue row's `:tags` cell. This is
+              the reverse of the keys-set arm, taken over emitted events instead
+              of over cell prose — which is what makes it mechanisable at all."
+      (let [cell       (catalogue-tags-cell :rf.ssr/hydration-mismatch)
+            declared   (get (parse-tags-schemas) "HydrationMismatchTags")
+            documented (cell-tag-keys cell)
+            hiccup     (->> (capture-trace-events
+                              #(ssr-hydrate/verify-hydration!
+                                 witness-frame-id
+                                 "client-hash-B"
+                                 {:server-hash     "server-hash-A"
+                                  :first-diff-path [:main 0 :h1]}))
+                            (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
+                            first :tags keys set)
+            adoption   (->> (capture-trace-events
+                              #(trace/emit! :warning :rf.ssr/hydration-mismatch
+                                            {:error    "Hydration failed."
+                                             :where    're-frame.substrate.spine/make-render
+                                             :recovery :warned-and-replaced}))
+                            (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
+                            first :tags keys set)
+            emitted    (set/union hiccup adoption)]
+        (is (some? cell) "the catalogue carries an active hydration-mismatch row")
+        (is (seq emitted) "both tiers emitted something to check")
+        (is (empty? (set/difference emitted declared))
+            (str "keys the emitters put under `:tags` that NO arm of "
+                 "`HydrationMismatchTags` declares: "
+                 (pr-str (sort (set/difference emitted declared)))))
+        (is (empty? (set/difference emitted documented envelope-only-tag-keys))
+            (str "keys the emitters put under `:tags` that the catalogue row's "
+                 "cell does not name: "
+                 (pr-str (sort (set/difference emitted documented
+                                               envelope-only-tag-keys)))))
+        (is (not (contains? declared :head-id))
+            "no arm declares `:head-id` — no producer supplies one")
+        (is (not (contains? documented :head-id))
+            (str "the cell must not LIST `:head-id`: `verify-hydration!` "
+                 "destructures only `:first-diff-path` / `:failing-id` / "
+                 "`:server-hash` out of its opts and merges nothing else, so "
+                 "no `:head-id` can reach this category's payload — the head "
+                 "sub-arm is discriminated by `:failing-id` alone. The cell may "
+                 "still SAY so: `cell-tag-keys` reads a lone back-ticked "
+                 "keyword and nothing else, so state the negative in a "
+                 "multi-token span (`no :head-id`) the way the closed-record-"
+                 "slot cells state theirs."))))))
 
 ;; --- the :where slot's TYPE (rf2-j4bg3) --------------------------------------
 ;;
