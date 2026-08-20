@@ -72,9 +72,30 @@ So the observed rate **at the revision where the mode has ever appeared** was
 at that revision from `rf2-n1b9h` had since come back low and diluted it. Twenty
 runs at p = 1/7 gives **P(at least one high) = 1 − (6/7)²⁰ ≈ 95%**.
 
+Those are the **design's** numbers and they stay: 1 in 7 is what the corpus showed
+when the series length was fixed, and the twenty follows from it.
+
 All twenty went at `4a1537cb71` because it is the **only** revision with a
-positive observation. **The realised rate was 2 of 20 (10%)**, consistent with
-that prior.
+positive observation.
+
+**Twenty runs were taken; nineteen are admissible readings, and the two figures
+answer different questions.** The **design count is 2 of 20** — the series was
+pre-registered at twenty and twenty were run, which is honoured by running them
+however their controls later read. But the comparison of a realised rate
+*against the prior* is an inference about rates, and there `run12` is not evidence
+the mode was absent: **its positive control failed, so the instrument did not work
+on that run and it is evidence neither way.** Over admissible readings the
+**realised rate is 2 of 19 (10.5%)**. This page already draws that line for the
+level population — [Admissibility](#admissibility) excludes `run12` and says so —
+and the rate is over the same population.
+
+**The same rule moves the prior, and in the same direction.**
+`alloc-9jrhi/bisect-5-a-4a1537cb71-replicate` is one of the seven and it is
+control-refused too, so over admissible readings the prior is **1 in 6 (≈16.7%)**
+rather than 1 in 7. **Neither accounting disturbs the conclusion**: at
+Binomial(19, 1/6) two high runs against an expected 3.17 gives P(X ≤ 2) = **36.4%**,
+where the figures as written give **44.0%**. Consistent with the prior either way,
+which is why nothing downstream of this paragraph moves.
 
 ## The reading
 
