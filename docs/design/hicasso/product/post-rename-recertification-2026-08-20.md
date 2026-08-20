@@ -276,6 +276,11 @@ spread across them; this page measures the population, it does not bisect it. Wh
 three *unmoved* rows says is narrower and worth keeping: the SSR JVM lane and the `hicasso-release` build
 population are the two surfaces the interval did not touch at all.
 
+**The elision bundle also moved, and it moved the same way the release bundle did**: 1968527 bytes on
+2026-08-18, **1967892** here — **−635 B**, −0.032%. Like §3.2's figure this is the first comparison
+available for that bundle, its compile population is unmoved at 312 files / 252 compiled, and no cause is
+attributed to it.
+
 ## 6. What this still does not certify
 
 **The overall certification remains PARTIAL, and for the same reason as the parent page's.** Nothing here
@@ -295,8 +300,9 @@ careful sentences get quoted one notch stronger later.
 - **Four families green is still not five.** Family 5 has no verdict — not a green one and not a red one.
   See [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled). What
   changed this run is the *reason*, not the count.
-- **The 21-byte bundle delta is a measurement, not an attribution.** It says the bundle moved; it says
-  nothing about which of 442 commits moved it, and no bisect was run.
+- **The two byte deltas are measurements, not attributions.** −21 B on `hicasso-release` and −635 B on
+  the elision bundle say those bundles moved; they say nothing about which of 442 commits moved them, and
+  no bisect was run.
 - **Family 4's elision arm still carries no planted fault**, exactly as the 2026-08-18 page recorded. See
   [§7.2](#72-what-was-not-proved).
 
