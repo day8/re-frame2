@@ -21,11 +21,11 @@ plan's deletions — has been overtaken and must not be re-cited: `docs/design/f
 ruled `rf2-0moc4` on 2026-08-18. The record of that ruling is in
 [§What is in each phase](#what-is-in-each-phase) below, beside the R6 surface list that used to
 imply otherwise.** The separation stands on the readability reason alone, which is enough.
-`docs/design/retirement/`
-is a new sibling of `design/freehand/` and `design/hicasso/`, added to `mkdocs.yml`'s
-`exclude_docs` the same way they are: a working design record, tracked and greppable, not a page
-of the built site. `scripts/check_doc_slugs.py` still validates its links and anchors, and that
-checker runs unconditionally in `test.yml`'s `verify-readme-links` job.
+
+`docs/design/retirement/` is a new sibling of `design/freehand/` and `design/hicasso/`, added to
+`mkdocs.yml`'s `exclude_docs` the same way they are: a working design record, tracked and
+greppable, not a page of the built site. `scripts/check_doc_slugs.py` still validates its links and
+anchors, and that checker runs unconditionally in `test.yml`'s `verify-readme-links` job.
 
 ## The census, re-taken
 
@@ -389,10 +389,10 @@ as an instruction to delete has misread it twice.
 anchors its measurement numbers to the frozen studio tree — `docs/design/hicasso/studio/README.md`
 records that `docs/design/freehand/studio/` "is frozen and is never extended", which is a statement
 about the tree's role, not merely about its contents. Deleting the design tree would pull that
-measurement baseline out from under a live evidence chain. That coupling is measured rather than asserted: deleting the
-37 files takes `scripts/check_doc_slugs.py` to **exit 1 with four broken targets**, all four inbound
-from `docs/design/hicasso/` — `hd-002-adjudication.md:158` and `:566` pointing at
-`../freehand/studio/bulk-rerender-where-the-time-goes.md`, and `product/requirements-mine.md:15`
+measurement baseline out from under a live evidence chain. That coupling is measured rather than
+asserted: deleting the 37 files takes `scripts/check_doc_slugs.py` to **exit 1 with four broken
+targets**, all four inbound from `docs/design/hicasso/` — `hd-002-adjudication.md:158` and `:566`
+pointing at `../freehand/studio/bulk-rerender-where-the-time-goes.md`, and `product/requirements-mine.md:15`
 and `:108` pointing at `../../freehand/studio/fitness-harness.md`. Two dispatches two days apart
 derived that same figure independently.
 
