@@ -38,7 +38,7 @@
 
   ## The five loss states, and why the vocabulary is closed
 
-  The bead names five and they are here in full — `unknown`, `opaque`,
+  There are five, and they are here in full — `unknown`, `opaque`,
   `host-opaque`, `cap`, `uncorrelated` — split across two closed
   vocabularies because two of them are ALSO how a projection knows what
   it says:
@@ -115,10 +115,9 @@
 
   ## v1 → v2, and why a version that lies is worse than none
 
-  The #7789 audit repair changed the WIRE SHAPE without changing this
-  literal, and the merged-PR audit of #7802 called that out as the one
-  defect a version exists to prevent. Four changes, each of which a v1
-  parser reads as something it is not:
+  A change to the WIRE SHAPE that left this literal alone would be the
+  one defect a version exists to prevent. Four changes separate v1 from
+  v2, each of which a v1 parser reads as something it is not:
 
   | Field | v1 | v2 |
   |---|---|---|

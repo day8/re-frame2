@@ -432,8 +432,8 @@
   `:rf.error/hicasso-host-extra-form`, and options that are not a map
   with `:rf.error/hicasso-host-bad-options`.
 
-  The macro used to destructure `[component opts]` off a variadic tail
-  and drop everything later in silence, so
+  A macro destructuring `[component opts]` off a variadic tail would drop
+  everything later in silence, so
 
       (defhost modal Modal
         {:callbacks {:on-close :event}}
@@ -479,9 +479,9 @@
            [component opts] forms
            ;; THE TAIL, refused rather than dropped. The
            ;; destructure above is fixed-width over a seq of arbitrary
-           ;; length, so everything past `opts` used to vanish silently
+           ;; length, so everything past `opts` would vanish silently
            ;; — `defview`'s `[argv & body]` has no such tail to lose,
-           ;; and this was the one door in the family that swallowed
+           ;; and this is the one door in the family that could swallow
            ;; one. Detected HERE, in the form, so the extra forms are
            ;; quoted rather than evaluated; raised at load, inside the
            ;; declaration extent, so the refusal carries the same
@@ -776,8 +776,8 @@
 
   Every other var here is an alias, because the impl name and the door
   name mean the same call. This door does not: `impl.mount/hydrate-root!`
-  is `(container frame-kw hiccup opts)` — the prototype's positional
-  shape — and naming-ledger row 20 keeps the guide's `(node config
+  is `(container frame-kw hiccup opts)` — the impl tier's positional
+  shape — while naming-ledger row 20 keeps the guide's `(node config
   view)` config map, because a config map is what lets
   `:identifier-prefix` join without a second arity. So the adaptation is
   three lines here rather than a second signature down in impl, and impl

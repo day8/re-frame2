@@ -86,9 +86,8 @@
   identity here is the read set, so a key built from raw sub-keys would
   carry every query argument a moment after the `:query` FIELD had been
   projected — and carry it further, because a key is what joins two
-  rosters, prints in a boundary's label and becomes a DOM id. It shipped
-  that way once and the merged-PR audit of #7789 caught it. Every exported
-  key element is now a [[read-identity]]: frame, registration id, and the
+  rosters, prints in a boundary's label and becomes a DOM id. Every
+  exported key element is a [[read-identity]]: frame, registration id, and the
   projected query. The join is unaffected — both rosters derive keys
   through the one function, so identical read sets still produce identical
   keys — while the arguments stay behind the projector on every path out

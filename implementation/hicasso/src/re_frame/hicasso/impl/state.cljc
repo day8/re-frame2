@@ -97,7 +97,7 @@
 (def clear-event-id
   "`::h/clear` — the FRAMEWORK-NAMED clear event, `[::h/clear ::concern
   ikey]`. One handler serves every concern, because removing an entry
-  needs to know nothing about what used to be in it."
+  needs to know nothing about what the entry held."
   :re-frame.hicasso/clear)
 
 ;; ---------------------------------------------------------------------------

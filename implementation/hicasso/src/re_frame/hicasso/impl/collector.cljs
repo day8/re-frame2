@@ -125,10 +125,8 @@
   and the allocation slope across warm 1/3/7/20 reads is flat.
 
   **The replacement is `unmount-all` + `mount-all`, not a set difference,
-  and it is worth being exact about that.** The clause
-  used to be discharged against a separate index namespace's
-  `record-reads` difference, and this wiring never took its dropping
-  half: a boundary id here is the registration object minted inside
+  and it is worth being exact about that.** A boundary id here is the
+  registration object minted inside
   [[make-subscribe]], so a changed read set means a new entry, a new
   `subscribe` and therefore a new registration, whose held edge set is
   empty by construction. **There is no difference left to
@@ -412,10 +410,8 @@
 ;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s
 ;; ---------------------------------------------------------------------------
 ;;
-;; It used to be eight lines here, and the same eight lines in five sibling
-;; modules. The shape those copies agreed on is now one constructor, and
-;; `:refer`ring it keeps every call site below spelled exactly as it was
-;; while the ns form says, once, where the shape lives.
+;; ONE constructor, `:refer`red so every call site below reads as a bare
+;; `fail!` while the ns form says, once, where the shape lives.
 
 ;; ---------------------------------------------------------------------------
 ;; The render context
@@ -535,11 +531,11 @@
 ;;
 ;; ## The reverse edge lives on the cell
 ;;
-;; This table used to run beside a second process-global structure — a
-;; `front.sub-index` holding `sub-key -> #{boundary}` and
-;; `boundary -> #{sub-key}` — and the two were keyed by the SAME B·R key
-;; space. Every read therefore paid two persistent map entries where the
-;; design needs one table, plus, at fan-out 1 (which is what the
+;; A second process-global structure beside this table — a sub-index
+;; holding `sub-key -> #{boundary}` and `boundary -> #{sub-key}` — would
+;; be keyed by the SAME B·R key space. Every read would then pay two
+;; persistent map entries where the design needs one table, plus, at
+;; fan-out 1 (which is what the
 ;; distinct-query ladder rung measures), a singleton `PersistentHashSet`
 ;; per key whose whole job was to hold one pointer.
 ;;
@@ -553,10 +549,10 @@
 ;; reference.
 ;;
 ;; **No lookup got worse.** The dirty set was already a walk of the dirty
-;; keys' reader sets, and [[flush!]] already holds the dirty CELLS — it
-;; used to map `.-subKey` over them purely so the index could map them
-;; straight back. That round trip is what went away; the union is now
-;; taken directly off the cells in hand.
+;; keys' reader sets, and [[flush!]] already holds the dirty CELLS — an
+;; index would need `.-subKey` mapped over them purely to map them
+;; straight back. There is no such round trip: the union is taken
+;; directly off the cells in hand.
 ;;
 ;; The table is owned by its sole consumer (architecture.md §2), which is
 ;; what lets it be this specific: a general, separately-testable index
@@ -602,12 +598,12 @@
   watchers (`substrate.observation` keys per handle on the same
   reactions).
 
-  It used to be `(keyword \"rf-hicasso-arm1\" (str \"w\" (vswap! counter inc)))`,
-  which bought that same uniqueness by allocating a `Keyword`, its name
-  string and its fully-qualified string per cell and retaining all three
-  in the cell and in the reaction's watch map — per *unique key*, which is
-  per *read* on the distinct-query rung the per-read heap ladder is taken
-  on. The uniqueness was already structural; only the identity was being
+  A `(keyword \"rf-hicasso\" (str \"w\" (vswap! counter inc)))` would buy
+  that same uniqueness by allocating a `Keyword`, its name string and its
+  fully-qualified string per cell and retaining all three in the cell and
+  in the reaction's watch map — per *unique key*, which is per *read* on
+  the distinct-query rung the per-read heap ladder is taken on. The
+  uniqueness is already structural; only the identity would be
   paid for. The counter goes with it: a global that numbered something
   that never needed a number."
   ::cell-watch)
@@ -1235,8 +1231,8 @@
 
   Kept, and kept working, because the three-rendering dogfood judgement
   needs it and because it is the surface the collector is measured
-  against — not because it is being defended. The operator ruled it below
-  the ergonomics bar."
+  against — not because it is being defended. It sits below the
+  ergonomics bar."
   [query-map]
   (set! (.-grouped rstate) true)
   (reduce-kv (fn [m alias query-v] (assoc m alias (read-key! query-v)))
@@ -1342,9 +1338,8 @@
   a cache miss and a rebuilt subscription, never a wrong value, because
   the entry object itself survives in the closure that was handed out.
   What the horizon buys is that the adoption is realised, and what it
-  costs is that an abandoned render's entry sits in the cache 4 ms longer
-  than it used to — the zero-leak property is unchanged, its zero-POINT
-  moved."
+  costs is that an abandoned render's entry sits in the cache 4 ms — the
+  zero-leak property is unchanged, and only its zero-POINT moves."
   4)
 
 (defn- arm-entry-reaper!
@@ -1911,9 +1906,9 @@
   (`:event`, `:sub`, `:fx`) are core's and are already live for a
   Hicasso app, because they sit in the router, the subs layer and the fx
   layer this arm consumes unchanged. The fourth — `:render` — is the
-  **view substrate's**, and until this bead a Hicasso app was the only
-  re-frame2 app whose per-view render was absent from the User-Timing
-  stream. It is a `:render` in the spec's own terms: the bucket is keyed
+  **view substrate's**, and it is bracketed here so a Hicasso app's
+  per-view render reaches the User-Timing stream like every other
+  re-frame2 app's. It is a `:render` in the spec's own terms: the bucket is keyed
   on the *representation* of the work — one view boundary's body run,
   once per render pass the host actually performs — not on which
   registration API minted the head. `reg-view*` mints its wrapper with a

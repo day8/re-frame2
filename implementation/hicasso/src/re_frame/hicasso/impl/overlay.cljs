@@ -178,8 +178,7 @@
   is a fact about a live document rather than about the page's meaning.
   It reaches the DOM only through [[claim-anchor!]] and
   [[anchor-panel!]], both of which run in the ref callback, so it is in
-  no server render's bytes — see [[anchor-panel!]] for why that matters
-  and what it used to cost."
+  no server render's bytes — see [[anchor-panel!]] for why that matters."
   []
   (str "--rf-overlay-" (swap! !anchor-seq inc)))
 
@@ -356,9 +355,8 @@
 
   The rect test stays as the fallback for an engine without the method.
   It is the weaker answer — it is exactly the reading whose two gaps are
-  named above — but it is the reading this module shipped with, so an
-  engine that lacks `checkVisibility` is left no worse than before
-  rather than left with no test at all."
+  named above — but an engine that lacks `checkVisibility` is better
+  served by it than by no test at all."
   [^js el]
   (if (fn? (.-checkVisibility el))
     (.checkVisibility el #js {"visibilityProperty" true})

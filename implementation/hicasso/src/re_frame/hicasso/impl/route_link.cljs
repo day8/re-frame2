@@ -53,7 +53,7 @@
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
   - **Declined for v0: the `:prefetch :intent` trio.** Routing publishes
-    it and the prototype consumed it; the census counts no prefetch site, and
+    it; the census counts no prefetch site, and
     the opt-in is sugar over an event a Hicasso author can already spell
     (`:on-mouse-enter [:rf.route/prefetch {…}]`). A tier-1 roster takes
     the tier-1 surface. **Declined means REFUSED, not ignored** — see
