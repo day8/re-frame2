@@ -590,10 +590,8 @@
   1. THE EMIT SITE DIDN'T ALREADY SUPPLY ONE. `:frame` under `tags` is
      authoritative wherever the site stamps it: a `:rf.frame/created`
      for a dynamically constructed frame B is tagged `{:frame B}` while
-     the ambient frame is still A (rf2-7eel71), and the `:rf.ui`
-     cross-frame carried-op warning deliberately names its two frames
-     `:origin-frame` / `:ambient-frame` and carries no bare `:frame` at
-     all. This fn only supplies the tag; it never overrides one.
+     the ambient frame is still A (rf2-7eel71). This fn only supplies
+     the tag; it never overrides one.
 
   2. THE EMIT IS CORRELATED TO A RUN — its tags carry a
      `:rf.trace/dispatch-id`. Spec 009 is explicit that
