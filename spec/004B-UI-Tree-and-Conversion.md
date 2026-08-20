@@ -754,9 +754,9 @@ consumer needs it. Today the channel is deliberately absent: [011 §Hydration-mi
 detection](011-SSR.md#hydration-mismatch-detection) states that the adoption tier
 "deliberately carries no such hash" (a React-element root has no hashable client
 render-tree), and records that reviving it is "a deliberately-deferred future leaf, not
-a defect." The
-hash algorithm and digest encoding this candidate would apply, if it revives, are Spec
-011's (§Normalization, and [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — kept
+a defect." The hash algorithm and digest encoding this candidate would apply, if it
+revives, are Spec 011's (§Normalization, and
+[011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — kept
 below as design-of-record. A reader who greps *that* name and finds no function has found
 a deferred candidate, not a gap or an outstanding obligation.
 
