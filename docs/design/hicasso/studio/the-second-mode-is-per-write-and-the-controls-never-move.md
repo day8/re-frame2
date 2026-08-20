@@ -60,7 +60,9 @@ that the committed corpus cannot decide.**
   **plus** a discrete 3,792 B rider, at the same boundary.
 - **The extra bytes are transient garbage, not retained structure.** Over rounds
   4 – 17 the high run allocates 14 × 2 × 7 × 3,792 = **743,232 B** more than the
-  low one, yet the two heaps close within **4,812 B** of each other.
+  low one, yet the two heaps close within **4,812 B** of each other on
+  `reagent-subs` and **4,940 B** on `uix-subs`. The 743,232 B is the total over
+  both segments, so both closing figures belong beside it.
 
 ## What the datasets establish, and the evidence for each
 
@@ -160,7 +162,7 @@ ran inside the bracket.
 | A page-global allocation the counter attributes to the leg | **EXCLUDED** | The fifty-four control windows in the high run read byte-identically to the low run's; and a second counter outside the page (`cdpBracket`) confirms the same 3,792 B/write, so it is not the in-page counter mis-attributing. |
 | A collection, or a GC generation promotion, **as the carrier** | **EXCLUDED as the carrier** | Zero falling steps in the quoted certified windows; the two heaps close within 4,812 B on `reagent-subs` and 4,940 B on `uix-subs`; and a collection moves a level down, not up, and not byte-stably for fourteen rounds. |
 | A one-time collection or generation promotion **as the TRIGGER** — the event that puts the page into a mode something else then carries | **collection NOT SUPPORTED; promotion UNRESOLVED** | Split out 2026-08-21 by `rf2-9jrhi` from the merged-PR audit of PR #8582: the row above observes samples *inside* windows and at the close, which cannot reach the boundary *between* them. It is reached by a stream that was already retained — each round's three control windows sit before its arm passes and retain 45 absolute used-heap samples in that gap. **Collection:** all 119 round boundaries across the seven runs carry a fall (smallest 172,028 B), and at the round-3 → round-4 boundary the high run's 182,856 B sits between its two same-revision replicates' 180,676 B and 182,884 B — neither of which steps — so a collection there does not distinguish the run that does. **Promotion:** both retained counters are TOTALS across generations, so a promotion changes neither; no sampling density of this corpus can see one. |
-| A growing array's doubling, or a one-time lazily-installed cache | **EXCLUDED as the carrier** | A doubling or a one-time install pays **once**. This pays 3,792 B on each of ~196 subsequent writes and is **not retained** — 743,232 B allocated against a 4,812 B difference in the closing heap. It is per-write transient garbage, not a structure. |
+| A growing array's doubling, or a one-time lazily-installed cache | **EXCLUDED as the carrier** | A doubling or a one-time install pays **once**. This pays 3,792 B on each of ~196 subsequent writes and is **not retained** — 743,232 B allocated against a closing-heap difference of 4,812 B on `reagent-subs` and 4,940 B on `uix-subs`. It is per-write transient garbage, not a structure. |
 | The prime term | **EXCLUDED** | `primeExcess` moves 16 B across the mode while the baseline moves 3,792 B. |
 | **Different work per write** — a re-entrant registration, a duplicated reaction, an extra pass | **NOT EXCLUDED** | `alloc-tick` counts **writes**, not handler invocations, so the identical schedule does not speak to it. Nothing in the corpus counts work inside a write. |
 | **A V8 tier or deoptimisation transition in the compiled write path** — most specifically a loss of escape analysis, which turns elided allocations into real ones at a fixed cost per invocation | **NOT EXCLUDED** | Consistent with every observation above, and the only candidate that also explains why *all seven* runs transition at the same round under a deterministic schedule. But no dataset here records V8 tier state, so it is not established either. |
