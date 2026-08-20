@@ -88,8 +88,11 @@
 //   1. the arm-order guard's self-test, in the page, before anything is
 //      measured — exit 1 (clock) / the page refuses to install (heap);
 //   2. `N unverified of M` — clock and heap, exit 1 on any nonzero count;
-//   3. the positive control — clock and heap, adjudicated by
-//      `lane/control-verdict` and exit 1 when it is not `ok`;
+//   3. the positive control — clock and heap, exit 1 when it is not `ok`.
+//      The two rows are adjudicated by DIFFERENT rules of the lane's, and
+//      which one applies is a property of the instrument: the clock row by
+//      `lane/control-verdict` (overlap), the heap row by
+//      `lane/control-verdict-strict` (every round). See below;
 //   4. the arm-order verdict over the samples — exit 2, figures not
 //      quotable.
 //
@@ -99,13 +102,51 @@
 // (2)'s denominator rather than counted as verified, and (3) is the gate
 // they answer to instead. See `p0-harness/mount-sample!`.
 //
-// `lane/control-verdict` is the lane's shared rule and WHAT IT DECIDES IS
-// NOT THIS DRIVER'S TO CHANGE: rf2-egdaq is the open ruling on whether it
-// tightens from range-overlap to every-round-inside. Read its docstring
-// before quoting `:ok?`. Both of this driver's controls pass under either
-// reading — heap 4,700,317 B [4,699,074–4,700,974] against a predicted
-// 4,700,000 B, clock 1.8381x [1.8182–1.8548] against a predicted 1.9975x
-// with ±25% slack — so wiring them in changed no published figure.
+// TWO CONTROL RULES, ONE PER ROW, AND THE INSTRUMENT PICKS (rf2-egdaq).
+// The lane spells both and neither is this driver's to invent. What this
+// driver decides is only which of them each row is entitled to, and it
+// decides that on what the row's control leg is MADE OF:
+//
+//   - the CLOCK row (`re-frame.bench.p0-app`) keeps `lane/control-verdict`,
+//     the overlap rule. Its control is a ratio of two mount times, and on
+//     the M2 and bulk-broad rows those times are one to three of Chrome's
+//     100 µs `performance.now()` quanta. The 2026-07-31 ruling measured
+//     what strict would cost there over rf2-6i0i2's eighty controls: 80 of
+//     80 pass under overlap and 64 of 80 under strict, every miss LOW and
+//     every miss on a coarse-leg row, while the two rows measured on 20-plus
+//     quanta legs pass strict 40 times out of 40. A rule that refuses a
+//     fifth of its controls by landing on the clock quantum is measuring
+//     RESOLUTION, not correctness. Overlap stands here.
+//   - the HEAP row (`re-frame.bench.p0-heap`) takes
+//     `lane/control-verdict-strict`, every round inside the band. Its
+//     control is a dense array of 587,500 unboxed doubles read in BYTES off
+//     CDP's heap counter — 4,700,000 B predicted, and a typical published
+//     range is [4,699,074 – 4,700,974], ±0.02%. There is no quantum for a
+//     low round to sit on, so the carve-out above has nothing to exempt,
+//     and the ruling's own revisit trigger — a window whose legs clear the
+//     quantum — is met by a leg that was never on one.
+//
+// AND ON THIS ROW OVERLAP IS NOT A WEAKER GATE, IT IS AN ABSENT ONE. The
+// failure the heap control exists to catch is a collector that has stopped
+// seeing transient garbage, and its shape is a round reading ~0 B. Under
+// overlap one such round beside five good ones passes — `min` 0 sits under
+// the roof, `max` 4,700,000 over the floor, so the range meets the band.
+// Under strict that round is NAMED and the run is refused.
+//
+// NO PUBLISHED ROW IS RE-ADJUDICATED BY THIS, because none needs to be. The
+// published ranges are what settle it without re-running anything: a range
+// whose `min` and `max` both sit inside the band bounds EVERY round inside
+// it, and across this row's published series the widest excursion either way
+// is 4,690,838 B — 0.195% below a prediction gated at ±25%, better than two
+// orders of magnitude inside. So the strict verdict of every heap row ever
+// published is `ok`, and the tightening buys teeth for the next run rather
+// than a revision of the last one. That is what makes this row's half of
+// rf2-egdaq settleable by a worker at all; the CLOCK row's half was not,
+// which is why it went to the operator and was ruled on 2026-07-31.
+//
+// Read the two docstrings before quoting `:ok?` — each answer carries the
+// `:rule` that decided it precisely so a record cannot be read under the
+// other one.
 
 'use strict';
 
@@ -137,10 +178,13 @@ const CONTROL_DOUBLES = Number(process.env.P0_CONTROL_DOUBLES || 587500);
 const CONTROL_PREDICTED = CONTROL_DOUBLES * 8;
 const HEAP_TOLERANCE = Number(process.env.P0_HEAP_TOLERANCE || 0.25);
 const CLOCK_TIMEOUT_MS = Number(process.env.P0_CLOCK_TIMEOUT_MS || 30 * 60 * 1000);
-// How far a positive control's measured range may sit from the prediction
-// its own arithmetic made and still count as THE INSTRUMENT HAS SIGNAL.
-// Generous on purpose — the claim being gated is not that the model is
-// exact. `lane/control-verdict` applies it; this driver only carries it.
+// How far a positive control's reading may sit from the prediction its own
+// arithmetic made and still count as THE INSTRUMENT HAS SIGNAL. Generous on
+// purpose — the claim being gated is not that the model is exact. ONE slack
+// for both rows; what differs between them is not the width of the band but
+// WHAT HAS TO SIT INSIDE IT — the range on the clock row, every round on the
+// heap row (see the two rules at the head of this file). Both rules apply
+// it; this driver only carries it.
 const CONTROL_SLACK = Number(process.env.P0_CONTROL_SLACK || 0.25);
 
 const ONLY = (() => {
@@ -741,15 +785,24 @@ async function heapPass(
   );
 
   // THE CONTROL IS ADJUDICATED, not printed. `predicted` is 8 bytes a
-  // double, fixed before the run; the measured range is this row's own
-  // per-round readings. The rule is `lane/control-verdict`'s, the same one
-  // the freehand P0 arms publish under — this driver states the pair and
-  // reads the answer, and it does so HERE because the page has to still be
-  // open for the rule to be the lane's rather than a JavaScript copy of it.
-  const ctlStat = stat(rounds.map((r) => r.control.measuredCdp));
+  // double, fixed before the run; the readings are this row's own, ONE PER
+  // ROUND. The rule is `lane/control-verdict-strict`'s — every round inside
+  // the band, not merely the range meeting it (rf2-egdaq) — and this driver
+  // states the pair and reads the answer HERE because the page has to still
+  // be open for the rule to be the lane's rather than a JavaScript copy.
+  //
+  // THE PER-ROUND ARRAY IS WHAT CROSSES, and an aggregate cannot stand in
+  // for it. A `{min, max, mean}` summary has already thrown away which
+  // round was which, so the rule it is handed to can only ask about the
+  // range; handing over the rounds is what lets the answer name the one
+  // that missed. It is also what makes the answer re-adjudicable later
+  // without re-running the window — the hole rf2-egdaq's audit of PR #8326
+  // found on three runs that had recorded only the summary.
+  const ctlPerRound = rounds.map((r) => r.control.measuredCdp);
+  const ctlStat = stat(ctlPerRound);
   const controlVerdict = await page.evaluate(
-    ([p, m, s]) => window.P0H.controlVerdict(p, m, s),
-    [CONTROL_PREDICTED, { min: ctlStat.min, max: ctlStat.max, mean: ctlStat.mean }, CONTROL_SLACK]
+    ([p, v, s]) => window.P0H.controlVerdict(p, v, s),
+    [CONTROL_PREDICTED, ctlPerRound, CONTROL_SLACK]
   );
 
   const extra = analyse ? await analyse(page, rounds, plan) : {};
@@ -786,6 +839,10 @@ async function heapPass(
         doubles: CONTROL_DOUBLES,
         predictedBytes: CONTROL_PREDICTED,
         measured: ctlStat,
+        // The rounds themselves, beside the summary of them. A record that
+        // keeps only the summary cannot be re-adjudicated under the other
+        // rule, which is the durability half of rf2-egdaq.
+        perRound: ctlPerRound,
         slack: CONTROL_SLACK,
         verdict: controlVerdict,
       },
@@ -3935,6 +3992,45 @@ function ladderStructuralFailures(row) {
   return out;
 }
 
+// THE HEAP ROW'S POSITIVE CONTROL, PRINTED ONCE (rf2-egdaq). All three heap
+// summaries below publish the same control taken the same way, and they used
+// to say so in three copies that had to be edited together — which is how two
+// of them could have kept naming the overlap rule after the row had stopped
+// using it. A published record that names the wrong adjudicator is worse than
+// one that names none: it invites a reader to apply the other rule's reading
+// to a number it never adjudicated.
+//
+// The verdict NAMES ITS OWN RULE (`verdict.rule`) rather than this printer
+// asserting one, for that same reason — the string comes from the answer.
+function printHeapControl(row) {
+  const c = row.control.measured;
+  console.log(
+    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(c.mean)} B ` +
+      `[${Math.round(c.min)}–${Math.round(c.max)}]  (ratio ${(c.mean / CONTROL_PREDICTED).toFixed(4)})`
+  );
+  const v = row.control.verdict;
+  console.log(
+    `;;   VERDICT (lane/control-verdict-strict, rule ${v.rule}, ` +
+      `slack ±${(row.control.slack * 100).toFixed(0)}%): ${v.ok ? 'OK' : 'FAILED'}`
+  );
+  console.log(`;;     ${v.why}`);
+  console.log(';;     (the shared rule words its figures with an "x"; this control\'s unit is BYTES)');
+  // EVERY ROUND, PASS OR FAIL. The rule adjudicates per round, so a record
+  // that printed only the range would be quoting a summary the rule did not
+  // read — and the rounds are what a later reader needs to re-adjudicate
+  // under the other rule without re-running the window.
+  const per = row.control.perRound || [];
+  if (per.length) {
+    console.log(`;;     rounds: ${per.map((x) => Math.round(x)).join(', ')} B`);
+  }
+  for (const o of v.outside || []) {
+    console.log(
+      `;;     OUTSIDE round ${o.round}: ${Math.round(o.measured)} B, ` +
+        `off by ${(o.offBy * 100).toFixed(2)}% of the prediction`
+    );
+  }
+}
+
 function summariseLadder(row, structuralFailures) {
   const B = row.plan[0].arms[0].boundaries;
   console.log('\n;; ==== P0 RETAINED HEAP — THE READS LADDER (rf2-2rtt6.34) ====');
@@ -3945,16 +4041,7 @@ function summariseLadder(row, structuralFailures) {
   console.log(`;; ${row.rounds} rounds. Reads walk ${LADDER_RUNGS.join('/')}; Q = E on every rung`);
   console.log(';; (distinct-query, the mandatory worst-case witness — every read its own key).');
   console.log(';; Q is COUNTED off the frame\'s own sub-cache on every mount, not asserted.');
-  const ctlA = row.control.measured;
-  console.log(
-    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
-      `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
-  );
-  console.log(
-    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
-      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
-  );
-  console.log(`;;     ${row.control.verdict.why}`);
+  printHeapControl(row);
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
 
@@ -4121,17 +4208,7 @@ function summariseClock(c) {
 function summariseHeap(row) {
   console.log('\n;; ==== P0 RETAINED HEAP — bytes per boundary ====');
   console.log(`;; ${row.roots} roots held per arm; list=${row.perRoot.list} rows, grid=${row.perRoot.grid} cells`);
-  const ctlA = row.control.measured;
-  console.log(
-    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
-      `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
-  );
-  console.log(
-    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
-      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
-  );
-  console.log(`;;     ${row.control.verdict.why}`);
-  console.log(';;     (the shared rule words its figures with an "x"; this control\'s unit is BYTES)');
+  printHeapControl(row);
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   console.log(';;   (a mount is verified on TWO read-backs: the boundary elements it produced,');
   console.log(";;    and the unique query keys the frame's sub-cache is holding — B and Q)");
@@ -4195,16 +4272,7 @@ function summariseFanout(row) {
   );
   console.log(`;; ${row.rounds} rounds. Q is COUNTED off the frame's own sub-cache on every mount,`);
   console.log(';; not asserted by the plan — an unstamped or mis-stamped rung is an unverified mount.');
-  const ctlA = row.control.measured;
-  console.log(
-    `;; positive control: predicted ${CONTROL_PREDICTED} B  |  measured ${Math.round(ctlA.mean)} B ` +
-      `[${Math.round(ctlA.min)}–${Math.round(ctlA.max)}]  (ratio ${(ctlA.mean / CONTROL_PREDICTED).toFixed(4)})`
-  );
-  console.log(
-    `;;   VERDICT (lane/control-verdict, slack ±${(row.control.slack * 100).toFixed(0)}%): ` +
-      `${row.control.verdict.ok ? 'OK' : 'FAILED'}`
-  );
-  console.log(`;;     ${row.control.verdict.why}`);
+  printHeapControl(row);
   console.log(`;; verification: ${row.verification.unverified} unverified of ${row.verification.mounts} mounts`);
   for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
 

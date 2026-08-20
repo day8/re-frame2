@@ -467,11 +467,39 @@
   was published as a bare ratio nothing adjudicated.
 
   The adjudication is the LANE's, not a second copy: [[lane/control-verdict]]
-  is what the freehand P0 arms already publish their controls under, and
-  what it DECIDES is not this namespace's to change (rf2-egdaq, which is
-  open, is the ruling on whether that decision tightens). Read its
-  docstring before quoting `:ok?`: the rule is range OVERLAP, not
-  every-round-inside.
+  is what this arm publishes its controls under, and what it DECIDES is not
+  this namespace's to change. Read its docstring before quoting `:ok?`: the
+  rule is range OVERLAP, not every-round-inside.
+
+  ## And OVERLAP is the right rule HERE, which is not true of the heap row
+  ## (rf2-egdaq, settled)
+
+  The lane spells a second rule — [[lane/control-verdict-strict]], every
+  round inside the band — and `re-frame.bench.p0-heap` moved this driver's
+  OTHER row onto it. This row stays on overlap, on measurement rather than
+  on inertia. THIS CONTROL IS A CLOCK RATIO. `control-round!` reads two
+  mount times and divides them, and on the M2 and bulk-broad rows those
+  times are one to three of Chrome's 100 µs `performance.now()` quanta —
+  which is a floor the ratio lands on, not a defect the arm has. The
+  2026-07-31 ruling measured what strict would cost: over rf2-6i0i2's
+  eighty controls, 80 of 80 pass under overlap and 64 of 80 under strict,
+  every miss LOW, every miss on one of the two coarse-leg rows, four of
+  them missing by 0.0014 on a two-quantum floor — while M1 and narrow,
+  measured on 20-plus quanta legs, pass strict 40 times out of 40. A rule
+  that refuses a fifth of its controls by landing on the clock quantum is
+  measuring RESOLUTION, not correctness.
+
+  The heap row is not exempted from strict by precedent; it is outside
+  this exemption's reason. Its control is a dense array read in BYTES off
+  CDP's heap counter, with no quantum for a low round to sit on. The two
+  rows differ in their INSTRUMENT, so they differ in their rule.
+
+  **And nothing is lost by keeping overlap here**, because the record
+  below carries `[:control :per-round]` — the rounds themselves, not a
+  summary of them. That is what let the eighty-control ensemble be
+  re-adjudicated from published data without re-running a window, and it
+  is what lets the ruling be revisited the same way if the batched window
+  it named as its own trigger ever lands on this row.
 
   Answers a flat JS object because a driver reading `verify.ok?` off a
   `clj->js` map sees `undefined` — every gate green while every gate was
