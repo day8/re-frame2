@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.impl.overlay
-  "THE TOP LAYER, REACHED (rf2-hic-052). The impure half of
+  "THE TOP LAYER, REACHED. The impure half of
   `re-frame.hicasso.overlay`: two components that put an element into the
   browser's own top layer and take it out again. The posture and the
   vocabulary are the door's; this file is the mechanism.
@@ -44,8 +44,8 @@
   `anchor-name` and the panel's `position-anchor` are one mechanism, so
   they are made in one place. Keeping them together is also what keeps a
   page-wide counter's output out of every server render's bytes — see
-  [[anchor-panel!]]. Splitting them was rf2-9zz0y, and it was a
-  hydration defect rather than an untidiness.
+  [[anchor-panel!]]. Splitting them is a hydration defect rather than an
+  untidiness.
 
   The cleanup React 19 lets a ref callback return is the exact inverse,
   and it runs while the node is STILL CONNECTED — which is what makes the
@@ -160,7 +160,7 @@
 ;; **Page-wide on purpose, and narrowing it would be a defect** — the one
 ;; row on `docs/design/hicasso/product/globals.md` where the ordinary
 ;; "a mutable global, therefore scope it to a root" reading introduces the
-;; bug it thinks it is preventing (rf2-hic-017).
+;; bug it thinks it is preventing.
 ;;
 ;; A CSS anchor name lives in ONE namespace per document, not one per React
 ;; root. Two roots each minting `--rf-overlay-1` put two live overlays on
@@ -193,10 +193,10 @@
   the same button — and a single parking slot on the element is one slot
   for two claims: the second claim overwrites the first's memory, and the
   first release then restores an empty string instead of the author's own
-  name. That was a real red before it was a comment.
+  name.
 
-  **No `:anchor` is nil; an `:anchor` that names no element REFUSES**
-  (rf2-1ppe0). The two are not one absence, and answering nil to both is
+  **No `:anchor` is nil; an `:anchor` that names no element REFUSES.**
+  The two are not one absence, and answering nil to both is
   what made the second invisible: an author who wrote no anchor asked for
   the UA's default position and got it, while an author who wrote one
   asked to be positioned against a trigger and got that same default in
@@ -226,25 +226,24 @@
 (defn- anchor-panel!
   "Point `panel` at the CSS anchor name `ident` — the PANEL's half of the
   claim [[claim-anchor!]] makes on the TRIGGER. The two are one mechanism
-  and they are now in one place.
+  and they live in one place.
 
-  ## Why this is imperative, which is the repair rf2-9zz0y carries
+  ## Why this is imperative
 
-  The ident used to be written declaratively, as
-  `:style {:position-anchor …}` on the element, so it reached the SERVER
-  BYTES. It is minted from `!anchor-seq`, which is page-wide on purpose
-  and correctly so — but a server has no document to be page-wide with
-  respect to, and no request scope to fall back on. Two `renderToString`
-  calls over ONE immutable snapshot therefore answered
-  `position-anchor:--rf-overlay-5` and `position-anchor:--rf-overlay-6`:
-  same input, different output, on an attribute hydration must match, and
-  drifting further from a fresh client's counter with every request the
-  process serves.
+  Written declaratively, as `:style {:position-anchor …}` on the element,
+  the ident would reach the SERVER BYTES. It is minted from
+  `!anchor-seq`, which is page-wide on purpose and correctly so — but a
+  server has no document to be page-wide with respect to, and no request
+  scope to fall back on. Two `renderToString` calls over ONE immutable
+  snapshot would then answer `position-anchor:--rf-overlay-5` and
+  `position-anchor:--rf-overlay-6`: same input, different output, on an
+  attribute hydration must match, and drifting further from a fresh
+  client's counter with every request the process serves.
 
   Setting it here makes the bytes deterministic BY CONSTRUCTION rather
   than by discipline: there is no ident in them to disagree about. That
-  is a stronger repair than making the counter deterministic would have
-  been, because it removes the class rather than one member of it.
+  is stronger than making the counter deterministic would be, because it
+  removes the class rather than one member of it.
 
   ## Why not a deterministic name instead
 
@@ -310,16 +309,16 @@
 ;;
 ;; Four stops for three controls, and headed Chromium does not even do it
 ;; consistently — the second backward lap dropped the waypoint. A modal
-;; is bought for "focus cannot Tab outside it", which the guide promises
-;; and rf2-hic-052 owns, so the two edges are closed here.
+;; is bought for "focus cannot Tab outside it", which the guide promises,
+;; so the two edges are closed here.
 ;;
 ;; This is a WRAP AT TWO EDGES and not a focus manager. It tracks no
 ;; state, holds no listener while idle, and does not run for any key but
 ;; Tab: between the edges the engine moves focus exactly as it always
 ;; did. It does have to know which control IS each edge, and that much
 ;; order it derives on the press — see [[sequential-tab-stops]], which
-;; states its own boundary because a half-model that did not is what
-;; the audit of #8071 found here.
+;; states its own boundary, because a half-model that does not state one
+;; is the failure mode here.
 
 (def ^:private tab-stop-selector
   "Everything the engine could make a tab stop of, as a selector.
@@ -341,9 +340,9 @@
   `visibility:hidden` and for the contents of a closed `<details>`
   (measured `rects: 1` for both, in this repo's Chromium), and both of
   those refuse focus — so reading rects counts a trailing control that
-  is not a stop, and rf2-5lzq measured what that costs: Tab off a
-  modal's real last control found the surplus candidate at the edge
-  instead, declined to wrap, and let focus reach `<body>`.
+  is not a stop, and the cost is measured: Tab off a modal's real last
+  control finds the surplus candidate at the edge instead, declines to
+  wrap, and lets focus reach `<body>`.
 
   **`visibilityProperty` and NOT `contentVisibilityAuto`, measured
   rather than copied from the option list.** A control inside a
@@ -454,53 +453,37 @@
   are outside the set entirely, and a control the engine skips for any
   reason not listed on [[tab-stop?]] is still counted here.
 
-  ## The four effective non-stops, and why counting them was a defect
+  ## The four effective non-stops, and why none may be counted
 
-  Four ways an element can be a candidate this scan finds and a stop the
-  engine never visits were named on this function across two beads:
-  `visibility:hidden`, the contents of a closed `<details>`, an `inert`
-  subtree, and a `disabled` `<fieldset>`. All four are now excluded —
-  the first two by [[rendered?]] asking `checkVisibility` instead of
-  reading client rects, the last two by [[tab-stop?]] asking `:disabled`
-  and `[inert]` — and the argument that kept them is worth keeping too,
-  because it was half right and the half that failed is instructive.
+  There are four ways an element can be a candidate this scan finds and
+  a stop the engine never visits: `visibility:hidden`, the contents of a
+  closed `<details>`, an `inert` subtree, and a `disabled` `<fieldset>`.
+  All four are excluded — the first two by [[rendered?]] asking
+  `checkVisibility` instead of reading client rects, the last two by
+  [[tab-stop?]] asking `:disabled` and `[inert]`.
 
   A surplus candidate costs a WRAP THAT DOES NOT FIRE when it cannot
-  take focus, and a WRAP THAT LANDS WRONG when it can — and
-  [[wrap-tab!]] only takes the default action away once the landing is
-  confirmed, so the first of those looked like it degraded to exactly
-  the engine's own conduct. Measured with `.focus()` on each: all four
-  refuse focus, while an unchecked radio in a checked group ACCEPTS it.
-  That is the whole reason the radio group was a wrong landing rather
-  than a missed wrap.
+  take focus, and a WRAP THAT LANDS WRONG when it can. Measured with
+  `.focus()` on each: all four refuse focus, while an unchecked radio in
+  a checked group ACCEPTS it — which is why the radio group is a wrong
+  landing rather than a missed wrap.
 
-  **But a missed wrap is not free at the LAST candidate.** There the
-  surplus is what `peek` returns, so Tab off the real last control
-  matches no edge, the handler declines, and the engine's own
-  end-of-scope step puts `document.activeElement` on `<body>` — the leak
-  this whole handler exists to close, reached by a fourth route.
-  Shift+Tab off the first stop fails the same way from the other end:
-  the wrap AIMS at the surplus, `.focus()` declines, `preventDefault` is
-  correctly withheld, and withholding it is what lets focus out.
-  `refuses focus` and `costs nothing` are different claims and only the
-  first was ever measured.
+  **A missed wrap is not free at the LAST candidate.** There the surplus
+  is what `peek` returns, so Tab off the real last control matches no
+  edge, the handler declines, and the engine's own end-of-scope step puts
+  `document.activeElement` on `<body>` — the leak this whole handler
+  exists to close, reached by a fourth route. Shift+Tab off the first
+  stop fails the same way from the other end: the wrap AIMS at the
+  surplus, `.focus()` declines, `preventDefault` is correctly withheld,
+  and withholding it is what lets focus out. So `refuses focus` and
+  `costs nothing` are different claims, and only the first holds.
 
-  rf2-5lzq measured that for `visibility:hidden` and then argued the
-  remaining two were safe because *no measured markup puts either of
-  them LAST in a modal*. **That claim was false, and it was contradicted
-  by evidence the same bead already held.** Both had been appended after
-  a modal's real final control in a raw `<dialog>`, both stayed in the
-  computed vector, and trusted Tab off the real last control reached
-  `<body>`. It is also ordinary markup rather than exotic: a wizard step
-  the user has not arrived at is an `inert` region, and a form section a
-  prior answer has not unlocked is a `disabled` `<fieldset>`, and either
-  is naturally written after the buttons that lead to it. The claim was
-  never a measurement — it was an absence of one — and it is recorded
-  here because the mistake was reasoning about a population from a
-  survey nobody had run.
+  A trailing non-stop is ordinary markup rather than exotic: a wizard
+  step the user has not arrived at is an `inert` region, and a form
+  section a prior answer has not unlocked is a `disabled` `<fieldset>`,
+  and either is naturally written after the buttons that lead to it.
   [[a-real-tab-wraps-past-a-trailing-inert-region]] and
-  [[a-real-tab-wraps-past-a-trailing-disabled-fieldset]] are that survey,
-  and they red on the predicate that shipped without it.
+  [[a-real-tab-wraps-past-a-trailing-disabled-fieldset]] pin both cases.
 
   A group whose checked member sits OUTSIDE `panel` needs no rule: this
   handler is the modal's alone, so everything outside the panel is
@@ -632,9 +615,9 @@
             ;; answers nil for exactly one case now — no `:anchor` at
             ;; all — because an `:anchor` that names no element raises
             ;; `:rf.error/hicasso-overlay-anchor-missing` rather than
-            ;; returning (rf2-1ppe0). Writing the panel's half alone
+            ;; returning. Writing the panel's half alone
             ;; would be a dangling reference dressed up as a claim, so
-            ;; the guard stays: it now reads "the author asked for no
+            ;; the guard stays: it reads "the author asked for no
             ;; anchor" and nothing else.
             (when claimed
               (anchor-panel! node ident)))
@@ -731,8 +714,8 @@
                          ;; `:position-anchor` is deliberately NOT here.
                          ;; The panel's anchor name is claimed in the ref
                          ;; callback with the trigger's, so it never
-                         ;; reaches a server render's bytes — the whole
-                         ;; of rf2-9zz0y, argued at [[anchor-panel!]].
+                         ;; reaches a server render's bytes — argued at
+                         ;; [[anchor-panel!]].
                          ;; `:position-area` is a static string the
                          ;; placement table answers and stays declarative.
                          (some? area)

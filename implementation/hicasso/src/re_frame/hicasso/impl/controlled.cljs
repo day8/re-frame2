@@ -1,7 +1,6 @@
 (ns re-frame.hicasso.impl.controlled
   "THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
-  it (rf2-fki5d, the residue rf2-n3dxw was left open on), and a live IME
-  composition carved out of it (rf2-digtt).
+  it, and a live IME composition carved out of it.
 
   Neither shipped path gives a store-backed field both halves of what it
   owes its user. React converges inside the discrete event and throws the
@@ -183,9 +182,9 @@
   own restore is still what converges it. That is why a *range* selection
   still collapses across such a write: this converge is not on that path,
   and restoring two offsets is a different algorithm from the one it
-  runs (rf2-n3dxw).
+  runs.
 
-  ## The composition carve-out (rf2-digtt), and why it is two halves
+  ## The composition carve-out, and why it is two halves
 
   A composing IME produces exactly the `input` events this wrapper runs
   on. `bench/hicasso/ime_run.cjs` drives real CDP composition at it
@@ -197,14 +196,14 @@
   on the IME's next update. Plain React does it in the same turn through
   its own restore; the UIx port does it one frame later.
 
-  The operator ruled the carve-out IN (2026-08-03, recorded as an
-  addendum to HD-019): controlled-text convergence is suppressed while a
-  composition is live, and the field converges ONCE at `compositionend`
-  against the then-current model. A composition is a browser-owned draft
-  of the user's; destroying it silently is not a parity target worth
-  keeping. **On a refusing or normalising field this runtime therefore
-  diverges from plain React deliberately** — the composition survives to
-  its commit and the refusal lands whole, visibly, at `compositionend`.
+  The carve-out is HD-019's addendum: controlled-text convergence is
+  suppressed while a composition is live, and the field converges ONCE at
+  `compositionend` against the then-current model. A composition is a
+  browser-owned draft of the user's; destroying it silently is not a
+  parity target worth keeping. **On a refusing or normalising field this
+  runtime therefore diverges from plain React deliberately** — the
+  composition survives to its commit and the refusal lands whole,
+  visibly, at `compositionend`.
 
   It takes two halves because **two different writes destroy the
   exchange, and only one of them is ours**:
@@ -253,7 +252,7 @@
   `arm1_controlled_grid_dom_cljs_test` §7 witnesses the blur, the
   non-composing keystroke and the unmount paths in a real React tree.
 
-  ## The revision prop, and why it costs this file one read (rf2-zq8kh)
+  ## The revision prop, and why it costs this file one read
 
   `::h/revision` re-baselines the field to the model on an explicit
   caller revision change, and NEVER on value equality — HD-019's reset
@@ -310,13 +309,12 @@
   or not, and nothing on React's side can branch on a value it was never
   given.
 
-  What does happen was then measured (rf2-ne3ey) on the `.84` hydration
-  harness rather than on a hand-rolled `hydrateRoot`, because two
-  hand-rolled arms disagreed about node identity in opposite directions on
-  consecutive runs: `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption*
-  is a fact rather than a wait — `hydrate-root!` returns before the tree
-  is adopted, so a synchronous dispatch on the next line cannot be raced,
-  and ten consecutive runs gave one answer.
+  What does happen is measured on the hydration harness rather than on a
+  hand-rolled `hydrateRoot`, because hand-rolled arms disagree about node
+  identity in opposite directions on consecutive runs:
+  `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption* is a fact rather
+  than a wait — `hydrate-root!` returns before the tree is adopted, so a
+  synchronous dispatch on the next line cannot be raced.
 
   **The revision is ABSORBED, not deferred.** The write reaches no
   committed boundary, so it notifies nothing and the already-scheduled
@@ -457,7 +455,7 @@
 
   ## The two call sites, and why they are one behaviour
 
-  Since rf2-digtt this runs at the end of a change handler that is
+  This runs at the end of a change handler that is
   **not** composing, and again once at `compositionend`. HD-019 grants
   the `flushSync` exception to an audited call site rather than to a
   count, and its addendum audits the second: same element, same
@@ -501,20 +499,20 @@
   `<input>` does for the five applicable types, and for no `:type` at
   all, which is `text`.
 
-  **The type is folded before it is compared (rf2-7ae61), for the reason
+  **The type is folded before it is compared, for the reason
   [[file-input-value?]] states at length about the same attribute.** An
   HTML `type` is an enumerated attribute the platform matches ASCII
   case-insensitively, and this predicate reads the PROPS object — the
   author's spelling, which
   [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged
   from both the string and the keyword door. So `<input type=\"TEXT\">`
-  is a text field with a caret to the engine, and an exact compare said
-  it was not: [[convergeable?]] answered no, [[install!]] wrapped
-  nothing, and the field fell through to React's own end-of-event
-  restore. The value still converged — one beat later, with the caret
-  thrown to the end of the control. No throw, no id, no warning; a
-  subtly worse cursor and nothing to attribute it to, which is the
-  hardest class of report to act on.
+  is a text field with a caret to the engine, and an exact compare says
+  it is not: [[convergeable?]] answers no, [[install!]] wraps nothing,
+  and the field falls through to React's own end-of-event restore. The
+  value still converges — one beat later, with the caret thrown to the
+  end of the control. No throw, no id, no warning; a subtly worse cursor
+  and nothing to attribute it to, which is the hardest class of report to
+  act on.
 
   ONE reading of `type` in this namespace, then, rather than two — and
   the fold is at the COMPARISON here as well, because `js-props` is what
@@ -578,7 +576,6 @@
 
 (defn- file-input-value?
   "Is this a `:value` on a file input that React will actually WRITE?
-  (rf2-u2tza.)
 
   A file input is the one form control the platform will not let a model
   own. `HTMLInputElement.value` is in filename mode there, and its setter
@@ -606,8 +603,8 @@
   against the element's empty answer, not a value comparison that would
   read `0` as empty.
 
-  **The TYPE, unlike the value, is folded before it is compared
-  (rf2-h6qm7).** This predicate runs against the props object, which is
+  **The TYPE, unlike the value, is folded before it is compared.**
+  This predicate runs against the props object, which is
   the author's spelling — `:type \"FILE\"`, or the keyword `:file`
   spelled `:FILE`, both of which
   [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged.
