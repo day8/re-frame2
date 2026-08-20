@@ -74,7 +74,9 @@
   milliseconds on the main thread, spent AFTER React's commit has returned
   and BEFORE the browser can produce a frame. Its prediction is additive
   and needs no model of the application: **the window must lengthen by
-  exactly [[blocked-ms]]**.
+  [[blocked-ms]]**, to within the one rendering interval the browser's
+  frame grid rounds it to — see [[control-slack]], where the band is
+  derived from that interval rather than tuned to a measurement.
 
   What makes it the right control here rather than a generic one is where
   the injected cost sits. A commit-bounded window would not see one
@@ -109,11 +111,14 @@
 
   ## THE ROWS, AND WHICH ESTIMANDS THEY CAN AND CANNOT SERVE
 
-      :idle-frame   no interaction at all — the settle and nothing else.
-                    The FLOOR of any paint-bounded window on this box: what
-                    a reading costs when the application does no work.
-                    Without it a `p95` cannot be read, because the frame
-                    boundary is in every other row too.
+      :idle-frame   no interaction at all — the frame and nothing else.
+                    The FLOOR of any paint-bounded window on this box: the
+                    wait for the next rendering opportunity, which every
+                    other row pays too and which no application work can
+                    remove. Without it a tail quantile on the rows above
+                    cannot be read, because a `p95` at the floor and a
+                    `p95` twice it are different findings and the figure
+                    alone does not say which.
 
       :keystroke    one character typed over the last one in the editor's
                     title field. `U1`'s estimand — *latency to visible
@@ -212,14 +217,23 @@
   "The half-width of `:ctl-blocked`'s band, as a fraction of
   [[blocked-ms]].
 
-  Derived, not tuned. Each round's adjudicated figure is a DIFFERENCE of
-  two per-round medians, and each of those two carries at most one
-  rendering interval of quantisation, so the difference can sit up to two
-  intervals — about 33 ms — from [[blocked-ms]] in the worst case before
-  anything is wrong with the instrument. `0.5` of 50 ms is ±25 ms on the
-  MEDIAN of twelve samples, where the per-sample quantisation has largely
-  averaged out; it is deliberately generous, because the claim the control
-  makes is THE INSTRUMENT SEES THE INJECTED COST, not THE MODEL IS EXACT."
+  Derived from the frame grid, not tuned to a measurement.
+
+  Both arms start at the same phase ([[measure-one!]]'s alignment), so
+  each round's adjudicated figure is a difference of two windows that each
+  end at the first rendering opportunity at or after their own work. The
+  injected duration therefore reaches the difference ROUNDED to the grid,
+  never exactly: the block does not add to the wait the unblocked arm
+  pays, it SUBSUMES it and leaves whatever is left of the interval it
+  landed inside. So the difference sits within one rendering interval —
+  about 16.7 ms at 60 Hz — of [[blocked-ms]], in either direction, with
+  nothing wrong with the instrument.
+
+  `0.5` of 50 ms is ±25 ms, which covers that interval with room for a
+  grid that is not exactly 60 Hz. It is deliberately generous, because the
+  claim the control makes is THE INSTRUMENT SEES THE INJECTED COST, not
+  THE MODEL IS EXACT — and a control tightened until it only just passes
+  is a control tuned to the box it was written on."
   0.5)
 
 (def rotor
@@ -459,10 +473,54 @@
 
   The arm's plan is built OUTSIDE the window — reading the node, deciding
   what the echo must be — so nothing but the interaction and the frame is
-  inside it."
+  inside it.
+
+  ## EVERY WINDOW STARTS AT THE SAME POINT IN THE FRAME GRID
+
+  [[after-paint]] runs first, OUTSIDE the reading, so the clock always
+  starts in the first task after a paint. Without it this instrument
+  cannot produce a reportable figure at all, and the arm-order guard says
+  so rather than the author noticing.
+
+  **A paint-bounded window is PREDECESSOR-DEPENDENT BY CONSTRUCTION.** Its
+  length is dominated by the wait for the browser's next rendering
+  opportunity, and those sit on a grid — so how long a sample waits
+  depends on where in that grid the PREVIOUS sample left the clock. An arm
+  that follows `:ctl-blocked`, which spans three intervals and ends with a
+  frame already overdue, waits almost nothing; the same arm following
+  `:keystroke`, which ends just after a paint, waits a whole interval. The
+  first run of this instrument measured exactly that: `:idle-frame` read a
+  full interval after `:keystroke` and zero after `:ctl-blocked`, ranges
+  disjoint, and the guard REFUSED.
+
+  That is a fault in the ARM and not in the guard's tolerance, which is
+  not the arm's to move. Aligning every window to the grid is the repair:
+  the phase is then a constant of the instrument rather than a property of
+  whatever ran before.
+
+  ## WHAT THE ALIGNMENT COSTS THE ESTIMAND, STATED RATHER THAN HIDDEN
+
+  A real user's interaction arrives at a uniformly random phase in the
+  grid; this one always arrives at the same phase, immediately after a
+  paint, which is the phase with the LONGEST wait to the next rendering
+  opportunity. So a reading taken here is the conservative end of the
+  phase distribution — for a `p95` or `p99` latency line, the end that
+  cannot flatter the application.
+
+  The alternative is to randomise the phase deliberately, with a delay
+  drawn uniformly from one interval before `t0`. That reproduces the
+  user's phase distribution and is guard-clean for the same reason
+  alignment is (an independent draw is not a predecessor effect), at the
+  cost of needing far more samples to resolve a tail. **It is not built.**
+  What would warrant building it: a reading whose `p95` sits close enough
+  to a line that the difference between the worst phase and the mean phase
+  decides it — at which point the honest answer is the user's
+  distribution, not this one's."
   [arm]
-  (.then (window! ((:plan arm) !state))
-         (fn [r] (bank-aux! (:id arm) r) (:ms r))))
+  (.then (after-paint)
+         (fn [_]
+           (.then (window! ((:plan arm) !state))
+                  (fn [r] (bank-aux! (:id arm) r) (:ms r))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
