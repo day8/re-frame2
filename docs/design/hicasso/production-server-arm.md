@@ -100,6 +100,40 @@ direction:
   set. The pricing below still prices the work that is still unbuilt, and it is
   not re-costed here against what shipped.
 
+**A fifth status fact, added 2026-08-21 (`rf2-aon8c`): two of §2's floor rows
+are no longer floor, because the trees they name have been deleted.**
+`implementation/ui` and `implementation/freehand` were retired on the operator's
+2026-08-14 disposition (`rf2-0yp7w`) and removed whole — `re-frame.ui` by commit
+`ef3131f4a2` (231 files) and Freehand by commit `c951808b47` (376 files), both
+on 2026-08-15. Neither path returns a tracked file today. Until this amendment
+the capability table asserted in its own State column that both were *shipped*,
+which is the most direct way a design record can mislead a reader asking what
+this arm would inherit.
+
+**The figures stay; only the tense moves.** Every line count this page gives for
+those trees — 643, 678, 1,438 and 906 — is exactly right at this page's base
+commit `a40da23a51`, and each is left standing as a record of what the donor
+arms had rather than restated against anything that survives. Nothing was
+re-measured onto a replacement, because for these two rows there is no
+replacement to measure.
+
+Two consequences run further than a tense change, and both make the JVM walk arm
+**dearer** rather than cheaper. §4's text-separator row priced a Hicasso JVM
+twin as needing *a fourth* copy of an algorithm three trees already implemented;
+all three implementations went with their trees and none was replaced, so the
+twin would now write the first surviving one. And §The parity apparatus argued
+that the walk arm would *extend* a live conformance apparatus rather than found
+one; two of that apparatus's three parts have since been deleted, so the arm
+would be founding it — which is what `rf2-2rtt6.88`'s "eternal maintenance tax"
+phrase suggested and what that section was written to argue against. One thing
+moved the other way and is marked where it lands: §4's codec path was re-homed
+rather than deleted, and is repointed with its pinned measurement untouched.
+
+**No band, cost table or comparative argument between the two arms is re-costed
+here.** The arm choice was ruled on 2026-08-08 and is untouched; this amendment
+corrects what the page asserts about the present, and says where the pricing
+would move if anyone re-opened it.
+
 ## What this document deliberately does not contain, and the tension that produced it
 
 `rf2-2rtt6.88`'s description asks for "both branches priced in beads/weeks,
@@ -151,7 +185,11 @@ each arm is missing, and what supplying it would cost, is §4 and §5.
 ## 2. The floor both arms stand on — what is already built
 
 Neither arm is priced from zero, and the amount already shipped is easy to
-under-count from the bead text alone.
+under-count from the bead text alone. **Two rows of the table below are no
+longer floor** — they were when it was written, and the fifth status fact above
+records what happened to them and where the pricing moves as a result. They are
+kept in place, rather than struck out, because what the donor arms had is still
+the honest starting point for anyone re-reading this pricing.
 
 | Piece | Where | State |
 |---|---|---|
@@ -159,8 +197,8 @@ under-count from the bead text alone.
 | Render-tree hash, HTML escaping, wire constants | `implementation/ssr/src/re_frame/ssr/{hash,html_helpers,constants}.cljc` | shipped, `.cljc` |
 | HTTP host — handler, middleware, response accumulator, cookies, redirects, head model, error projection | `implementation/ssr-ring/src/re_frame/ssr/ring.clj` and siblings | shipped, **JVM-only `.clj`** |
 | Structural tree → HTML, react-dom 19.2.0-pinned | `implementation/ssr/src/re_frame/ssr/ui_tree.cljc` (1,040 lines) | shipped; pure, deterministic, JVM-runnable |
-| A live two-sided emitter parity apparatus | `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` (643 lines, 66 cases) + `parity_corpus_cljs_test.cljs` + `parity_html.cljc` | shipped and running |
-| An interpreted structural walk that runs on the JVM | `implementation/freehand/src/re_frame/freehand/tree.cljc` (678) + `node.cljc` (1,438) + `conversion.cljc` (906) | shipped, cross-host |
+| A two-sided emitter parity apparatus | `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` (643 lines, 66 cases) + `parity_corpus_cljs_test.cljs` + `parity_html.cljc`, at this page's base commit | **RETIRED — deleted with `re-frame.ui`, and not re-homed.** See the fifth status fact above and §The parity apparatus |
+| An interpreted structural walk that runs on the JVM | `implementation/freehand/src/re_frame/freehand/tree.cljc` (678) + `node.cljc` (1,438) + `conversion.cljc` (906), at this page's base commit | **RETIRED — deleted with Freehand, and not re-homed.** No structural walk runs on the JVM today; see below |
 | Hicasso's hydration door, `defhost` `:ssr` policy (three values, incl. `:render`), Node render entry | `rf2-2rtt6.84` / `.85` / `.86` / `rf2-l0wfx` | shipped in the bench lane |
 | Five hydration correctness rows on the dogfood screen | `rf2-2rtt6.87` | published |
 
@@ -173,27 +211,41 @@ serialisation half of one conversion table pinned to react-dom 19.2.0 — the
 version string appears four times in the source. The JVM back half of the walk
 arm is therefore not a thing to be built; it is a thing to be called.
 
-**A JVM interpreted structural walk already exists, for Freehand.**
-`re-frame.freehand.tree`'s own docstring describes it as "the INTERPRETED
-structural walk — unrestricted Hiccup from a view body in, the versioned
-semantic structural tree out … On the JVM it is the whole render." It reaches
-`emit-ui-tree` through `tree.cljc`'s `emit-static-html` (via
-`resolve-ssr-emitter`), late-resolved so the Independence wall holds, and the
-shipped `v/render-static` macro drives it. `implementation/freehand/deps.edn`'s
-header comment records that this was deliberate from F1: *"The entry namespace
-is `.cljc` FROM THE OUTSET because the F1 spine needs both emitters."*
+**A JVM interpreted structural walk existed, for Freehand — and no longer
+does.** `re-frame.freehand.tree`'s own docstring described it as "the
+INTERPRETED structural walk — unrestricted Hiccup from a view body in, the
+versioned semantic structural tree out … On the JVM it is the whole render." It
+reached `emit-ui-tree` through `tree.cljc`'s `emit-static-html` (via
+`resolve-ssr-emitter`), late-resolved so the Independence wall held, and the
+shipped `v/render-static` macro drove it. `implementation/freehand/deps.edn`'s
+header comment recorded that this was deliberate from F1: *"The entry namespace
+is `.cljc` FROM THE OUTSET because the F1 spine needs both emitters."* All of
+that was so at this page's base commit; none of it is so now, because the tree
+was deleted whole by commit `c951808b47`.
 
-It is worth being precise about what that proves and what it does not. It proves
-a `.cljc` interpreted walk to the v1 tree is buildable, shippable and
-conformance-testable, and that the pattern is not novel in this repo. It proves
-nothing about Hicasso's codec, which is different code with different semantics
-— `front/codec.cljs` requires `["react" :as react]` and calls
-`react/createElement` / `react/memo` / `react/useSyncExternalStore` directly,
-with no structural-tree stage anywhere in it. And Freehand's JVM walk does not
-reach reads at all: it is a pure function of its argument, and `v/render-static`
-fails a `v/sub` loud with `:rf.error/view-read-outside-render` rather than
-resolving one. **Reads against a request snapshot are the part of the walk arm
-that has no precedent in this tree.**
+**Nothing replaced it.** No `.clj` or `.cljc` file in this repo builds a Spec
+004B tree from Hiccup. The three JVM-capable files that name
+`:rf.ui/tree-version` are the serialiser `implementation/ssr/src/re_frame/ssr/ui_tree.cljc`
+and its two tests, and all three **consume** a tree rather than produce one; the
+only surviving producer is the Hicasso test kit's L2 walk at
+`implementation/hicasso/test_kit/src/re_frame/hicasso/test.cljs`, which is
+CLJS-only and is a test kit rather than a render path. `re-frame.ssr/render-to-string`
+does walk Hiccup on the JVM, but to HTML directly — it is the hiccup tier §2's
+seam paragraph quotes, not a structural walk.
+
+It is worth being precise about what the Freehand precedent proved and what it
+did not, because the precedent outlives its subject. It proved a `.cljc`
+interpreted walk to the v1 tree was buildable, shippable and
+conformance-testable, and that the pattern was not novel in this repo when this
+page priced it. It proved nothing about Hicasso's codec, which is different code
+with different semantics — `front/codec.cljs` requires `["react" :as react]` and
+calls `react/createElement` / `react/memo` / `react/useSyncExternalStore`
+directly, with no structural-tree stage anywhere in it. And Freehand's JVM walk
+did not reach reads at all: it was a pure function of its argument, and
+`v/render-static` failed a `v/sub` loud with
+`:rf.error/view-read-outside-render` rather than resolving one. **Reads against a
+request snapshot were the part of the walk arm that had no precedent in this
+tree — and with Freehand deleted, the walk itself no longer has one either.**
 
 ### The one seam neither arm has
 
@@ -271,9 +323,15 @@ reachable too: the same namespace's `^:no-doc compute-sub-with-memo` takes a
 caller-supplied memo atom, so sharing one across a page's reads is a wiring
 question rather than a new mechanism.
 
-The codec is `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs`
+The codec is `implementation/hicasso/test/re_frame/bench/hicasso/front/codec.cljs`
 — **1,789 lines, 77 top-level definitions, `.cljs` only**, measured at this
-page's base commit. It is not the only file with a server answer to give:
+page's base commit `a40da23a51`, where the same file sat under
+`implementation/freehand/test/`. The frozen donor root was re-homed to
+`implementation/hicasso` ahead of Freehand's deletion, so this row is a move and
+not a loss; the measurement is left pinned where it was taken and is not
+restated against the file's later size. Every path in the table below is
+relative to that donor root, and all seven resolve under it today. It is not the
+only file with a server answer to give:
 
 | File | Lines | The server question it raises |
 |---|---|---|
@@ -380,16 +438,25 @@ place.** It is not in the serialiser. `emit-ui-tree` receives children that are
 *already* coalesced and only joins them — `ui_tree.cljc`'s `emit-children` is a
 `str/join` over `map-indexed`, and `sole-newline-content`'s own docstring says
 its single content entry arrives "already text-coalesced". Coalescing happens at
-**tree-build** time, in three
-independent `.cljc` implementations of one algorithm: `re-frame.ui.tree/children`
+**tree-build** time, and at this page's base commit it had three independent
+`.cljc` implementations of one algorithm: `re-frame.ui.tree/children`
 (`implementation/ui/src/re_frame/ui/tree.cljc`),
 `re-frame.ui.semantic/coalesce`
 (`implementation/ui/src/re_frame/ui/semantic.cljc`), and
 `re-frame.freehand.node/conj-text`
-(`implementation/freehand/src/re_frame/freehand/node.cljc`). **A Hicasso
-JVM twin would need a fourth**, because the CLJS codec has none at all — it
-hands children to `createElement` as authored, which is exactly why React's own
-render is separator-correct and a structural tree's is not.
+(`implementation/freehand/src/re_frame/freehand/node.cljc`).
+
+**All three went with their trees** (commits `ef3131f4a2` and `c951808b47`), and
+nothing replaced them. A repo-wide search for a text-coalescing implementation
+now returns a single hit, and it is the `ui_tree.cljc` docstring quoted above
+recording that its input arrives already coalesced — the serialiser names the
+step, it does not perform it. **So a Hicasso JVM twin would have to write the
+first surviving implementation rather than a fourth copy of an existing one**,
+because the CLJS codec has none either — it hands children to `createElement` as
+authored, which is exactly why React's own render is separator-correct and a
+structural tree's is not. The row therefore costs *more* than this section
+originally priced: it moved from copying an algorithm three trees already
+implemented to writing it from the spec row.
 
 The row is 011-owned and carries no bead. The one place it is discussed is the
 merged-PR audit `rf2-7uil4`, which records it as "already an explicitly open
@@ -404,40 +471,45 @@ reconciler is not that comparator. X1(b) was also judging bytes that
 `react-dom/server` itself produced, so the separators were present and correct.
 Neither fact transfers to a JVM emitter that has not written any.
 
-Worse for the apparatus: the existing parity corpus renders its React side with
-`renderToStaticMarkup` (`parity_corpus_cljs_test.cljs`'s `render-case`), which by
-React's own behaviour emits no separators. **The gate that exists cannot see this
-row.**
-Closing it means a `renderToString`-authored hydration fixture, which is new
-apparatus rather than an extension of the old.
+Worse for the apparatus, and worse now than when this was written: the parity
+corpus rendered its React side with `renderToStaticMarkup`
+(`parity_corpus_cljs_test.cljs`'s `render-case`), which by React's own behaviour
+emits no separators, so **the gate that existed could not see this row** — and
+that corpus has since gone with `re-frame.ui`, so there is now no gate to be
+blind. Closing the row means a `renderToString`-authored hydration fixture,
+which was new apparatus rather than an extension of the old even while the old
+one still ran.
 
 ### The parity apparatus, and what a react-dom bump actually costs
 
 The bead calls the conformance apparatus "an eternal maintenance tax re-opened
-at every react-dom bump" and asks for it priced honestly. Honestly, then: **the
-apparatus exists, it runs, and the walk arm extends it rather than founding it**
-— which is materially cheaper than the phrase suggests, and still a standing
-obligation.
+at every react-dom bump" and asks for it priced honestly. Honestly, then — and
+the honest answer has since changed sign. At this page's base commit **the
+apparatus existed, it ran, and the walk arm would have extended it rather than
+founding it**, which was materially cheaper than the phrase suggested. Two of
+its three parts have since been deleted, so the arm would now be **founding**
+it, which is the reading this section was written to argue against.
 
-What is there today, and how it is anchored:
+What was there at the base commit, and what is there now:
 
-- `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` — 643 lines, 66
-  cases; `parity_corpus_cljs_test.cljs` renders each through real
-  `react-dom/server` and compares against a JVM side computed at CLJS **compile
-  time** and embedded as literals. No checked-in goldens, live cross-emitter
-  parity on every run.
-- `implementation/ssr/test/re_frame/ssr/emit_ui_tree_cljs_test.cljc` (602 lines)
-  pins the serialiser's conversion-table copies **byte-for-byte against their
-  `re-frame.ui.rules` source**, on both hosts.
-- `implementation/ui/dev/react-conform-probe.cjs` is the tool that talks to a
-  real react-dom to derive and verify those tables.
+| Piece | At base commit `a40da23a51` | Now |
+|---|---|---|
+| the cross-emitter corpus | `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` — 643 lines, 66 cases; `parity_corpus_cljs_test.cljs` rendered each through real `react-dom/server` and compared against a JVM side computed at CLJS **compile time** and embedded as literals. No checked-in goldens, live cross-emitter parity on every run | **gone**, with `re-frame.ui` |
+| the serialiser's row test | `implementation/ssr/test/re_frame/ssr/emit_ui_tree_cljs_test.cljc` pinned the serialiser's conversion-table copies **byte-for-byte against their `re-frame.ui.rules` source**, on both hosts | **the file survives; the pin does not.** Its own docstring now records that the reference substrate was retired and that "these tables are ORIGINALS now" — what holds them honest is react-dom's documented behaviour asserted row by row, rather than a second copy to compare against |
+| the probe | `implementation/ui/dev/react-conform-probe.cjs` was the tool that talked to a real react-dom to derive and verify those tables | **gone**, with `re-frame.ui` |
 
-Two consequences the sitting should hear. First, the bump tax has a **named
-home** — a probe, a table, a pin — rather than being folk knowledge, so it is
-bounded work rather than open-ended vigilance. Second, and less comfortably:
-that pin anchors the serialiser to **the UI compiler's** rule table. A Hicasso
-JVM twin has no such anchor, so the walk arm owes not only corpus cases but a
-second pinning relationship, and that is new apparatus rather than an extension.
+Two consequences the sitting should hear, and both are sharper than when they
+were written. First, the bump tax **had** a named home — a probe, a table, a pin
+— rather than being folk knowledge, which made it bounded work rather than
+open-ended vigilance. Two of those three are now gone and only the table is
+left, so the boundedness went with them: until something replaces the probe,
+nothing in this repo derives the conversion tables from a real react-dom, and a
+bump is again answered by reading. Second, and the same point from the other
+side: that pin anchored the serialiser to **the UI compiler's** rule table, and
+the walk arm's *extra* cost was a second pinning relationship on top of a first
+one it inherited free. The first one is gone, so a Hicasso JVM twin now owes the
+corpus cases, the probe and a pinning relationship from nothing — new apparatus
+entire, with no old apparatus left to extend.
 
 ### The divergence class the instrument cannot see
 
