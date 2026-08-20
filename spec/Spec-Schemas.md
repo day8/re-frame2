@@ -2168,11 +2168,53 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:head-id     {:optional true} :keyword]])
 
 (def HydrationMismatchTags
-  [:map
-   [:category        :keyword]
-   [:server-hash     :any]
-   [:client-hash     :any]
-   [:first-diff-path {:optional true} [:vector :any]]])
+  ;; TWO DISJOINT ARMS UNDER ONE CATEGORY. `:rf.ssr/hydration-mismatch` is the
+  ;; one row in the catalogue whose two-tier split runs INSIDE the category
+  ;; rather than between rows (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue),
+  ;; the `:op-type` note), and the two tiers share no payload key but `:where`.
+  ;; A single `[:map …]` cannot model that: declaring the hashes required makes
+  ;; every real adoption-tier event invalid, and declaring them optional would
+  ;; admit a tagless map that neither tier ever emits. So the schema is a
+  ;; two-arm `:or`, and no emitted event satisfies both arms.
+  ;;
+  ;; HICCUP TIER — `re-frame.ssr.hydrate/verify-hydration!` emits through
+  ;; `trace/emit-error!`, so the envelope's own `:op-type` is `:error` and
+  ;; `build-event` merges `{:category :rf.ssr/hydration-mismatch}` into `:tags`.
+  ;; That emit reuses ONE payload with the `:on-mismatch :hard-error` throw,
+  ;; which is why the thrown-shape slot `:rf.error/id` rides `:tags` here too
+  ;; (the same standalone reading `AppSchemaRuntimePathTags` records). The head
+  ;; sub-arm is the SAME shape: it is discriminated by `:failing-id`
+  ;; `:rf.ssr/head-mismatch` and nothing else — `verify-hydration!` accepts only
+  ;; `:first-diff-path` / `:failing-id` / `:server-hash` opts, so no `:head-id`
+  ;; can reach this category's tags. (`HeadMismatchTags` above types a
+  ;; head-model channel of its own and is not this category's schema.)
+  ;;
+  ;; ADOPTION TIER — `re-frame.substrate.spine/native-hydration-reporter` and
+  ;; `re-frame.hicasso.impl.mount/hydration-reporter` emit through plain
+  ;; `trace/emit!` with a `:warning` envelope. There is therefore NO
+  ;; `[:tags :category]` at all (the category rides the top-level `:operation`),
+  ;; no hash — a React-element root has no structural render-tree to hash — and
+  ;; no `:root-id`, because a React-element root has none. `:error` carries the
+  ;; recoverable error's `.message`, which is `nil` when the error carries none.
+  ;;
+  ;; `:recovery` is stripped and hoisted to the envelope top level on BOTH arms,
+  ;; so neither declares it.
+  [:or
+   ;; hiccup tier — the `:error` envelope
+   [:map
+    [:category        [:= :rf.ssr/hydration-mismatch]]
+    [:rf.error/id     [:= :rf.ssr/hydration-mismatch]]
+    [:where           :symbol]
+    [:server-hash     :any]
+    [:client-hash     :any]
+    [:frame           :keyword]
+    [:failing-id      :keyword]
+    [:reason          :string]
+    [:first-diff-path {:optional true} [:vector :any]]]
+   ;; adoption tier — the `:warning` envelope
+   [:map
+    [:error           [:maybe :string]]
+    [:where           :symbol]]])
 
 (def InterceptorsInMetadataMapTags
   [:map
