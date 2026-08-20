@@ -71,12 +71,20 @@
 
   HS-34 is the *optional routing-integration module*, and there is no
   such module to render. `implementation/hicasso/src/re_frame/hicasso/`
-  holds five optional-module namespaces and routing is not among them;
+  holds six optional-module namespaces and routing is not among them;
   `hicasso/scripts/check_optional_module_reachability.py`'s `MODULES`
-  roster names exactly three (`motion`, `overlay`, `forms`);
-  `docs/design/hicasso/product/naming-ledger.md` row 6 still carries
-  `re-frame.hicasso.routing` as a PROVISIONAL name under an open
-  question; and `docs/design/hicasso/product/invariants.md`'s route-link
+  roster names those same six (`motion`, `overlay`, `native`, `forms`,
+  `server`, `substrate`) — a roster that has GROWN THREE TIMES without
+  admitting routing, so the count evidences the absence more sharply
+  than when this paragraph was written and it read three;
+  `docs/design/hicasso/product/naming-ledger.md` row 6 carries
+  `re-frame.hicasso.routing` as a PROVISIONAL recommendation and NOT
+  under an open question — that ledger's publication note says every
+  row is dispositioned and none is open, and its sibling
+  `naming-packet.md`'s own row 6 glosses the marker in terms,
+  *provisional — the namespace does not exist yet*, a better citation
+  for THERE IS NO MODULE than an open question ever was; and
+  `docs/design/hicasso/product/invariants.md`'s route-link
   row states the move in the FUTURE tense. `h/route-link`
   lives on the core facade today and is witnessed there as HS-40,
   Render, in `facade-roster-ssr-dom-cljs-test`. There is no declaration
