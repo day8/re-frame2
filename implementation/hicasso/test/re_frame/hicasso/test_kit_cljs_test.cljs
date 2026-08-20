@@ -111,7 +111,7 @@
   ;; identity field in its payload today — and the whole point is that none
   ;; can, including the one somebody writes next year. Driving the weakest
   ;; case means handing it the four keys it guarantees, not a well-formed
-  ;; payload that would pass under either merge order (rf2-1oan).
+  ;; payload that would pass under either merge order.
   (let [o (outcome #(#'ht/refuse! :rf.error/hicasso-test-not-a-body
                                   "render's head is the BODY FUNCTION."
                                   :pass-the-body-fn
@@ -156,7 +156,7 @@
 (h/defhost badge badge-component {:server :render})
 
 ;; The `<name>-body` pair, which is the spelling this suite's own examples
-;; teach — and which used to be unrenderable (rf2-jan2). `h/defview` named
+;; teach — and which used to be unrenderable. `h/defview` named
 ;; its emitted body fn `<sym>-body`, and a named `fn` binds its own name
 ;; inside its body, so this declaration expanded to
 ;; `(fn greeting-body [p] (greeting-body p))` and recursed until the stack

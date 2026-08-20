@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.flow-dom-cljs-test
-  "L3/L4 — THE RECIPES ON A REAL REACT ROOT OVER A REAL DOM (rf2-hic-051).
+  "L3/L4 — THE RECIPES ON A REAL REACT ROOT OVER A REAL DOM.
 
   The claims the node lane cannot decide. A blur ordering, a node's
   identity across a commit, where the caret and the focus are, and — the
@@ -84,7 +84,7 @@
                       ;; resources artefact clears the mutation kind, so the
                       ;; ns-load registration is not still there when a row
                       ;; runs. `events/register-save!` says what that costs
-                      ;; when it is forgotten (rf2-06lp).
+                      ;; when it is forgotten.
                       (events/register-save!))}))
 
 (def ^:private ticket 7)

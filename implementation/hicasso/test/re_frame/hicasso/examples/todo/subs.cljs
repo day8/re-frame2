@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.subs
-  "THE DERIVATION GRAPH (rf2-hic-086).
+  "THE DERIVATION GRAPH.
 
   Layers, and every one of them a pure function of the layer below. The
   bottom reads `app-db`; nothing above it does. `h/sub` in a view reads

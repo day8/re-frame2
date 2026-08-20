@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-surface-cljs-test
-  "THE NATIVE TIER'S PUBLIC SURFACE, STATED AND PINNED (rf2-e0d2).
+  "THE NATIVE TIER'S PUBLIC SURFACE, STATED AND PINNED.
 
   `specification.md` §12 has Phase 3 freeze *the grammar and the ABI*,
   and a freeze is a deterministic act OVER A STATED MEMBERSHIP. The

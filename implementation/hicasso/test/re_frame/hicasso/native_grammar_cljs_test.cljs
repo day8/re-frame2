@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-grammar-cljs-test
-  "THE `n/$` GRAMMAR, DRIVEN PRODUCTION BY PRODUCTION (rf2-hic-030).
+  "THE `n/$` GRAMMAR, DRIVEN PRODUCTION BY PRODUCTION.
 
   The grammar is four lines in
   `docs/design/hicasso/product/lanes/ergonomics-api.md`:
@@ -399,7 +399,7 @@
       (is (identical? arr (.. (n/$ :div arr) -props -children))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6. The refusal shape (rf2-hic-007), asserted once as a whole map
+;; 6. The refusal shape, asserted once as a whole map
 ;; ---------------------------------------------------------------------------
 
 (deftest a-native-refusal-carries-the-stable-shape

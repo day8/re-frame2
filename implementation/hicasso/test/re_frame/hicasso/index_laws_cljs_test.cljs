@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.index-laws-cljs-test
-  "THE SIX INDEX LAWS, over the fused cell table (rf2-wjag).
+  "THE SIX INDEX LAWS, over the fused cell table.
 
   > (1) after mount+read, a commit of that sub dirties that boundary only;
   > (2) two boundaries sharing a sub both dirty; (3) unmount removes edges;

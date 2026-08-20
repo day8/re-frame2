@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.error-source-coord-elision-prod-test
-  "PRODUCTION ERASURE OF THE SOURCE COORDINATE (rf2-hic-007).
+  "PRODUCTION ERASURE OF THE SOURCE COORDINATE.
 
   `defview` and `defhost` capture `:ns` / `:file` / `:line` / `:column` at
   macro-expansion time and hand them to
@@ -9,7 +9,7 @@
   Closure compiler removes the call AND the map literal it would have
   been given, absolute file path included.
 
-  **`defview`'s authoring-time alias rides that same gate** (rf2-5qaf4):
+  **`defview`'s authoring-time alias rides that same gate**:
   the declaration also publishes a `:view` registrar entry carrying the
   coordinate and the minted head, and it is emitted inside the identical
   `when`. So the same constant-fold that erases the coordinate erases the
@@ -70,7 +70,7 @@
     (is (nil? (error/source-of sentinel/host-name)))))
 
 ;; ---------------------------------------------------------------------------
-;; Nor was the authoring-time alias (rf2-5qaf4)
+;; Nor was the authoring-time alias
 ;; ---------------------------------------------------------------------------
 
 (deftest no-view-registrar-entry-is-published-for-a-view-declared-under-prod

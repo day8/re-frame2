@@ -190,7 +190,7 @@
   registration in a `finally`.
 
   PUBLIC because it has a second consumer:
-  `examples.grid.row-total-layer2-dom-cljs-test` (rf2-18u0) measures the
+  `examples.grid.row-total-layer2-dom-cljs-test` measures the
   layer-1/layer-2 contrast §4 of `per-keystroke.md` names, and it has to
   read that contrast on the SAME instrument as the census — a copied
   counter would make the two numbers an arithmetic comparison between two

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-hooks-dom-cljs-test
-  "THE TWO NATIVE HOOKS UNDER A REAL REACT (rf2-hic-031).
+  "THE TWO NATIVE HOOKS UNDER A REAL REACT.
 
   `n/use-sub` and `n/use-frame` are React hooks, so they inherit React's
   rules whole, and the characteristic way a hook is wrong is not that it
@@ -65,7 +65,7 @@
   construction — Hicasso-native, UIx or a `defhost` declaration — when
   they need Activity. That sentence assigns the feature to this tier, so
   the Activity row below constructs `<Activity>` through `n/$` and hides
-  an island: the recommended route, driven end to end (rf2-9ywe).
+  an island: the recommended route, driven end to end.
 
   ## Browser lane
 
@@ -256,7 +256,7 @@
   `teardown!` assertions below stay exactly where they are, because they
   are the act under test rather than a cleanup.
 
-  **Why the rejection arm cannot do this itself (rf2-fqof).**
+  **Why the rejection arm cannot do this itself.**
   [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
   once the wait succeeds, so a rejection reaches the arm with a live root
   the arm has no name for — the wait's own deadline is one such path, and
@@ -264,7 +264,7 @@
   finishing there leaves a mounted React root and its container standing
   in the document for the NEXT namespace to inherit, which is the very
   contamination the rf2-fyba campaign is about, arriving by a second
-  door (rf2-o0n1)."
+  door."
   []
   (run! mount/release! @!minted)
   (reset! !minted [])
@@ -315,7 +315,7 @@
   step that finished the row claims whatever a LATER namespace throws, prints
   it against this row's label, and calls `done` a SECOND time — re-forcing
   `run-block`'s unrealized delay and re-running the offending namespace, which
-  `run-browser-tests.cjs` promotes to a fatal console match (rf2-e8kc). Every
+  `run-browser-tests.cjs` promotes to a fatal console match. Every
   chain below therefore reports here and finishes on a single trailing step,
   with nothing after it."
   [label]
@@ -329,7 +329,7 @@
 ;; is [[release-minted!]], which is idempotent and therefore costs that
 ;; assertion nothing. What it buys is the arm that has no handle at all: a
 ;; rejection arriving before the row ever received one used to report and
-;; finish with a live React root standing in the document (rf2-fqof).
+;; finish with a live React root standing in the document.
 
 (defn- teardown!
   "Unmount, read the census while it is still exact, then finish the
@@ -968,7 +968,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; W8. `<Activity>` — hide releases, hidden work publishes nothing, reveal
-;;     reacquires the CURRENT read set (rf2-9ywe)
+;;     reacquires the CURRENT read set
 ;; ---------------------------------------------------------------------------
 
 (deftest an-island-hidden-by-activity-releases-its-ownership-and-its-reveal-reacquires-the-current-read-set
@@ -1136,7 +1136,7 @@
             (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W9. A POST-COMMIT suspension — a fallback is not a hide (rf2-sr19)
+;; W9. A POST-COMMIT suspension — a fallback is not a hide
 ;; ---------------------------------------------------------------------------
 
 (deftest an-island-under-a-post-commit-suspension-keeps-exact-ownership-across-the-retry

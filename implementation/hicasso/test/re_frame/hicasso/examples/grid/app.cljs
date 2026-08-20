@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.grid.app
-  "THE GRID'S ENTRY POINT — an adapter, a frame, a root (rf2-hic-078).
+  "THE GRID'S ENTRY POINT — an adapter, a frame, a root.
 
   The editor's entry point with one difference: [[initial-events]] is a
   FUNCTION of the grid's dimensions, because the size is the variable the

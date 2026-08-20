@@ -110,7 +110,7 @@
            {:subs (merge {[::subs/feed] rows}
                          (t* locale [:feed/heading :feed/empty]))}))
 
-;; --- the pager (rf2-hic-074) -----------------------------------------------
+;; --- the pager -------------------------------------------------------------
 
 (defn- pager-tree
   "The pager on page `page` of three. Its controls are the extension's

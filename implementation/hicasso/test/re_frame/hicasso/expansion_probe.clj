@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.expansion-probe
-  "**WHAT ONLY THE COMPILER KNOWS, HANDED TO THE SUITE AS DATA** (rf2-h63i,
-  rf2-e0d2).
+  "**WHAT ONLY THE COMPILER KNOWS, HANDED TO THE SUITE AS DATA**.
 
   This artefact has no JVM test lane and that is the CORRECT outcome —
   `implementation/hicasso/deps.edn` says so and waives the runner's
@@ -14,10 +13,10 @@
      canonical-slot collision is a BUILD FAILURE and not a runtime
      refusal. Every landed refusal row uses a `let`-bound local to force
      the runtime path instead, and the compile-time half of the grammar
-     was witnessed by nothing this repository runs (rf2-h63i).
+     was witnessed by nothing this repository runs.
   2. A namespace's public var list — which a Phase 3 freeze is a
      deterministic act OVER — is the analyser's, and ClojureScript has no
-     `ns-publics` at runtime (rf2-e0d2).
+     `ns-publics` at runtime.
 
   Both are read here, at expansion, and emitted as ordinary quoted data
   into the compiled test. The suite then asserts on them with `is` like

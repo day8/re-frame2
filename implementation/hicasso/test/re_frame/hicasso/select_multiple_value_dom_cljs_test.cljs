@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.select-multiple-value-dom-cljs-test
   "`::h/value` ON A `<select multiple>` — the selection, not its first
-  option (rf2-42vlw).
+  option.
 
   `HTMLSelectElement.value` is defined by HTML as the value of the FIRST
   selected option, and it answers that on a `multiple` select exactly as

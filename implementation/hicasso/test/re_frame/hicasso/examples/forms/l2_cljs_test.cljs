@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.l2-cljs-test
-  "L2 — THE FORM'S BODIES, AS SEMANTIC TREES (rf2-hic-051).
+  "L2 — THE FORM'S BODIES, AS SEMANTIC TREES.
 
   `re-frame.hicasso.test/tree` runs one hook-free body under injected
   read fixtures and answers the Spec 004B structural tree it returned.

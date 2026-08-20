@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.hmr-remount-cljs-test
   "THE HMR CONTRACT, PART 1 — what a save does to the head, and what the
-  stale generation leaves behind (rf2-hic-015).
+  stale generation leaves behind.
 
   Two files carry this bead. This one takes the **structural** half: a
   reload re-mints the boundary head, so React's reconciler meets a new
@@ -26,7 +26,7 @@
   two things — the `reg-sub` / `reg-event` forms re-register, and the
   `def` that [[re-frame.hicasso/defview]] expands to re-runs. The macro
   expands to `(def sym (mint-view! \"<ns>/<sym>\" (fn …)))` — the emitted
-  fn is anonymous, so it can shadow no helper the body calls (rf2-jan2) —
+  fn is anonymous, so it can shadow no helper the body calls —
   so re-evaluating the form is re-running that one call and rebinding the
   var. [[load-namespace!]] below is those two things and nothing else,
   and [[the-defview-macro-mints-what-a-reload-re-mints]] holds the model

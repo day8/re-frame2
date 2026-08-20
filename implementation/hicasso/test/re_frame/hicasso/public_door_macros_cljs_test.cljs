@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.public-door-macros-cljs-test
   "THE PUBLIC DOOR'S MACRO SHAPES, pinned by contract rather than by donor
-  digest (rf2-0xgk).
+  digest.
 
   `arm1/lang.clj` defines the three macros a consumer writes against, and
   until rf2-hic-009 split the runtime its row in `frozen-sources.edn` held
@@ -25,14 +25,14 @@
   symbol and def-layout detail would make safe refactoring noisy for no
   consumer confidence.
 
-  Witnesses A, B and C cover the three macros; D and E (rf2-3f11) are a
+  Witnesses A, B and C cover the three macros; D and E are a
   second claim about `defhost`, this time about the SHAPE of the form
   rather than the value it hands on. `defview`'s round-trip — a boundary
   minted through the door, asserted `boundary-head?`, rendering a live
   subscription read — is [[re-frame.hicasso.smoke-cljs-test]]'s and stays
   there. Witness C below is a different claim about the same macro, and
   it is here because it is about the EXPANSION rather than about the
-  runtime: what `defview` names inside the fn it emits (rf2-jan2).
+  runtime: what `defview` names inside the fn it emits.
 
   ## Why these assertions and not others
 

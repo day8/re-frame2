@@ -32,7 +32,7 @@
   runs, which is React's own adoption race rather than the prop's doing.
   So the row pins the structural fact, and the timing row it does not
   attempt is `arm1/hydrate_dom_cljs_test` §6, on the `.84` hydration
-  harness (rf2-ne3ey) — which measured the conduct as ABSORPTION rather
+  harness — which measured the conduct as ABSORPTION rather
   than deferral: the adoption render reads the new revision as the
   field's FIRST, so the reset never fires and the draft survives.
 

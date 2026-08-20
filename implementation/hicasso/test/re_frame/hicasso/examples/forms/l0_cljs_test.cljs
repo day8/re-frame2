@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.l0-cljs-test
-  "L0 — THE RECIPES AS PURE CALCULATIONS AND REAL TRANSITIONS (rf2-hic-051).
+  "L0 — THE RECIPES AS PURE CALCULATIONS AND REAL TRANSITIONS.
 
   The kit's ladder names L0 as the tier it deliberately does not touch:
   a handler is a function of `db` and an event vector, a subscription is

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.route-link-cljs-test
-  "ROUTE-LINK'S GRAMMAR, tested as data (rf2-2rtt6.54).
+  "ROUTE-LINK'S GRAMMAR, tested as data.
 
   Everything here is the node-provable half: that a route-link render is
   a PURE value (two renders of one link are `=`, and the click decision

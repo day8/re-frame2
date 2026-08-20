@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.db
-  "THE SHAPE, AND THE ONE PIECE OF WIDGET STATE (rf2-hic-086).
+  "THE SHAPE, AND THE ONE PIECE OF WIDGET STATE.
 
   The todos, and nothing derived. The active filter is NOT here — it is
   read off the URL by `re-frame.hicasso.examples.todo.subs`'s

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.todo.events
-  "EVERY WRITE THIS APPLICATION MAKES (rf2-hic-086).
+  "EVERY WRITE THIS APPLICATION MAKES.
 
   Eight handlers, all pure, none of them knowing that a view substrate
   exists. That is the point of the file: a Todo-class application's model

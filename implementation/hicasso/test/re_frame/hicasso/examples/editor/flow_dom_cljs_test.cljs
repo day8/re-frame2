@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.editor.flow-dom-cljs-test
-  "L3 — THE FOUR-FIELD EDITOR, MOUNTED AND TYPED INTO (rf2-hic-078).
+  "L3 — THE FOUR-FIELD EDITOR, MOUNTED AND TYPED INTO.
 
   `l2-cljs-test` says what the bodies MEAN. This file puts them on a real
   React root against a real DOM and types into them, because three of
@@ -13,7 +13,7 @@
     firing an event, which is the whole of what `::h/revision` buys.
 
   The word *eventless* in that third claim is load-bearing rather than
-  descriptive, and it cost this file a row (rf2-5h9k). A keystroke's own
+  descriptive, and it cost this file a row. A keystroke's own
   divergence is converged in the turn that typed it — the second claim
   above IS that mechanism — so a reset row built on typing asserts a
   value that has been on the glass since before the reset and stays green
@@ -215,7 +215,7 @@
   ;;
   ;; ## What was here before, and why it was replaced rather than fixed
   ;;
-  ;; The first row written here (rf2-5h9k) typed into the slug a value
+  ;; The first row written here typed into the slug a value
   ;; its policy normalises back to what the model already held, discarded,
   ;; and asserted the field showed the model. It was measured with
   ;; `::events/discard`'s `(update :revision (fnil inc 0))` DELETED, and it

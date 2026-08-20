@@ -43,7 +43,7 @@
   field and a native input genuinely differ, and on which this pair is
   NOT claimed equal. The browser lane decides a mounted-DOM claim and
   this file makes none; the clock arm takes that equality through
-  `lane/canonical` when it takes the clock (`rf2-5yn9`).
+  `lane/canonical` when it takes the clock.
 
   ## The deterministic delta — what a direct return does NOT do
 
@@ -250,7 +250,7 @@
 
 (n/defcomponent native-tag-row
   "`{:server :render}` because [[render!]] is the server renderer and the
-  native tier's policy is now READ (rf2-hic-046): a Client-only island's
+  native tier's policy is now READ: a Client-only island's
   body does not run there, so the instrument needs the declaration. The
   arms compare a key DIAGNOSTIC, not a server policy."
   {:server :render}

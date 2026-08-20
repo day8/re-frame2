@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.census
-  "READ THE CEREMONY CENSUS OFF THE WITNESS'S OWN SOURCE (rf2-hic-044).
+  "READ THE CEREMONY CENSUS OFF THE WITNESS'S OWN SOURCE.
 
   The resource-demand criteria frozen at `afbb58febc` settle C1 —
   *ceremony removed, counted* — by a census: every contiguous region of

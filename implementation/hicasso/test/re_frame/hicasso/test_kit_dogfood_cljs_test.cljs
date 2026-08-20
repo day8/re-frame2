@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.test-kit-dogfood-cljs-test
-  "THE DOGFOOD WITNESSES, RE-EXPRESSED ON THE PUBLIC KIT (rf2-hic-020).
+  "THE DOGFOOD WITNESSES, RE-EXPRESSED ON THE PUBLIC KIT.
 
   `re-frame.bench.hicasso.front.dogfood-cljs-test` proves the front half
   of a real screen: the state layer the renderings share, and the

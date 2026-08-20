@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.hook-probe
-  "COUNTING HOOKS AT REACT'S OWN DISPATCHER (rf2-wjag).
+  "COUNTING HOOKS AT REACT'S OWN DISPATCHER.
 
   HD-020(b) makes the ≤2-hook budget a hard architectural line, and **a
   budget a runtime reports about itself is not a witness**. The shell

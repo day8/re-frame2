@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.cold-probe-cljs-test
   "THE COLD PROBE'S CONTRACT — what a read guarantees on a first,
-  uncached read (rf2-wjag).
+  uncached read.
 
   A boundary body's read is warm when a committed cell already holds the
   key: a pure deref, nothing global touched. Every OTHER read is cold —

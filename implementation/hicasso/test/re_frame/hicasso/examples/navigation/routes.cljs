@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.navigation.routes
   "THE NAVIGATION WITNESS'S TWO ROUTES — and the three pieces of route
-  METADATA that are the whole of its conduct (rf2-hic-042).
+  METADATA that are the whole of its conduct.
 
   Two `reg-route` calls. Everything this application does after a
   navigation — where focus lands, where the page is scrolled to, whether

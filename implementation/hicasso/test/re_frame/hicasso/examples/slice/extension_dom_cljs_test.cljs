@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.slice.extension-dom-cljs-test
   "L3 — PAGINATION, RUNTIME-SELECTED CONTENT AND A NESTED ERROR REGION,
-  MOUNTED (rf2-hic-074).
+  MOUNTED.
 
   The three things specification §12 Phase 4 asks of the product
   application, on a real React root: a feed the user pages through, a
@@ -61,7 +61,7 @@
      ;; The MAP shape, because rows here are `async`: `cljs.test` refuses
      ;; an async test under a fn-form fixture and aborts the NAMESPACE —
      ;; and, as of 2026-08-12, every namespace the runner had not reached
-     ;; yet along with it (rf2-u0j8).
+     ;; yet along with it.
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)

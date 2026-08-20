@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.presence-intent-dom-cljs-test
-  "AN INTENT ON A PRESENCE CHILD (rf2-2rtt6.66).
+  "AN INTENT ON A PRESENCE CHILD.
 
   [[re-frame.hicasso.motion-presence-dom-cljs-test]] proves the retention machine through a
   real DOM: the exit attributes land, re-entry takes them off, the node
@@ -53,7 +53,7 @@
   ## The host child, and why it is not witnessed here
 
   The bead names native and host children alike. The `defhost` door is
-  HD-011's own surface and does not exist on `main` yet (rf2-2rtt6.65),
+  HD-011's own surface and does not exist on `main` yet,
   so there is nothing here to mount one with. The repair does not
   distinguish them and cannot: **both kinds cross the single
   `codec/as-element` call** `presence-body` now wraps, so a host child's

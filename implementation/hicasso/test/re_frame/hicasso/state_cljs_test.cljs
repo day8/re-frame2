@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.state-cljs-test
-  "`h/reg-state`, PROVED AGAINST A REAL FRAME (rf2-2rtt6.98).
+  "`h/reg-state`, PROVED AGAINST A REAL FRAME.
 
   The sugar's whole claim is that it mints ORDINARY core artefacts, so
   every row here drives it the way an application would: a real frame, a

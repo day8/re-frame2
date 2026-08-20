@@ -8,7 +8,7 @@
   of five bench SSR suites as STAYS, with one conditional: two of them
   *\"assert real package behaviour and would be worth re-expressing IF the
   package ever gets its own SSR entry\"*. [[re-frame.hicasso.server]]
-  landed (rf2-b6jkj), so the condition fired, and this file is the first
+  landed, so the condition fired, and this file is the first
   half of the answer — `ssr/hframe_ssr_cljs_test` pointed at
   `server/render` instead of at the bench prototype's
   `re-frame.bench.hicasso.ssr.entry/render`.

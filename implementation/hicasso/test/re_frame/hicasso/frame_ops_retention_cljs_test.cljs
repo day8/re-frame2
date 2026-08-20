@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.frame-ops-retention-cljs-test
-  "**A DESTROYED FRAME DROPS ITS `!frame-ops` ROW** (rf2-uejlj).
+  "**A DESTROYED FRAME DROPS ITS `!frame-ops` ROW**.
 
   `impl.frames/!frame-ops` holds one row per frame — the `capture-frame`
   bundle and the ambient dispatch closure over it, pinned to the

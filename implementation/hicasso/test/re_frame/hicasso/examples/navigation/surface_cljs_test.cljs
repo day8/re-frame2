@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.navigation.surface-cljs-test
-  "THE NAVIGATION WITNESS'S IMPORT DISCIPLINE, MECHANICALLY (rf2-hcgo;
-  rf2-hic-042).
+  "THE NAVIGATION WITNESS'S IMPORT DISCIPLINE, MECHANICALLY.
 
   This application is the evidence specification §7's routing row is
   decided on — deep link, Back/Forward, pending mutation, and the
@@ -20,7 +19,7 @@
 
   Seven of the eight witness packages under `examples/` carried a fence
   and this one did not, for a full day, while two further fences were
-  authored alongside it (rf2-hcgo, rf2-689l). rf2-ccuw had just made each
+  authored alongside it. rf2-ccuw had just made each
   fence's POPULATION derived so a namespace added inside a fenced package
   could not escape — and that bought nothing here, because a package no
   fence names is fenced by no population at all. Nothing asserted that

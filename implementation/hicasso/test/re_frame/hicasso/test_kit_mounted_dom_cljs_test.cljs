@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.test-kit-mounted-dom-cljs-test
-  "THE MOUNTED FACADE'S OWN WITNESSES (rf2-hic-027).
+  "THE MOUNTED FACADE'S OWN WITNESSES.
 
   `re-frame.hicasso.test.mounted` is an instrument, so every row here is
   either a POSITIVE control — the facade does what it claims on a working

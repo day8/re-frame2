@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-fence-cljs-test
-  "THE TWO-LANGUAGES FENCE, AND `n/defcomponent` (rf2-hic-030).
+  "THE TWO-LANGUAGES FENCE, AND `n/defcomponent`.
 
   `[...]` is always interpreted hiccup; `n/$` is always native React;
   neither form ever changes the other's meaning. The fence is the whole
@@ -22,7 +22,7 @@
   native macro that analysed its enclosing body — which it does not do,
   and cannot, because it reads only its own form.
 
-  ## Where the refusal says it came from (rf2-dva6)
+  ## Where the refusal says it came from
 
   [[a-grammar-refusal-inside-an-island-body-is-source-located]] is the
   second thing this file now pins. The checklist asks for a *source-located*
@@ -91,7 +91,7 @@
   is measured rather than asserted in prose.
 
   `{:server :render}` because [[render-native!]] is the server renderer
-  and the policy is now READ (rf2-hic-046): a Client-only island's body
+  and the policy is now READ: a Client-only island's body
   does not run there. The ABI is the same under either policy — the gate
   forwards its own props object untouched — so the declaration buys the
   instrument its body back and changes nothing this row is about."

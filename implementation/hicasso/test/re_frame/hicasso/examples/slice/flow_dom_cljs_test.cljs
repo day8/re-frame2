@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.flow-dom-cljs-test
-  "L3 — THE WHOLE FLOW, MOUNTED (rf2-hic-025).
+  "L3 — THE WHOLE FLOW, MOUNTED.
 
   One complete pass through the application on a real React root: the
   feed, a real click on a real route-link, the editor's controlled
@@ -366,7 +366,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the reset, in a real field, and why this application carries no
-;;     `::h/revision` (rf2-36bd)
+;;     `::h/revision`
 ;;
 ;; The two rows below are a PAIR, and the second is the reason the first can
 ;; say what it says.

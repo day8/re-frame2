@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.hframe-cljs-test
-  "`h/frame` — THE AUTHOR-FACING FRAME READ (rf2-841vn).
+  "`h/frame` — THE AUTHOR-FACING FRAME READ.
 
   The design is tracked at `docs/design/hicasso/studio/hframe-design.md`,
   ruled BUILD. This file is its node half: everything the primitive does
@@ -17,11 +17,11 @@
   that reads a subscription and shows adding `h/frame` leaves it
   identical, and [[the-frame-read-does-not-go-through-cores-ambient-chain]]
   asserts core's own resolver answering **nil** in the very extent where
-  `h/frame` answers — which is the refusal (rf2-2rtt6.122) doing its job
+  `h/frame` answers — which is the refusal doing its job
   one line away from the value being read.
 
   The CARRY under refusal — `rf/capture-frame` inside a body — is a fact
-  about the refusal rather than about this primitive (rf2-hnrww), and the
+  about the refusal rather than about this primitive, and the
   package's refusal witness is the bead that owns it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.context :as adapter-context]

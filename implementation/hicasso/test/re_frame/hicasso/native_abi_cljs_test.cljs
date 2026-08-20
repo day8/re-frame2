@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.native-abi-cljs-test
-  "THE ONE ABI, CARRIED (rf2-hic-032) — what can be settled without a
+  "THE ONE ABI, CARRIED — what can be settled without a
   fiber.
 
   Native-boundary law clause 5 says element construction, `defcomponent`,
@@ -36,7 +36,7 @@
   runs bodies for real, so the props-arrival row is a measurement rather
   than an assertion about a data structure.
 
-  HS-21's OTHER half is over there for the same reason (rf2-s52w). The
+  HS-21's OTHER half is over there for the same reason. The
   bytes half is here — `renderToStaticMarkup` through the outward bridge,
   below — but *mismatch attribution* is a claim about an adoption, so the
   sibling's

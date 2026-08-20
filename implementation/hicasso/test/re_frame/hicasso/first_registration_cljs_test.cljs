@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.first-registration-cljs-test
   "THE OTHER REGISTRY TRANSITION — an id that had **no** handler and got
-  one (rf2-wjag).
+  one.
 
   The registry axis of `impl.generation/commit-basis` has two transitions,
   and they reach this arm by two different routes because they are two

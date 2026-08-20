@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.ledger.views
   "THE SERIOUS-VENDOR SCREEN — ten thousand rows through a foreign
-  virtualizer, and the crossing is one declaration (rf2-hic-047).
+  virtualizer, and the crossing is one declaration.
 
   `specification.md` §7 answers *Large collections* with a *blessed
   foreign virtualizer recipe* and requires *10K-row behavior, focus and

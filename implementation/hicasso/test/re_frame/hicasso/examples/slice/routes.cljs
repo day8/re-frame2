@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.routes
-  "THE SLICE'S TWO ROUTES (rf2-hic-025).
+  "THE SLICE'S TWO ROUTES.
 
   Two `reg-route` calls and nothing else. Routing is `day8/re-frame2-
   routing`'s, reached through its own public door; Hicasso reaches the
@@ -65,7 +65,7 @@
   holds only their routes. A repository whose test bundle loads a dozen
   applications into one process does, and the prefix is the whole fix.
 
-  ## Why the PAGE is a query parameter (rf2-hic-074)
+  ## Why the PAGE is a query parameter
 
   `?page=N` is the whole of the feed's pagination state, and putting it
   here rather than in `app-db` beside `:articles` is what buys three

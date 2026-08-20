@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.controlled-dom-cljs-test
   "THE CONVERGE'S OWN MECHANISM — the trap it avoids, and the elements it
-  refuses to touch (rf2-fki5d).
+  refuses to touch.
 
   `arm1_controlled_grid_dom_cljs_test` reads the behaviour through a
   hundred mounted boundaries and a real keystroke, which is where the
@@ -256,7 +256,7 @@
           (finally (drop! node)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The composition carve-out, at the mechanism (rf2-digtt)
+;; The composition carve-out, at the mechanism
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two halves, and these rows read the half that lives in the element
@@ -385,14 +385,14 @@
         (is (not (identical? f (emitted [:input {:value "x" :on-input f}]))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The type is the PLATFORM's spelling, not the author's (rf2-7ae61)
+;; The type is the PLATFORM's spelling, not the author's
 ;; ---------------------------------------------------------------------------
 ;;
 ;; An HTML `type` is an enumerated attribute the platform matches ASCII
 ;; case-insensitively, and this predicate reads the author's PROPS object,
 ;; where a spelling is all there is. So the rows below are the second half
 ;; of the statement `file_input_value_dom_cljs_test` makes about the same
-;; attribute (rf2-h6qm7): ONE reading of `type` in this namespace rather
+;; attribute: ONE reading of `type` in this namespace rather
 ;; than two, and the one the platform uses.
 ;;
 ;; What they replace was silent, which is why it is worth a section. A

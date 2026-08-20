@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.slice.db
-  "THE SLICE'S SHAPE, AND THE PURE FUNCTIONS OVER IT (rf2-hic-025).
+  "THE SLICE'S SHAPE, AND THE PURE FUNCTIONS OVER IT.
 
   One `app-db` map, described once, plus the handful of calculations the
   event handlers and subscriptions both need. Nothing here requires
@@ -17,7 +17,7 @@
        :locale   :en
        :theme    :light}
 
-  ## THE PAGE IS NOT IN HERE, AND THAT IS DELIBERATE (rf2-hic-074)
+  ## THE PAGE IS NOT IN HERE, AND THAT IS DELIBERATE
 
   Pagination arrives with rf2-hic-074, and the page number is the one
   piece of its state this map does **not** hold. It rides the feed
@@ -46,7 +46,7 @@
   than a flag somebody has to remember to clear, and \"reset\" is a
   `dissoc` rather than a re-copy.
 
-  ## THERE IS NO `:revision` KEY, AND ITS ABSENCE WAS MEASURED (rf2-36bd)
+  ## THERE IS NO `:revision` KEY, AND ITS ABSENCE WAS MEASURED
 
   An earlier draft of this application carried one: a `{slug n}` counter,
   a `(fnil inc 0)` in two handlers, a subscription, and `::h/revision` on
@@ -256,7 +256,7 @@
             (:articles db)))))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination — arithmetic over a row vector, and nothing else (rf2-hic-074)
+;; Pagination — arithmetic over a row vector, and nothing else
 ;;
 ;; Over ROWS rather than over `db`, because the page a user is looking at is
 ;; not in `db` (see the namespace docstring): it arrives from the route, and

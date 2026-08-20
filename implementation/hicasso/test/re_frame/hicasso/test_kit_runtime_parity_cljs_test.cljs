@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.test-kit-runtime-parity-cljs-test
   "THE PARITY TABLE — one corpus, driven through the RUNTIME and through
-  the kit's L2 walk, so the two cannot disagree quietly (rf2-hic-020).
+  the kit's L2 walk, so the two cannot disagree quietly.
 
   `re-frame.hicasso.test` publishes a semantic tree and claims two things
   about it: that its child discrimination is *Hicasso's*, and that its
@@ -506,7 +506,7 @@
       ;; business and has moved once already. This row spent a release
       ;; pinning `front.codec/` — a benchmark-tree namespace the shipped
       ;; package does not contain — so a coordinate no consumer could follow
-      ;; was held in place by a green assertion (rf2-hic-007). A prefix that
+      ;; was held in place by a green assertion. A prefix that
       ;; names the package survives the next move; one that names a file
       ;; only survives until it.
       (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))

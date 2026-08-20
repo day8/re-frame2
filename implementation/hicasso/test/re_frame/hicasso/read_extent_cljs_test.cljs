@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.read-extent-cljs-test
-  "INVARIANT I7, AS ENFORCED — the ambient-read extent (rf2-hic-011).
+  "INVARIANT I7, AS ENFORCED — the ambient-read extent.
 
   > `sub` is legal during the direct synchronous execution of the active
   > body, helpers, branches, and loops included. A read deferred through a

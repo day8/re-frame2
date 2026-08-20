@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.subs
-  "THE LEDGER'S READ TOPOLOGY (rf2-hic-047).
+  "THE LEDGER'S READ TOPOLOGY.
 
   Five subscriptions, and the shape of the first three is the whole of
   what makes a ten-thousand-row screen behave like a twenty-row one.

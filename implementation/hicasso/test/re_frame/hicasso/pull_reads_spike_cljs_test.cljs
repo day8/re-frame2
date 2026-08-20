@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.pull-reads-spike-cljs-test
-  "PULL-SHAPED READS — the three-arm comparator (rf2-hic-058).
+  "PULL-SHAPED READS — the three-arm comparator.
 
   The deciding rule is [specification §11]'s portfolio row — *must beat
   hand-coarse ergonomics/cost without a per-leaf ledger or

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.imperative-sdk-dom-cljs-test
-  "ONE IMPERATIVE SDK, OWNED THROUGH THE DECLARED HOST SEAM (rf2-hic-067).
+  "ONE IMPERATIVE SDK, OWNED THROUGH THE DECLARED HOST SEAM.
 
   `specification.md` §7's *Imperative SDKs* row promises *declared host
   ownership* answered by an *acquire/release recipe*, proved against
@@ -499,7 +499,7 @@
   not finish the row — the chain's single trailing step calls `done`.
 
   A rejection handler may not sit downstream of the `.then` that calls
-  `done` (rf2-qpns): `run-block` hands `done` a continuation that runs the
+  `done`: `run-block` hands `done` a continuation that runs the
   whole remainder of the run synchronously, so a `.catch` out there claims
   a LATER namespace's throw as this row's failure and calls `done` twice,
   which `run-browser-tests.cjs` promotes to fatal."

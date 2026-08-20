@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.motion-presence-dom-cljs-test
-  "THE PRESENCE/MOTION POSTURE, WITNESSED (rf2-hic-053).
+  "THE PRESENCE/MOTION POSTURE, WITNESSED.
 
   > Motion belongs to CSS, to the compositor and to the host. This runtime
   > owns exactly one thing about it, and that thing is retention.
@@ -317,7 +317,7 @@
         (finally (restore!))))))
 
 ;; ---------------------------------------------------------------------------
-;; The override that leaked, and the attribute it left behind (rf2-34a7)
+;; The override that leaked, and the attribute it left behind
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `impl/presence.cljs` used to say, of `with-phase`, that *the two

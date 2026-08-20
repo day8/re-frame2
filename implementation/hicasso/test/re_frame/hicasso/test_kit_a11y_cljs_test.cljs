@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.test-kit-a11y-cljs-test
   "THE ACCESSIBILITY TRIO'S OWN WITNESSES — `ht/role`,
-  `ht/accessible-name`, `ht/unnamed-controls` (rf2-hic-043).
+  `ht/accessible-name`, `ht/unnamed-controls`.
 
   An accessibility assertion that passes when the accessibility is
   absent is worth nothing, and the same is true one level down: a helper

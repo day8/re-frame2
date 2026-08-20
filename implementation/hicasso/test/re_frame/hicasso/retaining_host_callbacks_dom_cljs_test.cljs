@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.retaining-host-callbacks-dom-cljs-test
   "THE RETAINING HOST — callback identity measured where it can cost
-  something, and the stable-event verdict (rf2-hic-029).
+  something, and the stable-event verdict.
 
   `specification.md` §4.1 carries the standing rule this file exists to
   decide:
@@ -134,7 +134,7 @@
      ;; The MAP shape, because section 6's delayed row is `(async done …)`.
      ;; A fn-form fixture unwinds the instant it returns, which for an async
      ;; row is before the row has resolved, and `cljs.test` refuses the pair
-     ;; loudly enough to take the whole namespace down with it (rf2-77px).
+     ;; loudly enough to take the whole namespace down with it.
      :async?        true
      :init-fn       (fn []
                       (collector/reset-runtime!)

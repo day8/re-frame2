@@ -14,7 +14,7 @@
 
   **The repair has since landed as a product door**, and §5 is the
   measurement of it: `re-frame.hicasso.server/render` opens a window per
-  request, and through it the tray's bytes say `present` (rf2-doadc). So
+  request, and through it the tray's bytes say `present`. So
   the verdict this file returns is now a SPLIT one — closed through the
   package's server entry, open through a hand-rolled `renderToString` —
   and neither half is claimed for the other. Nothing here claims presence
@@ -139,7 +139,7 @@
   control is that door in one line, so the cost was measured before it
   existed.
 
-  **IT EXISTS** — `re-frame.hicasso.server/render` (rf2-b6jkj), driven by
+  **IT EXISTS** — `re-frame.hicasso.server/render`, driven by
   §5. What that does NOT do is close this file, and the distinction is
   the whole of rf2-doadc's triage: the rows below are about a render with
   no window, which remains spellable by hand, so they keep measuring
@@ -176,7 +176,7 @@
   [[server-bytes-under-a-hand-held-window!]]) and the Render repair is
   simulated end to end. Run by hand under `:browser-test` for **PR #7872**,
   landed on main as commit `b5e03b138f` — named rather than left as \"the
-  PR body\", so the record can be reached from the tree (rf2-1mmn). §1, §2
+  PR body\", so the record can be reached from the tree. §1, §2
   and §3 all red — nine assertions
   across the three — and **§4 stays green**, which is the control doing
   its job.
@@ -315,7 +315,7 @@
 
 (defn- server-bytes!
   "The bytes React's ACTUAL server renderer produces for `hiccup` — the
-  same runtime the sibling Node entry drives (rf2-2rtt6.86), reduced to
+  same runtime the sibling Node entry drives, reduced to
   one call, and the same door `host-ssr-dom-cljs-test`,
   `public-door-macros-cljs-test` and `revision-dom-cljs-test` all use.
 

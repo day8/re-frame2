@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.hook-budget-cljs-test
-  "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S OWN DISPATCHER (rf2-wjag).
+  "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S OWN DISPATCHER.
 
   > Hook budget ≤ 2 per boundary (paper rule), fully consumed by the
   > subscription/epoch hook and the frame-context hook (HD-020); refs are

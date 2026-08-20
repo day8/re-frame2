@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.l0-cljs-test
-  "L0 — THE LEDGER'S MODEL, AND THE VIRTUALIZER'S ARITHMETIC (rf2-hic-047).
+  "L0 — THE LEDGER'S MODEL, AND THE VIRTUALIZER'S ARITHMETIC.
 
   Two populations, and they are separated on purpose.
 

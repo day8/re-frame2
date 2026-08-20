@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.reincarnation-paint-dom-cljs-test
   "PAINT ORDER ACROSS A SAME-ID REINCARNATION — the witness design law
-  React 3 was owed, in a real browser, where the paint is (rf2-2l17).
+  React 3 was owed, in a real browser, where the paint is.
 
   > A render/commit tear is detected and corrected **before visible
   > paint**.
@@ -155,7 +155,7 @@
   and runs once per path; `mount/release!` is idempotent, so a row whose
   success path already tore its root down pays nothing here.
 
-  **Why the rejection arms cannot do this themselves (rf2-fqof).**
+  **Why the rejection arms cannot do this themselves.**
   [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
   once the polls succeed, so the OUTER arm below — the one that reports
   with no handle at all — is reachable with a live root on the page: its
@@ -163,7 +163,7 @@
   chain unwinds straight past it. Reporting and finishing there leaves a
   mounted React root and its container standing in the document for the
   NEXT namespace to inherit, which is the very contamination rf2-d3tc's
-  repair is about, arriving by a second door (rf2-o0n1)."
+  repair is about, arriving by a second door."
   []
   (run! mount/release! @!minted)
   (reset! !minted [])
@@ -217,7 +217,7 @@
   arm that has none is no longer an arm that strands a root.
 
   **A rejection handler may not sit downstream of the `.then` that calls
-  `done` (rf2-d3tc).** `cljs.test/run-block` hands `done` a continuation
+  `done`.** `cljs.test/run-block` hands `done` a continuation
   that runs the WHOLE REMAINDER of the suite synchronously — this file's
   later rows, then every namespace after it — so anything out there that
   throws unwinds all the way back into the callback that called `done`.

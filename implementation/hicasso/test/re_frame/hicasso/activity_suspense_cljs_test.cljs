@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.activity-suspense-cljs-test
-  "ACTIVITY HIDE/REVEAL, AT THE SEAM (rf2-hic-014).
+  "ACTIVITY HIDE/REVEAL, AT THE SEAM.
 
   > - hide releases committed subscription ownership without destroying
   >   re-frame state;

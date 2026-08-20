@@ -2,7 +2,7 @@
   "**The three facade names that had no inventory row** — dispositions.md
   §2.1 rows HS-40 and HS-41, and §2.2 row HS-42.
 
-  CHECKPOINT 4 (`rf2-hic-048`) read §3's second constraint — *a surface
+  CHECKPOINT 4 read §3's second constraint — *a surface
   that reaches the facade without a row has escaped the inventory, and
   the Phase 4 exit silently stops meaning anything* — against
   `re-frame.hicasso`'s own alias block, and three public names came back
@@ -484,7 +484,7 @@
               {:keys [seen stop!]} (sup/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape
               ;; of call site at which swallowing an uncaught error is
-              ;; not a fail-open (rf2-mwx08).
+              ;; not a fail-open.
               {:keys [captured close!]} (sup/open-console-capture!
                                           {:swallow-uncaught? true})]
           ;; The request the client renders is not the request the server

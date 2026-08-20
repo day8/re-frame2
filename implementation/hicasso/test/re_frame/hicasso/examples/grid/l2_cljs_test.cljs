@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.grid.l2-cljs-test
   "L2 — THE GRID'S BODIES, AND THE READ TOPOLOGY THE SCALING CLAIM RESTS
-  ON (rf2-hic-078).
+  ON.
 
   Specification §6 asks that *narrow-update body work scales with changed
   rows rather than all mounted rows*. `scaling-dom-cljs-test` measures

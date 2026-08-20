@@ -1,8 +1,8 @@
 (ns re-frame.hicasso.native-ssr-dom-cljs-test
-  "THE NATIVE TIER'S SERVER POLICY, MEASURED AS BYTES (rf2-hic-046).
+  "THE NATIVE TIER'S SERVER POLICY, MEASURED AS BYTES.
 
   `n/defcomponent`'s `:server` declaration used to be VALIDATED and read
-  by nothing (rf2-u9lk, rf2-ggnp). Merged-PR audit #7839 named the
+  by nothing. Merged-PR audit #7839 named the
   consequence exactly: the landed fence suite server-rendered a
   declaration-less island — nominally Client-only, the conservative
   default — to `<output>42</output>`, while every normative source says a

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.server-render-ssr-dom-cljs-test
-  "THE SERVER-RENDER ENTRY, AND THE OBSTRUCTION IT CLEARS (rf2-b6jkj).
+  "THE SERVER-RENDER ENTRY, AND THE OBSTRUCTION IT CLEARS.
 
   `re-frame.hicasso.server/render` is `dispositions.md` HS-11's first
   candidate repair — *a matching server-render entry of this arm's own*
@@ -44,7 +44,7 @@
   `:node-test` too. The hydration rows need a real React DOM and say so
   with `sup/skip!` rather than degrading to a false green.
 
-  ## §5 measures the OTHER half of the round trip (rf2-lb1xi)
+  ## §5 measures the OTHER half of the round trip
 
   §4 proves the bytes ADOPT. It says nothing about the state those bytes
   were rendered from ever reaching the client, because it seeds the frame
@@ -349,7 +349,7 @@
             (.catch (fn [e] (is false (str "hydration row threw: " e)) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM (rf2-lb1xi)
+;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM
 ;; ---------------------------------------------------------------------------
 
 (defn- plant-payload-script!
@@ -369,7 +369,7 @@
     (fn [] (.remove host))))
 
 (deftest an-absent-client-frame-swallows-the-seed
-  ;; THE CONTROL, and it is the recipe chapter 18 shipped (rf2-lb1xi).
+  ;; THE CONTROL, and it is the recipe chapter 18 shipped.
   ;; Every assertion in the round-trip row below is about the frame having
   ;; been CREATED; without this row a green there would be equally
   ;; consistent with `ssr/hydrate!` seeding a frame it made itself.

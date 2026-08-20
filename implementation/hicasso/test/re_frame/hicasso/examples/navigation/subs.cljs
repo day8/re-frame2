@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.navigation.subs
   "THE NAVIGATION WITNESS'S SUBSCRIPTIONS — including the one routing
-  itself reads (rf2-hic-042).
+  itself reads.
 
   Ordinary `re-frame.core` reads over `app-db`, and one of them is not
   read by a view at all: [[::may-leave?]] is the article route's

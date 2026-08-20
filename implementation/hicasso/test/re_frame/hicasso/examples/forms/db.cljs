@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.forms.db
-  "THE SHAPE, AND THE THREE PURE FUNCTIONS THE RECIPES SHARE (rf2-hic-051).
+  "THE SHAPE, AND THE THREE PURE FUNCTIONS THE RECIPES SHARE.
 
   One support ticket, one buffered field in front of its subject, and one
   ordinary form under it. Nothing derived is stored: *which problems does

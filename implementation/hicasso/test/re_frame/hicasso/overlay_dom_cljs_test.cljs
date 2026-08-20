@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.overlay-dom-cljs-test
-  "THE OVERLAY POSTURE, WITNESSED (rf2-hic-052).
+  "THE OVERLAY POSTURE, WITNESSED.
 
   > The top layer, the focus trap, the inertness, the LIFO stack, the
   > light dismiss and the anchor tracking all belong to the browser. This
@@ -46,7 +46,7 @@
   lane at all, so every row below states a skip there rather than a false
   green — as every DOM claim in this package does.
 
-  **Trusted input is now driven rather than stated (rf2-il7b).** A page
+  **Trusted input is now driven rather than stated.** A page
   cannot forge a trusted event, and the half of an event a page cannot
   forge is the DEFAULT ACTION: a synthetic `keydown` reaches every
   listener and then the engine does nothing with it. This file used to

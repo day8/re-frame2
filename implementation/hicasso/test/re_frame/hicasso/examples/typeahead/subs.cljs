@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.typeahead.subs
   "THE DERIVATION GRAPH — and the two reads the flagship experiment is
-  about (rf2-hic-044).
+  about.
 
   Layers, each a pure function of the one below, in the `:<-` chain form
   the two earlier witness applications settled on.

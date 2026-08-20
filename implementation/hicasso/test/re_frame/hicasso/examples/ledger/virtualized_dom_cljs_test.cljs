@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.virtualized-dom-cljs-test
-  "L3 — TEN THOUSAND ROWS, ON A REAL ENGINE (rf2-hic-047).
+  "L3 — TEN THOUSAND ROWS, ON A REAL ENGINE.
 
   > | Large collections | Suitable read topology and keys | Blessed
   > foreign virtualizer recipe | **10K-row behavior, focus and

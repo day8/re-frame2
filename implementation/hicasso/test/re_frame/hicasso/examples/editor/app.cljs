@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.editor.app
-  "THE EDITOR'S ENTRY POINT — an adapter, a frame, a root (rf2-hic-078).
+  "THE EDITOR'S ENTRY POINT — an adapter, a frame, a root.
 
   The three lines that start a Hicasso application, and the handle a hot
   reload needs. Nothing here is specific to this application except the

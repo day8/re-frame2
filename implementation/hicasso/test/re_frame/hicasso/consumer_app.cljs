@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.consumer-app
   "THE CONSUMER APP — the smallest complete Hicasso application, written
-  the way a consumer writes one (rf2-hic-008).
+  the way a consumer writes one.
 
   Phase 0 exits when *a clean consumer can compile and run a minimal view
   without benchmark-tree imports* (product specification §12). Everything
@@ -50,7 +50,7 @@
   `^re-frame\\.hicasso\\..+-cljs-test$`, and this namespace does not end
   in `-cljs-test`.
 
-  ## The reload hook, and why it is here now (rf2-e2al)
+  ## The reload hook, and why it is here now
 
   It was deliberately absent, and its absence was the evidence: writing
   the hook's body on public namespaces only *could not be done*, because

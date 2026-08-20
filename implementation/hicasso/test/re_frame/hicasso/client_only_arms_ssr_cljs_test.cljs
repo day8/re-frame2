@@ -3,7 +3,7 @@
   dispositions.md §2.1 rows HS-31 (optional forms module), HS-32
   (optional overlay module) and HS-23 (Activity-hosted subtree).
 
-  CHECKPOINT 4 (`rf2-hic-048`) read §2.1's own note 3 — *a Client-only
+  CHECKPOINT 4 read §2.1's own note 3 — *a Client-only
   row still owes a witness; the refusal must be shown to fire, at
   source, with its recovery — an unproved refusal is not a
   disposition* — against the tree, and four rows came back Client-only

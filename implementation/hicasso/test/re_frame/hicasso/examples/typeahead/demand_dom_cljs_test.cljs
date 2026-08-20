@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.demand-dom-cljs-test
-  "L3 — THE RESOURCE WITNESS, MOUNTED (rf2-hic-044).
+  "L3 — THE RESOURCE WITNESS, MOUNTED.
 
   The rows the model tier cannot state. `l0-cljs-test` owns the ceremony
   census and the defect mutations; this file owns the three facts that

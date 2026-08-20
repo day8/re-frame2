@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.examples.ledger.vendor
-  "THE BLESSED FOREIGN VIRTUALIZER (rf2-hic-047).
+  "THE BLESSED FOREIGN VIRTUALIZER.
 
   `specification.md` §7's *Large collections* row answers the job with a
   *blessed foreign virtualizer recipe*, and a recipe needs something

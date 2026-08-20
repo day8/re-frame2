@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.keywarn-dom-cljs-test
-  "THE MINTED KEY WARNING, END TO END IN A REAL REACT DOM (rf2-2rtt6.104).
+  "THE MINTED KEY WARNING, END TO END IN A REAL REACT DOM.
 
   [[re-frame.hicasso.codec-cljs-test]] settles the predicate, the wording
   and the dedupe at the element, without React. This file asserts the two

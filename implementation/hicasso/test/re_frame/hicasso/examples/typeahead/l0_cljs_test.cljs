@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.typeahead.l0-cljs-test
   "L0 — THE MODEL TIER, THE CENSUS, AND THE DEFECT REACHABILITY
-  DEMONSTRATIONS (rf2-hic-044).
+  DEMONSTRATIONS.
 
   `re-frame.hicasso.test`'s ladder names L0 as the tier the kit
   deliberately does not touch: an event handler is a function of `db` and

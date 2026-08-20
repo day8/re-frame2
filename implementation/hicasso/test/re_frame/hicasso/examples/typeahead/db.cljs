@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.examples.typeahead.db
   "THE TYPEAHEAD'S MODEL — the shape, and the four pure questions the
-  ceremony keeps asking (rf2-hic-044).
+  ceremony keeps asking.
 
   This namespace holds no ceremony of its own. It holds the model, and the
   predicates the handlers in

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.coord-sentinel-source
-  "THE SENTINEL DECLARATIONS (rf2-hic-007) — one `defview` and one
+  "THE SENTINEL DECLARATIONS — one `defview` and one
   `defhost`, declared for their SOURCE COORDINATES and nothing else.
 
   ## Why they are not in the suite that asserts about them
@@ -23,7 +23,7 @@
   elision suite's `:require`, the same way `checkpoint_support` and
   `roots_frames_support` reach their suites. It mounts nothing and holds no
   state, and **in the build it is compiled into it registers nothing** —
-  `defview`'s authoring-time alias (rf2-5qaf4) rides the same
+  `defview`'s authoring-time alias rides the same
   `debug-enabled?` gate as the coordinate, so the registrar entry is one
   more thing this build is asserted not to have."
   (:require [re-frame.hicasso :as h]))
@@ -55,7 +55,7 @@
 
 (def view-id
   "The `:view` registrar id [[sentinel-row]] would be published under in a
-  DEV build (rf2-5qaf4) — `(keyword \"<ns>\" \"<sym>\")`, the same
+  DEV build — `(keyword \"<ns>\" \"<sym>\")`, the same
   derivation `rf/reg-view` uses. Written here beside [[view-name]] rather
   than rebuilt in the suite, so the two spellings of one declaration's
   identity cannot drift.
