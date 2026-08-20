@@ -245,17 +245,22 @@ locks the bare-`Panel` convention.
    `EventDetailPanel` on the JS side is the adapter's idiom, not a
    CLJS-side spelling the convention propagates.
 
-5. **The split is consistent across all six panels.** Renaming one
-   would force renaming all six; the per-panel facade shape (per
-   §Panel facade + leaf split above) is uniform precisely because
-   the leaf-view symbol name is uniform.
+5. **The split is consistent across every registered panel.**
+   Renaming one would force renaming all of them; the per-panel
+   facade shape (per §Panel facade + leaf split above) is uniform
+   precisely because the leaf-view symbol name is uniform. The set
+   is the registry's, not a literal — one `Panel` reg-view per id in
+   `panel-registry/tab-ids-for-mode :dynamic` (enumerated in point 1
+   above), so a tab added or retired never leaves a count behind.
 
 **Consequence.** New panels added under
 `tools/xray/src/day8/re_frame2_xray/panels/<panel>/` MUST follow
 the convention: a single public reg-view named `Panel` in the
 facade, no verbose `<Panel>Panel` rename. Hosts addressing a panel
-do so via tab-key dispatch (the shell's `case`), never by importing
-the `Panel` symbol directly.
+do so via tab-key dispatch (the shell's `tab-by-id :dynamic` registry
+lookup — the literal `case` this replaced is gone per rf2-2moh1, as
+point 1 above records), never by importing the `Panel` symbol
+directly.
 
 ## Mount conventions
 
