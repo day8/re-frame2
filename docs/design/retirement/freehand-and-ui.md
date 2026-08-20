@@ -372,18 +372,35 @@ were re-measured immediately before the cut rather than inherited: external `FH-
 `check_doc_slugs.py` and `check_readme_links.py` both exited 0 afterwards. R5's own bead
 (rf2-0yp7w.8) closes as absorbed rather than being dispatched as a second corpus deletion.
 
-**R6** is the remaining ~237 prose files: `docs/design/freehand/` — **in scope for editing and never
-for deletion; see the ruling immediately below** — the `docs/api` pages, `docs/skills`,
-`skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root `README.md`/`CHANGELOG.md`/`AGENTS.md`/
-`CLAUDE.md` mentions, `spec/Conventions.md`'s Freehand section and `:rf.adapter/*` row,
-`spec/006-ReactiveSubstrate.md`'s adapter table, `spec/API.md`'s rows, `spec/Ownership.md`, and the
-~80 comment and docstring lines left in `core/src`, `ssr/src`, `ssr-ring/src` and `tools/xray/src`.
+**R6** is the remaining ~237 prose files: `docs/design/freehand/` — **in scope for bounded
+corrective editing and never for deletion; see the ruling immediately below** — the `docs/api`
+pages, `docs/skills`, `skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root
+`README.md`/`CHANGELOG.md`/`AGENTS.md`/`CLAUDE.md` mentions, `spec/Conventions.md`'s Freehand
+section and `:rf.adapter/*` row, `spec/006-ReactiveSubstrate.md`'s adapter table, `spec/API.md`'s
+rows, `spec/Ownership.md`, and the ~80 comment and docstring lines left in `core/src`, `ssr/src`,
+`ssr-ring/src` and `tools/xray/src`.
 
 **`docs/design/freehand/` is KEPT — ruled `rf2-0moc4` on 2026-08-18, after two workers in
-succession refused an instruction to delete it.** Its 37 tracked files stay where they are with
-their contents untouched. Appearing in the R6 list above means only that they are edited for stale
-status like any other prose surface; it has never meant they are removed, and a sweep that reads it
-as an instruction to delete has misread it twice.
+succession refused an instruction to delete it.** All 37 tracked files stay where they are.
+Appearing in the R6 list above has never meant they are removed, and a sweep that read it as an
+instruction to delete has misread it twice.
+
+**KEEP settles deletion, not editing, and running those two together is what left this passage
+self-contradictory once already.** The ruling's summary — "contents untouched" — answers the
+*deletion* question, which is why it calls the disposition the null change: R6b's sweep completed
+without touching the tree. What a sweep may edit is answered instead by `docs/EP/EP-0036`
+§Design-record posture, kept under the EP paragraph below and leaned on by the ruling itself:
+"Keep it accurate but lean. Correct stale status, broken links, factual errors, and contradictions
+with rulings; do not grow it into a second API manual or tracker." That is the whole of R6's
+permission here — corrective, never additive — and it is narrower than "any other prose surface".
+
+**`docs/design/freehand/studio/` is narrower again: R6 does not edit it.** Those 10 of the 37 files
+are the frozen evidence surface, and the `docs/design/hicasso/studio/README.md` sentence quoted in
+the next paragraph goes on to say the studio "stays exactly as its own programme left it". All
+four of the inbound links measured below land inside it. Its numbers, evidence ids and window
+dates are the baseline a live chain cites, so revising them is not a prose fix but an edit to
+another programme's evidence. **So, in one line: outside `studio/`, correct stale status and
+broken links and add nothing; inside `studio/`, nothing; delete nothing anywhere.**
 
 **The deciding reason is the hicasso coupling.** `docs/design/hicasso/` is itself ruled kept, and it
 anchors its measurement numbers to the frozen studio tree — `docs/design/hicasso/studio/README.md`
@@ -393,8 +410,11 @@ measurement baseline out from under a live evidence chain. That coupling is meas
 asserted: deleting the 37 files takes `scripts/check_doc_slugs.py` to **exit 1 with four broken
 targets**, all four inbound from `docs/design/hicasso/` — `hd-002-adjudication.md:158` and `:566`
 pointing at `../freehand/studio/bulk-rerender-where-the-time-goes.md`, and `product/requirements-mine.md:15`
-and `:108` pointing at `../../freehand/studio/fitness-harness.md`. Two dispatches two days apart
-derived that same figure independently.
+and `:117` pointing at `../../freehand/studio/fitness-harness.md`. Three dispatches have derived
+that same figure independently, the third re-measuring it on 2026-08-21. The count and the two
+target files have held throughout; the line numbers have not — `requirements-mine.md`'s second
+citation read `:108` when this measurement was first written down — so anchor on the link target,
+never on the line.
 
 Two further facts stand behind the ruling, neither of them the deciding one. `docs/EP/EP-0036` —
 which the EP paragraph below rules is kept — states under §Design-record posture that the tree "is a
