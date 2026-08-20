@@ -450,7 +450,7 @@
   primitive*. The two-step spelling, against the adapters' one-step
   `(rf/capture-frame)`, is the taught asymmetry, and it has a one-
   sentence reason: **ambient frame lookup is what Hicasso's stricter body
-  discipline withdraws** (rf2-2rtt6.122 — see [[ambient-frame-refusal]]).
+  discipline withdraws** (see [[ambient-frame-refusal]]).
 
   THE LOAD-BEARING FACT is narrower than it looks. The refusal deletes
   the ambient FIND, never the carrying, so `rf/with-frame` and
@@ -464,8 +464,8 @@
 
   ## Why it reads [[*frame*]] and not the runtime's render slot
 
-  Load-bearing, and the difference is visible in one position. The
-  rf2-2rtt6.74 render-position work rebinds [[*frame*]] to the
+  Load-bearing, and the difference is visible in one position.
+  [[*frame*]] is rebound to the
   **supplying** boundary while a foreign component invokes a render
   callback ([[render-callback]]), where the runtime's own `rstate.frame`
   is nil — the foreign render runs outside the arm's render pass. So
@@ -634,12 +634,8 @@
   conversion stays a thing the author asked for rather than a guess about
   what a returned vector meant.
 
-  This docstring is why the spelling is worth stating precisely: it
-  carried `h/as-element` as an illustration before the export existed,
-  four design documents copied it out of here, and a later revision
-  over-corrected to *\"there is no `h/as-element`\"*. Both are now
-  behind us — rf2-hic-035 shipped the export, and this paragraph is its
-  upstream source of truth.
+  This docstring is the upstream source of truth for that spelling, and
+  design documents copy it from here.
 
   So the wrapper captures the ambient dispatch AND frame at LOWERING
   time — the supplying boundary's, because the wrapper is minted during
@@ -1047,7 +1043,7 @@
   it, so that is what [[unwrap-navigate]] asks on the hot path. This set
   is read by the REFUSAL, which runs once, at the error: building it per
   call was ~156 ns/element of the census page's walk, one
-  `PersistentHashSet` per link per render (`rf2-jr0tg`, costed on
+  `PersistentHashSet` per link per render (costed on
   `walk_vs_reagent_app`)."
   #{:frame :payload :native? :veto})
 
