@@ -324,8 +324,8 @@
 
   A superset on purpose, narrowed by [[tab-stop?]] and then ORDERED by
   [[sequential-tab-stops]]. On its own it answers *which elements are
-  candidates*, which is not the same question as *where Tab goes*, and
-  the gap between the two is what the audit of #8071 measured."
+  candidates*, which is not the same question as *where Tab goes*; the
+  gap between the two is what [[sequential-tab-stops]] exists to close."
   (str "a[href],area[href],button,input,select,textarea,summary,"
        "iframe,object,embed,audio[controls],video[controls],"
        "[contenteditable],[tabindex]"))
@@ -439,8 +439,8 @@
   ## What this models, and what it does not
 
   It models the two places sequential order departs from document order
-  inside an ordinary panel, both of which the audit of #8071 measured
-  choosing the wrong edge:
+  inside an ordinary panel, each of which sends a document-order answer
+  to the wrong edge:
 
   - a named radio group is ONE stop ([[one-stop-per-radio-group]]);
   - a positive `tabindex` sorts ahead of every `tabindex=0`, ascending,

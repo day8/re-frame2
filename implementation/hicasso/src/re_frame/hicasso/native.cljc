@@ -473,9 +473,9 @@
   here rather than reimplemented, because one policy concept with two
   implementations is the shape a second copy gets subtly wrong — the
   `useSyncExternalStore` triple is compared by identity and a fresh
-  closure per render re-subscribes every island on every render. Audit
-  #7839 asked for the two-value matrix and no second policy mechanism;
-  this is the first half taken by not building the second.
+  closure per render re-subscribes every island on every render. The
+  two-value matrix is the whole of the policy surface, and there is no
+  second policy mechanism behind it.
 
   So the hook answers `false` while React is producing server bytes AND
   again on hydration's first client pass, and `true` afterwards and on

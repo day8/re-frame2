@@ -93,7 +93,7 @@ recipe forwards in production. The substrate is always-on: it
 survives `:advanced` + `goog.DEBUG=false` where the trace surface
 DCEs because event-emit is the production observability surface. The
 demo's registration is intentionally ungated so visitors can see
-the listener fire; production deployments and the registration
+the listener fire; production deployments gate the registration
 with `(not ^boolean re-frame.interop/debug-enabled?)` per the
 chapter-22 recipe.
 

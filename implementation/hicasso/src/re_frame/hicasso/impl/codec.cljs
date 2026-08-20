@@ -1720,11 +1720,11 @@
 ;;
 ;; **The trap has a second door, and `:slots` is not it.** A declaration
 ;; carries TWO rosters, and `host-entry`'s reserved skip sits above both
-;; of them, so `{:callbacks {:constructor :event}}` was the identical
-;; silent mint — the audit of the fix above found it still standing.
-;; [[refuse-callback-position!]] is the callback half, asked of the same
-;; canonical name by the same predicate, and it rides the id that arm
-;; already had. Two rosters, two arms, one question.
+;; of them, so `{:callbacks {:constructor :event}}` is the identical
+;; silent mint through the other roster. [[refuse-callback-position!]] is
+;; the callback half, asked of the same canonical name by the same
+;; predicate, and it rides the id that arm already had. Two rosters, two
+;; arms, one question.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -2771,7 +2771,7 @@
   uncamelCased, so the slot still carries the prefix to test.
 
   The roster is this repo's own, not a guess: the `reagent-slim` adapter
-  narrowed exactly this seam after an audit and shipped this same set
+  narrows exactly this seam to this same set
   (`adapters/reagent-slim/IMPL-SPEC.md` §7.2, `DESIGN-RATIONALE.md` §5)."
   #{"className" "id" "role"})
 
@@ -2841,9 +2841,9 @@
   the rule underneath an installed Reagent codebase and the warning is
   that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
   for the case we did not audit\"). Hicasso has no such codebase to
-  protect, and after this change a keyword at a host prop is the CORRECT
-  and taught spelling of HD-011's flagship case — warning on the happy
-  path is a nag, not a diagnostic. The guide teaches the rule instead."
+  protect, and a keyword at a host prop is the CORRECT and taught
+  spelling of HD-011's flagship case — warning on the happy path is a
+  nag, not a diagnostic. The guide teaches the rule instead."
   [slot v]
   (cond
     (fn? v)                       v
