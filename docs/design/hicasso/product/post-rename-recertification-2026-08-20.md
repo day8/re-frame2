@@ -1,0 +1,243 @@
+# Post-rename recertification — the 2026-08-20 re-run
+
+`rf2-hic-090`'s fourth results record. [`post-rename-recertification.md`](post-rename-recertification.md)
+is the parent page and carries the bead's roster of five evidence families;
+[the 2026-08-18 page](post-rename-recertification-2026-08-18.md) is the third run and supplied every
+command re-used here. **This page does not restate those runs and does not correct them**, with one
+exception it states in full and defends at source: [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)
+overturns one sentence of the 2026-08-18 page's characterisation of family 5.
+
+**Every figure below is a COUNTER or a BYTE COUNT, and none is a clock reading.** Three other workers
+were alive on this machine while these gates ran, so an elapsed-time figure taken here would measure the
+load rather than the tree. Counters and bytes read the same under load, which is why they are the only
+estimands this page carries.
+
+## 1. Why a fourth run — the trigger, re-derived rather than carried forward
+
+The re-run condition is the mayor's 2026-08-16 ruling, quoted by the 2026-08-18 page: re-check the
+families *if anything the size of PR #8322 lands again*. The dispatch reported the delta as 301 commits
+and 472 files. **That was a claim and it is now understated**, because the trunk moved further between
+the assessment and this branch's base.
+
+| What was measured | Command | Result |
+|---|---|---|
+| trunk movement since the last certified base | `git rev-list --count f5b1f1e94f..HEAD` | **442** commits |
+| its size | `git diff --shortstat f5b1f1e94f..HEAD` | **703** files, 837965 insertions, 11296 deletions |
+| its size on the surfaces these families read | `git diff --name-only f5b1f1e94f..HEAD -- implementation .github` | **416** files |
+| of those, bench measurement data rather than source | `… \| grep -c 'bench/hicasso/data/'` | **115** |
+| so, non-data files under `implementation/` or `.github/` | `… \| grep -vc 'bench/hicasso/data/'` | **301** |
+
+The insertion count is dominated by measurement data and must not be read as source churn: one file,
+`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-0gjqi/paired-run1.json`, is 20246 lines
+of it. **The file count is the honest axis and it is larger than the 2026-08-18 trigger on every
+reading** — 442 commits against 175, 703 files against 219, 416 family-surface files against 122.
+
+**The paths are the stronger half of the test, and they are emphatic.** Every one of the four instrument
+scripts this page runs has a moved neighbour, and one of them moved itself:
+`implementation/hicasso/scripts/check_optional_module_reachability.py` is in the interval, as are
+**every** file under `implementation/hicasso/src/re_frame/hicasso/impl/`, `hicasso.cljc` itself,
+`native.cljc`, `motion.cljs`, `server.cljs` and `substrate.cljs`. A recertification whose instruments and
+whose subject have both moved is due on its own terms.
+
+**The parent page's own stop condition was re-tested and it still holds.** `rf2-t32wg` — the row-18 seam
+the certification waits on — is `DEFERRED` to 2026-09-16 and unruled, read from `bd show` rather than
+carried forward. So this run changes what is measured and changes nothing about what is certified
+overall; see [§6](#6-what-this-still-does-not-certify).
+
+## 2. The base, and the tree it was taken on
+
+| | |
+|---|---|
+| base | `2f96ecc98c36ce0c6c845969e39566134351dea1`, `origin/main` at 2026-08-20 23:40 AUSEST |
+| worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
+| `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
+| open PRs touching a family 1–4 surface | **none**. Only two PRs are open: `#8559` is `docs/design/hicasso/product/dispositions.md`, and `#8555` is the bench trees plus `docs/design/hicasso/studio/`. `#8555` does touch `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. |
+| the box at the first heavy gate | free physical **17.30 GB of 63.43 GB**; `java` **0**, `node` 20, `chrome` 96, at 23:42:48 AUSEST |
+
+**Every family was run one at a time and never in parallel**, and the reason is not politeness about
+wall-clock. Two heavyweight suites here have once *wedged* rather than failed — each holding several
+gigabytes, neither returning and neither reporting anything. That is contention for the machine, which no
+naming discipline touches.
+
+Each exit code below is the runner's own, captured by an `echo` on the same command line as the redirect.
+No number here is one the harness reported about a run.
+
+**Which tree each gate read is established two ways.** Every shadow-cljs invocation printed the absolute
+path of the `shadow-cljs.edn` it loaded on its first line, and it named this worker's worktree on every
+run, never a sibling's. Where a gate printed no root, [§7](#7-the-controls--which-gates-were-shown-to-still-bite)'s
+planted faults supply the other route: each fault existed only in this worktree, so a run that had
+wandered elsewhere would have come back green.
+
+## 3. Family 1 — bundle isolation and the rent sentinels
+
+The bead's phrasing is *interpreted-only zero-rent*, and it is two gates rather than one: the source half
+decides reachability over `:require` forms, and the bundle half reads a real `:advanced` +
+`goog.DEBUG=false` build. Neither answers the other's question, so both are run.
+
+| Half | Command | Captured exit | What it reported |
+|---|---|---|---|
+| source | `python hicasso/scripts/check_optional_module_reachability.py --self-test` | `0` | self-test OK |
+| source | `python hicasso/scripts/check_optional_module_reachability.py` | `0` | motion, overlay, native, forms, server **and substrate** all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate |
+| bundle | `npx shadow-cljs release hicasso-release` | `0` | **162 files, 107 compiled, 0 warnings** |
+| bundle | `node hicasso/scripts/check_production_erasure.cjs --self-test` | `0` | self-test OK (5 sentinels, 3 positive controls) |
+| bundle | `node hicasso/scripts/check_production_erasure.cjs` | `0` | no dev-only Hicasso surface in the bundle — **5 sentinels absent, 3 positive controls present** |
+| bundle | `node hicasso/scripts/check_bundle_isolation.cjs --self-test` | `0` | self-test OK (8 sentinels, 4 positive controls) |
+| bundle | `node hicasso/scripts/check_bundle_isolation.cjs` | `0` | no isolated surface reached the interpreted-only bundle — **8 sentinels absent, 4 positive controls present** |
+
+**Verdict: GREEN.** The composite `npm run build:hicasso-release` chains all five bundle-half steps; it
+was split into its steps here, as on 2026-08-18, so each verdict is a foreground capture of its own
+rather than one status standing for five.
+
+### 3.1 The reachability gate's population grew by one, and that is a finding
+
+The 2026-08-18 run recorded five optional modules — *motion, overlay, native, forms and server*. This run
+reads **six**: `substrate` has joined them. The gate script itself is in the interval
+(`check_optional_module_reachability.py`, §1), and `implementation/hicasso/src/re_frame/hicasso/substrate.cljs`
+is a file the interval added. So the gate is checking **more** than it was, not the same amount over a
+changed tree, and the green is correspondingly wider. Stated because a roster that quietly grows is
+exactly the kind of thing a certification exists to notice.
+
+### 3.2 The bundle bytes MOVED, and this is the first byte comparison this corpus can make
+
+| | 2026-08-18, at `f5b1f1e94f` | here, at `2f96ecc98c` | delta |
+|---|---:|---:|---:|
+| `out/hicasso-release/main.js` | 671290 B | **671269 B** | **−21 B**, −0.0031% |
+| `out/hicasso-release/manifest.edn` | 4806 B | 4806 B | 0 |
+| build population | 162 files / 107 compiled | 162 / 107 | 0 |
+
+The 2026-08-18 page was explicit that its byte figure was **an anchor and not a comparison**, because no
+earlier figure existed to difference it against. One does now, and this is the difference. **Twenty-one
+bytes across 442 commits that rewrote most of `hicasso/src/` is the substantive shape of the result**:
+the compile population did not move at all, and the emitted bundle moved by three thousandths of one
+percent. Nothing here licenses a claim about *why* it moved by 21 bytes, and no attribution is offered.
+
+## 4. Family 5 — the pinned regression gate, and the clock-versus-ladder question settled
+
+The dispatch named settling this a deliverable, because two source pages appeared to be in tension and
+the answer decides whether this run reports four families or five. **It is settled here, in two steps,
+and the two steps do not point the same way.**
+
+### 4.1 The 2026-08-18 page's "clock estimand" characterisation is WRONG, and `budgets.md` says so
+
+[The 2026-08-18 page's §4](post-rename-recertification-2026-08-18.md#4-family-5--the-pinned-regression-gate)
+says of family 5: *"what family 5 would be if it existed: a **clock** estimand."* That sentence does not
+survive a read of the row's own registry.
+
+- [`budgets.md`](budgets.md)'s §9.2 states `C1`'s blocker in as many words: *"`C1` compares a reading
+  against the pinned ordinary-Hicasso benchmark … **Until the ladder is re-pinned**, 'the same
+  instrument' names nothing."* The instrument `C1` is registered on is **the ladder**.
+- The same section's roster of what each not-green row waits on separates the two kinds explicitly: *"The
+  **user-visible gates** — `U1`–`U4`, and `C3`/`C4`"* are the rows waiting on a clock instrument, and
+  *"The **5% same-instrument regression gate** — `C1`"* is a separate bullet whose blocker is the ladder
+  re-pin, *"a run, not an edit"*.
+- `budgets.md`'s §6 pins it harder still: *"`C1`: the supersession has widened rather than closed. **The
+  ladder's provenance table pins eleven blobs**"*, six of them the P0 driver's.
+- A fixed-string search of `budgets.md` for lines carrying both `C1` and any spelling of *clock* returns
+  **nothing**. The control on that search is its sibling: the same search for `C7` and *clock* returns
+  the line *"C7 stays `UNPINNED` and its clock half remains `rf2-hic-071`'s, along with the ladder
+  re-pin"* — so the pattern finds clock-halves where they exist, and `C1` has none.
+
+**So the expiry the dispatch suspected is REAL and it is not narrow.** The 2026-08-19 anchor was taken on
+`p0_run.cjs --only ladder`, which is `C1`'s registered instrument and not a different estimand. Family
+5's standing answer for three runs — *"the gate does not exist"* — has genuinely stopped being true.
+
+### 4.2 And family 5 still reports NO VERDICT here, for a different and much narrower reason
+
+Having established that the heap ladder **is** `C1`'s instrument, the next question is whether a reading
+taken on this branch's base would be `C1`'s second reading. It would not, and the disqualification is
+measured rather than argued.
+
+`C1` is written *on the same witness **and instrument***. The instrument is the nine files
+[the anchor page's §6](../studio/the-c1-anchor-on-the-package-arm.md) pins. Re-read at this base:
+
+| instrument file | pinned by the 2026-08-19 anchor | at `2f96ecc98c` | same? |
+|---|---|---|---|
+| `p0_run.cjs` | `ce6363ff774d8049c07b58513d708687a73e937e` | `cf437c8f30debfa0d424f8dff517c1ae003163b5` | **no** |
+| the other eight `p0_*` files | as pinned | identical blob for each | yes |
+
+The mover is the driver itself, changed by `e27c2a3b26` — *"P0_ALLOC_SEG_ORDER=fixed breaks the
+position/substrate confound (rf2-rs8q6)"*, 102 insertions and 2 deletions. **A reading taken here would
+be the same witness on a different instrument**, which is precisely the comparison
+[the anchor page's own §7.4](../studio/the-c1-anchor-on-the-package-arm.md#74-the-seven-day-comparison-and-why-it-is-reported-but-not-counted)
+declined to count when it faced the identical situation against the 2026-08-12 rung. Taking it and
+reporting it as `C1`'s second reading would manufacture the un-attributable comparison `C1` exists to
+forbid.
+
+Two further facts point the same way and neither is needed to reach the conclusion.
+
+- **The instrument is still moving.** PR `#8555` is open at this base and touches `p0_run.cjs` again. A
+  second reading taken now would be superseded by a merge that is already in the queue.
+- **The box is not drained.** Three workers were alive throughout this run and this page's own gates were
+  the heaviest thing on the machine. The anchor page's §2 refuses a contended reading *"which lands
+  within a byte"* as evidence, so a reading taken alongside these suites could not have cleared its own
+  admissibility bar even on an unchanged instrument.
+
+**Verdict: family 5 reports NO VERDICT — not green, not red.** But the reason has changed in kind for the
+first time in four runs, and the difference is worth stating precisely because it is what the next run
+inherits:
+
+| run | family 5's reason for no verdict |
+|---|---|
+| parent, 2026-08-15 | the gate was never built; `C1` deliberately unpinned |
+| 2026-08-16 | unchanged |
+| 2026-08-18 | unchanged, plus a mischaracterisation of the row as a clock estimand |
+| **this run** | **the gate exists and has an anchor**; what is missing is a second reading on the *same* instrument, and the instrument moved after the anchor was taken |
+
+### 4.3 What would make family 5 reportable, stated so the next run does not re-derive it
+
+Three conditions, and all three are cheap to test:
+
+1. `p0_run.cjs` and the other eight instrument files at the same blobs as some prior admissible reading —
+   which today means either a re-pin of the ladder against `cf437c8f30…` (or whatever `#8555` leaves) with
+   a fresh anchor taken on it, or a reading taken on a checkout of the anchor's own `p0_run.cjs`.
+2. A drained box, to the standard the anchor page's §2 and §5 set.
+3. Two readings, across a change, on that one instrument.
+
+The first is the only one that needs a decision rather than a window, and it is `rf2-85og2`'s: its
+remaining scope is *the ladder re-pin plus the 5% comparison it makes meaningful*, which covers exactly
+this. **Nothing here is `rf2-hic-090`'s to do** — this bead's surface line is *re-runs existing gates,
+edits nothing*, and taking a bench measurement is not re-running an existing gate.
+
+### 4.4 The ledger vocabulary: the gap is now WIDER, and it is still a ruling
+
+The dispatch put the fifth status value in scope if the finding warranted it. It does not, and the reason
+is that the finding moved past it.
+
+`budgets.md` leaves `C1` at `UNPINNED` and records why: there is no value meaning *anchored, instrument
+exists, awaiting a second reading*, and *"minting a fifth is a ruling rather than a worker's edit"*. That
+was written on 2026-08-19. **Within one day the state it describes had already expired**: the instrument
+has since moved, so the true cell today is nearer *anchored, instrument has since drifted, anchor not yet
+comparable* — a fifth value minted for the 2026-08-19 state would already be wrong at this base. Minting
+one for the 2026-08-20 state instead would be inventing a taxonomy to fit a state that is itself moving,
+which is the thing the stance rejects and which `budgets.md`'s own §9.1 says `UNRESOLVED` was invented to
+prevent.
+
+**So no cell was moved and no value was minted.** The discrepancy is recorded here, one notch sharper
+than `budgets.md` records it, and the ruling stays where it was.
+
+## 6. What this still does not certify
+
+**The overall certification remains PARTIAL, and for the same reason as the parent page's.** Nothing here
+disturbs the mayor's 2026-08-15 ruling: what holds `rf2-hic-090` open is not the five families but
+naming-ledger row 18, and row 18 is uncertified because `rf2-t32wg` needs an operator spec ruling on
+admitting zero-arity `rf/capture-frame` and `rf/current-frame-id` inside a Hicasso body.
+
+That fence was re-tested at source for this run rather than carried forward. `rf2-t32wg` is `DEFERRED` to
+2026-09-16 and **unruled** — a defer schedules the question rather than answering it, so the release
+condition the mayor stated is unmet: this bead closes when `rf2-t32wg` is ruled and row 18 is executed, or
+when the operator rules that row 18 need not block certification. Both are operator calls, and neither is
+a worker's to make.
+
+Three boundaries are worth stating plainly, because a certification record is exactly the document whose
+careful sentences get quoted one notch stronger later.
+
+- **Four families green is still not five.** Family 5 has no verdict — not a green one and not a red one.
+  See [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled). What
+  changed this run is the *reason*, not the count.
+- **The 21-byte bundle delta is a measurement, not an attribution.** It says the bundle moved; it says
+  nothing about which of 442 commits moved it, and no bisect was run.
+- **Family 4's elision arm still carries no planted fault**, exactly as the 2026-08-18 page recorded. See
+  [§7.2](#72-what-was-not-proved).
+
+**Nothing was filed in [`correction-ledger.md`](correction-ledger.md), because there was no red to file.**
+Every captured exit in §3 and §5 is the runner's own `0`.
