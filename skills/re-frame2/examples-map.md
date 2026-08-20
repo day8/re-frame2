@@ -11,7 +11,7 @@ The full catalogue (with maturity, build ids, and end-to-end Playwright coverage
 
 ## counter — `examples/core/counter/`
 
-The smallest possible re-frame2 app. One `reg-event`, one `reg-sub`, one `reg-view` Var, an `:initial-events` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames and 004 Views. The pedagogical "hello world" — its shape sets the bar for every other example.
+The smallest possible re-frame2 app. One `reg-event`, one `reg-sub`, one `reg-view` Var, an `:initial-events` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames. The pedagogical "hello world" — its shape sets the bar for every other example.
 
 ## counter_slim_and_fast — `examples/substrates/reagent_slim/counter/`
 
@@ -55,7 +55,7 @@ The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
-The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` events, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR and 004 Views. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
+The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` events, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
 
 ## state_machine_walkthrough — `examples/capabilities/machines/state_machine_walkthrough/`
 
@@ -63,11 +63,11 @@ The runnable companion to `docs/machines/concepts.md` — the guide chapter's lo
 
 ## todomvc — `examples/core/todomvc/`
 
-The canonical cross-framework benchmark — persistence (localStorage), in-place editing, bulk actions (mark-all-done, clear-completed), remaining-count derivation, and hash-routing filters (`#/`, `#/active`, `#/completed`). Point at this example when verifying a slice-shaped feature with a list of items, a derivation-heavy subscription graph (the filtered list, the remaining count, the all-completed flag), an interceptor-based localStorage persistence pattern, or the integration of `reg-route` with a list-filtering view. Exercises 002 Frames, 004 Views, and 012 Routing. The classic shape benchmark; if a feature looks like "manage a list with filters", this is the shape reference.
+The canonical cross-framework benchmark — persistence (localStorage), in-place editing, bulk actions (mark-all-done, clear-completed), remaining-count derivation, and hash-routing filters (`#/`, `#/active`, `#/completed`). Point at this example when verifying a slice-shaped feature with a list of items, a derivation-heavy subscription graph (the filtered list, the remaining count, the all-completed flag), an interceptor-based localStorage persistence pattern, or the integration of `reg-route` with a list-filtering view. Exercises 002 Frames and 012 Routing. The classic shape benchmark; if a feature looks like "manage a list with filters", this is the shape reference.
 
 ## 7GUIs — `examples/core/seven_guis/`
 
-A cluster of six small benchmark apps from the [7GUIs](https://eugenkiss.github.io/7guis/) suite — `temperature/`, `flight_booker/`, `timer/`, `crud/`, `circle_drawer/`, `cells/`. Each app is a focused stress on one shape: bidirectional derivations (`temperature`), form-validity-driven button enablement (`flight_booker`), `:dispatch-later` periodic ticks (`timer`), list-CRUD with selection-as-state (`crud`), undo/redo via a snapshot-on-write interceptor and modal-as-state (`circle_drawer`), and a full formula-graph subscription substrate with cycle detection (`cells`). Point at the 7GUIs cluster when picking the right shape for a small focused concern: a controlled input pair, a Book-button-enables-only-when-valid flow, a periodic-tick UI, list operations with selection, undo/redo, or formula-driven cell propagation. Exercises 004 Views, 002 Frames, 006 ReactiveSubstrate, and Pattern-Forms. See `examples/core/seven_guis/README.md` for the cluster's own narrative.
+A cluster of six small benchmark apps from the [7GUIs](https://eugenkiss.github.io/7guis/) suite — `temperature/`, `flight_booker/`, `timer/`, `crud/`, `circle_drawer/`, `cells/`. Each app is a focused stress on one shape: bidirectional derivations (`temperature`), form-validity-driven button enablement (`flight_booker`), `:dispatch-later` periodic ticks (`timer`), list-CRUD with selection-as-state (`crud`), undo/redo via a snapshot-on-write interceptor and modal-as-state (`circle_drawer`), and a full formula-graph subscription substrate with cycle detection (`cells`). Point at the 7GUIs cluster when picking the right shape for a small focused concern: a controlled input pair, a Book-button-enables-only-when-valid flow, a periodic-tick UI, list operations with selection, undo/redo, or formula-driven cell propagation. Exercises 002 Frames, 006 ReactiveSubstrate, and Pattern-Forms. See `examples/core/seven_guis/README.md` for the cluster's own narrative.
 
 ## websocket — `examples/patterns/websocket/`
 
@@ -79,11 +79,11 @@ The canonical Pattern-LongRunningWork worked example — a `:work/flow` parent c
 
 ## ssr_streaming — `examples/capabilities/ssr/ssr_streaming/`
 
-The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming and 004 Views. The streaming complement to the minimal `ssr/` walkthrough.
+The streaming-SSR worked example for [Spec 011 §Streaming](../../spec/011-SSR.md#streaming-ssr) — a dashboard with three slow cards where the page shell + header render immediately on the server, then each card streams its content as its own data fetch resolves. Demonstrates the `:rf/suspense-boundary` hiccup marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Point at this example when authoring streaming server-rendered views, suspense boundaries, or per-subtree hydration. Lives in a single `core.cljc` (cross-platform JVM/browser). Exercises 011 SSR §Streaming. The streaming complement to the minimal `ssr/` walkthrough.
 
 ## notebook — `examples/core/notebook/`
 
-The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/substrates/uix/dashboard/`; the two share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames and 004 Views. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
+The design-led Reagent example — a three-pane editorial layout (documents tree · markdown editor · live preview) that proves the substrate drives a substantive multi-pane UI. The design-led counterpart to `examples/substrates/uix/dashboard/`; the two share the "Editorial Warm" identity from `examples/_shared/css/style.css`. A tiny pure-CLJS markdown parser keeps the bundle small. Point at this example when authoring a multi-pane layout, a master-detail editor shape, or when verifying the shared design-system identity across substrates. Single `core.cljs`. Exercises 002 Frames. Not a pattern-teaching example — read it for layout/identity shape, not for a primitive.
 
 ## Adapter smoke-pairs
 

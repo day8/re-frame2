@@ -259,7 +259,7 @@ implementation/
 | 001 Registration | Done | (covered transitively) |
 | 002 Frames | Done | dispatch/envelope, drain/depth-limit, frame/{lifecycle,multi-instance}, fx/{db-first,ordering-source-order,override-by-id} |
 | 003 — | Reserved (no `003-*.md`; held open per [`spec/README.md`](../spec/README.md) for future cross-frame composition work) | — |
-| 004 Views | Done (JVM-runnable + CLJS via Reagent) | covered via reg-view in SSR fixtures |
+| 004 — | Vacant (no `004-Views.md`; deleted 2026-08-18 with the substrates it described, and nothing has replaced it — see [`spec/README.md`](../spec/README.md). `004B` and `004C` are separate surviving Specs, not a replacement, and this table does not grade them) | — |
 | 005 State Machines | Done | machine/transition, hierarchical-{compound,cross-level,parent-fallthrough}, always-{single-microstep,depth-exceeded}, after-{single-delay,stale-detection,hierarchy}, spawn-on-entry-destroy-on-exit |
 | 006 Reactive Substrate | Done (Reagent + plain-atom; UIx smoke-tested) | sub/chain |
 | 007 Stories | Out of scope for the CLJS reference (no canonical implementation; the spec defines the Story / Variant / Workspace contract for tooling consumers) | — |
