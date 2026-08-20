@@ -314,8 +314,11 @@ defect in the witness so much as a question nobody had asked it.
 > closing observation stands; the generalisation from them to the whole
 > trajectory does not, and the pair chosen was cross-revision. Replaced by the
 > two paragraphs below. **No window was re-taken and no rig file was touched** —
-> every figure is re-derived from this page's own eight committed datasets by
-> `alloc_heap_trajectory.cjs`, which prints them.
+> every figure is re-derived from this page's own **seven eighteen-round**
+> committed datasets by `alloc_heap_trajectory.cjs`, which prints them. Eight are
+> committed; the script's filter is `bisect-*.json`, so the six-round pilot is
+> excluded exactly as [the run roster](#the-run-roster-and-the-count-was-fixed-before-the-deciding-runs)
+> excludes it from every other figure here.
 
 **The two modes CLOSE at the same heap, and that is a closing-level observation
 rather than a trajectory one.** Against the high run's own same-revision,
@@ -478,7 +481,15 @@ every figure in the withdrawn-and-narrowed passage above is printed by:
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_heap_trajectory.cjs
 ```
 
-It reads the eight committed datasets, launches nothing and writes nothing.
+**It reads seven of the eight committed datasets, and the omission is
+deliberate.** Its roster is `readdirSync(DATA).filter((f) => f.startsWith('bisect-')
+&& f.endsWith('.json'))`, which is the seven eighteen-round runs;
+`pilot-rounds6-head-88411ed803.json` does not match the prefix and is never
+loaded. That is the same exclusion [the run roster](#the-run-roster-and-the-count-was-fixed-before-the-deciding-runs)
+applies to every figure on this page — a six-round pilot has no place in an
+eighteen-round trajectory comparison — and the script guards it twice, since the
+two sections that iterate the roster also skip any run whose `rounds` is not 18.
+It launches nothing and writes nothing.
 
 ## Related
 
