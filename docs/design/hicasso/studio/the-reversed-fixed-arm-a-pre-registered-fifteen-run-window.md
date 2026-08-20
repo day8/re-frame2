@@ -102,6 +102,208 @@ Every measured figure below is re-derived from the committed records by:
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
 ```
 
-## Result
+## The answer, first
 
-*This section is written after the fifteenth run and not before it.*
+**The SLOT hypothesis is REFUTED and the SUBSTRATE hypothesis is NOT SETTLED —
+and the reason it is not settled is a defect in the pre-registered statistic, not
+a shortage of runs.**
+
+- **On the pre-registered statistic the answer is NEITHER.** Inside
+  `fixed-reversed`, `uix-subs` at position 0 reads **1 of 68** and `reagent-subs`
+  at position 1 reads **1 of 82**. The primary within-run contrast between them is
+  p = 1.0000. The same-session `fixed` arm read **8 of 63** in four of its five
+  runs over the same fifteen-run session, so the instrument was not asleep.
+- **But that statistic is MASKED in the one cell the whole discriminator rests
+  on.** It counts a window only when the in-band leg is that window's **worst**,
+  and `fixed-reversed | uix-subs | pos0` has a median |worst leg| of **1,488 B** —
+  above the top of the band — with 35 of its 68 windows worse than 1,224 B. The
+  competing term is not a mystery: **position 0 is where the ~748 B rider lives**,
+  and [the rider follows the position, not the substrate](the-rider-follows-the-position-not-the-substrate.md)
+  established that it is position-locked rather than substrate-locked.
+- **On a masking-free companion the cluster DOES follow `uix`, at about a third
+  the rate.** Counting windows carrying an in-band leg whether or not it is the
+  worst: `fixed | uix-subs | pos1` 20.8%, `fixed-reversed | uix-subs | pos0`
+  **7.4% in four of five runs**, `parity | uix-subs | pos0` 1.3%,
+  `fixed-reversed | reagent-subs | pos1` 1.2%. **That companion is POST-HOC** —
+  written after this window was read — and it is labelled so everywhere it
+  appears. It cannot carry a verdict on its own and none is rested on it.
+- **What both readings agree on**: putting `reagent-subs` in the second-driven
+  slot does not move the cluster there. On the pre-registered statistic that is
+  8/63 against 1/82 (p = 0.0105); on the companion, 10/63 against 1/82
+  (p = 0.0011).
+
+**So the bead stays OPEN**, with a sharper question than it had and a named
+defect in the instrument that was supposed to answer it.
+
+### The methodological finding, which was knowable in advance
+
+**The discriminator's design and its pre-registered statistic are in tension.**
+The reversed arm exists to move `uix-subs` to position 0. Position 0 is where a
+second, already-recorded term sits. The statistic is a per-window **maximum**, so
+the two terms compete for it and the larger one wins. A reversed-arm read was
+therefore always going to under-count at `uix-subs`, and nothing about that
+needed the data to see — the rider record predates this window by days.
+
+It is recorded here rather than repaired, because repairing it means
+**pre-registering a masking-free statistic and taking the window again**, and
+choosing a statistic after seeing which one gives the wanted answer is exactly
+what pre-registration exists to prevent.
+
+## The window
+
+Fifteen runs, one session, one revision, one box, interleaved one at a time.
+**All fifteen were taken; none was dropped, extended or re-rolled.**
+
+| | `fixed-reversed` | `fixed` | `parity` |
+|---|---|---|---|
+| runs | 5 | 5 | 5 |
+| control refused | 0 | 0 | 0 |
+| arm windows | 180 | 180 | 180 |
+| collection-free | 150 | 135 | 145 |
+
+540 arm windows, **430 collection-free**, all 430 in the position tables
+(`controlSlot = first` throughout), **0 control-refused**.
+
+**Every run exited 1**, on the falls gate (4 – 16 collections inside measured
+windows) and the leg-tolerance gate (9 – 24 windows) — the normal verdict for
+this row, and by construction outside the statistic, which is defined over
+`falls === 0` windows only. **No gate was widened or narrowed and τ was not
+touched in either direction.**
+
+### The arm did what it says
+
+A positive control on the rig rather than on the finding: every round of every
+`fixed-reversed` run drove `uix-subs` then `reagent-subs`, and every round of
+every `fixed` run drove `reagent-subs` then `uix-subs`, while `parity`
+alternated. Pinned in the reader's self-test.
+
+### The level read, before any comparative
+
+| level (reagent / uix, B/write) | runs | which |
+|---|---|---|
+| 19,370 – 19,384 / 19,816 – 19,824 | 12 | four `fixed`, four `parity`, four `fixed-reversed` |
+| 21,844 / 22,278 – 22,284 | 2 | `fixed-5`, `reversed-1` |
+| 23,068 / 23,508 | 1 | `parity-2` |
+
+**The three high-mode runs are ONE PER ARM**, so the level is not confounded with
+the property under test. **No unexplained excursion**: every level here sits
+inside the corpus's already-documented modes, and `reversed-1` settled on the
+**identical** `reagent-subs` level to `segorder-rs8q6/fixed-1` and agrees with it
+to **6 B** on `uix-subs` — across two sessions, two dates and two segment-order
+modes, which is the strongest single check available that this is the same
+instrument on the same estimand.
+
+**The null arm carries nothing**: 4,818 control legs in this window, **0** in the
+1,000 – 1,300 B band.
+
+## The census
+
+Worst leg per collection-free window over its own leg median, **signed-furthest**,
+in the primary 1,050 – 1,224 B band. This window only.
+
+| mode \| segment \| position | windows | in band | rate | runs w/ a hit |
+|---|---|---|---|---|
+| `fixed` \| `uix-subs` \| pos1 | 63 | **8** | 12.7% | **4 of 5** |
+| `fixed` \| `reagent-subs` \| pos0 | 72 | 1 | 1.4% | 1 of 5 |
+| `fixed-reversed` \| `uix-subs` \| pos0 | 68 | 1 | 1.5% | 1 of 5 |
+| `fixed-reversed` \| `reagent-subs` \| pos1 | 82 | 1 | 1.2% | 1 of 5 |
+| `parity` \| `uix-subs` \| pos0 | 41 | 0 | 0.0% | 0 of 5 |
+| `parity` \| `uix-subs` \| pos1 | 32 | 0 | 0.0% | 0 of 5 |
+| `parity` \| `reagent-subs` \| pos0 | 31 | 0 | 0.0% | 0 of 5 |
+| `parity` \| `reagent-subs` \| pos1 | 41 | 0 | 0.0% | 0 of 5 |
+
+Read as **largest-positive** the `fixed | uix-subs | pos1` cell is 9 of 63 rather
+than 8; every other cell is identical under both readings. The record quotes
+signed-furthest because that is what the published `8 of 38` was stated in.
+
+| contrast, primary band | window | p | run level | p |
+|---|---|---|---|---|
+| **CARRIER** — `fixed-reversed`, uix pos0 vs reagent pos1 | 1/68 vs 1/82 | 1.0000 | 1 of 5 vs 1 of 5 | 1.0000 |
+| **FOLLOWS** — uix, `fixed` pos1 vs `fixed-reversed` pos0 | 8/63 vs 1/68 | 0.0142 | 4 of 5 vs 1 of 5 | 0.2063 |
+| **STAYS** — pos1, `fixed` uix vs `fixed-reversed` reagent | 8/63 vs 1/82 | 0.0105 | 4 of 5 vs 1 of 5 | 0.2063 |
+| **MODE** — uix pos1, `fixed` vs `parity` | 8/63 vs 0/32 | 0.0483 | **4 of 5 vs 0 of 5** | **0.0476** |
+| **MODE** — uix pooled, `fixed-reversed` vs `parity` | 1/68 vs 0/73 | 0.4823 | 1 of 5 vs 0 of 5 | 1.0000 |
+
+### The masking diagnostic, POST-HOC
+
+Written after this window was read. **ANY-LEG** counts a window carrying an
+in-band leg whether or not it is that window's worst; **share** is how often it
+IS the worst, which is the masking rate itself.
+
+| cell, this window | windows | any-leg | worst-leg | share | median \|worst\| |
+|---|---|---|---|---|---|
+| `fixed` \| `uix-subs` \| pos1 | 63 | 10 | 8 | 80% | 1,056 B |
+| `fixed-reversed` \| `uix-subs` \| pos0 | 68 | **5** | **1** | **20%** | **1,488 B** |
+| `fixed-reversed` \| `reagent-subs` \| pos1 | 82 | 1 | 1 | 100% | 24 B |
+| `fixed` \| `reagent-subs` \| pos0 | 72 | 1 | 1 | 100% | 748 B |
+
+**Four of the five `fixed-reversed` runs carry an in-band `uix` leg at position
+0**, against one of five carrying one at `reagent-subs`, and zero of five parity
+runs at `uix-subs` in either position. The 20% share against `fixed`'s 80% is the
+masking, stated as a number.
+
+## Read against the corpus
+
+With this window the admissible corpus is **131 runs / 3,688 collection-free /
+3,520 positional**, against 116 / 3,258 / 3,090 before it. The two
+control-refused runs are still named and still refused; nothing here relaxes
+that rule.
+
+| cell | windows | primary band | any-leg (post-hoc) |
+|---|---|---|---|
+| `fixed` \| `uix-subs` \| pos1 | 101 | 16 (15.8%) | 21 (20.8%) |
+| `fixed-reversed` \| `uix-subs` \| pos0 | 68 | 1 (1.5%) | 5 (7.4%) |
+| `fixed-reversed` \| `reagent-subs` \| pos1 | 82 | 1 (1.2%) | 1 (1.2%) |
+| `fixed` \| `reagent-subs` \| pos0 | 115 | 1 (0.9%) | 2 (1.7%) |
+| `parity` \| `uix-subs` \| pos0 | 774 | 8 (1.0%) | 10 (1.3%) |
+| `parity` \| `uix-subs` \| pos1 | 744 | 3 (0.4%) | 21 (2.8%) |
+| `parity` \| `reagent-subs` \| pos0 | 697 | 2 (0.3%) | 2 (0.3%) |
+| `parity` \| `reagent-subs` \| pos1 | 939 | 0 (0.0%) | 0 (0.0%) |
+
+On the post-hoc companion the reversed `uix` cell sits **between** the two:
+7.4% against `fixed`'s 20.8% (p = 0.0179) and against `parity | uix | pos0`'s
+1.3% (p = 0.0047). On the pre-registered statistic it sits at the parity floor,
+for the masking reason above. **Neither reading is discarded and neither is
+allowed to stand alone.**
+
+### What this window does settle: the matched MODE baseline
+
+The bead recorded MODE as *associated, not established at a matched baseline*,
+because the strictly matched same-session contrast was 8/38 against 1/23
+(p = 0.1344) at window level and **3 of 3 runs against 1 of 3 (p = 0.4)** at run
+level — no power at all. This window adds a second matched session at **4 of 5
+against 0 of 5, p = 0.0476**. Taken together the two matched windows are **7 of 8
+`fixed` runs against 1 of 8 `parity` runs, p = 0.0101** — the first run-level
+separation the record has had that controls session, date and revision.
+
+**But "MODE" must now be read narrowly.** `fixed-reversed` is exactly as
+non-alternating as `fixed`, and it reads 1.5% / 7.4% at `uix-subs` rather than
+`fixed`'s 15.8% / 20.8%. So what separates from `parity` is **the forward fixed
+order specifically** — `reagent-subs` driven first and `uix-subs` second, every
+round — and not "a plan that does not alternate".
+
+## What is NOT concluded
+
+- **No mechanism is named**, here or anywhere in this window. What allocates
+  ~1,056 B on some `uix-subs` legs is not identified and no candidate is offered.
+- **No cluster-robust or mixed-effects estimate is offered**, and none should be:
+  five clusters per arm will not identify a variance component and a
+  cluster-robust standard error on that many clusters is badly biased. Every
+  window-level p is published beside its run-level counterpart instead.
+- **The post-hoc companion is not promoted.** It is reported because suppressing
+  it would be dishonest, not because it settles anything.
+- **τ is untouched in either direction.** `rf2-e9wr`'s refusal stands and
+  `rf2-rs8q6`'s fence against widening is restated. No gate, threshold, band or
+  budget moved.
+- **The `parity | uix-subs | pos0` last-leg term is still nobody's.** It is the
+  reason the 1,000 – 1,300 B band and the 1,050 – 1,224 B band do not answer the
+  same question, it is untouched by this window, and it is described rather than
+  chased.
+
+## What would settle it
+
+**A masking-free statistic, pre-registered as such, and the reversed arm taken
+again under it.** The rig needs no change — the arm exists and this window shows
+it drives correctly. What needs changing is the statistic the next window
+declares in advance, and the choice must be made and committed before the runner
+is invoked, exactly as this window's was.

@@ -79,9 +79,22 @@
 // so the tree contradicted itself about one dataset. `admit()` below closes
 // that, and `partition()` NAMES every refusal rather than dropping it.
 //
-// The corrected corpus is 116 runs / 3,258 collection-free / 3,090 positional,
-// against 118 / 3,308 / 3,140 before. Every primary-band numerator is unchanged
-// and every denominator moves.
+// The corrected corpus was 116 runs / 3,258 collection-free / 3,090 positional,
+// against 118 / 3,308 / 3,140 before that repair. Every primary-band numerator
+// was unchanged by it and every denominator moved.
+//
+// ## AND THEN THE THIRD ARM WAS RECORDED (rf2-csca8)
+//
+// `revarm-csca8` adds fifteen runs taken in one session on one revision — five
+// `fixed-reversed`, five `fixed`, five `parity`, interleaved one at a time — and
+// the corpus is now 131 runs / 3,688 collection-free / 3,520 positional. What
+// that window found is the pre-registered THIRD branch: the cluster did NOT
+// follow `uix` to position 0 (1 of 68) and did NOT stay in the second-driven
+// slot (1 of 82), while the same-session `fixed` arm carried it at 8 of 63 in
+// four of its five runs. Neither the substrate nor the slot is the carrier as
+// stated. `fixed-reversed` is exactly as non-alternating as `fixed`, so what
+// survives is narrower than "the mode": the ORDERED PAIR, `reagent-subs` driven
+// first and `uix-subs` second, in every round.
 //
 // ## WHAT THIS IS NOT
 //
@@ -356,6 +369,65 @@ function analyse(datasets, opts = {}) {
     band: controlLegs.filter((b) => inBand(b, BAND_LO_B, BAND_HI_B)).length,
   };
 
+  // --- THE MASKING DIAGNOSTIC, WHICH IS POST-HOC AND SAYS SO (rf2-csca8) ---
+  //
+  // WRITTEN AFTER THE REVERSED WINDOW WAS READ, not before it, and it is
+  // labelled post-hoc everywhere it prints. The pre-registered statistic stays
+  // primary; this does not replace it and no verdict rests on this alone.
+  //
+  // WHY IT EXISTS. The pre-registered statistic is the window's WORST leg, so a
+  // window registers in the band only if nothing in it deviates FURTHER. That is
+  // fine when the cells being compared have similar worst-leg distributions and
+  // it is not fine when they do not — and in the reversed arm they do not. The
+  // `uix-subs` cell at position 0 has a median |worst leg| of 1,488 B, ABOVE the
+  // top of the band, because POSITION 0 IS WHERE THE ~748 B RIDER LIVES
+  // (`the-rider-follows-the-position-not-the-substrate.md`, and the rider is
+  // position-locked rather than substrate-locked). So more than half of that
+  // cell's windows cannot register a band hit whatever else they carry.
+  //
+  // That is a tension between the discriminator's DESIGN and its STATISTIC: the
+  // reversed arm exists precisely to move `uix` to position 0, and position 0 is
+  // precisely where a competing term inflates the worst leg. It was knowable in
+  // advance from the rider record and was not noticed.
+  //
+  // WHAT THIS COMPUTES. Two masking-free companions to the pre-registered count:
+  // ANY-LEG, the count of windows carrying an in-band leg whether or not it is
+  // that window's worst; and the SHARE of those windows in which it IS the
+  // worst, which is the masking rate itself.
+  const maskLo = OBSERVED_LO_B;
+  const maskHi = OBSERVED_HI_B;
+  const absSort = (xs) => xs.slice().sort((x, y) => x - y);
+  const mask = {};
+  for (const w of positional) {
+    const k = CELL_KEY(w);
+    mask[k] = mask[k] || { key: k, segOrder: w.segOrder, segment: w.segment, position: w.position, windows: 0, anyLeg: 0, worstLeg: 0, anyLegRuns: {}, worstAbs: [] };
+    const m = mask[k];
+    m.windows++;
+    const e = excesses(w);
+    const any = e.some((b) => inBand(b, maskLo, maskHi));
+    if (any) {
+      m.anyLeg++;
+      m.anyLegRuns[w.runId] = true;
+    }
+    if (inBand(worstExcessSignedB(w), maskLo, maskHi)) m.worstLeg++;
+    const worst = worstExcessSignedB(w);
+    if (worst !== null) m.worstAbs.push(Math.abs(worst));
+  }
+  out.masking = Object.values(mask)
+    .map((m) => {
+      const s = absSort(m.worstAbs);
+      return {
+        key: m.key,
+        windows: m.windows,
+        anyLeg: m.anyLeg,
+        worstLeg: m.worstLeg,
+        anyLegRuns: Object.keys(m.anyLegRuns).length,
+        medianWorstAbsB: s.length ? s[s.length >> 1] : null,
+        overBandTop: m.worstAbs.filter((x) => x > maskHi).length,
+      };
+    })
+    .sort((p, q) => p.key.localeCompare(q.key));
+
   // --- THE LEVEL EACH RUN SETTLED AT (rf2-csca8) --------------------------
   //
   // The floor arm at this configuration is MULTI-MODAL — see
@@ -481,6 +553,20 @@ function report(a) {
   L.push(`NULL ARM — control legs ${a.control.legs}, of which in the ${BAND_LO_B}-${BAND_HI_B} B band: ${a.control.band}`);
   L.push('');
 
+  // THE MASKING DIAGNOSTIC. POST-HOC — see the note above `out.masking`.
+  if (a.masking && a.masking.length) {
+    L.push(`MASKING DIAGNOSTIC (POST-HOC, band ${OBSERVED_LO_B}-${OBSERVED_HI_B} B). The pre-registered`);
+    L.push('  statistic counts a window only when the in-band leg is that window\'s WORST, so a cell');
+    L.push('  whose worst-leg distribution sits above the band cannot register whatever it carries.');
+    L.push('  ANY-LEG is the masking-free companion; SHARE is how often the in-band leg IS the worst.');
+    L.push(`    ${'mode | segment | position'.padEnd(34)}${'windows'.padStart(9)}${'any-leg'.padStart(9)}${'worst-leg'.padStart(11)}${'share'.padStart(8)}${'med |worst|'.padStart(12)}${'> band top'.padStart(11)}`);
+    for (const m of a.masking) {
+      const share = m.anyLeg ? `${((100 * m.worstLeg) / m.anyLeg).toFixed(0)}%` : 'n/a';
+      L.push(`    ${m.key.replace(/\|/g, ' | ').padEnd(34)}${String(m.windows).padStart(9)}${String(m.anyLeg).padStart(9)}${String(m.worstLeg).padStart(11)}${share.padStart(8)}${String(m.medianWorstAbsB).padStart(12)}${String(m.overBandTop).padStart(11)}`);
+    }
+    L.push('');
+  }
+
   // THE LEVEL READ, printed BEFORE any comparative below it, deliberately.
   if (a.levels && a.levels.length) {
     const byMode = {};
@@ -546,9 +632,10 @@ function report(a) {
     L.push('  WHAT THESE p-VALUES ARE NOT. Fisher counts each WINDOW as an independent trial.');
     L.push('  Windows repeat within runs, so any per-run term — the box that minute, the');
     L.push('  revision, the session — is shared across a whole row of them. Read the run-level');
-    L.push('  table above beside every p: the entire `fixed` exposure is THREE runs in ONE');
-    L.push('  session. A window-level p is an association at the window level and NOT a test of');
-    L.push('  a hypothesis about modes, substrates or positions as properties of a run.');
+    L.push('  table above beside every p: the `fixed` exposure is EIGHT runs across TWO');
+    L.push('  sessions and the `fixed-reversed` exposure is FIVE runs in ONE. A window-level p');
+    L.push('  is an association at the window level and NOT a test of a hypothesis about modes,');
+    L.push('  substrates or positions as properties of a run.');
     L.push('');
   }
   return L;
@@ -718,10 +805,10 @@ function selfTest() {
     // `the-eight-signs-are-one-block.md` already excludes on this same corpus.
     ok('corpus: bisect-5 is refused here as it already was on the eight-signs record',
       excluded.some((e) => e.id === 'alloc-9jrhi/bisect-5-a-4a1537cb71-replicate'));
-    ok('corpus: 116 admissible floor runs, of 118', admitted.length === 116 && floor.length === 118);
-    ok('corpus: 3,258 collection-free and 3,090 positional windows — NOT 3,308 / 3,140',
-      c.collectionFree === 3258 && c.positional === 3090);
-    ok('corpus: the runs count is the admissible 116', c.runs === 116);
+    ok('corpus: 131 admissible floor runs, of 133', admitted.length === 131 && floor.length === 133);
+    ok('corpus: 3,688 collection-free and 3,520 positional windows, after the reversed arm landed',
+      c.collectionFree === 3688 && c.positional === 3520);
+    ok('corpus: the runs count is the admissible 131', c.runs === 131);
 
     // The extraction check runs BEFORE admissibility, deliberately, so it still
     // reproduces the figure the earlier record published over all 14 runs.
@@ -738,16 +825,16 @@ function selfTest() {
     // repair: neither refused run carried an in-band window in the primary
     // band, so nothing the record claims positively rests on them — but every
     // rate they sat in was computed over too many windows.
-    ok('corpus: fixed|uix|pos1 reads 8 of 38 signed-furthest', (find('signed-furthest', 'fixed|uix-subs|pos1') || {}).band === 8);
-    ok('corpus: fixed|uix|pos1 reads 9 of 38 largest-positive', (find('largest-positive', 'fixed|uix-subs|pos1') || {}).band === 9);
-    ok('corpus: fixed|reagent|pos0 reads 0 of 43', (find('signed-furthest', 'fixed|reagent-subs|pos0') || {}).band === 0);
-    ok('corpus: parity|uix|pos0 reads 44 of 733 — NOT 45 of 747', (find('signed-furthest', 'parity|uix-subs|pos0') || {}).band === 44 && find('signed-furthest', 'parity|uix-subs|pos0').windows === 733);
-    ok('corpus: parity|uix|pos1 reads 3 of 712 — NOT 3 of 724', (find('signed-furthest', 'parity|uix-subs|pos1') || {}).band === 3 && find('signed-furthest', 'parity|uix-subs|pos1').windows === 712);
-    ok('corpus: parity|reagent|pos0 reads 15 of 666 — the substrate NECESSITY claim fails here', (find('signed-furthest', 'parity|reagent-subs|pos0') || {}).band === 15 && find('signed-furthest', 'parity|reagent-subs|pos0').windows === 666);
-    ok('corpus: parity|reagent|pos1 reads 0 of 898 — NOT 0 of 913', (find('signed-furthest', 'parity|reagent-subs|pos1') || {}).band === 0 && find('signed-furthest', 'parity|reagent-subs|pos1').windows === 898);
-    ok('corpus: the primary-band numerators are unchanged at 8 / 3 / 2 / 0', (() => {
+    ok('corpus: fixed|uix|pos1 reads 20 of 101 signed-furthest', (find('signed-furthest', 'fixed|uix-subs|pos1') || {}).band === 20 && find('signed-furthest', 'fixed|uix-subs|pos1').windows === 101);
+    ok('corpus: fixed|uix|pos1 reads 22 of 101 largest-positive', (find('largest-positive', 'fixed|uix-subs|pos1') || {}).band === 22);
+    ok('corpus: fixed|reagent|pos0 reads 2 of 115', (find('signed-furthest', 'fixed|reagent-subs|pos0') || {}).band === 2 && find('signed-furthest', 'fixed|reagent-subs|pos0').windows === 115);
+    ok('corpus: parity|uix|pos0 reads 44 of 774', (find('signed-furthest', 'parity|uix-subs|pos0') || {}).band === 44 && find('signed-furthest', 'parity|uix-subs|pos0').windows === 774);
+    ok('corpus: parity|uix|pos1 reads 3 of 744', (find('signed-furthest', 'parity|uix-subs|pos1') || {}).band === 3 && find('signed-furthest', 'parity|uix-subs|pos1').windows === 744);
+    ok('corpus: parity|reagent|pos0 reads 17 of 697 — the substrate NECESSITY claim fails here', (find('signed-furthest', 'parity|reagent-subs|pos0') || {}).band === 17 && find('signed-furthest', 'parity|reagent-subs|pos0').windows === 697);
+    ok('corpus: parity|reagent|pos1 reads 0 of 939', (find('signed-furthest', 'parity|reagent-subs|pos1') || {}).band === 0 && find('signed-furthest', 'parity|reagent-subs|pos1').windows === 939);
+    ok('corpus: the primary-band numerators read 16 / 3 / 2 / 0', (() => {
       const n = (k) => (find('signed-furthest', k) || {}).observed;
-      return n('fixed|uix-subs|pos1') === 8 && n('parity|uix-subs|pos1') === 3 &&
+      return n('fixed|uix-subs|pos1') === 16 && n('parity|uix-subs|pos1') === 3 &&
         n('parity|reagent-subs|pos0') === 2 && n('parity|reagent-subs|pos1') === 0;
     })());
     // The ordinal structure, which is what bounds the pooled parity result.
@@ -758,16 +845,16 @@ function selfTest() {
     // --- THE RUN-LEVEL BOUND, which is why no verdict here says CONFIRMED --
     const rl = (key, band = `${OBSERVED_LO_B}-${OBSERVED_HI_B}`) =>
       c.runLevel['signed-furthest'][band].find((x) => x.key === key);
-    ok('corpus: the whole `fixed` exposure is THREE runs', rl('fixed|uix-subs|pos1').runs === 3);
-    ok('corpus: all three `fixed` runs carry the term, and none carries it more than four times',
-      rl('fixed|uix-subs|pos1').runsWithHit === 3 && rl('fixed|uix-subs|pos1').maxPerRun === 4);
+    ok('corpus: the `fixed` exposure is EIGHT runs, across two sessions', rl('fixed|uix-subs|pos1').runs === 8);
+    ok('corpus: SEVEN of the eight `fixed` runs carry the term, none more than four times',
+      rl('fixed|uix-subs|pos1').runsWithHit === 7 && rl('fixed|uix-subs|pos1').maxPerRun === 4);
     // The parity cells are barely clustered at the primary band — at most one
     // window per run — so the repeated-measures caveat bites hardest on the
     // `fixed` arm, which is exactly the arm the strongest claim rested on.
     ok('corpus: at the primary band no parity run carries more than ONE in-band window',
       rl('parity|uix-subs|pos0').maxPerRun === 1 && rl('parity|uix-subs|pos1').maxPerRun === 1);
-    ok('corpus: the parity baseline spans 107 runs against the fixed arm\'s 3',
-      rl('parity|uix-subs|pos1').runs === 107);
+    ok('corpus: the parity baseline spans 112 runs against the fixed arm\'s 8',
+      rl('parity|uix-subs|pos1').runs === 112);
 
     // THE PUBLISHED p-VALUES, and the pin DISCRIMINATES between the two bands
     // rather than restating one of them: the position verdict FLIPS across
@@ -815,6 +902,96 @@ function selfTest() {
       const p = at('parity');
       return f.runs === 3 && f.runsWithHit === 3 && p.runs === 3 && p.runsWithHit === 1 &&
         Math.abs(fisherExactTwoSided(3, 0, 1, 2) - 0.4) < 1e-9;
+    })());
+
+    // --- THE REVERSED ARM'S OWN WINDOW (rf2-csca8) ------------------------
+    //
+    // Scoped to `revarm-csca8/` so these pins say what THAT window found,
+    // matched by session, and do not move when the wider corpus grows.
+    const rev = () => analyse(admitted.filter((d) => d.id.startsWith('revarm-csca8/')));
+    ok('window: fifteen runs, five per arm, all three modes present', (() => {
+      const w = rev();
+      return w.runs === 15 && w.modes.join(',') === 'fixed,fixed-reversed,parity';
+    })());
+    ok('window: no run in it was control-refused', (() => {
+      const { excluded } = partition(corpus().map(load).filter(isFloorAlloc)
+        .filter((d) => d.id.startsWith('revarm-csca8/')));
+      return excluded.length === 0;
+    })());
+    // THE PRE-REGISTERED PRIMARY, and it is the only WITHIN-RUN row on the
+    // list: inside `fixed-reversed` alone, uix at position 0 against reagent
+    // at position 1. Neither cell carries the cluster and they do not differ.
+    ok('window: the CARRIER contrast inside fixed-reversed is 1/68 vs 1/82, p = 1', (() => {
+      const c2 = rev().byStatistic['signed-furthest']
+        .comparisons[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return !!c2 && c2.a.k === 1 && c2.a.n === 68 && c2.b.k === 1 && c2.b.n === 82 &&
+        Math.abs(c2.p - 1) < 1e-9;
+    })());
+    // AND THE FIXED ARM IN THE SAME SESSION DID CARRY IT, which is what makes
+    // the two zeros above a finding rather than a dead instrument.
+    ok('window: the same-session fixed arm reads 8/63 at uix pos1', (() => {
+      const c2 = rev().byStatistic['signed-furthest'].cells
+        .find((x) => x.key === 'fixed|uix-subs|pos1');
+      return !!c2 && c2.observed === 8 && c2.windows === 63;
+    })());
+    ok('window: FOLLOWS is 8/63 vs 1/68 and STAYS is 8/63 vs 1/82 — the cluster did NEITHER', (() => {
+      const cs = rev().byStatistic['signed-furthest']
+        .comparisons[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`];
+      const f = cs.find((x) => x.label.startsWith('FOLLOWS'));
+      const s2 = cs.find((x) => x.label.startsWith('STAYS'));
+      return !!f && !!s2 && f.a.k === 8 && f.a.n === 63 && f.b.k === 1 && f.b.n === 68 &&
+        s2.b.k === 1 && s2.b.n === 82 && f.p < 0.05 && s2.p < 0.05;
+    })());
+    // THE MATCHED MODE CONTRAST, which is the one this bead said needed power.
+    // At RUN level in this window it is 4 of 5 against 0 of 5 — the first
+    // matched run-level separation the record has had.
+    ok('window: at RUN level the matched fixed-vs-parity contrast is 4 of 5 against 0 of 5', (() => {
+      const rlw = rev().runLevel['signed-furthest'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`];
+      const f = rlw.find((x) => x.key === 'fixed|uix-subs|pos1');
+      const p = rlw.find((x) => x.key === 'parity|uix-subs|pos1');
+      return !!f && !!p && f.runs === 5 && f.runsWithHit === 4 && p.runs === 5 && p.runsWithHit === 0 &&
+        Math.abs(fisherExactTwoSided(4, 1, 0, 5) - 0.047619047619) < 1e-9;
+    })());
+    // AND THE REVERSED ARM AT RUN LEVEL IS THE PARITY BASELINE, not the fixed
+    // one: one run of five in each of its two cells, one window apiece.
+    // A MISSING CELL FAILS rather than throws. That is not defensive noise: a
+    // plant that makes the reversed windows group as `fixed` deletes these two
+    // keys outright, and a pin that dereferences the absent row aborts the whole
+    // suite instead of reporting one red — so the sabotage run that proves these
+    // pins discriminate would kill every check after it.
+    ok('window: each fixed-reversed cell is 1 run of 5, one window', (() => {
+      const rlw = rev().runLevel['signed-furthest'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`];
+      return ['fixed-reversed|uix-subs|pos0', 'fixed-reversed|reagent-subs|pos1'].every((k) => {
+        const x = rlw.find((y) => y.key === k);
+        return !!x && x.runs === 5 && x.runsWithHit === 1 && x.band === 1;
+      });
+    })());
+    // THE LEVEL READ, which is what says the window is not standing on a floor
+    // excursion: three of fifteen runs read high mode and they are ONE PER ARM,
+    // so level is not confounded with the property under test.
+    ok('window: the three high-mode runs are one per arm', (() => {
+      const high = rev().levels.filter((r) => r.highMode);
+      return high.length === 3 &&
+        new Set(high.map((r) => r.segOrder)).size === 3;
+    })());
+    // AND THE INSTRUMENT IS THE SAME ONE the earlier window used: `reversed-1`
+    // and `segorder-rs8q6/fixed-1` settled on the IDENTICAL reagent level and
+    // agree on uix to 6 B, across two sessions, two dates and two modes.
+    ok('window: reversed-1 and segorder fixed-1 read the same level to the byte on reagent', (() => {
+      const at = (id) => c.levels.find((r) => r.runId === id);
+      const a2 = at('revarm-csca8/reversed-1');
+      const b2 = at('segorder-rs8q6/fixed-1');
+      return a2 && b2 && a2.per['reagent-subs'].median === b2.per['reagent-subs'].median &&
+        Math.abs(a2.per['uix-subs'].median - b2.per['uix-subs'].median) <= 6;
+    })());
+    // THE ARM ITSELF, as a positive control on the rig rather than on the
+    // finding: every round of every `fixed-reversed` run drove uix FIRST.
+    ok('window: every fixed-reversed round drove uix-subs then reagent-subs', (() => {
+      const files = corpus().map(load).filter((d) => d.id.startsWith('revarm-csca8/reversed-'));
+      if (files.length !== 5) return false;
+      return files.every((d) => d.data.alloc.perRound.every((r) =>
+        Object.values(r.arms).map((w) => w.segment).join('>') === 'uix-subs>reagent-subs'));
     })());
   } else {
     ok('corpus: data directory present', false);

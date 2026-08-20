@@ -348,6 +348,28 @@ for another when a verdict weakened. The arithmetic is exactly what the first
 version computed, on a corrected corpus; what changed is what it is said to
 show.
 
+> **THE WINDOW HAS SINCE BEEN TAKEN, and this page's title is now half wrong.**
+> [The reversed fixed arm: a pre-registered fifteen-run window](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
+> recorded fifteen runs — five `fixed-reversed`, five `fixed`, five `parity`,
+> interleaved in one session — so the third arm is no longer missing. Two things
+> on this page move as a result, and everything else stands.
+>
+> **The SLOT reading is refuted.** With `reagent-subs` in the second-driven slot
+> the cluster does not go with it: 1 of 82 windows, against the same session's
+> 8 of 63 at `fixed | uix-subs | pos1`.
+>
+> **"MODE" survives but narrows.** The matched baseline this page said the mode
+> claim lacked now exists — 7 of 8 `fixed` runs against 1 of 8 `parity` runs
+> across two matched sessions, p = 0.0101 — but `fixed-reversed` is exactly as
+> non-alternating as `fixed` and does **not** carry the term, so what separates
+> from `parity` is the **forward** fixed order specifically and not "a plan that
+> does not alternate".
+>
+> **The SUBSTRATE arm is still not settled**, and the new page names why: the
+> statistic below is a per-window MAXIMUM, and at position 0 the already-recorded
+> ~748 B rider competes with the cluster for it. So the reversed arm's `uix` cell
+> is masked, and the window that was supposed to settle the substrate could not.
+
 ## Why the discriminating arm is still owed a window
 
 The bead names its discriminator: *a fixed run with the segment order REVERSED
