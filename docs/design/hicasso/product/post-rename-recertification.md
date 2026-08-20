@@ -278,3 +278,16 @@ The certification stays **partial**, and one thing about the partiality has chan
 
 A third re-run followed the donor retire, and it is written up separately rather than as a section
 here: [`post-rename-recertification-2026-08-18.md`](post-rename-recertification-2026-08-18.md).
+
+## 8. The re-run, 2026-08-20 — recorded on its own page
+
+A fourth re-run followed 442 further commits, and it too is written up separately:
+[`post-rename-recertification-2026-08-20.md`](post-rename-recertification-2026-08-20.md).
+
+**One thing on that page corrects §6 above rather than merely extending it**, and the correction is
+worth naming here so a reader of this page is not left with the superseded reading. §6's bullet — and
+the 2026-08-18 page's §4 after it — characterised family 5 as a **clock** estimand. It is not.
+[`budgets.md`](budgets.md) registers `C1` on the **heap ladder**, and the 2026-08-19 anchor
+`rf2-85og2` took was on that instrument. So *"the gate does not exist"* has stopped being true. Family
+5 still returns no verdict, but the reason is now narrower: the anchor exists and the instrument moved
+after it was taken, so no second same-instrument reading is available yet.
