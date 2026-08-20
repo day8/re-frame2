@@ -43,8 +43,9 @@ where the controls went.
   properties coincide — z = −2.98. Stated plainly rather than glossed: something
   about the two properties **together** roughly doubles the rate, and since (B)
   alone carries nothing, the schedule cannot resolve what.
-- **`last` is the consistency control and it held.** Its after-controls rate,
-  26 of 43, is not separated from `first`'s 18 of 39 — z = −1.30.
+- **`last` is the consistency control and it held.** Taken in the reader's
+  canonical order — `first`'s 18 of 39 against `last`'s 26 of 43 — the two are
+  not separated: z = −1.30.
 
 ## The rig change, and why it carries three slots and not two
 
@@ -244,6 +245,54 @@ edits. Its own fixtures run under `--self-test` and in
 a reader whose window stream reset at a round boundary would report all six of
 `last`'s round-opening windows as separated and manufacture exactly the result
 this window tests for, so the fixture pins that count at 1.
+
+### The `z` column, and the convention it is taken under
+
+Every `z` on this page is a **two-proportion z-test on the pooled proportion**,
+with no continuity correction and no conversion to a tail probability:
+
+```text
+p1 = k1/n1     p2 = k2/n2     p = (k1 + k2) / (n1 + n2)
+z  = (p1 - p2) / sqrt( p (1 - p) (1/n1 + 1/n2) )
+```
+
+**The convention is written down because three of them land within half a z of
+each other on these counts.** On `last`'s 26 of 43 against 3 of 44 the pooled
+form reads **5.3070** — the published 5.31 — where the unpooled form reads
+6.4106 and the continuity-corrected form 5.0796. Anyone re-deriving these
+figures under a different convention will land near them and not on them.
+
+The sign is `(first group − second group)`, the two taken in the reader's own
+canonical order: the order its report already lists them in, ascending by
+position and sorted by schedule name. So the sign belongs to the report and not
+to whichever sentence cites it — which is why the `last`-against-`first`
+comparison above is stated `first` first, where it would otherwise read +1.30.
+
+The reader prints each comparison by name beside the two cell counts it was
+taken on, so no figure here can drift from the counts behind it. Its fixtures
+pin **all ten** z-scores across this page and the position record on those same
+counts, as literals, **and require the unpooled and continuity-corrected forms
+to miss every one of them** — so the pin discriminates rather than restates, and
+a change to the formula reds `npm run test:script-helpers`.
+
+### And the summaries the reader had not been emitting
+
+The `--self-test` fixtures cover these too, so the claim above is a control and
+not an assertion:
+
+- the **per-run tables**, both of them, including the signed worst leg the
+  pooling trap turns on — the reader now splits by browser launch rather than
+  pooling;
+- the **modal rider values and leg ordinals** per cell;
+- the **prime excess by CELL rather than by position**, which is not a
+  distinction without a difference: under `last` cell (A) holds 43 windows where
+  position 0 holds 44, and their medians read 6,884 B and 6,882 B. This page's
+  figure is the cell;
+- the **control legs split by schedule** — 960 / 972 / 972 — where the reader
+  previously reported only the pooled 2,904;
+- and the position record's secondary 1,050–1,224 B cluster, which reads **8 of
+  38** on the signed worst leg and 9 of 38 read as the largest *positive*
+  excess. A fixture holds that difference.
 
 ## The unit trap, restated because it has already misled two readers
 
