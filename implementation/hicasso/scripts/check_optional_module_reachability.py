@@ -110,8 +110,10 @@ in full and called itself "the DEPENDENCY-GRAPH half of that sentence"
 while asking only the module question.  Each file was right about
 itself; the clause was measured by neither.  So it is measured here
 now, in TWO ARMS, which is the shape
-`implementation/scripts/check-ui-adapter-isolation.cjs` already uses
-for the same claim about `re-frame2-ui`:
+`implementation/scripts/check-ui-adapter-isolation.cjs` used for the
+same claim about `re-frame2-ui`.  That gate is gone -- it retired with
+the compiled-view substrate it guarded (rf2-0yp7w.4), so do not go
+looking for it; what survives it is the two-arm shape itself:
 
   1. **SOURCE** — no namespace under `src/` requires UIx.  Read off
      `:require` forms by the same parser the module rows use, so the
