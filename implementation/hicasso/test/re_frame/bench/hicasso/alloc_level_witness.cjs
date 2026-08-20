@@ -88,7 +88,7 @@
 //   | definition                                | normal band  | mode band     |
 //   |-------------------------------------------|--------------|---------------|
 //   | min(cert r1-5) -> median(cert r>=6) PINNED |   96..194 B  | 2,616..3,984 B|
-//   | median(r1-3) -> median(r>=6)               |   96..168 B  | 2,628..3,948 B|
+//   | median(r1-3) -> median(r>=6)               |   96..168 B  | 2,616..3,948 B|
 //   | median(r4-6) - median(r1-3)                |   90..896 B  | 1,655..4,083 B|
 //   | r4 - r3, one round against one round       |   80..2,312 B|   860..4,946 B|
 //
@@ -97,8 +97,10 @@
 // B in the mode, and on the larger corpus its normal band reaches +2,312 B
 // while its mode band descends to +860 B — they OVERLAP by 1,452 B. A bound
 // set from that quoted band would have refused legitimate runs. It is also
-// undefined on 16 of the 101 admissible runs, because one round is not always
-// certified. The median(r4-6) form separates but leaves only 759 B of gap,
+// undefined on at least one segment in 95 of the 101 admissible runs, and on
+// BOTH segments in 16 of them, because one round is not always certified —
+// a definition that cannot be evaluated is not a gate. The median(r4-6) form
+// separates, but leaves only 759 B of gap against this form's 2,422 B,
 // because rounds 4-5 are in the AFTER half where they belong to neither level.
 //
 // ## WHY THE TEST IS ONE-SIDED
