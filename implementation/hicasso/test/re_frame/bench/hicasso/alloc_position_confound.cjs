@@ -381,6 +381,14 @@ function analyse(datasets) {
             .filter((x) => typeof x === 'number')
             .map(Math.abs)
         ),
+        // AND THE SIGNED FORM BESIDE IT, because the unit trap has two halves
+        // and the position record publishes BOTH: over the 14 committed runs
+        // the signed median reads 3.867% / 0.030% where the magnitude reads
+        // 3.908% / 0.184%. A reader that emitted only one of them left the
+        // other to be taken on trust, which is the whole of what that trap is.
+        worstDeviationMedianSignedFraction: median(
+          ws.map((w) => w.legWorstDeviationFraction).filter((x) => typeof x === 'number')
+        ),
         legsWithinJitter: legs.filter((b) => Math.abs(b) <= JITTER_B).length,
         primeExcessMedianB: median(
           ws.map((w) => w.primeExcess).filter((x) => typeof x === 'number')
@@ -477,6 +485,9 @@ function analyse(datasets) {
             .map((w) => w.legWorstDeviationFraction)
             .filter((x) => typeof x === 'number')
             .map(Math.abs)
+        ),
+        worstDeviationMedianSignedFraction: median(
+          ws.map((w) => w.legWorstDeviationFraction).filter((x) => typeof x === 'number')
         ),
         worstExcessSignedMedianB: median(ws.map(worstExcessSignedB).filter((x) => x !== null)),
         // The control-slot record states the prime excess BY CELL rather than
@@ -650,7 +661,11 @@ function analyse(datasets) {
 const pct = (f) => (typeof f === 'number' ? `${(f * 100).toFixed(3)}%` : 'n/a');
 const bytes = (b) => (typeof b === 'number' ? `${b} B` : 'n/a');
 const modalStr = (ms) => (ms && ms.length ? ms.map((m) => `${m.value} B x${m.count}`).join(', ') : 'none');
-const zStr = (z) => (typeof z === 'number' ? (z >= 0 ? `+${z.toFixed(2)}` : z.toFixed(2)) : 'n/a');
+// TWO precisions, and both are wanted. The records publish two decimals, so
+// that is what a cross-check scans for; four is what shows a near-miss
+// convention landing beside the published figure rather than on it.
+const signed = (z, dp) => (z >= 0 ? `+${z.toFixed(dp)}` : z.toFixed(dp));
+const zStr = (z) => (typeof z === 'number' ? `${signed(z, 2)} (${signed(z, 4)})` : 'n/a');
 const rateStr = (r) =>
   `${r.label} ${r.riderWindows} of ${r.windows} (${((r.riderWindows / r.windows) * 100).toFixed(1)}%)`;
 
@@ -676,6 +691,11 @@ function report(a) {
       );
     }
     for (const p of m.perPosition) {
+      out.push(
+        `    position ${p.position} worst deviation median: MAGNITUDE ` +
+          `${pct(p.worstDeviationMedianAbsFraction)}, SIGNED ` +
+          `${pct(p.worstDeviationMedianSignedFraction)}`
+      );
       out.push(
         `    position ${p.position} rider legs: modal ${modalStr(p.riderModalB)}; ` +
           `ordinals ${JSON.stringify(p.riderOrdinals)}`
@@ -718,7 +738,8 @@ function report(a) {
       if (c.windows) {
         out.push(
           `      rider legs: modal ${modalStr(c.riderModalB)}; ordinals ${JSON.stringify(c.riderOrdinals)}; ` +
-            `worst leg (SIGNED) median ${bytes(c.worstExcessSignedMedianB)}`
+            `worst leg (SIGNED) median ${bytes(c.worstExcessSignedMedianB)}; ` +
+            `worst deviation SIGNED ${pct(c.worstDeviationMedianSignedFraction)}`
         );
       }
     }
@@ -738,8 +759,9 @@ function report(a) {
 
   out.push('COMPARISONS — two-proportion z on the POOLED proportion, no continuity correction');
   out.push('  the sign is (first group - second group), in the order each line names them');
+  out.push('  z is printed at the published two decimals and again at four');
   for (const c of a.comparisons) {
-    out.push(`  z = ${zStr(c.z).padStart(6)}   ${c.name}`);
+    out.push(`  z = ${zStr(c.z).padStart(17)}   ${c.name}`);
     out.push(`             ${rateStr(c.a)}  against  ${rateStr(c.b)}`);
   }
   out.push('');
@@ -1157,6 +1179,17 @@ function selfTest() {
     assert.strictEqual(a.controls.riderLegs, 2);
     assert.deepStrictEqual(a.controls.bySlot.first, { windows: 6, legs: 18, riderLegs: 0 });
     assert.deepStrictEqual(a.controls.bySlot.mid, { windows: 6, legs: 18, riderLegs: 2 });
+  });
+
+  ok('the worst DEVIATION is reported both ways, because the record publishes both', () => {
+    // The unit trap's second half: over the 14 committed runs the signed median
+    // reads 3.867% / 0.030% and the magnitude 3.908% / 0.184%, and the position
+    // record states both. A reader emitting one left the other on trust.
+    const a = analyse([{ id: 'u', data: synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }) }]);
+    const p1 = a.byMode.fixed.perPosition.find((p) => p.position === 1);
+    assert.strictEqual(Number((p1.worstDeviationMedianSignedFraction * 100).toFixed(3)), -7.261);
+    assert.strictEqual(Number((p1.worstDeviationMedianAbsFraction * 100).toFixed(3)), 7.261);
+    assert.notStrictEqual(p1.worstDeviationMedianSignedFraction, p1.worstDeviationMedianAbsFraction);
   });
 
   ok('rider windows are cross-tabbed by substrate relation as well as counted', () => {

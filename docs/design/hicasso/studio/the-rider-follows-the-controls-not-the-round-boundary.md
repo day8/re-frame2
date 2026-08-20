@@ -229,7 +229,8 @@ P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/ctrlslot-rs8q
 
 `P0_ALLOC_CONTROL_SLOT` takes `first`, `mid` or `last`; omitting it is `first`.
 
-Every figure on this page is re-derived from the committed records by:
+Every measured figure on this page — every window and leg count, byte value,
+percentage and `z` — is re-derived from the committed records by:
 
 ```bash
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs \
@@ -257,10 +258,12 @@ z  = (p1 - p2) / sqrt( p (1 - p) (1/n1 + 1/n2) )
 ```
 
 **The convention is written down because three of them land within half a z of
-each other on these counts.** On `last`'s 26 of 43 against 3 of 44 the pooled
-form reads **5.3070** — the published 5.31 — where the unpooled form reads
-6.4106 and the continuity-corrected form 5.0796. Anyone re-deriving these
-figures under a different convention will land near them and not on them.
+each other on these counts.** Worked on `last`'s 26 of 43 against 3 of 44, the
+formula above gives **5.3070**, which is the published 5.31 and is what the
+reader prints; the unpooled form gives 6.4106 and the continuity-corrected form
+5.0796. Anyone re-deriving these figures under a different convention will land
+near them and not on them, which is why the reader prints every `z` at four
+decimals as well as at the published two.
 
 The sign is `(first group − second group)`, the two taken in the reader's own
 canonical order: the order its report already lists them in, ascending by
@@ -293,6 +296,18 @@ not an assertion:
 - and the position record's secondary 1,050–1,224 B cluster, which reads **8 of
   38** on the signed worst leg and 9 of 38 read as the largest *positive*
   excess. A fixture holds that difference.
+
+### What that command does NOT print
+
+Stated so the claim above is exact rather than generous. Four kinds of number on
+this page are not figures of these nine runs and the reader does not emit them:
+the **environment and producing tree** of the reproduction block, which is how
+the runs were taken rather than something read out of them; the **seat and bead
+identifiers**; the structural pin's **0 / 1 / 12**, which
+`p0_ladder_structural.test.cjs` drives and which the page attributes to it where
+it states them; and the **2,640 B** median in the pooling-trap section, which is
+explicitly cited from this bead's own earlier corpus and is not a figure of the
+runs here. Everything else on the page comes out of the command.
 
 ## The unit trap, restated because it has already misled two readers
 
