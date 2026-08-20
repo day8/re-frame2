@@ -138,21 +138,57 @@
 // on a day when the mode never appears is scored by the same rule as one taken
 // on a day when it appears in half the runs.
 //
+// ## THE ROSTER IS DECLARED, NOT DISCOVERED
+//
+// A witness that adjudicates whatever segments it FINDS cannot refuse a record
+// that carries fewer than it should: with nothing to compare against, an absent
+// segment is indistinguishable from one that was never meant to be there. That
+// is not hypothetical — this file shipped that way. `segmentsOf` created an
+// entry only for a segment name that OCCURRED, the consumer loop iterated only
+// over what existed, and the one guard fired only when ZERO segments occurred.
+// So a record carrying `reagent-subs` alone CERTIFIED, silently, with half the
+// arm's measurement gone and the verdict line still reading "every segment
+// holds its level across the transition". Measured on the committed
+// `alloc-77gz8/run01` with `uix-subs` deleted from every round: CERTIFIED, and
+// not a word about the missing half.
+//
+// So the roster is PINNED, like the windows and the bound above:
+//
+//   MEASURED_SEGMENTS = reagent-subs, uix-subs
+//
+// and a declared segment carrying no window in ANY round is a REFUSAL
+// (`level-segment`), not an omission. MEASURED over every committed dataset the
+// corpus control reads: all 103 records that carry an `alloc` object carry
+// exactly these two segments, in every one of their rounds, so the roster costs
+// the corpus nothing today. What it buys is the failure it is named for. If a
+// later plan measures a different roster this gate turns red and someone
+// declares the new one, which is the behaviour wanted rather than a defect —
+// the same bargain the pinned population counts in `alloc_level_witness.test.cjs`
+// already make. Both `adjudicate` and `scoreCorpus` take the roster as an
+// option, so re-scoring under a different one needs no edit here.
+//
+// A segment PRESENT but not declared is still adjudicated. The roster is a
+// floor on what must be there, not a whitelist of what may be.
+//
 // ## WHAT IT REFUSES
 //
-//   * `level-step`   — a segment's settled level is more than BOUND above its
-//                      own pre-transition level. The run is in the elevated
-//                      mode and its figures must not be quoted.
-//   * `level-window` — a segment has no certified window in one of the two
-//                      halves. There is then no settled level to certify, and
-//                      — since AFTER is the published estimator — no figure to
-//                      quote either.
-//   * `no-alloc`     — the record carries no `alloc` object. `rf2-c4hhk`'s
-//                      `armed-25` is the corpus example: Chromium failed to
-//                      launch, nothing was measured, and the driver still
-//                      exited 1.
-//   * `inadmissible` — the positive control failed or a read-back went
-//                      unverified. Reported, and the level is not adjudicated.
+//   * `level-step`    — a segment's settled level is more than BOUND above its
+//                       own pre-transition level. The run is in the elevated
+//                       mode and its figures must not be quoted.
+//   * `level-window`  — a segment has no certified window in one of the two
+//                       halves. There is then no settled level to certify, and
+//                       — since AFTER is the published estimator — no figure to
+//                       quote either.
+//   * `level-segment` — a segment the arm declares it measures carries no
+//                       window in ANY round. Half a measurement is not a
+//                       measurement, so the run has no figure that is the
+//                       ARM's, whatever the surviving half certifies.
+//   * `no-alloc`      — the record carries no `alloc` object. `rf2-c4hhk`'s
+//                       `armed-25` is the corpus example: Chromium failed to
+//                       launch, nothing was measured, and the driver still
+//                       exited 1.
+//   * `inadmissible`  — the positive control failed or a read-back went
+//                       unverified. Reported, and the level is not adjudicated.
 //
 // ## WHY THIS IS ANALYSIS-SIDE, AND NOT A CHANGE TO THE RUNNER
 //
@@ -177,6 +213,11 @@ const AFTER_ROUND_MIN = 6;
 const LEVEL_STEP_BOUND = 0.05;
 const HIGH_MODE_FLOOR_B = 21000; // rf2-77gz8's classification criterion, for reporting only
 
+// THE SEGMENTS THE FLOOR ARM MEASURES, declared rather than discovered — see
+// the header. A record missing one of these is REFUSED rather than adjudicated
+// on what survives.
+const MEASURED_SEGMENTS = ['reagent-subs', 'uix-subs'];
+
 function median(xs) {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
@@ -189,8 +230,15 @@ function median(xs) {
 // segments are elevated, never one alone — but the two segments sit at
 // different absolute levels (19,100 against 19,540), so they are never pooled.
 // A run is refused on EITHER segment's step rather than on the pair agreeing.
-function segmentsOf(alloc) {
-  const out = new Map();
+//
+// THE MAP IS SEEDED FROM THE DECLARED ROSTER, and that is the whole of the fix
+// for the fail-open described in the header: a declared segment the record
+// never mentions gets an EMPTY row list rather than no entry at all, so it
+// reaches the consumer loop and is refused there. Seeding rather than
+// intersecting is deliberate — a segment that occurs but was not declared is
+// still collected, and still adjudicated.
+function segmentsOf(alloc, expected = MEASURED_SEGMENTS) {
+  const out = new Map(expected.map((seg) => [seg, []]));
   for (const round of alloc.perRound || []) {
     for (const arm of Object.values(round.arms || {})) {
       const seg = arm.segment;
@@ -220,7 +268,7 @@ function admissibility(alloc) {
   return { ok: reasons.length === 0, reasons };
 }
 
-function adjudicate(record, { bound = LEVEL_STEP_BOUND } = {}) {
+function adjudicate(record, { bound = LEVEL_STEP_BOUND, expected = MEASURED_SEGMENTS } = {}) {
   const faults = [];
   const fault = (code, message) => faults.push({ code, message });
   const alloc = record && record.alloc;
@@ -241,7 +289,21 @@ function adjudicate(record, { bound = LEVEL_STEP_BOUND } = {}) {
   }
 
   const segments = [];
-  for (const [seg, rows] of segmentsOf(alloc)) {
+  for (const [seg, rows] of segmentsOf(alloc, expected)) {
+    if (!rows.length) {
+      segments.push({
+        segment: seg, absent: true,
+        before: null, after: null, beforeRound: null, beforeFromRamp: false,
+        nBefore: 0, nAfter: 0, step: null, fraction: null, elevated: false,
+      });
+      fault(
+        'level-segment',
+        `${seg}: the arm declares it measures this segment and the record carries no window for it in ANY round. This is not an ` +
+          'uncertified half — it is a half that was never recorded, so there is no level to compare and no figure that is the arm\'s. ' +
+          'Adjudicating the segments that happen to be present would certify half a measurement as a whole one.'
+      );
+      continue;
+    }
     const beforeRows = inWindow(rows, BEFORE_ROUNDS[0], BEFORE_ROUNDS[1]);
     const afterRows = inWindow(rows, AFTER_ROUND_MIN, Infinity);
     const lowest = beforeRows.length ? beforeRows.reduce((a, b) => (b.legMedian < a.legMedian ? b : a)) : null;
@@ -280,7 +342,10 @@ function adjudicate(record, { bound = LEVEL_STEP_BOUND } = {}) {
     }
   }
 
-  if (!segments.length) fault('level-window', 'the record carries no per-round arm windows at all.');
+  // The roster is seeded, so this is now reachable only when the CALLER
+  // declared an empty one. That is a programming error rather than a data
+  // condition, and it would otherwise certify every record it was handed.
+  if (!segments.length) fault('level-segment', 'no segment roster was declared, so nothing was adjudicated.');
 
   return { ok: faults.length === 0, admissible: true, faults, segments, bound };
 }
@@ -289,6 +354,10 @@ function format(v, label) {
   const out = [];
   out.push(`;; ${label || 'run'} — within-run LEVEL witness (rf2-a233t)`);
   for (const s of v.segments) {
+    if (s.absent) {
+      out.push(`;;   ${s.segment.padEnd(14)} ABSENT — the record carries no window for this segment in any round`);
+      continue;
+    }
     const step = s.step === null ? '—' : `${s.step >= 0 ? '+' : ''}${s.step} B`;
     const pct = s.fraction === null ? '—' : `${(s.fraction * 100).toFixed(3)}%`;
     out.push(
@@ -316,14 +385,17 @@ function format(v, label) {
 
 const CORPORA = ['alloc-c4hhk', 'alloc-77gz8', 'alloc-9jrhi', 'workcount-n1b9h'];
 
-function scoreCorpus({ dataDir = path.join(__dirname, 'data'), corpora = CORPORA, bound = LEVEL_STEP_BOUND } = {}) {
+function scoreCorpus({
+  dataDir = path.join(__dirname, 'data'), corpora = CORPORA,
+  bound = LEVEL_STEP_BOUND, expected = MEASURED_SEGMENTS,
+} = {}) {
   const rows = [];
   for (const corpus of corpora) {
     const dir = path.join(dataDir, corpus);
     if (!fs.existsSync(dir)) continue;
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
       const record = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
-      const v = adjudicate(record, { bound });
+      const v = adjudicate(record, { bound, expected });
       rows.push({
         corpus,
         run: file.replace(/\.json$/, ''),
@@ -337,7 +409,12 @@ function scoreCorpus({ dataDir = path.join(__dirname, 'data'), corpora = CORPORA
   }
   const scored = rows.filter((r) => r.admissible);
   const notComputable = scored.filter((r) => r.codes.includes('level-window'));
-  const stepped = scored.filter((r) => !r.codes.includes('level-window'));
+  // A record missing a declared segment carries no step for it either, so it is
+  // held out of the bands exactly as a missing HALF is. Reported separately
+  // because the two say different things: one segment was not certified, the
+  // other was never recorded.
+  const missingSegment = scored.filter((r) => r.codes.includes('level-segment'));
+  const stepped = scored.filter((r) => !r.codes.includes('level-window') && !r.codes.includes('level-segment'));
   const falsePositives = stepped.filter((r) => !r.elevated && r.codes.includes('level-step'));
   const misses = stepped.filter((r) => r.elevated && !r.codes.includes('level-step'));
   const band = (elev) => {
@@ -359,8 +436,8 @@ function scoreCorpus({ dataDir = path.join(__dirname, 'data'), corpora = CORPORA
     elevated: scored.filter((r) => r.elevated).length,
     refusedForStep: scored.filter((r) => r.codes.includes('level-step')).length,
     degraded: stepped.filter((r) => r.verdict.segments.some((s) => s.beforeFromRamp)),
-    falsePositives, misses, notComputable,
-    normal: band(false), mode: band(true), bound,
+    falsePositives, misses, notComputable, missingSegment,
+    normal: band(false), mode: band(true), bound, expected,
   };
 }
 
@@ -502,6 +579,49 @@ function selfTest() {
     check("a tenfold level with the mode's relative step REFUSES", !adjudicate(synth({ before: 190040, after: 216320 })).ok);
   }
 
+  // 11. THE ROSTER IS A FLOOR. A record missing one whole declared segment is
+  //     refused rather than adjudicated on the half that survives. This is the
+  //     fail-open the header describes, and every check here failed before it
+  //     was closed: a one-segment record certified, silently.
+  {
+    const half = adjudicate(synth({ segments: ['reagent-subs'] }));
+    check('a record missing one whole declared segment REFUSES', !half.ok && has(half, 'level-segment'));
+    check(
+      'and the absent segment is REPORTED rather than dropped',
+      half.segments.some((s) => s.segment === 'uix-subs' && s.absent === true)
+    );
+    check(
+      'and the surviving segment is still adjudicated',
+      half.segments.find((s) => s.segment === 'reagent-subs').step === 96
+    );
+    check('and the formatted verdict does not read CERTIFIED', !format(half).includes('CERTIFIED'));
+
+    // The half that survives being ELEVATED must not be masked by the absence,
+    // and an absence must not be masked by the survivor being fine either.
+    const both = adjudicate(synth({ segments: ['reagent-subs'], before: 19004, after: 21632 }));
+    check('a missing segment and an elevated survivor both refuse', !both.ok && has(both, 'level-segment') && has(both, 'level-step'));
+
+    // A record with NO arms at all names both segments rather than one guard.
+    const none = adjudicate(synth({ segments: [] }));
+    check('a record with no arm windows at all REFUSES', !none.ok && has(none, 'level-segment'));
+    check('and it names every declared segment', none.segments.length === MEASURED_SEGMENTS.length);
+
+    // The roster is not a whitelist: an undeclared segment is still gated.
+    const extra = synth({ segments: ['reagent-subs', 'uix-subs', 'helix-subs'], before: 19004, after: 19100 });
+    for (const round of extra.alloc.perRound) {
+      if (round.round >= AFTER_ROUND_MIN) round.arms['helix-subs|grid/floor'].legMedian = 22072;
+    }
+    const ex = adjudicate(extra);
+    check('an UNDECLARED segment present in the record is still adjudicated', !ex.ok && has(ex, 'level-step'));
+    check('and it is not reported as absent', ex.segments.every((s) => s.absent !== true));
+
+    // And nothing adjudicated is never a pass: with an empty declared roster
+    // AND an empty record there is no segment left to seed one, so the
+    // backstop is the only thing standing between this and a certificate.
+    const empty = adjudicate(synth({ segments: [] }), { expected: [] });
+    check('a run where nothing at all was adjudicated REFUSES', !empty.ok && has(empty, 'level-segment') && empty.segments.length === 0);
+  }
+
   return { checks };
 }
 
@@ -520,13 +640,15 @@ function main(argv) {
     const r = scoreCorpus();
     console.log(`;; corpus control — bound ${(r.bound * 100).toFixed(0)}% of each run's own BEFORE level`);
     console.log(`;;   admissible ${r.scored}   scored ${r.normal.n + r.mode.n}   elevated ${r.elevated}   refused-for-step ${r.refusedForStep}`);
-    console.log(`;;   FALSE POSITIVES ${r.falsePositives.length}   MISSES ${r.misses.length}   not-computable ${r.notComputable.length}   ramp-fallback readings ${r.degraded.length}`);
+    console.log(`;;   FALSE POSITIVES ${r.falsePositives.length}   MISSES ${r.misses.length}   not-computable ${r.notComputable.length}   ramp-fallback readings ${r.degraded.length}   missing-segment ${r.missingSegment.length}`);
+    console.log(`;;   roster ${r.expected.join(', ')} — a declared segment with no window in any round is refused`);
     console.log(`;;   normal n=${r.normal.n}  ${r.normal.minB}..${r.normal.maxB} B  ${(r.normal.minPct * 100).toFixed(3)}%..${(r.normal.maxPct * 100).toFixed(3)}%`);
     console.log(`;;   mode   n=${r.mode.n}  ${r.mode.minB}..${r.mode.maxB} B  ${(r.mode.minPct * 100).toFixed(3)}%..${(r.mode.maxPct * 100).toFixed(3)}%`);
     for (const row of r.inadmissible) console.log(`;;   EXCLUDED ${row.corpus}/${row.run} — ${row.codes.join(', ')}`);
     for (const row of r.notComputable) console.log(`;;   NOT COMPUTABLE ${row.corpus}/${row.run}`);
+    for (const row of r.missingSegment) console.log(`;;   MISSING SEGMENT ${row.corpus}/${row.run}`);
     for (const row of r.degraded) console.log(`;;   RAMP FALLBACK ${row.corpus}/${row.run} (elevated=${row.elevated})`);
-    return r.falsePositives.length || r.misses.length ? 1 : 0;
+    return r.falsePositives.length || r.misses.length || r.missingSegment.length ? 1 : 0;
   }
   const files = args.filter((a) => !a.startsWith('--'));
   if (!files.length) {
@@ -547,4 +669,5 @@ if (require.main === module) process.exit(main(process.argv));
 module.exports = {
   adjudicate, format, selfTest, scoreCorpus, admissibility, segmentsOf, median,
   BEFORE_ROUNDS, BEFORE_PRE_RAMP_MAX, AFTER_ROUND_MIN, LEVEL_STEP_BOUND, HIGH_MODE_FLOOR_B, CORPORA,
+  MEASURED_SEGMENTS,
 };

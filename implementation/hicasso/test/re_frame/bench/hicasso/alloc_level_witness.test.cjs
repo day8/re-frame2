@@ -27,6 +27,8 @@
 // `clock_witness.test.cjs` asserts its own fixture count has not shrunk.
 
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const witness = require('./alloc_level_witness.cjs');
 
@@ -39,7 +41,7 @@ test('every fixture in alloc_level_witness.cjs passes', () => {
   const { checks } = witness.selfTest();
   const bad = checks.filter((c) => !c.ok).map((c) => c.name);
   assert.deepStrictEqual(bad, [], `failing fixtures: ${bad.join(', ')}`);
-  assert.ok(checks.length >= 25, `the fixture set shrank to ${checks.length}; it had 26`);
+  assert.ok(checks.length >= 35, `the fixture set shrank to ${checks.length}; it had 36`);
 });
 
 // --- the corpus control -----------------------------------------------------
@@ -110,6 +112,16 @@ test('the runs the corpus itself excludes are excluded here, and named', () => {
   );
 });
 
+test('every committed record carries the whole declared segment roster', () => {
+  const r = scored();
+  assert.deepStrictEqual(
+    r.missingSegment.map((m) => `${m.corpus}/${m.run}`),
+    [],
+    'a committed record is missing a declared segment — either the record is short or the roster is wrong'
+  );
+  assert.deepStrictEqual(r.expected, ['reagent-subs', 'uix-subs']);
+});
+
 test('exactly one reading falls back to a ramp round, and it is not an elevated one', () => {
   const r = scored();
   assert.strictEqual(r.degraded.length, 1);
@@ -134,6 +146,70 @@ test('a bound loosened past the mode stops refusing elevated runs', () => {
 test('a bound tightened under the normal population starts refusing normal runs', () => {
   const tight = witness.scoreCorpus({ bound: 0.004 });
   assert.strictEqual(tight.falsePositives.length, 60, 'a 0.4% bound did not refuse the whole normal population');
+});
+
+// THE FAIL-OPEN, ON A REAL RECORD RATHER THAN A FIXTURE — rf2-a233t.
+//
+// The fixtures above are synthetic and the corpus control only ever sees
+// COMPLETE records, so neither of them watches the defect this gate was
+// reopened for: a record that lost one whole measured segment. `segmentsOf`
+// used to instantiate only the segments that OCCURRED and the sole guard fired
+// only when ZERO occurred, so the survivor was adjudicated alone and the
+// verdict read CERTIFIED. Measured on this very record before the fix: half
+// the arm's measurement deleted, and the witness certified it without remark.
+//
+// So the mutation is applied to a COMMITTED dataset, in memory, and both
+// directions are asserted — the intact record certifies, the mutilated one
+// refuses. A gate that can only be shown to pass is not a gate.
+
+const RECORD = path.join(__dirname, 'data', 'alloc-77gz8', 'run01-a4a1537cb71.json');
+const readRecord = () => JSON.parse(fs.readFileSync(RECORD, 'utf8'));
+
+const withoutSegment = (record, segment) => {
+  const copy = JSON.parse(JSON.stringify(record));
+  let removed = 0;
+  for (const round of copy.alloc.perRound) {
+    for (const key of Object.keys(round.arms)) {
+      if (round.arms[key].segment === segment) { delete round.arms[key]; removed++; }
+    }
+  }
+  assert.ok(removed > 0, `the mutation removed nothing — ${segment} is not in this record and the proof below is vacuous`);
+  return copy;
+};
+
+test('the committed record this proof mutates certifies while it is intact', () => {
+  const v = witness.adjudicate(readRecord());
+  assert.strictEqual(v.ok, true, 'the control record no longer certifies; the refusal below would prove nothing');
+  assert.deepStrictEqual(v.segments.map((s) => s.segment), ['reagent-subs', 'uix-subs']);
+});
+
+test('and REFUSES once one whole measured segment is removed from it', () => {
+  const v = witness.adjudicate(withoutSegment(readRecord(), 'uix-subs'));
+  assert.strictEqual(v.ok, false, 'a record missing half its measurement still certified — the fail-open is back');
+  assert.deepStrictEqual([...new Set(v.faults.map((f) => f.code))], ['level-segment']);
+  const absent = v.segments.find((s) => s.segment === 'uix-subs');
+  assert.strictEqual(absent.absent, true, 'the absent segment was dropped rather than reported');
+  assert.strictEqual(absent.nBefore + absent.nAfter, 0);
+  // The surviving segment is still read, so the refusal is not a bail-out.
+  assert.strictEqual(v.segments.find((s) => s.segment === 'reagent-subs').step, 168);
+  const text = witness.format(v, 'mutilated');
+  assert.ok(!text.includes('CERTIFIED'), 'the verdict still formats CERTIFIED');
+  assert.ok(text.includes('ABSENT'), 'the verdict does not name the absent segment');
+});
+
+test('the same holds for the other segment, so the roster is not half-checked', () => {
+  const v = witness.adjudicate(withoutSegment(readRecord(), 'reagent-subs'));
+  assert.strictEqual(v.ok, false);
+  assert.ok(v.faults.some((f) => f.code === 'level-segment' && f.message.startsWith('reagent-subs:')));
+});
+
+test('and the corpus control fails rather than passes when a record loses a segment', () => {
+  // The corpus control is what the spine actually runs. Score the same corpus
+  // with a roster the records cannot satisfy: every scored run must now be
+  // held out of the bands and named, not quietly certified.
+  const r = witness.scoreCorpus({ expected: ['reagent-subs', 'uix-subs', 'a-segment-no-record-carries'] });
+  assert.strictEqual(r.missingSegment.length, 101, 'a roster no record satisfies left runs unrefused');
+  assert.strictEqual(r.normal.n + r.mode.n, 0, 'runs missing a declared segment still reached the bands');
 });
 
 // --- runner -----------------------------------------------------------------
