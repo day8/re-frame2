@@ -620,9 +620,12 @@ merge criterion, and this is not among them.
 - **Never nominate a gate that does not cover the surface being edited.** Site builds, linters and test
   runners all carry exclusion lists, and a gate run over an excluded path exits green having verified
   nothing — the same fail-open defect worth hunting anywhere else, except it is now the brief telling the
-  worker to trust it. **Read the exclusion config before naming the gate.** Where a surface genuinely has no
-  automated coverage, the honest brief says *no automated gate covers this surface; the worker verifies it by
-  hand and says so in the change body* — and the change body then reports what was checked and the counts.
+  worker to trust it. **Read the exclusion config before naming the gate.** Read the exclusion's own carve-outs
+  too, because an exclusion may itself name exceptions — a construct the gate skips everywhere but reports in
+  named trees — and **understating coverage misreports as surely as overstating it**, sending a worker to
+  hand-check what the gate already proved and to record a gap that is not there. Where a surface genuinely has
+  no automated coverage, the honest brief says *no automated gate covers this surface; the worker verifies it
+  by hand and says so in the change body* — and the change body then reports what was checked and the counts.
 
 A skipped gate needs a one-line reason in the change body. A silent skip fails review.
 
