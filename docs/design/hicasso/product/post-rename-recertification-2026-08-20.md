@@ -132,10 +132,17 @@ survive a read of the row's own registry.
   re-pin, *"a run, not an edit"*.
 - `budgets.md`'s §6 pins it harder still: *"`C1`: the supersession has widened rather than closed. **The
   ladder's provenance table pins eleven blobs**"*, six of them the P0 driver's.
-- A fixed-string search of `budgets.md` for lines carrying both `C1` and any spelling of *clock* returns
-  **nothing**. The control on that search is its sibling: the same search for `C7` and *clock* returns
-  the line *"C7 stays `UNPINNED` and its clock half remains `rf2-hic-071`'s, along with the ladder
-  re-pin"* — so the pattern finds clock-halves where they exist, and `C1` has none.
+- The contrast row is `C7`, and it is what shows the ledger *can* say "clock" about a comparative rule
+  when it means to: *"`C7` stays `UNPINNED` and its **clock half** remains `rf2-hic-071`'s, along with the
+  ladder re-pin"*. `C7` is written with two halves and the ledger names them separately; `C1` is written
+  with one, and the half it has is the ladder's.
+
+**A search was tried here first and it was a bad control, which is worth recording rather than hiding.**
+A line-scoped fixed-string search for `C1` beside any spelling of *clock* returned nothing — but so did
+the same search for `C7`, whose clock half is quoted above, because "C7" and "clock" sit on adjacent lines
+rather than on one. **The search that found nothing about `C1` would have found nothing about a row that
+plainly has a clock half**, so it discriminated nothing and none of the finding above rests on it. The
+three quotations do, and each was read at source.
 
 **So the expiry the dispatch suspected is REAL and it is not narrow.** The 2026-08-19 anchor was taken on
 `p0_run.cjs --only ladder`, which is `C1`'s registered instrument and not a different estimand. Family
@@ -304,7 +311,69 @@ the gate, checked that the failure named the plant, restored, and verified the r
 against the committed object** — never by reading a diff, because this checkout translates line endings
 and a plain byte digest reports a correct restore as failed.
 
-<!-- CONTROL-TABLE -->
+| Family | What was planted | Gate under the plant | Captured exit | What the red said |
+|---|---|---|---|---|
+| 1, source half | one `:require` of `re-frame.hicasso.motion` in the public door's `ns` form | `check_optional_module_reachability.py` | `1` | named the file and the optional module by name, and told the author to require it in the application instead |
+| 1, bundle half | a `:require` of `re-frame.hicasso.native` plus one reachable `n/marker` call in the consumer app's `-main` | `npx shadow-cljs release hicasso-release` then `check_bundle_isolation.cjs` | build `0`, gate `1` | `OPTIONAL SURFACE LEAKED: native tier`, quoting sentinel `"rf2:hicasso-native-tier"` |
+| 2, SSR JVM arm | one string-literal marker prepended to text-node output in `ssr/emit.cljc`'s `emit-element` | `clojure -M:test` in `implementation/ssr` | `1` | **97 failures, 0 errors**, over the same **599 tests / 2925 assertions** as the control run — so no namespace crashed and the plant was scoped to assertions rather than to the lane. The marker appears 116 times in the failure output. |
+| 3, macro expansion | `head-form` in `native.cljc` — the `n/$` macro's expansion-time lowering of a keyword head — made to append a marker to the element name | node lane, compile then run | compile `0`, run `1` | `three_way_parity_cljs_test.cljs:337:15`, **8 failures** on *the-three-routes-render-the-same-server-bytes*, and **7** at `:367:21` on *the-three-routes-build-the-same-element-shape* — the native arm's expansion no longer agrees with handwritten React |
+| 4, source coordinate | `defview`'s captured coordinate in `hicasso.cljc` given `:line 0` at expansion | node lane, same run | run `1` | `error_shape_cljs_test.cljs:144:11` — expected `:line? true`, actual `:line? false`, on *a-refusal-from-a-body-carries-the-rendering-view-and-its-coordinate* |
+
+| Family | Baseline blob | Under the plant | After restore |
+|---|---|---|---|
+| 1, source half — `hicasso/src/re_frame/hicasso.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` | `d927b26b91a38304d4e86f98a15898149a110a4c` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
+| 1, bundle half — `hicasso/test/re_frame/hicasso/consumer_app.cljs` | `a1a4720d35311d2e7bb42b66faba0a0fa6c9cf72` | `7e4c65343afc0ef8fb6f0cd5bb88cd4eaf3bab29` | `a1a4720d35311d2e7bb42b66faba0a0fa6c9cf72` |
+| 2 — `ssr/src/re_frame/ssr/emit.cljc` | `6ff941afd297192ae8a2a45ab27be0422482e02d` | `0c364040198726145d5be89df214bcf5fa71b8fb` | `6ff941afd297192ae8a2a45ab27be0422482e02d` |
+| 3 — `hicasso/src/re_frame/hicasso/native.cljc` | `7e39d9a52bf9bdbdec1ec0ac2e48cba918bd0d30` | `8d0bbe6c9f8d0c799204e06fdff1ea7996e3b79a` | `7e39d9a52bf9bdbdec1ec0ac2e48cba918bd0d30` |
+| 4 — `hicasso/src/re_frame/hicasso.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` | `cd7bb172bd117d114e1eead2d6b2bce387309301` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
+
+Every value in the two hash columns above is a **blob** hash — `git rev-parse HEAD:<path>` for the
+baseline, `git hash-object <path>` for the working file — never a commit id. **Each baseline equals the
+object committed at `2f96ecc98c`, and each restored value equals its baseline**, so every plant is proved
+to have applied rather than silently no-opped, and every restore is proved exact.
+
+**The plants also answer a second question the greens cannot: which tree the gate read.** Each fault
+existed only in this worker's worktree, so a run that had wandered into a sibling checkout would have come
+back green. The shadow-cljs runs corroborate it a second way, by printing the absolute path of the
+`shadow-cljs.edn` they loaded on their first line — it named this worker's worktree on every heavy run,
+never a sibling's, and the browser runner printed the same root when it patched and served its bundle.
+
+### 7.1 Families 3 and 4 shared one sabotage run, and the counts prove the scoping
+
+Both plants went in together and the node lane was compiled and run **once** under both, exactly as on
+2026-08-18. A shared run is only legitimate if the two reds are separable, and they are: family 3's
+failures are in `three_way_parity_cljs_test` and family 4's in `error_shape_cljs_test`, at the files and
+lines quoted above.
+
+The run reported **47 failures and 8 errors over 11854 tests containing 60048 assertions**. That test and
+assertion count is **identical to the green control run** in §5, which is the check that matters here: if
+either plant had crashed a namespace, every namespace after it would have been skipped and the totals
+would have dropped. They did not, so the plants were scoped to assertions and the lane ran whole. The
+eight errors are downstream of the same two plants — the SSR-entry and identifier-prefix namespaces
+consume the native tier's element names — and they are not a separate finding.
+
+**One number on this run disagreed with itself, and believing the wrong one would have inverted this
+page's conclusion.** The captured exit — the runner's own, echoed on the same command line as the
+redirect — is `1`. The number the harness reported about the same run is `0`. A sabotage run that comes
+back green reads as *the control does not bite*, which is a reason to stop rather than to proceed, so the
+disagreement is not a curiosity here: it is the difference between a certification and a retraction. **The
+number quoted throughout this page is the captured one in every case.**
+
+## 8. The trunk moved while this was written, and it does not reach here
+
+The two previous pages record the same check and it is worth keeping, because a record anchored to a
+commit is only useful if a reader can see how far the trunk has travelled past it.
+
+`origin/main` advanced **9** commits beyond `2f96ecc98c` while these gates ran.
+`git diff --name-only 2f96ecc98c..origin/main` names exactly **two** paths — `.beads/issues.jsonl` and
+`docs/design/hicasso/product/dispositions.md` — and `git diff --stat 2f96ecc98c..origin/main --
+implementation` is **empty**. The tracker export is not a family surface and the dispositions page is
+prose, so **nothing in the interval reaches any instrument or subject this page measures.**
+
+This is a claim about a window that closed when the sentence was written, not a standing property. What
+generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
+to know whether it still describes the trunk can re-run the two commands above rather than take this
+paragraph's word for it.
 
 ### 7.2 What was NOT proved
 
