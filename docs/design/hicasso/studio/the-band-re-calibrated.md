@@ -546,16 +546,16 @@ the load half of the design is identical and not merely equivalent.
 ```bash
 cd implementation
 # build once
-HCLOCK_ONLY=bulk300 node freehand/test/re_frame/bench/hicasso/clock_run.cjs
+HCLOCK_ONLY=bulk300 node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
 
 # then one rung, three replicates — and issue NO other command while it runs
 for r in 1 2 3; do
-  node freehand/test/re_frame/bench/hicasso/seam_ladder.cjs \
+  node hicasso/test/re_frame/bench/hicasso/seam_ladder.cjs \
     --load 12 --label "L12-r$r" --json "out/ladder-ymi6j/L12-r$r.json"
 done
 
 # recompute every figure on this page from the datasets
-node freehand/test/re_frame/bench/hicasso/ladder_band.cjs out/ladder-ymi6j/L*.json
+node hicasso/test/re_frame/bench/hicasso/ladder_band.cjs out/ladder-ymi6j/L*.json
 ```
 
 ### 9.1 The dataset survives this time, and that was the point

@@ -57,8 +57,8 @@ Reproduce (each row is one page and one driver invocation; the plain command
 runs all five over the same gates):
 
 ```bash
-node implementation/freehand/test/re_frame/bench/hicasso/coldmount_run.cjs
-COLDMOUNT_ONLY=M1L1 node implementation/freehand/test/re_frame/bench/hicasso/coldmount_run.cjs
+node implementation/hicasso/test/re_frame/bench/hicasso/coldmount_run.cjs
+COLDMOUNT_ONLY=M1L1 node implementation/hicasso/test/re_frame/bench/hicasso/coldmount_run.cjs
 ```
 
 The five published rows were taken one row per invocation — fresh build (the
@@ -389,7 +389,7 @@ The double build is untouched by .13, so the fractions on this page stand. Their
 > ms and per-token arming; only ≥256 ms or no reaper at all flips it). The
 > evidence for the win remains the swap-the-primitive probe — which
 > `rf2-2rtt6.80` has since committed as a runnable on-demand diagnostic,
-> `node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`,
+> `node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`,
 > measuring its page's render-to-passive-flush gap before it will read an
 > adoption integer and printing REFUSED with that gap when it cannot bound it.
 > **None of that revives the `shipped` rows below.**

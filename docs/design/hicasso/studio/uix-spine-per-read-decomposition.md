@@ -65,7 +65,11 @@
 > consequences of `.25` are on
 > [the converged witness set](p0-converged-witness-set.md).
 
-Reproduce:
+**Taken with — and it no longer runs.** The Freehand substrate was retired
+(`rf2-0yp7w`) and `implementation/freehand/` deleted, so the driver below is on
+no commit reachable from `main` and there is no tip equivalent to re-point it
+to. It is recorded as the instrument that produced the figures, not offered as
+a command:
 
 ```bash
 cd implementation
@@ -75,8 +79,8 @@ ABL_ROUNDS=4 ABL_SNAP_ROUNDS=2 \
 
 Instrument: `implementation/freehand/test/re_frame/freehand/bench/spine_ablation.cljs`
 (page), `…/spine_ablation_app.cljs` (`:advanced` entry),
-`…/spine_ablation_run.cjs` (driver). It rides `freehand-release` through
-`--config-merge` and adds no build id.
+`…/spine_ablation_run.cjs` (driver). It rode `freehand-release` through
+`--config-merge` and added no build id.
 
 ---
 

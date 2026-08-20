@@ -547,7 +547,7 @@ strengthens the case for.
 | Benchmark revision | `krausest/js-framework-benchmark` at commit **`247fafa22c1f2caeb4cad179aa64cf444398cbc7`** (*"incremental run"*, 2026-07-28), read back from the surviving clone rather than recalled. It was reached as a shallow clone of `master` taken 2026-08-01, and `master` alone is not a pin — the branch has moved since. The clone is kept at `%LOCALAPPDATA%\Temp\jsfb-rguy1\repo`, **outside this repository, never committed**. That SHA belongs to the benchmark's repository, not to this one, so it resolves there and nowhere else — canonically at [github.com/krausest/js-framework-benchmark/commit/247fafa22c1f2caeb4cad179aa64cf444398cbc7](https://github.com/krausest/js-framework-benchmark/commit/247fafa22c1f2caeb4cad179aa64cf444398cbc7) |
 | Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Bundles | `rf2-reagent` `300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6` · `rf2-hicasso` `1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f` · `rf2-uix` `4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1`. One set of three, shared by both runs below — the re-take measured the published bundles rather than a rebuild, which is what isolates the parity question from five days of implementation drift |
-| Retained datasets | `implementation/freehand/test/re_frame/bench/hicasso/data/jsfb-rguy1/` — both runs, **byte-exact as the instrument wrote them**, so a fresh clone can read this page's parity object, gate counts and per-round figures out of the tree instead of taking them on trust. `ours3.json`, the 2026-08-02 run, 6,124 bytes, SHA-256 `eacd43ed782ac7a80d3b47bb4f92a4e1dfa46f8d0f68eee6f757442cbe84f136`; `ours4.json`, the 2026-08-07 re-take, 35,553 bytes, SHA-256 `3e31fae2e408a2745b70bde6aa96cd242f9f9d17f8abf17af8e6e795577c5093`. Both carry `provenance.bundles: {}` — `jsfb_ours_run.cjs` declared the field and never filled it, so neither run binds itself to the three digests above; `provenance.json` beside them does it instead, and from `rf2-rguy1` (2026-08-08) the instrument does it itself. The benchmark clone and the run logs are **not** vendored |
+| Retained datasets | `implementation/hicasso/test/re_frame/bench/hicasso/data/jsfb-rguy1/` — both runs, **byte-exact as the instrument wrote them**, so a fresh clone can read this page's parity object, gate counts and per-round figures out of the tree instead of taking them on trust. `ours3.json`, the 2026-08-02 run, 6,124 bytes, SHA-256 `eacd43ed782ac7a80d3b47bb4f92a4e1dfa46f8d0f68eee6f757442cbe84f136`; `ours4.json`, the 2026-08-07 re-take, 35,553 bytes, SHA-256 `3e31fae2e408a2745b70bde6aa96cd242f9f9d17f8abf17af8e6e795577c5093`. Both carry `provenance.bundles: {}` — `jsfb_ours_run.cjs` declared the field and never filled it, so neither run binds itself to the three digests above; `provenance.json` beside them does it instead, and from `rf2-rguy1` (2026-08-08) the instrument does it itself. The benchmark clone and the run logs are **not** vendored |
 | Their run | started 2026-08-01 23:55:03 AUSEST, ended 00:00:55, **exit 0**, driver's own PlausibilityCheck `successful run` |
 | Our run | started 2026-08-02 00:01:09 AUSEST, ended 00:06:59, **exit 1**. Unverified writes and page errors cleared; the positive control failed ([§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch)) and **so did the DOM parity gate** — `parity.identical: false`. The earlier claim that parity cleared here is **withdrawn** (`rf2-rguy1`, 2026-08-07): this run predates the attribute-sorting gate, so the gate it is quoted as passing did not yet exist ([§1.3](#13-the-one-deliberate-deviation-and-why-it-strengthens-the-comparison)) |
 | Our DOM-parity re-take | started 2026-08-07 18:33:08 AUSEST, ended 18:39:47, **exit 1** — scoped to the positive control alone. **DOM parity IDENTICAL**, `firstDiff: null`, canonical and raw lengths `216,066` on all three arms; 0 unverified of 1,000 writes; 0 page errors. Landed harness at `851961adc6`, whose `jsfb_ours_run.cjs` differs from the pinned blob below only in `rf2-emvod`'s raw-`TaskDuration` reporting and `JSFB_ONLY` — the canonicalisation and the exit gate are byte-identical, so this is the same instrument on the parity question. Run against the three bundles above, digests re-verified before the run. **This re-take establishes the DOM gate only**; the ratios on this page are unchanged and remain those of the 2026-08-02 run |
@@ -580,7 +580,7 @@ cd /tmp/jsfb && npm --prefix server install && npm --prefix webdriver-ts ci \
 (cd server && npm start &)                      # serves :8080
 
 cd <re-frame2>/implementation && npm ci
-node freehand/test/re_frame/bench/hicasso/jsfb_build.cjs --dest /tmp/jsfb
+node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs --dest /tmp/jsfb
 
 cd /tmp/jsfb/webdriver-ts                        # THEIRS
 node dist/benchmarkRunner.js \
@@ -589,9 +589,9 @@ node dist/benchmarkRunner.js \
 
 cd <re-frame2>/implementation                    # OURS — 5 rounds, as published
 JSFB_ROUNDS=5 JSFB_OURS_JSON=/tmp/ours.json \
-  node freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
+  node hicasso/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
 
-node freehand/test/re_frame/bench/hicasso/jsfb_compare.cjs \
+node hicasso/test/re_frame/bench/hicasso/jsfb_compare.cjs \
   --theirs /tmp/jsfb/webdriver-ts/results --ours /tmp/ours.json
 ```
 

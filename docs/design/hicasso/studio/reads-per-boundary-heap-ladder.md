@@ -94,7 +94,11 @@ workstation with other agents running concurrently. Every arm is an
 (`:freehand-release`). **Browser numbers**; nothing here is a JVM or Node
 figure.
 
-Reproduce:
+**Taken with — and it no longer runs.** The Freehand substrate was retired
+(`rf2-0yp7w`) and `implementation/freehand/` deleted, so the driver below is on
+no commit reachable from `main` and there is no tip equivalent to re-point it
+to. It is recorded as the instrument that produced §§1–5, not offered as a
+command:
 
 ```
 node implementation/freehand/test/re_frame/freehand/bench/reads_ladder_run.cjs

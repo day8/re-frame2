@@ -127,7 +127,7 @@ Every one of those has its second direction. The clobber row's twin asserts that
 
 ## What did not hold at source
 
-1. **There is no "census article-editor witness" for late arrival.** The bead's deliverable line says the settle-merge recipe should *elevate the census article-editor witness*. The file that carries that name — `implementation/freehand/test/re_frame/bench/hicasso/front/census_article_editor_cljs_test.cljs` — is about the `:&` merge spelling on a census-real screen, and asserts nothing about late replies or touched fields. Its only use of the word *clobber* is attribute-merge clobber, which is a different thing with the same name.
+1. **There is no "census article-editor witness" for late arrival.** The bead's deliverable line says the settle-merge recipe should *elevate the census article-editor witness*. The file that carries that name — `implementation/hicasso/test/re_frame/bench/hicasso/front/census_article_editor_cljs_test.cljs` — is about the `:&` merge spelling on a census-real screen, and asserts nothing about late replies or touched fields. Its only use of the word *clobber* is attribute-merge clobber, which is a different thing with the same name.
 
     The actual R-C1 law lives in two places, neither of them a witness that could be elevated: `spec/conformance/freehand/fixtures/fh-ctrl-013.edn` with `implementation/freehand/test/re_frame/freehand/form_cljs_test.cljc`, which is the *freehand* substrate's leafwise seed rather than a consumer recipe; and `docs/design/freehand/studio/fitness-harness.md`, which records at its own §C.2 that the same-slug typing clobber is **still live** in the corpus and *"a harness case no green suite currently covers."*
 

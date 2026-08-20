@@ -441,7 +441,7 @@ ceiling is nowhere near this regime, which is why the published verdict above is
 unaffected.
 
 Repro:
-`ADOPTWIT_CEILING_MS=0.3 node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`
+`ADOPTWIT_CEILING_MS=0.3 node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`
 — and expect either outcome.
 
 ## X4 — the screen is alive
