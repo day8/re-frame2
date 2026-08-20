@@ -158,15 +158,18 @@ ran inside the bracket.
 |---|---|---|
 | An `:advanced` build artefact, or any static property of the compiled code | **EXCLUDED** | The high run read the **low** level at its own rounds 1 – 3 before stepping. No static property of a build changes within the life of one page. The three runs at `4a1537cb71` also shared one build. |
 | A page-global allocation the counter attributes to the leg | **EXCLUDED** | The fifty-four control windows in the high run read byte-identically to the low run's; and a second counter outside the page (`cdpBracket`) confirms the same 3,792 B/write, so it is not the in-page counter mis-attributing. |
-| A collection, or a GC generation promotion | **EXCLUDED** | Zero falling steps in the quoted certified windows; the two heaps close within 4,812 B; and a collection moves a level down, not up, and not byte-stably for fourteen rounds. |
+| A collection, or a GC generation promotion, **as the carrier** | **EXCLUDED as the carrier** | Zero falling steps in the quoted certified windows; the two heaps close within 4,812 B on `reagent-subs` and 4,940 B on `uix-subs`; and a collection moves a level down, not up, and not byte-stably for fourteen rounds. |
+| A one-time collection or generation promotion **as the TRIGGER** — the event that puts the page into a mode something else then carries | **collection NOT SUPPORTED; promotion UNRESOLVED** | Split out 2026-08-21 by `rf2-9jrhi` from the merged-PR audit of PR #8582: the row above observes samples *inside* windows and at the close, which cannot reach the boundary *between* them. It is reached by a stream that was already retained — each round's three control windows sit before its arm passes and retain 45 absolute used-heap samples in that gap. **Collection:** all 119 round boundaries across the seven runs carry a fall (smallest 172,028 B), and at the round-3 → round-4 boundary the high run's 182,856 B sits between its two same-revision replicates' 180,676 B and 182,884 B — neither of which steps — so a collection there does not distinguish the run that does. **Promotion:** both retained counters are TOTALS across generations, so a promotion changes neither; no sampling density of this corpus can see one. |
 | A growing array's doubling, or a one-time lazily-installed cache | **EXCLUDED as the carrier** | A doubling or a one-time install pays **once**. This pays 3,792 B on each of ~196 subsequent writes and is **not retained** — 743,232 B allocated against a 4,812 B difference in the closing heap. It is per-write transient garbage, not a structure. |
 | The prime term | **EXCLUDED** | `primeExcess` moves 16 B across the mode while the baseline moves 3,792 B. |
 | **Different work per write** — a re-entrant registration, a duplicated reaction, an extra pass | **NOT EXCLUDED** | `alloc-tick` counts **writes**, not handler invocations, so the identical schedule does not speak to it. Nothing in the corpus counts work inside a write. |
 | **A V8 tier or deoptimisation transition in the compiled write path** — most specifically a loss of escape analysis, which turns elided allocations into real ones at a fixed cost per invocation | **NOT EXCLUDED** | Consistent with every observation above, and the only candidate that also explains why *all seven* runs transition at the same round under a deterministic schedule. But no dataset here records V8 tier state, so it is not established either. |
 
-Both survivors predict a byte-exact, per-write, page-global constant that
-appears at a work-count boundary. **They are not separated by anything in the
-committed corpus**, and this page does not prefer one.
+Both surviving **carriers** predict a byte-exact, per-write, page-global
+constant that appears at a work-count boundary. **They are not separated by
+anything in the committed corpus**, and this page does not prefer one. The
+trigger row is a separate question and does not add a third carrier: it asks
+what put the page into the mode, not what pays for it round after round.
 
 ## The one observation that would separate them
 
