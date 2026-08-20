@@ -169,9 +169,17 @@ The 2026-08-08 run holds rounds 0 – 5. The published estimator reads round ind
 run stops exactly where the transition begins**, and neither the estimator nor the
 witness can be applied to it.
 
-This is not an inference. `alloc-9jrhi/pilot-rounds6-head-88411ed803.json` is a committed
-six-round run of this arm, and the estimator returns **no value** for it on either
-segment, for exactly this reason.
+Read at source in the landed module rather than taken from its bead,
+`alloc_level_witness.cjs` pins `AFTER_ROUND_MIN = 6` against `BEFORE_ROUNDS = [1, 5]`, and
+the case is not merely unhandled — it is a **named refusal**. A segment with no certified
+window in either half raises `level-window`, on the explicit ground that *"AFTER is the
+published estimator, so a run missing it has no figure to quote either."* **A 2026-08-08-
+shaped run would be refused outright by today's witness**, and refused for having nothing
+quotable rather than for reading wrong.
+
+None of which is an inference. `alloc-9jrhi/pilot-rounds6-head-88411ed803.json` is a
+committed six-round run of this arm, and the estimator returns **no value** for it on
+either segment, for exactly this reason.
 
 ## 5. Placement inside the envelope
 
