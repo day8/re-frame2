@@ -112,7 +112,7 @@ read a fit into four points.
 **The bisect is on this table rather than beside it**, which matters twice over.
 Its rate fits the duration relation perfectly well. Its internal ordering, below,
 does not fit the within-session gradient at all. Those are two different claims
-about the same eight runs and this page keeps them apart.
+about the same seven admissible runs and this page keeps them apart.
 
 ## Within the long session, which is the only unconfounded arm
 
