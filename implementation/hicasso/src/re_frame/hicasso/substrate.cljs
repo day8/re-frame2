@@ -8,20 +8,20 @@
   `react-dom/client`, and interprets its own Hiccup; what the substrate
   contract asks for is the OBSERVATION half — the container `app-db` lives
   in, and a derived value that says when it moved. The two halves are
-  independent, and until this namespace existed Hicasso shipped only the
-  first: an interactive Hicasso application had to add a SECOND dependency
-  coordinate — `day8/re-frame2-uix` or a Reagent one — purely to obtain the
-  second half, and then never wrote a line of that substrate's notation
-  (rf2-hvr5h). A Hicasso application now depends on core plus Hicasso and
-  nothing else.
+  independent, and owning both is what lets a Hicasso application depend on
+  core plus Hicasso and nothing else: without this namespace an interactive
+  one would have to add a SECOND dependency coordinate —
+  `day8/re-frame2-uix` or a Reagent one — purely to obtain the second half,
+  and then never write a line of that substrate's notation.
 
-  This ADDS an option. Reagent, reagent-slim and UIx remain first-class,
-  independently supported adapters, and installing one of them under a
-  Hicasso tree keeps working exactly as it did — a Hicasso subtree and a UIx
-  subtree still resolve the same frame, because every React-shaped adapter
-  reads the one shared context object (`re-frame.adapter.context/frame-context`).
+  This is an OPTION, not a replacement. Reagent, reagent-slim and UIx
+  remain first-class, independently supported adapters, and installing one
+  of them under a Hicasso tree is supported — a Hicasso subtree and a UIx
+  subtree resolve the same frame, because every React-shaped adapter reads
+  the one shared context object
+  (`re-frame.adapter.context/frame-context`).
 
-  ## What it stands on, and why that is not new machinery
+  ## What it stands on
 
   `re-frame.substrate.spine` — core's shared spine for \"React-shaped adapters
   that lack a native reactive-atom primitive\", which is what Hicasso is. The
@@ -64,8 +64,7 @@
   namespace called `re-frame.hicasso.adapter`, it would occupy the same path
   as an `adapter` Var on the public door, and the compiler's `:ns-var-clash`
   would leave one of the two reading `nil`. The machinery is therefore homed
-  under `substrate`, exactly as the donor substrate arrived at and for the
-  same reason.
+  under `substrate`.
 
   INTERNAL, apart from [[adapter]]. Hicasso re-exports none of the spine's
   hook surfaces: a body reads through `h/sub` and the collector, and a second

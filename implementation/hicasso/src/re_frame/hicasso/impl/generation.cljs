@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.generation
   "THE COMMIT BASIS — the three monotone numbers invariant 5 is judged
-  against, and the only doors that advance them (rf2-hic-009).
+  against, and the only doors that advance them.
 
   Everything here is a counter and a read of a counter. That is the
   ownership boundary: the collector *consults* the basis on four hot
@@ -15,7 +15,7 @@
   fourth axis — a same-id frame reincarnation — is not carryable here at
   all.
 
-  **The HMR contract lands on this file** (rf2-hic-015). A reload
+  **The HMR contract lands on this file.** A reload
   re-registers `:sub` handlers, which is exactly what [[registry-epoch]]
   counts and exactly what the collector's cell-invalidation repair rides;
   a reload that must promise identity, focus and state across a save has
@@ -87,36 +87,34 @@
   advances it, which costs at most one redundant re-render and cannot
   cost a missed one. Pure read; allocates nothing.
 
-  ## Why the registry term costs the mounted case nothing (rf2-2rtt6.50)
+  ## Why the registry term costs the mounted case nothing
 
-  This is the term rf2-2rtt6.44 costed and declined, and **it is not the
-  thing that was declined.** What that costing priced was a registry term
-  in every key's *live* contribution to
-  [[re-frame.hicasso.impl.collector/make-snapshot]] — which would have
-  moved every mounted boundary's number on every `reg-sub` in the
-  application, and bought a re-render that read straight back through a
-  dead cell. This term is in the basis, and the basis is read live by
-  exactly one branch of that sum: **a key no cell holds yet**. A held key
-  contributes its cell's *frozen* stamp, which no registration touches.
+  **The term belongs in the basis and nowhere else.** The basis is read
+  live by exactly one branch of
+  [[re-frame.hicasso.impl.collector/make-snapshot]]'s sum: **a key no
+  cell holds yet**. A held key contributes its cell's *frozen* stamp,
+  which no registration touches. Putting a registry term in every key's
+  live contribution instead would move every mounted boundary's number on
+  every `reg-sub` in the application, and buy a re-render that read
+  straight back through a dead cell.
 
   So the reach of the term is precisely the set of keys inside a
   render→commit gap, which is the set of keys that have the defect. A
   mounted boundary holds a reference to every key it reads, so it has no
   staged term at all and an unrelated `reg-sub` moves its snapshot by
   zero — `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing`
-  asserts exactly that, and it is unchanged by this term, which is the
-  cleanest available proof that the two options are different options.
+  asserts exactly that, and it is what keeps the two placements
+  distinguishable.
 
   Conservative in the safe direction and only there, exactly as the
-  install term already is: a boundary mounting as an *unrelated* module
-  registers its subs re-renders once for nothing. A MISSED move would be
-  the P0, and adding a monotone term to a monotone sum cannot cause one.
+  install term is: a boundary mounting as an *unrelated* module registers
+  its subs re-renders once for nothing. A MISSED move would be the P0,
+  and adding a monotone term to a monotone sum cannot cause one.
 
-  Still silent on one axis, and permanently so: a same-id frame
-  reincarnation RESTARTS `frame-commit-epoch` at 0 (measured: A's epoch
-  and B's are both 1, so the basis TIES across the reincarnation), which
-  is the case the observation port needs its `:node-key` field for. That
-  axis is not this number's to carry, and rf2-2rtt6.44 settled why: the
+  Silent on one axis, and permanently so: a same-id frame reincarnation
+  RESTARTS `frame-commit-epoch` at 0, so the basis TIES across the
+  reincarnation, which is the case the observation port needs its
+  `:node-key` field for. That axis is not this number's to carry. The
   transition leaves the cell holding a reaction that can no longer answer
   for its key, so a moved number would only buy a re-render that read
   back through the same dead reference.

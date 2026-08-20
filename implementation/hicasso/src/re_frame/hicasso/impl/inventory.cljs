@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.inventory
   "WHAT THE RUNTIME RETAINS — the declared census and the measured one,
-  in one file so they can be read against each other (rf2-hic-009).
+  in one file so they can be read against each other.
 
   [[retained-inventory]] is the DECLARATION: every boundary-exclusive
   token this arm holds, enumerated rather than asserted, plus the tokens
@@ -20,7 +20,7 @@
   [[quiesced!]] is here rather than beside the reapers it waits on
   because its only purpose is to make a [[residue]] BASELINE honest, and
   a settling point separated from the thing it settles for is a settling
-  point that drifts — which is exactly what rf2-981nt was.
+  point that drifts.
 
   **This file counts what is retained; it does not say why any of it is
   allowed to be one-per-page.** That is a different question with a
@@ -30,7 +30,7 @@
   searches that produce the roster. Read it before scoping one of these
   tables to a root — three of them are already frame-scoped BY KEYING,
   and at least one (`impl.overlay`'s anchor counter) would break if it
-  were scoped to anything narrower than the page (rf2-hic-017)."
+  were scoped to anything narrower than the page."
   (:require [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
@@ -43,16 +43,16 @@
   if nobody writes it down.
 
   **The classification is the ladder's input, so where a token sits is a
-  measurement and not a filing convenience (rf2-2rtt6.46).** The read-set
-  entry sat under `:shared` and does not belong there: an entry is shared
-  only between boundaries whose read SEQUENCES are identical, and the
-  shape the per-read heap ladder is taken on (rf2-2rtt6.34) is the
-  distinct-query one — every row reading its own key, so every row a read
-  sequence of its own and an entry of its own. Filed as `:shared` it
-  under-counted per-boundary retention by one entry per boundary, on
-  exactly the rung being measured, in the direction that flatters this
-  arm. Filed here it over-counts in the coincident-sequence case, which
-  is the direction a candidate's own instrument should err in."
+  measurement and not a filing convenience.** The read-set entry belongs
+  under `:per-boundary`: an entry is shared only between boundaries whose
+  read SEQUENCES are identical, and the shape the per-read heap ladder is
+  taken on is the distinct-query one — every row reading its own key, so
+  every row a read sequence of its own and an entry of its own. Filed as
+  `:shared` it would under-count per-boundary retention by one entry per
+  boundary, on exactly the rung being measured, in the direction that
+  flatters this arm. Filed here it over-counts in the coincident-sequence
+  case, which is the direction a candidate's own instrument should err
+  in."
   []
   {:per-boundary
    [{:token :registration
@@ -88,9 +88,9 @@
   either because nothing holds the key, or because the substrate disposed
   the reaction and [[re-frame.hicasso.impl.collector/invalidate-cell!]] dropped the reference.
 
-  A witness reader, and the one the rf2-2rtt6.44 rows need: the failure
-  they pin is what a HELD container answers after its disposal, so they
-  have to be able to hold it."
+  A witness reader: the failure the disposal rows pin is what a HELD
+  container answers after its disposal, so they have to be able to hold
+  it."
   [sub-key]
   (some-> ^js (get @collector/!cells sub-key) (.-reaction)))
 
@@ -101,22 +101,20 @@
   A witness reader, answered as a SNAPSHOT: the cell's live array is
   cloned before it is wrapped, so a caller may hold the result across a
   mount, an unmount or a remount and read back what it captured. That is
-  the guarantee the reader-counting rows assert against, and it replaces
-  the retired index's `readers-of`.
+  the guarantee the reader-counting rows assert against.
 
-  **The clone is load-bearing and `vec` alone was not it (rf2-0oy4).**
+  **The clone is load-bearing and `vec` alone is not it.**
   `cljs.core/vec` says so in its own docstring — *\"JavaScript arrays will
   be aliased and should not be modified\"* — because on an array it calls
   `PersistentVector.fromArray` with `no-clone` true, and below length 32,
   which is every fan-out this table sees, the vector's TAIL *is* the array
   handed in. [[re-frame.hicasso.impl.collector]] then `.push`es and
-  `.splice`s that array in place, and the result is not a stale value but
-  an INCOHERENT one: `count` and `nth` stay bounded by the `cnt` frozen at
-  construction while `reduce` walks each chunk by the tail's live
-  `alength`, so the same vector answers 2 to `count` and `[b b]` to
+  `.splice`s that array in place, and the result would not be a stale
+  value but an INCOHERENT one: `count` and `nth` stay bounded by the `cnt`
+  frozen at construction while `reduce` walks each chunk by the tail's
+  live `alength`, so the same vector answers 2 to `count` and `[b b]` to
   `mapv`. A baseline that mutates into the result is a witness that cannot
-  see a leak, and by symmetry a leaking runtime that reads clean — which
-  is how this presented, as rf2-vsgq's HMR baseline.
+  see a leak, and by symmetry a leaking runtime that reads clean.
   `re-frame.hicasso.inventory-snapshot-cljs-test` pins it."
   [sub-key]
   (if-some [^js c (get @collector/!cells sub-key)]
@@ -127,9 +125,9 @@
   "The sub-key set `reg` reads — the fused table's `edges-of`.
 
   It is a field read rather than a lookup, and that is the point: the
-  forward edge was always on the registration (`.-reads`, the read-set
-  entry's own key set, shared by reference), which is why retiring the
-  index cost no structure (rf2-dabt3)."
+  forward edge lives on the registration (`.-reads`, the read-set entry's
+  own key set, shared by reference), so the table carries no separate
+  structure for it."
   [^js reg]
   (.-reads reg))
 
@@ -164,7 +162,7 @@
   The scan's cost is `:max-bucket`, and the point of hashing the whole
   read sequence is that it stays put while the number of live boundaries
   grows. Computed on demand from the cache, so nothing on the hot path
-  counts anything. rf2-2rtt6.46."
+  counts anything."
   []
   (let [sizes (map (fn [[_ v]] (count v)) @collector/!entries)]
     {:buckets (count sizes) :max-bucket (reduce max 0 sizes)}))
@@ -188,13 +186,11 @@
   macrotask after an unclaimed render still counts entries the runtime
   is about to drop. A baseline taken there is a state the runtime never
   returns to, and an instrument gating on residue EQUALITY against it
-  throws on the first arm whose row outlives the horizon — which is
-  exactly what rf2-981nt was: `read_profile_app`'s phase B baselined six
-  entries at ~0 ms and found five thereafter, every run, byte-identical.
+  throws on the first arm whose row outlives the horizon.
 
   Exported so a caller settles against the runtime's own horizon rather
-  than against a copy of it, because the copy is what drifted. Nothing
-  here becomes a contract: [[re-frame.hicasso.impl.collector/entry-reap-horizon-ms]] stays a margin no
+  than against a copy of it, because a copy drifts. Nothing here becomes
+  a contract: [[re-frame.hicasso.impl.collector/entry-reap-horizon-ms]] stays a margin no
   caller may rely on, and this promise says only *wait for me*, never
   *here is my number*."
   []

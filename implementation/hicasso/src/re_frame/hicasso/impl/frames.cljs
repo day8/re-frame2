@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.impl.frames
   "FRAME-LOCKED OPS — resolved once per frame INCARNATION, and not once per
-  boundary (rf2-hic-009, rf2-x874).
+  boundary.
 
   One memo table keyed by frame keyword, one ROW per frame, and the one door
   that empties it. HD-020(a) has each boundary read the frame *once* from the
@@ -16,53 +16,50 @@
   — the `capture-frame` bundle, the ambient dispatch closure lowered into
   every callback — belongs to the predecessor for the rest of its life.
 
-  Until rf2-x874 nothing in this file could tell that its incarnation had
-  died, and the ambient closure closed over the frame KEYWORD and resolved its
-  bundle when it FIRED rather than when it was minted. Where a delayed
-  callback landed was therefore decided by the memo's warmth at that instant,
-  and both answers were wrong (measured, rf2-hic-013 / PR #7749):
+  **A bundle is pinned when the row is MINTED, never when a callback
+  FIRES.** That is the load-bearing rule, because resolving at fire time
+  makes the destination depend on the memo's warmth at that instant and
+  both answers are wrong:
 
-    warm — the stale bundle refused the LIVE successor, so a control the
-           successor had just rendered was dead. Perfect markup above dead
+    warm — the stale bundle refuses the LIVE successor, so a control the
+           successor has just rendered is dead. Perfect markup above dead
            controls.
-    cold — `capture-frame` ran at fire time and so pinned the SUCCESSOR: a
-           predecessor-era callback silently wrote the successor's app-db,
+    cold — `capture-frame` runs at fire time and so pins the SUCCESSOR: a
+           predecessor-era callback silently writes the successor's app-db,
            with no error emitted at all. Cold is the ORDINARY case — a
            boundary that rendered but that nobody clicked before the teardown.
 
-  [[frame-row]] is the repair, and it is ONE repair rather than two. The row
-  carries the incarnation it was minted under; a lookup compares that against
-  the incarnation live *right now* and a mismatch replaces the row. So a
+  [[frame-row]] closes both with ONE mechanism. The row carries the
+  incarnation it was minted under; a lookup compares that against the
+  incarnation live *right now* and a mismatch replaces the row. So a
   retained closure keeps the predecessor's bundle and core's own
   `capture-frame` fence refuses it (recover-but-emit
   `:rf.error/frame-destroyed`), while the next render under the successor gets
   a row pinned to the successor and routes. Safety of retained callbacks and
   liveness of fresh ones are the same fact seen twice.
 
-  **Eviction on destruction was measured and REJECTED AS THE SAFETY
-  MECHANISM** (PR #7749's NC6): make the row's disappearance what keeps a
-  retained callback honest and you convert the one accidentally-correct
-  branch into the broken one, making the silent successor-write universal.
-  Correctness here therefore does not depend on a destruction hook at all —
-  the replacement is LAZY, driven by the next lookup, and that is still the
-  whole safety argument.
+  **Eviction on destruction is NOT the safety mechanism**, and must not be
+  made one: if the row's disappearance is what keeps a retained callback
+  honest, the one accidentally-correct branch above becomes the broken one
+  and the silent successor-write becomes universal. Correctness here
+  depends on no destruction hook at all — the replacement is LAZY, driven
+  by the next lookup, and that is the whole safety argument.
 
-  ## What the lazy replacement is not, and the bill that came due
+  ## What the lazy replacement is not
 
-  It is not a RETENTION bound (rf2-uejlj). The successor's first lookup is
-  the ONLY eviction, so an id that never gets a successor keeps its row for
-  the life of the process — and `re-frame.hicasso.server/render` mints
-  exactly such an id per request (`fresh-frame-id`'s `gensym`). One row per
-  request served, each holding that request's `capture-frame` bundle, in a
-  process built to be long-lived.
+  It is not a RETENTION bound. The successor's first lookup is the ONLY
+  eviction, so an id that never gets a successor would keep its row for the
+  life of the process — and `re-frame.hicasso.server/render` mints exactly
+  such an id per request (`fresh-frame-id`'s `gensym`), one row per request
+  served, each holding that request's `capture-frame` bundle, in a process
+  built to be long-lived.
 
-  So [[forget-frame-ops!]] is ALSO wired to frame destruction now, through
-  core's `:hicasso/on-frame-destroyed!` late-bind hook — the same shape
-  every other artefact releases its frame-keyed bookkeeping through in
-  `destroy-frame!`'s step 7. It changes nothing
-  above: a row a destroyed incarnation left behind was already unreachable
-  by every branch of [[frame-row]], so dropping it earlier is hygiene and
-  never safety.
+  [[forget-frame-ops!]] is therefore ALSO wired to frame destruction,
+  through core's `:hicasso/on-frame-destroyed!` late-bind hook — the same
+  shape every other artefact releases its frame-keyed bookkeeping through
+  in `destroy-frame!`'s step 7. It changes nothing above: a row a destroyed
+  incarnation leaves behind is already unreachable by every branch of
+  [[frame-row]], so dropping it earlier is hygiene and never safety.
 
   ## What lives here, and the one thing that does not
 
@@ -85,9 +82,9 @@
 ;;              :dispatch    <closure>        the arm's ambient dispatch over
 ;;                                            THAT bundle}
 ;;
-;; The residue ledger counts this table under the `:frame-ops` token, which has
-;; always been priced as "one capture-frame bundle and one ambient dispatch per
-;; frame" — one row is what that sentence describes.
+;; The residue ledger counts this table under the `:frame-ops` token, priced as
+;; "one capture-frame bundle and one ambient dispatch per frame" — one row is
+;; what that sentence describes.
 (defonce !frame-ops (atom {}))
 
 (defn- mint-row
@@ -146,21 +143,20 @@
 (defn forget-frame-ops!
   "Drop the memoised rows — RESET, HYGIENE AND RETENTION.
 
-  It is still not what makes a reincarnation safe: [[frame-row]] replaces a
-  row whose incarnation has been superseded whether or not anyone ever calls
-  this, and eviction on destruction was measured to make the fault universal
-  rather than to cure it when it was proposed as that safety mechanism. The
-  two runtime callers are the whole-runtime reset (0-arity) and frame
-  destruction through [[on-frame-destroyed!]] (1-arity); the rest are test
-  fixtures."
+  It is not what makes a reincarnation safe: [[frame-row]] replaces a row
+  whose incarnation has been superseded whether or not anyone ever calls
+  this, and making eviction the safety mechanism would make the fault the ns
+  docstring names universal rather than curing it. The two runtime callers
+  are the whole-runtime reset (0-arity) and frame destruction through
+  [[on-frame-destroyed!]] (1-arity); the rest are test fixtures."
   ([] (reset! !frame-ops {}) nil)
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
 
 (defn- on-frame-destroyed!
   "Core's step-7 destroy hook — drop the destroyed frame's row.
 
-  UNCONDITIONAL by key, and unlike the prototype's sibling hook it needs no
-  incarnation token to be safe about it: a same-id successor is constructable
+  UNCONDITIONAL by key, and it needs no incarnation token to be safe about
+  it: a same-id successor is constructable
   only AFTER `dissoc-frame!` (step 10) and this fires at step 7, so whatever
   row stands under `frame-kw` here belongs to an incarnation that is already
   dead — the dying one, or an earlier one whose successor never looked up.
