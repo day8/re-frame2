@@ -1080,10 +1080,16 @@
         (re-seq tags-cell-key-re (str/replace cell markdown-link-re " "))))
 
 (defn- parse-catalogue-tag-rows
-  "`[{:category <kw> :tags-cell <string>} …]` for every ACTIVE row of the
-  canonical catalogue section. The `:tags` cell is the SIXTH column; `-1` keeps
-  trailing empties so a row whose `:tags` cell is BLANK still parses (and so
-  still reds when its schema declares keys).
+  "`[{:category <kw> :tags-cell <string> :field-count <int>} …]` for every
+  ACTIVE row of the canonical catalogue section. The `:tags` cell is the SIXTH
+  column; `-1` keeps trailing empties so a row whose `:tags` cell is BLANK still
+  parses (and so still reds when its schema declares keys).
+
+  `:field-count` is how many fields the split yielded — the evidence for WHICH
+  column the `:tags` cell was taken from, carried out of the one reader rather
+  than recovered by a second one. `tags-column-reader-honours-the-escaped-pipe`
+  is its only consumer: a row that splits to a different count than its siblings
+  has slid its columns, and every cell the arm reads from it is off by one.
 
   The split skips a BACKSLASH-ESCAPED pipe (rf2-1t0er). `\\|` is how markdown
   writes a literal pipe inside a table cell, so a cell containing one is
@@ -1106,8 +1112,9 @@
                 (when-let [[_ cat-str] (re-find catalogue-tag-row-re line)]
                   (let [cells (str/split line #"(?<!\\)\|" -1)]
                     (when (>= (count cells) 7)
-                      {:category  (keyword (subs cat-str 1))
-                       :tags-cell (str/trim (nth cells 6))})))))
+                      {:category    (keyword (subs cat-str 1))
+                       :tags-cell   (str/trim (nth cells 6))
+                       :field-count (count cells)})))))
         vec)))
 
 (defn- pascal
@@ -2320,3 +2327,76 @@
                         "| **RETIRED.** … | — | — |")))]
       (is (empty? rows) "a struck row does not parse as a tags row")
       (is (empty? (tags-column-findings rows pre-wsopx-schemas))))))
+
+(deftest tags-column-reader-honours-the-escaped-pipe
+  (testing "THE LIVE ROW, PINNED (rf2-6tags, per the PR #8562 audit). rf2-1t0er
+            taught `parse-catalogue-tag-rows` to skip a backslash-escaped pipe,
+            but pinned the repair in PROSE ONLY — no assertion moved, so
+            reverting the lookbehind today runs the whole namespace GREEN. That
+            is the same shape of blind spot this arm exists to close, one level
+            down: a gate that does not OBSERVE the cell it adjudicates cannot
+            tell which column it adjudicated.
+
+            `:rf.error/infinite-missing-next-page-param` is the corpus's one
+            escaped-pipe row — it spells its `:next-page-param` contract
+            `(last-page → next-param \\| nil)` — so it is the positive fixture.
+            Under the pre-rf2-1t0er reader the row split to NINE fields, every
+            column slid one place left, and this cell was read from the
+            `Default :recovery` column, harvesting `:fix-registration` and
+            `:next-page-param` as though the row had documented them."
+    (let [cell (catalogue-tags-cell :rf.error/infinite-missing-next-page-param)]
+      (is (some? cell)
+          "the escaped-pipe row still parses as an active catalogue row — if it
+           was renamed or retired, move this pin to whichever row now carries a
+           `\\|`, since the reader property is what is under test")
+      (is (= #{:resource-id :infinite} (cell-tag-keys cell))
+          (str "the escaped-pipe row's `:tags` cell reads as the TAGS column. "
+               "Harvested " (pr-str (sort (cell-tag-keys cell))) " from "
+               (pr-str cell) ". `:fix-registration` / `:next-page-param` here "
+               "means the split stopped honouring the escape and the cell came "
+               "from `Default :recovery`; anything else means the row's tags "
+               "changed legitimately — update this pin in that commit."))))
+
+  (testing "THE COLUMN-ALIGNMENT INVARIANT, which is what generalises the pin
+            past one row. Every active row of a markdown table has the same
+            number of columns, so every row must split to the same field count;
+            a row that does not has slid, and EVERY cell the arm reads from it
+            is off by one. Derived from the corpus's own rows — there is no
+            column literal here to go stale, and no second parser: the count
+            rides out of `parse-catalogue-tag-rows` on `:field-count`."
+    (let [rows  (parse-catalogue-tag-rows)
+          modal (->> rows (map :field-count) frequencies (apply max-key val) key)
+          slid  (->> rows
+                     (remove #(= modal (:field-count %)))
+                     (mapv (juxt :category :field-count)))]
+      (is (seq rows)
+          "the catalogue parsed to a non-empty row set — otherwise the
+           invariant below holds vacuously")
+      (is (empty? slid)
+          (str "active catalogue rows that split to a different field count "
+               "than their " modal "-field siblings, so their `:tags` cell is "
+               "read from the wrong column: " (pr-str slid) ". Escape a literal "
+               "pipe inside a cell as `\\|` — and if the escape is already "
+               "there, the READER is at fault, not the row (rf2-1t0er)."))))
+
+  (testing "NON-VACUITY, against the reader defect itself: a synthetic row whose
+            Trigger cell carries an escaped pipe must still reach the arm's
+            VERDICT through its real `:tags` cell. Under the pre-rf2-1t0er
+            reader this row's cell is the `Default :recovery` sentence, so the
+            keys-set diff would convict a clean row of omitting all five keys
+            its schema declares — a red naming the wrong column, for a reason
+            unrelated to the change in front of the author."
+    (let [rows (parse-catalogue-tag-rows
+                 (catalogue-fixture
+                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
+                        "| A plan step returns `next \\| nil`. | `:no-recovery` "
+                        "| `:route-id`, `:reason`, `:frame`, `:contributor`, "
+                        "`:plan-cause` |")))]
+      (is (= [:rf.error/resource-route-plan] (mapv :category rows))
+          "the escaped-pipe row parses")
+      (is (= #{:route-id :reason :frame :contributor :plan-cause}
+             (cell-tag-keys (:tags-cell (first rows))))
+          "…from its `:tags` column, not from `Default :recovery`")
+      (is (empty? (tags-column-findings rows pre-wsopx-schemas))
+          "…so the arm greens on a row that documents every key its schema
+           declares, instead of redding at the recovery sentence"))))
