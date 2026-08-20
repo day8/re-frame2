@@ -24,12 +24,12 @@
   ## The per-keystroke measurement lives here (§13)
 
   Specification §6 asks that the four-field editor publish the mechanical
-  per-keystroke path — state writes, subscription recomputations,
-  boundary runs, commit and visible echo — and the per-keystroke census
-  publishes the numbers from this application. Two of those five are counted here:
-  `l0-cljs-test/one-keystroke-moves-exactly-one-address` is the write,
-  and [[the-per-keystroke-body-count-is-one-and-does-not-grow]] is the
-  body count, read off [[re-frame.hicasso.test.mounted/bodies-run]].
+  per-keystroke path — state writes, subscription recomputations, boundary
+  runs, commit and visible echo — and the per-keystroke census publishes the
+  numbers from this application. Two of those five are counted here:
+  `l0-cljs-test/one-keystroke-moves-exactly-one-address` is the write, and
+  [[the-per-keystroke-body-count-is-one-and-does-not-grow]] is the body count,
+  read off [[re-frame.hicasso.test.mounted/bodies-run]].
 
   **That door is the kit's, and the budget is stated through it.**
   `impl.collector/body-runs` is the internal behind it, and a test is

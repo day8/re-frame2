@@ -118,13 +118,14 @@
   request and scopes it over that request's tree — the fifth item of the
   adopted per-root repair shape. §1's control is that door in one line.
 
-  **IT EXISTS** — `re-frame.hicasso.server/render`, driven by §5. What
-  that does NOT do is close this file, and the distinction is the whole
-  of the triage here: the rows below are about a render with no window, which remains spellable by hand, so they keep measuring
-  what they always measured. What closing the file needs is a decision
-  that the windowless spelling is out of scope — and HS-33's disposition
-  is `docs/design/hicasso/product/dispositions.md`'s, not a witness's.
-  The transitions below stay written down for whoever takes it:
+  **IT EXISTS** — `re-frame.hicasso.server/render`, driven by §5. What that
+  does NOT do is close this file, and the distinction is the whole of the
+  triage here: the rows below are about a render with no window, which remains
+  spellable by hand, so they keep measuring what they always measured. What
+  closing the file needs is a decision that the windowless spelling is out of
+  scope — and HS-33's disposition is
+  `docs/design/hicasso/product/dispositions.md`'s, not a witness's. The
+  transitions below stay written down for whoever takes it:
 
     §1  the `\"mounting\"` expectation becomes `\"present\"`, and the
         hand-installed control is deleted because the product does it.
@@ -492,9 +493,9 @@
           (reset! !phases {})
           (let [ca (sup/stamp-server-nodes! (sup/server-dom! html))
                 {:keys [seen stop!]} (sup/watch-mismatches!)
-                ;; MANUFACTURED here and asserted on here — the only shape
-                ;; of call site at which swallowing an uncaught error is not
-                ;; the fail-open the pageerror rule forbids. The divergence is the
+                ;; MANUFACTURED here and asserted on here — the only shape of
+                ;; call site at which swallowing an uncaught error is not the
+                ;; fail-open the pageerror rule forbids. The divergence is the
                 ;; subject of the row, not an accident inside it.
                 {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
                 ha (mount/hydrate-root! ca frame-id [tray-screen {:tag :client}])]
@@ -622,11 +623,11 @@
 ;;      does to the seam §1 records
 ;; ---------------------------------------------------------------------------
 
-;; THE ROW THE PRODUCT DOOR ASKS FOR. §1 measures a `renderToString` with no window
-;; over it; this measures `re-frame.hicasso.server/render`, which opens one
-;; per request and hands `impl.mount/tree` the hydrating handle shape. The
-;; two rows differ in exactly one thing, so what separates their bytes is
-;; the window and nothing else — which is §1's control, now taken through a
+;; THE ROW THE PRODUCT DOOR ASKS FOR. §1 measures a `renderToString` with no
+;; window over it; this measures `re-frame.hicasso.server/render`, which opens
+;; one per request and hands `impl.mount/tree` the hydrating handle shape. The
+;; two rows differ in exactly one thing, so what separates their bytes is the
+;; window and nothing else — which is §1's control, now taken through a
 ;; product door instead of by hand.
 ;;
 ;; It answers the triage question at source: the presence seam is CLOSED

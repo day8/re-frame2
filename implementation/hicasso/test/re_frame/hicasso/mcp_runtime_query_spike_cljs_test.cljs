@@ -22,13 +22,13 @@
   structurally nothing. **A query that can only answer what the fixture
   just told it proves nothing**, however green.
 
-  So the population here is the SLICE APPLICATION, entire and unmodified: its routes, its seed, its six views, its events, its
-  subscriptions. Nothing below registers a subscription, an event or a
-  view. Every id that appears in a read's answer was written by another
-  bead for another purpose, and the answers are asserted against the
-  slice's own namespaced keywords — so a read that fabricated an empty
-  roster, or answered out of the harness, fails here where it passes
-  there.
+  So the population here is the SLICE APPLICATION, entire and unmodified: its
+  routes, its seed, its six views, its events, its subscriptions. Nothing
+  below registers a subscription, an event or a view. Every id that appears in
+  a read's answer was written by another bead for another purpose, and the
+  answers are asserted against the slice's own namespaced keywords — so a read
+  that fabricated an empty roster, or answered out of the harness, fails here
+  where it passes there.
 
   ## The application is booted through its OWN entry point
 

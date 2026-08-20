@@ -518,8 +518,8 @@
 ;; ---------------------------------------------------------------------------
 ;; 3 — `:server :render`: the component runs, and so do its CHILDREN
 ;;
-;; The defect and the ruling that answers it, in one place. Every row here is a `renderToString`, so they run under
-;; `:node-test` as well.
+;; The defect and the ruling that answers it, in one place. Every row here is
+;; a `renderToString`, so they run under `:node-test` as well.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-client-only-provider-deletes-its-subtree-from-the-server-render

@@ -312,13 +312,13 @@
   `docs/design/hicasso/product/per-keystroke.md` §5 states the same limit
   before it presents the table it draws from these records.
 
-  RECONSTRUCTING each record's new value from the NEXT same-attribute
-  record's `oldValue` was weighed and DECLINED. It would restate what the old values already carry; done
-  correctly it must key on target IDENTITY as well as attribute name, not
-  on the name alone; and the last record of each attribute would still
-  fall back to a final read taken after `hm/settle!`, so the caveat above
-  would survive the change that was supposed to remove it. Naming the
-  limit costs nothing and hides nothing."
+  RECONSTRUCTING each record's new value from the NEXT same-attribute record's
+  `oldValue` was weighed and DECLINED. It would restate what the old values
+  already carry; done correctly it must key on target IDENTITY as well as
+  attribute name, not on the name alone; and the last record of each attribute
+  would still fall back to a final read taken after `hm/settle!`, so the
+  caveat above would survive the change that was supposed to remove it.
+  Naming the limit costs nothing and hides nothing."
   [records]
   (into []
         (comp (filter (fn [r] (= "attributes" (.-type r))))

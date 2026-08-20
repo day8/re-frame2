@@ -26,11 +26,12 @@
   from \"retained and then released\", and those are different claims.
 
   Nothing here is an SSR claim. A native component's server policy is
-  `n/defcomponent`'s declaration (`{:server :render}` / Client-only) and
-  its enforcement is `re-frame.hicasso.native-ssr-dom-cljs-test`'s; this
-  file uses the server renderer as an instrument, exactly as the fence
-  suite does. The islands below therefore DECLARE `{:server :render}`,
-  because the policy decides whether a body runs on the server at all — an undeclared island is Client-only, so this
+  `n/defcomponent`'s declaration (`{:server :render}` / Client-only) and its
+  enforcement is `re-frame.hicasso.native-ssr-dom-cljs-test`'s; this file uses
+  the server renderer as an instrument, exactly as the fence suite does. The
+  islands below therefore DECLARE `{:server :render}`, because the policy
+  decides whether a body runs on the server at all — an undeclared island is
+  Client-only, so this
   instrument would read every row below as an empty string."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]

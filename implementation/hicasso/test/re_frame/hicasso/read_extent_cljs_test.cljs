@@ -47,9 +47,9 @@
   Every legality row asserts on the **read set** the render resolved
   (`collector/reads-of`) and on **reader membership** at the commit
   (`inventory/cell-readers`), never on what a body painted. That is
-  the commit-owns suite's lesson, inherited: a read attributed to the
-  wrong boundary paints an identical page, and a read set that accumulated a previous
-  body's keys paints an identical page too. What changes is what is
+  the commit-owns suite's lesson, inherited: a read attributed to the wrong
+  boundary paints an identical page, and a read set that accumulated a
+  previous body's keys paints an identical page too. What changes is what is
   retained and what will be notified.
 
   It has a second edge here that it did not have there. A body that reads
@@ -192,13 +192,14 @@
 (defn- escaped-extent-refusal
   "The exact stable shape every escape past the render frame must carry.
 
-  The four keys are the contract: the stable id, the source coordinate as
-  the runtime can state one today, the actionable recovery, and the query
-  that was refused. `:reason` is deliberately NOT frozen here — it is
-  prose, and re-routing the complaint text through `re-frame.error` is
-  the complaint catalogue's to rule on, as the file/line/column coordinate
-  this `:where` symbol stands in for is the source-coordinate arm's. The rows assert the reason
-  NAMES the recovery route instead, which is the part of it I7 requires."
+  The four keys are the contract: the stable id, the source coordinate as the
+  runtime can state one today, the actionable recovery, and the query that was
+  refused. `:reason` is deliberately NOT frozen here — it is prose, and
+  re-routing the complaint text through `re-frame.error` is the complaint
+  catalogue's to rule on, as the file/line/column coordinate this `:where`
+  symbol stands in for is the source-coordinate arm's. The rows assert that
+  the reason NAMES the recovery route instead, which is the part of it I7
+  requires."
   [query-v]
   {:rf.error/id :rf.error/hicasso-sub-outside-render
    :where       're-frame.hicasso.impl.collector/read-key!

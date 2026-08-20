@@ -822,13 +822,13 @@
 ;; answers true for both, measured, and no amount of visibility reasoning
 ;; will exclude them.
 ;;
-;; The argument for leaving them counted is that a surplus candidate only
-;; ever costs a wrap that does not fire. That is priced wrong at the last
-;; position — a surplus at the END is what `peek` returns — and the only
-;; thing holding it up was that no measured markup put either of them
-;; last. These two pages are that markup, and both are the ordinary kind: the wizard step not yet reached,
-;; and the form section a prior answer has not unlocked. Both were measured
-;; taking `document.activeElement` to `<body>` on BOTH edges.
+;; The argument for leaving them counted is that a surplus candidate only ever
+;; costs a wrap that does not fire. That is priced wrong at the last position
+;; — a surplus at the END is what `peek` returns — and the only thing holding
+;; it up was that no measured markup put either of them last. These two pages
+;; are that markup, and both are the ordinary kind: the wizard step not yet
+;; reached, and the form section a prior answer has not unlocked. Both were
+;; measured taking `document.activeElement` to `<body>` on BOTH edges.
 
 (deftest a-real-tab-wraps-past-a-trailing-inert-region
   (if-not (browser?)

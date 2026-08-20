@@ -1,10 +1,10 @@
 (ns re-frame.hicasso.examples.witness-surface-cljs-test
   "THE TWO WITNESSES' IMPORT DISCIPLINE, MECHANICALLY.
 
-  The acceptance these witnesses are held to is *zero impl imports,
-  enforced by a test*. Both witness applications — the four-field editor and the 100-cell
-  grid — are evidence about the PUBLIC DOOR, and they are worth exactly
-  what that claim is worth. So the claim is not made by reading eight
+  The acceptance these witnesses are held to is *zero impl imports, enforced
+  by a test*. Both witness applications — the four-field editor and the
+  100-cell grid — are evidence about the PUBLIC DOOR, and they are worth
+  exactly what that claim is worth. So the claim is not made by reading eight
   `ns` forms: it is read off the ClojureScript analyzer's own dependency
   graph, including the edges a `:refer`, a `:use` or a `:require-macros`
   establishes and an `ns`-form regex would miss. See
@@ -36,12 +36,12 @@
 
   [[neither-witness-registers-a-route]] is the third, and it is here
   rather than in a routing suite because it is the same kind of fact: an
-  absent edge. The slice authoring report's finding 8 — route PATHS are
-  plain strings in a process-global registry and this repository's node
-  bundle loads every application into one process — cost twelve RealWorld
-  assertions and warned nobody. Neither witness needs routing to be evidence about
-  controlled fields, so neither reaches `re-frame.routing`, and this row
-  makes that mechanical: a route registered in either application reds
+  absent edge. The slice authoring report's finding 8 — route PATHS are plain
+  strings in a process-global registry and this repository's node bundle loads
+  every application into one process — cost twelve RealWorld assertions and
+  warned nobody. Neither witness needs routing to be evidence about controlled
+  fields, so neither reaches `re-frame.routing`, and this row makes that
+  mechanical: a route registered in either application reds
   here before it can reach the registry."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]

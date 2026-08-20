@@ -2,13 +2,13 @@
   "THE SLICE'S VIEWS — the whole application's markup, on the public door.
 
   Thirteen boundaries — the slice's original six, and seven more for
-  pagination, runtime-selected content and a nested error region: a
-  pager, a digest region, its body, and four block renderers. Everything they reach for is `h/…`: `defview`, `sub`,
-  `use-subs`, `boundary`, `route-link`, and the `::h/value` /
-  `::h/checked` markers. There is no `impl` namespace anywhere in the
-  `:require` list above, and no `re-frame.core` either — a view neither
-  dispatches nor subscribes directly, because an intent is a vector and a
-  read is `h/sub`.
+  pagination, runtime-selected content and a nested error region: a pager, a
+  digest region, its body, and four block renderers. Everything they reach for
+  is `h/…`: `defview`, `sub`, `use-subs`, `boundary`, `route-link`, and the
+  `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
+  in the `:require` list above, and no `re-frame.core` either — a view neither
+  dispatches nor subscribes directly, because an intent is a vector and a read
+  is `h/sub`.
 
   The third marker, `::h/revision`, is **not** here, and its absence is a
   measurement rather than an oversight — see [[editor]] and `db`'s

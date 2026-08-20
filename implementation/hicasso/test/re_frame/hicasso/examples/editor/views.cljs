@@ -24,14 +24,13 @@
   ## What was NOT needed here
 
   Recorded because the slice authoring report makes the same list from a
-  broader application, and a facade freeze reads both. This form of four controls,
-  two buttons and a readout needed `defview`, `sub`, and the three
+  broader application, and a facade freeze reads both. This form of four
+  controls, two buttons and a readout needed `defview`, `sub`, and the three
   markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
-  `h/event` — every intent said what it meant as a vector — and no
-  `use-subs`, `boundary`, `portal`, `as-element`, `as-component`,
-  `defhost`, `hframe`, `route-link` or `reg-state`. **Six names and three
-  keywords**, and `examples.witness-surface-cljs-test` pins the namespace
-  roster mechanically.
+  `h/event` — every intent said what it meant as a vector — and no `use-subs`,
+  `boundary`, `portal`, `as-element`, `as-component`, `defhost`, `hframe`,
+  `route-link` or `reg-state`. **Six names and three keywords**, and
+  `examples.witness-surface-cljs-test` pins the namespace roster mechanically.
 
   ## The one place the public door reads awkwardly
 

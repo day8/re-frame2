@@ -74,11 +74,11 @@
   interposed work for a stopwatch to find.
 
   **The band is stated over the DECLARED arm, and the declaration is what
-  makes it comparable.** The `:client-only` default mints a gate rather
-  than the author's function, so it costs one fiber and one hook the
-  declared arm does not — the ruled price of the conservative default, and not a figure about `n/defcomponent`'s
-  construction. Every native fixture below therefore writes
-  `{:server :render}`, exactly as the UIx crossing declares its own.
+  makes it comparable.** The `:client-only` default mints a gate rather than
+  the author's function, so it costs one fiber and one hook the declared arm
+  does not — the ruled price of the conservative default, and not a figure
+  about `n/defcomponent`'s construction. Every native fixture below therefore
+  writes `{:server :render}`, exactly as the UIx crossing declares its own.
 
   No number is transcribed into the ledger here; the figures are this
   file's own, and transcribing the ledger row is the ledger's, as it was
