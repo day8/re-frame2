@@ -650,7 +650,7 @@ record.
   Nothing detects that skew today.
 - **A build step the programmer owns.** The sidecar bundle is per-application:
   the app's own shadow-cljs build has to produce a server bundle. The spike's is
-  a `:node-script` produced by `--config-merge` over `:freehand-bench-node`,
+  a `:node-script` produced by `--config-merge` over `:hicasso-bench-node`,
   which is a bench convenience and not a shape an application can copy. **And it
   is not only a build**: the bundle has to publish the entry table the JVM's
   identifiers resolve against, so the artefact has a named public surface rather

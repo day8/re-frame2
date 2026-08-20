@@ -11,19 +11,26 @@
 // entry, and neither has a renderer of its own — both call
 // `re-frame.bench.hicasso.ssr.node`'s API through the compiled bundle.
 //
-// ## NO EDIT TO shadow-cljs.edn, deliberately (clause 5)
+// ## WHICH BUILD ID, and why this one is the lane's own (rf2-0yp7w.9.6)
 //
-// The bead says to carry this on existing node-build infrastructure first
-// and mint `:hicasso-ssr-node` only if needed. It is not needed: the build
-// rides `:freehand-bench-node` — the tree's existing `:node-script` — and
-// supplies its own `:main` and `:output-to` through `--config-merge`,
-// exactly as every arm in this lane rides `:hicasso-bench` with its own
-// `:init-fn` and exactly as `b6_prod_run.cjs` rides `:freehand-release`.
-// HD-017 makes a build-id touch a hot-zone, sequenced dispatch; this lane
-// was built so a sibling never has to pay one, and an SSR entry is no
-// more entitled to than an arm is.
+// Clause 5 said to carry this on existing node-build infrastructure first
+// and mint `:hicasso-ssr-node` only if needed, so it rode
+// `:freehand-bench-node` — the donor tree's `:node-script` — supplying its
+// own `:main` and `:output-to` through `--config-merge`, exactly as every
+// arm in this lane rides `:hicasso-bench` with its own `:init-fn`. HD-017
+// makes a build-id touch a hot-zone, sequenced dispatch, and not paying
+// one was the whole point.
 //
-// `:hicasso-bench` — the lane's own id — could NOT serve here: it is a
+// PR #8322 then deleted that build with the tree, and this driver named a
+// build that no longer existed: `npm run ssr:hicasso-bake` failed with
+// `no build with id: :freehand-bench-node` before a line of ClojureScript
+// was read. Nothing was left to ride — after that retirement there is no
+// `:node-script` build anywhere in `implementation/shadow-cljs.edn` — so
+// the id below is the lane's OWN, minted there beside `:hicasso-bench`
+// and shared with `keywarn_clock_run.cjs`, the lane's other Node program.
+// The sequencing law is paid once, for both.
+//
+// `:hicasso-bench` — the lane's browser id — could NOT serve here: it is a
 // `:browser` target, and `renderToString` wants Node's `server.node.js`
 // through Node's own conditional exports.
 //
@@ -36,8 +43,8 @@
 // `:node-script` uses `:js-provider :require`, so there is no shadow-js
 // npm-conversion index — the exact artefact rf2-2rtt6.20 isolated as the
 // carrier — and what is discarded is a plain per-namespace CLJS cache.
-// The cost is a cold `npm run bench:freehand-node` afterwards, which is a
-// manual bench for a withdrawn programme and not a gate.
+// The cost is a cold `keywarn_clock_run.cjs` afterwards — the only other
+// program on this id — which is a hand-run bench and not a gate.
 //
 // ## Warnings are failures, on BOTH sides of the build
 //
@@ -57,7 +64,7 @@ const { shadowBuild } = require('../lane_build.cjs');
 const { resetLaneBuildCache } = require('../../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../../..');
-const BUILD_ID = 'freehand-bench-node';
+const BUILD_ID = 'hicasso-bench-node';
 const OUTPUT_TO = 'out/hicasso-ssr-node.js';
 const BUNDLE = path.join(IMPL, OUTPUT_TO);
 const BAKE_DIR = path.join(IMPL, 'out', 'hicasso-ssr-fixtures');

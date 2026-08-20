@@ -959,6 +959,63 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
 
+  ;; rf2-0yp7w.9.6 — THE SAME LANE'S NODE PROGRAM ID.
+  ;;
+  ;; `:hicasso-bench` above is the lane's `:browser` shape and cannot serve
+  ;; every driver in it. Two need a PROGRAM under Node instead:
+  ;;
+  ;;   ssr/driver.cjs        `renderToString` resolves `react-dom/server`
+  ;;                         through Node's own conditional exports, which a
+  ;;                         `:browser` build does not take.
+  ;;   keywarn_clock_run.cjs times the key warning's DEV pre-pass, which exists
+  ;;                         only where `goog.DEBUG` is true — the opposite of
+  ;;                         what `:hicasso-bench` pins.
+  ;;
+  ;; Both rode `:freehand-bench-node`, the donor tree's `:node-script`, for the
+  ;; reason recorded in `:hicasso-bench` above: HD-017 makes a build id a hot-
+  ;; zone edit, so riding an existing id was cheaper than minting one. PR #8322
+  ;; then deleted that build with the tree and left both drivers naming a build
+  ;; that does not exist — `no build with id: :freehand-bench-node`, exit 1,
+  ;; before a line of ClojureScript was read. There is now no `:node-script`
+  ;; build anywhere in this file to ride, so the sequencing law is paid here,
+  ;; once, exactly as it was paid once for the browser shape.
+  ;;
+  ;; ONE id for both programs, which is the shape they were already written
+  ;; for: each supplies its own `:main` and `:output-to` through
+  ;; `--config-merge`, and each clears
+  ;; `.shadow-cljs/builds/hicasso-bench-node` first because shadow derives the
+  ;; cache directory from the build id alone, before any merge (rf2-2rtt6.20).
+  ;; The defaults below are the SSR entry, so a bare `shadow-cljs compile
+  ;; hicasso-bench-node` builds something real rather than erroring on a
+  ;; placeholder `:main`.
+  ;;
+  ;; `:infer-externs false`, carried from the departed build and MEASURED here
+  ;; rather than inherited on trust. A `:node-script` build has no browser
+  ;; externs, so Closure cannot resolve a property access on a DOM element and
+  ;; `lane_build.cjs` — which is warnings-fatal — would refuse the build over
+  ;; source these drivers do not own. Re-run at this id with
+  ;; `:infer-externs :auto` merged over it:
+  ;;
+  ;;   [:hicasso-bench-node] Build completed. (192 files, 133 compiled,
+  ;;                                           8 warnings, 10.36s)
+  ;;
+  ;; all eight `:infer-warning`s — four in `core/src/re_frame/substrate/
+  ;; spine.cljs` at 1252, 1577, 1582 and 1874, four more in the lane's own
+  ;; `arm1/mount.cljs`, `front/controlled.cljs` and `front/intent.cljs`. The
+  ;; spine four are the same four `compile_gate.cjs`'s rf2-peorl section
+  ;; records from the DONOR `:node-script` lane, reproduced on this id.
+  ;;
+  ;; A NAME OF ITS OWN, not a donor's. The `:hicasso-bench` note above records
+  ;; the charter's anti-regression fence — Hicasso carries no continuity claim
+  ;; to its donors and the measurement lane should not borrow a donor's
+  ;; identity to compile. That reasoning outlived the build it was written
+  ;; about.
+  :hicasso-bench-node
+  {:target    :node-script
+   :main      re-frame.bench.hicasso.ssr.node/-main
+   :output-to "out/hicasso-bench-node.js"
+   :compiler-options {:infer-externs false}}
+
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
   ;; `-dom-cljs-test` (i.e. files named `*_dom_cljs_test.cljs`). The
