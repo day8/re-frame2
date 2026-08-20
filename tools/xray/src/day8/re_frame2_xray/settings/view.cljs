@@ -171,10 +171,20 @@
 
   Each tab carries a `:mnemonic` — a single bare letter the dialog's
   keydown handler captures while the modal is open (g/k/b/d).
-  Modal-only; the outer global mnemonics (`,` / `s` / `c` / `?`)
-  never fire while the dialog has focus because the dialog's
-  `on-key-down` stops propagation on every consumed key. Per
-  Mike's 2026-05-19 §0ter.4 walkthrough.
+  Modal-only. The shipped global key set is catalogued once, in
+  `spec/007-UX-IA.md` §Keyboard against `keybinding.cljs`; it is
+  deliberately not restated here, because a second copy drifts.
+  What keeps those keys off these letters is NOT this dialog's
+  `stopPropagation`: the global listener is registered
+  capture-phase on `document`, so it has already run by the time
+  the dialog sees the key. The exclusion comes from
+  `keybinding.cljs`'s own `target-inside-modal?` guard, which
+  closest-walks the event target for
+  `data-rf-xray-mode=\"settings\"` (this modal sets it via
+  `:dialog-extra`) and skips the bare-key spine branch entirely
+  (rf2-ttnst). The `stopPropagation` still earns its place — it
+  keeps consumed keys off the host page below. Per Mike's
+  2026-05-19 §0ter.4 walkthrough.
 
   Telemetry was removed (rf2-jh9ws): Xray ships no telemetry
   endpoint, and the toggle in v1 was a broken affordance — silent
@@ -1100,14 +1110,20 @@
      below tests membership in `mnemonic->tab-id`, which is derived by
      comprehension from the `tabs` vector, so `tabs` is the single
      roster and this docstring cannot drift against it.
-     Per Mike 2026-05-19 §0ter.4 the mnemonics are modal-only —
-     they conflict with the outer global `,` / `s` / `c` / `?` only
-     in theory; the dialog stops propagation on every consumed key
-     so the outer listener never sees them. Mnemonics are suppressed
-     when the focused element is an INPUT / TEXTAREA / SELECT /
-     contenteditable surface so users typing into the numeric fields
-     (panel-width, long-keyword threshold, buffer knobs) are not
-     interrupted by an accidental letter.
+     Per Mike 2026-05-19 §0ter.4 the mnemonics are modal-only. They
+     cannot collide with the shipped global keys — catalogued in
+     `spec/007-UX-IA.md` §Keyboard, not restated here — because
+     `keybinding.cljs` attaches capture-phase on `document` and
+     gates its bare-key spine branch on `target-inside-modal?`,
+     which finds this dialog's `data-rf-xray-mode=\"settings\"`
+     marker and stands down (rf2-ttnst). The `stopPropagation`
+     below is what keeps the key off the host page; the spine
+     listener ran before it and declined on its own.
+     Mnemonics are also suppressed when the focused element is an
+     INPUT / TEXTAREA / SELECT / contenteditable surface, so users
+     typing into the numeric fields (panel-width, long-keyword
+     threshold, buffer knobs) are not interrupted by an accidental
+     letter.
    - Every other key falls through to the host."
   [dispatch]
   (fn [^js e]
