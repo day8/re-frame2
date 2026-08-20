@@ -187,6 +187,34 @@ rider legs, 4,284 control legs with zero in the band — which is the control on
 the reader itself. Its own fixtures run under `--self-test` and in
 `npm run test:script-helpers`.
 
+### The `z` column, and the convention it is taken under
+
+Every `z` on this page is a **two-proportion z-test on the pooled proportion**,
+with no continuity correction and no conversion to a tail probability:
+
+```text
+p1 = k1/n1     p2 = k2/n2     p = (k1 + k2) / (n1 + n2)
+z  = (p1 - p2) / sqrt( p (1 - p) (1/n1 + 1/n2) )
+```
+
+**The convention is written down because three of them land within half a z of
+each other on these counts.** On the first row's 25 of 40 against 3 of 49 the
+pooled form reads **5.6975** — the published 5.70 — where the unpooled form
+reads 6.7229 and the continuity-corrected form 5.4681. Anyone re-deriving these
+figures under a different convention will land near them and not on them.
+
+The sign is `(first group − second group)`, the two taken in the reader's own
+canonical order: the order its report already lists them in, ascending by
+position and sorted by schedule name. So the sign belongs to the report and not
+to whichever sentence cites it.
+
+The reader prints each comparison by name beside the two cell counts it was
+taken on, so no figure here can drift from the counts behind it. Its fixtures
+pin **all ten** z-scores across this page and the control-slot record on those
+same counts, as literals, **and require the unpooled and continuity-corrected
+forms to miss every one of them** — so the pin discriminates rather than
+restates, and a change to the formula reds `npm run test:script-helpers`.
+
 ## The unit trap, restated because it nearly published an error
 
 `legWorstDeviation` is a **fraction**, not a percentage — `worst / legMedian` —
