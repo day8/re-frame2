@@ -196,6 +196,28 @@ const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 // rather than on the far side of an hour (the shape `clock_run.cjs` uses).
 const SELFTEST_ONLY = process.argv.includes('--self-test');
 
+// ...AND IT IS THE ONLY ONE. This driver's flag vocabulary is closed at one
+// entry and it takes no positional argument at all — every other knob is an
+// `HD8_*` environment variable, and the run's provenance block prints which of
+// them were set. So an argument off this list is not a knob: it is a typo, and
+// the sweep it falls into is an `:advanced` release build plus three headless
+// Chromium runs whose own page budget is twenty minutes.
+//
+// It fell into exactly that until rf2-xk4is. `--self-test` was spelt without
+// its hyphen until #8616 renamed it, and that PR's merged-PR audit found the
+// retirement unsafe here: nothing validated arguments, so the retired token
+// was SILENTLY IGNORED and the driver went on to build and measure.
+//
+// No alias — pre-alpha, and an alias for a spelling nothing depends on is a
+// compatibility shim. The rule is the general one rather than a list of dead
+// tokens, because a list would swallow the next typo just as quietly, and
+// because a driver whose whole vocabulary is one flag has nothing to parse.
+const FLAGS = ['--self-test'];
+
+// Exported so the pin can drive the rule rather than quote it — this driver's
+// exit block is in `clock_exit_path.test.cjs` for the same reason.
+const unknownFlags = (argv) => argv.filter((a) => !FLAGS.includes(a));
+
 // ---------------------------------------------------------------------------
 // Build + serve
 // ---------------------------------------------------------------------------
@@ -945,6 +967,19 @@ function verdictSelfTest() {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // THE ARGUMENTS BEFORE THE GUARD, and the guard is already first for the
+  // reason that applies here twice over: discovering the mistake on the far
+  // side of an hour is not discovering it (rf2-xk4is).
+  const unknown = unknownFlags(process.argv.slice(2));
+  if (unknown.length > 0) {
+    console.error(`[hd8] unknown argument${unknown.length > 1 ? 's' : ''}: ${unknown.join(' ')}`);
+    console.error(
+      `[hd8] this driver takes ${FLAGS.join(' ')} and nothing else; ` +
+        `every other knob is an HD8_* environment variable. Nothing was built.`
+    );
+    process.exit(2);
+  }
+
   // The guard's own self-test FIRST. A guard nobody has watched catch its
   // recorded faults is not a guard, and running it after the measurement
   // would mean discovering a broken instrument on the far side of an hour.
@@ -1120,7 +1155,9 @@ async function main() {
   );
 }
 
-module.exports = { summarise, verdict, verdictSelfTest };
+// `FLAGS` / `unknownFlags` are the CLI surface, exported so its pin can drive
+// it (rf2-xk4is).
+module.exports = { FLAGS, unknownFlags, summarise, verdict, verdictSelfTest };
 
 if (require.main === module) {
   main();

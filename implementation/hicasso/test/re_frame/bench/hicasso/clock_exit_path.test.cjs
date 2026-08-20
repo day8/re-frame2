@@ -3848,7 +3848,14 @@ function fixtureRoundsTask(over) {
 
   t('the driver exposes its decision and does not drive itself on require', () => {
     assert.ok(MAIN.length > 0, 'the driver must expose its run as `main`');
-    assert.match(SRC, /module\.exports = \{ summarise, verdict, verdictSelfTest \};/);
+    // Named seat by seat rather than as one literal line, the shape
+    // `clock_run.cjs`'s pin above already uses. The literal form asserted the
+    // export list's PUNCTUATION as strictly as its contents, so adding a seat
+    // failed it for a reason that had nothing to do with the decision it
+    // guards (rf2-xk4is added `FLAGS` / `unknownFlags`).
+    for (const name of ['summarise', 'verdict', 'verdictSelfTest']) {
+      assert.match(SRC, new RegExp(`module\\.exports = \\{[^}]*\\b${name}\\b`), `\`${name}\` must be exported`);
+    }
     assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\);/);
   });
 
@@ -3899,6 +3906,107 @@ function fixtureRoundsTask(over) {
     assert.match(ok, /survived its DOM read-back/);
     assert.match(ok, /no yield correction was refused/);
   });
+}
+
+// --- THE SELF-TEST FLAG, AND THE ONE THAT IS RETIRED (rf2-xk4is) ------------
+//
+// #8616 standardised both drivers on `--self-test` and shipped no alias — this
+// is pre-alpha, and an alias for a spelling nothing depends on is a
+// compatibility shim. Its merged-PR audit found the retirement unsafe anyway.
+// Neither driver validated its arguments, so the old hyphenless spelling was
+// not retired at all: it was SILENTLY IGNORED and fell through into the
+// default path, which for these two is an `:advanced` release build and a
+// headless Chromium. Measured at that merge commit: `clock_run.cjs` reached
+// the shadow-cljs release spawn and `hd8_run.cjs` reached its provenance
+// block one line above `build()`. A typo cost an hour and produced a run
+// nobody had asked for.
+//
+// AND THE SECOND FINDING WAS ABOUT THIS FILE. It renamed four labels and
+// inspected the BODY of `if (SELFTEST_ONLY)` while asserting nothing about how
+// `SELFTEST_ONLY` is DERIVED, so a mutation of either driver back to the old
+// token — or to any other — left every assertion here green. The rename was
+// pinned nowhere: `test:script-helpers` invokes only `ladder_band.cjs
+// --self-test` directly, which is why that third driver is not repeated here.
+//
+// This is the missing pin, and it is deliberately four claims per driver and
+// no more: the argv definition itself, the closed flag vocabulary, that the
+// vocabulary REFUSES a token outside it, and that the refusal is wired ahead
+// of everything the driver would otherwise spend. The last is the one that
+// matters — a rule the entry point never consults is not a rule — and it is
+// the same lesson this file's header draws about the exit decision.
+{
+  const RETIRED = /--selftest/;
+  const DRIVERS = [
+    {
+      name: 'clock_run.cjs',
+      mod: require('./clock_run.cjs'),
+      flags: ['--no-build', '--self-test'],
+      tag: '[clock]',
+      // From the head of `main` down to the self-test branch: everything the
+      // driver does before it can stop, which is where the refusal has to sit.
+      head: ['async function main() {', '  if (SELFTEST_ONLY) {'],
+    },
+    {
+      name: 'hd8_run.cjs',
+      mod: require('./hd8_run.cjs'),
+      flags: ['--self-test'],
+      tag: '[hd8]',
+      head: ['async function main() {', '  if (SELFTEST_ONLY) {'],
+    },
+  ];
+
+  for (const d of DRIVERS) {
+    const SRC = fs.readFileSync(path.join(__dirname, d.name), 'utf8');
+    const t = (what, fn) => test(`${d.name}: ${what}`, fn);
+
+    t('the self-test flag is spelt `--self-test` where argv is read', () => {
+      // The DEFINITION, not the block it gates. This is the assertion whose
+      // absence let the rename go unpinned.
+      assert.match(SRC, /const SELFTEST_ONLY = process\.argv\.includes\('--self-test'\);/);
+      assert.deepStrictEqual(d.mod.FLAGS, d.flags);
+    });
+
+    t('the retired spelling appears nowhere in the driver, comments included', () => {
+      // Comments included on purpose. A retirement that still names the dead
+      // token in a comment or a usage line is an invitation to type it, and
+      // the drivers say what happened without spelling it.
+      const hits = SRC.split('\n')
+        .map((line, i) => [i + 1, line])
+        .filter(([, line]) => RETIRED.test(line))
+        .map(([n, line]) => `${n}: ${line.trim()}`);
+      assert.deepStrictEqual(
+        hits,
+        [],
+        `${d.name} names the retired self-test spelling. It has no alias by decision (rf2-xk4is); ` +
+          `the flag is \`--self-test\` and nothing in the driver should say otherwise.`
+      );
+    });
+
+    t('an argument outside the vocabulary is refused, the retired spelling included', () => {
+      assert.deepStrictEqual(d.mod.unknownFlags(d.flags), [], 'every declared flag must be accepted');
+      assert.deepStrictEqual(d.mod.unknownFlags(['--selftest']), ['--selftest']);
+      assert.deepStrictEqual(d.mod.unknownFlags(['--self-test', '--nope']), ['--nope']);
+      // No positional argument either: these drivers take their knobs from the
+      // environment, so a bare token is as much a typo as a bad flag.
+      assert.deepStrictEqual(d.mod.unknownFlags(['self-test']), ['self-test']);
+    });
+
+    t('the refusal is wired ahead of every self-test, build and browser', () => {
+      const head = SRC.slice(SRC.indexOf(d.head[0]), SRC.indexOf(d.head[1]));
+      assert.ok(head.length > 0, `could not locate the head of main() in ${d.name}`);
+      assert.match(head, /const unknown = unknownFlags\(process\.argv\.slice\(2\)\);/);
+      assert.match(head, /if \(unknown\.length > 0\) \{/);
+      assert.match(head, /process\.exit\(2\);/);
+      assert.ok(
+        head.indexOf('unknownFlags(') < head.indexOf('SelfTest()') || !head.includes('SelfTest()'),
+        'the argument check must come before the adjudicators run, not after'
+      );
+      assert.ok(
+        !/build\(\)|chromium/.test(head),
+        'nothing may be built or launched above the argument check — that is the whole point of it'
+      );
+    });
+  }
 }
 
 // --- THE ADJECTIVE, which is what both instrument errors hid behind ---------

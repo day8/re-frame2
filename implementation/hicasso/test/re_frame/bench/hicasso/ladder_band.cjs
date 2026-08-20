@@ -429,6 +429,22 @@ function main() {
       }
       console.log('\nladder_band self-test ok');
       return;
+    } else if (argv[i].startsWith('--')) {
+      // This one already refused the retired spelling, but only by ACCIDENT:
+      // it took the token for a dataset filename and died on the `readRun`
+      // below with an ENOENT stack trace. An accident is not a retirement —
+      // it says nothing to whoever typed it, and it would stop refusing
+      // altogether the day somebody left a file lying about under that name
+      // (rf2-xk4is, from #8616's merged-PR audit).
+      //
+      // Unlike its two neighbours this driver DOES take positionals, so the
+      // closed vocabulary is scoped to the flag namespace: anything shaped
+      // like a flag must be one of ours, anything else is a dataset.
+      console.error(`ladder_band.cjs: unknown flag ${argv[i]}`);
+      console.error(
+        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --self-test'
+      );
+      process.exit(2);
     } else files.push(argv[i]);
   }
 
