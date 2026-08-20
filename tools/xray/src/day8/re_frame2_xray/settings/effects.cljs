@@ -641,7 +641,7 @@
         ;;
         ;; `interop/activate-derived-value!` is the substrate's own "put
         ;; this derived value on your push path" op: a no-op on hosts that
-        ;; are push-based from birth (the React-hook spine — UIx, Helix) and
+        ;; are push-based from birth (the React-hook spine — UIx) and
         ;; on plain-atom, and idempotent on an already-capturing reaction. It
         ;; runs FIRST so the seed below reads a settled node.
         (interop/activate-derived-value! reaction)
