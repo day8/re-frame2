@@ -301,11 +301,16 @@ extracted rule landed at `implementation/freehand/test/…/bench/hicasso/front/
 slot.cljc`; `rf2-hic-001` then moved the runtime into `implementation/hicasso/`,
 and `frozen-sources.edn` pins the two files byte-for-byte under the rename. Both
 therefore answer identically today, which is precisely why the pin has to
-name one: Freehand is retired, its tree goes, and a codemod whose only classpath
-entry sat inside it would go red — `-M:test` and `-M:run` alike — the day that
-happened, in a tool whose whole job is to run after the retirement. The path is
+name one: Freehand was retired and its tree deleted (`rf2-0yp7w`, 2026-08-16),
+and a codemod whose only classpath entry had sat inside it would have gone red
+— `-M:test` and `-M:run` alike — on the day of that cut, in a tool whose whole
+job is to run after the retirement. The path is
 `implementation/hicasso/src`, and `shared_rule_test.clj` fails on a rule loaded
-from the bench tree as loudly as on one copied into `src/`.
+from the bench tree as loudly as on one copied into `src/`. That cut re-homed the
+prototype rather than deleting it, so the twin this deliberately does NOT read is
+now `implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc` — both
+copies still exist, which is what keeps the guard load-bearing rather than
+vestigial.
 
 Reagent's own key function is a second rule and does live here, in
 `donor.clj` — but written as the shared rule plus its two named deltas (a string
