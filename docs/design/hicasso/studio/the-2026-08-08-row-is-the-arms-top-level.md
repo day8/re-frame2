@@ -34,7 +34,9 @@ node implementation/hicasso/test/re_frame/bench/hicasso/alloc_ladder_placement.c
   revision, on one instrument, in one afternoon. **It cannot, and no amount of care in
   running it will change that.**
 - **Placed on the ladder, the 2026-08-08 row lands on the top rung to within
-  `2 – 373 B`** — 0.01% to 1.60%, across eight independent conversions. The row is
+  `2 – 373 B`** — 0.01% to 1.60%, across ~~eight independent conversions~~
+  **eight conversion variants per segment, drawn from two partially independent
+  families** (corrected — [§6](#6-the-row-against-the-top-rung)). The row is
   reproduced, not contradicted. What looked like a 16 – 20% across-time failure is a
   16 – 20% *level* difference between two single runs, each honest.
 - **The 2026-08-08 run cannot be adjudicated by the level witness, and not by accident.**
@@ -181,6 +183,32 @@ None of which is an inference. `alloc-9jrhi/pilot-rounds6-head-88411ed803.json` 
 committed six-round run of this arm, and the estimator returns **no value** for it on
 either segment, for exactly this reason.
 
+**ADDED 2026-08-21 (`rf2-nkeba`) — the witness was run on the 2026-08-08 dataset itself,
+and the refusal is over-determined.** The paragraphs above reason from a *2026-08-08-shaped*
+run and a six-round proxy. Pointing the landed witness at `alloc-2rtt6-138/run1.json`
+directly returns **exit 1**, `REFUSED [level-window]` on both segments, `n = 0` in **both**
+halves:
+
+| | `reagent-subs` | `uix-subs` |
+|---|---|---|
+| certified windows, rounds 1 – 5 (`BEFORE`) | 0 | 0 |
+| certified windows, rounds ≥ 6 (`AFTER`) | 0 | 0 |
+
+The round count is therefore **not the binding ground**, and the clause that actually
+fires is the earlier one — `BEFORE`, not `AFTER`. `inWindow` requires
+`r.certified && typeof r.legMedian === 'number'`, and **the 2026-08-08 arm records carry
+neither field**. Over all **132 arm records** in the dataset — 22 arms × 6 rounds — the
+union of keys is `arm`, `boundaries`, `cdpBracket`, `endpoints`, `fall`, `falls`,
+`headroom`, `maskable`, `maxStep`, `perBoundaryPerWrite`, `perWrite`, `reads`, `rise`,
+`rung`, `segment`, `text`: run-level scalars only, with no `legMedian`, no `certified`,
+no `legs` and no `samples`. The window predates the per-window certificate, which is what
+PR #8434 established from the other side. So a
+2026-08-08 run extended to eighteen rounds would still be refused, unchanged. This
+strengthens the section's conclusion rather than qualifying it: the run is out of the
+witness's reach by the *shape of its record*, which no re-analysis can repair, and not
+merely by stopping one round early. That is why the lesson under [Limits](#limits) is
+`rf2-erre5`'s — *retain the per-window samples* — and not *run more rounds*.
+
 ## 5. Placement inside the envelope
 
 Every certified per-round `legMedian` from the 69 admissible runs, against the six
@@ -198,7 +226,26 @@ shortfall of 4,034 – 5,018 B, it is an order of magnitude smaller.
 
 ## 6. The row against the top rung
 
-Eight conversions, all against `armed-13`'s estimator at the same substrate revision:
+~~Eight conversions~~ **Eight conversion variants per segment**, all against `armed-13`'s
+estimator at the same substrate revision:
+
+> **CORRECTED 2026-08-21 (merged-PR audit of PR #8540).** As landed, the answer-first
+> bullet called these *"eight independent conversions"* and the close record said they
+> shared *"no term but `rise`"*. **They are not eight independent conversions.** The
+> sixteen rows are **eight variants per segment from two families**: four reuse
+> `(rise − maxStep) / 5` and four reuse `(rise − E) / 6`, each family under the same two
+> toggles — the round subset (rounds 1 – 5 or all rounds) and a fixed 192 B `gaps out`
+> adjustment, divided by that family's own divisor. Within a family the variants share
+> their whole estimator; every variant additionally shares the one six-round source record
+> and the one top-rung comparator. **It is the two families, and only they, that share no
+> term but `rise`** — exactly as [Limits](#limits) says, and as §2 says above.
+>
+> **No derived value changes and no disposition changes.** The `2 – 373 B` spread, the
+> consistent sign, the retirement of the across-time clause and the NOT-COMPARABLE
+> markings all stand. What is withdrawn is the *degree of corroboration* the word
+> "independent" claimed for them: eight agreeing variants of two estimators is weaker
+> evidence than eight agreeing estimators would have been, and the placement rests on the
+> two families rather than on the sixteen cells.
 
 | segment | conversion | 2026-08-08 | top rung | delta | delta % |
 |---|---|---|---|---|---|
