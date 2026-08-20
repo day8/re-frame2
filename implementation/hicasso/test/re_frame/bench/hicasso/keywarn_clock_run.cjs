@@ -9,15 +9,21 @@
 // human framing riding as `;;` comments. See `keywarn_clock.cljs` for what is
 // measured and why a local ablation copy is the right shape for it.
 //
-// ## NO EDIT TO shadow-cljs.edn
+// ## WHICH BUILD ID (rf2-0yp7w.9.6)
 //
-// A `:node-script` compile is what this needs, and the lane's own
-// `:hicasso-bench` is a `:browser` build. Rather than add a build id — HD-017
-// makes that a hot-zone edit to `implementation/shadow-cljs.edn` and therefore
-// a sequenced dispatch — this rides the existing `:freehand-bench-node`
-// `:node-script` id through `--config-merge`, supplying its own `:main` and
-// `:output-to`. Exactly the mechanism `compile_gate.cjs` and `jsfb_build.cjs`
-// use on `:hicasso-bench`; only the borrowed id differs.
+// A `:node-script` compile is what this needs, and the lane's `:hicasso-bench`
+// is a `:browser` build. Rather than add a build id — HD-017 makes that a
+// hot-zone edit to `implementation/shadow-cljs.edn` and therefore a sequenced
+// dispatch — this rode the donor tree's `:freehand-bench-node` `:node-script`
+// id through `--config-merge`, supplying its own `:main` and `:output-to`.
+//
+// PR #8322 deleted that build with the tree, leaving this driver naming a
+// build shadow-cljs does not have, and left no `:node-script` build anywhere
+// in that file to ride instead. So the id below is the lane's OWN, minted
+// beside `:hicasso-bench` and shared with `ssr/driver.cjs` — one id, both of
+// the lane's Node programs, the sequencing law paid once. The `--config-merge`
+// mechanism is unchanged, and is the same one `compile_gate.cjs` and
+// `jsfb_build.cjs` use on `:hicasso-bench`.
 //
 // `compile`, not `release`: the pre-pass exists only where `goog.DEBUG` is
 // true, and a dev compile is the build the figure is ABOUT. The clock refuses
@@ -32,7 +38,7 @@ const path = require('node:path');
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
-const BUILD_ID = 'freehand-bench-node';
+const BUILD_ID = 'hicasso-bench-node';
 const OUT = 'out/keywarn-clock.js';
 const TAG = 'keywarn-clock';
 
