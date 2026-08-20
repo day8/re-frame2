@@ -1605,6 +1605,69 @@ const ALLOC_PLAN_SHAPES = {
 const ALLOC_PLAN = process.env.P0_ALLOC_PLAN || 'full';
 const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 
+// THE SEGMENT ORDER — AND THE CONFOUND IT EXISTS TO BREAK (rf2-rs8q6).
+//
+// The arms of a round are driven segment by segment, and under `parity` the
+// segment order REVERSES on odd rounds. That flip is deliberate and it is
+// what de-confounds the substrate comparison: two segments admit two orders,
+// and a single-order run cannot tell a substrate apart from the slot it was
+// driven in.
+//
+// But it builds in a second relation nobody chose. Under `parity` the window
+// sequence is `A B | B A | A B | B A | ...`, so the FIRST arm window of every
+// round repeats the substrate of the LAST arm window of the round before it,
+// and the second always switches. `rf2-rs8q6`'s record checked this rather
+// than assuming it: over the 466 adjacent window pairs in the 14 committed
+// floor runs, "position in round is 0" and "substrate repeated from the
+// previous window" agree 466 times out of 466. The ~748 B rider that record
+// isolated sits on position 0, and no committed dataset can say which of the
+// two it follows.
+//
+// `fixed` drives the configured order EVERY round. The sequence becomes
+// `A B | A B | A B | ...`, so BOTH positions now follow a substrate switch —
+// position 0 across the round boundary, position 1 within the round — while
+// position 0 alone still follows the round's three control windows. The two
+// relations stop coinciding, which is the whole of what this switch is for.
+//
+// WHAT EACH OUTCOME SETTLES, pre-registered here rather than chosen after the
+// run, since the mode has three distinguishable answers and not two:
+//
+//   - the rider STAYS position-locked at 0  -> the carrier is the position
+//     itself (the first arm after the round's three controls), not the
+//     substrate relation, which is now constant across both positions;
+//   - the rider appears at BOTH positions   -> the carrier is the substrate
+//     SWITCH, which under `parity` was position 1's property;
+//   - the rider VANISHES                    -> the carrier is the substrate
+//     REPEAT, which `fixed` removes from the schedule altogether.
+//
+// IT IS OFF BY DEFAULT AND `parity` IS THE IDENTITY. `allocSegmentOrder` is
+// the pre-bead expression verbatim under `parity`, so every published row is
+// taken on the schedule it always was, and no gate, band, threshold or budget
+// constant is touched in either mode. τ is untouched, in either direction.
+//
+// AND A `fixed` ROW IS A DIAGNOSTIC ROW, NOT A PUBLISHABLE ONE. It gives up
+// exactly the property the flip was landed for: with one order the substrate
+// is confounded with the slot, so a `fixed` run may not be quoted for a
+// between-substrate comparison. The row states which order it was taken under
+// (`segOrder`) and each round states the order it actually drove
+// (`segments`), on criterion 6's rule that a reader of any row can tell FROM
+// THE ROW how it was taken.
+//
+// THE WRITE-LEG ORDER IS NOT TOUCHED. It flips on the same parity and carries
+// its own within-round position confound, which is a different question with
+// a different discriminator; under `P0_ALLOC_WRITE=all` — the selection every
+// floor corpus is taken under — there is ONE leg and the flip is inert.
+const ALLOC_SEG_ORDERS = ['parity', 'fixed'];
+const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
+
+// Pure, for `allocPlanArms`'s reason: it needs neither a release build nor a
+// Chromium, so the pin can DRIVE both modes over a plan and read the six-round
+// sequence out, rather than read the source and hope.
+function allocSegmentOrder(plan, round, order) {
+  if (order === 'fixed') return plan;
+  return round % 2 === 0 ? plan : [...plan].slice().reverse();
+}
+
 // The plan a shape admits, as a PURE FUNCTION of the full plan and the shape
 // — the same reason `allocArmSizing` and `allocSteps` are pure: it needs
 // neither a release build nor a Chromium, so the pin can DRIVE it rather than
@@ -2355,6 +2418,19 @@ async function allocRow(chromium) {
         `${Object.keys(ALLOC_PLAN_SHAPES).join(' | ')}, and \`full\` is the default`
     );
   }
+  // AND THE THIRD SWITCH, ON THE SAME RULE (rf2-rs8q6). A mistyped segment
+  // order would otherwise fall back to `parity` silently, and this is the one
+  // switch where that failure is undetectable after the fact: a `fixed` run
+  // that quietly ran on `parity` produces a record whose rounds are in the
+  // flipped order under a name that says they are not, and the confound the
+  // mode exists to break would read as broken when it never was.
+  if (!ALLOC_SEG_ORDERS.includes(ALLOC_SEG_ORDER)) {
+    throw new Error(
+      `unknown P0_ALLOC_SEG_ORDER ${JSON.stringify(ALLOC_SEG_ORDER)} — the allocation row ` +
+        `drives the segments in one of ${ALLOC_SEG_ORDERS.join(' | ')} order, and \`parity\` ` +
+        'is the default every published row is taken under'
+    );
+  }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
@@ -2542,8 +2618,11 @@ async function allocRow(chromium) {
     const ctl1 = await controlOf('control', ALLOC_D);
     const ctl2 = await controlOf('control', ALLOC_D2);
 
-    // --- the arms, in the order this round's parity dictates ------------
-    const segs = round % 2 === 0 ? plan : [...plan].slice().reverse();
+    // --- the arms, in the order this run's segment order dictates -------
+    // `parity` is the pre-bead expression verbatim; `fixed` drives the
+    // configured order every round and is what breaks the position/substrate
+    // confound (rf2-rs8q6). See `allocSegmentOrder` for the three outcomes.
+    const segs = allocSegmentOrder(plan, round, ALLOC_SEG_ORDER);
     // AND THE WRITE LEGS, ON THE SAME PARITY (rf2-irxrw). One pass over the
     // segment's arms per write this run drives, so a `paired` round measures
     // EVERY arm — the floor included, and the floor is the dominant shared
@@ -2778,11 +2857,18 @@ async function allocRow(chromium) {
     // pair is not order-confounded, and an estimator that wants to know which
     // leg led in a given round has to be able to read it off the round rather
     // than recompute the parity rule.
+    // AND `segments` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN
+    // (rf2-rs8q6), recorded for exactly `writeLegs`'s reason and now with a
+    // second one on top of it. The order was recoverable before only by
+    // recomputing the parity rule — and that rule is no longer the only one a
+    // record can have been taken under, so an estimator that recomputed it
+    // would silently mis-position every window of a `fixed` run.
     rounds.push({
       round,
       controls: { idle, ctl1, ctl2 },
       arms: armsOut,
       writeLegs: legs.map((l) => l.selector),
+      segments: segs.map((s) => s.segment),
     });
   }
 
@@ -2875,6 +2961,11 @@ async function allocRow(chromium) {
     writePaired: ALLOC_WRITE_PAIRED,
     write: ALLOC_WRITE_LEGS.map((l) => `${l.spec.event} — ${l.spec.note}`).join('  AND  '),
     plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
+    // AND WHICH SEGMENT ORDER (rf2-rs8q6), on the same criterion-6 rule as the
+    // two above: `fixed` gives up the between-substrate comparison the parity
+    // flip was landed for, so a reader has to be able to tell from the row
+    // whether the row is entitled to make one. `parity` on every published row.
+    segOrder: ALLOC_SEG_ORDER,
     // WHICH OF THE THREE GATES SCREENED THIS ROW (rf2-fir5n), and not merely
     // which three exist. It reads `ALLOC_BY_SITE` for the same reason `bySite`
     // above does: at a stride of 2 the intra-leg gate returns `[]` by
@@ -4138,6 +4229,15 @@ module.exports = {
   ALLOC_PLAN,
   ALLOC_PLAN_SHAPE,
   allocPlanArms,
+  // The confound-breaking segment order (rf2-rs8q6), exported on exactly the
+  // rule above: the order is a pure function of the plan, the round and the
+  // mode, so the pin can DRIVE both modes over a plan and read the round
+  // sequence out — including the property that matters most, that `parity` is
+  // the pre-bead expression and reverses on odd rounds still. The resolved
+  // constant comes too, so the env route is pinned from outside the process.
+  allocSegmentOrder,
+  ALLOC_SEG_ORDERS,
+  ALLOC_SEG_ORDER,
   // The row's own table reader, so the pin can DRIVE a narrowed plan through
   // it. A mode that collects V3's controls and then throws in the summariser
   // has not delivered V3, and "the mode is defined" and "the mode runs" are

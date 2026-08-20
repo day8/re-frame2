@@ -65,6 +65,9 @@ const {
   allocWriteProvenance,
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
+  // The confound-breaking segment order (rf2-rs8q6), pure and driven below.
+  allocSegmentOrder,
+  ALLOC_SEG_ORDERS,
   summariseAlloc,
   allocSiteSplit,
   allocSiteWitness,
@@ -2327,6 +2330,73 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
     allocPlanArms(full, ALLOC_PLAN_SHAPES.controls),
     [],
     'and controls-only mounts nothing at all — V3 asks for no arms'
+  );
+});
+
+// --- THE SEGMENT ORDER, AND THE CONFOUND `fixed` BREAKS (rf2-rs8q6) --------
+//
+// The mode's two most important properties are both claims about a SEQUENCE of
+// rounds rather than about one round, and neither is readable off the source:
+//
+//   - `parity` is the pre-bead schedule, so every published row is taken on
+//     the schedule it always was;
+//   - under `fixed` BOTH within-round positions follow a substrate SWITCH,
+//     which is the entire reason the mode exists. Under `parity` position 0
+//     follows a substrate REPEAT in every round but the first, which is the
+//     466-of-466 confound `rf2-rs8q6` could not separate from position.
+//
+// So the pin DRIVES the sequence and reads the adjacency relation out of it,
+// rather than matching the source for a ternary.
+test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confound', () => {
+  const plan = [{ segment: 'reagent-subs' }, { segment: 'uix-subs' }];
+  const seqOf = (mode, rounds) =>
+    Array.from({ length: rounds }, (_, r) =>
+      allocSegmentOrder(plan, r, mode).map((s) => s.segment)
+    );
+
+  assert.deepStrictEqual(ALLOC_SEG_ORDERS, ['parity', 'fixed']);
+  assert.strictEqual(constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: '' }), 'parity');
+  assert.strictEqual(
+    constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: 'fixed' }),
+    'fixed',
+    'the confound-breaker is reachable by naming it'
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_SEG_ORDER', { P0_ALLOC_SEG_ORDER: 'fxied' }), 'fxied');
+  has(/unknown P0_ALLOC_SEG_ORDER/, 'and the preflight refuses a mistyped order BY NAME');
+
+  // `parity` REVERSES on odd rounds and is the shipped plan itself on even
+  // ones — the pre-bead expression, driven rather than restated.
+  assert.deepStrictEqual(seqOf('parity', 4), [
+    ['reagent-subs', 'uix-subs'],
+    ['uix-subs', 'reagent-subs'],
+    ['reagent-subs', 'uix-subs'],
+    ['uix-subs', 'reagent-subs'],
+  ]);
+  assert.strictEqual(allocSegmentOrder(plan, 0, 'parity'), plan);
+
+  // `fixed` drives the configured order every round, the shipped plan itself
+  // each time — no copy, no reorder.
+  for (let r = 0; r < 6; r++) assert.strictEqual(allocSegmentOrder(plan, r, 'fixed'), plan);
+
+  // AND THE PROPERTY THE MODE IS FOR, read off the flattened window sequence:
+  // does this window's substrate repeat the previous window's? Under `parity`
+  // that is TRUE at position 0 and FALSE at position 1, every round — the
+  // confound. Under `fixed` it is FALSE at both.
+  const repeats = (mode) => {
+    const flat = seqOf(mode, 9).flat();
+    return flat
+      .map((s, i) => (i === 0 ? null : { pos: i % 2, repeat: s === flat[i - 1] }))
+      .filter(Boolean);
+  };
+  const parityRepeats = repeats('parity');
+  assert.strictEqual(parityRepeats.length, 17);
+  assert.ok(
+    parityRepeats.every((x) => x.repeat === (x.pos === 0)),
+    'under `parity`, "position 0" and "substrate repeated" are the SAME predicate'
+  );
+  assert.ok(
+    repeats('fixed').every((x) => x.repeat === false),
+    'and under `fixed` no window repeats its predecessor, at either position'
   );
 });
 
