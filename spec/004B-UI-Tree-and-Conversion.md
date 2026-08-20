@@ -713,7 +713,7 @@ shapes.
   obligation: no such function exists and none is owed. It revives only if Spec 011
   deliberately restores the structural render-hash / manifest `render-fingerprint` channel
   — which [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)
-  designed the compiled and native tiers *without*, recording its revival as "a
+  designed the adoption tier *without*, recording its revival as "a
   deliberately-deferred future leaf, not a defect" — **and** a named concrete consumer
   needs it. The algorithm prose below (§Markup and fingerprint) is design-of-record for if
   that happens.
@@ -751,9 +751,10 @@ The **fingerprint half is a deferred, non-binding candidate — not an owed func
 whether the structural render-hash / manifest `render-fingerprint` channel ever revives,
 and it revives only when 011 deliberately restores that channel **and** a named concrete
 consumer needs it. Today the channel is deliberately absent: [011 §Hydration-mismatch
-detection](011-SSR.md#hydration-mismatch-detection) states the compiled and native tiers
-"deliberately carry no such hash" (a compiled root has no hashable client render-tree),
-and records that reviving it is "a deliberately-deferred future leaf, not a defect." The
+detection](011-SSR.md#hydration-mismatch-detection) states that the adoption tier
+"deliberately carries no such hash" (a React-element root has no hashable client
+render-tree), and records that reviving it is "a deliberately-deferred future leaf, not
+a defect." The
 hash algorithm and digest encoding this candidate would apply, if it revives, are Spec
 011's (§Normalization, and [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — kept
 below as design-of-record. A reader who greps *that* name and finds no function has found
