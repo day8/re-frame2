@@ -16,7 +16,7 @@
 
   ## The seven
 
-  `rf2-hic-083` names *the slice + editor/grid apps*. All seven witness
+  The proposal names *the slice + editor/grid apps*. All seven witness
   applications in the tree are censused instead, because a verdict that
   three applications support and four contradict is a verdict nobody
   should take, and adding the other four costs four mounts.

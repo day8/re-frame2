@@ -83,7 +83,7 @@
 
   `reincarnation_routing_cljs_test` establishes the same routing law one
   rung down, against the lowering functions directly and with a
-  reconstruction of the pre-rf2-x874 mechanism as its negative control.
+  reconstruction of the late-binding mechanism as its negative control.
   This file does not restate it: it asks whether the law survives a real
   React vendor holding the closure, and what the law costs there."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]

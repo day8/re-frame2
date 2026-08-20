@@ -36,15 +36,14 @@
 
   ## Sections 4–8 are the lowered callback's contract
 
-  Section 4 recorded a DEFECT when this suite landed: the ambient dispatch a
-  boundary lowered into its callbacks closed over the frame KEYWORD and
-  resolved its bundle when the callback FIRED, so where a delayed callback
-  landed was decided by the memo's warmth at that instant. rf2-x874 pinned the
-  incarnation into the closure at mint time, and the sections below are the
-  positive contract that replaced the recording — safety (a retained callback
-  refuses) and liveness (a fresh one routes) asserted together in every cache
-  posture, because cache warmth is precisely what used to choose between two
-  different failures. Section 8 is the negative control: it rebuilds the old
+  The DEFECT this suite is built around is LATE BINDING: an ambient dispatch
+  that closes over the frame KEYWORD and resolves its bundle when the callback
+  FIRES lands wherever the memo's warmth decides at that instant. The
+  incarnation is pinned into the closure at mint time instead, and the sections
+  below are the positive contract — safety (a retained callback refuses) and
+  liveness (a fresh one routes) asserted together in every cache posture,
+  because cache warmth is precisely what chooses between two different failures
+  under late binding. Section 8 is the negative control: it rebuilds the
   late-binding mechanism out of the documented seam and reproduces BOTH
   failures, so nothing here can be passing because the instruments are dead.
   See `docs/design/hicasso/product/invariants.md` §7.
@@ -463,10 +462,10 @@
 ;; in both.
 
 (defn- late-binding-dispatch
-  "**The mechanism as it stood before rf2-x874**, rebuilt out of the documented
-  seam rather than by redefining a runtime var.
+  "**The LATE-BINDING mechanism**, rebuilt out of the documented seam rather
+  than by redefining a runtime var.
 
-  `!memo` stands in for the arm's frame table as it then was, and the returned
+  `!memo` stands in for the arm's frame table under it, and the returned
   closure for `impl.collector/frame-dispatch`'s: it closes over the frame
   KEYWORD and resolves a `rf/capture-frame` bundle when it FIRES. The commit
   window is the arm's real [[re-frame.hicasso.impl.collector/with-commit]] — it

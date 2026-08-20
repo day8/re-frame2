@@ -12,9 +12,9 @@
 
   ## What it counts, and off what
 
-  A **membership** is one slot in a cell's `.-readers` array — since
-  rf2-dabt3 simultaneously the sub-key's reverse edge and the boundary's
-  reference to that key's cell, which is why
+  A **membership** is one slot in a cell's `.-readers` array —
+  simultaneously the sub-key's reverse edge and the boundary's reference
+  to that key's cell, which is why
   [[re-frame.hicasso.impl.inventory/stats]] reports it once under two
   names. It is the quantity the proposal proposes to reduce.
 

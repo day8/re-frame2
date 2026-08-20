@@ -3,23 +3,17 @@
   complaints, independent presence, independent teardown.
 
   The property: two roots adopting server markup at the same time must
-  not corrupt or silence one another. rf2-hic-012 wrote these rows and
-  found the property FALSE — the hydration adoption window was one
-  boolean for the whole page, so root A's closer shut the window root B
-  was still adopting in, and root B's mismatch diagnostic was silently
-  discarded. That worker was fenced off runtime source, so it measured
-  the global rather than repairing it and left in-file instructions for
-  the repair to follow.
+  not corrupt or silence one another. A page-global adoption window makes
+  it FALSE — one boolean for the whole page means root A's closer shuts
+  the window root B is still adopting in, and root B's mismatch
+  diagnostic is silently discarded.
 
-  rf2-6tmu is that repair: one window per root, minted by
-  `hydrate-root!`, reachable only from that root's handle, and carried to
-  that root's closer, its reporter and its presence subtree. The rows
-  below are the same rows with their measurements turned into
-  properties — H2's two counts are now equal, and the row that existed
-  only to record the global (`the-adoption-window-is-one-boolean-for-the-whole-page`)
-  is deleted rather than re-pinned, exactly as its own comment
-  instructed. H4 replaces it with the property it was standing in for,
-  and H5 covers the window's second reader.
+  The window is therefore PER ROOT: minted by `hydrate-root!`, reachable
+  only from that root's handle, and carried to that root's closer, its
+  reporter and its presence subtree. The rows below are the properties
+  that arrangement buys: H2's two counts are equal, H4 carries the
+  property a page-global measurement could only stand in for, and H5
+  covers the window's second reader.
 
   ## Why adoption cannot be witnessed on the markup
 
@@ -190,9 +184,9 @@
             ;; The overlap is a CONSTRUCTION, not a timing guess: both
             ;; roots were handed to React before either had adopted, and
             ;; each root's OWN window being open on this line is what says
-            ;; so. Two windows, because since rf2-6tmu there are two —
-            ;; asserting one page-wide flag here would have been satisfied
-            ;; by either root alone.
+            ;; so. Two windows, because the window is per root —
+            ;; asserting one page-wide flag here would be satisfied by
+            ;; either root alone.
             (is (true? (roots/adopting? (:adoption ha)))
                 "root A is in flight — `hydrate-root!` returns before the
                  tree is adopted, so its window outlives the call")
@@ -234,11 +228,10 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ## THE INDEPENDENCE WITNESS — two divergences, two complaints EACH WAY
-;; (rf2-hic-012 measured it; rf2-6tmu repaired it)
 ;;
-;; The bead asked for two overlapping hydrating roots with *independent
-;; mismatch complaints*. As shipped they were not independent, and the
-;; version of this row that PR #7751 landed was the measurement:
+;; What is owed is two overlapping hydrating roots with *independent
+;; mismatch complaints*. Under a page-global window they are not
+;; independent, and the measurement of that is:
 ;;
 ;;   - React reported BOTH divergences. Two roots diverge, and two
 ;;     "Hydration failed because…" errors reach the page's own error
@@ -254,12 +247,10 @@
 ;; not about React: the divergence was detected and reported, and only the
 ;; framework's own diagnostic went missing.
 ;;
-;; rf2-6tmu root-scoped the window — one per `hydrate-root!`, reachable
-;; only from that root's handle, carried to that root's closer, reporter
-;; and presence subtree — so the two counts are now EQUAL and this row
-;; asserts that. **The row PR #7751 left carried in-file instructions to
-;; replace both of its assertions with `(= 2 (count @seen))`, and that is
-;; what happened**: the strict-inequality assertion became an equality
+;; The window is root-scoped — one per `hydrate-root!`, reachable only
+;; from that root's handle, carried to that root's closer, reporter and
+;; presence subtree — so the two counts are EQUAL and this row asserts
+;; that: the strict-inequality assertion is an equality
 ;; against the React count, and the `1` became `2`. Neither was re-pinned
 ;; and neither was deleted.
 ;;
@@ -418,12 +409,10 @@
 ;;      siblings are still adopting. THE ROW THAT RULES OUT A COUNTER.
 ;; ---------------------------------------------------------------------------
 
-;; The row that stood here measured the page-global — two opens shut by one
-;; close — and carried an in-file instruction to be DELETED rather than
-;; re-pinned once the window became root-scoped (rf2-hic-012 → rf2-6tmu).
-;; It is deleted. What follows is not a re-pin of it: it is the property
-;; that measurement was standing in for, and it discriminates against a
-;; strictly larger set of wrong answers.
+;; A row measuring the page-global — two opens shut by one close — is NOT
+;; what stands here. What follows is the property such a measurement stands
+;; in for, and it discriminates against a strictly larger set of wrong
+;; answers.
 ;;
 ;; **H2 alone would pass under a page-global REFERENCE COUNT.** Two opens,
 ;; one close, count still one — both roots' mismatches emit and the two
@@ -669,11 +658,11 @@
 ;; — *adoption and mismatch attribution are root-scoped; simultaneous roots
 ;; cannot cross-contaminate* — is a correctness gate, and that register's gate
 ;; construction rule asks every one of them for "a sabotage mutation that makes
-;; each correctness gate red". Until rf2-1mmn this family had none that ran.
-;; The mutations were prose, and a reviewer cannot re-run a comment.
+;; each correctness gate red". A mutation written as PROSE is no answer: a
+;; reviewer cannot re-run a comment.
 ;;
-;; This row is the mutation, executing. `sup/with-page-global-adoption` restores
-;; the pre-rf2-6tmu page-global window — one ref for the whole page, read by
+;; This row is the mutation, executing. `sup/with-page-global-adoption`
+;; restores the page-global window — one ref for the whole page, read by
 ;; every presence tray on it — and the row runs H5's construction under it and
 ;; again without it, changing nothing else in between. Both halves are
 ;; load-bearing and they red in opposite directions:
