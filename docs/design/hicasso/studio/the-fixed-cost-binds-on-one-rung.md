@@ -27,16 +27,28 @@ node hicasso/test/re_frame/bench/hicasso/alloc_window_ceiling.cjs
 
 ## The answer, first
 
-**The bead's premise SURVIVES and has narrowed to ONE RUNG — but NOT on the terms
-it was written in.** The bead states its uncertifiability argument in the
-300,000 B masking bound, and **that bound was RETIRED AND DELETED on 2026-08-08**
-(`rf2-2rtt6.141`, on this bead's own criterion 4), so every `max B` figure below
-is a **RECONSTRUCTION of the bead's case, not a live constraint**. What carries
-the conclusion instead is measured rather than modelled, and reaches the same
-rung: **R = 20 certifies 24/96 where every rung beneath it certifies 88 – 95%**,
-and `rf2-onozm`'s observed **884,280 B ceiling** separates that same rung on a
-quantity rather than on a constant. **Stop the ladder at R = 7 and B = 1
-certifies.**
+**The bead's RUNG survives. Its CONCLUSION does not.** The bead states its
+uncertifiability argument in the 300,000 B masking bound, and **that bound was
+RETIRED AND DELETED on 2026-08-08** (`rf2-2rtt6.141`, on this bead's own
+criterion 4), so every `max B` figure in [section 2](#2-the-ladder-arithmetic-re-run)
+is a **RECONSTRUCTION of the bead's case, not a live constraint**. Restating the
+question in the quantity the instrument actually exhibits —
+[section 4](#4-the-same-question-in-live-terms) — **reverses the answer**: against
+`rf2-onozm`'s observed **884,280 B** ceiling the full 1/3/7/20 ladder admits
+**B ≤ 3**, not B = 0. The bead's *"there is no page of one boundary or more"* was
+carried by the deleted constant's tightness, a 300,000 B window bracket against a
+ceiling **2.95× looser**.
+
+**What survives is a one-rung constraint, and it is not an impossibility result.**
+R = 20 is where the ladder binds on the live ceiling exactly as it did on the
+retired bound; at the B = 4 this corpus runs it binds hard — **0/72 in six of the
+eight arm families, 24/24 in the other two** — and the largest full-ladder page
+the ceiling admits is one boundary *under* the page already being run. **That
+ceiling is NECESSARY and not SUFFICIENT**, so B ≤ 3 is a condition the ladder can
+meet rather than a page that certifies: 36 windows sit at or below the ceiling
+and refuse anyway, 20 of them with no collection at all, and **no committed
+dataset holds a window at any page size but B = 4**, so whether B = 3 certifies
+is **unmeasured**.
 
 - **F today is 19,280 B per write** — the floor arm's median `perWrite` over 48
   windows. Against the 42,857 B the *retired* bound allowed at W = 6 that is
@@ -57,7 +69,14 @@ certifies.**
 - **The empirical column agrees with where the refusals actually are.** R = 1
   certifies 86/96, R = 3 85/96, R = 7 89/96 — **88 – 93%** — against R = 20's
   **24/96 = 25.0%**, which is exactly 2 runs × 6 rounds × 2 writes on the single
-  surviving arm family and nothing else.
+  surviving arm family and nothing else. **That is a sharply lower rate in the
+  sampled configuration; it is not, and is no longer offered as, a demonstration
+  that no page size certifies.**
+- **The same arithmetic on the LIVE ceiling** — [section 4](#4-the-same-question-in-live-terms),
+  fitted per arm family because at R = 20 the pooled rung median falls in a gap no
+  family occupies: R = 1 admits **B ≤ 31**, R = 3 **B ≤ 16**, R = 7 **B ≤ 8**,
+  R = 20 **B ≤ 3**, taking the binding family at each rung. **Stop the ladder at
+  R = 7 and the ceiling admits B ≤ 8** — where the reconstruction allowed B = 1.
 - **This bead and `rf2-onozm` are ONE CONSTRAINT UNDER TWO NAMES.** R = 20 is the
   binding rung here and the whole subject there. Resolving R = 20 **discharges**
   this bead rather than re-measuring it.
@@ -142,15 +161,27 @@ forces B = 0**. The bead's own conclusion — *"AT SIX WRITES THERE IS NO PAGE O
 ONE BOUNDARY OR MORE THAT CERTIFIES THE 1/3/7/20 LADDER"* — **survives today's F
 unchanged**, and it survives on one rung rather than on four.
 
-**What gives that conclusion a LIVE warrant is the `certified` column beside it,
-which is measured and owes the bound nothing**: R = 20 certifies 24/96 where
-every rung beneath it certifies 88 – 95%. `rf2-onozm` reaches the same rung on
-the observed 884,280 B ceiling, again without the bound. **The finding does not
-depend on the retired constant; only the bead's original phrasing of it does.**
+**That sentence held on this page until 2026-08-21, and the live restatement
+below withdraws it.** `survives today's F unchanged` is true of the
+*reconstruction* and of nothing else: the conclusion is an artefact of the
+allowance it divides by, and the allowance is deleted.
+[Section 4](#4-the-same-question-in-live-terms) re-runs the identical arithmetic
+against the observed ceiling and gets **B ≤ 3 on the full ladder**.
 
-**Stop at R = 7 and B = 1 certifies.** That is not a widening: it is the ladder
-the four remaining rungs already support, and it is the same disposition
-`rf2-onozm` prices from the other side.
+**What the `certified` column beside it does and does not establish.** It is
+measured and owes the bound nothing, and it locates the binding rung: R = 20
+certifies 24/96 where every rung beneath it certifies 88 – 95%. **What it does
+not do is carry the bead's conclusion** — a sharply lower certification rate in
+the sampled configuration is not a demonstration that no page size certifies, and
+**24 R = 20 windows certify at B = 4 already**. `rf2-onozm` reaches the same rung
+on the observed 884,280 B ceiling, again without the bound, and that ceiling is
+**one-sided**: 36 windows below it refuse. **So the RUNG does not depend on the
+retired constant. The IMPOSSIBILITY did, and it does not survive.**
+
+**Stop at R = 7 and the reconstruction allows B = 1; the live ceiling allows
+B ≤ 8.** Either way it is not a widening — it is the ladder the four remaining
+rungs already support, and it is the same disposition `rf2-onozm` prices from the
+other side.
 
 **One honest note on how well the model does.** The `certified` column is not
 predicted by the max-B column and is not offered as agreeing with it — the two
@@ -228,7 +259,85 @@ sound measurements offered under a mistaken premise:
 **No gate, constant or threshold is added, moved or removed on this page.** The
 retirement is reported, not performed — it happened elsewhere and earlier.
 
-## 4. The two beads are one constraint
+## 4. The same question in live terms
+
+Added 2026-08-21 on `rf2-2k3vo`, whose whole subject is that
+[section 2](#2-the-ladder-arithmetic-re-run) answers the bead in a constant that
+no longer exists. **No window was taken for this section either** — it is the same
+528 committed windows read a second way, on base `551d7acb9a`.
+
+The instrument enforces the leg witness and the falls gate, and what those two
+exhibit at the window level is the **would-be total**, `6 × legMedian`, ceilinged
+at the **884,280 B** the corpus's highest certifying window actually reached. So
+run the bead's own arithmetic against that instead of against the retired
+allowance:
+
+```
+total(R, B) ≈ T0 + B · t(R)        max B = floor((884,280 − T0) / t(R))
+```
+
+where `T0` is the family's **own** floor-arm would-be total and `t(R)` is fitted
+at B = 4, the only page the corpus holds. **Fitted per arm family, not per rung**,
+because at R = 20 the pooled rung median is representative of nothing: six
+families sit at 1.03 – 1.05 MB and two at 0.85 – 0.86 MB, and the pooled 1,035,036 B
+falls in a gap no family occupies.
+
+| family | `T0` (B) | max B, R = 1 | R = 3 | R = 7 | R = 20 |
+|---|---|---|---|---|---|
+| `reagent-subs \| lad/reagent @page` | 105,816 | 32 | 17 | 8 | **3** |
+| `reagent-subs \| lad/hicasso @page` | 105,816 | 36 | 19 | 9 | **3** |
+| `reagent-subs \| lad/reagent @all` | 115,728 | 31 | 16 | 8 | **3** |
+| `reagent-subs \| lad/hicasso @all` | 115,728 | 35 | 19 | 9 | **3** |
+| `uix-subs \| lad/uix @page` | 108,480 | 60 | 25 | 11 | **4** |
+| `uix-subs \| lad/hicasso @page` | 108,480 | 37 | 20 | 9 | **3** |
+| `uix-subs \| lad/uix @all` | 118,392 | 59 | 24 | 11 | **4** |
+| `uix-subs \| lad/hicasso @all` | 118,392 | 36 | 19 | 9 | **3** |
+
+A ladder holds **one B across all rungs and all families**, so the binding cell
+decides:
+
+- **full 1/3/7/20 ladder — B ≤ 3**, binding at R = 20;
+- **reduced 1/3/7 ladder — B ≤ 8**, binding at R = 7.
+
+**The bead's conclusion does not survive.** *"At six writes there is no page of
+one boundary or more that certifies the 1/3/7/20 ladder"* is carried entirely by
+the retired bound's tightness — a 300,000 B window bracket against an observed
+884,280 B ceiling, **2.95× looser**. On the live ceiling the full ladder admits
+**B ≤ 3**: one boundary *under* the page this corpus already runs, not zero.
+
+### What the empirical column can and cannot check
+
+At B = 4 the prediction is exact — the two R = 20 families the ceiling admits
+certify **24/24**, the six it excludes certify **0/72**, eight of eight families
+on the right side. **That agreement is not independent evidence.** $t$ is fitted
+at B = 4, so at B = 4 the test `max B ≥ 4` reduces *algebraically* to
+`total ≤ ceiling`, which is
+[the window total is the ceiling](the-window-total-is-the-ceiling.md)'s own test
+restated per family. It confirms the ceiling. It says nothing about the linear
+extrapolation to any other page.
+
+### And the ceiling is necessary, not sufficient
+
+This is the qualification that keeps the restatement from becoming a second
+reconstruction. **36 windows sit at or below 884,280 B and refuse anyway, 20 of
+them carrying no collection at all.** So:
+
+- **B ≤ 3 is a NECESSARY condition the full ladder can meet — it is NOT a
+  certifying page**, and nothing here says the ladder certifies at B = 3.
+- **No committed dataset holds a window at any page size but B = 4.** Whether
+  B = 3 certifies is **unmeasured**, and measuring it needs a window. None was
+  taken here, and this page does not propose one.
+
+**What survives, at the strength the evidence carries**: R = 20 is where the
+ladder binds, on the live ceiling as on the retired bound; at B = 4 it binds hard,
+0/72 in six of eight families; and the largest full-ladder page the ceiling admits
+is B = 3. **That is a one-rung constraint, not an impossibility result** — which
+is a materially weaker claim than the one this page carried before, and it is
+weaker because the evidence never supported the stronger one.
+
+Every figure above is printed by section 7 of the reader; run it and diff.
+
+## 5. The two beads are one constraint
 
 `rf2-onozm` asks why R = 20 certifies on one arm family of four. This bead asks
 whether F makes the ladder uncertifiable at any page size. **They terminate on
@@ -237,8 +346,8 @@ for that reason.
 
 | | `rf2-onozm` | `rf2-2rtt6.140` |
 |---|---|---|
-| what it observes | R = 20 certifies 24/96, all on one family | R = 20 admits B = 0 while R = 1/3/7 admit 6/3/1 |
-| the quantity | window would-be total, ceiling at **884,280 B** — observed | `perWrite` against the **retired** 42,857 B allowance, plus the measured `certified` column |
+| what it observes | R = 20 certifies 24/96, all on one family | R = 20 is the binding rung: **B ≤ 3** live, B = 0 on the retired reconstruction |
+| the quantity | window would-be total, ceiling at **884,280 B** — observed | the same ceiling in [section 4](#4-the-same-question-in-live-terms); `perWrite` against the **retired** 42,857 B allowance in [section 2](#2-the-ladder-arithmetic-re-run) |
 | what binds | R = 20's total, 1,035,036 B median | R = 20's `s`, 31,533 B/bnd/write |
 | what discharges it | fewer writes at the top rung, or stop below it | the same |
 
@@ -255,12 +364,18 @@ this page.
 
 ## What was NOT concluded
 
-- **The bead is NOT discharged.** Its premise survives. What this page changes is
-  the *scope* — one rung rather than the whole ladder — the *route*, which now
-  runs through `rf2-onozm`, and the *warrant*: the bead argues in a constant that
-  no longer exists, so the finding is now carried by the measured `certified`
-  column and by `rf2-onozm`'s observed ceiling. **Restating the bead in live
-  terms is work this page does not do**, and it may be what finally discharges it.
+- **The bead is NOT discharged, and what remains of it is smaller than this page
+  once said.** Its *rung* survives; its *conclusion* does not. The scope is one
+  rung rather than the whole ladder, the route runs through `rf2-onozm`, and the
+  warrant is now the observed ceiling rather than a deleted constant. **What the
+  live restatement removes is the impossibility**: on the ceiling the full ladder
+  admits B ≤ 3, so the open question is no longer *"is any page certifiable?"* but
+  *"does B = 3 certify?"* — and that is **unmeasured**, because the corpus holds
+  no window at any page but B = 4. **Answering it needs a window.**
+- **B ≤ 3 IS NOT A CERTIFYING PAGE and must not be read as one.** The ceiling is
+  necessary and not sufficient — 36 windows below it refuse, 20 with no collection
+  at all. Reading `max B` as a page that certifies would repeat, one level down,
+  exactly the defect `rf2-2k3vo` was filed to fix.
 - **No slope was fitted and none is published.** Both runs failed the falls gate.
 - **The masking bound was retired ELSEWHERE and EARLIER, and nothing here retires
   it.** No gate, constant or threshold is added, moved, widened, recalibrated or

@@ -51,6 +51,32 @@
 // window that allocates that much certifies is a claim about the corpus's
 // observed ceiling, and the reader prints the evidence for that ceiling rather
 // than assuming it.
+//
+// ## SECTION 7 — THE LIVE RESTATEMENT (rf2-2k3vo)
+//
+// Sections 5 and 6 answer `rf2-2rtt6.140` in the RETIRED bound's units, which is
+// what the bead is written in. Section 7 asks the same question of the quantity
+// the instrument actually exhibits — the observed would-be-total ceiling from
+// section 3 — and gets a DIFFERENT answer. The bead's `R20 forces B = 0` is an
+// artefact of the deleted constant's tightness: a 300,000 B window bracket
+// against a 884,280 B observed ceiling. Restated live, the full ladder admits
+// B <= 3.
+//
+// THAT IS A NECESSARY CONDITION AND NOT A SUFFICIENT ONE, and section 7 prints
+// its own limits rather than leaving them to the page: the ceiling admits 36
+// windows the certificate refuses, the model is fitted at the single page size
+// the corpus holds, and at that page size it reduces ALGEBRAICALLY to the
+// ceiling test, so the agreement it reports there is not independent evidence
+// for the extrapolation.
+//
+// ## ADMISSIBILITY — A FAILED POSITIVE CONTROL IS NOT AN OBSERVATION
+//
+// `load()` below refuses any dataset whose `alloc.controlVerdict.ok` is not
+// exactly `true`, and names it. Two committed datasets elsewhere in the tree
+// carry `ok: false` (`alloc-77gz8/run12-a4a1537cb71`,
+// `alloc-9jrhi/bisect-5-a-4a1537cb71-replicate`); NEITHER is in this corpus, and
+// both `alloc-0gjqi` runs pass at 8.00 B/double. The check is therefore inert
+// here and is present so that it CANNOT become fail-open if the corpus grows.
 
 const fs = require('fs');
 const path = require('path');
@@ -91,8 +117,22 @@ const negLegs = (c) => c.legs.filter((l) => l < 0);
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const pc = (v) => v.toFixed(1) + '%';
 
-const load = (name) =>
-  JSON.parse(fs.readFileSync(path.join(DATA, DIR, name + '.json'), 'utf8')).alloc;
+// FAIL CLOSED on the positive control. The field is nested under `alloc`, not at
+// the top level of the file -- reading `raw.controlVerdict` returns `undefined`
+// on every dataset in the tree and so admits everything while looking like a
+// check. A dataset with NO `controlVerdict` at all is refused for the same
+// reason: absence is not a pass.
+const load = (name) => {
+  const a = JSON.parse(fs.readFileSync(path.join(DATA, DIR, name + '.json'), 'utf8')).alloc;
+  const v = a.controlVerdict;
+  if (!v || v.ok !== true) {
+    throw new Error(
+      `INADMISSIBLE: ${DIR}/${name}.json has controlVerdict.ok = ${v ? String(v.ok) : 'ABSENT'}. ` +
+        `A failed positive control is not an observation; the dataset is excluded rather than read.`,
+    );
+  }
+  return a;
+};
 
 // Every arm window in the corpus, flattened, each carrying the run and round it
 // came from. `grid/floor` windows carry no rung, so they are keyed 'floor'.
@@ -179,6 +219,83 @@ function rungTable(ws, F) {
   });
 }
 
+// The observed ceiling: the highest would-be total any window in the corpus
+// certified at. GUARDED, because `Math.max()` of an empty array is `-Infinity`,
+// which would silently place EVERY window "above the ceiling" and read as a
+// unanimous finding rather than as no data. An empty certified set is the same
+// class of latent fail-open as an unchecked positive control.
+function ceiling(ws) {
+  const certified = ws.filter((c) => c.certified);
+  if (!certified.length) {
+    throw new Error(
+      'NO CERTIFIED WINDOW IN THE CORPUS: the observed ceiling is undefined, not infinite. ' +
+        'Refusing to report a ceiling test rather than returning -Infinity.',
+    );
+  }
+  return Math.max(...certified.map((c) => c.total));
+}
+
+// SECTION 7's model, and it is a MODEL. The would-be total is taken as
+// `total(R, B) ~= T0 + B * t(R)`, where T0 is the floor arm's own would-be total
+// -- the six writes with no subscription under them -- and `t(R)` is fitted from
+// the single page size the corpus holds, B = 4. The largest page a rung admits
+// under the OBSERVED ceiling is then `floor((CEIL - T0) / t(R))`.
+//
+// Fitted PER FAMILY rather than per rung, because at R = 20 the pooled rung
+// median is not representative of any family: six families sit at 1.03 - 1.05 MB
+// and two at 0.85 - 0.86 MB, and the pooled median falls in a gap no family
+// occupies. Each family's T0 is its OWN segment-and-selector floor.
+function liveLadder(ws) {
+  const B = ws[0].boundaries;
+  const CEIL = ceiling(ws);
+  const floorKey = (c) => `${c.segment} | ${c.writeSelector}`;
+  const T0 = new Map();
+  for (const [k, v] of groupBy(ws.filter((c) => c.rungKey === 'floor'), floorKey)) {
+    T0.set(k, med(v.map((c) => c.total)));
+  }
+  const fams = [];
+  for (const [f, v] of groupBy(ws.filter((c) => c.rungKey !== 'floor'), (c) => c.family)) {
+    const base = T0.get(floorKey(v[0]));
+    const rungs = new Map();
+    for (const g of RUNGS) {
+      const vv = v.filter((c) => c.rungKey === g);
+      if (!vv.length) continue;
+      const total = med(vv.map((c) => c.total));
+      const t = (total - base) / B;
+      rungs.set(g, {
+        rung: g,
+        total,
+        t,
+        // R = 0 mounts boundaries that read nothing, so its `t` is the
+        // non-cancellation floor and dividing by it yields an artefact, exactly
+        // as its `s` does in section 6. No page size is quoted for it.
+        maxB: g === 'R0' || t <= 0 ? null : Math.floor((CEIL - base) / t),
+        certified: vv.filter((c) => c.certified).length,
+        n: vv.length,
+      });
+    }
+    fams.push({ family: f, base, rungs });
+  }
+  return { B, CEIL, fams };
+}
+
+// The largest page every rung in `set` admits, across every family -- the
+// binding rung of the binding family, since one ladder holds ONE B.
+const ladderMaxB = (fams, set) => {
+  const all = fams.flatMap((f) => set.map((g) => f.rungs.get(g)).filter(Boolean).map((r) => r.maxB));
+  return all.includes(null) ? null : Math.min(...all);
+};
+
+function groupBy(xs, key) {
+  const by = new Map();
+  for (const x of xs) {
+    const k = key(x);
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(x);
+  }
+  return by;
+}
+
 function report() {
   const ws = windows();
   const out = [];
@@ -246,7 +363,7 @@ function report() {
   say('');
   say('=== 3. THE SAME SEPARATOR AT WINDOW GRANULARITY — AND IT IS ONE-SIDED ===');
   const certified = ws.filter((c) => c.certified);
-  const CEIL = Math.max(...certified.map((c) => c.total));
+  const CEIL = ceiling(ws);
   const above = ws.filter((c) => c.total > CEIL);
   const below = ws.filter((c) => c.total <= CEIL);
   const top = certified.sort((a, b) => b.total - a.total)[0];
@@ -410,15 +527,82 @@ function report() {
   say(`    The bound's status is NOT an open question: it was retired and deleted on`);
   say(`    2026-08-08. This reader moves no reading, threshold, band or budget status.`);
 
+  // ------------------------------------------------------------- 7. rf2-2k3vo
+  say('');
+  say('=== 7. THE SAME QUESTION IN LIVE TERMS (rf2-2k3vo) ===');
+  const L = liveLadder(ws);
+  say(`    Section 6 divides by a DELETED constant. This section asks the bead's question of`);
+  say(`    the quantity the instrument exhibits: the observed ceiling from section 3.`);
+  say('');
+  say(`    total(R,B) ~= T0 + B x t(R), t fitted at the corpus's only page B = ${L.B};`);
+  say(`    T0 = the family's own floor-arm would-be total; ceiling = ${n0(L.CEIL)} B (observed).`);
+  say(`    max B = floor((${n0(L.CEIL)} - T0) / t(R)).`);
+  say('');
+  say('    family                            T0        R1    R3    R7   R20   <- max B under the ceiling');
+  for (const f of L.fams) {
+    const cells = ['R1', 'R3', 'R7', 'R20'].map((g) => {
+      const r = f.rungs.get(g);
+      return (r && r.maxB != null ? String(r.maxB) : '-').padStart(4);
+    });
+    say(`    ${f.family.padEnd(32)} ${n0(f.base).padStart(9)}  ${cells.join('  ')}`);
+  }
+  const FULL = ['R1', 'R3', 'R7', 'R20'];
+  const SHORT = ['R1', 'R3', 'R7'];
+  const bFull = ladderMaxB(L.fams, FULL);
+  const bShort = ladderMaxB(L.fams, SHORT);
+  say('');
+  say(`    ONE B ACROSS ALL RUNGS AND ALL FAMILIES, so the binding cell decides:`);
+  say(`      full 1/3/7/20 ladder : B <= ${bFull}      (binding rung R20)`);
+  say(`      reduced 1/3/7 ladder : B <= ${bShort}      (binding rung R7)`);
+  say('');
+  say(`    THE BEAD'S CONCLUSION DOES NOT SURVIVE THE RESTATEMENT. "At six writes there is no`);
+  say(`    page of one boundary or more that certifies the 1/3/7/20 ladder" is carried by the`);
+  say(`    RETIRED bound's tightness -- a ${n0(MASKING_BOUND_B)} B window bracket against an observed`);
+  say(`    ${n0(L.CEIL)} B ceiling, ${(L.CEIL / MASKING_BOUND_B).toFixed(2)}x looser. On the live ceiling the full ladder admits`);
+  say(`    B <= ${bFull}, which is one boundary UNDER the page this corpus runs, not zero.`);
+  say('');
+  say(`    WHAT THE EMPIRICAL COLUMN CAN AND CANNOT CHECK. At B = ${L.B} the prediction is exact:`);
+  const admits = L.fams.filter((f) => f.rungs.get('R20').maxB >= L.B);
+  const excl = L.fams.filter((f) => f.rungs.get('R20').maxB < L.B);
+  const sum = (fs) => fs.reduce((a, f) => a + f.rungs.get('R20').certified, 0);
+  const cnt = (fs) => fs.reduce((a, f) => a + f.rungs.get('R20').n, 0);
+  say(`      R20 families the ceiling ADMITS at B = ${L.B} (max B >= ${L.B}): ${admits.length}, certifying ` +
+      `${sum(admits)}/${cnt(admits)}`);
+  say(`      R20 families it EXCLUDES  at B = ${L.B} (max B <  ${L.B}): ${excl.length}, certifying ` +
+      `${sum(excl)}/${cnt(excl)}`);
+  say(`    -- ${L.fams.length} of ${L.fams.length} families on the right side. BUT THAT AGREEMENT IS NOT INDEPENDENT`);
+  say(`    EVIDENCE: t is fitted at B = ${L.B}, so at B = ${L.B} "max B >= ${L.B}" reduces ALGEBRAICALLY to`);
+  say(`    "total <= ceiling", which is section 3's test restated per family. It confirms the`);
+  say(`    ceiling, not the linear extrapolation to any other page.`);
+  say('');
+  say(`    AND THE CEILING IS NECESSARY, NOT SUFFICIENT -- section 3's own result. ` +
+      `${ws.filter((c) => c.total <= L.CEIL && !c.certified).length} windows`);
+  say(`    sit at or below it and refuse anyway, ` +
+      `${ws.filter((c) => c.total <= L.CEIL && !c.certified && !c.legs.some((l) => l < 0)).length} of them carrying no collection at all. So`);
+  say(`      B <= ${bFull} is a NECESSARY condition the full ladder can meet, NOT a certifying page.`);
+  say(`      No committed dataset holds a window at any page size but B = ${L.B}, so whether B = ${bFull}`);
+  say(`      certifies is UNMEASURED. Answering it needs a window, and none was taken here.`);
+  say('');
+  say(`    WHAT SURVIVES, STATED AT THE STRENGTH THE EVIDENCE CARRIES: R = 20 is where the`);
+  say(`    ladder binds, on the live ceiling as on the retired bound; at B = ${L.B} it binds hard,`);
+  say(`    ${sum(excl)}/${cnt(excl)} in ${excl.length} of ${L.fams.length} families; and the largest full-ladder page the ceiling`);
+  say(`    admits is B = ${bFull}. That is a one-rung constraint. It is NOT an impossibility result.`);
+
   return out.join('\n');
 }
 
-// A negative control on the reader's own arithmetic. It does not touch the
-// corpus: it feeds hand-built windows through the two identities and the cell
-// summary, so a regression in either shows up without a dataset.
+// A negative control on the reader's own arithmetic, in TWO halves.
+//
+// The first feeds hand-built windows through the identities and the cell summary,
+// so a regression in either shows up without a dataset. The second reads the real
+// corpus, because the claims it guards are about the corpus and a synthetic
+// stand-in cannot fail on them -- the merged-PR audit of #8591 found exactly that
+// shape here and it is not repeated.
 function selfTest() {
   const fail = [];
+  let checks = 0;
   const ck = (name, got, want) => {
+    checks++;
     if (got !== want) fail.push(`${name}: got ${got}, want ${want}`);
   };
 
@@ -465,24 +649,62 @@ function selfTest() {
   // this page asserting that the retired bound "refuses nothing the certificate
   // admits and admits nothing the certificate refuses". Both halves are false on
   // this corpus, so the two criteria are INDEPENDENT rather than nested either
-  // way. Pinned on synthetic rungs so it needs no dataset.
-  const rungs = [
-    { rung: 'floor', bracket: 134960, certified: 45, n: 48 }, // under bound, some refuse
-    { rung: 'R3', bracket: 319137, certified: 85, n: 96 }, // over bound, most certify
-    { rung: 'R7', bracket: 521521, certified: 89, n: 96 }, // over bound, most certify
-  ];
-  const overAndAdmitted = rungs.filter((r) => r.bracket > MASKING_BOUND_B && r.certified > 0);
-  const underAndRefused = rungs.filter((r) => r.bracket <= MASKING_BOUND_B && r.n > r.certified);
+  // way.
+  //
+  // DERIVED FROM THE LOADED CORPUS, not from a literal. An earlier version built
+  // three synthetic rungs carrying the answer, filtered those literals, and
+  // asserted the filter had found them -- which cannot fail and could not notice
+  // the reader reversing the relationship, the one regression it names. The
+  // second merged-PR audit of #8591 caught that; this version reads the real 528
+  // windows through `rungTable`, so it fails if the reader's own arithmetic
+  // moves, and pins the 3 / 5 / 10 under-bound refusal counts the page publishes.
+  const cws = windows();
+  const cF = med(cws.filter((c) => c.rungKey === 'floor').map((c) => c.perWrite));
+  const T = rungTable(cws, cF);
+  const overAndAdmitted = T.filter(
+    (r) => r.rung !== 'floor' && r.bracket > MASKING_BOUND_B && r.certified > 0,
+  );
+  const underAndRefused = T.filter((r) => r.bracket <= MASKING_BOUND_B && r.n > r.certified);
   ck('the bound REFUSES what the certificate ADMITS', overAndAdmitted.length > 0, true);
   ck('the bound ADMITS what the certificate REFUSES', underAndRefused.length > 0, true);
   ck('so neither criterion contains the other',
     overAndAdmitted.length > 0 && underAndRefused.length > 0, true);
+  ck('the over-bound-yet-certifying rungs are R3, R7, R20',
+    overAndAdmitted.map((r) => r.rung).join(','), 'R3,R7,R20');
+  ck('the under-bound-yet-refusing rungs refuse 3 / 5 / 10 windows',
+    underAndRefused.map((r) => `${r.rung}:${r.n - r.certified}`).join(','), 'floor:3,R0:5,R1:10');
+
+  // SECTION 7's ANSWER, pinned against the corpus for the same reason. The bead's
+  // conclusion is that no page of one boundary or more certifies the full ladder;
+  // the live ceiling admits B <= 3, so the guard that matters is the one that
+  // fires if that ever silently returns 0 -- the reconstruction's answer arriving
+  // in the live section would be exactly the defect rf2-2k3vo exists to fix.
+  const L = liveLadder(cws);
+  ck('the observed ceiling is the corpus maximum certified would-be total', L.CEIL, 884280);
+  ck('the full 1/3/7/20 ladder admits a page of one boundary or more',
+    ladderMaxB(L.fams, ['R1', 'R3', 'R7', 'R20']) >= 1, true);
+  ck('and that page is B <= 3', ladderMaxB(L.fams, ['R1', 'R3', 'R7', 'R20']), 3);
+  ck('the reduced 1/3/7 ladder admits B <= 8', ladderMaxB(L.fams, ['R1', 'R3', 'R7']), 8);
+  // The ceiling is NECESSARY and not SUFFICIENT, so a guard that only checked the
+  // admitting side would license reading max B as a certifying page.
+  ck('the ceiling still admits windows the certificate refuses',
+    cws.filter((c) => c.total <= L.CEIL && !c.certified).length, 36);
+
+  // An empty certified set must be NO CEILING rather than -Infinity, which would
+  // place every window above the ceiling and read as a unanimous finding.
+  let threw = false;
+  try {
+    ceiling(cws.map((c) => ({ ...c, certified: false })));
+  } catch {
+    threw = true;
+  }
+  ck('an empty certified set refuses to yield a ceiling', threw, true);
 
   if (fail.length) {
     console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
     process.exit(1);
   }
-  console.log(`self-test OK (${15} checks)`);
+  console.log(`self-test OK (${checks} checks)`);
 }
 
 if (require.main === module) {
@@ -490,4 +712,7 @@ if (require.main === module) {
   else console.log(report());
 }
 
-module.exports = { windows, identities, cells, rungTable, report, selfTest, med, pos, MASKING_BOUND_B, W };
+module.exports = {
+  windows, identities, cells, rungTable, ceiling, liveLadder, ladderMaxB,
+  report, selfTest, med, pos, MASKING_BOUND_B, W,
+};
