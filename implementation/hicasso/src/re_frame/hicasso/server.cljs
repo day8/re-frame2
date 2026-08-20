@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.server
-  "HICASSO ON THE SERVER — one request in, one document out (rf2-b6jkj).
+  "HICASSO ON THE SERVER — one request in, one document out.
 
   The optional module `docs/core/hicasso/18-ssr-and-hydration.md` is
   written against, and the fourth in the family beside
@@ -20,7 +20,7 @@
   helpers — [[payload-script]], [[document]] and [[render-twice]] — and
   they are public BY DECISION rather than by omission, which is the
   thing an ordinary `defn` cannot say on its own. Naming-ledger row 50
-  carries that decision as an operator override (rf2-sc1dt), and the
+  carries that decision as an operator override, and the
   test each survivor passes is one test rather than three: **an external
   host does something with it that [[render]]'s returned values alone
   cannot do.**
@@ -54,14 +54,12 @@
   fresh id and do nothing with it through this surface. The setup
   vector is a three-line `cond->` over `:rf/set-db` plus ordinary
   events that [[render]] already accepts directly as `:snapshot` and
-  `:initial-events`, so it is derivable rather than exposed. Both
-  shipped public with the module and neither ever acquired a caller;
-  a public name for either invites a host to couple to choreography
-  [[render]] deliberately owns. Rebuilding that pipeline from public
-  parts is impossible in any case — `impl.mount/tree` and
-  `impl.roots/open-adoption-window!` are impl namespaces, and rf2-sc1dt
-  records that reopening either privacy means reopening those doors
-  first.
+  `:initial-events`, so it is derivable rather than exposed. A public
+  name for either invites a host to couple to choreography [[render]]
+  deliberately owns. Rebuilding that pipeline from public parts is
+  impossible in any case — `impl.mount/tree` and
+  `impl.roots/open-adoption-window!` are impl namespaces, so reopening
+  either privacy means reopening those doors first.
 
   **`check_facade_inventory.py` does not reach this list, by that
   gate's own design rather than by an omission.** It reads ONE door —
@@ -70,8 +68,8 @@
   record and not a data change anyone can make. Row 50 is that
   judgement for this module. What guards the BOUNDARY these four sit
   behind is `check_optional_module_reachability.py`, whose roster
-  gained this module under rf2-2a0ju, and `check_bundle_isolation.cjs`,
-  which reads the same claim off a real `:advanced` browser bundle.
+  carries this module, and `check_bundle_isolation.cjs`, which reads the
+  same claim off a real `:advanced` browser bundle.
 
   ## There is ONE renderer, and this is not a second one
 
@@ -81,10 +79,8 @@
   claim, and the difference is a whole class of bug the adapters have
   already paid for.
 
-  Running THIS runtime under `renderToString` was verified rather than
-  assumed, in the 2026-08-04 SSR design programme and again by the
-  prototype this module is the product form of
-  (`test/re_frame/bench/hicasso/ssr/entry.cljs`):
+  Running THIS runtime under `renderToString` holds for three reasons,
+  each verified rather than assumed:
 
   - every shell hands `(.-snapshot entry)` as BOTH the client and the
     server snapshot, so `useSyncExternalStore` calls the server snapshot
@@ -105,13 +101,9 @@
   POSITION as well as from the `identifierPrefix`**. A server that
   emitted the bare app subtree would hand the client bytes whose ids
   agree on the prefix and differ after it, on every page that reads
-  `useId` at all. That was `dispositions.md` HS-11's obstruction 2,
-  measured and unrepaired, and it is why `h/hydrate!` was held off the
-  public door under rf2-k1mp.
+  `useId` at all — `dispositions.md` HS-11's obstruction 2.
 
-  HS-11 named two candidate repairs and ruled on neither: *a matching
-  server-render entry of this arm's own*, or *making the closer a
-  wrapper rather than a sibling*. This module is the first. It does not
+  This module is the answer to it, and it does not
   reimplement the fork — it calls
   [[re-frame.hicasso.impl.mount/tree]], the same function the hydrating
   door calls, with a handle carrying this request's own window. The
@@ -168,9 +160,9 @@
 
   **The wire frame id is the caller's `:client-frame-id`, never the
   per-request gensym.** Stamping the gensym guarantees
-  `:rf.error/hydration-frame-id-mismatch` on every real page
-  (rf2-lm2yzy). Omitting `:client-frame-id` omits the key, which is the
-  anonymous-server-frame shape.
+  `:rf.error/hydration-frame-id-mismatch` on every real page. Omitting
+  `:client-frame-id` omits the key, which is the anonymous-server-frame
+  shape.
 
   ## THIS ROOT SHIPS NO RENDER HASH, by Spec 011's own tiering
 
@@ -236,7 +228,7 @@
   **DO NOT RENAME THE `hicasso.ssr` KEYWORD NAMESPACE.**
   `scripts/check_bundle_isolation.cjs` pins the source literal
   `(keyword \"hicasso.ssr\"` in this file as the premise for the server
-  module's bundle-side zero-rent sentinel (rf2-fn62g): the string is a
+  module's bundle-side zero-rent sentinel: the string is a
   runtime ARGUMENT, so `:advanced` can neither rename nor drop it while
   the code passing it is reachable, and it is co-reachable with
   `react-dom/server` by construction because that dependency enters a
@@ -321,7 +313,7 @@
 
   ONE key, `:identifier-prefix` — React's own `identifierPrefix`, handed
   over untouched, exactly as `impl.mount/root-options` hands it to
-  `createRoot` and `hydrateRoot` (rf2-hic-046). **Hand the hydrating
+  `createRoot` and `hydrateRoot`. **Hand the hydrating
   root the same string**: `useId` is numbered per root and prefixed by
   this option, so the two sides agree on it or every generated id in the
   tree diverges.

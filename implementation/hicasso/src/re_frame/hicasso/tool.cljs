@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.tool
   "The Hicasso TOOL-TIER reader door — the four reads Xray and the AI pair
-  consume, and the only door either of them has (rf2-hic-023).
+  consume, and the only door either of them has.
 
   `lanes/testing-xray.md` rules that Hicasso ships *a dev-only
   adapter-neutral evidence provider*, that it does *not expose the raw
@@ -114,8 +114,8 @@
 
   Every read answers `nil` under `:advanced` + `goog.DEBUG=false`. Nothing
   in `re-frame.hicasso` requires this namespace, so a production
-  application never loads it at all; rf2-hic-024 owns the sentinel-based
-  proof.
+  application never loads it at all, and a sentinel-based bundle proof
+  holds that claim.
 
   Normative owner: `docs/design/hicasso/product/specification.md` §10,
   `docs/design/hicasso/product/lanes/testing-xray.md` §Evidence contract."
@@ -270,10 +270,9 @@
   none of them. Stated once, on every envelope that would otherwise invite
   a reader to infer them from an epoch.
 
-  `:visibility` and `:hidden-retained` are here because the real-React
-  lifecycle witness established that this door's tables CANNOT tell three
-  states apart, and a reader would otherwise assume they can (rf2-hic-023,
-  merged-PR audit #7792):
+  `:visibility` and `:hidden-retained` are here because this door's
+  tables CANNOT tell three states apart, and a reader would otherwise
+  assume they can:
 
   - an Activity-hidden subtree that has released its reads and an
     UNMOUNTED one are the same census row — namely, no row at all — until
@@ -424,8 +423,8 @@
   "One subscription's reverse edge: who reads it, and how many.
 
   The reader list on the cell IS the reverse edge — one slot per reading
-  boundary, which is simultaneously that boundary's reference to the cell
-  (rf2-dabt3) — so this roster is not derived, computed or cached; it is
+  boundary, which is simultaneously that boundary's reference to the
+  cell — so this roster is not derived, computed or cached; it is
   the table itself, read out. `:fan-out` is the slot count and
   `:readers` the distinct edge sets holding them, so a key read by three
   boundaries of one shape reports `:fan-out 3` with one reader."
@@ -699,7 +698,7 @@
   reader a survey happened that did not. Matching on the sub-id alone
   would then offer B's runs as A's leads for no better reason than that
   two frames registered the same sub id — the definition of a lead
-  fabricated from a coincidence (audit #7789).
+  fabricated from a coincidence.
 
   A read-free boundary reads from no frame, so it searches nothing and
   reports `:cap`. That is exact: there is no window in which its cause
@@ -734,7 +733,7 @@
        ;; are one sub-id and two different reads, and a Why view that
        ;; collapsed them would answer "`:row` moved" to a developer looking
        ;; at eight rows. The query is already projected on the read row, so
-       ;; naming it here carries nothing new (audit #7789).
+       ;; naming it here carries nothing new.
        :latest-reads (if (seq epochs)
                        (into []
                              (comp (filter #(= peak (:epoch %)))
