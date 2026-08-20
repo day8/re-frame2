@@ -68,6 +68,11 @@ const {
   // The confound-breaking segment order (rf2-rs8q6), pure and driven below.
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
+  // And the control slot (rf2-rs8q6), pure and driven below for the same
+  // reason: what it moves is a property of a SEQUENCE of rounds.
+  allocControlIndex,
+  allocRoundWindowKinds,
+  ALLOC_CONTROL_SLOTS,
   summariseAlloc,
   allocSiteSplit,
   allocSiteWitness,
@@ -2398,6 +2403,151 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
     repeats('fixed').every((x) => x.repeat === false),
     'and under `fixed` no window repeats its predecessor, at either position'
   );
+});
+
+// --- THE CONTROL SLOT, AND WHICH SLOT ACTUALLY SEPARATES (rf2-rs8q6) -------
+//
+// The mode exists to separate two properties of an arm window that the shipped
+// schedule makes identical:
+//
+//   (A) it is the first arm window AFTER THE ROUND'S THREE CONTROLS, and
+//   (B) it is the first arm window after the ROUND-LOOP BOUNDARY.
+//
+// Neither is readable off the source, because both are claims about the
+// flattened window sequence across SEVERAL rounds. So the pin drives that
+// sequence and reads the two predicates out of it — which is also the only way
+// to state the mode's least obvious property in a form that cannot rot: `last`
+// alone does NOT separate them, because the round loop is cyclic and moving the
+// controls to the end of round r puts them immediately before the first arm of
+// round r+1. Only `mid` separates them at every round.
+test('THE CONTROL SLOT — `first` is the default, and only `mid` separates at full n', () => {
+  // The flattened window sequence over N rounds, and for each ARM window the
+  // two predicates, read off the sequence rather than recomputed from a rule.
+  const armsOf = (passCount, slot, rounds) => {
+    const flat = Array.from({ length: rounds }, () =>
+      allocRoundWindowKinds(passCount, slot)
+    ).flat();
+    const out = [];
+    let position = 0;
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] !== 'arm') continue;
+      out.push({
+        position: position % passCount,
+        round: Math.floor(position / passCount),
+        // (A) — its immediate predecessor in the stream is a control window.
+        // The very first window of a run has no predecessor and is FALSE.
+        afterControls: i > 0 && flat[i - 1] === 'control',
+        // (B) — it opens its round.
+        roundFirst: position % passCount === 0,
+      });
+      position++;
+    }
+    return out;
+  };
+
+  assert.deepStrictEqual(ALLOC_CONTROL_SLOTS, ['first', 'mid', 'last']);
+  assert.strictEqual(constUnderEnv('ALLOC_CONTROL_SLOT', { P0_ALLOC_CONTROL_SLOT: '' }), 'first');
+  assert.strictEqual(
+    constUnderEnv('ALLOC_CONTROL_SLOT', { P0_ALLOC_CONTROL_SLOT: 'mid' }),
+    'mid',
+    'the discriminator is reachable by naming it'
+  );
+  assert.strictEqual(
+    constUnderEnv('ALLOC_CONTROL_SLOT', { P0_ALLOC_CONTROL_SLOT: 'lsat' }),
+    'lsat'
+  );
+  has(/unknown P0_ALLOC_CONTROL_SLOT/, 'and the preflight refuses a mistyped slot BY NAME');
+
+  // `first` is the pre-bead schedule to the call: three controls, then every
+  // pass, with nothing between the passes.
+  assert.deepStrictEqual(allocRoundWindowKinds(2, 'first'), [
+    'control',
+    'control',
+    'control',
+    'arm',
+    'arm',
+  ]);
+  assert.strictEqual(allocControlIndex(2, 'first'), 0);
+  assert.strictEqual(allocControlIndex(4, 'first'), 0);
+
+  // `mid` is after the round's FIRST pass, whatever the pass count — not at a
+  // halfway point, which on a `paired` round would put three arms between the
+  // controls and the round boundary instead of one.
+  assert.deepStrictEqual(allocRoundWindowKinds(2, 'mid'), [
+    'arm',
+    'control',
+    'control',
+    'control',
+    'arm',
+  ]);
+  assert.strictEqual(allocControlIndex(4, 'mid'), 1);
+  // and a degenerate one-pass round cannot put them "after the first pass and
+  // before the second"; it clamps to `last` rather than dropping them.
+  assert.deepStrictEqual(allocRoundWindowKinds(1, 'mid'), ['arm', 'control', 'control', 'control']);
+
+  assert.deepStrictEqual(allocRoundWindowKinds(2, 'last'), [
+    'arm',
+    'arm',
+    'control',
+    'control',
+    'control',
+  ]);
+  assert.strictEqual(allocControlIndex(2, 'last'), 2);
+
+  // EVERY SLOT DRIVES THE SAME WINDOWS. Moving them is a re-ordering and not a
+  // change of population, so a moved-control run stays comparable window for
+  // window with a `first` one.
+  for (const slot of ALLOC_CONTROL_SLOTS) {
+    const k = allocRoundWindowKinds(2, slot);
+    assert.strictEqual(k.filter((x) => x === 'arm').length, 2, `${slot}: two arm windows`);
+    assert.strictEqual(k.filter((x) => x === 'control').length, 3, `${slot}: three controls`);
+  }
+
+  // --- and now the property the mode is FOR, over six rounds ---------------
+
+  // `first`: (A) and (B) are the SAME predicate — the confound.
+  const first = armsOf(2, 'first', 6);
+  assert.ok(
+    first.every((w) => w.afterControls === w.roundFirst),
+    'under `first`, "after the controls" and "opens the round" are one predicate'
+  );
+
+  // `last`: they separate in EXACTLY ONE window per run — round 0's position 0,
+  // which is the first arm window of the whole run and has no controls before
+  // it. Everywhere else the cyclic stream puts the previous round's controls
+  // immediately before it, so the confound is intact. This is the claim that
+  // makes `last` a consistency control rather than the discriminator, and it is
+  // driven here rather than argued in prose.
+  const last = armsOf(2, 'last', 6);
+  const lastSeparated = last.filter((w) => w.afterControls !== w.roundFirst);
+  assert.strictEqual(lastSeparated.length, 1, '`last` separates them once per run, not at full n');
+  assert.deepStrictEqual(
+    { round: lastSeparated[0].round, position: lastSeparated[0].position },
+    { round: 0, position: 0 }
+  );
+
+  // `mid`: they separate at EVERY window. (A) is position 1 throughout and (B)
+  // is position 0 throughout — never the same window, in any round.
+  const mid = armsOf(2, 'mid', 6);
+  assert.ok(
+    mid.every((w) => w.afterControls === (w.position === 1)),
+    'under `mid` the arm that follows the controls is position 1, every round'
+  );
+  assert.ok(
+    mid.every((w) => w.roundFirst === (w.position === 0)),
+    'and the arm that opens the round is position 0, every round'
+  );
+  assert.ok(
+    mid.every((w) => w.afterControls !== w.roundFirst),
+    'so the two predicates never name the same window — the separation, at full n'
+  );
+
+  // AND THE ROUND RECORDS WHAT IT DROVE, for `segments`' reason carried one
+  // level up: the confound reader indexes on this sequence, and recomputing it
+  // from `controlSlot` would be recomputing the very rule under test.
+  has(/controlIndex: controlAt,/, 'the round states the pass index the controls were driven at');
+  has(/controlIndex: controlAt,\s*windowOrder,/, 'and the whole round in drive order');
+  has(/controlSlot: ALLOC_CONTROL_SLOT,/, 'and the row states the slot it was taken under');
 });
 
 // --- and the SUMMARY SURVIVES A NARROWED PLAN ------------------------------

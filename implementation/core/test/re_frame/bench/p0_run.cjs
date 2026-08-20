@@ -1660,6 +1660,104 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 const ALLOC_SEG_ORDERS = ['parity', 'fixed'];
 const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
 
+// THE CONTROL SLOT — THE LAST CONFOUND THE SCHEDULE BUILDS IN (rf2-rs8q6).
+//
+// `P0_ALLOC_SEG_ORDER=fixed` established that the ~748 B rider follows the arm
+// window's POSITION IN ITS ROUND and not any relation to the substrate driven
+// before it. That left exactly one pair of properties still coinciding, and
+// the record said so rather than glossing it: position 0 is BOTH
+//
+//   (A) the first arm window after the round's THREE CONTROL WINDOWS, and
+//   (B) the first arm window after the ROUND-LOOP BOUNDARY,
+//
+// because the loop body opens with `controlOf('idle', 0)` and nothing else
+// sits at a round boundary.
+//
+// AND `last` ALONE DOES NOT SEPARATE THEM. This is worth stating in the source
+// because the obvious reading of "move the controls after the arms" is that it
+// does. The round loop is CYCLIC, so moving the three controls to the end of
+// round r puts them immediately before the first arm of round r + 1 — the
+// stream `I C C A0 A1 | I C C A0 A1 | ...` becomes `A0 A1 I C C | A0 A1 I C C
+// | ...`, which is the SAME cyclic sequence phase-shifted. Property (A) still
+// attaches to position 0 in every round but the first. `last` separates (A)
+// from (B) in exactly ONE window per run — round 0's position 0, which under
+// `last` is the first arm window of the whole run and has no controls before
+// it at all.
+//
+// SO THE MODE CARRIES THREE SLOTS AND NOT TWO, and which is the discriminator
+// is stated here rather than chosen after the run:
+//
+//   - `first` — the pre-bead schedule verbatim. (A) and (B) coincide at
+//     position 0. Every published row is taken under it.
+//   - `last`  — the phase shift. It is the CONSISTENCY CONTROL on the mode
+//     itself: it must reproduce `first`, because it drives the same cyclic
+//     stream. A schedule that merely re-orders the driver's calls and moves
+//     the result would mean the carrier is a property of the run's head or
+//     tail rather than of the round, which is a different finding.
+//   - `mid`   — the DISCRIMINATOR. The three controls are driven after the
+//     round's FIRST arm pass, so the stream is `A0 I C C A1 | A0 I C C A1 |
+//     ...`. Now (A) is position 1 and (B) is position 0, at every round, at
+//     full n. They are separated on every window rather than on one.
+//
+// WHAT EACH OUTCOME SETTLES UNDER `mid`, pre-registered:
+//
+//   - the rider MOVES TO POSITION 1   -> the carrier is (A), the controls: an
+//     arm window that follows a run of non-dispatching windows;
+//   - the rider STAYS AT POSITION 0   -> the carrier is (B), the round-opening
+//     position itself, which under `mid` follows an ARM window directly;
+//   - the rider appears at BOTH or at NEITHER -> neither property is the
+//     carrier as stated, and the schedule has said all it can say.
+//
+// IT IS OFF BY DEFAULT AND `first` IS THE IDENTITY. Under `first` the driver
+// makes exactly the calls it made before, in the same order — the three
+// controls, then the passes — so every published row is taken on the schedule
+// it always was. No gate, band, threshold or budget constant is touched in any
+// slot. τ is untouched, in either direction.
+//
+// AND A MOVED-CONTROL ROW IS A DIAGNOSTIC ROW, NOT A PUBLISHABLE ONE. The
+// controls are the row's null arm and the studio pages read them against the
+// arms window for window; a row whose controls were taken at a different point
+// in the round is not the row those comparisons were made on. The row states
+// which slot it was taken under (`controlSlot`) and each round states the
+// window order it actually drove (`windowOrder`), on criterion 6's rule that a
+// reader of any row can tell FROM THE ROW how it was taken.
+const ALLOC_CONTROL_SLOTS = ['first', 'mid', 'last'];
+const ALLOC_CONTROL_SLOT = process.env.P0_ALLOC_CONTROL_SLOT || 'first';
+
+// Pure, for `allocSegmentOrder`'s reason: it needs neither a release build nor
+// a Chromium, so the pin can DRIVE all three slots over a pass count and read
+// the multi-round window sequence out, rather than read the source and hope.
+//
+// The index is into the round's PASS sequence and names the pass the three
+// controls are driven BEFORE. `passCount` is the return for `last`, which is
+// "before no pass at all" — i.e. after every one of them.
+function allocControlIndex(passCount, slot) {
+  if (slot === 'last') return passCount;
+  // `mid` is "after the round's FIRST arm pass" and not "at the halfway
+  // point". The floor plan drives two passes and the two readings coincide,
+  // but a `paired` write drives four, and it is the FIRST pass that carries
+  // (B) — so anchoring at 1 keeps (A) and (B) separated whatever the pass
+  // count, where a halfway anchor would put three arms between them.
+  if (slot === 'mid') return Math.min(1, passCount);
+  return 0;
+}
+
+// The flattened window sequence ONE ROUND drives, in drive order, as the kinds
+// a reader cares about: `control` for each of the three, `arm` for each pass.
+// Pure and driven by the pin for the reason above — the two properties this
+// mode exists to separate are claims about a SEQUENCE across rounds, and
+// neither is readable off a ternary in the source.
+function allocRoundWindowKinds(passCount, slot) {
+  const at = allocControlIndex(passCount, slot);
+  const out = [];
+  for (let i = 0; i < passCount; i++) {
+    if (i === at) out.push('control', 'control', 'control');
+    out.push('arm');
+  }
+  if (at >= passCount) out.push('control', 'control', 'control');
+  return out;
+}
+
 // Pure, for `allocPlanArms`'s reason: it needs neither a release build nor a
 // Chromium, so the pin can DRIVE both modes over a plan and read the six-round
 // sequence out, rather than read the source and hope.
@@ -2431,6 +2529,19 @@ async function allocRow(chromium) {
         'is the default every published row is taken under'
     );
   }
+  // AND THE FOURTH, ON THE SAME RULE (rf2-rs8q6). A mistyped control slot is
+  // undetectable after the fact for exactly the segment order's reason and one
+  // more on top of it: a `mid` run that quietly ran on `first` produces a
+  // record in which "the first arm after the controls" is position 0 under a
+  // name that says it is position 1 — which is the one reading the whole
+  // window is taken to make, arriving pre-inverted.
+  if (!ALLOC_CONTROL_SLOTS.includes(ALLOC_CONTROL_SLOT)) {
+    throw new Error(
+      `unknown P0_ALLOC_CONTROL_SLOT ${JSON.stringify(ALLOC_CONTROL_SLOT)} — the allocation ` +
+        `row drives its three controls at one of ${ALLOC_CONTROL_SLOTS.join(' | ')}, and ` +
+        '`first` is the default every published row is taken under'
+    );
+  }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
@@ -2554,7 +2665,12 @@ async function allocRow(chromium) {
     console.error(`[p0] alloc round ${round + 1}/${ALLOC_ROUNDS}`);
     const armsOut = {};
 
-    // --- the three controls, in situ, before this round's arms ----------
+    // --- the three controls, in situ, AT THIS RUN'S CONTROL SLOT --------
+    // `first` is the pre-bead position — before the round's arms — and every
+    // published row is taken under it. `mid` and `last` move them, which is
+    // what separates "the first arm after the controls" from "the first arm
+    // after the round-loop boundary" (rf2-rs8q6); see `allocControlIndex` for
+    // why only `mid` separates them at full n.
     const controlOf = async (kind, d) => {
       await page.evaluate(
         ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
@@ -2614,10 +2730,6 @@ async function allocRow(chromium) {
         workDelta: allocWorkDelta(w),
       };
     };
-    const idle = await controlOf('idle', 0);
-    const ctl1 = await controlOf('control', ALLOC_D);
-    const ctl2 = await controlOf('control', ALLOC_D2);
-
     // --- the arms, in the order this run's segment order dictates -------
     // `parity` is the pre-bead expression verbatim; `fixed` drives the
     // configured order every round and is what breaks the position/substrate
@@ -2647,7 +2759,29 @@ async function allocRow(chromium) {
     const passes = segs.flatMap(({ segment, arms }) =>
       legs.map((leg) => ({ segment, arms, leg }))
     );
+    // WHERE THE THREE CONTROLS GO, AND THE RECORD OF WHAT WAS DRIVEN
+    // (rf2-rs8q6). `controlAt` names the pass they are driven BEFORE;
+    // `windowOrder` accumulates the round's window sequence in DRIVE ORDER,
+    // which is what the confound reader indexes on — a reader that recomputed
+    // the slot rule would mis-place every window of a moved-control run, the
+    // same defect `segments` was landed to close for the segment order.
+    let idle = null;
+    let ctl1 = null;
+    let ctl2 = null;
+    const windowOrder = [];
+    const controlAt = allocControlIndex(passes.length, ALLOC_CONTROL_SLOT);
+    const driveControls = async () => {
+      idle = await controlOf('idle', 0);
+      windowOrder.push('control/idle');
+      ctl1 = await controlOf('control', ALLOC_D);
+      windowOrder.push('control/d1');
+      ctl2 = await controlOf('control', ALLOC_D2);
+      windowOrder.push('control/d2');
+    };
+    let passIndex = -1;
     for (const { segment, arms, leg } of passes) {
+      passIndex++;
+      if (passIndex === controlAt) await driveControls();
       // THE GRID WIDTH IS B, AND IT IS SEEDED WITH THE FRAME (rf2-2rtt6.140).
       // `:p0/write-page` rebuilds `:cells` at the width the mounted page
       // actually reads — one cell per boundary — so the write's own machinery
@@ -2758,6 +2892,7 @@ async function allocRow(chromium) {
               `expected "${want}"`
           );
         }
+        windowOrder.push(allocWindowKey(entry.key, leg.selector));
         armsOut[allocWindowKey(entry.key, leg.selector)] = {
           segment,
           arm: entry.arm,
@@ -2863,12 +2998,25 @@ async function allocRow(chromium) {
     // recomputing the parity rule — and that rule is no longer the only one a
     // record can have been taken under, so an estimator that recomputed it
     // would silently mis-position every window of a `fixed` run.
+    // AND THE CONTROLS THEMSELVES, WHERE THE SLOT PUTS THEM LAST (rf2-rs8q6).
+    // `controlAt === passes.length` is `last`, which is "before no pass at
+    // all"; the loop above cannot fire on an index it never reaches, so the
+    // tail case is driven here. Under `first` and `mid` this is inert.
+    if (controlAt >= passes.length) await driveControls();
+    // AND `windowOrder` IS THE WHOLE ROUND IN DRIVE ORDER (rf2-rs8q6),
+    // controls included, for that same reason carried one level up. `segments`
+    // says which substrate led; `windowOrder` says what ran between the arm
+    // windows, which is the index the control-slot modes exist to move. A
+    // reader that recomputed it from `controlSlot` would be recomputing the
+    // very rule the record is being taken to test.
     rounds.push({
       round,
       controls: { idle, ctl1, ctl2 },
       arms: armsOut,
       writeLegs: legs.map((l) => l.selector),
       segments: segs.map((s) => s.segment),
+      controlIndex: controlAt,
+      windowOrder,
     });
   }
 
@@ -2966,6 +3114,12 @@ async function allocRow(chromium) {
     // flip was landed for, so a reader has to be able to tell from the row
     // whether the row is entitled to make one. `parity` on every published row.
     segOrder: ALLOC_SEG_ORDER,
+    // AND WHICH CONTROL SLOT (rf2-rs8q6), on that same criterion-6 rule. The
+    // controls are this row's null arm and every studio page reads them against
+    // the arms window for window; a row whose controls were taken at another
+    // point in the round is not the row those comparisons were made on. `first`
+    // on every published row.
+    controlSlot: ALLOC_CONTROL_SLOT,
     // WHICH OF THE THREE GATES SCREENED THIS ROW (rf2-fir5n), and not merely
     // which three exist. It reads `ALLOC_BY_SITE` for the same reason `bySite`
     // above does: at a stride of 2 the intra-leg gate returns `[]` by
@@ -4238,6 +4392,13 @@ module.exports = {
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
   ALLOC_SEG_ORDER,
+  // The control slot's two pure functions, so the pin can DRIVE the multi-round
+  // window sequence and read the two properties this mode separates off it,
+  // rather than match the source for a ternary (rf2-rs8q6).
+  allocControlIndex,
+  allocRoundWindowKinds,
+  ALLOC_CONTROL_SLOTS,
+  ALLOC_CONTROL_SLOT,
   // The row's own table reader, so the pin can DRIVE a narrowed plan through
   // it. A mode that collects V3's controls and then throws in the summariser
   // has not delivered V3, and "the mode is defined" and "the mode runs" are
