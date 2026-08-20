@@ -293,7 +293,8 @@ segments. Each page measured under `:p0/write-all` and under `:p0/write-page`.
 > have made it decide anything.
 >
 > Placed on that ladder, the 2026-08-08 row lands on the **top rung** to within
-> **2 – 373 B** (0.01 – 1.60%) across eight conversions. **Neither reading is
+> **2 – 373 B** (0.01 – 1.60%) across eight conversion variants per segment, drawn
+> from two partially independent families. **Neither reading is
 > withdrawn and neither is wrong**: 24,108 / 24,730 is a correct reading of the
 > arm's top rung and 19,349 – 20,696 are correct readings of its low rung. The
 > arm does not have a single value for the clause to test against.

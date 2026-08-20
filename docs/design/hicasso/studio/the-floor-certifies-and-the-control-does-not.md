@@ -207,7 +207,8 @@ the certified readings are still ≈ 3.1 – 3.6 KB below that.
 > care in running it could have made it decide.
 >
 > Placed on that ladder the 2026-08-08 target lands on the **top rung** to within
-> **2 – 373 B** (0.01 – 1.60%) across eight conversions, so the two readings in
+> **2 – 373 B** (0.01 – 1.60%) across eight conversion variants per segment drawn from
+> two partially independent families, so the two readings in
 > this table are **both correct** — one of the arm's top rung, one of its low
 > rung. **Every reading this window took stands exactly as taken**, and so does
 > the sentence below: the across-time half is not discharged and rows measured
