@@ -11,13 +11,14 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the thirty
+via shadow-cljs to a single `.js` file) that exposes the 33
 re-frame2-pair ops listed in `registry/tools` as MCP tools (the
-read/inspect/action ops —
-including the operating-frame trio `set-operating-frame` /
-`reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
-two write tools `restore-epoch` / `replace-app-db`, which are gated behind
-`--allow-writes`). The authoritative ordered catalogue is `registry/tools`
+read/inspect/action ops — including the operating-frame trio
+`set-operating-frame` / `reset-operating-frame` / `get-operating-frame`
+(rf2-zomfq) and the three read-only `re-frame.hicasso.tool` evidence
+reads `read-mounted-boundaries` / `read-read-attribution` /
+`explain-render` — plus the two write tools `restore-epoch` /
+`replace-app-db`, which are gated behind `--allow-writes`). The authoritative ordered catalogue is `registry/tools`
 ([`src/re_frame2_pair_mcp/tools/registry.cljs`](src/re_frame2_pair_mcp/tools/registry.cljs));
 the table below mirrors it. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one active nREPL socket is reused and replaced when
@@ -49,6 +50,9 @@ cljs-eval compile.
 | `read-sub`     | _(new — no bash equivalent)_ | Validated one-shot subscription read (rf2-3bu3d.7) — the #1 read on any re-frame2 app. Prefer over raw `eval-cljs @(subscribe …)`: the `sub` arg is EDN-parsed and the sub-id validated against the live `:sub` registrar (unknown id → `:reason :unknown-id` with `:nearest`, never a silent nil), and the value is elided / privacy-gated server-side. |
 | `read-dom`     | _(new — no bash equivalent)_ | View-plane read (rf2-nfjil): query the **rendered DOM** by CSS selector and return matched count + per-node `{:tag :text :attrs}`. Answers "did the UI update?" / "what's on screen now?" — the read-plane counterpart to the data-plane reads. Pairs with `dispatch {:await-render true}` for a deterministic dispatch → settle → read-dom observe. |
 | `read-ui`      | _(new — no bash equivalent)_ | The typed `ui/read` op (rf2-3bu3d.1) — given a view-id / point / CSS selector, return the **rendered subtree** plus the re-frame2 **entity** that produced it (source-coord + `:subs-read`), in one round-trip. Rides the view↔DOM map (`data-rf-view`) so it answers "what does this show, and what produced it?" with zero testids. Read-only. |
+| `read-mounted-boundaries` | _(new — no bash equivalent)_ | Every Hicasso boundary **mounted right now** — the first of the three read-only `re-frame.hicasso.tool` evidence reads. Per boundary its `:key`, the `:instances` holding that key, the `:frame`, `:read-orders`, and the `:reads` it holds (each with `:sub-id`, a projected `:query` and the cell's `:epoch` — **never** the value the read returned). No arg, deliberately: the question is what is mounted. A boundary is keyed by its **read set**, the only identity this runtime retains — it mints no boundary id, so two boundaries reading the same set are indistinguishable and `:instances` counts them; `:view` / `:source` are `:unknown` by design, not a gap awaiting closure. An empty roster says only that no boundary holds a live read edge right now. Read-only, versioned (`:schema`). |
+| `read-read-attribution` | _(new — no bash equivalent)_ | The **reverse edge**: which boundaries read each subscription. Per subscription its `:sub-id`, projected `:query`, `:frame-id`, the cell's `:epoch`, the `:fan-out` and the distinct `:readers` — keyed identically to `read-mounted-boundaries`, so the two rosters join with no correlation step. No arg. The one read that is **exact without qualification**: every cell's reader array is maintained by the same commit and cleanup that acquire and release the reference. Also the way in when you can name a subscription but need the boundary — start here and take the `:key` onward to `explain-render`. A key nothing holds is absent rather than present with zero readers. |
+| `explain-render` | _(new — no bash equivalent)_ | Which of a boundary's reads **moved most recently**, and which retained runs *could* have driven it. Folds Spec 009's retained event window at read time (retention is `:rf.trace/events-retained`) and keeps no history of its own. No arg; spans every mounted boundary. **Two halves, never blended.** Proven: `:latest-reads` names the reads standing at the boundary's `:peak-epoch`, and `:snapshot` is the exact sum React compares. Uncorrelated: the commit seam records no cascade id, so `:cause` is `:unknown` **structurally** — not occasionally, not fixable with a bigger ring — and `:candidates` are retained runs offered as **leads**; do not present one as the cause. `:loss {:reason :uncorrelated}` means the search ran (so `:candidates []` is an honest survey); `:cap` means the window was empty and `:candidates` is `:unknown`. |
 | `record`       | _(new — no bash equivalent)_ | First-class **signal recorder** (rf2-zo4b9): install a read-only rAF observer over a heterogeneous signal-set (`:app-db` path, `:sub`, `:dom`, `:focus`), return immediately with a `:recording-id`, and let a human interact. Records each *change* (deduped) until a `stop` condition (`:ms` / `:changes` / `:pred`) trips. The canonical move for intermittent / human-in-the-loop bugs. Read-only by construction. |
 | `read-recording`| _(new — no bash equivalent)_ | Read back a recording's change-log (rf2-zo4b9), paired with `record`. `drain` returns-and-clears the buffer (poll→consume→repeat live-watch); `stop` tears the recording down after reading. |
 | `watch-until`  | _(new — no bash equivalent)_ | Block until a data **predicate** over a signal-set holds (rf2-zo4b9) — the blocking counterpart to `record` ("wait until focus lands on the modal" / "wait until `[:upload :status]` flips to `:done`"). Server-polls a cheap runtime read on a ~100ms cadence until the condition trips or `timeout-ms` (default 30000) elapses. |
