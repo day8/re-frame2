@@ -60,7 +60,7 @@ contract:
 </div>
 ```
 
-`structure.css` lays this out as two columns on wider viewports, with the host
+`structure.css` lays this out as 2 columns on wider viewports, with the host
 width controlled by `--rf-xray-inline-width` (560px by default). At 900px and
 below it stacks the host beneath the app, removes the host's fixed minimum
 width, and caps its height so the panel scrolls internally. These rules only
