@@ -2154,7 +2154,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const ADJ = { unadjudicated: false, why: 'margin 34.8% clears the band 21.4%' };
   const UNADJ = { unadjudicated: true, why: KEYSTROKE_WHY };
 
-  // --- the driver's own fixtures, which `--selftest` also runs --------------
+  // --- the driver's own fixtures, which `--self-test` also runs --------------
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = reportabilitySelfTest();
@@ -2794,7 +2794,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     );
   });
 
-  t('`--selftest` runs the decision, so an operator sees it before the browser opens', () => {
+  t('`--self-test` runs the decision, so an operator sees it before the browser opens', () => {
     const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('if (!NO_BUILD)'));
     assert.match(block, /reportabilitySelfTest\(\)/);
     assert.match(block, /\[\.\.\.g\.checks, \.\.\.s\.checks, \.\.\.x\.checks\]\.filter/);
@@ -3712,7 +3712,7 @@ function fixtureRoundsTask(over) {
   const refusedCorrection = () =>
     run({ correction: { 'write-narrow': { verdict: 'refused', reason: 'correction-changes-the-verdict', why: 'reverses the row' } } });
 
-  // --- the driver's own fixtures, which `--selftest` also runs -------------
+  // --- the driver's own fixtures, which `--self-test` also runs -------------
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = verdictSelfTest();
@@ -3888,7 +3888,7 @@ function fixtureRoundsTask(over) {
     );
   });
 
-  t('`--selftest` runs the decision, so an operator sees it before the browser opens', () => {
+  t('`--self-test` runs the decision, so an operator sees it before the browser opens', () => {
     const block = SRC.slice(SRC.indexOf('if (SELFTEST_ONLY) {'), SRC.indexOf('const sha = revision()'));
     assert.match(block, /\[\.\.\.st\.checks, \.\.\.ts\.checks, \.\.\.vs\.checks\]\.filter/);
     assert.match(SRC, /const vs = verdictSelfTest\(\);/);

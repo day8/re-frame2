@@ -1483,7 +1483,7 @@ node freehand/test/re_frame/bench/hicasso/ladder_band.cjs \
 ```
 
 It regenerates every published aggregate of the re-taken ladder — every band,
-every `ctl-2x / floor`, every bar row — and `--selftest` fails closed on the
+every `ctl-2x / floor`, every bar row — and `--self-test` fails closed on the
 resampling model. What it cannot do is restore **these** nineteen runs, whose
 inputs are gone; the durable path starts at the re-run and not before it.
 

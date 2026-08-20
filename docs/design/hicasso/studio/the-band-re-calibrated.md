@@ -576,7 +576,7 @@ gitignored `out/`. Both are closed here.
   distribution itself, because `ladder_band.cjs` pooled blocks across runs. It
   now computes both models and prints them side by side (`rf2-nk1hq`), so every
   bootstrap figure this page publishes — both columns, on both clocks —
-  recomputes from the committed file, and its `--selftest` fails if the pooled
+  recomputes from the committed file, and its `--self-test` fails if the pooled
   model is ever reinstated.
 - A raw dataset is ~220 KB and nineteen are ~4 MB, which does not belong in a
   repository. So `--emit` writes the reduced quantities every statistic is a

@@ -103,7 +103,7 @@
 // key under web-vitals' interaction-id rules, keys that produced no entry
 // are published as CENSORED rather than dropped, and every one of those
 // statements is a gate whose failure exits non-zero naming itself. The
-// witness's own refusals are fixtures: `node clock_run.cjs --selftest`,
+// witness's own refusals are fixtures: `node clock_run.cjs --self-test`,
 // and `clock_witness.test.cjs` in the fast-PR spine.
 //
 // ## EVERY ROW SAYS WHICH REGIME PRODUCED IT (rf2-cvvb7)
@@ -215,7 +215,7 @@ const CTL3_SABOTAGE = Number(process.env.HCLOCK_CTL3_SABOTAGE || 0) || null;
 // Run every adjudicator's own self-test and stop, without building or opening
 // a browser. The three-point control's refusals are fixtures rather than
 // prose, and this is how a reader runs them in a second.
-const SELFTEST_ONLY = process.argv.includes('--selftest');
+const SELFTEST_ONLY = process.argv.includes('--self-test');
 
 const ALL_ROWS = ['M1', 'bulk300', 'bulk100', 'narrow', 'keystroke'];
 const ONLY = (process.env.HCLOCK_ONLY || '').trim();
@@ -2509,7 +2509,7 @@ function rowAdjudication(bars) {
  * this driver's to hold. The verdict in the new string is QUOTED from the row
  * cited in it; the figures are not copied here, for the reason two paragraphs
  * up. (rf2-owiis's own sweep moved no printed string at all; the one thing it
- * did touch below is a `--selftest` CASE NAME that asserted the premise
+ * did touch below is a `--self-test` CASE NAME that asserted the premise
  * rf2-8a746 retired, and the case it names is unchanged and still passes.)
  *
  * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. This
@@ -2599,7 +2599,7 @@ function rowRegime(rowId) {
 
 /**
  * THE DECISION'S OWN FIXTURES, in the idiom of every other adjudicator here:
- * the refusals stated as cases rather than as prose, run by `--selftest`
+ * the refusals stated as cases rather than as prose, run by `--self-test`
  * before a browser opens and by `clock_exit_path.test.cjs` in CI.
  *
  * The case that matters is the FIRST one. It is the run this driver actually
@@ -3119,7 +3119,7 @@ async function main() {
   console.error(`[clock] three-point DIAGNOSTIC self-test: ${c3st.checks.length} checks, all ok (gates nothing — rf2-8a746)`);
 
   // The keystroke witness's fixtures run on EVERY invocation, not only under
-  // `--selftest`, for the three-point control's reason: they are cheap, they
+  // `--self-test`, for the three-point control's reason: they are cheap, they
   // are the only thing that has ever seen this adjudicator refuse, and a run
   // whose adjudicator is broken should never reach a browser.
   const kbst = kbwitness.selfTest();
@@ -3143,7 +3143,7 @@ async function main() {
     for (const c of s.checks) console.error(`[clock] seam self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}`);
     for (const c of x.checks) console.error(`[clock] exit self-test  ${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.ok ? '' : ` — ${c.detail}`}`);
     const bad = [...g.checks, ...s.checks, ...x.checks].filter((c) => !c.ok);
-    console.error(`[clock] --selftest: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
+    console.error(`[clock] --self-test: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
     process.exit(bad.length === 0 ? 0 : 1);
   }
 
@@ -3208,7 +3208,7 @@ async function main() {
     `ctl-3pt CAN FAIL, and here is how to make it: HCLOCK_CTL3_SABOTAGE=140 makes the 2D arm render 140`,
     `             cells while still declaring 200. Canonical DOM identical, read-back verified, arm-order`,
     `             guard clean, band unmoved — and the control refuses. Its offline fixtures are 'node`,
-    `             clock_run.cjs --selftest': eleven cases including a superlinear refusal, a`,
+    `             clock_run.cjs --self-test': eleven cases including a superlinear refusal, a`,
     `             declaring-200-rendering-140 refusal, a degenerate denominator, one bad block in nine,`,
     `             and the sensitivity span above asserted rather than described.`,
     `kb witness = ONE RECORD PER PHYSICAL KEY (rf2-0qj9w). The driver counts the keys it presses;`,

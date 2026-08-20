@@ -189,12 +189,12 @@ const TOLERANCE = Number(process.env.HD8_TOLERANCE || 0.35);
 // the second it happens instead of twenty minutes later (rf2-f5roa).
 const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 
-// `--selftest` runs every adjudicator's fixtures and exits, before anything is
+// `--self-test` runs every adjudicator's fixtures and exits, before anything is
 // built or launched. The guard's and the table's already ran at the head of
 // the sweep; this makes them — and the EXIT DECISION's, which is new — usable
 // on their own, so an operator can see the instrument refuse in a second
 // rather than on the far side of an hour (the shape `clock_run.cjs` uses).
-const SELFTEST_ONLY = process.argv.includes('--selftest');
+const SELFTEST_ONLY = process.argv.includes('--self-test');
 
 // ---------------------------------------------------------------------------
 // Build + serve
@@ -781,7 +781,7 @@ function verdict(summary) {
 /**
  * THE DECISION'S OWN FIXTURES, in the idiom of `guard.selfTest()` and
  * `tableSelfTest()` above: the refusals stated as cases rather than as prose,
- * run by `--selftest` before a browser opens and by `clock_exit_path.test.cjs`
+ * run by `--self-test` before a browser opens and by `clock_exit_path.test.cjs`
  * in CI.
  *
  * The two cases that matter are the read-back and the refused correction.
@@ -994,7 +994,7 @@ async function main() {
 
   if (SELFTEST_ONLY) {
     const bad = [...st.checks, ...ts.checks, ...vs.checks].filter((c) => !c.ok);
-    console.error(`[hd8] --selftest: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
+    console.error(`[hd8] --self-test: ${bad.length === 0 ? 'ALL ADJUDICATORS OK' : 'FAILURES: ' + bad.length}`);
     process.exit(bad.length === 0 ? 0 : 1);
   }
 

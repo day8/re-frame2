@@ -238,7 +238,7 @@ probes follow the actual dirty set, and a cold cell is probed as well as two hot
 ones), canonical DOM identical across all 15 non-control arms, band 10.9%. The
 control was the only gate that fired, which is the whole claim.
 
-**Offline.** `node clock_run.cjs --selftest` runs fourteen fixtures with no
+**Offline.** `node clock_run.cjs --self-test` runs fourteen fixtures with no
 browser and is fatal in every run. They include: superlinear work refuses; an arm
 declaring 200 while rendering 140 refuses; a degenerate denominator refuses
 rather than passing quietly; one nonlinear block in nine refuses, so eight good
@@ -388,7 +388,7 @@ HCLOCK_ONLY=bulk300 HCLOCK_SAMPLES=20 HCLOCK_CTL3_SABOTAGE=140 \
 Reproduce the adjudicators' fixtures, with no browser and in under a second:
 
 ```bash
-node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs --selftest
+node implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs --self-test
 ```
 
 Every figure on this page is recomputable from the dataset the run writes when
