@@ -64,12 +64,25 @@ HOW IT DECIDES, and why the failure direction is the safe one.
     installed on this project's Windows checkout reports 0 errors on the line CI
     fails at 2026.04.15, and 10 different errors CI does not).
 
-THE DRIFT RATCHET (`--check`, the default).  A signature in `SPINE_LANES` that
-stops matching any required gate step is a FAILURE: it means the spine still
-claims a lane for a check CI renamed, moved or deleted, and the claim is now
-false.  That is the whole anti-staleness mechanism -- a hand-written list of
-gaps would rot silently, and this territory changed twice on the day the bead was
-filed.
+THE DRIFT RATCHETS (`--check`, the default).  There are TWO, one per hand-written
+constant, because the two constants rot in OPPOSITE directions.
+
+  * A signature in `SPINE_LANES` that stops matching any required gate step is a
+    FAILURE: it means the spine still claims a lane for a check CI renamed, moved
+    or deleted, and the claim is now false.  That is the anti-staleness mechanism
+    for coverage -- a hand-written list of gaps would rot silently, and this
+    territory changed twice on the day the bead was filed.
+
+  * An entry in `SETUP_PATTERNS` that stops matching its call sites is the same
+    rot with the opposite blast radius, and until rf2-2yorx nothing caught it.
+    Toolchain installation gets re-classified as a required GATE, so this map
+    GROWS entries telling a reader to run `npx playwright install` locally as
+    though it were a check -- and no exit code moves.  Measured by planting:
+    reverting the Playwright entry to its pre-`timeout` form took the headline
+    from 96 to 106 while `--check` went on printing 'fast-PR gap map clean'.
+    `SETUP_CANARIES` below is the ratchet for that direction, and it watches the
+    CLASSIFICATION rather than the pattern -- see the comment on that constant
+    for why a per-pattern "matches at least one step" floor does not work here.
 
     python scripts/check_fast_pr_gap.py              audit the map (default)
     python scripts/check_fast_pr_gap.py --list       full report + local commands
@@ -120,8 +133,12 @@ MIN_SPINE_CHECKERS = 10
 # is the defect this file exists to prevent, so the list stays narrow.
 # ---------------------------------------------------------------------------
 SETUP_PATTERNS = (
-    r"^npm ci$",
-    r"^npm install$",
+    # Long flags only, no package argument and no chaining: `npm install
+    # --no-audit --no-fund` is how two required jobs install their deps, while
+    # `npm install some-package && npm run build` must stay a GATE.  The bare
+    # `^npm install$` this replaces missed both flag-bearing call sites, which
+    # rf2-2yorx's canary ratchet found reported as unrun required checks.
+    r"^npm (?:ci|install)(?: --[a-z][a-z-]*)*$",
     r"^pip install\b",
     # Written both bare and quoted across the workflows
     # (`"$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"`), so the
@@ -151,6 +168,64 @@ SETUP_PATTERNS = (
     r"^clj-kondo --version$",
 )
 _SETUP_RE = tuple(re.compile(p) for p in SETUP_PATTERNS)
+
+
+# ---------------------------------------------------------------------------
+# THE SETUP RATCHET (rf2-2yorx).  A witness for SETUP_PATTERNS drift, standing on
+# the far side of the classification it watches.
+#
+# WHY NOT A FLOOR ON THE PATTERNS THEMSELVES.  The obvious guard -- "every
+# SETUP_PATTERNS entry must match at least one required step" -- was measured
+# against the known-WRONG answer and does not catch it.  Three of the thirteen
+# required Playwright installs are still written bare, so the pre-`timeout`
+# pattern goes on matching those three; a floor of one stays GREEN while the
+# other ten silently become gates.  A guard tested only on the passing case is
+# not a guard.
+#
+# WHAT THIS CHECKS INSTEAD.  A required GATE step whose EVERY line is nothing but
+# toolchain installation was misclassified, whatever the reason -- a pattern that
+# drifted off its call sites, or a call-site shape SETUP_PATTERNS never had.
+# These canaries name a TOOL where SETUP_PATTERNS names a CALL SHAPE, and being
+# loose is exactly what makes them an independent witness: a canary written tight
+# enough to drift in step with the entry it watches would witness nothing.
+#
+# The whole-body rule from `is_setup` is kept, and it is what holds the false
+# positives at zero: `npm ci` followed by `npm run build` mixes installation with
+# a build, so it stays a gate and is not flagged.  Keep the clj-kondo canaries
+# pinned to the INSTALLER shapes -- a bare `clj-kondo` canary would match the
+# lint gate itself and red on a correct map.
+# ---------------------------------------------------------------------------
+SETUP_CANARIES = (
+    r"\bnpm (?:ci|install)\b",
+    r"\bpip install\b",
+    r"install-clojure-cli\.sh",
+    r"\bnpx playwright install\b",
+    r"\bapt-get\b",
+    r"clj-kondo/releases/download/",
+    r"\bunzip\b.*clj-kondo",
+    r"\bsudo install\b.*clj-kondo",
+    r"^clj-kondo --version$",
+)
+_CANARY_RE = tuple(re.compile(p) for p in SETUP_CANARIES)
+
+
+def misclassified_setup(step: "Step") -> list[str]:
+    """The canaries hit by a step whose every line is nothing but installation.
+
+    Empty for any body that mixes installation with something else, which is the
+    direction this file has always guarded: hiding a gate inside a setup step is
+    worse than over-reporting one.
+    """
+    lines = [ln.strip() for ln in join_continuations(step.run or "") if ln.strip()]
+    if not lines:
+        return []
+    hits: set[str] = set()
+    for line in lines:
+        matched = [c for c, rx in zip(SETUP_CANARIES, _CANARY_RE) if rx.search(line)]
+        if not matched:
+            return []
+        hits.update(matched)
+    return sorted(hits)
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +797,23 @@ class GapMap:
                     f"in SPINE_LANES -- or the parser broke."
                 )
 
+        # The other rot direction: setup re-classified as a gate (rf2-2yorx).
+        for path, job in self.required:
+            for step in job.gate_steps:
+                hits = misclassified_setup(step)
+                if not hits:
+                    continue
+                self.problems.append(
+                    f"{path}: `{job.job_id}` step \"{step.name}\" is reported as a "
+                    f"required GATE, but every line of its body is toolchain "
+                    f"installation ({', '.join(hits)}). No SETUP_PATTERNS entry "
+                    f"recognises this call site any more, so the gap map now lists an "
+                    f"installer as a check the spine does not run, and tells a reader "
+                    f"to reproduce it locally. That inflation moves no exit code on "
+                    f"its own -- this is the ratchet that makes it move (rf2-2yorx). "
+                    f"Re-anchor the SETUP_PATTERNS entry to this call site."
+                )
+
         if len(self.spine_checkers) < MIN_SPINE_CHECKERS:
             self.problems.append(
                 f"only {len(self.spine_checkers)} `python scripts/check_*.py` "
@@ -1152,6 +1244,67 @@ def run_self_tests(verbose: bool) -> int:
         any("expected at least" in p and SPINE in p for p in empty.problems),
     )
 
+    # THE SETUP RATCHET (rf2-2yorx), the other rot direction.  Its unit shape
+    # first: the whole-body rule is what keeps it off correct maps.
+    def _step(body: str) -> Step:
+        return parse_workflow(
+            "jobs:\n  a:\n    steps:\n      - name: s\n        run: |\n"
+            + "".join(f"          {ln}\n" for ln in body.splitlines()),
+            "f.yml",
+        )["a"].steps[0]
+
+    check(
+        "a body that is nothing but an installer is flagged as misclassified setup",
+        misclassified_setup(_step("npx playwright install --with-deps chromium")) != [],
+    )
+    check(
+        "a body MIXING an installer with a build is NOT flagged (it is a real gate)",
+        misclassified_setup(_step("npm ci\nnpm run build")) == [],
+    )
+    check(
+        "the clj-kondo canaries do not match the lint gate itself",
+        misclassified_setup(
+            _step("clj-kondo --parallel --fail-level error --lint implementation")
+        ) == [],
+    )
+
+    # ... and then against the answer that is known WRONG.  The fixture has no
+    # Playwright call sites, so the corpus has to be the REAL workflows: revert
+    # the Playwright entry to its pre-`timeout` form -- exactly the drift measured
+    # under rf2-mul6w, which took the headline 96 -> 106 at exit 0 -- and require
+    # the ratchet to red.  A guard exercised only on the passing case is untested,
+    # and the per-pattern floor this replaced passes that case while failing this
+    # one: three call sites are still written bare, so the reverted pattern goes
+    # on matching them.
+    global SETUP_PATTERNS, _SETUP_RE
+    _live_patterns, _live_res = SETUP_PATTERNS, _SETUP_RE
+    try:
+        SETUP_PATTERNS = tuple(
+            r"^npx playwright install\b" if "playwright" in p else p
+            for p in SETUP_PATTERNS
+        )
+        _SETUP_RE = tuple(re.compile(p) for p in SETUP_PATTERNS)
+        drifted = load(REPO_ROOT)
+    finally:
+        SETUP_PATTERNS, _SETUP_RE = _live_patterns, _live_res
+
+    _drift_problems = [p for p in drifted.problems if "toolchain installation" in p]
+    check(
+        "THE MEASURED FAIL-OPEN: the pre-`timeout` Playwright pattern now REDS",
+        len(_drift_problems) > 0
+        and all("npx playwright install" in p for p in _drift_problems),
+    )
+    check(
+        "a floor of one match per pattern would NOT have caught it (the control)",
+        sum(
+            1
+            for _path, job in drifted.required
+            for s in job.steps
+            if s.run and s.is_setup and "playwright install" in s.command
+        )
+        > 0,
+    )
+
     _pin = _KONDO_PIN_RE.search(
         "curl -fsSL -o /tmp/clj-kondo.zip https://github.com/clj-kondo/clj-kondo"
         "/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip")
@@ -1187,6 +1340,15 @@ def run_self_tests(verbose: bool) -> int:
     # Against the REAL repo: the map builds clean and reports a non-trivial gap.
     real = load(REPO_ROOT)
     check("real repo: the gap map has no problems", real.problems == [])
+    check(
+        # The negative half of the sabotage above: the same ratchet, same corpus,
+        # patterns unmolested, must be SILENT. Without this the red proves only
+        # that the arm fires, not that it discriminates.
+        "real repo: no required gate step is misclassified toolchain setup",
+        not any(
+            misclassified_setup(s) for _p, j in real.required for s in j.gate_steps
+        ),
+    )
     check("real repo: >= 60 required jobs discovered", len(real.required) >= 60)
     check("real repo: at least one PARTIAL job (the item-3 class)", len(real.partial) >= 1)
     check(
