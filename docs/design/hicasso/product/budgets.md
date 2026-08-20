@@ -817,6 +817,37 @@ window**. `U1`–`U4` and `C3`/`C4` stay `UNPINNED`, and
 [§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
 carries the full record of both gaps and which of them closed.
 
+**[Amended 2026-08-21, `rf2-85og2`. No row moves, no reading was taken, and
+nothing here is a figure.]** The population gap has closed for two of those six
+rows and stands for the other four. `rf2-xa8wo`'s second deliverable landed as
+PR #8589:
+`implementation/hicasso/test/re_frame/bench/hicasso/slice_echo_clock_app.cljs`,
+whose `window!` starts at a real DOM event on a node the application rendered
+and stops in the first task after the frame carrying the echo has been through
+its rendering steps — a `requestAnimationFrame` callback with a `setTimeout 0`
+inside it — with no `flushSync` anywhere in its code. It mounts the slice
+through `re-frame.hicasso`'s own `h/mount!`, with the application's own views
+and its own initial events, so it is pointed at the package on the test
+[§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
+spells out, and its population is a witness application under
+`implementation/hicasso/test/re_frame/hicasso/examples/` rather than a synthetic
+bench page. **So the paragraph above is a true record of the two drivers it
+names and is no longer a true statement about this lane.**
+
+**What that leaves is a smaller set than the six, and the driver states it
+rather than leaving it to be discovered.** Its `:keystroke` arm is `U1`'s
+estimand — *latency to visible echo* on a controlled update — and an instance
+of `U2`'s; its `:toggle` arm is `U2`'s on a second event path. So `U1` and `U2`
+have an instrument on their governed population and want only their own quiet
+window. `U3` and `U4` do not: `U3` is a **broad** operation needing preparation
+outside the window, because the route the editor rows type into is the route a
+navigation row would leave, and `U4` is a run of consecutive frames whose
+estimator is a distribution over frame intervals rather than over window
+lengths. Both want another driver on the same mechanism. `C3` and `C4` are
+comparative against the best relevant adapter and this driver carries no donor
+arm at all — its four rows are a floor, two Hicasso interactions and a positive
+control. **All six rows keep `UNPINNED`, and nothing here decides one.**
+
 ### The §6 user-visible budgets
 
 Transcribed with their estimands. All are P-DEV-1-only and all inherit §1's
@@ -1616,6 +1647,15 @@ or `C5` changes with it.
   and a `p95` over the wrong population is worse than none, being quotable.
   [§4 states the corrected condition in full](#the-package-resident-clock-instrument-and-what-it-is-still-missing);
   the run itself is still a quiet window rather than an edit.
+  **[Amended 2026-08-21, `rf2-85og2`. All six rows still keep the status they
+  had.]** That driver has landed — PR #8589's slice interaction-to-paint clock
+  — so the condition this bullet states is met for `U1` and `U2`, which now
+  want only their own quiet window. It is **not** met for `U3`, `U4`, `C3` or
+  `C4`, and what blocks those four is no longer the window's shape but the
+  arms: the landed driver takes one discrete interaction through to one paint
+  and carries no donor arm.
+  [§4 carries the corrected condition](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+  rather than a second copy of it here.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
@@ -2202,3 +2242,85 @@ positive control in both directions, because a search that returns zero and a
 search that looks nowhere print the same thing. **Neither refusal is about box
 quietness and no quiet-box time was spent on either**; the cheap source checks
 were taken before the first invocation.
+
+**[Re-tested at source 2026-08-21, `rf2-85og2`. NO window and NO bench run was
+taken — the machine was carrying another worker's heavyweight lane, and a
+reading taken beside one measures the fleet rather than the library. No status
+moves, no count moves, no threshold is guessed and no band is widened.]** One of
+the two standing refusals has expired in part, and the part that expired is not
+the part the row titles would suggest.
+
+**Gate 1 splits, and `U1`/`U2` now part company with `U3`/`U4` and `C3`/`C4`.**
+The population half — the half the 2026-08-19 entry above calls the one that
+governs — has closed for the first two.
+[§4's amendment](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+carries the corrected condition and the source for it; in one line, PR #8589
+landed a driver in the bench tree that requires the slice application's own
+`events`, `routes` and `views`, mounts it through `h/mount!`, and brackets a
+real DOM event through to the first task after the carrying frame's rendering
+steps. So both sentences the entry above rests on are now false at the tip: a
+driver under `implementation/hicasso/test/re_frame/bench/` **does** require
+something under `re-frame.hicasso.examples`, and that driver's window is **not**
+a `flushSync` commit. `U3`, `U4`, `C3` and `C4` are untouched by it, for the
+reason §4 records — the arms, not the window.
+
+**But there is no gate here to build, and that is a finding rather than a
+shortfall.** The obvious next move on a cleared ground is to write the check
+that enforces the row, and for `U1` and `U2` that move is forbidden by this
+page's own routing: [§7](#7-where-each-row-is-enforced) sends every
+distributional row to *pinned interleaved evidence runs on P-DEV-1* and says in
+terms that they are **never converted into flaky PR thresholds**;
+[§9.1](#91-how-to-read-a-row) says a distributional row may never name the first
+lane at all; and the ledger gate enforces exactly that, refusing a distributional
+row quietly routed into a pull-request threshold. So the whole edit-shaped half
+of gate 1 for `U1` and `U2` **was** the instrument, and `rf2-xa8wo` built it.
+What remains is one quiet-box window and nothing else. A worker who "built the
+`U1`/`U2` gate" would have had to breach §7 to do it.
+
+**Gate 2 needs nothing further from this bead's edit-shaped half.** The
+2026-08-19 entry above took its three runs and the operator's ruling of the same
+date settled the status cell. `C1`'s blocker has changed in kind rather than
+lifted, from *"the same instrument" names nothing* to a second reading not yet
+taken across a change, and no edit produces that reading.
+
+**Gate 3 is refused again, on a census re-run at this tip.** Shipping view code
+under `implementation/hicasso/test/re_frame/hicasso/examples/` still carries
+exactly one `h/as-element` call — `ledger/views.cljs`'s `:render-row`, the
+vendor-virtualizer boundary
+[§4's `C8` row](#the-comparative-and-regression-rules) places outside the
+population — and no `re-frame.hicasso.native` island anywhere under `examples/`.
+Both halves were controlled: `as-element` resolves in nine files under
+`implementation/hicasso/src/` and `native.cljc` exists there, so each name
+resolves and each absence is in the population rather than in the pattern.
+
+**One sentence in the 2026-08-19 `C8` entry above is wrong and is corrected
+here rather than over there, because that entry is dated.** It reads *Nothing
+under `examples/` mounts Hicasso either*. Six of the witness applications mount
+it from their own `app.cljs` — `editor`, `grid`, `ledger`, `slice`, `todo` and
+`typeahead` — and have since `2026-08-15`, so the sentence was already false
+when it was written. **`C8`'s conclusion is untouched by the correction**: the
+rule's population is escape sites taken for a benefit, not mounts, and that
+population is still empty.
+
+**A trigger the operator's 2026-08-19 ruling named has now fired, and it is a
+ruling rather than a worker's edit.** That ruling declined to mint a fifth
+ledger status for `C1`'s *anchored, instrument exists, awaiting a second
+reading*, ratified carrying the state in the row's annotation instead, and set
+an explicit condition: *if a second row ever reaches this state, reconsider —
+one instance is a note, a recurring class is a value*. `U1` and `U2` now sit in
+the same gap from the other side. `UNPINNED` is defined at
+[§9.1](#91-how-to-read-a-row) as *no instrument for it exists on the governed
+population*, and for these two an instrument on the governed population now
+does exist, while `MET` would record a verdict no reading has reached. **Their
+cells are deliberately not moved** — that is what the ruling instructs by
+default, and disclosure here tells a reader strictly more than a new one-word
+status would. The ledger is unchanged at 49 rows, 31 `MET`, 5 `BREACH`, 3
+`UNRESOLVED` and 10 `UNPINNED`.
+
+**What this bead still owes, after this pass.** One quiet-box window on the
+slice clock for `U1` and `U2`, which is now the only measurement standing
+between those two rows and a verdict. A second driver, on the same mechanism
+and not yet written, before `U3` and `U4` can be reached at all, and a donor
+arm beside it before `C3` and `C4` can. One comparison window across a change
+for `C1`. And for `C8`, a landed site, which no amount of machine time
+supplies.
