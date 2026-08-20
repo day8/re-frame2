@@ -349,22 +349,69 @@ bounds the monotone form of the candidate rather than excluding the trajectory.*
 *the mode is not explained by the high run sitting on a higher heap* — a claim
 about level, in one direction, at the boundary where the mode appears. What they
 do not support is the broader *it is not the heap trajectory*, and nothing here
-excludes a non-monotone or timing-shaped heap effect. The **collection and
-GC-promotion** forms of that candidate are separately **EXCLUDED** by the
-follow-on page's table
-([the second mode is per-write](the-second-mode-is-per-write-and-the-controls-never-move.md#the-candidates-and-which-the-evidence-excludes)),
-on zero falling steps, byte-stability over fourteen rounds and the same closing
-levels quoted above — grounds that never used the withdrawn sentence, so that
-row is untouched by this correction and the follow-on's two survivors still
-stand.
+excludes a non-monotone or timing-shaped heap effect.
+
+**That admission forces a distinction the follow-on page's table did not draw:
+CARRIER against TRIGGER — 2026-08-21, `rf2-9jrhi`, from the merged-PR audit of
+PR #8582.** That page marks "a collection, or a GC generation promotion"
+EXCLUDED on zero falling steps inside the certified windows, byte-stability over
+fourteen rounds, and the closing levels quoted above. Those grounds are sound and
+they settle the **carrier**: nothing that repeats 3,792 B on each of ~196 writes
+is a collection. They do not reach a **one-time** event that *starts* a mode
+something else then carries, because that question is about the boundary
+*between* two windows and all three observations are taken inside a window or at
+the close.
+
+**The gap between windows is not unobserved, and that is measurable rather than
+arguable.** Each round opens with its three control windows — `idle`, `ctl1`,
+`ctl2` — before either arm pass, and `rf2-erre5` retains all fifteen absolute
+used-heap samples of each. So **45 retained samples sit between the last arm
+window of one round and the first arm window of the next**, the round-3 →
+round-4 boundary included; in every round of all seven runs the round's lowest
+retained sample is `idle`'s, which is what places them there. What they show at
+that boundary is a collection, and a large one — the high run falls **182,856 B**
+across it.
+
+**That collection is scheduled, universal, and the same size in runs that never
+step.** The driver's `gc()` is three CDP `HeapProfiler.collectGarbage` calls at
+an 80 ms beat and it runs immediately before every window, so every window's
+opening level is a post-collection level by construction. Across the seven
+eighteen-round runs **all 119 round boundaries carry a fall**, the smallest
+172,028 B. At the round-3 → round-4 boundary the high run's 182,856 B sits
+between its two same-revision replicates' **180,676 B and 182,884 B** — the
+second within **28 B** of it — and neither of those runs steps. **A collection at
+that boundary is therefore not what distinguishes the run that does.**
+
+**A generation PROMOTION is a different matter, and it is beyond this
+instrument at any sampling density.** Both retained counters — in-page
+`performance.memory.usedJSHeapSize` and the out-of-page `cdpBracket`, which is
+CDP `Runtime.getHeapUsage().usedSize` — are TOTALS across generations. Promotion
+moves bytes from the young generation to the old one without changing either
+total, so nothing in this corpus can see one; and the forced collection that
+opens every window would erase the level signature of a spontaneous collection
+during the warm-ups in any case.
+
+**So the candidate splits, and only one half moves.** The **carrier**
+exclusion stands exactly as the follow-on page states it. A **one-time
+collection as the TRIGGER** is reached by the retained stream and **NOT
+SUPPORTED** — the same-sized collection falls at the same boundary in
+non-stepping replicates. A **generation promotion as the TRIGGER** is
+**UNRESOLVED**, and settling it needs a generation-resolved counter this corpus
+does not carry. The follow-on page's table
+([the second mode is per-write](the-second-mode-is-per-write-and-the-controls-never-move.md#the-candidates-and-which-the-evidence-excludes))
+now carries that split, and its two surviving carriers are untouched by it.
 
 **What the mode IS was not identified, and identifying it needs an instrument
 this window may not build.** Three candidates are open and none is preferred: a
 V8 tier or deoptimisation transition in the compiled write path, a page-global
 allocation the counter attributes to the leg, and a `:advanced` build artefact.
-(The correction above does not add a fourth: it withdraws an over-broad
-exclusion, and the heap forms that would have been candidates are excluded by
-the follow-on page on independent grounds.)
+**Those three are candidate CARRIERS — answers to "what allocates 3,792 B on
+every write for fourteen rounds" — and the correction above adds no fourth to
+that list**, because the heap forms that would have been carriers are excluded
+by the follow-on page on grounds the withdrawn sentence never entered. What the
+correction adds is a **second question** the list was never a list of: what
+*started* the mode at the round-3 → round-4 boundary. There the collection form
+is not supported and the promotion form is UNRESOLVED, per the split above.
 **Filed as `rf2-77gz8` rather than chased** — a measurement window may not
 improve the rig it is measuring on, and every reading above would have been
 taken on a different instrument from the ones after the fix.
