@@ -40,7 +40,7 @@
   | keys | a keyed seq, where React's own child reconciliation reads the slot |
   | SVG and custom elements | two heads whose attribute rules are not the ordinary ones |
   | dynamic props | the marked operand against a hand-built object |
-  | children shapes | React's three — none, one, many — the shapes rf2-hic-032 repaired the outward bridge for |
+  | children shapes | React's three — none, one, many — the shapes the outward bridge carries |
   | component identity | the element type each route hands React |
   | same-frame reads | one key read through all three doors in one tree |
   | hook count | React's own dispatcher, through `hook-probe` |
@@ -53,9 +53,9 @@
 
   ## The island band, and the row this file does not pretend to be
 
-  The bead's island-performance deliverable is `C7` in
-  `docs/design/hicasso/product/budgets.md` §9, and it is `UNPINNED` with
-  its authority recorded as `rf2-hic-071`. That page's §9.2 says why in
+  The island-performance deliverable is `C7` in
+  `docs/design/hicasso/product/budgets.md` §9, and it is `UNPINNED`, its
+  authority resting with the budget gates. That page's §9.2 says why in
   terms: the 5% rule has no same-instrument anchor until the ladder is
   re-pinned, no package-resident clock instrument exists, and §7 forbids
   converting a distributional row into a pull-request threshold at all.
@@ -74,16 +74,15 @@
   interposed work for a stopwatch to find.
 
   **The band is stated over the DECLARED arm, and the declaration is what
-  makes it comparable.** Since rf2-hic-046 the `:client-only` default
-  mints a gate rather than the author's function, so it costs one fiber
-  and one hook the declared arm does not — the ruled price of the
-  conservative default, and not a figure about `n/defcomponent`'s
+  makes it comparable.** The `:client-only` default mints a gate rather
+  than the author's function, so it costs one fiber and one hook the
+  declared arm does not — the ruled price of the conservative default, and not a figure about `n/defcomponent`'s
   construction. Every native fixture below therefore writes
   `{:server :render}`, exactly as the UIx crossing declares its own.
 
   No number is transcribed into the ledger here; the figures are this
-  file's own, and the ledger row is `rf2-hic-089`'s to transcribe, as
-  D10–D13 were."
+  file's own, and transcribing the ledger row is the ledger's, as it was
+  for D10–D13."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -127,8 +126,8 @@
   body reads it by name.
 
   `{:server :render}` for the reason [[uix-host]] states about its own
-  crossing, one tier down: since rf2-hic-046 the native tier READS its
-  `:server` declaration, and the default is Client-only — a gate that
+  crossing, one tier down: the native tier READS its `:server`
+  declaration, and the default is Client-only — a gate that
   contributes nothing to a server render and is not the author's own
   function. Both halves of this file need the declared arm: the markup
   rows below server-render this cell, and the identity rows assert that
@@ -392,13 +391,13 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; This is the deterministic half of the island band. See the namespace
-;; docstring: C7 is UNPINNED and its clock is rf2-hic-071's, but the
+;; docstring: C7 is UNPINNED and its clock is the budget gates', but the
 ;; structural fact underneath it is decidable here and is the stronger
 ;; statement — there is no interposed work for a stopwatch to find.
 ;;
 ;; The subject is `{:server :render}`, which is what [[native-cell]]
-;; declares. The `:client-only` default answers a gate instead
-;; (rf2-hic-046), and a gate is a wrapper: one fiber and one hook between
+;; declares. The `:client-only` default answers a gate instead, and a
+;; gate is a wrapper: one fiber and one hook between
 ;; React and the author's function. Naming the arm is the whole of the
 ;; qualification — the rows below are unchanged by it.
 

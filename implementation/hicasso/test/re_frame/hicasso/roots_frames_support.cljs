@@ -57,9 +57,8 @@
   permitted — the gate parses `:require` forms, not docstrings.
 
   The third's prototype was `arm1/hframe_dom_cljs_test`, and that suite
-  is no longer in the bench tree to point at: rf2-3ewp moved it here, on
-  rf2-c78g's ruling that executing a PORT verdict MOVES a suite rather
-  than copying it. Its landed form is the sibling
+  is no longer in the bench tree to point at: executing a PORT verdict
+  MOVES a suite rather than copying it. Its landed form is the sibling
   [[re-frame.hicasso.hframe-dom-cljs-test]] — a wiki-link rather than a
   citation, because it is now a file in this package."
   (:require [cljs.test :refer-macros [is]]
@@ -118,7 +117,7 @@
 
 (defn readers-of
   "How many registrations read `sub-key` — the cell's own reader list,
-  which since rf2-dabt3 is both the reverse edge and the reference.
+  which is both the reverse edge and the reference.
 
   Two isolated frames give one reader each. A leak gives two readers on
   one key, and `(+ 1 1)` and `2` are different numbers on different
@@ -136,8 +135,8 @@
   hold one — a second frame-keyed table saying the same thing the cell
   keys say, on a different axis.
 
-  Since rf2-x874 `impl.frames/!frame-ops` is ONE row per frame rather
-  than two sibling tables: the row carries the incarnation, the
+  `impl.frames/!frame-ops` is ONE row per frame rather than two sibling
+  tables: the row carries the incarnation, the
   `capture-frame` bundle pinned to it, and the ambient dispatch closure
   over that bundle. Acquiring the dispatch acquires the bundle in the
   same act, which is what stops the two from ever describing different
@@ -190,7 +189,7 @@
   table BY FIAT — so a census taken after it reads zeros whether the
   teardown released anything or not. That is the shape of gate that
   cannot go red, and this arm has already been bitten by it
-  (`impl.mount/unmount!`'s own docstring, rf2-2rtt6.48).
+  (`impl.mount/unmount!`'s own docstring).
 
   `:root nil` on the way out so the arm's teardown door does the rest —
   reset the runtime, drop the container — without unmounting a root that
@@ -290,11 +289,10 @@
   flush that would make this a straight line, and manufacturing one
   would manufacture a schedule no shipped caller has.
 
-  **This is a NAMED root's completion signal, and before rf2-6tmu it
-  could not be one.** The window it polls used to be one boolean for the
-  whole page, so it answered *some* root's closer and never said which —
-  which is why the two-root rows below were written against
-  [[wait-until!]] and the cell table instead. Now the window is the one
+  **This is a NAMED root's completion signal, and only a per-root window
+  makes it one.** A page-global window answers *some* root's closer and
+  never says which — which is why the two-root rows below are written
+  against [[wait-until!]] and the cell table instead. The window is the one
   this root minted and nothing else can shut it, so waiting on it is
   waiting on this root."
   ([handle] (adopted! handle 3000))
@@ -324,7 +322,7 @@
   How a two-root row waits on something that is not a window: the cell
   table, which acquires at COMMIT and therefore cannot mention a frame
   before that frame's root committed. [[adopted!]] is the other per-root
-  signal and since rf2-6tmu it is a genuine one; the rows below use
+  signal, and a genuine one; the rows below use
   whichever names the fact they are about."
   ([pred?] (wait-until! pred? 3000))
   ([pred? budget-ms]
@@ -452,7 +450,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn with-page-global-adoption
-  "Run `f` with the PRE-rf2-6tmu **page-global** adoption window restored,
+  "Run `f` with a **page-global** adoption window in place of the per-root one,
   and put the shipped doors back afterwards whatever `f` does. Answers
   what `f` answers; `f` is handed the page-global window itself, so a row
   can assert on the state its readings are taken in.

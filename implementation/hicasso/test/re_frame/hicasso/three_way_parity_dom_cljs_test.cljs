@@ -20,10 +20,10 @@
 
   ## Hydration is deliberately NOT here
 
-  It is `rf2-hic-046`'s — *per-surface SSR/hydration witnesses* — which
-  is the bead this one unblocks. Writing a three-route hydration row here
-  would put a second authority on the same claim one bead ahead of the
-  one that owns it, and the two would drift on the first policy change.
+  It belongs to the *per-surface SSR/hydration witnesses*, which this
+  file unblocks. Writing a three-route hydration row here would put a
+  second authority on the same claim ahead of the one that owns it, and
+  the two would drift on the first policy change.
   The server bytes each route produces ARE measured, in the node-lane
   sibling; what happens when React meets those bytes on a client is the
   next bead's subject.

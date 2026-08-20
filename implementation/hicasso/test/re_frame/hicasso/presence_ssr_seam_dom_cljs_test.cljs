@@ -1,7 +1,6 @@
 (ns re-frame.hicasso.presence-ssr-seam-dom-cljs-test
   "THE PRESENCE/ROOT ROW OF THE SSR MATRIX, DRIVEN THROUGH THE REAL
-  SERVER RENDERER — and the seam that measurement finds open
-  (rf2-hic-046, audit of PR #7756).
+  SERVER RENDERER — and the seam that measurement finds open.
 
   ## What this file is, said plainly
 

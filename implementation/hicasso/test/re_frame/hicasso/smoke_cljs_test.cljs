@@ -29,7 +29,7 @@
   provider, `impl.codec`'s root element, `impl.collector`'s reset) are the
   server-render harness, not authoring surface. Mounting is
   [[re-frame.hicasso/mount!]]'s job and needs a DOM; wiring a consumer app
-  and an SSR entry to the package is rf2-hic-008's."
+  and an SSR entry to the package is the consumer app's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
@@ -118,8 +118,8 @@
       (is (nil? (re-find #">hello<" markup))))))
 
 (deftest the-module-graph-loads-and-a-server-render-acquires-nothing
-  ;; rf2-hic-009 split the copied runtime into six owned modules, and
-  ;; `impl.inventory` is the one nothing else requires — its readers reach
+  ;; The runtime is six owned modules, and `impl.inventory` is the one
+  ;; nothing else requires — its readers reach
   ;; ACROSS the split, into the collector's tables, the frame memo and the
   ;; generation counters. Requiring it here is what puts it on the build at
   ;; all; asserting through it is what says those reaches resolve.
@@ -128,7 +128,7 @@
   ;; phase: `renderToString` runs bodies and never commits — React calls
   ;; `getServerSnapshot`, never `subscribe` — so the runtime acquires no
   ;; cell, takes no reference and records no edge. The real
-  ;; commit-owns/abandonment witnesses are rf2-hic-010's; this one only has
+  ;; commit-owns/abandonment witnesses are elsewhere; this one only has
   ;; to fail when the module graph is wrong.
   (testing "a render that never commits leaves the retention tables empty"
     (seeded! "hello")

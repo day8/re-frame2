@@ -223,7 +223,7 @@
                   "This row is the CONTROL for the three below: opacity is "
                   "the answer only when the escape is well formed.")}
 
-   ;; ---- The seam's own rows (rf2-hic-020, audit of PR #7796) --------------
+   ;; ---- The seam's own rows ----------------------------------------------
    ;;
    ;; `:opaque` is a claim about a form the kit CANNOT read, and it is only
    ;; honest where the runtime can. For a MALFORMED escape the runtime cannot

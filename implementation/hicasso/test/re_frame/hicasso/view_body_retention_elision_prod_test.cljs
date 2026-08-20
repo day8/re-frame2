@@ -31,8 +31,8 @@
 
   ## The declarations are next door, and that is not tidiness
 
-  `re-frame.hicasso.coord-sentinel-source` carries them, for the reason
-  rf2-hic-007 recorded: `cljs.test` stamps `:file` into the report map of
+  `re-frame.hicasso.coord-sentinel-source` carries them, for a recorded
+  reason: `cljs.test` stamps `:file` into the report map of
   every `deftest` and every `is`, so a test namespace names itself in a
   release bundle before anything else does. That namespace carries no
   `deftest`, and its `sentinel-row` is minted by the same `h/defview` door

@@ -576,8 +576,7 @@
     (async done
       (let [;; The caller's OWN container, carrying the caller's own bytes —
             ;; the arm where the rollback must NOT tidy up, because the node is
-            ;; not the facade's to delete (rf2-31xm, the same rule `unmount!`
-            ;; follows).
+            ;; not the facade's to delete (the same rule `unmount!` follows).
             container (js/document.createElement "div")
             _         (set! (.-innerHTML container) "<li class=\"row\">server</li>")
             _         (.appendChild js/document.body container)
