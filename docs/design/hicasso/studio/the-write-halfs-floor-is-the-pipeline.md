@@ -150,12 +150,19 @@ between the two writes. It has two clauses and they come back differently.
   within 0.6% across a 24× page range, which is what "flat by construction"
   predicts and is the strongest single piece of evidence that the instrument is
   behaving.
-- **Lands on the 2026-08-08 figures at B = 24 — UNASSESSED.** Those figures
+- **Lands on the 2026-08-08 figures at B = 24 — ~~UNASSESSED~~ RETIRED.** Those
+  figures
   (24,108 / 24,730 B per write) are `rise/W`, and at B = 24 under `write-all`
   this window's `rise/W` reads 22,000 (reagent-subs) and 33,512 (uix-subs), from
   windows the witness refused. The published figures sit inside the per-round
   ranges but no certified window exists to read the clause from, so the honest
   verdict is that it was not assessed — not that it was missed.
+  **RETIRED 2026-08-20 (`rf2-nkeba`)**, and the verdict above ages well: the
+  clause was assessed on 2026-08-17 and failed by 16 – 20%, which is the size of
+  the **3,784 B level ladder** the arm carries at a single revision, so it never
+  could have been read. The 2026-08-08 figures are marked **NOT-COMPARABLE** and
+  are a reading of the ladder's top rung. See
+  [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
 
 > **AMENDED 2026-08-17 22:30 AUSEST (`rf2-nkeba`).** "Those figures are
 > `rise/W`" is true and incomplete, and the missing half is what the clause

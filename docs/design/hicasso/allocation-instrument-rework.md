@@ -37,6 +37,13 @@ rather than taken.
   drives the whole event pipeline whether one boundary is mounted or 1,200. On
   this rig that costs **F ≈ 24.4 KB per write** (24,108 B on `reagent-subs`,
   24,730 B on `uix-subs`), and **F does not shrink when B does**.
+  **NOT-COMPARABLE (2026-08-20, `rf2-nkeba`)** — that pair is a reading of the
+  floor arm's **top rung**, one of at least four settled levels spanning 3,784 B
+  at a single revision. It is not withdrawn and it is not wrong; it may not be
+  differenced against a figure from any other run. The property that carries —
+  **F does not shrink when B does** — is a within-run comparison and is
+  unaffected. See
+  [the 2026-08-08 row is the arm's top level](studio/the-2026-08-08-row-is-the-arms-top-level.md).
 - **The write becomes proportional to the page.** A new `:p0/write-page` event
   rebuilds a vector of exactly the width the mounted page reads, so the term
   that was 300 cells wide on a 4-boundary page becomes 4 cells wide. What
@@ -269,10 +276,35 @@ segments. Each page measured under `:p0/write-all` and under `:p0/write-page`.
 
 **What it answers.**
 
-- `F_old(B)` must come back **flat in B** and must land on the 2026-08-08
-  figures at B = 24 (24,108 / 24,730 B per write). That is the control: it says
+- `F_old(B)` must come back **flat in B** ~~and must land on the 2026-08-08
+  figures at B = 24 (24,108 / 24,730 B per write)~~. That is the control: it says
   the rig has not moved under the instrument, and it is the only way the two
   writes can be compared like for like.
+
+> **THE ACROSS-TIME CLAUSE IS RETIRED — 2026-08-20 (`rf2-nkeba`).** Struck, not
+> widened and not left failing. The clause asked `F_old` to land on a figure
+> from another day, and the floor arm has since been shown to have a **level
+> ladder spanning 3,784 B** — the same figure on both segments, 19.4 – 19.8% of
+> the low level — at the very revision the 2026-08-08 row was measured at
+> (`rf2-c4hhk`, 69 scored runs with `implementation/core/src` pinned at
+> `4a1537cb71`). **The clause's own reported failure was 16 – 20%.** A control
+> cannot adjudicate an effect the quantity it reads varies by, at one revision,
+> on one instrument, in one afternoon — so no amount of care in running it would
+> have made it decide anything.
+>
+> Placed on that ladder, the 2026-08-08 row lands on the **top rung** to within
+> **2 – 373 B** (0.01 – 1.60%) across eight conversions. **Neither reading is
+> withdrawn and neither is wrong**: 24,108 / 24,730 is a correct reading of the
+> arm's top rung and 19,349 – 20,696 are correct readings of its low rung. The
+> arm does not have a single value for the clause to test against.
+>
+> **The first clause — flat in B — is untouched and stands**, confirmed on
+> certified windows, and it is the work `F_old` was introduced for. The
+> within-run comparison between the two writes is likewise untouched, and is now
+> guarded twice: by the leg witness and by `rf2-a233t`'s within-run level
+> witness. What is retired is only the licence to difference a row measured
+> today against a row measured on another day. See
+> [the 2026-08-08 row is the arm's top level](studio/the-2026-08-08-row-is-the-arms-top-level.md).
 - `F_new(B) = F₀ + B·w` is a two-unknown fit on three points. `F₀` is the event
   pipeline plus the empty `flushSync` plus the sampler's own footprint — the
   idle control already prices that last term at 32 B per iteration, so it is

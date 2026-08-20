@@ -28,10 +28,25 @@ the cheaper mistake is the one that never ships.
 > from. **Every figure and every table on this page stands** — this note
 > annotates and erases nothing.
 >
-> The one figure that keeps its full force across the change is **`F_old`**,
+> ~~The one figure that keeps its full force across the change is **`F_old`**,
 > the 24,108 / 24,730 B per write the floor arm read on 2026-08-08. Validity
 > witness V1 re-measures it as its own control, and an agreement at B = 24 is
-> what licenses comparing the two writes at all.
+> what licenses comparing the two writes at all.~~
+>
+> **CORRECTED 2026-08-20 (`rf2-nkeba`) — `F_old` keeps its force WITHIN a run and
+> loses it ACROSS days, and the sentence above claimed the wrong half.** The
+> across-time clause it describes was read for the first time on 2026-08-17 and
+> failed by 16 – 20%; it is now **RETIRED**, because the floor arm has since been
+> shown to carry a **level ladder spanning 3,784 B — 19.4 – 19.8% — at a single
+> revision**, so the clause was being asked to decide an effect the size of the
+> arm's own dispersion. **24,108 / 24,730 is NOT withdrawn**: placed on that
+> ladder it is a correct reading of the **top rung**, to within 2 – 373 B. It is
+> simply **NOT-COMPARABLE** with a figure from any other run.
+>
+> What genuinely does keep its full force is the **within-run** comparison: two
+> writes measured in the same session on the same build, which is what V2 makes
+> and what the leg witness and `rf2-a233t`'s level witness now guard. See
+> [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
 >
 > The three instrument blob pins below are pins on the **old** instrument.
 > The new one carries its own. **V1–V3 have not run**: `rf2-2rtt6.140`
@@ -432,9 +447,17 @@ should be costed against that question rather than assumed to answer it.
 > section and [the fixed per-write cost](#the-fixed-per-write-cost-measured-for-the-first-time)
 > below were taken with `:p0/write-all` on a 24-boundary page, and
 > `rf2-2rtt6.140` replaced that write with `:p0/write-page`. Nothing measured
-> under the new write may be differenced against these rows. `F_old` — the
+> under the new write may be differenced against these rows. ~~`F_old` — the
 > 24,108 / 24,730 B per write — is the exception, and V1 re-measures it as
-> the control that licenses the comparison.
+> the control that licenses the comparison.~~
+>
+> **THE EXCEPTION IS WITHDRAWN — 2026-08-20 (`rf2-nkeba`).** `F_old` is not an
+> exception to this section's rule; it falls under it. The across-time clause
+> that made it one is retired, and 24,108 / 24,730 is now marked
+> **NOT-COMPARABLE** — a correct reading of the arm's top rung on a ladder
+> spanning 3,784 B, not a fixed property of the rig. So **no** row in this
+> section may be differenced against anything measured on another day. See
+> [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
 
 The arm clause (4) asks for was built by `rf2-2rtt6.138` (PR #7688) and had
 never been executed. It was executed once, on 2026-08-08, on a box granted
@@ -480,6 +503,17 @@ precisely a write with no subscription under it:
 |---|---|---|---|
 | `reagent-subs` | **24,108 B** | 1,005 B | 0 of 6 |
 | `uix-subs` | **24,730 B** | 1,030 B | 0 of 6 |
+
+> **NOT-COMPARABLE — 2026-08-20 (`rf2-nkeba`).** These are the **median** of
+> `rise/W` across the six rounds, to the byte, on a pre-prime, pre-certificate
+> instrument (PR #8434) — and they are a reading of the **top rung** of a level
+> ladder the floor arm carries at a single revision, spanning **3,784 B** on both
+> segments (`rf2-c4hhk`, 69 scored runs at `4a1537cb71`). **The rows stand as
+> measured and nothing here is withdrawn.** What may not be done is difference
+> them against a figure from any other run, in either direction. The two claims
+> the section below draws from them — that F does not shrink when B does, and
+> that F is 57% of the masking budget — are within-run and survive intact. See
+> [the 2026-08-08 row is the arm's top level](the-2026-08-08-row-is-the-arms-top-level.md).
 
 Call it **F ≈ 24.4 KB per write**, and note the property that matters: **F
 does not shrink when B does.** The bound charges `(W + 1) · perWrite`, so at
