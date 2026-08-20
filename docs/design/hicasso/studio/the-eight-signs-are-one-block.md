@@ -6,6 +6,15 @@ property of the two writes or an artefact. Written 2026-08-18 on
 `worker/armfloor-0gjqi`, written off `4cf5680a82` and rebased onto
 `2a48dc2109`.
 
+**Corrected 2026-08-21 under the merged-PR audit of #8458, and no window was
+taken for the correction either.** The audit found one sentence in *And how
+large one has been measured to be* false as written: it said every `alloc-9jrhi`
+dataset carried a passing positive control, where one of the eight refuses. The
+census, the quoted control values and the `4a1537cb71` row are corrected there
+and the estimator is now named. **No figure on this page moved** — the
+correction excludes a run whose medians were the middle entry of the row it
+sits in, so the spread it is quoted for is unchanged.
+
 **No allocation window was taken for this page.** Nothing here is a new
 measurement. Every figure below is either re-derived from a committed dataset,
 re-derived from a figure already published on
@@ -179,25 +188,48 @@ and 928 B/write on `uix-subs`.** To flip the smallest cell takes 524 and 188.
 
 Re-derived here, first-hand, from the eight committed `alloc-9jrhi` datasets.
 Population: the floor arm's certified windows. Statistic: the median of
-`rise/W` across the rounds that certified, per segment per run — the same shape
+`rise/W` across the rounds that certified, per segment per run, where W is the
+run's six non-prime writes (`writes`, not `windowWrites`) — the same shape
 of estimator the source page uses, applied to the floor rather than to
 `arm − floor`. Instrument revision: each dataset's own, named in its filename;
-every one carries `writeSelector: "all"`, plan `floor`, B = 24, `unverified: 0`
-and a passing positive control (`perDouble` 8.081, `differential` 8.001).
+every one carries `writeSelector: "all"`, plan `floor`, B = 24 and
+`unverified: 0`.
+
+**Seven of the eight passed their positive control; one refused, and it is
+excluded from the spread below.** `bisect-5-a-4a1537cb71-replicate` carries
+`controlVerdict.ok: false` — `perDouble` 12.303 and `differential` 15.039
+against a predicted 8 B/double. The seven that passed read `perDouble` 8.081
+(six runs) and 8.083 (`pilot-rounds6`), `differential` 8.001 (five runs), 7.913
+(`bisect-6`) and 8.004 (`pilot-rounds6`).
 
 | `implementation/core/src` revision | runs | `reagent-subs` medians | `uix-subs` medians | spread |
 |---|---|---|---|---|
-| `4a1537cb71` | 3 | 22,984 / 19,236 / 19,132 | 23,468 / 19,736 / 19,556 | **3,852 / 3,912 B/write** |
+| `4a1537cb71` | 2 admissible, 1 refused | 22,984 / (19,236) / 19,132 | 23,468 / (19,736) / 19,556 | **3,852 / 3,912 B/write** |
 | `88411ed803` | 2 | 19,429 / 19,427 | 20,107 / 21,752 | 2 / **1,645 B/write** |
 | `a158c40288` | 1 | 19,430 | 20,146 | — |
 | `48c715f97c` | 1 | 19,418 | 19,954 | — |
 | `9d20be1d00` | 1 | 19,470 | 19,683 | — |
 
-**Three runs at one revision, one write, one page, one instrument, and their
-certified floor medians span 3,852 and 3,912 B/write.** Both exceed the 2,472
-and 928 B/write that would reverse every sign on the corresponding segment. Two
-runs at HEAD span 1,645 B/write on `uix-subs`, which still exceeds `uix-subs`'
-928.
+The parenthesised entries are the refused run's, kept in the row so the census
+is legible and excluded from the spread. **The exclusion does not move the
+figure**, and the reason is arithmetic rather than lucky: the refused run's
+medians are the MIDDLE entry of each `4a1537cb71` row, so the two admissible
+runs were already the endpoints the spread was taken between.
+
+**Two admissible runs at one revision, one write, one page, one instrument, and
+their certified floor medians span 3,852 and 3,912 B/write.** Both exceed the
+2,472 and 928 B/write that would reverse every sign on the corresponding
+segment. Two runs at HEAD span 1,645 B/write on `uix-subs`, which still exceeds
+`uix-subs`' 928.
+
+**A refused control does not weaken this sub-finding, and stating why is the
+point of keeping the run on the page rather than deleting it.** The argument
+here is that the floor's between-run spread is LARGE — larger than the offset
+that would flip every sign — so an inadmissible run can only ever be argued to
+have inflated it. It did not: dropping it leaves 3,852 and 3,912 unchanged.
+Read the other way, one run in eight failing a control that predicts a constant
+8 B/double is itself a fact about this instrument's between-run behaviour, and
+it is recorded here as one.
 
 These re-derived spreads run slightly above `rf2-77gz8`'s exact 3,792 B because
 the estimators differ and the difference is stated rather than reconciled: that
@@ -205,6 +237,15 @@ bead quotes the two steady-state LEVELS a bimodal run sits at, where this median
 pools a run's certified rounds across a within-run step. **Both are correct
 answers to different questions**, and this page uses the median because it is the
 shape of estimator the disputed cells were computed with.
+
+Which is now measurable rather than asserted, and it is the reason the estimator
+is named at the top of this section. Taking the median of `legMedian` over the
+same certified rounds instead of `rise/W`, the two admissible `4a1537cb71` runs
+read 22,892 / 23,332 and 19,100 / 19,540 — a spread of **3,792 and 3,792
+B/write**, `rf2-77gz8`'s figure to the byte and the same number on both
+segments. So the two estimators disagree by about 60-120 B on a level and by
+about 100 B on a spread, and the residual gap to `rf2-77gz8` is the estimator
+and not a third quantity.
 
 ## The shape of the residual argues the other way
 
