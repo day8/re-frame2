@@ -34,9 +34,11 @@
      round.
   2. **rf2-2rtt6.2 is on main and owns the measurement lane.** HD-017
      gives `:hicasso-bench` and `run.cjs` to that arm; rf2-2rtt6.4's tree
-     rides `:freehand-release`'s compiler settings through a
+     rode `:freehand-release`'s compiler settings through a
      `--config-merge` precisely because the lane had not landed. Running
-     the frontier arm on the lane retires that workaround.
+     the frontier arm on the lane retires that workaround — and rf2-0yp7w
+     since removed that build with the donor tree, so there is no longer
+     anything to ride even if it had not.
   3. **rf2-2rtt6.4 nominated it.** Its own `Open items` names
      rf2-2rtt6.2's set as the convergence target and names its `U-broad`
      row as the closest existing correspondence.
