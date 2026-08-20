@@ -40,15 +40,13 @@
 
   ## Why it lives under `test/`
 
-  For the reason the removed `re-frame.freehand.release-app` did (rf2-0yp7w
-  deleted it with its tree; the reason is the package layout, not the donor):
-  `hicasso/deps.edn` publishes `src` and `resources` alone, so a fixture
-  that exists to be compiled stays out of the artefact a consumer
-  resolves, while shadow-cljs — which carries `hicasso/test` on
-  `:source-paths` — can still build it into a real production bundle. It
-  is not a test and matches no test regexp: `:node-test-hicasso` selects
-  `^re-frame\\.hicasso\\..+-cljs-test$`, and this namespace does not end
-  in `-cljs-test`.
+  The package layout decides it: `hicasso/deps.edn` publishes `src` and
+  `resources` alone, so a fixture that exists to be compiled stays out of
+  the artefact a consumer resolves, while shadow-cljs — which carries
+  `hicasso/test` on `:source-paths` — can still build it into a real
+  production bundle. It is not a test and matches no test regexp:
+  `:node-test-hicasso` selects `^re-frame\\.hicasso\\..+-cljs-test$`, and
+  this namespace does not end in `-cljs-test`.
 
   ## The reload hook, and why it is here now
 
@@ -109,7 +107,7 @@
 
   The `<label>` is not decoration either: an interactive element with no
   accessible name is a warning under this package's own clj-kondo export
-  (`:re-frame.hicasso/nameless-interactive-element`, rf2-hic-022), and an
+  (`:re-frame.hicasso/nameless-interactive-element`), and an
   exemplar that trips the lint it ships would be a poor first thing to
   copy."
   [_]

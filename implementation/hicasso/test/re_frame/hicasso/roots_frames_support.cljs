@@ -387,8 +387,7 @@
   `:swallow-uncaught?` calls `preventDefault` on the error event.
   **Off by default, and it belongs only at a call site that MANUFACTURES
   a recoverable error and asserts on it** — anywhere else it is the
-  fail-open the browser runner's pageerror rule exists to prevent
-  (rf2-mwx08)."
+  fail-open the browser runner's pageerror rule exists to prevent."
   ([] (open-console-capture! nil))
   ([{:keys [swallow-uncaught?]}]
    (let [captured (atom [])

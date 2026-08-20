@@ -516,7 +516,7 @@
                 {:keys [seen stop!]} (sup/watch-mismatches!)
                 ;; MANUFACTURED here and asserted on here — the only shape
                 ;; of call site at which swallowing an uncaught error is not
-                ;; the fail-open rf2-mwx08 forbids. The divergence is the
+                ;; the fail-open the pageerror rule forbids. The divergence is the
                 ;; subject of the row, not an accident inside it.
                 {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
                 ha (mount/hydrate-root! ca frame-id [tray-screen {:tag :client}])]

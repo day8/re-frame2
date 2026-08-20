@@ -456,7 +456,7 @@
   ;; reach it: the fiber goes on holding the value it last rendered. The
   ;; reveal therefore commits a subtree that is KNOWN stale, and the
   ;; correction has to arrive before the event loop can paint it — design
-  ;; law React 3, which rf2-2l17 ruled is an ordering and not a duration.
+  ;; law React 3, which is an ordering and not a duration.
   ;;
   ;; **MEASURED, and stronger than the law requires.** The first draft of
   ;; this row waited for the correction at the microtask checkpoint, the
@@ -574,7 +574,7 @@
                   ;; re-subscribes, and React re-subscribes in a passive
                   ;; effect. There is no earlier hook to hoist the
                   ;; correction into, and `invalidate-cell!`'s microtask —
-                  ;; the repair rf2-2l17 made for the reincarnation tear —
+                  ;; the repair for the reincarnation tear —
                   ;; is not reachable here because no cell was retired.
                   ;;
                   ;; A discrete event does not have the gap: React flushes
@@ -647,7 +647,7 @@
   ;; not. Measured here, on the run this row failed: one reader throughout
   ;; the suspension, and the retry's reader `identical?` to the first.
   ;;
-  ;; That difference is a fact rf2-hic-023's lifecycle view has to carry:
+  ;; That difference is a fact Xray's lifecycle view has to carry:
   ;; a Suspense-hidden subtree is VISIBLE-CONNECTED in this runtime's
   ;; tables while being invisible on screen, and an Activity-hidden one is
   ;; not. Collapsing them would label a live subscription as released.

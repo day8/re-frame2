@@ -89,7 +89,7 @@
   watched neither would be green over a live failure — and in the red row
   they carry the other half of the claim: the door COMPOSES over React's
   default, so the uncaught report is still there beside the diagnostic and
-  `rf2-mwx08` is not softened.
+  the pageerror rule is not softened.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM. The payload-shape row needs no DOM and runs under

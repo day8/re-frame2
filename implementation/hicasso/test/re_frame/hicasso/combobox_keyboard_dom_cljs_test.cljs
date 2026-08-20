@@ -1,22 +1,19 @@
 (ns re-frame.hicasso.combobox-keyboard-dom-cljs-test
   "L4 — THE SELECT-ONLY DROPDOWN'S KEYBOARD CONDUCT, AND THE ACTIVE-
-  DESCENDANT MODEL IT RESTS ON (rf2-hic-049; merged-PR audit #7914).
+  DESCENDANT MODEL IT RESTS ON.
 
   A dropdown built from `overlay/popover` is the one overlay pattern
   whose accessibility is entirely the APPLICATION's. The module supplies
   the top layer, the light dismiss and the anchor; every part a screen
   reader announces — the role, the expanded state, which option is
-  active, which option is selected — is markup the author writes, and
-  the audit on this bead found the guide's own example writing it
-  wrongly:
+  active, which option is selected — is markup the author writes. Two
+  ways of writing it wrongly are the subject of this file:
 
   > The focused native button carries `aria-activedescendant` for a
   > sibling listbox but has neither a combobox role nor
   > `aria-controls`/ownership, so its active-descendant model is
   > invalid. `aria-selected` also follows transient `:active` although
   > the app's committed value changes only on Enter/click.
-  >
-  > — merged-PR audit #7914, on rf2-hic-049
 
   Both halves are defects a reader cannot see and a click-driven test
   cannot reach. `aria-activedescendant` is a POINTER, and a pointer is
@@ -72,10 +69,10 @@
   ## Lanes
 
   The structural rows run everywhere — a role, a pointer and its
-  referent are facts about markup, so they are decided on rf2-hic-043's
-  projections and need no engine. The conduct rows need a real React DOM
-  and state a skip in the node lane. Nothing here is `async` (rf2-u0j8:
-  an async row under a positional fixture aborts the whole run)."
+  referent are facts about markup, so they are decided on the test kit's
+  a11y projections and need no engine. The conduct rows need a real React
+  DOM and state a skip in the node lane. Nothing here is `async` (an
+  async row under a positional fixture aborts the whole run)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
@@ -270,7 +267,7 @@
 
   Written as a sweep over the tree rather than as four assertions about
   one element, so a second combobox added tomorrow is audited the day it
-  lands — the shape rf2-hic-043's `ht/unnamed-controls` established, and
+  lands — the shape `ht/unnamed-controls` established, and
   the reason this file's claims are `= []` rather than a list of
   attribute readings.
 
