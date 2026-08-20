@@ -798,13 +798,20 @@ reads clean too**, because "unchanged" and "not attempted" are the same diff. Th
 plant that silently no-ops makes the sabotage run come back green, so the worker reports a guard that fired when
 nothing was ever broken — a false proof of a real guard, which is worse than no proof.
 
-Hash the file before the plant and compare after the restore. Three cautions:
+Hash the file before the plant and compare after the restore. Four cautions:
 
 * **On a checkout whose line endings are translated, use version control's own content hash against the committed
   object, not a plain byte digest of the working file.** A checkout during a rebase can rewrite the working file
   after you hashed it, so a plain digest reports a *correct* restore as failed. A false "restore failed" is not
   merely noise: the worker's next move is to doubt the whole sabotage result, and the sabotage result is the
   deliverable.
+* **When you write that hash down, call it a *blob* hash in the words immediately before the token.** A content
+  hash is forty hex characters, indistinguishable from a commit id, and the prose carrying it is commit-flavoured
+  by construction — "identical before the plant and after it, against the committed object". A provenance checker
+  that classifies each hex token by the *nearest* description on its left reads "committed", files the token as a
+  citation of a commit that exists nowhere, and reds a gate over the one sentence in the record that describes its
+  own evidence. "The identical blob hash `<token>`" costs a word and settles it; the correct word further left
+  loses to whatever sits closer.
 * **Anchor a patch to a single line.** One worker's multi-line anchor matched nothing, with no error and no edit,
   and only the hash caught it.
 * **A hash proves the SOURCE changed, not that the runtime ever saw it.** One worker planted a one-line fault and
