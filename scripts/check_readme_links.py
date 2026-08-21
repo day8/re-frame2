@@ -103,25 +103,17 @@ What this skips (deliberate scope cuts):
     * Markdown BELOW the repo root that is not a README.md.  The root
       roster is deliberately non-recursive; everything deeper is either
       the docs gate's or a README this gate already walks.
-
-THE MAYOR-LOOP COMMAND FILES ARE A THIRD, DIFFERENT SURFACE (rf2-1yy75).
-`.claude/commands/*.md` is what the mayor loop actually EXECUTES;
-`docs/the-mayor-method/**` DESCRIBES the same practice.  They drifted for
-hours in rf2-40d9d — the method doc was corrected, the command file kept
-the retired reaping rule, and the loop destroyed live worker gate runs
-while following the file that runs rather than the file that describes.
-Semantic agreement between the two is not checkable and rf2-1yy75 says
-so.  What IS checkable is the mechanical half: the command files name
-method docs BY PATH and BY FILENAME, so a rename breaks them silently.
-This gate resolves those references — see `_check_command_file_refs`.
-
-And they name SCRIPTS the same way (rf2-2eivg).  The arm shipped
-resolving `.md` and nothing else, which left the references the loop
-actually EXECUTES — `scripts/beads-checkpoint.sh`,
-`scripts/check_fast_pr_gap.py`, `.github/scripts/report-changed-
-surfaces.sh` — checked by nothing, dangling at exit 0 after a rename.
-The path form now resolves ANY extension; the bare-filename form stays
-markdown for a measured reason recorded at `_COMMAND_DOC_REF_RE`.
+    * `.claude/commands/*.md` — the mayor-loop command files.  This gate
+      once carried a fourth arm resolving path-shaped REFERENCES in them
+      (rf2-1yy75 / rf2-2eivg), because those files were EXECUTED rather
+      than rendered and a renamed method doc or script broke them
+      silently.  PR #8635 deleted all seven; the roster went empty, and
+      an arm that passes because it has no inputs is coverage for
+      nothing — so it was removed rather than left wearing a vacuous
+      green (rf2-tg4ho).  Should `.claude/`
+      ever carry tracked markdown again, `_iter_source_markdown` takes it
+      as ordinary beside-source markdown; the reference resolver is gone
+      and re-adding it needs the original case remade.
 
 CLI:
     --verbose       print progress + per-finding detail
@@ -379,7 +371,6 @@ def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
     records: an author's untracked scratch note must not red a gate that CI runs
     on a clean clone.
     """
-    commands = {p.resolve() for p in _iter_command_files(repo_root)}
     for rel in _git_ls_files(repo_root, "*.md"):
         if "/" not in rel:
             continue                      # _iter_root_markdown's roster
@@ -390,13 +381,6 @@ def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
             continue
         if not path.is_file():
             # Tracked but absent mid-rename; the index still lists it.
-            continue
-        # The mayor-loop command files are the THIRD arm's surface (rf2-1yy75),
-        # where they are scanned for path-shaped REFERENCES rather than anchors.
-        # They carry no headings and no markdown links, so taking them here
-        # would find nothing and double-scan seven files -- measured: zero
-        # findings either way.
-        if path.resolve() in commands:
             continue
         yield path
 
@@ -416,204 +400,6 @@ def _iter_scanned(repo_root: Path) -> Iterable[Path]:
                 continue
             seen.add(ap)
             yield path
-
-
-# --------------------------------------------------------------------------
-# rf2-1yy75 — the mayor-loop command files and the method docs they name.
-#
-# WHY THESE REFERENCES NEED A RESOLVER RATHER THAN A ROSTER ENTRY.  The obvious
-# fix — adding `.claude` to `check_doc_slugs.py`'s `DEFAULT_ROOTS` — validates
-# NOTHING, and that is measured rather than argued: the five tracked command
-# files (70 lines) contain ZERO markdown links, ZERO headings, and therefore
-# ZERO rendered fragment ids.  Every reference in them is a bare or BACKTICKED
-# path (`` `docs/the-mayor-method/bootstrap.md` ``, and a bare
-# `dispatch-prompt-template.md` in two more files), and both link gates
-# deliberately mask inline code and only ever examine `[text](dest)` links
-# (rf2-mqv8s).  A roster entry would scan five more files and check nothing in
-# them — today, and equally on the day a method doc is renamed.
-#
-# WHY THIS GATE RATHER THAN THE DOCS GATE.  The same three criteria rf2-znup0
-# weighed for repo-root markdown, and the answer is decided on renderer
-# authority and scheduling, not on findings:
-#
-#   * RENDERER.  `.claude/**` appears nowhere in `mkdocs.yml` (`docs_dir: docs`),
-#     so MkDocs never renders it — and it is not documentation a GitHub reader
-#     browses either: it is prompt text the Claude Code CLI feeds to a model
-#     verbatim.  With no headings and no links there is no anchor to resolve at
-#     all, so the `_N`-versus-`-N` duplicate-suffix rule the two gates
-#     deliberately disagree on (rf2-zzt2r) simply does not arise here.  Only
-#     target RESOLUTION is meaningful, which is why this lands as a reference
-#     resolver and not as a corpus root in either gate.
-#   * NO DOUBLE-COVERAGE.  Neither gate covers `.claude/**` today, so the choice
-#     cannot double-cover a file the way widening the docs roster to the repo
-#     root would have.
-#   * SCHEDULING.  `verify-readme-links` runs `--ci` on EVERY pull request
-#     (test.yml's PR trigger is unfiltered and the job carries no surface
-#     guard), while the docs gate is documentation-surface-gated and
-#     `.claude/**` is on no surface docs.yml filters for.  A PR touching only a
-#     command file would not have run the docs gate at all.  Hosting the
-#     resolver here gets the stronger lane with no workflow change.
-#
-# The mechanism mirrors `check_doc_slugs.py`'s source-comment scan (rf2-57k74):
-# resolve path-shaped SUBSTRINGS in files that are not part of any markdown
-# corpus.  Inline code is deliberately NOT masked — for a file consumed verbatim
-# as prompt text a backticked path is exactly as load-bearing as a bare one, and
-# masking it is what makes the existing gates blind here.
-# --------------------------------------------------------------------------
-
-# The command-file roster.  A GLOB, never a hand-list of the five files that
-# exist today: a hand-list re-opens this gap one command file later.
-COMMAND_FILE_PATHSPEC = ".claude/commands/*.md"
-
-# A path-shaped reference, in either of the two forms the command files use.
-# The leading look-behind keeps the scan from starting mid-token.
-#
-# PATH FORM — two or more slash-separated segments whose last carries an
-# extension, and ANY extension (rf2-2eivg).  The arm shipped `.md`-only, so
-# every `scripts/*.py`, `*.sh`, `*.ps1` and `*.edn` path in these files was
-# resolved by nothing at all and a rename left it dangling at exit 0.  That is
-# the worse half of the gap the arm exists to close: a command file naming a
-# method doc that moved sends the mayor to READ the wrong thing, but one naming
-# a script that no longer exists sends it to RUN nothing and improvise.  The
-# rule is general rather than a hand-list of the extensions that happen to
-# appear today, which would re-open the gap one file type later — the same
-# reasoning that makes COMMAND_FILE_PATHSPEC a glob.
-#
-# A segment may LEAD with a dot: `.github/scripts/report-changed-surfaces.sh` is
-# one of the references this widening exists to cover.  It may not contain two
-# dots in a row, and that is what keeps git's range syntax out — the command
-# files are dense with `origin/main...worker/<x>` and `origin/main..worker/<x>`,
-# which are ref ranges rather than paths and must match NOTHING.
-#
-# BARE-FILENAME FORM — markdown ONLY, and that is a measurement rather than
-# timidity.  Widening the bare form to any extension raises 20 false positives
-# across the seven live command files and not one true finding: `e.g`, `v1.x`,
-# `2.53`, `10.5`, `GOV.UK`, `strategy.matrix`, `-Dre-frame.debug`,
-# `needs.detect_changed_surfaces.outputs`, `rf2-0yp7w.11`.  A bare dotted token
-# is ordinary prose; a slash is what makes it a path.  Markdown keeps the
-# exception because `dispatch-prompt-template.md` — the most rename-fragile
-# reference in the set, precisely because it carries no directory — is the
-# reference the arm was built for.
-#
-# A glob such as `ladder-*.md`, `scripts/*.sh` or `.github/workflows/*` still
-# matches NOTHING: `*` is outside every character class here, so prose about a
-# FAMILY of files is not a reference.
-_COMMAND_REF_SEGMENT = r"\.?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*"
-_COMMAND_REF_FILENAME = r"\.?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+"
-_COMMAND_DOC_REF_RE = re.compile(
-    r"(?<![A-Za-z0-9_/.-])("
-    rf"(?:{_COMMAND_REF_SEGMENT}/)+{_COMMAND_REF_FILENAME}"
-    r"|[A-Za-z0-9_.-]+\.md"
-    r")(?![A-Za-z0-9_-])"
-)
-
-# Repo-root trees that are GITIGNORED BY DESIGN, so a reference into one can
-# never resolve against a tracked roster.  Skipped rather than reported — the
-# alternative is a gate that reds on following the house rules.
-#
-#   * `ai/`       — CLAUDE.md's local working tree; the repo's own instructions
-#                   send agents to write findings there.
-#   * `.scratch/` — `.gitignore`'s `**/.scratch/`; where the command files tell
-#                   workers to put gate logs and exit-code files, so they name
-#                   paths under it (`.scratch/test-fast-pr.run`) as a matter of
-#                   course.  Invisible to the `.md`-only rule, surfaced the
-#                   moment the path form widened (rf2-2eivg).
-_UNTRACKED_REF_ROOTS = frozenset({"ai", ".scratch"})
-
-
-def _iter_command_files(repo_root: Path) -> Iterable[Path]:
-    """Yield every GIT-TRACKED mayor-loop command file (rf2-1yy75).
-
-    Tracked, not walked, for the rf2-k30r7 reason and one specific to this
-    tree: `/.claude/worktrees/` is gitignored, and the tooling that uses it
-    puts whole repository checkouts there.  A `rglob("*.md")` under `.claude`
-    would descend into one and scan thousands of files that are not repository
-    content — slow on the author's machine, invisible on CI's clean clone.
-    """
-    for rel in _git_ls_files(repo_root, COMMAND_FILE_PATHSPEC):
-        path = repo_root / rel
-        # A tracked path can be absent from the working tree mid-rename; the
-        # index still lists it. Skip rather than crash the whole scan.
-        if path.is_file():
-            yield path
-
-
-def _tracked_reference_index(repo_root: Path) -> tuple[frozenset[str], frozenset[str]]:
-    """Return (every tracked repo-relative path, tracked .md basenames).
-
-    Both halves are needed because the command files reference files both ways,
-    and the two halves have DIFFERENT reach on purpose (rf2-2eivg):
-
-        * The path half is the whole tracked tree, because the path form
-          resolves any extension — `scripts/beads-checkpoint.sh` and
-          `.github/scripts/report-changed-surfaces.sh` are references the loop
-          RUNS, and were resolved by nothing while this index was markdown-only.
-        * The basename half stays markdown, because the bare-filename form does
-          — see `_COMMAND_DOC_REF_RE` for the false-positive measurement that
-          decided it.
-
-    Resolution is against the TRACKED set rather than the filesystem so the
-    verdict is identical on the author's machine and on CI's clean clone.
-    """
-    return (
-        frozenset(_git_ls_files(repo_root, "*")),
-        frozenset(rel.rsplit("/", 1)[-1] for rel in _git_ls_files(repo_root, "*.md")),
-    )
-
-
-def _check_command_file_refs(
-    repo_root: Path,
-    *,
-    command_files: Iterable[Path],
-    tracked_index: tuple[frozenset[str], frozenset[str]] | None = None,
-) -> list[tuple[Path, int, str, str]]:
-    """Resolve every path-shaped reference in the mayor-loop command files.
-
-    Returns (command-file, line-no, reference, reason) per unresolved
-    reference.  A path-form reference must name a tracked file at exactly that
-    repo-root-relative path — which is also the only form that means anything
-    in a file executed from the repo root, so requiring it is a feature — and
-    its extension is unconstrained (rf2-2eivg), so a renamed script dangles
-    here rather than at the moment a mayor tries to run it.  A bare-filename
-    reference must match the basename of at least one tracked markdown file;
-    that is the weaker of the two rules, and it is the one that covers
-    `dispatch-prompt-template.md`, the most rename-fragile reference in the set
-    precisely because it carries no directory to anchor it.
-
-    Every match on a line is resolved, not just the first: a command file
-    routinely names two paths in one sentence, and a scan that stopped at the
-    first would report the earlier break and swallow the later one.
-
-    `command_files` and `tracked_index` are parameters, not module state, so
-    the self-tests drive the mechanism with fixture inputs instead of depending
-    on the production command files being present or absent.
-    """
-    command_files = list(command_files)
-    if not command_files:
-        return []
-    if tracked_index is None:
-        tracked_index = _tracked_reference_index(repo_root)
-    tracked_paths, tracked_names = tracked_index
-
-    broken: list[tuple[Path, int, str, str]] = []
-    for src in command_files:
-        text = src.read_text(encoding="utf-8", errors="replace")
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            for match in _COMMAND_DOC_REF_RE.finditer(line):
-                ref = match.group(1)
-                segments = ref.split("/")
-                if segments[0] in _UNTRACKED_REF_ROOTS:
-                    continue
-                if len(segments) > 1:
-                    if ref not in tracked_paths:
-                        broken.append(
-                            (src, line_no, ref, "no tracked file at that path")
-                        )
-                elif ref not in tracked_names:
-                    broken.append(
-                        (src, line_no, ref, "no tracked markdown file of that name")
-                    )
-    return broken
 
 
 def _github_dedupe(slug: str, occurrences: dict[str, int]) -> str:
@@ -748,8 +534,6 @@ def check(
     repo_root: Path,
     verbose: bool = False,
     check_external: bool = False,
-    *,
-    command_files: Iterable[Path] | None = None,
 ) -> int:
     """Validate every README.md plus every repo-root markdown file.  Return finding count.
 
@@ -758,26 +542,12 @@ def check(
         * BROKEN ANCHOR   — file exists, anchor doesn't.
         * BROKEN EXTERNAL — only when check_external=True; HEAD-probe
                             failed or returned non-2xx/3xx.
-        * BROKEN COMMAND-FILE REFERENCE — (rf2-1yy75) a `.md` path or filename
-                            named by a mayor-loop command file
-                            (`.claude/commands/*.md`) resolves to no tracked
-                            file — a path form of ANY extension, or a bare
-                            `.md` filename (rf2-2eivg).  These files are
-                            executed, not rendered; see
-                            `_check_command_file_refs`.
-
-    `command_files` defaults to the tracked production roster; the self-tests
-    pass fixture inputs so a fixture never depends on it.
     """
     files = list(_iter_scanned(repo_root))
-    if command_files is None:
-        command_files = list(_iter_command_files(repo_root))
-    else:
-        command_files = list(command_files)
     if verbose:
         sys.stderr.write(
-            f"scanning {len(files)} file(s) (README corpus + repo-root markdown)"
-            f" + {len(command_files)} mayor-loop command file(s)...\n"
+            f"scanning {len(files)} file(s) "
+            "(README corpus + repo-root markdown + markdown beside source)...\n"
         )
 
     slug_cache: dict[Path, set[str]] = {}
@@ -842,16 +612,7 @@ def check(
                         (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                     )
 
-    broken_command_refs = _check_command_file_refs(
-        repo_root, command_files=command_files
-    )
-
-    total = (
-        len(broken_target)
-        + len(broken_anchor)
-        + len(broken_external)
-        + len(broken_command_refs)
-    )
+    total = len(broken_target) + len(broken_anchor) + len(broken_external)
 
     if broken_target:
         sys.stderr.write(
@@ -899,37 +660,10 @@ def check(
                 f"      ({reason})\n"
             )
 
-    if broken_command_refs:
-        sys.stderr.write(
-            f"\n{len(broken_command_refs)} unresolved reference(s) in the "
-            "mayor-loop command files (rf2-1yy75):\n\n"
-        )
-        for src, line_no, ref, reason in broken_command_refs:
-            rel = src.relative_to(repo_root.resolve()).as_posix()
-            sys.stderr.write(
-                f"  BROKEN COMMAND-FILE REFERENCE: {rel}:{line_no} -> {ref}\n"
-                f"      ({reason})\n"
-            )
-        sys.stderr.write(
-            "\nFix: `.claude/commands/*.md` is what the mayor loop EXECUTES and "
-            "`docs/the-mayor-method/**` is what DESCRIBES it — the two drifting "
-            "apart cost a day of destroyed worker gate runs (rf2-40d9d).  If a "
-            "method doc or a script moved, update the command file that names "
-            "it; if a command file names a file that never existed, correct the "
-            "reference.  Paths in these files are read from the repo root, so "
-            "write them repo-root-relative.\n"
-            "\nIf the path is named in order to say it is GONE — prose "
-            "recording that some earlier change DELETED it — then the "
-            "reference is accurate and the sentence is what needs rewording: "
-            "name the artefact rather than its path, because this gate cannot "
-            "tell a citation from an instruction and the loop reading the file "
-            "may not either (rf2-2eivg).\n"
-        )
-
     if total == 0 and verbose:
         sys.stderr.write(
-            "no broken README / repo-root markdown links, and every mayor-loop "
-            "command-file reference resolves.\n"
+            "no broken links in the README corpus, repo-root markdown or "
+            "markdown beside source.\n"
         )
 
     return total
@@ -987,29 +721,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         # comes from the root roster and nothing else. Both directions:
         ("root_markdown_ok",                 0),  # correct root links stay silent
         ("root_markdown_broken_link",        2),  # broken target + broken anchor
-        # rf2-1yy75 — the mayor-loop command files. Neither fixture contains a
-        # README.md or any root markdown, so every count below comes from the
-        # command-file resolver and nothing else. Both directions, and both
-        # reference forms the live command files actually use:
-        ("command_refs_ok",                  0),  # backticked path + bare filename resolve;
-                                                  # a `ladder-*.md` glob and an `ai/` link
-                                                  # are not references, and this 0 pins it
-        ("command_refs_broken",              2),  # one drifted path form + one drifted bare
-                                                  # filename, alongside a reference that
-                                                  # still resolves — so 2 fails both ways
-        # rf2-2eivg — the same arm, resolving the SCRIPT paths the command files
-        # are dense with. Same construction as the pair above, and the same
-        # reason no README or root markdown is present: every count here comes
-        # from the command-file resolver alone.
-        ("command_script_refs_ok",           0),  # a `.sh`, a dotfile-directory `.sh` and an
-                                                  # `.edn` all resolve, while a glob, a git ref
-                                                  # RANGE, a gitignored root and a bare
-                                                  # non-markdown filename stay silent
-        ("command_script_refs_broken",       2),  # a drifted `scripts/*` path, plus a drifted
-                                                  # dotfile-directory path sitting SECOND on a
-                                                  # line whose first reference resolves — so a
-                                                  # scan that took one match per line, or
-                                                  # stopped at the first finding, reads 1
     ]
 
     failures = 0
@@ -1127,78 +838,6 @@ def _run_self_tests(verbose: bool = False) -> int:
             "gate while tracked root markdown stays covered\n"
         )
 
-    # rf2-1yy75 — the command-file roster is GIT-TRACKED, for the rf2-k30r7
-    # reason and for one specific to this tree: `/.claude/worktrees/` is
-    # gitignored and holds whole repository checkouts, so a filesystem walk
-    # under `.claude` would scan content that is not repository content at all.
-    # The tooth is causal in both directions, mirroring the root-roster tooth
-    # above: the scratch command file is first proven poisonous when a roster
-    # does reach it, then proven absent from the tracked roster.
-    cmd_ok = _SELF_TEST_FIXTURE_ROOT / "command_refs_ok"
-    cmd_scratch = cmd_ok / ".claude" / "commands" / "untracked-scratch.md"
-    try:
-        cmd_scratch.write_text(
-            "---\n"
-            "description: Untracked scratch command file.\n"
-            "---\n"
-            "Names a method doc nobody ever wrote: "
-            "`docs/the-mayor-method/1yy75-no-such-doc.md`.\n",
-            encoding="utf-8",
-        )
-        scratch_is_poisonous = not (
-            cmd_ok / "docs" / "the-mayor-method" / "1yy75-no-such-doc.md"
-        ).exists()
-        walk_roster = {
-            p.relative_to(cmd_ok).as_posix()
-            for p in cmd_ok.glob(".claude/commands/*.md")
-        }
-        saved_stderr = sys.stderr
-        sys.stderr = _DevNull()
-        try:
-            findings_with_scratch = check(cmd_ok, verbose=False, check_external=False)
-        finally:
-            sys.stderr = saved_stderr
-        tracked_roster = {
-            p.relative_to(cmd_ok).as_posix() for p in _iter_command_files(cmd_ok)
-        }
-    finally:
-        cmd_scratch.unlink(missing_ok=True)
-
-    scratch_rel = ".claude/commands/untracked-scratch.md"
-    live_rel = ".claude/commands/mayor-example.md"
-    if not (scratch_is_poisonous and scratch_rel in walk_roster):
-        sys.stderr.write(
-            "self-test FAIL: the untracked command-file fixture is not actually "
-            "poisonous to a walk-based roster, so the tracking tooth proves "
-            f"nothing (unresolvable-reference={scratch_is_poisonous}, "
-            f"walk-roster={sorted(walk_roster)})\n"
-        )
-        failures += 1
-    elif scratch_rel in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: an untracked scratch command file reached the "
-            f"roster (got {sorted(tracked_roster)})\n"
-        )
-        failures += 1
-    elif findings_with_scratch != 0:
-        sys.stderr.write(
-            "self-test FAIL: the untracked scratch command file reded the gate "
-            f"anyway, so the tracked roster is not what is consulted "
-            f"(got {findings_with_scratch})\n"
-        )
-        failures += 1
-    elif live_rel not in tracked_roster:
-        sys.stderr.write(
-            "self-test FAIL: the roster lost the tracked command file while "
-            f"excluding the untracked one (got {sorted(tracked_roster)})\n"
-        )
-        failures += 1
-    elif verbose:
-        sys.stderr.write(
-            "self-test PASS: an untracked scratch command file cannot red the "
-            "gate while tracked command files stay covered\n"
-        )
-
     # rf2-i4nb2 — the beside-source roster, asserted against the real tree.
     # Membership is only half of it: what makes this roster safe is what it
     # REFUSES, and each refusal below is a measured one rather than a taste.
@@ -1219,10 +858,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         # left alone on the same standing decision that excludes `ai/`.
         (not any("/findings/" in p for p in source_roster),
          "an exploratory findings/ document reached the beside-source roster"),
-        # The third arm's surface -- scanned for path-shaped references, not
-        # anchors. Taking them here would double-scan seven files.
-        (not any(p.startswith(".claude/commands/") for p in source_roster),
-         "a mayor-loop command file is double-covered"),
         # Rosters must stay disjoint: the other two own these.
         (not any(p.rsplit("/", 1)[-1] == "README.md" or "/" not in p
                  for p in source_roster),
@@ -1235,8 +870,8 @@ def _run_self_tests(verbose: bool = False) -> int:
     if all(ok for ok, _ in must_hold) and verbose:
         sys.stderr.write(
             "self-test PASS: the beside-source roster takes the navigated "
-            f"documents ({len(source_roster)}) and refuses fixtures, findings/ "
-            "and the command files\n"
+            f"documents ({len(source_roster)}) and refuses fixtures and "
+            "findings/\n"
         )
 
     # ... and the same causality tooth the two rosters above carry: an untracked
@@ -1293,7 +928,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 5} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases) + 4} self-tests passed.\n")
     return 0
 
 
