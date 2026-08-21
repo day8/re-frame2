@@ -593,13 +593,23 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > firing. The eleven-arm series `rf2-lo7uy` opened, so absolutes are not
 > arm-by-arm comparable with the nine- and eight-arm windows above.
 >
-> **What was fixed BEFORE run 1, and committed before run 1 so the ordering is
-> checkable rather than asserted.** The run count (three — the window does not
-> extend because an answer looks unsettled), the window shape (32 frames, 8 ×
-> (2 + 8) = 64 kept samples per arm, grid 0.0015625 ms/commit — the instrument's
-> own shape, no gate, tolerance or knob touched), and the adjudication rule
-> below. The pre-registration is the first commit of this window's branch and
-> the dataset `README.md` carries it in full.
+> **What the programmer DECLARES was fixed before run 1**, and what the history
+> can and cannot show of it. The run count (three — the window does not extend
+> because an answer looks unsettled), the window shape (32 frames, 8 × (2 + 8) =
+> 64 kept samples per arm, grid 0.0015625 ms/commit — the instrument's own shape,
+> no gate, tolerance or knob touched), and the adjudication rule below. The
+> pre-registration is the first commit of this window's branch — `f34af10`, the
+> data commit's parent, carrying the registration and nothing else — and the
+> dataset `README.md` carries it in full. **What that ancestry establishes is
+> that the rule's CONTENT precedes the data in the commit graph. The ordering
+> against the runs themselves is declared, not checked.** Nothing durable puts
+> the commit object before run 1: its committer field reads 10:52:20, after the
+> last of the runs it registers — the box brackets below close at 10:41:29 — and
+> the branch reached the remote later still. The one artefact
+> pointing earlier is the author field, and that field does not fix when this
+> commit was made. So read the rule below as pre-registered on the programmer's
+> word — and read the numbers as readings, which they are either way, because
+> every delta, share and verdict here is re-derivable from the transcripts.
 >
 > **THE RULE.** Each run carries its own three nulls, each of which is `c-local`
 > again through the same constructor, so each null delta has a true cost of
@@ -615,7 +625,7 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > | `c-null`, displaced in mean and shape | 2 | +0.0297 | +0.0141 | +0.0500 |
 > | `c-null-twin`, `c-local`'s footprint exactly | 9 | +0.0031 | +0.0281 | +0.0297 |
 > | `c-null-curve`, same mean, other shape | 10 | +0.0109 | +0.0172 | +0.0359 |
-> | **the run's null spread** | — | **[+0.0031, +0.0297]** | **[+0.0140, +0.0281]** | **[+0.0296, +0.0500]** |
+> | **the run's null spread** | — | **[+0.0031, +0.0297]** | **[+0.0141, +0.0281]** | **[+0.0297, +0.0500]** |
 >
 > **The absolutes, all eleven arms** (p50 [min–max], ms per 141-key commit):
 >
@@ -634,16 +644,27 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > | `c-null-curve` | 0.8812 [0.5969–1.3031] | 0.9016 [0.6375–1.2813] | 0.7375 [0.5938–1.0500] |
 > | copy fidelity `c-local`/`commit` | 0.9501 | 0.9393 | 0.9841 |
 >
-> **THE SHARE COLUMN IS THE ROBUST STATISTIC HERE AND THE ABSOLUTES ARE THE
-> FRAGILE ONE**, which is worth saying plainly because it is the opposite of how
-> the two are usually read. `c-local` moved 0.7734–0.9187 across three runs of
-> one binary in one session — 19% — while the reaction build's share of it moved
-> 66.5–67.4%, a spread of nine tenths of one percentage point. A share divides
-> two arms measured microseconds apart in the same interleave, so whatever makes
-> the box faster or slower between runs largely divides out; an absolute carries
-> it whole. That is the case for republishing this decomposition as shares of a
-> same-run denominator, and it is also why no absolute here should be lifted out
-> of this table and quoted as a property of the tree.
+> **WHAT A SAME-RUN DENOMINATOR BUYS, AND WHAT IT DOES NOT.** `c-local` moved
+> 0.7734–0.9187 across three runs of one binary in one session — 19% — and every
+> absolute in the table above carries that movement whole. A share divides two
+> arms measured microseconds apart in the same interleave, so whatever makes the
+> box faster or slower between runs largely divides out of the ratio. That is the
+> case for republishing this decomposition as shares of a same-run denominator,
+> and it is why no absolute here should be lifted out of this table and quoted as
+> a property of the tree.
+>
+> **None of that makes the share column AS A COLUMN the steadier statistic.** On
+> the reaction build it plainly is: that share moved 66.5–67.4%
+> across the three runs, a spread of nine tenths of one percentage point, against
+> a denominator that moved 19% — and that row is worth reading share-first for
+> exactly that reason. The cell-map insert goes the other way. Its share moved
+> 7.1–10.3% — a spread of about 45% of its own lowest reading — while the
+> absolute it divides moved 0.0656–0.0797, a spread of about 21%: on that row the
+> share is the MORE variable of the two, not the less. What divides out of a ratio is the movement the two
+> arms share, and for a term of seven hundredths of a millisecond that leaves the
+> numerator's own scatter untouched and now measured against a moving
+> denominator. So read each row's share beside its own absolute rather than
+> trusting the column.
 >
 > **THE TWO RESOLVED TERMS.** The reaction build + cache insert clears its run's
 > null by a factor of 10–20 on every run and is the dominant term of the commit

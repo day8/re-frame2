@@ -5,11 +5,16 @@ decomposition, one file per run, in run order. The window is written up in
 `docs/design/hicasso/studio/the-cold-read-mount-term.md`; these are the
 transcripts that page's republished table is read off.
 
-## THE PRE-REGISTRATION — written and committed BEFORE run 1 started
+## THE PRE-REGISTRATION — DECLARED as fixed before run 1 started
 
-Everything in this section was fixed before the first run and held for every
-arm of every run. It is committed as its own commit so the ordering is
-checkable in the history rather than asserted here.
+Everything in this section is declared to have been fixed before the first run
+and held for every arm of every run. It is committed as its own commit,
+`f34af10`, the data commit's parent — so the history establishes that this
+content precedes the data, and that is all it establishes. It does not show the
+commit object itself existing before run 1: that commit's committer field reads
+after the last run, and the branch reached the remote later still. **The
+ordering against the runs is the programmer's declaration, not a check.** The
+readings below are re-derivable from the transcripts either way.
 
 | | |
 |---|---|
