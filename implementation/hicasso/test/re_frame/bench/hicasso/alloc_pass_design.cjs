@@ -73,7 +73,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert');
 const { allocPassFlips } = require('../../../../../core/test/re_frame/bench/p0_run.cjs');
-const { decompose, separation, scheduleDrove } = require('./alloc_pass_position.cjs');
+const {
+  decompose,
+  separation,
+  scheduleDrove,
+  admissibleRun: readerAdmissibleRun,
+} = require('./alloc_pass_position.cjs');
 
 // The window this file was written for. Both are re-derivable from the record
 // and neither is a threshold: the round count is what buys criterion 2 an exact
@@ -240,6 +245,14 @@ function identifies(flips) {
 // Every clause is a DECLARED PARAMETER of this window or a control the record
 // already carries. Nothing here is a tolerance and nothing is compared against
 // a byte threshold.
+// THE ESTIMATOR PARAMETERS ARE DECLARED HERE TOO, and the audit of #8615 is
+// why. It found this boundary admitting a record with `plan`, `roots`,
+// `boundaries` or `writes` changed, although all four are declared fixed — and
+// `boundaries` is the `B` every `d` is divided by, so a run that moved it is
+// not a run of the same estimator at all. The clause list lives in
+// `alloc_pass_position.cjs`, but a clause is only checked against a parameter
+// something DECLARES, so omitting them here left the checks inert. All four are
+// phase 3's committed values, so its four runs are admitted exactly as before.
 const WINDOW = {
   rounds: ROUNDS,
   passOrder: 'seeded',
@@ -247,40 +260,27 @@ const WINDOW = {
   writePaired: true,
   segOrder: 'parity',
   controlSlot: 'first',
+  plan: 'full',
+  roots: 4,
+  boundaries: 4,
+  writes: 6,
 };
 
+// IT DELEGATES, AND THAT IS THE REPAIR THE AUDIT OF #8615 ASKED FOR. This file
+// used to carry its own copy of the clause list while `alloc_pass_position.cjs`
+// carried none, so the boundary sat in FRONT of the reader instead of inside
+// it and the two could drift. The clauses now live in the reader — including
+// the completeness check that closes this file's own `scheduleDrove` hole,
+// where a `perRound` truncated to one row returned `true` vacuously — and this
+// front door adds the one clause that cannot live there: `identifies`, which
+// drives the fixtures through `decompose` and would make the import circular.
 function admissibleRun(row, expect = {}) {
-  const reasons = [];
   const want = { ...WINDOW, ...expect };
-  const v = row.controlVerdict || {};
-  const ver = row.verification || {};
-  if (v.ok !== true) reasons.push('positive control did not pass');
-  if (ver.unverified !== 0) reasons.push(`unverified read-backs ${ver.unverified}`);
-  if (row.passOrder !== want.passOrder) reasons.push(`pass order ${row.passOrder}`);
-  if (want.passSeed !== undefined && row.passSeed !== want.passSeed) {
-    reasons.push(`seed ${row.passSeed} is not the declared ${want.passSeed}`);
-  }
-  if (row.rounds !== want.rounds) reasons.push(`rounds ${row.rounds}`);
-  if (row.writePaired !== want.writePaired) reasons.push(`writePaired ${row.writePaired}`);
-  if ((row.writeLegs || []).join(',') !== want.writeLegs.join(',')) {
-    reasons.push(`write legs ${JSON.stringify(row.writeLegs)}`);
-  }
-  if (row.segOrder !== want.segOrder) reasons.push(`segment order ${row.segOrder}`);
-  if (row.controlSlot !== want.controlSlot) reasons.push(`control slot ${row.controlSlot}`);
+  const { reasons } = readerAdmissibleRun(row, want);
   const sched = row.passSchedule;
-  if (!sched || !Array.isArray(sched.flips)) {
-    reasons.push('no schedule in the record');
-  } else {
-    if (sched.parityTied !== false) reasons.push('the draw was parity-tied');
-    const props = scheduleProps(sched.flips);
-    if (props.parityDot !== 0) reasons.push(`q·parity ${props.parityDot}`);
-    if (props.linearDot !== 0) reasons.push(`q·linear ${props.linearDot}`);
-    if (!identifies(sched.flips)) reasons.push('the schedule does not recover the fixtures');
-    if (want.flips && props.key !== scheduleProps(want.flips).key) {
-      reasons.push('the drawn schedule is not the one this run declared');
-    }
+  if (sched && Array.isArray(sched.flips) && !identifies(sched.flips)) {
+    reasons.push('the schedule does not recover the fixtures');
   }
-  if (scheduleDrove(row) !== true) reasons.push('the drive does not match the draw');
   return { ok: reasons.length === 0, reasons };
 }
 
@@ -299,7 +299,12 @@ function syntheticRow(pick) {
     writePaired: true,
     segOrder: WINDOW.segOrder,
     controlSlot: WINDOW.controlSlot,
-    boundaries: 4,
+    // Shaped as the DRIVER writes one: `plan` is an object in a record and a
+    // name in a declaration.
+    plan: { name: WINDOW.plan, arms: true, rungs: true, fits: true },
+    roots: WINDOW.roots,
+    boundaries: WINDOW.boundaries,
+    writes: WINDOW.writes,
     controlVerdict: { ok: true, perDouble: 8.08, differential: 8 },
     verification: { unverified: 0 },
     perRound: pick.flips.map((flip, r) => ({
@@ -435,6 +440,16 @@ function designControl() {
     ['control slot', (r) => { r.controlSlot = 'last'; }],
     ['drive against draw', (r) => { r.perRound[0].writeLegs = ['all', 'page']; }],
     ['the declared schedule', (r) => { r.passSchedule.flips = picks[1].flips.slice(); }],
+    // THE FOUR THE AUDIT OF #8615 FOUND ADMITTED. `boundaries` is the divisor
+    // of every `d`, so a run that moved it is a different estimator.
+    ['the plan', (r) => { r.plan = { ...r.plan, name: 'narrow' }; }],
+    ['the root count', (r) => { r.roots = 2; }],
+    ['the boundary count', (r) => { r.boundaries = 8; }],
+    ['the write count', (r) => { r.writes = 5; }],
+    // AND THE THREE CORPUS SHAPES `scheduleDrove` USED TO BLESS VACUOUSLY.
+    ['an empty drive', (r) => { r.perRound = []; }],
+    ['a truncated drive', (r) => { r.perRound = r.perRound.slice(0, 1); }],
+    ['a duplicated round', (r) => { r.perRound[1] = { ...r.perRound[0] }; }],
   ];
   for (const [name, breakIt] of breaks) {
     const bad = syntheticRow(picks[0]);
@@ -476,7 +491,17 @@ if (require.main === module) {
   if (args[0] === '--admit') {
     const picks = selectSeeds();
     let worst = 0;
-    args.slice(1).forEach((f, i) => {
+    // AN EMPTY OR SHORT CORPUS IS A REFUSAL, NOT A PASS. The audit of #8615
+    // found this CLI exiting 0 for no files at all and for one of the declared
+    // four: the loop below only ever reports on files it was handed, so
+    // "nothing was refused" read as "everything was admitted". The run count is
+    // declared, so a corpus that does not carry it never reaches the loop.
+    const files = args.slice(1);
+    if (files.length !== RUNS) {
+      console.log(`;;   REFUSED — the corpus holds ${files.length} run(s), not the declared ${RUNS}.`);
+      process.exit(1);
+    }
+    files.forEach((f, i) => {
       const row = JSON.parse(fs.readFileSync(f, 'utf8')).alloc;
       const pick = picks[i];
       const got = admissibleRun(row, pick ? { passSeed: pick.seed, flips: pick.flips } : {});
