@@ -243,8 +243,9 @@
   verdict, the control's verdict and the runtime label. Then two
   comparative figures — `:locale / :donor-locale` and
   `:theme / :donor-theme`, per round and as a range, through
-  `lane/ratio-between` — and every arm's range against the floor through
-  `lane/across-rounds`.
+  `lane/ratio-between` — every arm's range against the floor through
+  `lane/across-rounds`, and per pair what size of difference the run
+  could have SEEN, through `lane/resolution`.
 
   **No line is applied to any of them.** `U3`'s 100 ms `p95`, `C3`'s
   `1.25x` and `C4`'s `1.5x` appear nowhere in this file and none of them
@@ -267,16 +268,39 @@
 
   That is why `:over-floor` is published beside the comparative figures.
   It is `lane/across-rounds` over each arm's ratio to `:idle-frame`, and
-  its `:straddles-1?` flag is the resolution test: an arm whose range
+  its `:straddles-1?` flag is the FIRST of two tests: an arm whose range
   against an EMPTY FRAME includes 1.0 was not separated from the floor by
   this window, and no ratio between two such arms is a reading about
   anything. The `:structure` block's `:commit` leg is the other half —
   the application's own work, outside the frame grid entirely.
 
+  ## AND THE SECOND TEST, BECAUSE THE FIRST IS NOT SUFFICIENT
+
+  **`:straddles-1?` asks whether ONE arm cleared the floor. A bar row
+  asks whether TWO arms separate from EACH OTHER at a stated line, and a
+  pair can answer yes to the first and no to the second.** That is not
+  hypothetical: under `rf2-9wmqd` the `:locale` pair cleared the gate in
+  all three evidence runs and still could not resolve `1.25x`, because
+  the same `~96%` frame grid that flattens the ratio also flattens any
+  difference in it. A reader applying only `:straddles-1?` would have
+  quoted that as a pass.
+
+  So `:resolution` is published beside `:comparative`, one entry per
+  pair, from `lane/resolution` — see that function for the arithmetic.
+  Its `:resolves-at` is the smallest difference in the ARMS' OWN WORK
+  whose effect on the published ratio would have been as large as the
+  scatter this run actually showed. **Read it against the line YOUR row
+  is stated at**: a row read at `1.25x` off a run whose `:resolves-at` is
+  `1.85` is quoting the frame grid, whatever the ratio says. It carries
+  no line and no verdict of its own, and `budgets.md` §7 is why — every
+  distributional row is adjudicated in a pinned evidence run, never here.
+
   **If the shipped seed cannot separate the measured arms from the floor,
   the honest conclusion is that `C3` needs a broader population than the
   slice's feed page** — which is a finding about the row, and never a
-  licence to widen a band or to quote an unresolved ratio.
+  licence to widen a band or to quote an unresolved ratio. A pair that
+  clears the floor but whose `:resolves-at` sits above the row's line is
+  the same finding reached one step later.
 
   Owner: rf2-9wmqd."
   (:require [re-frame.adapter.uix :as uix-adapter]
@@ -422,16 +446,18 @@
 (def populations
   "Which visits each published figure is taken over.
 
-  `:summary`, `:structure`, `:comparative` and `:over-floor` are all
-  taken over the MEASURED visits, because the last two are built out of
-  the first two and a ratio whose numerator and denominator are drawn
-  from different populations is not a ratio. `:echo` is the verification
-  tally and covers every window, warm-up included: it is a count of
-  refusals rather than a distribution, so it decomposes nothing."
+  `:summary`, `:structure`, `:comparative`, `:over-floor` and
+  `:resolution` are all taken over the MEASURED visits, because each of
+  the last three is built out of the first two and a ratio whose
+  numerator and denominator are drawn from different populations is not
+  a ratio. `:echo` is the verification tally and covers every window,
+  warm-up included: it is a count of refusals rather than a
+  distribution, so it decomposes nothing."
   {:summary     :measured-visits
    :structure   :measured-visits
    :comparative :measured-visits
    :over-floor  :measured-visits
+   :resolution  :measured-visits
    :echo        :all-visits})
 
 ;; ---------------------------------------------------------------------------
@@ -1264,7 +1290,10 @@
             control (lane/control-verdict-strict blocked-ms
                                                  (control-per-round readings)
                                                  control-slack)
-            verdict (lane/guard! samples "slice broad update")]
+            verdict (lane/guard! samples "slice broad update")
+            summary (into {} (map (fn [[id xs]] [id (lane/summarise xs)])) by-arm)
+            compare {:locale (lane/ratio-between ratios :locale :donor-locale)
+                     :theme  (lane/ratio-between ratios :theme :donor-theme)}]
         (lane/record! :slice-broad
                       {:window      :interaction-to-paint
                        :population  {:hicasso {:app   're-frame.hicasso.examples.slice
@@ -1290,12 +1319,15 @@
                                                                 rounds)
                                            :measured-per-arm (* (:samples sampling) rounds))
                        :populations populations
-                       :summary     (into {} (map (fn [[id xs]] [id (lane/summarise xs)])) by-arm)
+                       :summary     summary
                        :structure   (echo/structure-over-measured arms sampling rounds
                                                                   (:aux @!state))
-                       :comparative {:locale (lane/ratio-between ratios :locale :donor-locale)
-                                     :theme  (lane/ratio-between ratios :theme :donor-theme)}
+                       :comparative compare
                        :over-floor  (lane/across-rounds ratios)
+                       :resolution  (into {}
+                                          (map (fn [[pair c]]
+                                                 [pair (lane/resolution c summary :idle-frame)]))
+                                          compare)
                        :control     control
                        :guard       (select-keys verdict [:refuse? :contaminated?
                                                           :unchecked? :tolerance])
@@ -1309,7 +1341,12 @@
                                          "Read :over-floor's :straddles-1? on a measured arm "
                                          "before quoting any :comparative range: an arm this "
                                          "window did not separate from an empty frame carries "
-                                         "no ratio about a substrate.")})
+                                         "no ratio about a substrate. Then read :resolution's "
+                                         ":resolves-at for that pair against the line your row "
+                                         "is stated at — clearing the floor does not mean the "
+                                         "pair could resolve the line, and a difference below "
+                                         ":resolves-at is inside this run's own scatter. "
+                                         "Neither figure is a verdict.")})
         (set! (.-HICASSO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
         (set! (.-HICASSO_CONTROL_FAILED js/window) (not (:ok? control)))
         (lane/assert-verified! (:echo-tally @!state) "slice broad update")
