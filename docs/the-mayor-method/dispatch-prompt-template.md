@@ -7,6 +7,7 @@ a capable agent. Placeholders:
 - `<WORKTREE_PARENT>` — the directory holding worker worktrees (derive it from your
   version-control tool at dispatch time; never hardcode a path)
 - `<ASSIGNED_WORKTREE>` — this worker's worktree, a subdirectory of `<WORKTREE_PARENT>`
+- `<TRUNK>` — the branch a worker's change merges into
 - `<ITEM_ID>` — the tracker id
 
 > **Project-specifics live with the project, not here.** Your hot-zone file list,
@@ -629,6 +630,13 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 ---
 
 ## Quality gates — how a gate is run
+
+**This section is the gate-mechanics block.** Paste it verbatim into every editing dispatch,
+adapting only the placeholders, from this heading down to the rule before
+`## Reviewing what comes back`. **`## Quality gates — which gate` is not it and does not stand
+in for it**: that section is addressed to you as you nominate the gate, so pasting it in place
+of this one hands the worker your nomination reasoning and withholds every mechanic it needs to
+run anything at all.
 
 The gate menu settles *which* gate runs; this settles *how*. Scope it to the gate the brief
 names: the wedge paragraph assumes a gate heavy enough that two cannot coexist, and the
