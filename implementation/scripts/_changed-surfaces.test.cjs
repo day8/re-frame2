@@ -4786,9 +4786,16 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
 // open operator call (rf2-xomo finding 2), not something this test may settle
 // quietly. For the two families still in the hole the repair is unchanged: the
 // unconditional job asserted underneath.
+//
+// The name below says the CLJS NODE-TEST TIER and not "no expensive tier",
+// which is what it used to claim: `spec/009-Instrumentation.md` does arm
+// `implementation_jvm`, and roughly twenty JVM jobs stand behind that output.
+// Only ONE tier is in the hole here, the one that could host this checker, and
+// the wider claim was an overstatement a green suite concealed (rf2-xomo, audit
+// of PR #8664). Keep the name at the property the rows actually measure.
 // ---------------------------------------------------------------------------
 
-test('the complaint catalogue reads two families that arm NO expensive tier (rf2-hic-021)', () => {
+test('the complaint catalogue reads two families that do NOT arm the CLJS node-test tier (rf2-hic-021)', () => {
   for (const file of [
     'spec/009-Instrumentation.md',
     // The guide family the checker actually reads: its GUIDE_DIR followed the
