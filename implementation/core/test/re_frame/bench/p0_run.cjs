@@ -133,16 +133,27 @@
 // the roof, `max` 4,700,000 over the floor, so the range meets the band.
 // Under strict that round is NAMED and the run is refused.
 //
-// NO PUBLISHED ROW IS RE-ADJUDICATED BY THIS, because none needs to be. The
-// published ranges are what settle it without re-running anything: a range
-// whose `min` and `max` both sit inside the band bounds EVERY round inside
-// it, and across this row's published series the widest excursion either way
-// is 4,690,838 B — 0.195% below a prediction gated at ±25%, better than two
-// orders of magnitude inside. So the strict verdict of every heap row ever
-// published is `ok`, and the tightening buys teeth for the next run rather
-// than a revision of the last one. That is what makes this row's half of
-// rf2-egdaq settleable by a worker at all; the CLOCK row's half was not,
-// which is why it went to the operator and was ruled on 2026-07-31.
+// THE TEN PUBLISHED HEAP-CONTROL FIGURES ARE RE-ADJUDICATED UNDER STRICT,
+// AND ALL TEN PASS. That is the operator's 2026-08-21 call, taken so that
+// the published evidence and the current rule agree with no two-rules
+// asterisk, and it is a SEPARATE call from the strict adoption above, which
+// landed earlier in PR #8574. NO WINDOW WAS RE-RUN, and none needed to be:
+// a published `[min–max]` whose two ends both sit inside the band bounds
+// EVERY round inside it, so the committed records settle it as they stand.
+// The widest excursion either way across this row's published series is
+// 4,690,838 B against a prediction of 4,700,000 B — 0.195% low, against a
+// band of ±25% and better than two orders of magnitude inside it. Nothing
+// flips: the strict verdict of every heap row ever published is `ok`, so the
+// re-adjudication buys agreement rather than a revision, and the tightening
+// still buys teeth for the next run.
+//
+// THAT CALL REACHES THE HEAP ROW ONLY. rf2-egdaq settled as a SPLIT — one
+// rule per instrument, not one rule for both arms — and the CLOCK row's half
+// REFUSED strict under the 2026-07-31 quantum ruling. THAT REFUSAL STANDS,
+// and nothing here reopens it. The heap half was settleable from committed
+// records, which is why a worker could take it; the clock half turned on what
+// strict would cost at the instrument's own resolution, which is why it went
+// to the operator.
 //
 // Read the two docstrings before quoting `:ok?` — each answer carries the
 // `:rule` that decided it precisely so a record cannot be read under the
