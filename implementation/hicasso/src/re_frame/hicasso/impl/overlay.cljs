@@ -250,9 +250,10 @@
   it does not work here TODAY, for a reason already measured rather than
   suspected. A hydrating root carries the adoption closer as a SIBLING of
   the app subtree (`impl.mount/tree`), React derives a `useId` from tree
-  POSITION as well as from the prefix, and this package's only server
-  path emits no counterpart to that fork — so a `useId` minted in the app
-  subtree hydrates into a value the server never wrote. That is
+  POSITION as well as from the prefix, and a hand-rolled
+  `renderToString` — bytes no product door baked — emits no counterpart
+  to that fork, so a `useId` minted in the app subtree hydrates into a
+  value the server never wrote. That is
   dispositions.md HS-11's second obstruction, green in
   `identifier-prefix-ssr-dom-cljs-test`, and it would have traded a
   drifting mismatch for a fixed one on the same attribute. It would also

@@ -1079,8 +1079,9 @@
   response and appears once the client has adopted the page, which is
   what makes an island reaching for `window` safe to write without
   saying anything. One mechanism serves both arms ([[component]]), and
-  neither needs a server entry of Hicasso's own: the consumer calls
-  `react-dom/server` and the policy is honoured by rendering.
+  the policy is honoured by rendering under either caller — through
+  [[re-frame.hicasso.server/render]], the package's server door, or
+  through `react-dom/server` called by hand.
 
   Like `defview` this is not a compiler: it reads no body, expands to a
   `def`, and captures the name and the source coordinate

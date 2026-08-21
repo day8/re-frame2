@@ -51,9 +51,10 @@
   ## What these rows deliberately do NOT claim
 
   A hydrating root carries the adoption closer as a SIBLING of the app
-  subtree and the package's server path emits no counterpart, so a tree
-  containing a `useId` hydrates into an id mismatch — HS-11's obstruction
-  2, measured in `identifier-prefix-ssr-dom-cljs-test` and unrepaired.
+  subtree and this file's hand-rolled server path emits no counterpart,
+  so a tree containing a `useId` hydrates into an id mismatch — HS-11's
+  obstruction 2, measured in `identifier-prefix-ssr-dom-cljs-test` and
+  unrepaired.
   **No surface in this file mints a `useId`**: `route-link` is a plain
   function that adds no hook, `use-subs` reads through the collector's
   existing pair, and `reg-state` mints registry entries rather than
@@ -208,8 +209,11 @@
 
 (defn- server-html
   "The page as a REAL server render, through `react-dom/server`'s own
-  `renderToString` — the only server path this package has, and exactly
-  the call a consumer makes."
+  `renderToString`, called by hand — the smallest thing that produces
+  server bytes, so what these rows read is the surface's own server
+  behaviour and nothing else. The package's own server door is
+  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  instead of it."
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString
