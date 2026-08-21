@@ -1275,8 +1275,8 @@ and no figure may be scaled from one onto the other.
 
 | Family | Enforcement home |
 |---|---|
-| Deterministic rows D1–D26 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-85og2` (`rf2-hic-071`'s measurement remainder, split there on its 2026-08-14 close) |
-| Distributional rows S1–S8, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
+| Deterministic rows D1–D26, U5, U6, I9 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-85og2` (`rf2-hic-071`'s measurement remainder, split there on its 2026-08-14 close) |
+| Distributional rows S1–S8, U1–U4, C1–C8 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-0xx2` |
 | K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](../../../docs/design/hicasso/product/k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
 
@@ -1284,6 +1284,15 @@ Row by row, with each verdict beside its line, that table is
 [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger). The routing
 above is what the ledger's own gate enforces: a deterministic row must name a
 witness a pull request runs, and a distributional row must not.
+
+The two family rosters are exhaustive over the 49 registered ids, and they are
+spelled out rather than left to be inferred because the gate settles the
+question by exclusion: `check_budget_ledger.py` holds the deterministic roster
+as a closed list, and every registered id absent from that list takes the
+distributional rule. The comparative rules C1–C8 therefore sit beside S1–S8 and
+U1–U4 rather than in a family of their own — the gate has two families, not
+three — and the two rows after them say who settles C5's and C6's outcomes, not
+which lane their readings may be taken in.
 
 ---
 
