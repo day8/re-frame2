@@ -26,11 +26,14 @@
 //
 // THE RETROACTIVITY FENCE IS ALSO PINNED. The control rule reconstructed
 // here is `lane/control-verdict`'s OVERLAP rule, not the stricter
-// every-round reading — the two disagree and the disagreement is a KNOWN
-// DEFECT reserved to rf2-2rtt6.1 (rf2-egdaq). Run D contains a round at
-// 1.2653 that sits below the band floor and passes anyway, and a test below
-// pins exactly that, so a later worker who "tightens" the rule discovers
-// they are front-running an open operator ruling rather than fixing a bug.
+// every-round reading — the two disagree, and rf2-egdaq settled that
+// disagreement as a SPLIT, one rule per instrument: the HEAP arm went
+// strict, and the CLOCK arm REFUSED strict under the 2026-07-31 quantum
+// ruling, a refusal that STANDS. This ladder is a clock instrument, so
+// overlap is the ruled rule for it. Run D contains a round at 1.2653 that
+// sits below the band floor and passes anyway, and a test below pins exactly
+// that, so a later worker who "tightens" the rule discovers they are
+// overturning a settled ruling rather than fixing a bug.
 //
 // Wired into implementation/package.json via `test:script-helpers`.
 
@@ -122,13 +125,14 @@ test('the control rule is OVERLAP, exactly as `lane/control-verdict` spells it',
 });
 
 test('THE RETROACTIVITY FENCE: run D holds a round below the band and still passes', () => {
-  // rf2-egdaq / rf2-2rtt6.1. `lane.cljs` records overlap-vs-strict as a KNOWN
-  // DEFECT reserved to an operator ruling, because tightening it turns a
-  // PUBLISHED pass into a published failure. Run D is that case on this
-  // instrument: its worst round reads 1.2653 against a band floor of 1.4819.
-  // If this test ever goes red because someone made the rule stricter, the
-  // change is front-running an open ruling — take it to rf2-2rtt6.1, do not
-  // relax this test.
+  // rf2-egdaq settled overlap-vs-strict as a SPLIT: the HEAP arm went strict,
+  // the CLOCK arm REFUSED strict under the 2026-07-31 quantum ruling, and
+  // THAT REFUSAL STANDS. This is a clock instrument, so overlap is its ruled
+  // rule — and tightening it would still turn a PUBLISHED pass into a
+  // published failure. Run D is that case here: its worst round reads 1.2653
+  // against a band floor of 1.4819. If this test ever goes red because
+  // someone made the rule stricter, the change overturns that ruling — take
+  // it to the operator, do not relax this test.
   const out = agg.checkRun('D', read('D'));
   assert.ok(out.control.ok, 'run D passes under the overlap rule the page published under');
   assert.ok(

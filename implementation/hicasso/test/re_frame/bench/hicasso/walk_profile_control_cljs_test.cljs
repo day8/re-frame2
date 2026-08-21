@@ -24,12 +24,15 @@
   [[strict-rule-beats-overlap]] is the reason this file is not merely
   belt-and-braces. `lane/control-verdict`'s `:ok?` asks whether the
   measured range OVERLAPS the band; the walk profile's control asks
-  whether EVERY ROUND clears the bar. Its own docstring records the
-  overlap rule as a KNOWN DEFECT reserved to an operator ruling
-  (rf2-egdaq / rf2-2rtt6.1), so this control could not adopt it and could
-  not tighten it either. It took the stricter rule from birth instead —
-  legal precisely because it is NEW and has no published row to
-  re-adjudicate.
+  whether EVERY ROUND clears the bar. rf2-egdaq has since settled that
+  disagreement, and it settled as a SPLIT — one rule per instrument, not
+  one rule for both arms: the HEAP arm went strict, and the CLOCK arm
+  REFUSED strict under the 2026-07-31 quantum ruling, a refusal that
+  STANDS. That split adjudicates the p0 heap and clock rows and does not
+  reach this control, which was the stricter rule already and stays it.
+  It took that rule from birth — legal precisely because it is NEW and has
+  no published row to re-adjudicate — rather than adopting the lane's
+  overlap rule or retroactively tightening it.
 
   That test drives ONE dataset through BOTH rules and asserts they
   disagree on it: overlap passes, every-round refuses. A worker who
