@@ -5544,10 +5544,6 @@ const DECLARED_NO_SURFACE_OUTPUT = {
     why: 'a single settings.json for the agent harness — local configuration, not shipped code and not read by any gate',
     coveredBy: [],
   },
-  '.claude/commands': {
-    why: 'mayor-loop command files; their path references are resolved by the always-on verify-readme-links job (rf2-1yy75 built the resolver precisely because check_doc_slugs.py validates nothing here — the files carry no markdown links and no headings)',
-    coveredBy: ['scripts/check_readme_links.py'],
-  },
   '.clj-kondo': {
     why: "linter configuration; lint.yml's own surface classifier lists .clj-kondo/* explicitly",
     coveredBy: ['.github/workflows/lint.yml'],
