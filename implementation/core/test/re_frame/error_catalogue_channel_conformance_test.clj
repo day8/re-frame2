@@ -1919,12 +1919,17 @@
 ;; slot's own producers, taken separately (the answer does not transfer just
 ;; because rf2-j4bg3 found symbols):
 ;;
-;;   FrameDestroyedTags — ONE producer. Only
-;;     `substrate/observation/throw-frame-destroyed!` stamps `:where`; its three
-;;     call sites pass `'re-frame.substrate.observation/acquire!` (twice) and
-;;     `'re-frame.substrate.observation/probe`. The other emitters of this
-;;     category (router, subs) never stamp the slot at all — there was a third,
-;;     the removed `re-frame.ui`'s `ui/frames`, and it did not stamp it either.
+;;   FrameDestroyedTags — ZERO producers today, and the typed declaration is
+;;     kept anyway. It had exactly one when rf2-am6qs typed it:
+;;     `substrate/observation/throw-frame-destroyed!`, whose three call sites
+;;     passed quoted fn symbols. That namespace — the internal observation
+;;     port — was retired on 2026-08-21 (rf2-63t1i), and the surviving
+;;     emitters of this category (router, subs) never stamped the slot at all;
+;;     nor did the removed `re-frame.ui`'s `ui/frames` before them. A `:symbol`
+;;     declaration over an unstamped slot costs nothing and still refuses the
+;;     keyword mutant below, which is the one that matters; widening it back to
+;;     `:any` because the producer went away would re-open the hole for the
+;;     next producer to fall into.
 ;;
 ;;   BadFrameProviderArgTags — the SHARP one, and why the bead was filed rather
 ;;     than left. `frame/require-frame-provider-target!` threads ONE `where`
@@ -1956,17 +1961,17 @@
   "The type mutants an `:any` `:where` declaration silently accepted. Shared
   with `no-frame-context-where-mutants` in intent; kept separate so tightening
   one slot's mutant set cannot quietly weaken another's."
-  {"a string"       "re-frame.substrate.observation/probe"
+  {"a string"       "re-frame.subs/subscribe"
    "a number"       42
-   "a map"          {:ns 're-frame.substrate :name 'probe}
-   "a bare keyword" :probe})
+   "a map"          {:ns 're-frame.subs :name 'subscribe}
+   "a bare keyword" :subscribe})
 
 (def ^:private typed-where-slots
   "The three slots rf2-am6qs tightened, each with a MINIMAL payload that
   satisfies the schema's required slots — so the only thing an assertion below
   can be reading is the `:where` type."
   [{:schema   "FrameDestroyedTags"
-    :producer 're-frame.substrate.observation/probe
+    :producer 're-frame.subs/subscribe
     :base     {:category :rf.error/frame-destroyed
                :frame    :app}}
    {:schema   "BadFrameProviderArgTags"

@@ -244,21 +244,38 @@
 ;; survive — the bead forbids a blind global scrub of every `epoch` mention.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private observation-resource
-  "re_frame/substrate/observation.cljc")
+(def ^:private legitimate-per-epoch-terms
+  "The per-epoch EVIDENCE / derivation-cache axes rf2-vxgfnd.167 requires the
+  sweep to PRESERVE. They were pinned against one hardcoded `io/resource`
+  path — `re_frame/substrate/observation.cljc` — until the internal
+  observation port was retired on 2026-08-21 (rf2-63t1i). Pinning them
+  against the tracked corpus instead is what this namespace's own docstring
+  already argues for: a single hardcoded path is how the EARLIER version of
+  this gate stayed green while residue stood everywhere else."
+  ["frame-epoch" "registry-epoch" "commit-epoch"])
 
-(deftest observation-port-preserves-legitimate-per-epoch-evidence-terms
-  (testing "rf2-vxgfnd.167: the sweep must PRESERVE the port's legitimate
-            per-epoch evidence axes (`:frame-epoch` / `:registry-epoch`) and
-            the derivation `commit-epoch` law — a blind textual scrub of
-            every `epoch` mention is itself a regression the bead calls out."
-    (let [url (io/resource observation-resource)
-          _   (assert url (str "observation-port source not on the classpath: "
-                               observation-resource))
-          src (slurp url)]
-      (doseq [term ["frame-epoch" "registry-epoch" "commit-epoch"]]
-        (is (str/includes? src term)
-            (str "legitimate per-epoch evidence term `" term "` was scrubbed "
-                 "from the observation-port source; rf2-vxgfnd.167 requires "
-                 "the per-epoch EVIDENCE/derivation-cache terminology be kept, "
-                 "only the retired per-epoch RENDER law removed."))))))
+(deftest preserves-legitimate-per-epoch-evidence-terms
+  (testing "rf2-vxgfnd.167: the sweep must PRESERVE the legitimate per-epoch
+            evidence axes (`:frame-epoch` / `:registry-epoch`) and the
+            derivation `commit-epoch` law — a blind textual scrub of every
+            `epoch` mention is itself a regression the bead calls out."
+    (let [root  (repo-root)
+          _     (assert root "repository root not found")
+          paths (filterv scannable? (tracked-files root))
+          ;; This namespace names every term in the def above, so scan the
+          ;; corpus WITHOUT itself — otherwise the assertion is satisfied by
+          ;; its own source and proves nothing.
+          this  "implementation/core/test/re_frame/observation_render_law_drift_test.clj"
+          texts (into []
+                      (comp (remove #(= this %))
+                            (map #(io/file root %))
+                            (filter #(.isFile ^java.io.File %))
+                            (map slurp))
+                      paths)]
+      (doseq [term legitimate-per-epoch-terms]
+        (is (some #(str/includes? % term) texts)
+            (str "legitimate per-epoch evidence term `" term "` no longer "
+                 "appears anywhere in the tracked corpus; rf2-vxgfnd.167 "
+                 "requires the per-epoch EVIDENCE/derivation-cache "
+                 "terminology be kept, only the retired per-epoch RENDER law "
+                 "removed."))))))
