@@ -4,6 +4,45 @@
 sessions**, read against a band **declared before run 1** and computed on the
 same object as the figure it adjudicates.
 
+> **THE BAND'S REFERENCE IS RE-ADJUDICATED, AND OUTCOME 1 STANDS — 2026-08-21
+> (`rf2-t4vu1`).** The band below drew each of the eight runs' pass labels
+> **independently** from that run's own 48 admissible schedules, a support of
+> 48⁸. **That is not an assignment this design could have drawn.**
+> `alloc_pass_design.cjs`'s rule draws **two** free schedules and forces the
+> other two as their exact complements, and the pre-registration then repeats
+> the quadruple verbatim in session B — so the eight-run assignment ranges over
+> **48 × 46 = 2,208** configurations. Both restrictions are load-bearing: the
+> complement pairing is what cancels every per-index nuisance out of the pooled
+> contrast, and the cross-session repeat is what makes the session the only
+> thing separating the two halves. A reference that breaks either ranks the
+> observation against assignments the window could not have produced.
+>
+> **2,208 is small enough to enumerate, so the reference is now exact and
+> nothing is sampled.** Every figure below is left exactly as it was published
+> and nothing measured here is withdrawn; the corrections are marked in place at
+> three sites, and the corrected reading is:
+>
+> | | published below | re-adjudicated |
+> |---|---|---|
+> | mid-rung (signal) *p* | 0.00005 = 1/20001 | **0.002717 = 6 of 2,208** |
+> | mid-rung reference p97.5 | +0.176% | **+0.252%** |
+> | R = 0 null (control) *p* | 0.0934 | **0.121377 = 268 of 2,208** |
+> | smallest attainable *p* | 1/20001 | **2/2,208 = 0.000906** |
+> | phase 3 re-read under this band | 0.0013 | **0.006341 = 14 of 2,208** |
+>
+> **Not one measured term moves** — +0.31% mid-rung, 2.25 B/boundary null, all
+> eight per-run figures, both session terms — because only the reference
+> changed. **The outcome does not move either:** the signal clears α = 0.05 and
+> the null-arm control does not fire, so this window still reads OUTCOME 1 on
+> the pre-registration's own terms. What moves is how far the observation sits
+> out in the corpus's own spread, and the honest figure is less extreme than the
+> published one.
+>
+> **The floor is 2/2,208 and not 1/2,208,** which is a property of the design
+> rather than a convention: complementing both free schedules at once maps the
+> support onto itself and negates the statistic exactly, so the reference is
+> symmetric about zero and every two-sided count is even.
+
 This window owes three things and takes no rig change. `implementation/core/test/re_frame/bench/p0_run.cjs`
 is byte-identical to `origin/main` throughout — the bead's own words are *"WHAT
 THE NEXT WINDOW OWES. No rig change; `p0_run.cjs` needs nothing."*
@@ -148,10 +187,25 @@ construction rather than by assumption, and any parity structure or linear drift
 in the block values enters every re-labelling symmetrically.
 
 Each run's own reference is **exact** — all 48 re-labellings, so a per-run
-p-value is a rank among 48 and involves no sampling. Only the combination across
-runs is sampled, because the product is 48⁸: **20,000 draws from the committed
-seed `legorder-band-1`**, α = 0.05 two-sided, the observation counted, so the
-smallest attainable p is 1/20001.
+p-value is a rank among 48 and involves no sampling. ~~Only the combination
+across runs is sampled, because the product is 48⁸: **20,000 draws from the
+committed seed `legorder-band-1`**, α = 0.05 two-sided, the observation counted,
+so the smallest attainable p is 1/20001.~~
+
+> **CORRECTED 2026-08-21 (`rf2-t4vu1`).** The struck sentence is the defect the
+> banner names, and it is the reading rather than the arithmetic: the
+> combination across runs is not a free product, because the design does not
+> draw eight schedules. It draws **two** and forces the rest, so the assignment
+> ranges over **48 × 46 = 2,208** configurations — enumerable, so nothing is
+> sampled at all. α = 0.05 two-sided, and the smallest attainable *p* is
+> **2/2,208**. The declared 20,000 draws and the seed `legorder-band-1` are kept
+> in the pre-registration and reported unused rather than removed: a
+> pre-registration is not amended once its runs are taken, and the sampled
+> branch is what a design too large to enumerate would still need.
+>
+> **The per-run ranks above are unaffected and are now labelled MARGINAL** —
+> each is what one run's own schedule could have been holding its siblings
+> nowhere, which is a different statement from the joint rank the outcome reads.
 
 **What it does not control, named rather than assumed away:** residual functions
 of the round index that the two balanced columns do not span — `r mod 4` among
@@ -217,15 +271,33 @@ certainly not 96.
 
 | | term | two-sided *p* | reference p97.5 |
 |---|---|---|---|
-| **MID-RUNG (signal)** | **+0.31%** | **0.00005** = 1/20001 | +0.176% |
-| R = 0 NULL (control) | 2.25 B/boundary | 0.0934 | 3.03 B/boundary |
+| **MID-RUNG (signal)** | **+0.31%** | ~~**0.00005** = 1/20001~~ | ~~+0.176%~~ |
+| R = 0 NULL (control) | 2.25 B/boundary | ~~0.0934~~ | ~~3.03 B/boundary~~ |
 
-**Not one of the 20,000 re-labellings reached the observed term**, so *p* sits
+~~**Not one of the 20,000 re-labellings reached the observed term**, so *p* sits
 at the floor the pre-registration named — the smallest value the declared draw
 count can return. The observed term is 1.8× the reference's own 97.5th
-percentile. And the null arm, whose true term is zero by construction, **did not
-fire**: *p* = 0.0934, clear of α with room, so the band is not one that reports
-a term on anything handed to it.
+percentile.~~ And the null arm, whose true term is zero by construction, **did
+not fire**, clear of α with room, so the band is not one that reports a term on
+anything handed to it.
+
+> **RE-ADJUDICATED 2026-08-21 (`rf2-t4vu1`).** Both *p* columns and both
+> reference percentiles above were computed over 48⁸ independent per-run draws
+> rather than over the 2,208 assignments this design could have produced. **The
+> two terms do not move and neither does the outcome.** Over the design's own
+> support, enumerated exhaustively:
+>
+> | | term | two-sided *p* | reference p97.5 |
+> |---|---|---|---|
+> | **MID-RUNG (signal)** | **+0.31%** | **0.002717** = 6 of 2,208 | **+0.252%** |
+> | R = 0 NULL (control) | 2.25 B/boundary | **0.121377** = 268 of 2,208 | **3.15 B/boundary** |
+>
+> **Six of the 2,208 assignments read at least as extreme as the observation**,
+> so *p* is a rank and not a floor — the floor here is 2/2,208 and the
+> observation does not sit on it. The observed term is **1.25×** the reference's
+> own 97.5th percentile rather than 1.8×. The null arm still does not fire, at
+> *p* = 0.121377 against the published 0.0934. **OUTCOME 1 stands** on the
+> pre-registration's own terms: signal *p* ≤ 0.05, control *p* > 0.05.
 
 **All eight runs read positive**, and the parity term straddles zero:
 
@@ -269,7 +341,15 @@ else changed:
 | | term | two-sided *p* | verdict |
 |---|---|---|---|
 | phase 3 under **its own** band | +0.45% pooled | — | **REFUSED**, outcome 3 |
-| phase 3 under **this** band | +0.44% mean | **0.0013** | **clears α = 0.05** |
+| phase 3 under **this** band | +0.44% mean | ~~**0.0013**~~ **0.006341** | **clears α = 0.05** |
+
+> **RE-ADJUDICATED 2026-08-21 (`rf2-t4vu1`).** Phase 3 declared the same
+> [A, B, ~A, ~B] quadruple in one session, so its assignment support is the same
+> 2,208 and its re-read moves the same way: **14 of 2,208**, *p* = 0.006341
+> against the published 0.0013. Its term is unchanged at +0.44% mean and its
+> null-arm control is still clear, at *p* = 0.699275. **The conclusion of this
+> section is untouched** — phase 3's data cleared this band and its own band was
+> the thing that refused it.
 
 **Phase 3's own diagnosis of its band is confirmed.** It recorded that the band
 compared an aggregate against a per-observation noise scale and was therefore
@@ -447,6 +527,33 @@ until it is shown to bite, so it was: a one-character change to the reference
 percentile in the same eight-run reading moved the null arm's reference p95 from
 2.82 to 2.89 B/boundary, and the identical diff reported it.
 
+**AND IT MOVED A THIRD TIME, AND THAT MOVE DOES CHANGE FIGURES — 2026-08-21
+(`rf2-t4vu1`).** The two moves above were argued to be inert and shown to be;
+this one is not, and pretending otherwise would be the more comfortable half of
+the same habit. The band's reference support is repaired from 48⁸ independent
+per-run draws to the design's own 2,208 assignments, which carries
+`alloc_pass_position.cjs` from the blob `2f4f204780` to the blob
+`3a2e14b1a1c1ec44d7c4ce53bce659ef26dbfadf` and `alloc_pass_design.cjs` from the
+blob `eb44f78dc6` to the blob `678f580689d6915978721b7cfd101e456b36e01a`.
+
+**The measured pin at the head of this section is kept and the pre-registration
+is again not amended.** Every *term* on this page is still the one measured on
+the blob `787ffde48a` and reproduces unchanged on all three: the repair touches
+only what the observed term is ranked AGAINST. The three *p*-values and two
+reference percentiles it does move are re-adjudicated in place at the banner and
+at both section-D sites rather than overwritten, and the reasoning for each is
+beside it.
+
+**Two things were repaired that the corpus never reached, and they are named
+rather than folded in.** `alloc_pass_design.cjs` now pins that its own selection
+rule's output is a point of the band's support — the two files being two
+statements of one design is exactly what `rf2-t4vu1` found them not to be. And
+the band now REFUSES an arm carrying no block instead of returning *p* = 1 for
+it: the earlier reference compared every draw against `Math.abs(null)`, so a
+corpus with no R = 0 arm at all cleared the null-arm control vacuously and
+outcome 1 would have been read with no negative control under it. This corpus
+carries 327 null-arm cells and takes neither clause.
+
 ## Two defects found and deliberately NOT repaired
 
 An estimator must not change between a pre-registration and the runs it is read
@@ -466,9 +573,12 @@ on, so both are recorded here and owned by the bead rather than fixed in place.
   belongs in the boundary rather than in a paragraph.
 
 Both are now closed under `rf2-flxxa`, along with the session-partition defect
-the audit of PR #8634 found later. The reader that carries the repairs is the
-blob `2f4f204780`, named in the provenance note above; the figures on this page
-remain the ones measured on the blob `787ffde48a`, and reproduce on both.
+the audit of PR #8634 found later — the blob `2f4f204780` — and the band's
+assignment support under `rf2-t4vu1`, the blob
+`3a2e14b1a1c1ec44d7c4ce53bce659ef26dbfadf`, both named in the provenance note
+above. The **terms** on this page remain the ones measured on the blob
+`787ffde48a` and reproduce on all three; the *p*-values the last of those moves
+are re-adjudicated in place and marked where they are quoted.
 
 ## Reproduction
 

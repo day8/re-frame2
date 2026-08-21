@@ -77,6 +77,10 @@ const {
   decompose,
   separation,
   admissibleRun: readerAdmissibleRun,
+  assignmentRoles,
+  assignmentSupport,
+  admissibleSchedules,
+  supportSize,
 } = require('./alloc_pass_position.cjs');
 
 // The window this file was written for. Both are re-derivable from the record
@@ -382,6 +386,29 @@ function designControl() {
       assert.strictEqual(got.dot, 0, `${p.seed}: ${f.name} — parity·pass over the blocks`);
     }
   }
+
+  // AND THE RULE'S OUTPUT IS A POINT OF THE BAND'S OWN SUPPORT, which is where
+  // `rf2-t4vu1` found the two disagreeing. This file draws TWO free schedules
+  // and forces the other two as their exact complements; the band in
+  // `alloc_pass_position.cjs` was re-drawing each run's schedule independently
+  // from the 48, a support of 48⁸ that admits quadruples this rule cannot
+  // produce. The rule is what MAKES the support what it is, so the two
+  // statements of one design are pinned against each other here rather than
+  // only over there.
+  const { roles, generatorKeys } = assignmentRoles(picks.map((p) => ({ flips: p.flips })));
+  assert.strictEqual(generatorKeys.length, 2, 'the rule draws exactly TWO free schedules');
+  assert.deepStrictEqual(
+    roles.map((r) => `${r.generator}${r.complement ? '~' : ''}`),
+    ['0', '1', '0~', '1~'],
+    'and the other two are their exact complements, in that order'
+  );
+  const admissibleSet = admissibleSchedules(ROUNDS);
+  assert.strictEqual(admissibleSet.length, 48, 'the reader and this file agree on the admissible set');
+  const support = assignmentSupport(generatorKeys.length, admissibleSet);
+  assert.strictEqual(support.length, supportSize(2, 48), 'the support is 48 × 46');
+  assert.strictEqual(support.length, 2208, 'which is 2,208 ordered assignments');
+  const keyed = new Set(support.map((t) => t.map((i) => admissibleSet[i].map((f) => (f ? '1' : '0')).join('')).join('|')));
+  assert.ok(keyed.has(generatorKeys.join('|')), 'and the rule\'s own draw is one of them');
 
   // THE NEGATIVE CONTROL. Phase 2's run-2 schedule over six rounds:
   // `page, page, all, page, all, all`, symmetric difference 4 from parity —
