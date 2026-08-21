@@ -273,6 +273,96 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
+;; Settlement — the ONE way out of an async row, taken on both outcomes
+;; ---------------------------------------------------------------------------
+;;
+;; Every async row below hydrates a real root and waits on `sup/adopted!`,
+;; and each of them holds things the `:each` fixture will NOT take back:
+;;
+;;   * a MOUNTED React root, with the container `sup/server-dom!` minted
+;;     still in the document — the fixture resets frames, disposes the
+;;     adapter and empties the runtime, and none of that unmounts a root;
+;;   * `console.error`, replaced by `sup/open-console-capture!`, and the
+;;     `window` "error" listener it registered. §2 and §5 open theirs with
+;;     `:swallow-uncaught? true`, so a listener that outlives its row goes
+;;     on calling `preventDefault` on every later row's uncaught errors —
+;;     which is precisely the fail-open the browser runner's pageerror rule
+;;     exists to prevent.
+;;
+;; The mismatch watcher's trace listener is the one thing the fixture does
+;; sweep — `make-reset-runtime-fixture`'s `:before` calls
+;; `trace-tooling/clear-listeners!` — and it is still stopped on both paths
+;; here, because a row that leans on the fixture to stop its own watcher is
+;; measuring the fixture.
+;;
+;; These rows used to end INSIDE the fulfilment handler:
+;;
+;;   (-> (sup/adopted! handle)
+;;       (.then (fn [ok] … (try …assertions…
+;;                              (finally (stop!) (mount/release! handle) (done))))))
+;;
+;; There was no rejection arm anywhere in this file, so on a rejection the
+;; handler was skipped, the `try` was never entered and the `finally` never
+;; fired. Nothing ran: no `stop!`, no `release!`, no `done`. The row did not
+;; fail — it HUNG to `cljs.test`'s async timeout, reporting the timeout
+;; rather than the rejection, and it handed the next row a live root and a
+;; swallowing listener to take its census against.
+;;
+;; [[settle-row!]] is the one path all four now end with, and §6 is what
+;; says it works — because its rejection arm is on no green path, and a
+;; repair to a branch nothing takes is untested by construction.
+
+(defn- settle-row!
+  "End an async row exactly ONCE, whatever `p` does. `opts` is
+  `{:row :done :release! :report!}`:
+
+    :row      names the row in the failure message. A shared settlement
+              still has to say WHICH row failed, which is the one thing a
+              hand-written rejection arm would give away for free.
+    :done     `cljs.test`'s own, called exactly once.
+    :release! this row's teardown, called exactly once. Every primitive it
+              reaches for is idempotent and says so — `mount/release!`,
+              `(:stop! watch)`, `(:close! capture)` — so a row whose BODY
+              already tore something down as part of an assertion (§4
+              unmounts both roots to take its census) names it here as well
+              and the second call is a no-op. Omit only where the row holds
+              nothing.
+    :report!  what to do with a rejection. Defaults to failing the row,
+              which is what a real row wants; §6 passes a recorder, because
+              for it the rejection is the subject.
+
+  One `.then` carrying BOTH handlers rather than a `.then` and a `.catch`:
+  the two are mutually exclusive, so a body that throws cannot also reach
+  the rejection arm and finish the row twice. The release and the `done`
+  sit on the far side of both, and `done` is in a `finally`, so a teardown
+  that throws still ends the row rather than leaving the runner to time it
+  out.
+
+  The failure is carried as `nil`-or-`[e]` rather than as the value itself,
+  because a promise rejected with `js/undefined` reads as `nil` in CLJS and
+  would otherwise settle silently.
+
+  **A local copy of `server-render-ssr-dom-cljs-test`'s helper of the same
+  name (rf2-sxhu, PR #8675), deliberately spelled identically** — same
+  parameters, same defaults, same `nil`-or-`[e]` carrier — so that lifting
+  the two into `roots-frames-support` when the remaining suites are
+  repaired is a deletion and a `:require`, not a reconciliation of two
+  designs. rf2-7ucn carries that lift and the count that justifies it."
+  [p {:keys [row done release! report!]}]
+  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
+        release! (or release! (fn [] nil))
+        finish!  (fn [failure]
+                   (try
+                     (when failure (report! (str (first failure))))
+                     (release!)
+                     (catch :default te
+                       (is false (str row " could not release — " te)))
+                     (finally (done))))]
+    (.then p
+           (fn [_] (finish! nil))
+           (fn [e] (finish! [e])))))
+
+;; ---------------------------------------------------------------------------
 ;; 1 — the SERVER side alone (no DOM; runs under :node-test)
 ;; ---------------------------------------------------------------------------
 
@@ -353,9 +443,14 @@
             (-> (sup/adopted! handle)
                 (.then
                   (fn [ok]
+                    ;; Closed HERE and named in `:release!` as well. Here,
+                    ;; because the assertions below read `@captured` and the
+                    ;; window has to be shut across the render rather than
+                    ;; across the rest of the row; there, because `close!` is
+                    ;; idempotent and the rejection path never reaches this
+                    ;; line.
                     (close!)
                     (is (true? ok) "the root's own adoption window shut")
-                    (try
                       (testing "React complains, and the complaint is attributed
                                 to this arm's own door rather than left as an
                                 uncaught window error"
@@ -392,9 +487,14 @@
                             (str "they differ all the same, which is the "
                                  "obstruction this row records; server "
                                  (pr-str server-id) ", client "
-                                 (pr-str (probe-id container)))))
-
-                      (finally (stop!) (mount/release! handle) (done))))))))))))
+                                 (pr-str (probe-id container)))))))
+                (settle-row!
+                  {:row      "§2 — the bytes a consumer can bake today"
+                   :done     done
+                   :release! (fn []
+                               (close!)
+                               (stop!)
+                               (mount/release! handle))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — THE DIAGNOSIS: bytes of the root's own shape hydrate silently
@@ -416,7 +516,6 @@
             (-> (sup/adopted! handle)
                 (.then
                   (fn [ok]
-                    (try
                       (is (true? ok) "the root's own adoption window shut")
 
                       (testing "the adoption was real — these are the very nodes
@@ -443,9 +542,13 @@
                         (is (= server-id (probe-id container))
                             (str "the client's own id must equal the server's; "
                                  "server " (pr-str server-id) ", client "
-                                 (pr-str (probe-id container)))))
-
-                      (finally (stop!) (mount/release! handle) (done))))))))))))
+                                 (pr-str (probe-id container)))))))
+                (settle-row!
+                  {:row      "§3 — bytes of the hydrating root's own shape"
+                   :done     done
+                   :release! (fn []
+                               (stop!)
+                               (mount/release! handle))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — §2.4's clause, as written: TWO SIMULTANEOUS hydrating roots
@@ -489,7 +592,6 @@
                 (.then (fn [_] (sup/adopted! hb)))
                 (.then
                   (fn [ok]
-                    (try
                       (is (true? ok) "both roots adopted")
 
                       (testing "each root adopted its OWN server DOM"
@@ -535,13 +637,29 @@
                         (mount/unmount! hb)
                         (is (= sup/released (sup/census))
                             (str "both roots down; residue was "
-                                 (pr-str (sup/census)))))
-
-                      (finally
-                        (stop!)
-                        (mount/release! (assoc ha :root nil))
-                        (mount/release! (assoc hb :root nil))
-                        (done))))))))))))
+                                 (pr-str (sup/census)))))))
+                (settle-row!
+                  {:row      "§4 — two simultaneous hydrating roots"
+                   :done     done
+                   ;; The FULL handles, where the `finally` this replaced
+                   ;; passed `(assoc h :root nil)`. That spelling was right
+                   ;; for the one path it could be reached on: the body above
+                   ;; unmounts both roots to take its census, so by the time
+                   ;; the old `finally` ran there was no root left to unmount
+                   ;; and `:root nil` said so. On a rejection the body may
+                   ;; never reach those unmounts, and `:root nil` would then
+                   ;; skip the React unmount entirely and leak a live root
+                   ;; into the next row. The full handle is correct on BOTH
+                   ;; paths: `mount/unmount!` is idempotent by its own
+                   ;; docstring — `roots/close-adoption-window!` is
+                   ;; nil-tolerant, and React's `root.unmount()` is a no-op
+                   ;; once the root is down — so the success path's second
+                   ;; call costs nothing and the rejection path's first one
+                   ;; is the whole point.
+                   :release! (fn []
+                               (stop!)
+                               (mount/release! ha)
+                               (mount/release! hb))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — the NEAR-MISS: a legal prefix that is the wrong one
@@ -574,8 +692,10 @@
             (-> (sup/adopted! handle)
                 (.then
                   (fn [_]
+                    ;; Closed here for §2's reason, and named in `:release!`
+                    ;; as well because `close!` is idempotent and the
+                    ;; rejection path never reaches this line.
                     (close!)
-                    (try
                       (testing "the divergence is REPORTED, and attributed to this
                                 arm's own door"
                         (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
@@ -598,6 +718,117 @@
                                  "server's; both read " (pr-str server-id)))
                         (is (str/includes? (probe-id container) "pfx-b-")
                             (str "and it is the client's prefix; got "
-                                 (pr-str (probe-id container)))))
+                                 (pr-str (probe-id container)))))))
+                (settle-row!
+                  {:row      "§5 — a client prefix that disagrees with the bytes"
+                   :done     done
+                   :release! (fn []
+                               (close!)
+                               (stop!)
+                               (mount/release! handle))}))))))))
 
-                      (finally (stop!) (mount/release! handle) (done))))))))))))
+;; ---------------------------------------------------------------------------
+;; 6 — THE LEAK CONTROL: a rejected adoption still releases the page
+;; ---------------------------------------------------------------------------
+;;
+;; §2 through §5 all FULFIL on a green run, so [[settle-row!]]'s rejection
+;; arm is on no green path — and a repair to a branch nothing takes is
+;; untested by construction. This row takes it.
+;;
+;; The rejection is injected AFTER the adoption completes, which is the
+;; harder case and not the weaker one: every resource the row owns is live
+;; and committed at that moment, so there is strictly MORE to release than
+;; there would be had `sup/adopted!` rejected before the root ever adopted.
+;;
+;; Under the shape this file carried before, nothing below the injection
+;; runs at all. The rejection skips the fulfilment handler, so the `try` is
+;; never entered and its `finally` never fires: no `stop!`, no `release!`,
+;; no `done`. The row does not go red — it hangs to `cljs.test`'s async
+;; timeout, reports the timeout instead of the rejection, and leaves the
+;; root mounted, the container in the document and `console.error` still
+;; replaced for whatever runs next.
+
+(deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
+  (if-not (mount/browser?)
+    (sup/skip! "what a rejection can leak here is a real root and a real console")
+    (async done
+      (fresh!)
+      (let [html           (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
+            container      (sup/stamp-server-nodes! (sup/server-dom! html))
+            watch          (sup/watch-mismatches!)
+            ;; NOT `:swallow-uncaught? true`: this row manufactures a
+            ;; rejected PROMISE, which `settle-row!` handles, and no
+            ;; uncaught window error at all. Swallowing anywhere else is
+            ;; the fail-open the browser runner's pageerror rule forbids.
+            console-before (.-error js/console)
+            capture        (sup/open-console-capture!)
+            stops          (atom 0)
+            finishes       (atom 0)
+            reports        (atom [])]
+        (collector/reset-runtime!)
+        (let [handle (mount/hydrate-root! container frame-a [id-page {}]
+                                          {:identifier-prefix "pfx-a-"})]
+          (-> (sup/adopted! handle)
+              (.then
+                (fn [ok]
+                  (is (true? ok) "premise: the root really did adopt")
+                  (is (not= sup/released (sup/census))
+                      (str "premise: the runtime is holding this root's cells "
+                           "and edges, so the census taken after the rejection "
+                           "is a RELEASE and not an empty page; got "
+                           (pr-str (sup/census))))
+                  (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
+              (settle-row!
+                {:row      "the rejected-adoption control"
+                 :done     (fn [] (swap! finishes inc))
+                 :report!  (fn [e] (swap! reports conj e))
+                 :release! (fn []
+                             ((:close! capture))
+                             (swap! stops inc)
+                             ((:stop! watch))
+                             (mount/release! handle))})
+              ;; The cell reapers are armed at unmount and run past a bare
+              ;; macrotask, so the tables are read at the runtime's own
+              ;; horizon rather than one tick after the release.
+              (.then (fn [_] (sup/quiesced!)))
+              (.then
+                (fn [_]
+                  (testing "the rejection is REPORTED — which is the whole of
+                            what a hang gives away — and the row ends ONCE"
+                    (is (= 1 @finishes)
+                        (str "done ran " @finishes " times"))
+                    (is (= 1 (count @reports))
+                        (str "exactly one report; got " (pr-str @reports)))
+                    (is (str/includes? (str (first @reports))
+                                       "adoption rejected on purpose")
+                        (str "naming what the adoption threw; got "
+                             (pr-str @reports))))
+
+                  (testing "and the page the NEXT row inherits holds nothing of
+                            this one. Two of these four are the row's alone to
+                            give back — the `:each` fixture resets frames,
+                            disposes the adapter and empties the runtime, but it
+                            never unmounts a React root and never hands
+                            `console.error` back. (The trace listener it does
+                            sweep, in its `:before`; `stop!` is asserted here
+                            all the same, because a row that leans on the
+                            fixture to stop its own watcher is measuring the
+                            fixture)"
+                    (is (= sup/released (sup/census))
+                        (str "no root: residue was " (pr-str (sup/census))))
+                    (is (empty? (sup/cell-frames))
+                        (str "no frame: the cell table still mentions "
+                             (pr-str (sup/cell-frames))))
+                    (is (= 1 @stops)
+                        (str "the mismatch watcher was stopped — `stop!` is what "
+                             "unregisters the trace listener; it ran "
+                             @stops " times"))
+                    (is (identical? console-before (.-error js/console))
+                        "`console.error` is the page's own again"))))
+              (settle-row!
+                {:row      "the rejected-adoption control's own settlement"
+                 :done     done
+                 :release! (fn []
+                             ((:close! capture))
+                             ((:stop! watch))
+                             (mount/release! handle))})))))))
