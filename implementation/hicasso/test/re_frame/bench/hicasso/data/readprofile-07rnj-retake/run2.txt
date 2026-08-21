@@ -1,0 +1,259 @@
+[hicasso] cleared .shadow-cljs/builds/hicasso-bench — one build id, N arms (rf2-2rtt6.20)
+[hicasso] building :advanced bundle — re-frame.bench.hicasso.read-profile-app/-main -> out/hicasso-readprof
+[:hicasso-bench] Compiling ...
+[:hicasso-bench] Build completed. (187 files, 132 compiled, 0 warnings, 38.59s)
+shadow-cljs - config: <worktree>\implementation\shadow-cljs.edn   ;; ABSOLUTE PATH REDACTED — see README.md
+;; order-guard ok   the recorded 2.01x is REFUSED  — ratio 2.0125
+;; order-guard ok   the same study's uncontaminated slope passes  — forward 2830.7 / reversed 2842.8
+;; order-guard ok   a single-order result is refused as UNCHECKED  — only 1 stratum — the question was never asked
+;; order-guard ok   overlapping ranges are indistinguishable even 20% apart in median  — medians 1.2000x apart but the ranges OVERLAP — indistinguishable
+;; order-guard ok   the measured warm-up step is caught by PHASE, which no reversal would show  — phase: FIRST-THIRD reads 1.2633x LAST-THIRD, ranges disjoint
+;; order-guard ok   an arm that reads exactly zero in both strata is indistinguishable, not infinite  — within 10%
+;; order-guard ok   cyclic rotation gives every arm exactly ONE within-round predecessor  — rotation over 6 rounds: distinct predecessors per arm 1,1,1,1 (only the round seam ever differs, and that is one sample in R)
+;; order-guard ok   the reflecting schedule gives every arm TWO, in balance  — reflected: 2,2,2,2 predecessors per arm, largest modal share 50%
+;; order-guard ok   at k=2 an ALWAYS-reflecting schedule runs one order for ever and is UNCHECKED  — always-reflect over 6 rounds of 2 arms: 1 distinct order(s), predecessors per arm 2,1 — rotating a pair by one IS reversing it, so the two cancel
+;; order-guard ok   at k=2 slot-order alternates, and every arm gets TWO predecessors in balance  — slot-order: 2 distinct orders, predecessors per arm 3,2, largest modal share 50%
+;; order-guard ok   samples whose :position went NON-FINITE refuse instead of narrowing the question  — 18 of 24 samples have NO USABLE :position (nil, absent or non-finite) in a run that records them — the harness lost them, so this contrast is over the rest and the sample count above is not it
+;; order-guard ok   a present-but-NIL :position is the same loss, and recording NONE is still excused  — 18 of 24 samples have NO USABLE :position (nil, absent or non-finite) in a run that records them — the harness lost them, so this contrast is over the rest and the sample count above is not it — and a run offering no position at all is excused, not refused
+;; harvest OK — 1202 elements, 141 reads (141 distinct), from the real page's own entry
+;; ==== ARM-ORDER GUARD — read-profile phase A (in-page ms, diagnostic) ====
+;;   every arm partitioned by WHAT RAN BEFORE IT and by WHERE IN THE RUN it was measured; tolerance 10%, overlapping ranges are indistinguishable
+;;   ctl2  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              ship                     n=30  p50      11.4000  [10.0000–15.0000]
+;;              warm                     n=30  p50      11.5000  [10.0000–15.5000]
+;;     [ok  ] by phase        within 10%
+;;              LAST-THIRD               n=20  p50      11.4500  [10.0000–15.5000]
+;;              FIRST-THIRD              n=20  p50      12.4500  [10.8000–14.4000]
+;;   floor  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              probe-fresh              n=30  p50       0.3000  [0.2000–0.6000]
+;;              warm                     n=30  p50       0.3000  [0.2000–0.9000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=20  p50       0.3000  [0.2000–0.5000]
+;;              LAST-THIRD               n=20  p50       0.3000  [0.2000–0.9000]
+;;   local  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              ship                     n=30  p50       6.1000  [5.0000–10.5000]
+;;              no-shell                 n=30  p50       6.1000  [5.1000–9.1000]
+;;     [ok  ] by phase        within 10%
+;;              LAST-THIRD               n=20  p50       6.1500  [5.3000–10.5000]
+;;              FIRST-THIRD              n=20  p50       6.7500  [5.7000–7.8000]
+;;   no-shell  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              probe                    n=24  p50       5.6000  [4.7000–8.0000]
+;;              local                    n=36  p50       5.9500  [4.9000–7.7000]
+;;     [ok  ] by phase        within 10%
+;;              LAST-THIRD               n=20  p50       5.7500  [4.9000–7.7000]
+;;              FIRST-THIRD              n=20  p50       6.2500  [5.7000–8.0000]
+;;   probe  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              probe-fresh              n=30  p50       2.5000  [2.2000–3.7000]
+;;              no-shell                 n=30  p50       2.6000  [2.2000–3.9000]
+;;     [ok  ] by phase        medians 1.2245x apart but the ranges OVERLAP — indistinguishable
+;;              LAST-THIRD               n=20  p50       2.4500  [2.2000–3.2000]
+;;              FIRST-THIRD              n=20  p50       3.0000  [2.4000–3.9000]
+;;   probe-fresh  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              probe                    n=42  p50       1.2500  [1.1000–1.9000]
+;;              floor                    n=18  p50       1.3000  [1.1000–1.9000]
+;;     [ok  ] by phase        medians 1.1538x apart but the ranges OVERLAP — indistinguishable
+;;              LAST-THIRD               n=20  p50       1.3000  [1.1000–1.6000]
+;;              FIRST-THIRD              n=20  p50       1.5000  [1.2000–1.9000]
+;;   ship  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              ctl2                     n=36  p50       3.0500  [2.5000–4.3000]
+;;              local                    n=24  p50       3.1000  [2.6000–4.1000]
+;;     [ok  ] by phase        within 10%
+;;              LAST-THIRD               n=20  p50       3.2000  [2.6000–4.0000]
+;;              FIRST-THIRD              n=20  p50       3.3500  [2.8000–4.1000]
+;;   warm  (60 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              floor                    n=36  p50       0.5500  [0.4000–1.3000]
+;;              ctl2                     n=24  p50       0.6000  [0.4000–1.2000]
+;;     [ok  ] by phase        medians 1.2000x apart but the ranges OVERLAP — indistinguishable
+;;              LAST-THIRD               n=20  p50       0.5000  [0.4000–1.3000]
+;;              FIRST-THIRD              n=20  p50       0.6000  [0.5000–0.7000]
+;;   VERDICT: reportable — no arm reads differently for its position in the plan
+;; HICASSO read-profile-census
+{:reads 141, :distinct 141, :by-sub-id {:conduit/your-feed? 1, :conduit/slugs 1, :conduit/tags 1, :conduit/article 69, :conduit/favorite-pending? 69}, :input-kinds {:db 141}}
+;; HICASSO read-profile-arms
+{:ship {:n 60, :min 0.3125, :max 0.5375, :p50 0.3875, :p95 0.5006249994039536, :p99 0.5227499993145465}, :local {:n 60, :min 0.625, :max 1.3125, :p50 0.7625, :p95 1.0068749994039532, :p99 1.297749996483326}, :no-shell {:n 60, :min 0.5875, :max 1, :p50 0.725, :p95 0.9506250023841858, :p99 0.9778749947249888}, :probe {:n 60, :min 0.275, :max 0.4875, :p50 0.325, :p95 0.43875000029802314, :p99 0.4801249952614307}, :probe-fresh {:n 60, :min 0.1375, :max 0.2375, :p50 0.1625, :p95 0.22499999403953552, :p99 0.23749999701976776}, :floor {:n 60, :min 0.025, :max 0.1125, :p50 0.0375, :p95 0.05062501132488247, :p99 0.09037500053644168}, :warm {:n 60, :min 0.05, :max 0.1625, :p50 0.075, :p95 0.10062500834465023, :p99 0.15512500718235966}, :ctl2 {:n 60, :min 1.25, :max 1.9375, :p50 1.4312, :p95 1.8762499995529651, :p99 1.915375003516674}}
+;; ==== READ PROFILE, PHASE A (ms per 141-read pass; diagnostic in-page clock) ====
+;;   reads/pass 141  passes/sample 8  design 6x(4+10)
+;;   ship: p50 0.3875 [0.3125 - 0.5375] ms/pass  (2.75 us/read)
+;;   local: p50 0.7625 [0.6250 - 1.3125] ms/pass  (5.41 us/read)
+;;   no-shell: p50 0.7250 [0.5875 - 1.0000] ms/pass  (5.14 us/read)
+;;   probe: p50 0.3250 [0.2750 - 0.4875] ms/pass  (2.30 us/read)
+;;   probe-fresh: p50 0.1625 [0.1375 - 0.2375] ms/pass  (1.15 us/read)
+;;   floor: p50 0.0375 [0.0250 - 0.1125] ms/pass  (0.27 us/read)
+;;   warm: p50 0.0750 [0.0500 - 0.1625] ms/pass  (0.53 us/read)
+;;   ctl2: p50 1.4312 [1.2500 - 1.9375] ms/pass  (10.15 us/read)
+;; ==== PHASE A DELTAS (floors; stubs stated in the ns docstring) ====
+;;   copy fidelity: local/ship = 1.9677  (local is the FROZEN subscribe-once path)
+;;   the-hicasso-shell (local - no-shell): delta 0.0375 ms/pass (0.27 us/read, 4.9% of the baseline)
+;;   churn-vs-probe (local - probe, the candidate's saving): delta 0.4375 ms/pass (3.10 us/read, 57.4% of the baseline)
+;;   memo-economy (probe-fresh - probe): delta -0.1625 ms/pass (-1.15 us/read, -100.0% of the baseline)
+;;   probe-overhead (probe - floor): delta 0.2875 ms/pass (2.04 us/read, 88.5% of the baseline)
+;;   warm steady-state: 0.0750 ms/pass (0.53 us/read)
+;;   control: predicted 1.450x, measured 1.431x [1.250–1.938] — the range meets the prediction within ±25%
+;; ==== ARM-ORDER GUARD — read-profile phase B (in-page ms, diagnostic) ====
+;;   every arm partitioned by WHAT RAN BEFORE IT and by WHERE IN THE RUN it was measured; tolerance 10%, overlapping ranges are indistinguishable
+;;   b-build  (64 samples)
+;;     [ok  ] by predecessor  medians 1.1035x apart but the ranges OVERLAP — indistinguishable
+;;              c-null-twin              n=24  p50      21.2500  [17.0000–30.2000]
+;;              c-nomap                  n=40  p50      23.4500  [15.5000–29.4000]
+;;     [ok  ] by phase        medians 1.1442x apart but the ranges OVERLAP — indistinguishable
+;;              FIRST-THIRD              n=21  p50      20.8000  [15.5000–26.3000]
+;;              LAST-THIRD               n=21  p50      23.8000  [17.4000–30.2000]
+;;   c-local  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-null                   n=32  p50      28.7500  [23.1000–43.7000]
+;;              commit                   n=32  p50      29.6500  [22.0000–40.2000]
+;;     [ok  ] by phase        medians 1.1655x apart but the ranges OVERLAP — indistinguishable
+;;              FIRST-THIRD              n=21  p50      27.8000  [22.0000–37.5000]
+;;              LAST-THIRD               n=21  p50      32.4000  [23.0000–43.7000]
+;;   c-noactivate  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-nowatch                n=32  p50      28.5000  [20.0000–44.2000]
+;;              c-null                   n=32  p50      29.1000  [20.8000–35.7000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      29.2000  [21.1000–35.2000]
+;;              LAST-THIRD               n=21  p50      32.0000  [23.2000–44.2000]
+;;   c-nomap  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-noreaders              n=32  p50      25.8000  [18.8000–37.6000]
+;;              b-build                  n=32  p50      27.6000  [18.7000–37.0000]
+;;     [ok  ] by phase        medians 1.1407x apart but the ranges OVERLAP — indistinguishable
+;;              FIRST-THIRD              n=21  p50      26.3000  [18.8000–30.9000]
+;;              LAST-THIRD               n=21  p50      30.0000  [21.5000–37.6000]
+;;   c-noreaders  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-nosub                  n=40  p50      28.9500  [19.0000–41.2000]
+;;              c-nomap                  n=24  p50      30.1500  [23.0000–38.7000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      29.6000  [19.0000–36.6000]
+;;              LAST-THIRD               n=21  p50      30.7000  [22.5000–41.2000]
+;;   c-nosub  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-nowatch                n=32  p50       9.5500  [6.8000–13.2000]
+;;              c-noreaders              n=32  p50      10.1000  [6.7000–14.3000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      10.1000  [6.7000–13.4000]
+;;              LAST-THIRD               n=21  p50      10.1000  [7.7000–13.3000]
+;;   c-nowatch  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-nosub                  n=24  p50      27.3000  [20.1000–34.9000]
+;;              c-noactivate             n=40  p50      27.7500  [18.7000–36.4000]
+;;     [ok  ] by phase        medians 1.1179x apart but the ranges OVERLAP — indistinguishable
+;;              FIRST-THIRD              n=21  p50      26.3000  [18.7000–35.4000]
+;;              LAST-THIRD               n=21  p50      29.4000  [22.8000–35.8000]
+;;   c-null  (64 samples)
+;;     [ok  ] by predecessor  medians 1.1431x apart but the ranges OVERLAP — indistinguishable
+;;              c-null-twin              n= 7  p50      25.5000  [19.3000–33.3000]
+;;              c-local                  n=32  p50      29.1000  [21.3000–40.5000]
+;;              c-noactivate             n=24  p50      29.1500  [21.6000–41.9000]
+;;              <none>                   n= 1  p50      29.6000  [29.6000–29.6000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      27.9000  [21.3000–33.4000]
+;;              LAST-THIRD               n=21  p50      30.4000  [21.8000–41.9000]
+;;   c-null-curve  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              commit                   n=32  p50      28.4000  [20.4000–41.0000]
+;;              c-null-twin              n=32  p50      29.2000  [22.7000–40.2000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      28.8000  [20.4000–33.9000]
+;;              LAST-THIRD               n=21  p50      30.2000  [22.9000–41.0000]
+;;   c-null-twin  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-null-curve             n=32  p50      28.1000  [20.0000–38.8000]
+;;              b-build                  n=32  p50      30.2000  [22.4000–39.6000]
+;;     [ok  ] by phase        medians 1.1159x apart but the ranges OVERLAP — indistinguishable
+;;              FIRST-THIRD              n=21  p50      27.6000  [20.0000–35.9000]
+;;              LAST-THIRD               n=21  p50      30.8000  [24.1000–38.8000]
+;;   commit  (64 samples)
+;;     [ok  ] by predecessor  within 10%
+;;              c-local                  n=32  p50      30.7500  [24.0000–44.1000]
+;;              c-null-curve             n=32  p50      32.1500  [20.1000–42.5000]
+;;     [ok  ] by phase        within 10%
+;;              FIRST-THIRD              n=21  p50      30.8000  [25.0000–38.9000]
+;;              LAST-THIRD               n=21  p50      33.3000  [24.0000–44.1000]
+;;   VERDICT: reportable — no arm reads differently for its position in the plan
+;; HICASSO read-profile-commit
+{:c-null-twin {:n 64, :min 0.625, :max 1.2375, :p50 0.8906, :p95 1.1351562492549419, :p99 1.2217499993368983}, :c-local {:n 64, :min 0.6875, :max 1.3656, :p50 0.9187, :p95 1.193125001899898, :p99 1.306562499143183}, :c-noreaders {:n 64, :min 0.5938, :max 1.2875, :p50 0.9125, :p95 1.1570312501862645, :p99 1.2382812477648257}, :c-noactivate {:n 64, :min 0.625, :max 1.3813, :p50 0.9, :p95 1.0995312513783575, :p99 1.2296562505513424}, :c-null {:n 64, :min 0.6031, :max 1.3094, :p50 0.9047, :p95 1.1332812493667004, :p99 1.2818124997243283}, :c-nowatch {:n 64, :min 0.5844, :max 1.1375, :p50 0.8641, :p95 1.0864062525331972, :p99 1.1256874987855554}, :commit {:n 64, :min 0.6281, :max 1.3781, :p50 0.9781, :p95 1.2856250010430812, :p99 1.3466250002756714}, :c-nomap {:n 64, :min 0.5844, :max 1.175, :p50 0.8531, :p95 1.1203124985098833, :p99 1.1730312502756715}, :b-build {:n 64, :min 0.4844, :max 0.9437, :p50 0.7047, :p95 0.9084374973550439, :p99 0.927999998703599}, :c-null-curve {:n 64, :min 0.6375, :max 1.2813, :p50 0.9016, :p95 1.1812499985098839, :p99 1.2733749981224536}, :c-nosub {:n 64, :min 0.2094, :max 0.4469, :p50 0.3031, :p95 0.4120312513783574, :p99 0.4291562489792704}}
+;; HICASSO read-profile-commit-per-round
+{:c-null-twin [0.8641 0.8313 0.9391 0.8516 0.8562 1.0734 0.925 0.9594], :c-local [0.8578 0.8875 0.9297 0.8656 0.8406 1.0453 0.9859 0.9672], :c-noreaders [0.9703 0.7797 0.9141 0.8406 0.7813 1.0547 1.0328 0.9359], :c-noactivate [0.9141 0.7594 0.9281 0.8453 0.8016 1.0109 1.0141 0.9969], :c-null [0.9141 0.8859 0.7922 0.8438 0.8656 1.0313 0.9688 0.9438], :c-nowatch [0.7781 0.8438 0.8797 0.7984 0.7609 1.0281 0.9344 0.8906], :commit [0.9875 0.9031 1.0078 0.9125 0.9047 1.1297 1.1375 1.0406], :c-nomap [0.8609 0.7563 0.8422 0.7687 0.7562 1.0234 0.9359 0.9391], :b-build [0.6469 0.5953 0.7141 0.6531 0.6547 0.7531 0.7359 0.7562], :c-null-curve [0.9531 0.85 0.9406 0.8797 0.8609 1.0438 0.9484 0.9328], :c-nosub [0.3156 0.2937 0.3047 0.2781 0.2875 0.375 0.3219 0.3094]}
+;; HICASSO read-profile-commit-per-round-deltas
+{:c-null [-0.0563 0.0016 0.1375 0.0218 -0.025 0.014 0.0171 0.0234], :c-noactivate [-0.0563 0.1281 0.0016 0.0203 0.039 0.0344 -0.0282 -0.0297], :c-nowatch [0.0797 0.0437 0.05 0.0672 0.0797 0.0172 0.0515 0.0766], :c-nosub [0.5422 0.5938 0.625 0.5875 0.5531 0.6703 0.664 0.6578], :c-noreaders [-0.1125 0.1078 0.0156 0.025 0.0593 -0.0094 -0.0469 0.0313], :c-nomap [-0.0031 0.1312 0.0875 0.0969 0.0844 0.0219 0.05 0.0281], :c-null-twin [-0.0063 0.0562 -0.0094 0.014 -0.0156 -0.0281 0.0609 0.0078], :c-null-curve [-0.0953 0.0375 -0.0109 -0.0141 -0.0203 0.0015 0.0375 0.0344]}
+;; HICASSO read-profile-slot-plan
+[{:positions [2 3 4 5 6 7 8 9], :mean-position 5.5, :id :commit, :slot 0} {:positions [1 3 4 5 6 7 8 10], :mean-position 5.5, :id :c-local, :slot 1} {:positions [0 0 2 4 5 6 7 9], :mean-position 4.125, :id :c-null, :slot 2} {:positions [1 1 3 5 6 8 10 10], :mean-position 5.5, :id :c-noactivate, :slot 3} {:positions [0 0 2 2 4 7 9 9], :mean-position 4.125, :id :c-nowatch, :slot 4} {:positions [1 1 3 3 8 8 10 10], :mean-position 5.5, :id :c-nosub, :slot 5} {:positions [0 0 2 2 4 7 9 9], :mean-position 4.125, :id :c-noreaders, :slot 6} {:positions [1 1 3 5 6 8 10 10], :mean-position 5.5, :id :c-nomap, :slot 7} {:positions [0 0 2 4 5 6 7 9], :mean-position 4.125, :id :b-build, :slot 8} {:positions [1 3 4 5 6 7 8 10], :mean-position 5.5, :id :c-null-twin, :slot 9} {:positions [2 3 4 5 6 7 8 9], :mean-position 5.5, :id :c-null-curve, :slot 10}]
+;; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====
+;;   design 8x(2+8)  window = 32 frames/commit each  kept = 64 samples/arm (EVEN — p50 is the mean of two middle clock readings)  grid = 0.001563 ms/commit
+;;   slot plan (each arm's kept-sample sweep positions — the schedule is indexed by SAMPLE, so this footprint repeats identically every round; rf2-lo7uy):
+;;     slot 0 commit: [2 3 4 5 6 7 8 9]  mean 5.500
+;;     slot 1 c-local: [1 3 4 5 6 7 8 10]  mean 5.500
+;;     slot 2 c-null: [0 0 2 4 5 6 7 9]  mean 4.125
+;;     slot 3 c-noactivate: [1 1 3 5 6 8 10 10]  mean 5.500
+;;     slot 4 c-nowatch: [0 0 2 2 4 7 9 9]  mean 4.125
+;;     slot 5 c-nosub: [1 1 3 3 8 8 10 10]  mean 5.500
+;;     slot 6 c-noreaders: [0 0 2 2 4 7 9 9]  mean 4.125
+;;     slot 7 c-nomap: [1 1 3 5 6 8 10 10]  mean 5.500
+;;     slot 8 b-build: [0 0 2 4 5 6 7 9]  mean 4.125
+;;     slot 9 c-null-twin: [1 3 4 5 6 7 8 10]  mean 5.500
+;;     slot 10 c-null-curve: [2 3 4 5 6 7 8 9]  mean 5.500
+;;   commit: p50 0.9781 [0.6281 - 1.3781] ms/pass  (6.94 us/read)
+;;   c-local: p50 0.9187 [0.6875 - 1.3656] ms/pass  (6.52 us/read)
+;;   c-null: p50 0.9047 [0.6031 - 1.3094] ms/pass  (6.42 us/read)
+;;   c-noactivate: p50 0.9000 [0.6250 - 1.3813] ms/pass  (6.38 us/read)
+;;   c-nowatch: p50 0.8641 [0.5844 - 1.1375] ms/pass  (6.13 us/read)
+;;   c-nosub: p50 0.3031 [0.2094 - 0.4469] ms/pass  (2.15 us/read)
+;;   c-noreaders: p50 0.9125 [0.5938 - 1.2875] ms/pass  (6.47 us/read)
+;;   c-nomap: p50 0.8531 [0.5844 - 1.1750] ms/pass  (6.05 us/read)
+;;   b-build: p50 0.7047 [0.4844 - 0.9437] ms/pass  (5.00 us/read)
+;;   c-null-twin: p50 0.8906 [0.6250 - 1.2375] ms/pass  (6.32 us/read)
+;;   c-null-curve: p50 0.9016 [0.6375 - 1.2813] ms/pass  (6.39 us/read)
+;; ==== PHASE B DELTAS (c-local minus ablation; floors) ====
+;;   copy fidelity: c-local/commit = 0.9393
+;;   NULL CONTROL (c-local - c-null): delta 0.0141 ms/pass (0.10 us/read, 1.5% of the baseline)
+;;     ^ true cost EXACTLY ZERO by construction — both arms are C-FULL. What it reads is this instrument's own error at this shape, and it is what the terms below are adjudicated against (rf2-3l6hf). It bounds no term's cost: a delta inside this spread is a term the window cannot SEE, which leaves its size open in both directions
+;;     ^ slot 1 against slot 2, on footprints that differ in BOTH mean position and shape. The two nulls below hold that zero and move the SLOT, which is what makes the offset's cause readable rather than only its size (rf2-lo7uy)
+;;   NULL CONTROL, position TWIN (c-local - c-null-twin): delta 0.0281 ms/pass (0.20 us/read, 3.1% of the baseline)
+;;     ^ same zero, and this arm's kept-sample position footprint IS c-local's, so ANY cost that is a function of sweep position cancels term by term. A reading here is error sweep position cannot explain; a reading of zero here beside a non-zero c-null puts the offset ON position
+;;   NULL CONTROL, equal MEAN position (c-local - c-null-curve): delta 0.0172 ms/pass (0.12 us/read, 1.9% of the baseline)
+;;     ^ same zero, c-local's MEAN position on a DIFFERENT footprint: a linear within-sweep drift cancels here, a curved one does not. Read the three nulls together — alike means the offset is not positional; c-null alone means it is; c-null and this one means it is and is not linear
+;;   activation-capture (c-local - c-noactivate): delta 0.0187 ms/pass (0.13 us/read, 2.0% of the baseline)
+;;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup (rf2-tcffa, rf2-19usn). The capture itself is real only under the ratom family (rf2-lzpfj)
+;;   watch-wiring (c-local - c-nowatch): delta 0.0547 ms/pass (0.39 us/read, 6.0% of the baseline)
+;;   reaction-build+cache-insert (c-local - c-nosub): delta 0.6156 ms/pass (4.37 us/read, 67.0% of the baseline)
+;;   reader-membership (c-local - c-noreaders): delta 0.0062 ms/pass (0.04 us/read, 0.7% of the baseline)
+;;   cell-map-insert (c-local - c-nomap): delta 0.0656 ms/pass (0.47 us/read, 7.1% of the baseline)
+;;   b-build (build+compute, no in-window dispose): 0.7047 ms/pass (5.00 us/read)
+;; HICASSO read-profile-micro
+{:subscribe-once 7375.8865, :compute-sub 1382.9787, :handler-invoke 351.0638, :registrar-lookup 102.8369, :frame-state-value 421.9858, :resolution-wrap 351.0638, :cache-peek-miss 46.0993, :sub-key-mint 24.8227}
+;; ==== MICRO (ns/op over the page's own roster) ====
+;;   subscribe-once: 7375.9 ns
+;;   compute-sub: 1383.0 ns
+;;   handler-invoke: 351.1 ns
+;;   registrar-lookup: 102.8 ns
+;;   frame-state-value: 422.0 ns
+;;   resolution-wrap: 351.1 ns
+;;   cache-peek-miss: 46.1 ns
+;;   sub-key-mint: 24.8 ns
+;; HICASSO DONE
+;; ==== HICASSO RUNTIME ====
+;; chromium 147.0.7727.15 (playwright), :advanced, goog.DEBUG false
+;; ==== HICASSO read-profile-census ====
+{:reads 141, :distinct 141, :by-sub-id {:conduit/your-feed? 1, :conduit/slugs 1, :conduit/tags 1, :conduit/article 69, :conduit/favorite-pending? 69}, :input-kinds {:db 141}}
+;; ==== HICASSO read-profile-arms ====
+{:ship {:n 60, :min 0.3125, :max 0.5375, :p50 0.3875, :p95 0.5006249994039536, :p99 0.5227499993145465}, :local {:n 60, :min 0.625, :max 1.3125, :p50 0.7625, :p95 1.0068749994039532, :p99 1.297749996483326}, :no-shell {:n 60, :min 0.5875, :max 1, :p50 0.725, :p95 0.9506250023841858, :p99 0.9778749947249888}, :probe {:n 60, :min 0.275, :max 0.4875, :p50 0.325, :p95 0.43875000029802314, :p99 0.4801249952614307}, :probe-fresh {:n 60, :min 0.1375, :max 0.2375, :p50 0.1625, :p95 0.22499999403953552, :p99 0.23749999701976776}, :floor {:n 60, :min 0.025, :max 0.1125, :p50 0.0375, :p95 0.05062501132488247, :p99 0.09037500053644168}, :warm {:n 60, :min 0.05, :max 0.1625, :p50 0.075, :p95 0.10062500834465023, :p99 0.15512500718235966}, :ctl2 {:n 60, :min 1.25, :max 1.9375, :p50 1.4312, :p95 1.8762499995529651, :p99 1.915375003516674}}
+;; ==== HICASSO read-profile-commit ====
+{:c-null-twin {:n 64, :min 0.625, :max 1.2375, :p50 0.8906, :p95 1.1351562492549419, :p99 1.2217499993368983}, :c-local {:n 64, :min 0.6875, :max 1.3656, :p50 0.9187, :p95 1.193125001899898, :p99 1.306562499143183}, :c-noreaders {:n 64, :min 0.5938, :max 1.2875, :p50 0.9125, :p95 1.1570312501862645, :p99 1.2382812477648257}, :c-noactivate {:n 64, :min 0.625, :max 1.3813, :p50 0.9, :p95 1.0995312513783575, :p99 1.2296562505513424}, :c-null {:n 64, :min 0.6031, :max 1.3094, :p50 0.9047, :p95 1.1332812493667004, :p99 1.2818124997243283}, :c-nowatch {:n 64, :min 0.5844, :max 1.1375, :p50 0.8641, :p95 1.0864062525331972, :p99 1.1256874987855554}, :commit {:n 64, :min 0.6281, :max 1.3781, :p50 0.9781, :p95 1.2856250010430812, :p99 1.3466250002756714}, :c-nomap {:n 64, :min 0.5844, :max 1.175, :p50 0.8531, :p95 1.1203124985098833, :p99 1.1730312502756715}, :b-build {:n 64, :min 0.4844, :max 0.9437, :p50 0.7047, :p95 0.9084374973550439, :p99 0.927999998703599}, :c-null-curve {:n 64, :min 0.6375, :max 1.2813, :p50 0.9016, :p95 1.1812499985098839, :p99 1.2733749981224536}, :c-nosub {:n 64, :min 0.2094, :max 0.4469, :p50 0.3031, :p95 0.4120312513783574, :p99 0.4291562489792704}}
+;; ==== HICASSO read-profile-commit-per-round ====
+{:c-null-twin [0.8641 0.8313 0.9391 0.8516 0.8562 1.0734 0.925 0.9594], :c-local [0.8578 0.8875 0.9297 0.8656 0.8406 1.0453 0.9859 0.9672], :c-noreaders [0.9703 0.7797 0.9141 0.8406 0.7813 1.0547 1.0328 0.9359], :c-noactivate [0.9141 0.7594 0.9281 0.8453 0.8016 1.0109 1.0141 0.9969], :c-null [0.9141 0.8859 0.7922 0.8438 0.8656 1.0313 0.9688 0.9438], :c-nowatch [0.7781 0.8438 0.8797 0.7984 0.7609 1.0281 0.9344 0.8906], :commit [0.9875 0.9031 1.0078 0.9125 0.9047 1.1297 1.1375 1.0406], :c-nomap [0.8609 0.7563 0.8422 0.7687 0.7562 1.0234 0.9359 0.9391], :b-build [0.6469 0.5953 0.7141 0.6531 0.6547 0.7531 0.7359 0.7562], :c-null-curve [0.9531 0.85 0.9406 0.8797 0.8609 1.0438 0.9484 0.9328], :c-nosub [0.3156 0.2937 0.3047 0.2781 0.2875 0.375 0.3219 0.3094]}
+;; ==== HICASSO read-profile-commit-per-round-deltas ====
+{:c-null [-0.0563 0.0016 0.1375 0.0218 -0.025 0.014 0.0171 0.0234], :c-noactivate [-0.0563 0.1281 0.0016 0.0203 0.039 0.0344 -0.0282 -0.0297], :c-nowatch [0.0797 0.0437 0.05 0.0672 0.0797 0.0172 0.0515 0.0766], :c-nosub [0.5422 0.5938 0.625 0.5875 0.5531 0.6703 0.664 0.6578], :c-noreaders [-0.1125 0.1078 0.0156 0.025 0.0593 -0.0094 -0.0469 0.0313], :c-nomap [-0.0031 0.1312 0.0875 0.0969 0.0844 0.0219 0.05 0.0281], :c-null-twin [-0.0063 0.0562 -0.0094 0.014 -0.0156 -0.0281 0.0609 0.0078], :c-null-curve [-0.0953 0.0375 -0.0109 -0.0141 -0.0203 0.0015 0.0375 0.0344]}
+;; ==== HICASSO read-profile-slot-plan ====
+[{:positions [2 3 4 5 6 7 8 9], :mean-position 5.5, :id :commit, :slot 0} {:positions [1 3 4 5 6 7 8 10], :mean-position 5.5, :id :c-local, :slot 1} {:positions [0 0 2 4 5 6 7 9], :mean-position 4.125, :id :c-null, :slot 2} {:positions [1 1 3 5 6 8 10 10], :mean-position 5.5, :id :c-noactivate, :slot 3} {:positions [0 0 2 2 4 7 9 9], :mean-position 4.125, :id :c-nowatch, :slot 4} {:positions [1 1 3 3 8 8 10 10], :mean-position 5.5, :id :c-nosub, :slot 5} {:positions [0 0 2 2 4 7 9 9], :mean-position 4.125, :id :c-noreaders, :slot 6} {:positions [1 1 3 5 6 8 10 10], :mean-position 5.5, :id :c-nomap, :slot 7} {:positions [0 0 2 4 5 6 7 9], :mean-position 4.125, :id :b-build, :slot 8} {:positions [1 3 4 5 6 7 8 10], :mean-position 5.5, :id :c-null-twin, :slot 9} {:positions [2 3 4 5 6 7 8 9], :mean-position 5.5, :id :c-null-curve, :slot 10}]
+;; ==== HICASSO read-profile-micro ====
+{:subscribe-once 7375.8865, :compute-sub 1382.9787, :handler-invoke 351.0638, :registrar-lookup 102.8369, :frame-state-value 421.9858, :resolution-wrap 351.0638, :cache-peek-miss 46.0993, :sub-key-mint 24.8227}
+[hicasso] ok
