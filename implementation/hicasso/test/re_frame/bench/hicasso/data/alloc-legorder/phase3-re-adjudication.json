@@ -1,0 +1,98 @@
+{
+  "bead": "rf2-fk6pj",
+  "window": {
+    "label": "phase 3 re-adjudicated under phase 4's band",
+    "passOrder": "seeded",
+    "rounds": 12,
+    "writePaired": true,
+    "writeLegs": [
+      "page",
+      "all"
+    ],
+    "segOrder": "parity",
+    "controlSlot": "first",
+    "plan": "full",
+    "roots": 4,
+    "boundaries": 4,
+    "writes": 6
+  },
+  "band": {
+    "draws": 20000,
+    "seed": "legorder-band-1",
+    "alpha": 0.05
+  },
+  "runs": [
+    {
+      "session": "phase3",
+      "passSeed": "fk6pj-9",
+      "flips": [
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "session": "phase3",
+      "passSeed": "fk6pj-11",
+      "flips": [
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "session": "phase3",
+      "passSeed": "fk6pj-2386",
+      "flips": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true
+      ]
+    },
+    {
+      "session": "phase3",
+      "passSeed": "fk6pj-33",
+      "flips": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false
+      ]
+    }
+  ]
+}
