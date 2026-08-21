@@ -403,52 +403,10 @@
 ;;     the runner twice and lands its report on whichever row is running
 ;;     by then.
 ;;
-;; [[settle-row!]] is the one path all of them now end with, and the two
+;; `sup/settle-row!` is the one path all of them now end with, and the two
 ;; rows under it are what say it works — because neither branch is on any
 ;; green path, and a repair to a branch nothing takes is untested by
 ;; construction.
-
-(defn- settle-row!
-  "End an async row exactly ONCE, whatever `p` does. `opts` is
-  `{:row :done :release! :report!}`:
-
-    :row      names the row in the failure message. A shared settlement
-              still has to say WHICH row failed, which is the one thing
-              four hand-written `.catch`es gave away for free.
-    :done     `cljs.test`'s own, called exactly once.
-    :release! this row's teardown, called exactly once. Every primitive
-              it reaches for is idempotent and says so — `h/unmount!`,
-              `(:stop! watch)`, `(:close! capture)` — so a row whose BODY
-              already tore something down as part of an assertion (§4's
-              `(is (nil? (h/unmount! handle)))`) names it here as well
-              and the second call is a no-op. Omit only where the row
-              holds nothing.
-    :report!  what to do with a rejection. Defaults to failing the row,
-              which is what a real row wants; the two controls below pass
-              a recorder, because for them the rejection is the subject.
-
-  One `.then` carrying BOTH handlers rather than a `.then` and a
-  `.catch`: the two are mutually exclusive, so a body that throws cannot
-  also reach the rejection arm. The release and the `done` sit on the far
-  side of both, and `done` is in a `finally`, so a teardown that throws
-  still ends the row rather than leaving the runner to time it out.
-
-  The failure is carried as `nil`-or-`[e]` rather than as the value
-  itself, because a promise rejected with `js/undefined` reads as `nil`
-  in CLJS and would otherwise settle silently."
-  [p {:keys [row done release! report!]}]
-  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
-        release! (or release! (fn [] nil))
-        finish!  (fn [failure]
-                   (try
-                     (when failure (report! (str (first failure))))
-                     (release!)
-                     (catch :default te
-                       (is false (str row " could not release — " te)))
-                     (finally (done))))]
-    (.then p
-           (fn [_] (finish! nil))
-           (fn [e] (finish! [e])))))
 
 (deftest a-throwing-body-finishes-the-row-once-and-not-twice
   ;; THE DOUBLE-FINISH CONTROL. No DOM in it — this is the promise
@@ -460,10 +418,10 @@
           reports  (atom [])]
       (-> (js/Promise.resolve true)
           (.then (fn [_] (throw (js/Error. "the body threw"))))
-          (settle-row! {:row      "the throwing-body control"
-                        :done     (fn [] (swap! finishes inc))
-                        :release! (fn [] (swap! releases inc))
-                        :report!  (fn [e] (swap! reports conj e))})
+          (sup/settle-row! {:row      "the throwing-body control"
+                            :done     (fn [] (swap! finishes inc))
+                            :release! (fn [] (swap! releases inc))
+                            :report!  (fn [e] (swap! reports conj e))})
           (.then
             (fn [_]
               (testing "a body that throws finishes the row ONCE. The shape
@@ -480,8 +438,8 @@
                 (is (str/includes? (str (first @reports)) "the body threw")
                     (str "naming the error the body raised; got "
                          (pr-str @reports))))))
-          (settle-row! {:row "the throwing-body control's own settlement"
-                        :done done})))))
+          (sup/settle-row! {:row "the throwing-body control's own settlement"
+                            :done done})))))
 
 (deftest a-rejected-adoption-leaves-the-next-row-a-clean-page
   ;; THE LEAK CONTROL. The rejection is injected AFTER the adoption
@@ -514,14 +472,14 @@
                                 "the rejection is a RELEASE and not an empty "
                                 "page; got " (pr-str (sup/census))))
                        (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (settle-row! {:row      "the rejected-adoption control"
-                            :done     (fn [] (swap! finishes inc))
-                            :report!  (fn [e] (swap! reports conj e))
-                            :release! (fn []
-                                        ((:close! capture))
-                                        (swap! stops inc)
-                                        ((:stop! watch))
-                                        (h/unmount! handle))})
+              (sup/settle-row! {:row      "the rejected-adoption control"
+                                :done     (fn [] (swap! finishes inc))
+                                :report!  (fn [e] (swap! reports conj e))
+                                :release! (fn []
+                                            ((:close! capture))
+                                            (swap! stops inc)
+                                            ((:stop! watch))
+                                            (h/unmount! handle))})
               ;; The cell reapers are armed at unmount and run past a bare
               ;; macrotask, so the table is read at the runtime's own
               ;; horizon rather than one tick after the release.
@@ -550,12 +508,12 @@
                              @stops " times"))
                     (is (identical? console-before (.-error js/console))
                         "`console.error` is the page's own again"))))
-              (settle-row! {:row      "the rejected-adoption control's own settlement"
-                            :done     done
-                            :release! (fn []
-                                        ((:close! capture))
-                                        ((:stop! watch))
-                                        (h/unmount! handle))})))))))
+              (sup/settle-row! {:row      "the rejected-adoption control's own settlement"
+                                :done     done
+                                :release! (fn []
+                                            ((:close! capture))
+                                            ((:stop! watch))
+                                            (h/unmount! handle))})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the far side: the bytes hydrate through the PUBLIC door
@@ -590,11 +548,11 @@
             ;; not this row's teardown; the teardown is named again here
             ;; so a rejection still gets one, and `unmount!` is
             ;; idempotent by contract.
-            (settle-row! {:row      "§4's hydration row"
-                          :done     done
-                          :release! (fn []
-                                      ((:stop! watch))
-                                      (h/unmount! handle))}))))))
+            (sup/settle-row! {:row      "§4's hydration row"
+                              :done     done
+                              :release! (fn []
+                                          ((:stop! watch))
+                                          (h/unmount! handle))}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4b — THE READING: the id itself, read off the bytes and read back off
@@ -698,11 +656,11 @@
 
                        (testing "and nothing reached Spec 011's channel"
                          (is (= [] ((:stop! watch)))))))
-              (settle-row! {:row      "§4b-2's reading row"
-                            :done     done
-                            :release! (fn []
-                                        ((:stop! watch))
-                                        (h/unmount! handle))})))))))
+              (sup/settle-row! {:row      "§4b-2's reading row"
+                                :done     done
+                                :release! (fn []
+                                            ((:stop! watch))
+                                            (h/unmount! handle))})))))))
 
 (deftest the-hand-rolled-bytes-lose-the-id-through-the-same-door
   ;; THE CONTROL. Same public door, same helpers, same run — the other
@@ -768,12 +726,12 @@
               ;; A rejection here would leave `console.error` replaced for
               ;; every row that follows, which is the one leak in this file
               ;; that no fixture takes back.
-              (settle-row! {:row      "§4b-3's control row"
-                            :done     done
-                            :release! (fn []
-                                        ((:close! capture))
-                                        ((:stop! watch))
-                                        (h/unmount! handle))})))))))
+              (sup/settle-row! {:row      "§4b-3's control row"
+                                :done     done
+                                :release! (fn []
+                                            ((:close! capture))
+                                            ((:stop! watch))
+                                            (h/unmount! handle))})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM
@@ -861,9 +819,9 @@
                                  whole claim, since a frame seeded after the
                                  adopt would have diverged on this text"
                          (is (= [] ((:stop! watch)))))))
-              (settle-row! {:row      "§5's round-trip row"
-                            :done     done
-                            :release! (fn []
-                                        ((:stop! watch))
-                                        (h/unmount! handle)
-                                        (remove!))})))))))
+              (sup/settle-row! {:row      "§5's round-trip row"
+                                :done     done
+                                :release! (fn []
+                                            ((:stop! watch))
+                                            (h/unmount! handle)
+                                            (remove!))})))))))

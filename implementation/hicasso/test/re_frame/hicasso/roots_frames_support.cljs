@@ -2,10 +2,17 @@
   "THE MULTI-ROOT WITNESS HARNESS — the observables, and the reasons they
   are these observables.
 
-  Two suites read this file: `roots-frames-isolation-dom-cljs-test` and
-  `roots-frames-hydration-dom-cljs-test`. It exists because both of them
-  have to answer the same awkward question, and answering it twice by
-  hand is how the two answers drift apart.
+  It was written for two suites — `roots-frames-isolation-dom-cljs-test`
+  and `roots-frames-hydration-dom-cljs-test` — because both of them have
+  to answer the same awkward question, and answering it twice by hand is
+  how the two answers drift apart. That reason held for the rest of the
+  package's DOM arm too, and this is now the harness the whole of it
+  reads: `git grep -l roots-frames-support` over this directory is the
+  roster, not a list here, and the name has outlived its scope rather
+  than describing it. So a helper belongs here when the DOM suites would
+  otherwise each spell it themselves — [[settle-row!]] is the plainest
+  case, four verbatim copies collapsed into one — and NOT merely because
+  it mentions roots or frames.
 
   ## The awkward question
 
@@ -94,6 +101,81 @@
   false green."
   [why]
   (is true (str "a multi-root claim needs a real React DOM — " why)))
+
+(defn settle-row!
+  "End an async row exactly ONCE, whatever `p` does. `opts` is
+  `{:row :done :release! :report!}`:
+
+    :row      names the row in the failure message. A shared settlement
+              still has to say WHICH row failed, which is the one thing a
+              hand-written rejection arm gave away for free.
+    :done     `cljs.test`'s own, called exactly once.
+    :release! this row's teardown, called exactly once. Every primitive it
+              reaches for is idempotent and says so — `mount/release!`,
+              `h/unmount!`, `(:stop! watch)`, `(:close! capture)` — so a
+              row whose BODY already tore something down as part of an
+              assertion names it here as well and the second call is a
+              no-op. Omit only where the row holds nothing.
+    :report!  what to do with a rejection. Defaults to failing the row,
+              which is what a real row wants; a suite's rejection control
+              passes a recorder, because for it the rejection is the
+              subject.
+
+  One `.then` carrying BOTH handlers rather than a `.then` and a `.catch`:
+  the two are mutually exclusive, so a body that throws cannot also reach
+  the rejection arm and finish the row twice. The release and the `done`
+  sit on the far side of both, and `done` is in a `finally`, so a teardown
+  that throws still ends the row rather than leaving the runner to time it
+  out.
+
+  The failure is carried as `nil`-or-`[e]` rather than as the value itself,
+  because a promise rejected with `js/undefined` reads as `nil` in CLJS and
+  would otherwise settle silently.
+
+  ## Why an unsettled row is worse than a slow one, and why this is shared
+
+  On the browser lane an unsettled rejection is an UNHANDLED one, so it
+  reaches the page as an uncaught error and the runner treats that as
+  terminal (rf2-u0j8). Measured on `identifier-prefix-ssr-dom-cljs-test`:
+  the run stopped at that namespace with 85 announced, no summary line at
+  all, and every namespace scheduled after it silently unrun — `shadow.test`
+  runs the whole lane, and the closing summary, inside one
+  `cljs.test/run-block` with no try/catch. So the cost of a rejection was
+  never one row, which is why every async row in the SSR and hydration
+  suites ends here rather than in a hand-written `.catch`.
+
+  This definition was four verbatim copies, one per adopting suite, spelled
+  identically on purpose so the lift would be a deletion rather than a
+  reconciliation of designs (rf2-sxhu, rf2-x43z, rf2-8zhr, rf2-z17t;
+  collapsed by rf2-7ucn).
+
+  ## Where its own coverage lives, and why it is not here
+
+  This namespace holds no `deftest`s, and the rejection arm is on NO green
+  path — a repair to a branch nothing takes is untested by construction. So
+  each adopting suite keeps its OWN rejection control, written against that
+  suite's row shape and its own releasables: the two rows under
+  `server-render-ssr-dom-cljs-test`'s §6, and one apiece in
+  `identifier-prefix-ssr-dom-cljs-test` (§6),
+  `presence-ssr-seam-dom-cljs-test` (§6) and
+  `roots-frames-hydration-dom-cljs-test` (H7). Those controls are not
+  duplicates of one another — each manufactures its rejection from the
+  handles its own lane holds, and what they assert is that THIS function
+  reports once and releases everything that lane had open. Centralising
+  them would mean a control that releases nothing real."
+  [p {:keys [row done release! report!]}]
+  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
+        release! (or release! (fn [] nil))
+        finish!  (fn [failure]
+                   (try
+                     (when failure (report! (str (first failure))))
+                     (release!)
+                     (catch :default te
+                       (is false (str row " could not release — " te)))
+                     (finally (done))))]
+    (.then p
+           (fn [_] (finish! nil))
+           (fn [e] (finish! [e])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Kernel observables — the cell table, read as a SHAPE

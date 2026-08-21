@@ -201,63 +201,13 @@
 ;; inside one `cljs.test/run-block` with no try/catch. So the cost of a
 ;; rejection here was never one row.
 ;;
-;; [[settle-row!]] is the one path every async row now ends with, and H7 is
+;; `sup/settle-row!` is the one path every async row now ends with, and H7 is
 ;; what says it works — because its rejection arm is on no green path, and
 ;; a repair to a branch nothing takes is untested by construction.
 ;;
 ;; H4 is deliberately NOT on it: that row is synchronous end to end — no
 ;; `async`, no promise — so its `try`/`finally` is an ordinary bracket and
 ;; there is no settlement question to answer.
-
-(defn- settle-row!
-  "End an async row exactly ONCE, whatever `p` does. `opts` is
-  `{:row :done :release! :report!}`:
-
-    :row      names the row in the failure message. A shared settlement
-              still has to say WHICH row failed, which is the one thing a
-              hand-written rejection arm would give away for free.
-    :done     `cljs.test`'s own, called exactly once.
-    :release! this row's teardown, called exactly once. Every primitive it
-              reaches for is idempotent and says so — `mount/release!`,
-              `(:stop! watch)`, `(:close! capture)` — so a row whose BODY
-              already tore something down as part of an assertion names it
-              here as well and the second call is a no-op. Omit only where
-              the row holds nothing.
-    :report!  what to do with a rejection. Defaults to failing the row,
-              which is what a real row wants; H7 passes a recorder, because
-              for it the rejection is the subject.
-
-  One `.then` carrying BOTH handlers rather than a `.then` and a `.catch`:
-  the two are mutually exclusive, so a body that throws cannot also reach
-  the rejection arm and finish the row twice. The release and the `done`
-  sit on the far side of both, and `done` is in a `finally`, so a teardown
-  that throws still ends the row rather than leaving the runner to time it
-  out.
-
-  The failure is carried as `nil`-or-`[e]` rather than as the value itself,
-  because a promise rejected with `js/undefined` reads as `nil` in CLJS and
-  would otherwise settle silently.
-
-  **A local copy of `server-render-ssr-dom-cljs-test`'s helper of the same
-  name (rf2-sxhu, PR #8675), deliberately spelled identically** — same
-  parameters, same defaults, same `nil`-or-`[e]` carrier — as
-  `identifier-prefix-ssr-dom-cljs-test`'s is (rf2-x43z, PR #8677), so that
-  lifting the copies into `roots-frames-support` is a deletion and a
-  `:require`, not a reconciliation of designs. rf2-7ucn carries that lift
-  and the count that justifies it."
-  [p {:keys [row done release! report!]}]
-  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
-        release! (or release! (fn [] nil))
-        finish!  (fn [failure]
-                   (try
-                     (when failure (report! (str (first failure))))
-                     (release!)
-                     (catch :default te
-                       (is false (str row " could not release — " te)))
-                     (finally (done))))]
-    (.then p
-           (fn [_] (finish! nil))
-           (fn [e] (finish! [e])))))
 
 ;; ---------------------------------------------------------------------------
 ;; H1 — two overlapping adoptions, each keeping its own DOM
@@ -318,7 +268,7 @@
                               mounts"
                       (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
                       (is (= #{frame-a frame-b} (sup/frame-memo-frames))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "H1 — two overlapping adoptions, each keeping its own DOM"
                    :done     done
                    :release! (fn []
@@ -455,7 +405,7 @@
                       (is (= "client-B" (text-in cb ".title")))
                       (is (= "alpha" (text-in ca ".value")))
                       (is (= "beta"  (text-in cb ".value")))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "H2 — two overlapping mismatches, two complaints"
                    :done     done
                    :release! (fn []
@@ -490,7 +440,7 @@
                     ;; read zero whatever the teardown did.
                     (mount/unmount! ha)
                     ;; The inner chain is RETURNED from this handler, so the
-                    ;; outer promise adopts it and ONE `settle-row!` at the
+                    ;; outer promise adopts it and ONE `sup/settle-row!` at the
                     ;; outer tail settles the whole row. Two — one per chain —
                     ;; would call `done` twice on the green path.
                     (-> (sup/quiesced!)
@@ -518,7 +468,7 @@
 
                             (testing "and tearing the survivor down leaves nothing"
                               (is (= sup/released (sup/teardown-census! hb)))))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "H3 — independent teardown of two hydrated roots"
                    :done     done
                    :release! (fn []
@@ -671,7 +621,7 @@
       ;; `held` is what lets ONE settlement cover this row, and it is here
       ;; because this row is the only one whose releasables are minted INSIDE
       ;; the chain: `ha` needs the server's bytes, and those arrive as a
-      ;; promise. A `settle-row!` at the tail cannot close over bindings the
+      ;; promise. A `sup/settle-row!` at the tail cannot close over bindings the
       ;; chain makes, and the rejection path is exactly the path on which
       ;; those `let`s were never entered — so each is recorded as it is
       ;; created and `:release!` gives back whatever exists. Every other row
@@ -778,7 +728,7 @@
                                 (mount/unmount! orphan)
                                 (is (false? (roots/adopting? window))
                                     "teardown shut it"))))))))))
-            (settle-row!
+            (sup/settle-row!
               {:row      "H5 — presence adoption belongs to a subtree, not to the page"
                :done     done
                :release! (fn []
@@ -899,7 +849,7 @@
                     (is (= [true true] (vec oks))
                         "both hydrating roots must reach their own closer, or
                          this row left an open window behind")))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "H6 — the page-global sabotage control"
                    :done     done
                    :release! (fn []
@@ -912,7 +862,7 @@
 ;; H7 — THE LEAK CONTROL: a rejected adoption still releases BOTH roots
 ;; ---------------------------------------------------------------------------
 ;;
-;; H1 through H6 all FULFIL on a green run, so [[settle-row!]]'s rejection
+;; H1 through H6 all FULFIL on a green run, so `sup/settle-row!`'s rejection
 ;; arm is on no green path — and a repair to a branch nothing takes is
 ;; untested by construction. This row takes it.
 ;;
@@ -942,7 +892,7 @@
             cb       (sup/stamp-server-nodes! (sup/server-dom! html-b))
             watch    (sup/watch-mismatches!)
             ;; NOT `:swallow-uncaught? true`: this row manufactures a
-            ;; rejected PROMISE, which `settle-row!` handles, and no uncaught
+            ;; rejected PROMISE, which `sup/settle-row!` handles, and no uncaught
             ;; window error at all. Swallowing anywhere else is the fail-open
             ;; the browser runner's pageerror rule forbids.
             stops    (atom 0)
@@ -961,7 +911,7 @@
                            "is a RELEASE and not an empty page; got "
                            (pr-str (sup/census))))
                   (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (settle-row!
+              (sup/settle-row!
                 {:row      "the rejected-adoption control"
                  :done     (fn [] (swap! finishes inc))
                  :report!  (fn [e] (swap! reports conj e))
@@ -1004,7 +954,7 @@
                         (str "the mismatch watcher was stopped — `stop!` is what "
                              "unregisters the trace listener; it ran "
                              @stops " times")))))
-              (settle-row!
+              (sup/settle-row!
                 {:row      "the rejected-adoption control's own settlement"
                  :done     done
                  :release! (fn []
