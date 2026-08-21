@@ -54,12 +54,12 @@ once every clause is already met.
 
 **A change still published as a draft is not a merge candidate, and no number of
 clauses makes it one.** The five test the CHANGE — whether what is proposed is
-green — and none of them can see whether its author has finished with it. Workers
-are told to push as they go and publish as soon as commits exist, because pushed
-commits are the only durable worker state, so *green* and *done* are separate facts
-and this criterion only ever measured the first. Marking a change ready for review
-is the worker's last act, and hosts refuse to merge a draft, so the interlock costs
-this loop nothing to remember. See *Publishing the change* in
+green — and none of them can see whether its author has finished with it: workers
+push as they go because pushed commits are the only durable worker state, so *green*
+and *done* are separate facts and this criterion only ever measured the first.
+Marking a change ready for review is the worker's last act, and hosts refuse to merge
+a draft, so the interlock costs this loop nothing to remember. See
+*Publishing the change* in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 
 Resolve the head first — the branch name **and** the head revision — because
@@ -71,34 +71,31 @@ clauses 4 and 5 are both keyed to it.
 4. **Every workflow run at the change's current head revision COMPLETED.**
 5. **The check set was computed against the workflow matrix on the trunk now.**
 
-Each of those is one line and each hides a way to be wrong. They are unpacked
-below.
+Each hides a way to be wrong, unpacked below.
 
 ### Clause 1 — zero failures is not green
 
-Zero-failures-zero-pending is also exactly what an **empty** rollup reports. That
-is what a change shows in the seconds before its workflow runs are created, and
-what everything shows while the CI provider is down. One change merged here on a
-rollup read as 0/0/0 eleven seconds before its runs existed; during a provider
-outage the same day, six changes at once reported mergeable with zero checks, and
-a criterion without this clause would have taken all six.
+Zero-failures-zero-pending is also exactly what an **empty** rollup reports — what
+a change shows in the seconds before its workflow runs are created, and what
+everything shows while the CI provider is down. One change merged here on a rollup
+read as 0/0/0 eleven seconds before its runs existed; during a provider outage the
+same day, six changes at once reported mergeable with zero checks.
 
 So require a **count**, and require it to be in the band this repository actually
 produces. A rollup carrying a fraction of the checks a full one carries is no
 greener than an empty one.
 
 **Measure the band; never trust a number written down.** It moves as the matrix
-grows. In one programme the figure here moved four times in three days. Measure it
-on changes merged *after* the last matrix change, because a change branched before
-a new job landed is computed against the superseded matrix and legitimately reads
-band-minus-one — which the count alone cannot distinguish from a change genuinely
-one job short. Update the branch and re-check before judging this clause.
+grows — in one programme the figure here moved four times in three days. Measure it
+on changes merged *after* the last matrix change, because a change branched before a
+new job landed is computed against the superseded matrix and legitimately reads
+band-minus-one, which the count alone cannot distinguish from a change genuinely one
+job short. Update the branch and re-check before judging this clause.
 
-**And one reading above the band is correct.** A change that adds a required
-job sees that job in its own rollup, so it legitimately reads band-plus-one
-before the standing band has moved — the arming proving itself rather than a
-miscount, and the one case where a total above the band is not a reason to
-look further.
+**And one reading above the band is correct.** A change that adds a required job
+sees that job in its own rollup, so it legitimately reads band-plus-one before the
+standing band has moved — the arming proving itself rather than a miscount, and the
+one case where a total above the band is not a reason to look further.
 
 ### Clause 2 — cancelled is not passed
 
@@ -120,29 +117,28 @@ change caused it.
 
 **If it did not, what you have is uncertainty, not a verdict.** The reflex — this change
 reds it, so this change broke it — dispatches a fix worker onto that change's branch and
-puts a workaround on a possibly innocent one. But the correction is not the opposite
-reflex. A job that never ran on the trunk is silent about *both* sides: it is no evidence
-the trunk is broken, and none that the change is clean. The red change may perfectly well
-have introduced the failure itself. Only running the gate settles it. Reproduce the actual
-failing check on a clean checkout of the change's base, or set up an equivalent controlled
-comparison. If it fails there, the defect is the trunk's and the fix belongs on a new branch
-off it; if it passes, the change owns the failure and the fix belongs on the change's own
-branch.
+puts a workaround on a possibly innocent one; but the correction is not the opposite
+reflex. A job that never ran on the trunk is silent about *both* sides: no evidence the
+trunk is broken, and none that the change is clean. Only running the gate settles it.
+Reproduce the actual failing check on a clean checkout of the change's base, or set up an
+equivalent controlled comparison. If it fails there, the defect is the trunk's and the fix
+belongs on a new branch off it; if it passes, the change owns the failure and the fix
+belongs on the change's own branch.
 
 **A right answer reached by the refuted inference is still a defect**, because the
 inference is what you carry to the next case. One mayor here called a red change innocent
-on the bare ground that its failing gate is skipped on trunk pushes, and dispatched no fix
-worker on that basis; it reproduced the gate nowhere. A sibling landed shortly after, the
-failure cleared, and the call now reads correct in the record. The outcome did not validate
-the reasoning — and nothing left in the record tells the two apart.
+on the bare ground that its failing gate is skipped on trunk pushes, reproducing the gate
+nowhere; a sibling landed shortly after, the failure cleared, and the call now reads correct
+in the record. The outcome did not validate the reasoning, and nothing left in the record
+tells the two apart.
 
 ### Clause 3 — require the terminal state, do not enumerate the bad ones
 
 Do not test this by listing the states that block. The vocabulary is longer than it
 looks — queued and in-progress are not the whole of it; hosts also return requested,
 waiting and pending — and a rule that enumerates the bad states fails open on the
-first state nobody wrote down. That is the same fail-open shape this whole section
-exists to close.
+first state nobody wrote down, the same fail-open shape this whole section exists to
+close.
 
 Invert it: require the terminal state. Anything else blocks and is re-checked next
 tick.
@@ -166,16 +162,15 @@ already bitten:
   re-trigger commit. A stale-revision run is not evidence about this head. **A guard
   that blocks forever is not safe, it is differently wrong.**
 
-**Two mechanical traps live in this clause, and they fail in opposite directions.**
-Both are worth stating because both are one character from correct:
+**Two mechanical traps live in this clause, both one character from correct, and they
+fail in opposite directions:**
 
 * **Case.** Your CLI may report check states in one case and run statuses in
   another. A comparison written against the wrong one counts every *finished* run as
   non-terminal, and every change reads blocked. This one fails **closed** — it never
-  ships a bad merge, and it never announces itself either. It presents as a CI queue
-  that will not drain, which is entirely believable. The tell is that every change
-  reads identically blocked; real CI does not stall a whole queue in lockstep.
-  Case-fold the comparison.
+  ships a bad merge, and it never announces itself either, presenting as a CI queue
+  that will not drain. The tell is that every change reads identically blocked; real
+  CI does not stall a whole queue in lockstep. Case-fold the comparison.
 * **Abbreviated revisions.** A run query filtered by an abbreviated revision may match
   nothing and return an empty list — which reads as "no live runs" and passes this
   clause **vacuously**. Pass the full revision.
@@ -185,14 +180,13 @@ Both are worth stating because both are one character from correct:
 This is the newest clause and the least visible, because every field you can read
 says green.
 
-Two changes merged four minutes apart here. The first added a required browser job
-and a new three-engine arm; the second was still checked against the base from
-before it, so the browser check it should have run came back *skipped* and the newly
-required one never appeared in its rollup at all. *"All required checks passed"* was
-a true statement about the old matrix and said nothing about the matrix already on
-the trunk. That tree happened to be green — an audit ran the suites by hand
-afterwards to establish it — but the guard had not known, which is the entire
-problem.
+Two changes merged four minutes apart here. The first added a required browser job;
+the second was still checked against the base from before it, so the browser check
+it should have run came back *skipped* and the newly required one never appeared in
+its rollup at all. *"All required checks passed"* was a true statement about the old
+matrix and said nothing about the matrix already on the trunk. That tree happened to
+be green — an audit established it by hand afterwards — but the guard had not known,
+which is the entire problem.
 
 Note the cost structure: this is the direct price of the merge-the-queue-first
 remedy below. **A burst is precisely when the base moves under a check set.**
@@ -211,14 +205,13 @@ identical, the count is unchanged, only a label moved. That is intact — but yo
 know by reading.
 
 Do this **before** merging. It is easy to merge and then reason that the drift was
-harmless. It usually is, and "usually" is what the other four clauses exist to
-refuse.
+harmless; it usually is, and "usually" is what the other four clauses exist to refuse.
 
 **And the set can move the other way, from the branch rather than the trunk.** Everything
-above is about keys ARRIVING underneath a change. A change that retires a surface REMOVES
+above is about keys ARRIVING underneath a change; a change that retires a surface REMOVES
 them, so its rollup legitimately reads below the band — and any programme that deletes a
-subsystem produces a run of such changes, so this stops being an edge case for the whole
-length of that work. **The count cannot tell a legitimate narrowing from a silent disarm.
+subsystem produces a run of such changes, so this is not an edge case for the whole length
+of that work. **The count cannot tell a legitimate narrowing from a silent disarm.
 Read which key left, and check it against what the change itself deleted.** A check whose
 entire subject went in the same change is retirement; a check that leaves while its subject
 still stands is the fail-open shape the programme exists to hunt, and it arrives wearing
@@ -231,14 +224,14 @@ failure output stays actionable, and that the quality-gates section is present.
 
 **Read the FILE LIST against the item, not just the count — and "scope did not sprawl" does
 not already cover it.** Sprawl is EXTRA work, and it announces itself because extra files read
-as new work. The opposite shape does not: a change that silently REVERTS merged work is green.
-It is well-formed, it compiles, and it passes every gate the tree has. One change here carried
-twenty-four files under a subject accurate about the one its author meant to touch, at 611
-insertions against 910 deletions, out of a worktree whose base had moved. **So a path the item
-does not explain is a finding whichever DIRECTION it runs**, and direction is the test rather
-than size: for a surprising file, ask whether something PRESENT on the branch is ABSENT from the
-trunk. On that change a source file had put back a symbol belonging to a retired subsystem, so
-the branch's content was OLDER than the trunk's.
+as new work. The opposite shape does not: a change that silently REVERTS merged work is green,
+well-formed, compiles, and passes every gate the tree has. One change here carried twenty-four
+files under a subject accurate about the one its author meant to touch, at 611 insertions
+against 910 deletions, out of a worktree whose base had moved; a source file had put back a
+symbol belonging to a retired subsystem, so the branch's content was OLDER than the trunk's.
+**So a path the item does not explain is a finding whichever DIRECTION it runs**, and direction
+is the test rather than size: for a surprising file, ask whether something PRESENT on the branch
+is ABSENT from the trunk.
 
 **Do not reach for a gate here.** A revert of merged work is mechanically indistinguishable from
 a change that is not one; the only discriminator is whether the reader EXPECTED those paths, so a
@@ -264,17 +257,16 @@ lives in a fork the server will not touch. **A surviving remote ref is never gro
 to reap a worktree early.**
 
 **"Base branch was modified" usually means stale — until something is moving the
-base.** The rejection reads like a lost race, so the reflex is to retry. Seven
-retries here proved otherwise: the branch was simply behind, and the remedy is to
+base.** The rejection reads like a lost race, so the reflex is to retry; seven
+retries here proved otherwise, the branch was simply behind, and the remedy is to
 update it and re-check.
 
 But any automation that writes to the trunk after a merge turns that reflex into a
 trap, because then the race is real. A post-merge hook that commits and pushes
 asynchronously means the base never holds still during a burst, and the next merge
-is refused for a reason no amount of updating fixes. **One change here was refused
-thirty times.** Both transports agreed, so it was not a client quirk, and updating
-the branch made it worse before better — CI restarts, and another hook commit lands
-inside that window.
+is refused for a reason no amount of updating fixes — **one change here was refused
+thirty times**, on both transports, and updating the branch made it worse before
+better, because CI restarts and another hook commit lands inside that window.
 
 The remedy is counterintuitive: **merge the whole queue FIRST, then give the
 straggler a genuinely empty window.** Raising its nominal priority does the opposite
@@ -316,9 +308,9 @@ fetches and the fast-forward in the same seconds.
 
 **An aborted fast-forward has two causes with different remedies, and the message says
 which** — and it says which only because the pair above no longer reads the shared file.
-Both reproduce unchanged under the fetch-and-merge pair, so the change costs nothing here.
-Naming remote and branch cures the silent no-op but neither abort, so read the text
-before reaching for a familiar fix:
+Both reproduce unchanged under that pair, so the change costs nothing here. Naming remote
+and branch cures the silent no-op but neither abort, so read the text before reaching for a
+familiar fix:
 
 * **"Local changes would be overwritten"** — uncommitted tracker state. Checkpoint it
   first, *then* clear, *then* retry. Clearing before checkpointing reverts whatever the
@@ -357,10 +349,9 @@ fleet size is the cause and the mayor says so rather than re-running indefinitel
 
 **And a check that never TERMINATES is a third case that neither remedy fits.** It has not
 failed, so nothing above is triggered; it has not passed, so clause 3 rejects the change for
-as long as it runs. Read literally, the criterion leaves the mayor no move at all and the
-honest thing to do is wait forever — which is exactly when the pressure to override arrives.
-**It is not a sixth clause.** Clause 3 already blocks the change, and correctly; what is
-missing is only what to DO about it.
+as long as it runs — which is exactly when the pressure to override arrives. **It is not a
+sixth clause**: clause 3 already blocks the change, and correctly, and what is missing is only
+what to DO about it.
 
 **Recognise it on the clock, against that job's OWN normal cost — measured, never
 remembered.** A remembered constant cannot detect a delta, and job costs move; the recent
@@ -368,8 +359,8 @@ successful runs of the same job are the baseline, and reading them costs one que
 here: a job whose last successes took 1.4 to 1.7 minutes was forty-nine minutes in and still
 going. **A timeout kill usually reports as CANCELLED rather than as a failure**, which clause
 2 handles correctly — cancelled is not passed — while saying nothing about *why*. Elapsed
-time against the job's declared cap is what tells them apart: landing ON the cap is a timeout
-kill, finishing well inside it is a superseding push or a hand cancel, and both numbers are
+time against the job's declared cap tells them apart: landing ON the cap is a timeout kill,
+finishing well inside it is a superseding push or a hand cancel, and both numbers are
 readable. Expect rollup jobs to go red seconds afterwards; those fail BECAUSE of the
 cancellation and are consequences rather than findings, so counting them as independent
 failures overstates the problem and points at the wrong remedy.
@@ -399,28 +390,23 @@ notifications, and do not trust a filter that returned empty — an empty filter
 dry backlog. One mayor under-saturated at one to three workers while a hundred items
 were ready, because a homegrown filter kept answering empty.
 
-**Read the newest note first, and order the item by the tracker's own timestamps.** The
-description is *usually* the oldest text and corrections accrete below it, so a top-down read
-gets superseded instructions — but the bottom is not reliably the newest either, because audit
-notes append into the description block while dated comments render after it. `bd show | tail`
-is not a read-the-newest method, and neither is grepping the prose for dates: a date in the
-text is content rather than a mutation time, so an undated correction is invisible to it and an
-edited description can be the newest field on the item. `bd history <id>` lists real mutation
-times newest-first; `bd comments <id> --json` carries comment `created_at`. That listing tells you
-a newer mutation exists but names no changed field — for the change itself, `bd history <id> --json`
-carries a full snapshot per commit — walk adjacent pairs newest-first until the first change to a
-text-bearing field, because the history holds duplicate checkpoint snapshots and status-only
-mutations and the newest pair alone can truthfully say nothing changed. And when a bead has
-children, re-enumerate them — a ruling is sometimes recorded as a new child bead rather than as
-a note. **But a child is one of two carriers, and naming one reads as exhaustive**: a ruling that
-discharges a slice is more often the CLOSE REASON of a bead already CLOSED and linked as a
-*dependency*, which is normative text rather than an archival note. So read the item's dependency
-list and not only its children, and read each linked item's status and close reason before you
-brief from the item's own words — and note that enumerating by id prefix is not enumerating,
-because a generated id does not share the parent's prefix, so a prefix filter returns the children
-while silently omitting the bead that governs. That is how a dispatch on 2026-08-18 went out to
-delete a tree that a closed dependency had ruled KEEP, its ruling having sat on the item's own
-dependency list the whole time.
+**Read the newest note first, and order the item by the tracker's own timestamps** — not by
+position, and not by dates written in the prose. The mechanics are set out for the worker under
+*Common preamble* in [`dispatch-prompt-template.md`](dispatch-prompt-template.md), and they bind
+the mayor reading the item exactly as they bind the worker: `bd show | tail` is not a
+read-the-newest method, `bd history <id>` lists real mutation times newest-first,
+`bd history <id> --json` carries the snapshot that says *what* changed, and you walk adjacent
+pairs newest-first to the first change to a text-bearing field.
+
+**A child bead is one of two carriers, and naming one reads as exhaustive.** Re-enumerate an
+item's children — a ruling is sometimes recorded as a new child rather than as a note — but a
+ruling that discharges a slice is more often the CLOSE REASON of a bead already CLOSED and linked
+as a *dependency*, which is normative text rather than an archival note. So read the dependency
+list as well as the children, and read each linked item's status and close reason before you brief
+from the item's own words. **Enumerating by id prefix is not enumerating**: a generated id does not
+share the parent's prefix, so a prefix filter returns the children while silently omitting the bead
+that governs. That is how one dispatch went out to delete a tree that a closed dependency had ruled
+KEEP, its ruling having sat on the item's own dependency list the whole time.
 
 Filter out before shaping anything:
 
@@ -444,17 +430,19 @@ duplicate.
 still resolves while the count is zero or triple. Re-run the item's own census at the
 current trunk tip.
 
+Measured drifts in one session: 8 → 9, "four hits" → 23 lines, "roughly 6–10" → 23,
+"4 of 21 cached" → 13 of 21. Two items once went out in one wave against work merged
+fifteen hours earlier; both workers returned a correct "already fixed", so the waste was
+two dispatches rather than a wrong result.
+
 **Exclude any generated export from a tree-wide census.** Where the tracker keeps a
 whole-database export inside the working tree, it carries every title, description and comment
 and therefore matches almost any identifier a census greps for. Both halves of the cost are
 real and the second is the dangerous one: one such grep returned a hundred kilobytes of tracker
-rows before a single real hit, which in a context-bounded worker is a material loss for
-nothing; and nothing in the output announces that a tracker row is not a source file, so an
-inflated census reads exactly like a correct one and sends its worker looking for sites that do
-not exist. Exclude it in the brief as much as in your own check. Measured drifts in one session: 8 → 9, "four hits" → 23 lines,
-"roughly 6–10" → 23, "4 of 21 cached" → 13 of 21. Two items once went out in one wave
-against work merged fifteen hours earlier; both workers returned a correct "already
-fixed", so the waste was two dispatches rather than a wrong result.
+rows before a single real hit, a material loss in a context-bounded worker; and nothing in the
+output announces that a tracker row is not a source file, so an inflated census reads exactly
+like a correct one and sends its worker looking for sites that do not exist. Exclude it in the
+brief as much as in your own check.
 
 **The sibling that discharges an item is usually the one whose fence sent the work
 elsewhere.** A tree fenced off from item A is exactly the tree item B is free to take.
@@ -505,22 +493,19 @@ that is already open. Six routed findings landed that way in one evening, none
 conflicting, several fixed minutes after they were found.
 
 **But routing does not create an owner, and that is the half people drop.** The message
-lives in one agent's transcript. If that agent dies, times out, or reasonably declines the
-extra item — declining is often correct — the finding evaporates, and the audit that found
-it has already run. An audit caught exactly this: a mayor had identified a stale deferral
-but *"routed it only to a transient worker, leaving no durable owner"*, the sole record
-being a close reason on a **different** item — a record on the wrong object, because nobody
-reads a closed item looking for open work.
+lives in one agent's transcript, so if that agent dies, times out, or reasonably declines the
+extra item — declining is often correct — the finding evaporates, and the audit that found it
+has already run. An audit caught exactly this: a mayor had *"routed it only to a transient
+worker, leaving no durable owner"*, the sole record being a close reason on a **different**
+item — a record on the wrong object, because nobody reads a closed item looking for open work.
+So put **one note on the owning item** saying what was routed, to whom, and what happens if it
+does not land.
 
-So put **one note on the owning item** saying what was routed, to whom, and what happens if
-it does not land.
-
-**Sometimes routing is the wrong move altogether.** A worker dispatched under a
-deliberately bounded fence has that fence widened mid-flight by a second finding, which is
-how a bounded repair becomes an unbounded one. Then leave that owner queued or sequenced
-instead, and note the overlap on the in-flight item — saying explicitly that the item is
-owned elsewhere and is **not** part of the in-flight repair, so nobody reading that item's
-newest notes adopts it.
+**Sometimes routing is the wrong move altogether.** It widens a deliberately bounded fence
+mid-flight, which is how a bounded repair becomes an unbounded one. Then leave that owner
+queued or sequenced instead, and note the overlap on the in-flight item — saying explicitly
+that the item is owned elsewhere and is **not** part of the in-flight repair, so nobody
+reading that item's newest notes adopts it.
 
 Route-and-note, or queue-and-note. An owner plus one note is common to both and is the whole
 safeguard. It does not want to grow past that: no routing registry, no tracking field, no
@@ -535,12 +520,12 @@ needs the operator, and do not manufacture work.
 
 ## 3. Backlog reread
 
-**Dispatch reads the ready list; this loop reads everything else.** A ready list is a
-projection. It answers *what could go out right now*, and by construction it omits held
-items, blocked items and items a live worker already holds. Those are the ones that fail
-quietly: a dispatchable item that goes wrong is caught on the next tick, because the tick
-is looking straight at it, while a held item that should have been released is caught by
-nobody, because nothing in the short loop reads it again.
+**Dispatch reads the ready list; this loop reads everything else.** A ready list answers
+*what could go out right now*, so by construction it omits held items, blocked items and
+items a live worker already holds — and those are the ones that fail quietly. A dispatchable
+item that goes wrong is caught on the next tick, because the tick is looking straight at it;
+a held item that should have been released is caught by nobody, because nothing in the short
+loop reads it again.
 
 So on a medium cadence, read **all** open items from the raw list — not a saved filter, not
 the ready view, not what you remember filing. On each one order the material by the tracker's
@@ -596,14 +581,13 @@ says when to STOP. A paraphrase keeps the memorable half and drops the restraini
 what survives does not read as incomplete — it reads as a stance that wants MORE of
 everything, which is precisely the failure the second half exists to prevent.
 
-Which clauses turn out to be load-bearing is worth knowing in advance, because they are the
-ones a summary sheds first. In one project: *"trust the programmer"* is what rejects a
-nagging diagnostic; *"close minutiae rather than actioning it"* is what lets an item die with
-its reasoning recorded instead of consuming a worker; *"a finding is a CLAIM"* is what stops
-an audit's output being mistaken for a queue. And the licence to refuse is load-bearing: in
-one session three of six dispatches came back as reasoned refusals, and each was worth more
-than the work would have been, because a migration performed on a false premise costs far
-more than a tracker item.
+Which clauses turn out to be load-bearing is worth knowing in advance, because a summary
+sheds those first. In one project: *"trust the programmer"* rejects a nagging diagnostic;
+*"close minutiae rather than actioning it"* lets an item die with its reasoning recorded
+instead of consuming a worker; *"a finding is a CLAIM"* stops an audit's output being
+mistaken for a queue. The licence to refuse is load-bearing too — in one session three of
+six dispatches came back as reasoned refusals, each worth more than the work would have
+been, because a migration performed on a false premise costs far more than a tracker item.
 
 Also reassert any **voice** the operator has asked for. Voice drift returns within about ten
 turns, which is exactly why it belongs in a recurring loop rather than in one session's
@@ -638,52 +622,48 @@ is a real signal, just never the complete one.
 outside, and both readings went wrong in a single day here, in opposite directions.
 
 1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the
-   revision id, not a count of changes — **an *ahead* count, the changes your branch carries
-   beyond the trunk, survives a rebase unchanged**, and rebasing onto a moved trunk is what a
+   revision id, not a count of changes. **An *ahead* count — the changes your branch carries
+   beyond the trunk — survives a rebase unchanged**, and rebasing onto a moved trunk is what a
    briefed worker does constantly, so a count fails on the common case rather than an edge one.
-   Say which count, because only that one is invariant: counting *everything reachable* from
-   the branch does move under a rebase, having counted what the trunk gained as well. So the
-   misleading count is the ahead count — which is also the one you naturally read. The
-   timestamps split the same way: a rebase replays the *authored* time and rewrites only the
-   *committed* one, so two honest readers can call one change forty-three minutes old and
-   seventy-five seconds old and neither be misreading.
-   Reading the count and the authored time together, a healthy worker here was called unchanged
-   for two consecutive ticks — it had rebased two minutes before the second read and had
-   committed all of its assigned work. A changed id says alive everywhere a count does, plus
-   that case; an unchanged id still says *nothing* on its own, which is what saved that worker,
-   because the next step is to ask rather than to reap. **Read the tip from whichever ref the
-   worker's commit updates DIRECTLY, and prefer a read that performs no refresh at all** — a
-   refresh is what exposes the shared fetch-head trap under *After each merge*, which is on this
-   read path too and is silent here. Where workers share one repository metadata directory, the
-   shared local ref moves the moment a worker commits, while the *published* ref moves only when
-   that worker chooses to push. So the published one lags, and it lags in the direction that
-   reads as death: the read most likely to condemn a healthy worker is the one that asks the
-   wrong ref.
-   **And an unchanged tip says something only once it is corroborated with worktree activity.** A
+   Say *which* count, because only the ahead count is invariant: counting everything reachable
+   from the branch does move under a rebase, having counted what the trunk gained as well — so
+   the misleading one is also the one you naturally read. A changed id says alive everywhere a
+   count does, plus that case; an unchanged id still says *nothing* on its own, which is why the
+   next step is to ask rather than to reap. A healthy worker here was called unchanged for two
+   consecutive ticks, having rebased two minutes before the second read with all of its assigned
+   work committed.
+   **Read the tip from whichever ref the worker's commit updates DIRECTLY, and prefer a read that
+   performs no refresh at all** — a refresh is what exposes the shared fetch-head trap under
+   *After each merge*, which is on this read path too and is silent here. Where workers share one
+   repository metadata directory, the shared local ref moves the moment a worker commits while the
+   *published* ref moves only when that worker chooses to push: the published one lags, and it
+   lags in the direction that reads as death.
+   **An unchanged tip says something only once it is corroborated with worktree activity.** A
    worker inside a long gate commits nothing by design, so a still tip is the *expected* reading
    for the commonest healthy state rather than a warning — which is why the corroboration, and
-   not the tip, is what carries the verdict. **That corroboration is a WRITE clock, so a worker
-   that is only READING touches nothing** — twice in one day a worker grepping its own gate log
-   was called stranded on twenty-three minutes of no writes.
-   **And the most convincing false signature is on none of the discredited lists: a change fully
+   not the tip, carries the verdict. **That corroboration is a WRITE clock, so a worker that is
+   only READING touches nothing** — twice in one day a worker grepping its own gate log was
+   called stranded on twenty-three minutes of no writes.
+   **The most convincing false signature is on none of the discredited lists: a change fully
    green at the band, a clean worktree, a tip commit some minutes old, and the change still a
    DRAFT.** It reads as a worker that finished and forgot to publish — a real state, and the one
    the message step exists to catch — but a worker presenting exactly so was on attempt three of
-   its local gate. **A green rollup is evidence about the PUSHED tree, not about the worker**: CI
-   ran on what was already pushed, and a clean tree is what you see *between* edits rather than
-   only after the last one. It belongs on the list precisely because it reads strong, and because
-   not one of its four parts observes the agent.
-   **That timestamp split is by QUESTION, and the OTHER question takes the OPPOSITE answer.**
-   Everything above asks *is this worker alive?*, and liveness wants the *committed* time: the
-   rebase rewrites it, so it moves when the worker moves. But **DATING a change in prose — in a
-   design record, a governance note, any claim about when work was done — wants the *authored*
-   time**, because that is when the work was written, while the committed time records only when
-   the trunk happened to replay it. Where the project merges by rebase the two differ on
-   essentially every landed change, so this is the common case rather than a corner of it, and the
-   error is invisible once made: both are real timestamps on the same change, and each is correct
-   for its own question. A reader who has met only the liveness rule has been taught that the
-   authored time is the untrustworthy one, and will "correct" a right date into a wrong one — which
-   happened here, costing a live worker a wrong flag and the loop a retraction to the operator.
+   its local gate. **A green rollup is evidence about the PUSHED tree, not about the worker**, and
+   a clean tree is what you see *between* edits rather than only after the last one. It belongs on
+   the list precisely because it reads strong, and because not one of its four parts observes the
+   agent.
+   **The timestamps split by QUESTION, and the two questions take OPPOSITE answers.** A rebase
+   replays the *authored* time and rewrites only the *committed* one, so two honest readers can
+   call one change forty-three minutes old and seventy-five seconds old and neither be misreading.
+   Liveness wants the *committed* time, which moves when the worker moves. But **DATING a change
+   in prose — a design record, a governance note, any claim about when work was done — wants the
+   *authored* time**, because that is when the work was written, while the committed time records
+   only when the trunk happened to replay it. Where the project merges by rebase the two differ on
+   essentially every landed change, and the error is invisible once made: both are real timestamps
+   on the same change, each correct for its own question. A reader who has met only the liveness
+   rule has been taught that the authored time is the untrustworthy one, and will "correct" a right
+   date into a wrong one — which happened here, costing a live worker a wrong flag and the loop a
+   retraction to the operator.
 2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
    because the worker's context is still there. **The commonest strand by far is a worker that
    detached a long gate and then ended its turn**, waiting for a completion event that nothing
@@ -762,11 +742,11 @@ it "reported" does not change what it is.
 
 **Clearing the mayor's context destroys its ability to QUOTE a report, so record which worktree
 belongs to which agent at DISPATCH time** — one line per dispatch, in a mayor-local file the
-project does not track. The reap test is unchanged and nothing here weakens it; this only supplies
-a documented route to obtain the sentence once the context that held it is gone. Measured here:
-after one clear, fourteen worktrees existed and exactly three had a quotable report — all three
-dispatched after it — while nine of the remaining eleven held work that was fully upstream with
-their items closed. The rule failed safe and nothing was lost; the cost is monotone accumulation.
+project does not track. The reap test is unchanged; this only supplies a documented route to the
+sentence once the context that held it is gone. Measured here: after one clear, fourteen worktrees
+existed and exactly three had a quotable report, all three dispatched after it, while nine of the
+remaining eleven held work fully upstream with their items closed. The rule failed safe and nothing
+was lost; the cost is monotone accumulation.
 
 **Dispatch time, not report time.** A report-time record has to survive the window between the
 report arriving and the clear; dispatch always precedes the report, so the line is on disk before
@@ -775,19 +755,18 @@ a clear can matter.
 **What the id buys is the TRANSCRIPT, not a live conversation.** Messaging does not reach across a
 clear — every one of eight agents whose ids had been recorded exactly as prescribed answered *"no
 transcript found"*, while an agent dispatched by the current session resumed on the identical call.
-Their transcripts were nonetheless intact on disk, and seven of the eight opened their last message
+Their transcripts were intact on disk nonetheless, and seven of the eight opened their last message
 with precisely the sentence the reap test demands. **Reading it is a READ, not an inference** — the
-agent's own words, the same sentence you would have quoted from your own context — so it satisfies
-the test as written and adds no further proxy. The eighth carried only an interim progress note, and
-its worktree correctly stayed.
+agent's own words — so it satisfies the test as written and adds no further proxy. The eighth
+carried only an interim progress note, and its worktree correctly stayed.
 
-Two cautions came out of establishing that. **An id is a way to FIND the report, never an answer in
-itself**: within the dispatching session, message first, because that distinguishes *alive* from
-*finished* and a transcript cannot. And **beware a per-agent scratch sink that merely shares the
-id** — one such file was empty for seven of those eight agents while their real transcripts sat
-complete elsewhere, was *also* empty for a current-session agent that finished normally, and for the
-eighth held a hardlink to the real transcript, so the wrong file returned exactly one plausible
-non-empty result and made the wrong conclusion self-consistent.
+Two cautions came out of that. **An id is a way to FIND the report, never an answer in itself**:
+within the dispatching session, message first, because that distinguishes *alive* from *finished*
+and a transcript cannot. And **beware a per-agent scratch sink that merely shares the id** — one
+such file was empty for seven of those eight agents while their real transcripts sat complete
+elsewhere, was *also* empty for a current-session agent that finished normally, and for the eighth
+held a hardlink to the real transcript, so the wrong file returned exactly one plausible non-empty
+result and made the wrong conclusion self-consistent.
 
 **Whether to hold the report TEXT somewhere of your own is the operator's call.** A transcript path
 the platform documents as an implementation detail is not a contract, and local-history retention
@@ -857,20 +836,20 @@ happened to be printed.
 
 **"Verifiably merged" needs a test, and where the project merges by REBASE the two obvious ones are
 both wrong — in opposite directions.** A rebase replays every commit under a new identity, so a
-merged branch never becomes an ancestor of the trunk and never stops reading as *ahead* of it.
-Ancestry therefore reports fully merged work as unmerged, and the ahead count says the same thing
-for the same reason. That is the identical rebase invariance *The stranded sweep* explains above,
-asked on a different question — containment rather than liveness — which is why that paragraph is
-the cross-reference here rather than something to restate.
+merged branch never becomes an ancestor of the trunk and never stops reading as *ahead* of it:
+ancestry reports fully merged work as unmerged, and the ahead count says the same thing for the same
+reason. That is the rebase invariance *The stranded sweep* explains above, asked on containment
+rather than on liveness, which is why that paragraph is the cross-reference here rather than
+something to restate.
 
 **The test is patch-equivalence**, which asks what each commit *does* rather than which object it
 is: an equivalent patch already upstream means the work is contained, and anything with no upstream
 equivalent is genuinely new. In the dominant toolchain that is `cherry`, which marks the two answers
-`-` and `+`. It protects in both directions at once, and that is what earns it over either half of a
+`-` and `+`. It protects in both directions at once, which is what earns it over either half of a
 rule that only ever fails safe one way. Measured here across 63 worktrees: 60 branches read one to
-three commits ahead of the trunk and 58 of those were fully merged, while one carried three commits
-that were genuinely new. Deleting on ancestry would have kept all 58 forever; deleting on the ahead
-count alone would have destroyed those three. One command separated them.
+three commits ahead of the trunk, 58 of those fully merged and one carrying three genuinely new
+commits. Deleting on ancestry would have kept all 58 forever; deleting on the ahead count alone
+would have destroyed those three.
 
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
@@ -947,18 +926,18 @@ verdict off a filter is the same failure in a different suit, and it reaches eve
 just gates. Two instances in one session, both from trimming output to keep a log short. Four closes were sent
 with long reasons and their output trimmed to the last line — which, when the reason is long, *is* the reason
 text, so a refused close and an accepted one looked identical; all four evaporated and were found cycles later
-reading open with no reason recorded. Nine worktree removals were then called with the wrong argument shape and
-their output counted for a string that the script prints on the way out whether it acts or refuses; every one
-had exited non-zero saying "nothing was touched", and all nine were still there. A maintenance script that
-refuses safely is doing its job; the failure is the caller who does not look.
+reading open with no reason recorded. Nine worktree removals were then counted for a string the script prints on
+the way out whether it acts or refuses; every one had exited non-zero saying "nothing was touched", and all nine
+were still there. A maintenance script that refuses safely is doing its job; the failure is the caller who does
+not look.
 
 **But the exit status and the mutation are two different questions, and only the first is cheap.** A non-zero
 status is proof the command refused, so **always read it** — that alone would have caught both incidents above.
-A *zero* status proves only that the command reported success. It does not prove state changed: an idempotent
-call legitimately succeeds having done nothing, and a durable operation can acknowledge locally before the
-remote or the postcondition you actually care about is true. **So when the outcome you need is a state change or
-a durable one — or when a successful no-op is possible — re-read the exact target as well.** Never take the
-printed output for either answer.
+A *zero* status proves only that the command reported success, not that state changed: an idempotent call
+legitimately succeeds having done nothing, and a durable operation can acknowledge locally before the remote or
+the postcondition you actually care about is true. **So when the outcome you need is a state change or a durable
+one — or when a successful no-op is possible — re-read the exact target as well.** Never take the printed output
+for either answer.
 
 **A tracker write can silently revert.** Items verified closed can read open again cycles later — a
 rollback to an earlier snapshot, a re-import over the top — and nothing in the loop surfaces it, so the
