@@ -100,9 +100,10 @@ What this skips (deliberate scope cuts):
     * READMEs that live under directories check_doc_slugs.py already
       walks (docs/, spec/, migration/, skills/, tools/*/spec/) — those
       are covered by the docs gate.  No double-coverage.
-    * Markdown BELOW the repo root that is not a README.md.  The root
-      roster is deliberately non-recursive; everything deeper is either
-      the docs gate's or a README this gate already walks.
+    * Markdown BELOW the repo root that is not a README.md — from the
+      ROOT roster only, which is deliberately non-recursive.  It is not
+      skipped by the gate: `_iter_source_markdown` walks it (rf2-i4nb2),
+      minus whatever `_is_excluded` refuses.
     * `.claude/commands/*.md` — the mayor-loop command files.  This gate
       once carried a fourth arm resolving path-shaped REFERENCES in them
       (rf2-1yy75 / rf2-2eivg), because those files were EXECUTED rather
@@ -110,10 +111,10 @@ What this skips (deliberate scope cuts):
       silently.  PR #8635 deleted all seven; the roster went empty, and
       an arm that passes because it has no inputs is coverage for
       nothing — so it was removed rather than left wearing a vacuous
-      green (rf2-tg4ho).  Should `.claude/`
-      ever carry tracked markdown again, `_iter_source_markdown` takes it
-      as ordinary beside-source markdown; the reference resolver is gone
-      and re-adding it needs the original case remade.
+      green (rf2-tg4ho).  Should `.claude/` ever carry tracked markdown
+      again, `_iter_source_markdown` takes it as ordinary beside-source
+      markdown; the reference resolver is gone, and re-adding it needs
+      the original case remade.
 
 CLI:
     --verbose       print progress + per-finding detail
