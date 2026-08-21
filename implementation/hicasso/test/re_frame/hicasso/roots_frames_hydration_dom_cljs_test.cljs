@@ -294,30 +294,30 @@
             (-> (sup/wait-until! both-committed?)
                 (.then
                   (fn [ok]
-                      (is (true? ok)
-                          (str "both roots must commit; cell frames were "
-                               (pr-str (sup/cell-frames))))
+                    (is (true? ok)
+                        (str "both roots must commit; cell frames were "
+                             (pr-str (sup/cell-frames))))
 
-                      (testing "each root ADOPTED its own server DOM — the nodes
-                                are the very nodes the markup produced, which no
-                                re-render could reconstruct"
-                        (is (sup/every-server-node? ca ".screen, .title, .value")
-                            "root A kept the server's nodes")
-                        (is (sup/every-server-node? cb ".screen, .title, .value")
-                            "root B kept the server's nodes"))
+                    (testing "each root ADOPTED its own server DOM — the nodes
+                              are the very nodes the markup produced, which no
+                              re-render could reconstruct"
+                      (is (sup/every-server-node? ca ".screen, .title, .value")
+                          "root A kept the server's nodes")
+                      (is (sup/every-server-node? cb ".screen, .title, .value")
+                          "root B kept the server's nodes"))
 
-                      (testing "and neither root's adoption reached into the
-                                other's tree"
-                        (is (= "A" (text-in ca ".title")))
-                        (is (= "B" (text-in cb ".title")))
-                        (is (= "alpha" (text-in ca ".value")))
-                        (is (= "beta"  (text-in cb ".value"))))
+                    (testing "and neither root's adoption reached into the
+                              other's tree"
+                      (is (= "A" (text-in ca ".title")))
+                      (is (= "B" (text-in cb ".title")))
+                      (is (= "alpha" (text-in ca ".value")))
+                      (is (= "beta"  (text-in cb ".value"))))
 
-                      (testing "the cell table split by frame across the two
-                                adoptions, exactly as it does across two ordinary
-                                mounts"
-                        (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
-                        (is (= #{frame-a frame-b} (sup/frame-memo-frames))))))
+                    (testing "the cell table split by frame across the two
+                              adoptions, exactly as it does across two ordinary
+                              mounts"
+                      (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
+                      (is (= #{frame-a frame-b} (sup/frame-memo-frames))))))
                 (settle-row!
                   {:row      "H1 — two overlapping adoptions, each keeping its own DOM"
                    :done     done
@@ -410,51 +410,51 @@
                     ;; outlive the row.
                     (close!)
                     (stop!)
-                      (is (true? ok) "both roots must commit")
+                    (is (true? ok) "both roots must commit")
 
-                      ;; What REACT complained about, on the page's own error
-                      ;; channel — the control the row is read against.
-                      (let [react-complaints (filterv #(re-find #"Hydration failed" %) @captured)]
+                    ;; What REACT complained about, on the page's own error
+                    ;; channel — the control the row is read against.
+                    (let [react-complaints (filterv #(re-find #"Hydration failed" %) @captured)]
 
-                      (testing "BOTH divergences were detected and reported —
-                                React saw two, and the reporter delegates
-                                unconditionally, so two reach the page"
-                        (is (= 2 (count react-complaints))
-                            (str "two roots diverged, so two React complaints; got "
-                                 (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
+                    (testing "BOTH divergences were detected and reported —
+                              React saw two, and the reporter delegates
+                              unconditionally, so two reach the page"
+                      (is (= 2 (count react-complaints))
+                          (str "two roots diverged, so two React complaints; got "
+                               (pr-str (mapv #(subs % 0 (min 60 (count %))) @captured)))))
 
-                      (testing "and the framework's own stream carried exactly
-                                what the page did. This is the rf2-6tmu repair:
-                                each root's Spec 011 emit is gated on the window
-                                THAT root minted, so no root's closer can shut
-                                another root's window and no divergence React
-                                reported goes missing"
-                        (is (= (count react-complaints) (count @seen))
-                            (str "every divergence React reported reached the
-                                  instrumentation stream; React said "
-                                 (count react-complaints) ", the framework said "
-                                 (count @seen)))
-                        (is (= 2 (count @seen))
-                            (str "`:rf.ssr/hydration-mismatch` count; got "
-                                 (count @seen) " — "
-                                 (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+                    (testing "and the framework's own stream carried exactly
+                              what the page did. This is the rf2-6tmu repair:
+                              each root's Spec 011 emit is gated on the window
+                              THAT root minted, so no root's closer can shut
+                              another root's window and no divergence React
+                              reported goes missing"
+                      (is (= (count react-complaints) (count @seen))
+                          (str "every divergence React reported reached the
+                                instrumentation stream; React said "
+                               (count react-complaints) ", the framework said "
+                               (count @seen)))
+                      (is (= 2 (count @seen))
+                          (str "`:rf.ssr/hydration-mismatch` count; got "
+                               (count @seen) " — "
+                               (pr-str (mapv (comp :error sup/tags-of) @seen)))))
 
-                      (testing "and what did fire is the framework diagnostic
-                                Spec 011 names, tier-discriminated by its door"
-                        (doseq [ev @seen]
-                          (let [tags (sup/tags-of ev)]
-                            (is (= :rf.ssr/hydration-mismatch (:operation ev)))
-                            (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
-                            (is (= :warned-and-replaced (:recovery tags)))
-                            (is (string? (:error tags))))))
+                    (testing "and what did fire is the framework diagnostic
+                              Spec 011 names, tier-discriminated by its door"
+                      (doseq [ev @seen]
+                        (let [tags (sup/tags-of ev)]
+                          (is (= :rf.ssr/hydration-mismatch (:operation ev)))
+                          (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
+                          (is (= :warned-and-replaced (:recovery tags)))
+                          (is (string? (:error tags))))))
 
-                      (testing "RECOVERY, unlike complaint, IS independent: each
-                                root recovered to its OWN client model, not to
-                                its sibling's"
-                        (is (= "client-A" (text-in ca ".title")))
-                        (is (= "client-B" (text-in cb ".title")))
-                        (is (= "alpha" (text-in ca ".value")))
-                        (is (= "beta"  (text-in cb ".value")))))))
+                    (testing "RECOVERY, unlike complaint, IS independent: each
+                              root recovered to its OWN client model, not to
+                              its sibling's"
+                      (is (= "client-A" (text-in ca ".title")))
+                      (is (= "client-B" (text-in cb ".title")))
+                      (is (= "alpha" (text-in ca ".value")))
+                      (is (= "beta"  (text-in cb ".value")))))))
                 (settle-row!
                   {:row      "H2 — two overlapping mismatches, two complaints"
                    :done     done
@@ -496,28 +496,28 @@
                     (-> (sup/quiesced!)
                         (.then
                           (fn [_]
-                              (testing "frame A's keys are released and frame B's
-                                        survive"
-                                (is (= #{[frame-b label-q]} (sup/cell-keys))
-                                    (str "got " (pr-str (sup/cell-keys)))))
+                            (testing "frame A's keys are released and frame B's
+                                      survive"
+                              (is (= #{[frame-b label-q]} (sup/cell-keys))
+                                  (str "got " (pr-str (sup/cell-keys)))))
 
-                              (testing "and root B is still ADOPTED — its nodes are
-                                        still the server's, so the sibling's
-                                        teardown did not force it through a
-                                        re-render"
-                                (is (sup/every-server-node? cb ".screen, .title, .value")))
+                            (testing "and root B is still ADOPTED — its nodes are
+                                      still the server's, so the sibling's
+                                      teardown did not force it through a
+                                      re-render"
+                              (is (sup/every-server-node? cb ".screen, .title, .value")))
 
-                              (testing "and still live: a render into the surviving
-                                        root re-runs its body and keeps its own
-                                        frame's value"
-                                (let [ran (sup/body-runs-delta!
-                                            (fn [] (mount/render! hb [screen {:title "B2"}])))]
-                                  (is (= 1 ran)))
-                                (is (= "B2" (text-in cb ".title")))
-                                (is (= "beta" (text-in cb ".value"))))
+                            (testing "and still live: a render into the surviving
+                                      root re-runs its body and keeps its own
+                                      frame's value"
+                              (let [ran (sup/body-runs-delta!
+                                          (fn [] (mount/render! hb [screen {:title "B2"}])))]
+                                (is (= 1 ran)))
+                              (is (= "B2" (text-in cb ".title")))
+                              (is (= "beta" (text-in cb ".value"))))
 
-                              (testing "and tearing the survivor down leaves nothing"
-                                (is (= sup/released (sup/teardown-census! hb)))))))))
+                            (testing "and tearing the survivor down leaves nothing"
+                              (is (= sup/released (sup/teardown-census! hb)))))))))
                 (settle-row!
                   {:row      "H3 — independent teardown of two hydrated roots"
                    :done     done
@@ -725,59 +725,59 @@
                             ;; `stop!` is idempotent by its own docstring, and
                             ;; the rejection path never reaches this line.
                             (stop!)
-                              (is (true? ok) "root A's own closer ran")
+                            (is (true? ok) "root A's own closer ran")
 
-                              (testing "root A was BORN PRESENT: its tray never
-                                        rendered a :mounting phase at all, so no
-                                        enter transition replayed over DOM the
-                                        user already watched arrive"
-                                (is (= :present (first (get @!phases :hydrated)))
-                                    (str "root A's first render; saw "
-                                         (pr-str (get @!phases :hydrated))))
-                                (is (not (contains? (set (get @!phases :hydrated))
-                                                    :mounting))
-                                    "and no later render entered one either"))
+                            (testing "root A was BORN PRESENT: its tray never
+                                      rendered a :mounting phase at all, so no
+                                      enter transition replayed over DOM the
+                                      user already watched arrive"
+                              (is (= :present (first (get @!phases :hydrated)))
+                                  (str "root A's first render; saw "
+                                       (pr-str (get @!phases :hydrated))))
+                              (is (not (contains? (set (get @!phases :hydrated))
+                                                  :mounting))
+                                  "and no later render entered one either"))
 
-                              (testing "so the client's first pass AGREED with the
-                                        server's bytes — the adopted nodes are the
-                                        server's own, and nothing diverged"
-                                (is (sup/every-server-node? ca ".screen, .probe"))
-                                (is (= 0 (count @seen))
-                                    (str "no hydration mismatch; got "
-                                         (pr-str (mapv (comp :error sup/tags-of)
-                                                       @seen)))))
+                            (testing "so the client's first pass AGREED with the
+                                      server's bytes — the adopted nodes are the
+                                      server's own, and nothing diverged"
+                              (is (sup/every-server-node? ca ".screen, .probe"))
+                              (is (= 0 (count @seen))
+                                  (str "no hydration mismatch; got "
+                                       (pr-str (mapv (comp :error sup/tags-of)
+                                                     @seen)))))
 
-                              (testing "closing root A's window changed nothing
-                                        about root B: B still completed its own
-                                        enter transition, on its own clock"
-                                (is (false? (roots/adopting? (:adoption ha))))
-                                (is (= [:mounting :present]
-                                       (vec (distinct (get @!phases :ordinary))))
-                                    (str "root B entered and then settled; saw "
-                                         (pr-str (get @!phases :ordinary))))
-                                (is (= "present" (text-in cb ".probe"))))
+                            (testing "closing root A's window changed nothing
+                                      about root B: B still completed its own
+                                      enter transition, on its own clock"
+                              (is (false? (roots/adopting? (:adoption ha))))
+                              (is (= [:mounting :present]
+                                     (vec (distinct (get @!phases :ordinary))))
+                                  (str "root B entered and then settled; saw "
+                                       (pr-str (get @!phases :ordinary))))
+                              (is (= "present" (text-in cb ".probe"))))
 
-                              (testing "and TEARDOWN BEFORE THE PASSIVE EFFECT
-                                        leaves no open window behind. A root
-                                        unmounted before its hydration commit
-                                        never gets its closer, so `unmount!`
-                                        owns the shut — driven here on a handle
-                                        with no root, which is what a closer
-                                        that never ran leaves behind (the
-                                        `:root nil` idiom `teardown-census!`
-                                        uses), rather than on a live root whose
-                                        mid-hydration teardown would be
-                                        measuring React's unmount instead"
-                                (let [window (roots/open-adoption-window!)
-                                      orphan {:frame     frame-a
-                                              :container (mount/fresh-container!)
-                                              :root      nil
-                                              :adoption  window}]
-                                  (is (true? (roots/adopting? window))
-                                      "premise: open, and its closer has not run")
-                                  (mount/unmount! orphan)
-                                  (is (false? (roots/adopting? window))
-                                      "teardown shut it"))))))))))
+                            (testing "and TEARDOWN BEFORE THE PASSIVE EFFECT
+                                      leaves no open window behind. A root
+                                      unmounted before its hydration commit
+                                      never gets its closer, so `unmount!`
+                                      owns the shut — driven here on a handle
+                                      with no root, which is what a closer
+                                      that never ran leaves behind (the
+                                      `:root nil` idiom `teardown-census!`
+                                      uses), rather than on a live root whose
+                                      mid-hydration teardown would be
+                                      measuring React's unmount instead"
+                              (let [window (roots/open-adoption-window!)
+                                    orphan {:frame     frame-a
+                                            :container (mount/fresh-container!)
+                                            :root      nil
+                                            :adoption  window}]
+                                (is (true? (roots/adopting? window))
+                                    "premise: open, and its closer has not run")
+                                (mount/unmount! orphan)
+                                (is (false? (roots/adopting? window))
+                                    "teardown shut it"))))))))))
             (settle-row!
               {:row      "H5 — presence adoption belongs to a subtree, not to the page"
                :done     done
@@ -896,9 +896,9 @@
                                      (sup/adopted! (:ha disarmed))])
                 (.then
                   (fn [oks]
-                      (is (= [true true] (vec oks))
-                          "both hydrating roots must reach their own closer, or
-                           this row left an open window behind")))
+                    (is (= [true true] (vec oks))
+                        "both hydrating roots must reach their own closer, or
+                         this row left an open window behind")))
                 (settle-row!
                   {:row      "H6 — the page-global sabotage control"
                    :done     done
