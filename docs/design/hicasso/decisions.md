@@ -7,8 +7,11 @@ given by the operator directly, which is the decider
 [HD-013](#hd-013--governance) reserves that ruling to.** Several of the delegated
 entries have since been superseded or amended by operator ruling, each marked in
 its own record, and every ruling here is operator-overturnable like every ruling
-in this repo. The measured claims cite the studio/bench record. Companion pages:
-[charter.md](charter.md), [architecture.md](architecture.md),
+in this repo. The measured claims cite the studio/bench record, and a closing
+[measurement record](#measurement-record--the-four-quiet-box-windows-of-2026-08-22)
+carries the outcomes of the four quiet-box windows of 2026-08-22 — it decides
+nothing and moves no cell, and three of its four entries are refusals. Companion
+pages: [charter.md](charter.md), [architecture.md](architecture.md),
 [validation.md](validation.md), [authoring.md](authoring.md).
 
 ---
@@ -1884,6 +1887,30 @@ finished. **Nothing is claimed about within-run quietness beyond that bracketing
 the only other thing running alongside a measured window was a `test -f` poll of that
 run's own exit file at 15- to 60-second intervals.
 
+**THE AUTHOR'S SHARE, SPLIT ON A LEAN PAIR, AND REFUSED AT THE INSTRUMENT'S OWN
+FLOOR (`rf2-v5oto`).** The ladder above resolves the author's own code only as a
+sum, and a fourth window on this rig — the first at nine arms — added two
+clean-pair arms so the wrapper and the round trip could be priced separately,
+each against a frozen arm. It came back a refusal under a resolution rule fixed
+before any figure was read. The null it turns on read every one of fifteen rounds
+inside ±6.74% of 1.0, which puts the bound at **875 `ns/field`** — the same
+figure, to the nanosecond, that the null re-read above published over its own
+fifteen rounds at a different arm count, and nothing was arranged for that.
+Neither new term exceeds it: the author's wrapper reads **exactly `0` ns/field in
+two runs of three and one quantum in the third**, and the round trip `625`, `250`
+and `750`. **The limit is the clock, and it is nameable** — every mount time this
+rig reports is a multiple of `0.05` ms, exactly `125` ns/field over `400` fields,
+so the bound is seven quanta and a difference below one quantum cannot be
+represented here at all. That is what any future window on this rig would have to
+beat to price the author's share. Rung (2) and the whole authoring change clear
+the bound again and agree with what is published above; **nothing here re-prices
+either, and no status cell moves.** The residual between the two routes to that
+share is the one place the refusal carries positive content, and it, the figures
+and the sign pattern the registered rule does not license promoting are in
+[the measurement record](#measurement-record--the-four-quiet-box-windows-of-2026-08-22)
+below, with the full window in
+[its own page](studio/the-authors-split-window-on-the-amp-merge-clock.md).
+
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
 ## HD-024 — One callback form; the position selects the contract
@@ -2672,3 +2699,286 @@ tracker note. The direction itself was argued in the
 **Reopens** by operator ruling, like every ruling in this repo — and the price
 half carries its own reopen and revert conditions, which are unchanged and live,
 in [`product/k1-price-acceptance.md` §7](product/k1-price-acceptance.md#7-reopen-and-revert).
+
+## Measurement record — the four quiet-box windows of 2026-08-22
+
+**This section decides nothing, and that is its shape rather than its modesty.**
+Four quiet-box windows were taken on this programme's instruments between
+`02:34` and `06:03` on **2026-08-22**, and every one of them deliberately left
+this page alone: each carried the same instruction, that the other three would
+want the page too, so one worker should make one append rather than four contend
+for one file. All four have landed, so the reason for deferring has expired and
+this is the append. **Nothing here re-decides what a window concluded, moves a
+ledger cell, or recommends an optimisation** — the amp-merge window's own rule,
+that attribution was bought and whether to act on it is a ruling nobody has
+asked for, governs the write-up exactly as it governed the run. Each window's
+full record — its pre-registration, its per-round vectors, its box brackets and
+its gate table — is the page named beside it, and the figures below are cited
+from those pages rather than recomputed here.
+
+**Three of the four came back wholly or partly as refusals, and the fourth
+carries a ruling request of its own**, so a reader who takes only the resolved
+rows out of this section will have the programme wrong. Every window that left a
+question open is recorded with the question and with the bead holding it.
+
+| window | bead | landed | what it returned | the open question, and where it sits |
+|---|---|---|---|---|
+| `U1`/`U2`, slice echo clock | `rf2-85og2` | PR #8676 | `U2` **MET** on measured readings; `U1` **NOT DECIDED** | what `U1`'s line means — open on `rf2-85og2` |
+| `U3`/`C3`/`C4`, slice broad clock | `rf2-9wmqd` | PR #8680 | `U3`'s numeric limb meets by `5.2x`, on a narrower class; `C3`/`C4` **REFUSED** on evidence | whether the synchronous class decides `U3` — open on `rf2-9wmqd` |
+| the topology clock table, re-taken | `rf2-w01c` | PR #8682 | an **INCOMPLETE** series — two admissible runs of a pre-registered three | what the exclusivity condition binds — open on `rf2-w01c` |
+| the author's split, amp-merge clock | `rf2-v5oto` | PR #8684 | **REFUSED** at the instrument's own floor | none; the bead closed on its own terms |
+
+**`U1` AND `U2` ON THE SLICE ECHO CLOCK (`rf2-85og2`).** The record is
+[the window's own page](studio/the-u1-u2-window-on-the-slice-echo-clock.md).
+One feasibility invocation, declared unquotable before it was taken, then three
+evidence invocations, three admissible and none excluded; five exit-bearing
+checks affirmative in every run, `0 unverified of 400` echoes in each, and the
+positive control inside its band on every round.
+
+**`U2` is MET, and it is decided by a reading rather than by an estimator.**
+Against `≤ 50 ms` at `p95` and `≤ 100 ms` at `p99` to the next paint, over both
+the keystroke and the toggle event paths, the largest of the `360` measured
+windows across all three runs is `18.9 ms`. No quantile estimator can answer
+above the largest reading in a sample, so both halves of the line are met at
+every quantile on readings that were **taken**, and the interpolation weight that
+hangs over a `p99` at `n = 60` bears on nothing here. Headroom is `2.65`–`2.72x`
+to the `p95` line and `5.29`–`5.43x` to the `p99` line, and the instrument's
+phase alignment makes the verdict conservative a second time, since every window
+starts at the phase with the longest wait to the next rendering opportunity. The
+row's status cell moved to `MET` and its population cell to `package` — the one
+route out of `—` that the ledger gate's own constant names.
+
+**`U1` is NOT DECIDED, and the blocker is the row's unit rather than its size.**
+`U1` is registered *within one 60 Hz frame*, a line in frames, while the
+instrument puts a whole rendering interval inside every reading by construction.
+Two readings were pre-registered and neither privileged. The **literal** one —
+`p95` of the keystroke window against `16.7 ms` — reads `18.00`, `18.02` and
+`18.21 ms`, and **misses by `1.30`–`1.51 ms`**. The **floor-relative** one, that
+same `p95` less the no-work floor's `p50`, reads `2.45`, `2.47` and `2.81 ms`,
+and **meets with about `14 ms` spare**. They disagree in all three invocations,
+so by the rule declared before the first one the row is not decided here, neither
+figure is written into the ledger, and `U1` keeps `UNPINNED` with its population
+cell at `—`.
+
+**The literal reading cannot settle it either, and that is the stronger half of
+the finding.** The miss is under a tenth of one frame against a measured
+rendering interval of `15.4`–`15.6 ms`, squarely inside the region the driver
+reserves for a randomised-phase instrument that it records as **not built** — and
+that instrument's own stated trigger, a `p95` sitting close enough to a line that
+the difference between the worst phase and the mean phase decides it, has fired.
+So `U1` has exactly two ways forward and a worker may take neither: a ruling on
+which reading the line means, or the randomised-phase driver, which answers the
+same question empirically at the cost of far more samples to resolve a tail.
+**The ruling is open on `rf2-85og2`.**
+
+Reported there and deliberately not a verdict: the echo tally read `0 unverified
+of 400` in every run, which witnesses `U1`'s **structural** clause — controlled
+updates correct same-turn — on every window rather than at `p95`, and the budget
+record already refuses exactly that substitution for the distributional clause.
+The application's own contribution is `p50 0.6 ms` and never exceeded `1.1 ms`
+across `180` measured keystroke windows.
+
+**`U3`, `C3` AND `C4` ON THE SLICE BROAD CLOCK (`rf2-9wmqd`).** The record is
+[the window's own page](studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md).
+The same shape — one unquotable feasibility invocation, three admissible evidence
+invocations, none excluded — on a driver carrying **seven** exit-bearing checks
+rather than five. The two extra are the fairness gate over both arms and that
+gate's own negative control, which is what a comparative row rests on and a
+per-sample echo cannot replace: an echo says each arm's operation reached its own
+page, and says nothing about whether the two pages were the same page.
+
+**`U3`'s numeric limb meets by `5.2x`, and the row still does not move.** The
+largest of the `360` measured windows across the locale and theme operations and
+all three runs is `19.3 ms` against a `≤ 100 ms p95` line — headroom
+`5.18`–`5.24x`, decided by the sample maximum again rather than by an estimator.
+The margin is wide enough that the positive control also meets the line:
+`:ctl-blocked` injects `50 ms` of blocked main thread and still reads a maximum
+of `53.1 ms`, which is the sharpest available way to say how far this page's
+broad operations sit from `100 ms`.
+
+**But the measured class is narrower than the row's name, and the window said so
+before it had numbers.** `U3` is stated over *broad application operations*, and
+of the three exemplars that gloss the class, two are structurally unreachable by
+a paint-bounded window: a route change and a save reply both end at the async
+door, where the click returns with the work merely enqueued and the router drains
+it on a next-turn task, so a window closing at the first paint after the click
+closes **before the operation has begun**. The third, a reset, is synchronous and
+reachable and simply is not on the page this driver opens. What was measured is
+the synchronous, frame-locked class alone, and no figure may be quoted as `U3` on
+the slice without the words *on the synchronous class*. **Whether a line stated
+over the whole class is decided by the synchronous class alone is a ruling and
+not a measurement**; the window declared in advance that it would not make it,
+and `U3` keeps `UNPINNED` with its population cell at `—`. **That ruling is open
+on `rf2-9wmqd`.** The alternative is named so neither is guessed: a drain-bounded
+driver, opening at the click and closing at the paint after the router's drain, a
+third window on this mechanism and not built.
+
+**`C3` and `C4` were reached and REFUSED on evidence, for two independent
+reasons, and the second is measured rather than argued.** The first was declared
+in advance: `C3` is stated against the *best relevant adapter*, one donor cannot
+settle *best*, and the argument that UIx is the faster of the two available
+donors is transferred from a different clock over a different page rather than
+read here. The second is the resolution gate, and it bit — `:donor-theme` failed
+to separate from an **empty frame** in two of the three invocations, so the theme
+pair carries no verdict at all, and while the locale pair cleared the gate in all
+three, its comparative ranges straddle `1.00` throughout, which says the two arms
+are indistinguishable rather than that either won. Then the arithmetic that makes
+the refusal decidable rather than merely cautious: the arms sit `2`–`8%` above
+the floor because a paint-bounded window is about `96%` frame grid, so **a
+`1.25x` difference in the arms' own work would displace the window-level ratio by
+`0.3`–`1.1` percentage points against a per-round spread of `1.5`–`7.5` points**,
+and a `1.5x` difference — `C4`'s line — by `0.6`–`2.2` points, still inside that
+spread. The observed `~1.00x` is therefore consistent with `1.00x`, with `1.25x`
+and with `1.5x` alike, and reading it as a pass would be reading the frame grid.
+Both rows keep `UNPINNED`, and the conclusion is the driver's own: `C3` needs a
+broader population than the slice's feed page.
+
+**`U4` is unreached for a different reason again.** It is registered over dragging
+and animation, the slice publishes neither, so it was never in this window at
+all; its repair is a per-frame driver on the ledger witness, filed and landed
+separately as `rf2-xc0bw`.
+
+**No ledger cell moved in this window** — `49` rows, `32 MET`, `5 BREACH`,
+`3 UNRESOLVED`, `9 UNPINNED`, before it and after it. What moved is the prose
+saying what each not-green row is waiting on. One finding was filed rather than
+fixed, and it is about the gate rather than the arms: `:straddles-1?` asks
+whether **one** arm separated from an empty frame, which is a sound necessary
+condition and did real work here by refusing the theme pair, but it cannot decide
+whether a comparison has the power to see the line it is read against — the
+locale pair cleared the gate and still could not resolve `1.25x`.
+
+**THE TOPOLOGY CLOCK TABLE, RE-TAKEN ON AN EXCLUSIVE BOX (`rf2-w01c`).** The
+record is
+[Part 3 of the tournament](product/topology-tournament.md#part-3--the-re-take-rf2-w01c-the-exclusive-window).
+**This one came back INCOMPLETE, and the incompleteness is the first thing to
+read about it.** Five invocations, all exit `0`, none a rig fault. Two were
+voided by the exclusivity condition the window registered before any of them ran,
+applied mechanically rather than judged: a peer wrote into the shared scratch
+directory inside each of their brackets, once the dispatching loop merging a pull
+request mid-invocation, once a gate artefact belonging to another worker. A peer
+then took the machine, so the third run could not be taken — **and it may not be
+taken later either**, because a series interrupted and completed afterwards is
+*two instruments*, which is the same rule that refused replacing a single run of
+the published series. **Two admissible runs against a pre-registered three, so
+what landed is a RECORD and not a window**, and no published value is replaced.
+
+**Its inference survives; its values moved.** Every qualitative ordering the
+published series carried is reproduced. The floor row is arm-specific in all six
+readings and always larger on the arm with more boundaries and reads, which
+leaves the premise the driver was built on falsified and rescues nothing; the
+reversal on the sparse and edit operations is stable in all eight readings; bulk
+still orders the arms; and the reorder window still reads mostly floor on the
+fine arm. What does **not** reproduce is the published claim that the three runs
+agreed. Against the published three-run envelope, `1` of `45` cells is
+consistent, `12` are split and `32` moved; the exclusive series reads **slower on
+`36` of the `45`**; and its raw cell spread is a median `28.6%` against the
+published `9.0%`, three times noisier on a series with fewer chances to widen.
+**The arm-to-arm ratios did not move with them** — median spread `3.8%` against
+`3.9%` — which is what an estimator built on within-round interleaving is
+supposed to do, and the first direct evidence on this lane that it does.
+
+One published magnitude is softened rather than replaced. The floor factor at the
+largest row count did not replicate under an exclusive box, reading
+`3.35`–`3.54x` against the published `3.97` / `3.85` / `3.79`, so *about `4x`* is
+that series' number and not the instrument's; the factor also grows with the row
+count, roughly `2.1x`, `3.0x` and `3.4x` across the three, which one row count
+could not show. The sentence the record limits itself to — the floor is larger on
+the arm with more boundaries and reads — is confirmed and strengthened.
+
+**The finding is about the remedy rather than about the arms, and it asks a
+ruling.** Taking the expensive remedy produced a series worse by every stability
+statistic the published one reports, while reproducing every qualitative
+conclusion — evidence about the remedy that was not available before somebody
+spent the window. And the mechanism is measured rather than guessed: a
+per-process census puts every agent process on the box at `0.52` of `2.29` busy
+cores, against `1.07` for a single editor language service, so the exclusivity
+condition reaches about a quarter of the load. **The question it hands over is
+one sentence, and it is methodological rather than numerical: does the
+pre-registered exclusivity condition bind agent overlap only, or the whole box?**
+If agent overlap only, the published series has a defect this record shows does
+not reach its conclusions, and the honest repair is a narrowing ruling plus a
+note rather than a third full window. If the whole box, then no window taken on
+this machine has ever met the condition, and what is needed is not another
+attempt but a different box — a programme decision rather than a worker's.
+**That ruling is open on `rf2-w01c`.** What is explicitly **not** asked for is a
+wider band, a longer window, or a threshold on the bracket counters; and the
+counters earned that last refusal, because the busiest bracket in the table
+preceded the run that read *faster*, so a rule keyed to them would have admitted
+and refused the wrong runs.
+
+No ledger row moved here either, in either direction. Every cell stays
+`UNASSESSED` against `U1`–`U3` for a reason exclusivity does not touch: this
+window is a commit bracketed on a synthetic bench page, while those lines are
+stated over a slice application's interactions through to a paint. The `virtual`
+arm remains unaddressed, with no bound supplied in either direction, not even an
+upper one.
+
+**THE AUTHOR'S SPLIT ON THE AMP-MERGE CLOCK (`rf2-v5oto`).** The record is
+[the window's own page](studio/the-authors-split-window-on-the-amp-merge-clock.md),
+and the ladder it extends is HD-023's above, which resolves the author's own code
+only as a sum. This is the fourth window on that rig and the first at nine arms,
+adding two clean-pair arms so the author's wrapper and the author's round trip
+could be priced separately, each against a frozen arm. **The headline is a
+REFUSAL, and it is the outcome the window's own resolution rule accepted in
+advance.**
+
+That rule was fixed before any figure was read: let `R` be the largest null
+magnitude over every measured round of every admissible invocation, and a ladder
+term is resolved only if its magnitude exceeds `R` in **every** invocation and
+its sign agrees across all of them. The null — the same body under a second
+boundary head, so zero by construction — read every one of fifteen rounds inside
+`±6.74%` of `1.0`, which puts **`R` at `875` ns/field**: identical to the
+nanosecond to the bound the null re-read above published over its own fifteen
+rounds, on a different arm count, and nothing was arranged for that.
+
+**The binding limit is nameable, and it is the clock.** Every mount time this rig
+reports is a multiple of `0.05 ms`, which over `400` fields is exactly
+`125` ns/field — so every figure on that page is a multiple of `125`, `R` is
+**seven quanta**, and **a difference smaller than `125` ns/field cannot be
+represented by this instrument at all.** That bounds what any future window on
+this rig can say about the author's share without a finer clock.
+
+Both figures the window existed to buy came back under `R`. The author's wrapper,
+priced cleanly, reads `125`, `0` and `0` ns/field across the three runs —
+**exactly zero in two runs of three and one quantum in the third**, which is a
+tighter statement than the ladder could previously make about it and still not a
+measurement of a value. The author's round trip reads `625`, `250` and `750`.
+Both are **NOT RESOLVED**, as are the two older rungs published beside them and
+the derived author-side sum, which reproduces the earlier window's straddle of
+zero rather than improving on it. **The refusal carries one piece of positive
+content**, and it was registered in advance as the reading: the residual between
+the two routes to the author's share — splitting against cancelling — has a
+largest magnitude of `875`, which is `R` exactly and does not exceed it, so the
+two constructions do not disagree by more than this instrument can see. That is a
+finding about the two agreeing, not a proof that they must.
+
+**What the window does resolve is not new.** The codec's own merge rung and the
+whole authoring change clear the bound in every run with agreeing signs, reading
+`2250` / `1500` / `2500` and `2500` / `2250` / `2625` ns/field, the whole at
+`1.1723x`, `1.1946x` and `1.1941x`. The earlier ladder already published the
+codec's rung as clean; this window re-takes it at nine arms and agrees. **No
+status cell moves for either**, and the published headline figures for the `:&`
+spelling are untouched.
+
+Recorded as an observation and as nothing else, because the registered rule does
+not license promoting it: the older round-trip rung reads negative in all three
+runs and the lean one positive in all three — precisely the reversal the lean arm
+was built to look for, three for three in both directions. Both terms are below
+`R`, and a three-run sign agreement on quantities of one to six quanta is what a
+small real effect looks like and also what a small bias looks like. Separating
+them needs a finer clock, not a better argument.
+
+This window also registered the **exclusivity condition** in direct response to
+the topology window losing two of its three runs, and its bracket-integrity test
+came back clean on the policy's first outing: the trunk's tip and the worktree
+list were identical at both brackets, three declared evidence invocations, three
+admissible, none excluded. Whether that condition binds agent overlap or the
+whole box is the question `rf2-w01c` holds, above.
+
+**WHAT THIS RECORD DOES NOT DO.** It moves no ledger cell and no status cell; the
+budget ledger reads exactly as each window left it. It recommends no
+optimisation, for `:&` or for anything else. It re-prices nothing, pools no two
+windows that their own pages keep separate, and takes no verdict that a window
+declined to take. Where a window refused, this record carries the refusal and
+names the bead holding the question — which is the whole of what the deferred
+append was owed.
