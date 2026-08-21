@@ -451,43 +451,43 @@
                     ;; line.
                     (close!)
                     (is (true? ok) "the root's own adoption window shut")
-                      (testing "React complains, and the complaint is attributed
-                                to this arm's own door rather than left as an
-                                uncaught window error"
-                        (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
-                            (str "React itself must have reported the divergence "
-                                 "on the page's own channel; got "
-                                 (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                               @captured))))
-                        (is (seq @seen)
-                            "the divergence must reach Spec 011's channel")
-                        (let [tags (sup/tags-of (first @seen))]
-                          (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                                 (:where tags))
-                              (str "attributed to source; got " (pr-str (:where tags))))
-                          (is (= :warned-and-replaced (:recovery tags))
-                              "React had already patched the DOM by the time the
-                               callback ran, so that is the recovery reported")))
+                    (testing "React complains, and the complaint is attributed
+                              to this arm's own door rather than left as an
+                              uncaught window error"
+                      (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
+                          (str "React itself must have reported the divergence "
+                               "on the page's own channel; got "
+                               (pr-str (mapv #(subs % 0 (min 60 (count %)))
+                                             @captured))))
+                      (is (seq @seen)
+                          "the divergence must reach Spec 011's channel")
+                      (let [tags (sup/tags-of (first @seen))]
+                        (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                               (:where tags))
+                            (str "attributed to source; got " (pr-str (:where tags))))
+                        (is (= :warned-and-replaced (:recovery tags))
+                            "React had already patched the DOM by the time the
+                             callback ran, so that is the recovery reported")))
 
-                      (testing "and the PREFIX is not what diverged. Read after a
-                                real client render, so it is the client's own
-                                answer and not an untouched server byte"
-                        (relabel! frame-a "alpha'")
-                        (is (= "alpha'" (text-in container ".value"))
-                            "premise: the dispatch painted, so a render happened")
-                        (is (= "alpha'" (text-in container ".label"))
-                            "premise: the ISLAND re-rendered too — its prop moved")
-                        (is (str/includes? server-id "pfx-a-")
-                            "the server's id carried the prefix")
-                        (is (str/includes? (probe-id container) "pfx-a-")
-                            (str "and so does the client's — the pass-through "
-                                 "reached both doors; got "
-                                 (pr-str (probe-id container))))
-                        (is (not= server-id (probe-id container))
-                            (str "they differ all the same, which is the "
-                                 "obstruction this row records; server "
-                                 (pr-str server-id) ", client "
-                                 (pr-str (probe-id container)))))))
+                    (testing "and the PREFIX is not what diverged. Read after a
+                              real client render, so it is the client's own
+                              answer and not an untouched server byte"
+                      (relabel! frame-a "alpha'")
+                      (is (= "alpha'" (text-in container ".value"))
+                          "premise: the dispatch painted, so a render happened")
+                      (is (= "alpha'" (text-in container ".label"))
+                          "premise: the ISLAND re-rendered too — its prop moved")
+                      (is (str/includes? server-id "pfx-a-")
+                          "the server's id carried the prefix")
+                      (is (str/includes? (probe-id container) "pfx-a-")
+                          (str "and so does the client's — the pass-through "
+                               "reached both doors; got "
+                               (pr-str (probe-id container))))
+                      (is (not= server-id (probe-id container))
+                          (str "they differ all the same, which is the "
+                               "obstruction this row records; server "
+                               (pr-str server-id) ", client "
+                               (pr-str (probe-id container)))))))
                 (settle-row!
                   {:row      "§2 — the bytes a consumer can bake today"
                    :done     done
@@ -516,33 +516,33 @@
             (-> (sup/adopted! handle)
                 (.then
                   (fn [ok]
-                      (is (true? ok) "the root's own adoption window shut")
+                    (is (true? ok) "the root's own adoption window shut")
 
-                      (testing "the adoption was real — these are the very nodes
-                                the bytes produced, which no re-render could
-                                reconstruct"
-                        (is (sup/every-server-node? container ".page, .value, .probe")
-                            "the server's nodes survived, probe included"))
+                    (testing "the adoption was real — these are the very nodes
+                              the bytes produced, which no re-render could
+                              reconstruct"
+                      (is (sup/every-server-node? container ".page, .value, .probe")
+                          "the server's nodes survived, probe included"))
 
-                      (testing "and React had nothing to complain about, which is
-                                what isolates §2's mismatch to the tree shape:
-                                one structural difference is all that changed"
-                        (is (empty? @seen)
-                            (str "matching shape and matching prefix must produce "
-                                 "no mismatch; got "
-                                 (pr-str (mapv #(:error (sup/tags-of %)) @seen)))))
+                    (testing "and React had nothing to complain about, which is
+                              what isolates §2's mismatch to the tree shape:
+                              one structural difference is all that changed"
+                      (is (empty? @seen)
+                          (str "matching shape and matching prefix must produce "
+                               "no mismatch; got "
+                               (pr-str (mapv #(:error (sup/tags-of %)) @seen)))))
 
-                      (testing "the id agrees ACROSS A REAL CLIENT RENDER, which
-                                is the only reading that separates *the client
-                                minted the same id* from *nobody touched the
-                                server's text*"
-                        (relabel! frame-a "alpha'")
-                        (is (= "alpha'" (text-in container ".label"))
-                            "premise: the island re-rendered")
-                        (is (= server-id (probe-id container))
-                            (str "the client's own id must equal the server's; "
-                                 "server " (pr-str server-id) ", client "
-                                 (pr-str (probe-id container)))))))
+                    (testing "the id agrees ACROSS A REAL CLIENT RENDER, which
+                              is the only reading that separates *the client
+                              minted the same id* from *nobody touched the
+                              server's text*"
+                      (relabel! frame-a "alpha'")
+                      (is (= "alpha'" (text-in container ".label"))
+                          "premise: the island re-rendered")
+                      (is (= server-id (probe-id container))
+                          (str "the client's own id must equal the server's; "
+                               "server " (pr-str server-id) ", client "
+                               (pr-str (probe-id container)))))))
                 (settle-row!
                   {:row      "§3 — bytes of the hydrating root's own shape"
                    :done     done
@@ -592,52 +592,52 @@
                 (.then (fn [_] (sup/adopted! hb)))
                 (.then
                   (fn [ok]
-                      (is (true? ok) "both roots adopted")
+                    (is (true? ok) "both roots adopted")
 
-                      (testing "each root adopted its OWN server DOM"
-                        (is (sup/every-server-node? ca ".page, .value, .probe")
-                            "root A kept the server's nodes")
-                        (is (sup/every-server-node? cb ".page, .value, .probe")
-                            "root B kept the server's nodes"))
+                    (testing "each root adopted its OWN server DOM"
+                      (is (sup/every-server-node? ca ".page, .value, .probe")
+                          "root A kept the server's nodes")
+                      (is (sup/every-server-node? cb ".page, .value, .probe")
+                          "root B kept the server's nodes"))
 
-                      (testing "and neither adoption complained — two prefixes,
-                                each stable across its own seam"
-                        (is (empty? @seen)
-                            (str "two matching prefixes must produce no mismatch; "
-                                 "got "
-                                 (pr-str (mapv #(:error (sup/tags-of %)) @seen)))))
+                    (testing "and neither adoption complained — two prefixes,
+                              each stable across its own seam"
+                      (is (empty? @seen)
+                          (str "two matching prefixes must produce no mismatch; "
+                               "got "
+                               (pr-str (mapv #(:error (sup/tags-of %)) @seen)))))
 
-                      (testing "the ids are DISTINCT and each is its own root's.
-                                Read after a dispatch into each root, so both are
-                                the client's own answer rather than the server's
-                                untouched bytes"
-                        (relabel! frame-a "alpha'")
-                        (relabel! frame-b "beta'")
-                        (is (= "alpha'" (text-in ca ".label"))
-                            "premise: root A's island re-rendered")
-                        (is (= "beta'" (text-in cb ".label"))
-                            "premise: root B's island re-rendered")
-                        (is (= server-a (probe-id ca)) "root A held its id")
-                        (is (= server-b (probe-id cb)) "root B held its id")
-                        (is (not= (probe-id ca) (probe-id cb))
-                            (str "two roots on one page must not mint the same "
-                                 "id; both read " (pr-str (probe-id ca))))
-                        (is (str/includes? (probe-id ca) "pfx-a-"))
-                        (is (str/includes? (probe-id cb) "pfx-b-")))
+                    (testing "the ids are DISTINCT and each is its own root's.
+                              Read after a dispatch into each root, so both are
+                              the client's own answer rather than the server's
+                              untouched bytes"
+                      (relabel! frame-a "alpha'")
+                      (relabel! frame-b "beta'")
+                      (is (= "alpha'" (text-in ca ".label"))
+                          "premise: root A's island re-rendered")
+                      (is (= "beta'" (text-in cb ".label"))
+                          "premise: root B's island re-rendered")
+                      (is (= server-a (probe-id ca)) "root A held its id")
+                      (is (= server-b (probe-id cb)) "root B held its id")
+                      (is (not= (probe-id ca) (probe-id cb))
+                          (str "two roots on one page must not mint the same "
+                               "id; both read " (pr-str (probe-id ca))))
+                      (is (str/includes? (probe-id ca) "pfx-a-"))
+                      (is (str/includes? (probe-id cb) "pfx-b-")))
 
-                      (testing "§2.4's *exact cleanup on unmount*, and the fact
-                                that teardown is root-scoped: A's unmount leaves
-                                B's runtime standing, and the census is exact only
-                                once both are down. Read before any `release!`,
-                                because `release!` empties the tables by fiat and
-                                a census after it cannot go red"
-                        (mount/unmount! ha)
-                        (is (not= sup/released (sup/census))
-                            "root B is still live, so the runtime is not empty")
-                        (mount/unmount! hb)
-                        (is (= sup/released (sup/census))
-                            (str "both roots down; residue was "
-                                 (pr-str (sup/census)))))))
+                    (testing "§2.4's *exact cleanup on unmount*, and the fact
+                              that teardown is root-scoped: A's unmount leaves
+                              B's runtime standing, and the census is exact only
+                              once both are down. Read before any `release!`,
+                              because `release!` empties the tables by fiat and
+                              a census after it cannot go red"
+                      (mount/unmount! ha)
+                      (is (not= sup/released (sup/census))
+                          "root B is still live, so the runtime is not empty")
+                      (mount/unmount! hb)
+                      (is (= sup/released (sup/census))
+                          (str "both roots down; residue was "
+                               (pr-str (sup/census)))))))
                 (settle-row!
                   {:row      "§4 — two simultaneous hydrating roots"
                    :done     done
@@ -696,29 +696,29 @@
                     ;; as well because `close!` is idempotent and the
                     ;; rejection path never reaches this line.
                     (close!)
-                      (testing "the divergence is REPORTED, and attributed to this
-                                arm's own door"
-                        (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
-                            (str "React itself must have reported it; got "
-                                 (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                               @captured))))
-                        (is (seq @seen)
-                            "a prefix that disagrees with the bytes must complain")
-                        (let [tags (sup/tags-of (first @seen))]
-                          (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                                 (:where tags))
-                              (str "attributed to source; got "
-                                   (pr-str (:where tags))))
-                          (is (= :warned-and-replaced (:recovery tags)))))
+                    (testing "the divergence is REPORTED, and attributed to this
+                              arm's own door"
+                      (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
+                          (str "React itself must have reported it; got "
+                               (pr-str (mapv #(subs % 0 (min 60 (count %)))
+                                             @captured))))
+                      (is (seq @seen)
+                          "a prefix that disagrees with the bytes must complain")
+                      (let [tags (sup/tags-of (first @seen))]
+                        (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                               (:where tags))
+                            (str "attributed to source; got "
+                                 (pr-str (:where tags))))
+                        (is (= :warned-and-replaced (:recovery tags)))))
 
-                      (testing "and the recovery is visible: the id on the page is
-                                the CLIENT's prefix, not the bytes'"
-                        (is (not= server-id (probe-id container))
-                            (str "the disagreeing client id must have replaced the "
-                                 "server's; both read " (pr-str server-id)))
-                        (is (str/includes? (probe-id container) "pfx-b-")
-                            (str "and it is the client's prefix; got "
-                                 (pr-str (probe-id container)))))))
+                    (testing "and the recovery is visible: the id on the page is
+                              the CLIENT's prefix, not the bytes'"
+                      (is (not= server-id (probe-id container))
+                          (str "the disagreeing client id must have replaced the "
+                               "server's; both read " (pr-str server-id)))
+                      (is (str/includes? (probe-id container) "pfx-b-")
+                          (str "and it is the client's prefix; got "
+                               (pr-str (probe-id container)))))))
                 (settle-row!
                   {:row      "§5 — a client prefix that disagrees with the bytes"
                    :done     done
