@@ -411,42 +411,96 @@ function selfTest() {
 }
 
 // ---------------------------------------------------------------------------
+//
+// THE ARGUMENT VECTOR, READ WHOLE BEFORE ANY MODE RUNS (rf2-xk4is).
+//
+// This driver already refused an unknown flag, and it refused the retired
+// `--selftest` spelling among them — but only when the token happened to come
+// FIRST. The old parser ran the self-test and returned from inside the loop
+// the moment it saw `--self-test`, so every token after that one was never
+// looked at: `--self-test --selftest` exited 0 and so did `--self-test
+// --definitely-unknown`, while the same pair typed the other way round exited
+// 2. A vocabulary enforced on a prefix of the vector is not a closed
+// vocabulary, and a spelling refused in one order and swallowed in the other
+// is not retired (#8621's merged-PR audit, which reproduced all three).
+//
+// The repair is not a second validation pass — that is where the care would
+// be needed, because `--emit` and `--from` each consume the token AFTER them
+// and a pass that does not know it would read `--emit --from.json` as a flag.
+// It is simply that PARSING and ACTING are now different things. The parser
+// below is pure: it reads left to right exactly once, consuming each valued
+// flag's value as a value, and it returns either the whole plan or the first
+// reason there cannot be one. Nothing runs until it has reached the end of
+// the vector, so there is no prefix for a token to hide behind.
+//
+// Unlike its two neighbours this driver DOES take positionals, so the closed
+// vocabulary is scoped to the flag namespace: anything shaped like a flag
+// must be one of ours, anything else is a dataset. And there is deliberately
+// no alias for the retired spelling — this is pre-alpha, and an alias for a
+// spelling nothing depends on is a compatibility shim.
+
+const USAGE =
+  'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --self-test';
+
+/** The flags that take a filename, and the plan field each one fills. */
+const VALUED = { '--emit': 'emit', '--from': 'from' };
+
+/**
+ * The whole vocabulary. Derived rather than restated, so there is no second
+ * list to drift from the parser that enforces it.
+ */
+const FLAGS = ['--self-test', ...Object.keys(VALUED)];
+
+/**
+ * Pure, total, and exported — a rule a test can only quote is not a checked
+ * rule, which is the lesson `clock_exit_path.test.cjs` draws about this
+ * fleet's exit decisions and applies here to its argument vectors.
+ *
+ * Returns `{ plan }` or `{ error }`, never both and never a partial plan.
+ */
+function parseArgv(argv) {
+  const plan = { selfTest: false, emit: null, from: null, files: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (!tok.startsWith('--')) {
+      plan.files.push(tok);
+    } else if (tok === '--self-test') {
+      // Recorded, not run. Running it here is what let the tokens after it go
+      // unread.
+      plan.selfTest = true;
+    } else if (tok in VALUED) {
+      // A valued flag's VALUE is a value whatever it looks like, so it is
+      // consumed here and never offered to the flag check above.
+      const value = argv[++i];
+      if (value === undefined) return { error: `${tok} needs a filename` };
+      plan[VALUED[tok]] = value;
+    } else {
+      return { error: `unknown flag ${tok}` };
+    }
+  }
+  return { plan };
+}
 
 function main() {
-  const argv = process.argv.slice(2);
-  let emit = null;
-  let from = null;
-  const files = [];
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--emit') emit = argv[++i];
-    else if (argv[i] === '--from') from = argv[++i];
-    else if (argv[i] === '--self-test') {
-      const st = selfTest();
-      for (const c of st.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.detail ? '  — ' + c.detail : ''}`);
-      if (!st.ok) {
-        console.error('\nladder_band self-test FAILED');
-        process.exit(1);
-      }
-      console.log('\nladder_band self-test ok');
-      return;
-    } else if (argv[i].startsWith('--')) {
-      // This one already refused the retired spelling, but only by ACCIDENT:
-      // it took the token for a dataset filename and died on the `readRun`
-      // below with an ENOENT stack trace. An accident is not a retirement —
-      // it says nothing to whoever typed it, and it would stop refusing
-      // altogether the day somebody left a file lying about under that name
-      // (rf2-xk4is, from #8616's merged-PR audit).
-      //
-      // Unlike its two neighbours this driver DOES take positionals, so the
-      // closed vocabulary is scoped to the flag namespace: anything shaped
-      // like a flag must be one of ours, anything else is a dataset.
-      console.error(`ladder_band.cjs: unknown flag ${argv[i]}`);
-      console.error(
-        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --self-test'
-      );
-      process.exit(2);
-    } else files.push(argv[i]);
+  const { plan, error } = parseArgv(process.argv.slice(2));
+  if (error) {
+    console.error(`ladder_band.cjs: ${error}`);
+    console.error(USAGE);
+    process.exit(2);
   }
+
+  if (plan.selfTest) {
+    const st = selfTest();
+    for (const c of st.checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}${c.detail ? '  — ' + c.detail : ''}`);
+    if (!st.ok) {
+      console.error('\nladder_band self-test FAILED');
+      process.exit(1);
+    }
+    console.log('\nladder_band self-test ok');
+    return;
+  }
+
+  const { emit, from, files } = plan;
 
   let runs;
   if (from) {
@@ -454,9 +508,7 @@ function main() {
     runs = j.runs.map(inflate);
   } else {
     if (files.length === 0) {
-      console.error(
-        'usage: ladder_band.cjs [--emit out.json] <dataset.json ...>   |   --from compact.json   |   --self-test'
-      );
+      console.error(USAGE);
       process.exit(2);
     }
     runs = files.map(readRun);
@@ -637,4 +689,11 @@ function main() {
   }
 }
 
-main();
+// `parseArgv` is the CLI surface, exported so its pin can drive the rule
+// rather than quote it; the entry point is guarded so that requiring this
+// file to reach it does not also RUN it. That pairing is the point — a
+// module that read `process.argv` at module scope is exactly why the
+// preceding rule in this fleet went untested until it broke.
+module.exports = { FLAGS, USAGE, parseArgv };
+
+if (require.main === module) main();
