@@ -271,8 +271,7 @@ one-worker-per-item, and do not reflexively bundle everything.
 
 **One agent owns a surface; surfaces run in parallel.** That is how you avoid serial handling:
 same-surface items ride one agent, which never collides with itself, while genuinely separable
-surfaces dispatch as concurrent agents. Two workers never share a surface — they merge-conflict
-and can silently revert each other.
+surfaces dispatch as concurrent agents.
 
 **The serial exceptions**, where same-surface work is *meant* to be sequential: a deliberately
 serial epic, and a single tightly-coupled module whose core files many items touch. That surface
@@ -594,7 +593,11 @@ blocker — the five clauses are the merge criterion, and this is not among them
 - **Local-green is not CI.** "Green locally" usually means the subset the worker ran; the red gate is one it
   skipped. The merge decision is CI's, not the worker's hand-off. So the brief must say *which* required
   checks the local gate omits — and say it by citing **one path**, not by re-listing them, because the
-  required set moves. Make the project *derive* that list rather than document it.
+  required set moves. Make the project *derive* that list rather than document it. Two shapes
+  make a hand-written one wrong inside a week: a required status context the local runner has no
+  lane in at all, and a required check that is a **step inside a job the runner does run**, which
+  no skipped-tier enumeration can see and which reports under that job's name however little it
+  resembles what the step does.
 - **Never nominate a gate that does not cover the surface being edited.** Site builds, linters and test
   runners all carry exclusion lists, and a gate run over an excluded path exits green having verified
   nothing — the same fail-open defect worth hunting anywhere else, except it is now the brief telling the
