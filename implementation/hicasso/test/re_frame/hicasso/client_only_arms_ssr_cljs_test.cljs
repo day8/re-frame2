@@ -150,8 +150,11 @@
 
 (defn- server-html
   "The page as a REAL server render, through `react-dom/server`'s own
-  `renderToString` — the only server path this package has, and exactly
-  the call a consumer makes."
+  `renderToString`, called by hand — the smallest thing that produces
+  server bytes, so what these rows read is the arm's own server
+  behaviour and nothing else. The package's own server door is
+  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  instead of it."
   [hiccup]
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))

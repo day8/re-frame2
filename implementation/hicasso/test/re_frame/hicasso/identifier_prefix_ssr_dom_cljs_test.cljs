@@ -21,8 +21,8 @@
       render has no counterpart for, and `useId` is derived from tree
       POSITION as well as from the prefix. So the two sides disagree on
       the id's tail while agreeing perfectly on its head (§2), and a page
-      whose bytes were baked by the only server path this package has
-      hydrates into a text mismatch.
+      whose bytes were baked by a hand-rolled `renderToString` rather
+      than by a product door hydrates into a text mismatch.
 
   §3 pins that cause to a single structural difference and §4 and §5 run
   the whole clause on the far side of it, so what is missing is named
@@ -90,8 +90,11 @@
   ## The harness
 
   The server bytes come from `react-dom/server`'s own `renderToString`, called
-  by hand with React's own `identifierPrefix` option — the only server path
-  this package has, and exactly the call a consumer makes. The client half is
+  by hand with React's own `identifierPrefix` option — the smallest thing that
+  produces server bytes under a named prefix. The package's own server door,
+  `re-frame.hicasso.server/render`, spells the same option as
+  `:identifier-prefix`; this harness sits beside it, not instead of it, so
+  what these rows read is the prefix and nothing else. The client half is
   the product door `impl.mount/hydrate-root!` and never `hydrateRoot`
   directly: what is under test is the door's pass-through, so a row reaching
   past it would witness React rather than this arm.
@@ -199,10 +202,11 @@
   "The bytes an SSR route delivers for `hiccup` under `frame-kw`, with
   React's own `identifierPrefix` — `nil` for a route that names none.
 
-  **The tree a consumer can spell today**: the frame provider over the
+  **The tree a consumer spells BY HAND**: the frame provider over the
   root element, handed to `react-dom/server`'s `renderToString`. That
-  hand-rolled call is the only server path this package has, so these are
-  the bytes an SSR route actually ships."
+  hand-rolled call bakes no adoption closer, so these are the bytes a
+  hand-rolled SSR route ships — `root-shaped-server-html!` below is the
+  other tree, and §3 pins the difference to that one fork."
   [frame-kw hiccup prefix]
   (react-dom-server/renderToString
     (mount/provider frame-kw (codec/root-element frame-kw hiccup))

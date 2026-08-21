@@ -7,9 +7,12 @@
   *Client-only* in the operative column, and they read that for one
   reason: nothing else server-renders a `h/defview`. This file is that
   witness. It runs the surfaces through `react-dom/server`'s own
-  `renderToString` — the only server path this package has, and exactly
-  the call a consumer makes — and then hydrates those same bytes through
-  the product door.
+  `renderToString`, called by hand — the smallest thing that produces
+  server bytes, so what these rows read is the surface's own server
+  behaviour and nothing else — and then hydrates those same bytes
+  through the product door. The package's own server door is
+  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  instead of it.
 
   ## What a row here has to show, and why the list is not negotiable
 
@@ -24,9 +27,9 @@
   ## The one thing these rows deliberately do NOT claim
 
   A hydrating root's tree is `Fragment[closer, adoption-provider[…]]`
-  (`impl.mount/tree`) and the server path emits no counterpart
-  to that fork, so a tree containing a `useId` hydrates into an id
-  mismatch — HS-11's obstruction 2, measured in
+  (`impl.mount/tree`) and this file's hand-rolled server path emits no
+  counterpart to that fork, so a tree containing a `useId` hydrates into
+  an id mismatch — HS-11's obstruction 2, measured in
   `identifier-prefix-ssr-dom-cljs-test` and unrepaired. **No surface in
   this file mints a `useId`**, so every row below is unaffected and none
   of them repairs it either. That obstruction is HS-11/HS-14's and it

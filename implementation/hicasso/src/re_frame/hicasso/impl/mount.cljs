@@ -177,11 +177,13 @@
 ;; this arm. These doors are what let a caller say the word.
 ;;
 ;; **The PREFIX's server half is React's too, and it needs no door
-;; here.** A consumer server-renders through `react-dom/server` itself —
-;; `renderToString(element, #js {"identifierPrefix" "a-"})` — which per
-;; the census is the only server path this package has.
-;; So the two sides already meet in React's own vocabulary and what
-;; matters is that the caller hands BOTH of them the same string.
+;; here.** It is spelled on whichever server caller bakes the bytes:
+;; `re-frame.hicasso.server/render` carries `:identifier-prefix`, a
+;; pass-through of exactly this shape, and a hand-rolled
+;; `renderToString(element, #js {"identifierPrefix" "a-"})` names
+;; React's option directly. Either way the two sides meet in React's
+;; own vocabulary and what matters is that the caller hands BOTH of
+;; them the same string.
 ;; Agreement is the contract; presence on one side proves nothing.
 ;;
 ;; **That settles the prefix and not the pair**, and the difference is
