@@ -425,10 +425,19 @@ evidence invocation** rather than at the time of writing.
 ## 6. The instrument and the subject
 
 Tree anchor `c23a23dd1da44bb2b9eb84d11846dd714d04bc3a`, which is `origin/main`
-at the window's opening — the measured tree and the published tree are the same
-tree. Object ids below are the committed objects (`git rev-parse HEAD:<path>`)
-rather than a byte digest of the working file, which on a checkout with
-`core.autocrlf=true` is the only reading that means anything.
+at the window's opening. Object ids below are the committed objects
+(`git rev-parse HEAD:<path>`) rather than a byte digest of the working file,
+which on a checkout with `core.autocrlf=true` is the only reading that means
+anything.
+
+**This page's branch was rebased once after the last invocation**, onto a trunk
+that had taken twelve commits — two pull requests plus tracker checkpoints — so
+the published tree is not literally the measured tree. **Every object id in the
+three tables below was re-read at the new base and every one is unchanged**,
+which is the claim that matters: the rebase moved nothing this window measured.
+It is stated rather than assumed because a pre-rebase green is evidence about a
+tree that no longer exists, and the four gates in [§8](#8-conditions) were
+re-run on the final base for the same reason.
 
 The instrument:
 
@@ -797,8 +806,33 @@ the pattern had been narrower.
 No worker was dispatched against this box while the window was open, and nothing
 else was run alongside the runs: the two pull requests in CI at the time
 (`#8677`, `#8678`) run on hosted runners, were checked green before the opening
-bracket, and neither touches this surface. The doc, provenance and ledger gates
-were taken **after** the last invocation; the source reading behind
+bracket, and neither touches this surface. The source reading behind
 [§3](#3-the-schedule-is-taken-unchanged-and-that-is-a-derivation-rather-than-a-default)
-and [§4](#4-the-pre-registered-adjudication-rules) and the two planted-fault
-discrimination proofs on the doc gates were taken **before** the first.
+and [§4](#4-the-pre-registered-adjudication-rules) was taken **before** the
+first invocation, as were the first two discrimination proofs below; every gate
+run was taken **after** the last one, and every gate was re-run on the final
+base after the rebase [§6](#6-the-instrument-and-the-subject) records.
+
+**Four gates cover this change, each proved able to go red on a fault planted at
+a line this change touches, and each restore verified by comparing the working
+file's blob hash against the committed object rather than by reading a diff.**
+The pairing is not obvious from the job names, which is why it is written down:
+
+| gate | what it covers here | the planted fault, and what it returned |
+|---|---|---|
+| `scripts/check_doc_slugs.py` | this page, under `docs/` | a broken internal anchor → exit `1`, naming it |
+| `scripts/check_readme_links.py --ci` | `implementation/hicasso/spec/budgets.md`, which is **outside** the doc gate's roots | a broken relative target in the amendments → exit `1` here and **exit `0` from `check_doc_slugs.py` on the same break** |
+| `scripts/check_provenance_pins.py` | this page, as a changed page under `docs/design/hicasso/` | an unresolvable commit pin → exit `1`, classified by the word on its left |
+| `implementation/hicasso/scripts/check_budget_ledger.py` | the ledger in `budgets.md` | `C3`'s instrument cell moved into the `PR gate` lane → exit `1`, *is a distributional row wired to the PR-gate lane* |
+
+That last red is worth keeping for a second reason: it is the gate stating in
+its own words the classification [§4](#4-the-pre-registered-adjudication-rules)
+derives by exclusion, which is the one claim on this page that no roster
+asserts.
+
+**`mkdocs build --strict` is not a gate for any of this and was not run.**
+`mkdocs.yml`'s `exclude_docs` block carries `design/hicasso/`, so the build
+cannot see this page at all; and `budgets.md` sits outside `docs_dir` entirely,
+which is a second and independent reason. One planted-fault run confirmed the
+first half of that pairing by returning green from the doc gate on a break the
+README gate caught.
