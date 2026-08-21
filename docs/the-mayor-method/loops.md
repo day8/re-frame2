@@ -622,18 +622,30 @@ and both readings went wrong in a single day here, in opposite directions.
    agent.
 
    **A change carries two clocks recording two different EVENTS, so name the event before you read a
-   clock.** The *authored* time records when the work was written; the *committed* time records when it
-   was last replayed onto the trunk. A rebase replays the first unchanged and rewrites the second, so
-   where a project merges by rebase they differ on essentially every landed change — two honest readers
-   called one change forty-three minutes old and seventy-five seconds old, and neither had misread.
+   clock.** The *authored* time is the author timestamp recorded on the change; the *committed* time is
+   the committer timestamp on the object as it currently stands, and it moves every time that object is
+   rewritten. A rebase rewrites the second and replays the first unchanged, so where a project merges by
+   rebase they differ on essentially every landed change — two honest readers called one change
+   forty-three minutes old and seventy-five seconds old, and neither had misread.
 
-   Liveness asks *did this worker do something recently*, which is the replay event, so it reads the
+   Liveness asks *did this worker do something recently*, which is the rewrite event, so it reads the
    committed time. A date in prose asks something else, and **which** something else is the whole
-   question: when the work was written is the authored time, when it reached the trunk is the committed
-   time, and a record that says only "dated" has not been specified. **Name the event in the sentence**
-   — "written on", "landed on" — and the clock follows from it. Do not write a rule that says prose
-   takes one clock: that trades a defect for its mirror, and the error is invisible once made, because
-   both are real timestamps on the same change and each is correct for its own event.
+   question — a record that says only "dated" has not been specified. **Name the event in the sentence**
+   — "authored on", "last rewritten on" — and where that event is one the change itself records, the
+   clock follows from it. Do not write a rule that says prose takes one clock: that trades a defect for
+   its mirror, and the error is invisible once made, because both are real timestamps on the same change
+   and each is correct for its own event.
+
+   **Where the event is not one the change records, no clock on the change answers.** Rebase is not the
+   only rewrite: amending, or squashing a fixup, moves the committed time while carrying the original
+   author timestamp forward, and an author date can be set explicitly to any value — so the authored
+   time is no proof of when content was written, and a queued or deferred integration leaves the
+   committed time recording a rewrite rather than an arrival. Ancestry is sound where the fields are
+   not, and it settles ORDER only. **A date tying a change to an EXTERNAL event — a run, a measurement,
+   an outage — therefore needs an anchor that event itself recorded, or a chronology you declare and
+   stand behind.** One change here called its first commit a pre-run registration: authored nine seconds
+   before the first sample, committed twenty minutes after the last, and neither number establishes the
+   claim.
 
 2. **Is there a live task to message?** Message first — resuming beats redispatching, because the
    worker's context is still there. **The commonest strand by far is a worker that detached a long gate
