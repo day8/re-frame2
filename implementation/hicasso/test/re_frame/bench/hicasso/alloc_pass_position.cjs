@@ -64,12 +64,67 @@
 // parity one, which is the worst possible failure mode: silent on the corpus
 // it is pinned against and wrong on the corpus it exists for.
 //
+// ## THE ARBITERS ARBITRATE, AND THAT IS A REPAIR (audit of PR #8601, #8615)
+//
+// This reader used to PRINT `controlVerdict`, `verification.unverified`,
+// `passOrder`, `parityTied` and `scheduleDrove` and then feed every row to the
+// blocks, the headline and both decompositions REGARDLESS. A copy of a real
+// record with `controlVerdict.ok = false` still produced the headline. The
+// audit of #8615 found the front-door version in `alloc_pass_design.cjs` had
+// its own hole on top: `scheduleDrove` iterated only the rows PRESENT, so a
+// record with `perRound` emptied or truncated to one row returned `true`
+// VACUOUSLY and the boundary blessed missing evidence.
+//
+// `admissibleRun` and `admissibleCorpus` below are that boundary, moved IN.
+// A refused run contributes no figure and `report` prints no figure at all —
+// it prints the clause that refused it. Completeness is now its own clause:
+// the realised round set must be the complete, unique `0..rounds-1`, so a
+// truncated record is refused rather than blessed.
+//
+// ## THE BAND IS A RESTRICTED RANDOMISATION, AND IT IS ON THE AGGREGATE
+//
+// Phase 3 (PR #8615) refused the pass term against a band built at ten times
+// its own null-arm p90. It recorded the defect rather than repairing it: that
+// band compared an AGGREGATE — a contrast of medians over 316 cells — against
+// a PER-OBSERVATION noise scale. `rf2-0eu1s` then found the reason the scale
+// could not be repaired by re-cutting it either: the null arm is TWO DISJOINT
+// POPULATIONS, so a pooled percentile of it is not a magnitude at all and the
+// same rule returns 45 on one window and 610 on the next.
+//
+// So the band here is not a byte threshold and is not derived from one. The
+// noise scale and the signal scale are THE SAME OBJECT because they are the
+// same statistic on the same blocks: the reference distribution of a term is
+// what that term reads when the PASS LABELS are re-drawn from the schedules
+// the design would equally have admitted, with the block VALUES left exactly
+// where they were measured.
+//
+// Restricted, and the restriction is the design's own. A re-labelling is
+// admissible only if it is balanced, `q·parity = 0` and `q·linear = 0` — the
+// criteria `alloc_pass_design.cjs` selected the real schedules under. At
+// twelve rounds there are 48 such schedules and the set is CLOSED UNDER
+// COMPLEMENT, so every reference distribution here is exactly symmetric about
+// zero by construction rather than by assumption, and any parity structure or
+// linear drift in the block values enters every re-labelling symmetrically.
+//
+// WHAT IT DOES NOT CONTROL, named rather than assumed away: residual functions
+// of the round index that the two balanced columns do not span — `r mod 4`
+// among them — are as free in the reference as they are in the observation.
+// That is the same residual the design names and does not filter on.
+//
+// AND IT CARRIES ITS OWN NEGATIVE CONTROL. The identical machinery runs on the
+// R = 0 NULL ARM, whose true term is zero by construction. A band that returns
+// a significant pass term THERE is a band that cannot be believed on the mid
+// rungs, and the pre-registration makes that outcome a refusal rather than a
+// footnote.
+//
 // ## WHAT THIS IS NOT
 //
 // It is not a gate. No run passes or fails on it, no threshold here is a
 // budget, and nothing here reads, moves or is calibrated against tau in either
 // direction. It is a reader over records that already exist, exactly as
-// `alloc_position_confound.cjs` and `alloc_level_witness.cjs` are.
+// `alloc_position_confound.cjs` and `alloc_level_witness.cjs` are. The band is
+// a rank of one number among others computed the same way; it is not a byte
+// threshold, it is not compared against one, and it cites no published floor.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -88,6 +143,7 @@ const FLOOR_ARM = 'grid/floor';
 // The null arm, whose true value is known in advance: boundaries that read
 // nothing, so `arm − floor` must be zero under either write.
 const NULL_RUNG = 'R0';
+const NULL_RUNGS = [NULL_RUNG];
 
 const median = (xs) => {
   if (!xs.length) return null;
@@ -157,17 +213,28 @@ function roundCells(round, boundaries, rungs) {
 // One block per round: the median of `Δ / d_all` over that round's certified
 // mid-rung cells, beside WHICH LEG RAN FIRST — read off `writeLegs`, never
 // recomputed from the round index. See the header.
-function blocks(row, label) {
+//
+// `rungs` AND `stat` ARE PARAMETERS SO THE NULL ARM CAN BE PUSHED THROUGH THE
+// IDENTICAL PIPELINE, and that is the whole of what the band needs from this
+// function. The defaults are the published estimator verbatim. The null arm
+// takes `NULL_RUNGS` and the `delta` statistic instead of the `ratio` one for
+// a reason that is arithmetic and not a preference: at R = 0 the denominator
+// `d_all` is the quantity the arm is SUPPOSED to read as zero, so a ratio
+// against it is not a number. The two readings are the same pipeline at the
+// same aggregation level in different units, and NOTHING here ever compares a
+// figure in one to a figure in the other — the null arm is a control on the
+// BAND, not a noise scale a magnitude is measured against.
+function blocks(row, label, rungs = MID_RUNGS, stat = 'ratio') {
   const B = row.boundaries;
   const out = [];
   for (const round of row.perRound || []) {
     // A cell with no ratio carries no block statistic — see `roundCells`. At
     // the mid rungs `d_all` is thousands of bytes per boundary and this drops
     // nothing, which the self-test's per-block `n` is what proves.
-    const cells = roundCells(round, B, MID_RUNGS).filter((c) => c.ratio !== null);
+    const cells = roundCells(round, B, rungs).filter((c) => c[stat] !== null);
     if (!cells.length) continue;
     const first = (round.writeLegs || [])[0] || null;
-    const m = median(cells.map((c) => c.ratio));
+    const m = median(cells.map((c) => c[stat]));
     out.push({
       run: label,
       round: round.round,
@@ -238,18 +305,235 @@ function controls(row) {
   };
 }
 
+// IT FAILS CLOSED ON A CORPUS THAT IS NOT THERE, and that is the audit of
+// #8615's finding repaired at its source. The earlier revision iterated only
+// the rows PRESENT, so a record whose `perRound` was emptied or truncated to
+// one row returned `true` — the check reported agreement between a draw of
+// twelve rounds and a drive of one. "Every row present agreed" is not the
+// claim this function's name makes, and a boundary built on it blessed missing
+// evidence. It now requires the drive to cover EVERY round the draw scheduled,
+// exactly once each, before it can return `true`.
 function scheduleDrove(row) {
   const sched = row.passSchedule;
   const legs = row.writeLegs || [];
   if (!sched || !Array.isArray(sched.flips) || legs.length !== 2) return null;
+  const seen = new Set();
   for (const round of row.perRound || []) {
     const flip = sched.flips[round.round];
     if (flip === undefined) return null;
+    if (seen.has(round.round)) return false;
+    seen.add(round.round);
     const want = flip ? [...legs].reverse() : legs;
     const got = round.writeLegs || [];
     if (got.length !== want.length || got.some((l, i) => l !== want[i])) return false;
   }
-  return true;
+  return seen.size === sched.flips.length;
+}
+
+// --- the schedule as two design columns -------------------------------------
+//
+// `q(r) = +1` where `page` ran first — the base leg order is `[page, all]`, so
+// `page` leads exactly where the flip is FALSE. `p(r) = +1` on an even round.
+// `l(r) = r − (R−1)/2` is the centred round index. Two dot products, computed
+// here rather than imported, because `alloc_pass_design.cjs` imports from THIS
+// file and the dependency may not run the other way.
+const passIndicator = (flips) => flips.map((f) => (f ? -1 : 1));
+const parityDot = (flips) =>
+  passIndicator(flips).reduce((s, q, r) => s + q * (r % 2 === 0 ? 1 : -1), 0);
+const linearDot = (flips) =>
+  passIndicator(flips).reduce((s, q, r) => s + q * (r - (flips.length - 1) / 2), 0);
+const flipKey = (flips) => flips.map((f) => (f ? '1' : '0')).join('');
+
+// --- the boundary, which fails closed ----------------------------------------
+//
+// Every clause is a DECLARED PARAMETER of a window or a control the record
+// already carries. Nothing here is a tolerance, nothing is compared against a
+// byte threshold, and no clause was chosen after seeing a figure — the
+// declaration is a committed file that predates run 1.
+//
+// `plan`, `roots`, `boundaries` and `writes` are checked because the audit of
+// #8615 found the front door admitting them changed: `boundaries` is the `B`
+// every `d` on this page is divided by, so a run that moved it is not a run of
+// the same estimator at all.
+function admissibleRun(row, expect = {}) {
+  const reasons = [];
+  const v = row.controlVerdict || {};
+  const ver = row.verification || {};
+  const eq = (got, want, name) => {
+    if (want !== undefined && got !== want) reasons.push(`${name} ${JSON.stringify(got)} is not the declared ${JSON.stringify(want)}`);
+  };
+
+  if (v.ok !== true) reasons.push('positive control did not pass');
+  if (ver.unverified !== 0) reasons.push(`unverified read-backs ${ver.unverified}`);
+
+  eq(row.passOrder, expect.passOrder, 'pass order');
+  eq(row.passSeed, expect.passSeed, 'seed');
+  eq(row.rounds, expect.rounds, 'rounds');
+  eq(row.writePaired, expect.writePaired, 'writePaired');
+  eq(row.segOrder, expect.segOrder, 'segment order');
+  eq(row.controlSlot, expect.controlSlot, 'control slot');
+  // `plan` is an OBJECT in the record (`{name, arms, rungs, fits}`), so the
+  // declared parameter is its NAME. A declaration comparing the object would
+  // never match and the clause would refuse every run — a boundary that
+  // refuses everything is no more a boundary than one that refuses nothing.
+  eq(row.plan && row.plan.name, expect.plan, 'plan');
+  eq(row.roots, expect.roots, 'roots');
+  eq(row.boundaries, expect.boundaries, 'boundaries');
+  eq(row.writes, expect.writes, 'writes');
+  if (expect.writeLegs && (row.writeLegs || []).join(',') !== expect.writeLegs.join(',')) {
+    reasons.push(`write legs ${JSON.stringify(row.writeLegs)} are not the declared ${JSON.stringify(expect.writeLegs)}`);
+  }
+
+  const sched = row.passSchedule;
+  if (!sched || !Array.isArray(sched.flips)) {
+    reasons.push('no schedule in the record');
+  } else {
+    if (sched.parityTied !== false) reasons.push('the draw was parity-tied');
+    if (expect.rounds !== undefined && sched.flips.length !== expect.rounds) {
+      reasons.push(`the schedule is ${sched.flips.length} rounds, not the declared ${expect.rounds}`);
+    }
+    const pd = parityDot(sched.flips);
+    const ld = linearDot(sched.flips);
+    if (pd !== 0) reasons.push(`q·parity ${pd}`);
+    if (ld !== 0) reasons.push(`q·linear ${ld}`);
+    if (expect.flips && flipKey(sched.flips) !== flipKey(expect.flips)) {
+      reasons.push('the drawn schedule is not the one this run declared');
+    }
+    // THE REALISED ROUND SET, which is where a truncated corpus is caught. The
+    // design's identification is a property of the labelling that actually
+    // carried data, not of the one the record says it drew.
+    const rounds = (row.perRound || []).map((r) => r.round);
+    const unique = new Set(rounds);
+    if (rounds.length !== sched.flips.length || unique.size !== rounds.length) {
+      reasons.push(`the drive covers ${rounds.length} round(s) (${unique.size} distinct), not the scheduled ${sched.flips.length}`);
+    } else {
+      for (let r = 0; r < sched.flips.length; r++) {
+        if (!unique.has(r)) { reasons.push(`round ${r} is missing from the drive`); break; }
+      }
+    }
+  }
+  if (scheduleDrove(row) !== true) reasons.push('the drive does not match the draw');
+  return { ok: reasons.length === 0, reasons };
+}
+
+// THE CORPUS, not one run of it. A window that declared eight runs and can show
+// six has not taken the window it declared, and the audit of #8615's `--admit`
+// exiting 0 on an EMPTY corpus is exactly that hole. There is no partial
+// credit: the count is fixed before run 1 and a short corpus is refused.
+function admissibleCorpus(rows, declared) {
+  const reasons = [];
+  const runs = declared.runs || [];
+  if (rows.length !== runs.length) {
+    reasons.push(`the corpus holds ${rows.length} run(s), not the declared ${runs.length}`);
+  }
+  const per = rows.map(({ label, row }, i) => {
+    const want = runs[i] ? { ...declared.window, ...runs[i] } : declared.window;
+    const got = admissibleRun(row, want);
+    if (!got.ok) reasons.push(`run ${label}: ${got.reasons.join('; ')}`);
+    return { label, ...got };
+  });
+  return { ok: reasons.length === 0, reasons, per };
+}
+
+// --- the band ----------------------------------------------------------------
+
+// Every balanced schedule over `rounds` with `q·parity = 0` and `q·linear = 0`
+// — the design's own admissibility, enumerated exhaustively rather than
+// sampled. At twelve rounds it returns 48 of the 924 balanced schedules, and
+// the set is closed under complement.
+function admissibleSchedules(rounds) {
+  const out = [];
+  if (rounds > 24) throw new Error(`admissibleSchedules: ${rounds} rounds is beyond exhaustive enumeration`);
+  for (let mask = 0; mask < 1 << rounds; mask++) {
+    let n = 0;
+    for (let r = 0; r < rounds; r++) if ((mask >> r) & 1) n++;
+    if (n * 2 !== rounds) continue;
+    const flips = Array.from({ length: rounds }, (_, r) => Boolean((mask >> r) & 1));
+    if (parityDot(flips) === 0 && linearDot(flips) === 0) out.push(flips);
+  }
+  return out;
+}
+
+// The blocks re-labelled under a schedule. The VALUES are untouched — only
+// which group each block falls into changes, which is the whole content of the
+// null hypothesis being tested.
+function relabel(bs, flips) {
+  return bs.map((b) => ({ ...b, first: flips[b.round] ? 'all' : 'page' }));
+}
+
+const passTerm = (bs) => decompose(bs, (b) => b.first === 'page').half;
+
+// The term this window reads: the MEAN of the per-run pass terms. Each run is a
+// complete balanced design on its own, so a run-level offset — and phase 2
+// measured one of 20% on a floor — cancels exactly out of every per-run
+// contrast before the runs are combined. Pooling all blocks first does not have
+// that property, and is reported beside it rather than instead of it.
+function meanRunTerm(runs) {
+  const ts = runs.map((r) => passTerm(r.blocks)).filter((t) => t !== null);
+  return ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null;
+}
+
+// A 32-bit PRNG seeded from a string, so a reference distribution is a function
+// of the declaration and nothing else. Two readers on two machines get the same
+// draws from the same committed seed.
+function rng(seed) {
+  let h = 2166136261 >>> 0;
+  for (const ch of String(seed)) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return () => {
+    h += 0x6d2b79f5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// THE REFERENCE DISTRIBUTION, and the two-sided rank of the observation in it.
+//
+// Each run's own reference set is EXACT — all 48 admissible re-labellings, so
+// the per-run p-value is a rank among 48 and involves no sampling at all. Only
+// the COMBINATION across runs is sampled, because the product is 48^8 and that
+// is not enumerable. The sample is a fixed count from a committed seed.
+//
+// The p-value counts the observation itself, which is the standard
+// conservative convention: with `draws` re-labellings the smallest attainable
+// two-sided p is `1/(draws+1)`.
+function termReference(runs, { draws, seed }) {
+  const sets = runs.map((r) => {
+    const flips = admissibleSchedules(r.rounds);
+    return { blocks: r.blocks, flips, terms: flips.map((f) => passTerm(relabel(r.blocks, f))) };
+  });
+  const observed = meanRunTerm(runs);
+  const next = rng(seed);
+  const sample = [];
+  for (let d = 0; d < draws; d++) {
+    let s = 0;
+    let n = 0;
+    for (const set of sets) {
+      const t = set.terms[Math.floor(next() * set.terms.length)];
+      if (t !== null) { s += t; n++; }
+    }
+    sample.push(n ? s / n : 0);
+  }
+  const atLeast = sample.filter((t) => Math.abs(t) >= Math.abs(observed)).length;
+  const sorted = sample.map(Math.abs).sort((a, b) => a - b);
+  return {
+    observed,
+    draws,
+    seed,
+    // Per run, the exact rank among that run's own 48 re-labellings.
+    perRun: sets.map((set, i) => {
+      const t = passTerm(runs[i].blocks);
+      const ge = set.terms.filter((x) => Math.abs(x) >= Math.abs(t)).length;
+      return { label: runs[i].label, term: t, of: set.terms.length, p: ge / set.terms.length };
+    }),
+    p: (atLeast + 1) / (draws + 1),
+    p95: sorted[Math.floor(sorted.length * 0.95)],
+    p975: sorted[Math.floor(sorted.length * 0.975)],
+  };
 }
 
 // The null arm — R = 0, all four windows certified. It is the only population
@@ -278,12 +562,45 @@ function nullArm(rows) {
 
 // --- the report --------------------------------------------------------------
 
-function report(rows) {
+// `declared` IS THE PRE-REGISTRATION, READ FROM A COMMITTED FILE, and passing
+// it is what licenses a figure. A `seeded` corpus is by construction part of a
+// declared design — the seed only means anything against the schedule it was
+// selected to draw — so reading one WITHOUT its declaration is refused rather
+// than annotated. A `parity` corpus predates the design and is read as before.
+function report(rows, declared = null) {
   const out = [];
   const all = [];
 
   out.push(';; THE PASS-POSITION TERM, AND WHETHER IT IS THE PASS OR THE PARITY (rf2-fk6pj)');
   out.push(';;');
+
+  const seeded = rows.filter(({ row }) => row.passOrder === 'seeded');
+  if (seeded.length && !declared) {
+    out.push(';; REFUSED — NO FIGURE IS PRINTED.');
+    out.push(`;;   ${seeded.length} of ${rows.length} run(s) are \`seeded\`, and a seeded corpus is part of a`);
+    out.push(';;   declared design: its seed means nothing except against the schedule it was');
+    out.push(';;   selected to draw. Pass the window\'s committed pre-registration:');
+    out.push(';;     alloc_pass_position.cjs --declared <pre-registration.json> <run.json>...');
+    return { lines: out, refused: true };
+  }
+  if (declared) {
+    const adm = admissibleCorpus(rows, declared);
+    out.push(`;; THE DECLARATION — ${declared.window.label || 'unnamed'}, committed before run 1.`);
+    for (const p of adm.per) {
+      out.push(`;;   run ${p.label} | ${p.ok ? 'ADMITTED' : 'REFUSED — ' + p.reasons.join('; ')}`);
+    }
+    if (!adm.ok) {
+      out.push(';;');
+      out.push(';; THE CORPUS IS REFUSED AND NO FIGURE IS PRINTED. The run count and every');
+      out.push(';; parameter above were fixed before run 1; a corpus that does not match the');
+      out.push(';; declaration is not the window that was declared, and reading it anyway is');
+      out.push(';; the defect this boundary exists to close.');
+      for (const r of adm.reasons) out.push(`;;   ${r}`);
+      return { lines: out, refused: true };
+    }
+    out.push(';;   ALL DECLARED RUNS ADMITTED.');
+    out.push(';;');
+  }
   out.push(';; CONTROLS — a run whose positive control failed contributes no data.');
   out.push(
     ';;   run | pass order | seed | parity-tied | schedule drove | control | B/double | differential | unverified'
@@ -361,7 +678,80 @@ function report(rows) {
       `${pooledNull.p90} | ${pooledNull.max}`
   );
 
-  return out;
+  if (declared && declared.band) {
+    const { draws, seed, alpha } = declared.band;
+    const runsOf = (rungs, stat) =>
+      rows.map(({ label, row }) => ({ label, rounds: row.rounds, blocks: blocks(row, label, rungs, stat) }));
+    const signal = termReference(runsOf(MID_RUNGS, 'ratio'), { draws, seed });
+    const control = termReference(runsOf(NULL_RUNGS, 'delta'), { draws, seed });
+
+    out.push(';;');
+    out.push(';; THE BAND — a restricted randomisation of the PASS LABELS over the schedules');
+    out.push(`;; the design would equally have admitted (${admissibleSchedules(declared.window.rounds).length} at ${declared.window.rounds} rounds, closed under`);
+    out.push(`;; complement). Block VALUES are untouched. ${draws} draws from the committed seed`);
+    out.push(`;; ${JSON.stringify(seed)}; alpha ${alpha}. Nothing here is a byte threshold.`);
+    out.push(';;   arm | term | two-sided p | reference p95 | reference p97.5');
+    for (const [name, ref, unit] of [['MID-RUNG (signal)', signal, '%'], ['R=0 NULL (control)', control, 'B/boundary']]) {
+      const shown = unit === '%' ? pct(ref.observed) : `${ref.observed === null ? 'n/a' : ref.observed.toFixed(2)} B/bnd`;
+      const p95 = unit === '%' ? pct(ref.p95) : `${ref.p95.toFixed(2)} B/bnd`;
+      const p975 = unit === '%' ? pct(ref.p975) : `${ref.p975.toFixed(2)} B/bnd`;
+      out.push(`;;   ${name} | ${shown} | ${ref.p.toFixed(4)} | ${p95} | ${p975}`);
+    }
+    out.push(';;');
+    out.push(';;   PER RUN, exact — the rank of the run\'s own term among all its re-labellings.');
+    out.push(';;     run | mid-rung term | exact p (of 48) | null term | exact p');
+    signal.perRun.forEach((s, i) => {
+      const c = control.perRun[i];
+      out.push(
+        `;;     ${s.label} | ${pct(s.term)} | ${s.p.toFixed(4)} (${s.of}) | ` +
+          `${c.term === null ? 'n/a' : c.term.toFixed(2) + ' B/bnd'} | ${c.p.toFixed(4)}`
+      );
+    });
+
+    const sigOk = signal.p <= alpha;
+    const ctlOk = control.p > alpha;
+    out.push(';;');
+    if (!ctlOk) {
+      out.push(`;;   OUTCOME 3 — NO VERDICT. The R = 0 null arm, whose true term is ZERO by`);
+      out.push(`;;   construction, itself returns p = ${control.p.toFixed(4)} <= ${alpha} through the identical`);
+      out.push(';;   pipeline. A band that fires on a known-zero population cannot adjudicate the');
+      out.push(';;   mid rungs, and the pre-registration makes that a refusal rather than a footnote.');
+    } else if (sigOk) {
+      out.push(`;;   OUTCOME 1 — THE PASS TERM IS ESTABLISHED as a within-window term at alpha ${alpha}:`);
+      out.push(`;;   p = ${signal.p.toFixed(4)}, with the null-arm control clear at p = ${control.p.toFixed(4)}.`);
+    } else {
+      out.push(`;;   OUTCOME 2 — THE PASS TERM IS NOT ESTABLISHED. p = ${signal.p.toFixed(4)} > ${alpha}; the term`);
+      out.push(';;   sits inside the spread the same design returns on re-labelled data.');
+    }
+
+    // THE SESSION, which is the block that has never been replicated on this
+    // estimand and is the reason this window took more than one.
+    // The session rider lives at the record's TOP level (`box.session`,
+    // rf2-24o2z), beside `alloc` rather than inside it, so it arrives here as
+    // its own field. A run that carries none is its own session rather than
+    // silently joining another's.
+    const sessions = new Map();
+    for (const { label, row, box } of rows) {
+      const k = (box && box.session && box.session.sessionStartedAt) || `unrecorded-${label}`;
+      if (!sessions.has(k)) sessions.set(k, []);
+      sessions.get(k).push({ label, rounds: row.rounds, blocks: blocks(row, label) });
+    }
+    out.push(';;');
+    out.push(`;;   BY SESSION — ${sessions.size} session(s), and the session is the independent unit.`);
+    out.push(';;     session | runs | mid-rung term');
+    for (const [k, rs] of sessions) {
+      out.push(`;;     ${k} | ${rs.map((r) => r.label).join(',')} | ${pct(meanRunTerm(rs))}`);
+    }
+    const signs = [...sessions.values()].map((rs) => Math.sign(meanRunTerm(rs) || 0));
+    const agree = sessions.size > 1 && signs.every((s) => s === signs[0] && s !== 0);
+    out.push(
+      `;;     ${agree ? 'THE SESSIONS AGREE IN SIGN' : 'THE SESSIONS DO NOT AGREE IN SIGN'}` +
+        `, so a claim of this term is ${agree ? `carried by all ${sessions.size}` : 'capped at a single session'}.` +
+        ` With ${sessions.size} sessions that is a sign agreement on ${sessions.size} blocks and nothing stronger.`
+    );
+  }
+
+  return { lines: out, refused: false };
 }
 
 // --- the self-test, which is this reader's own positive control ---------------
@@ -499,8 +889,177 @@ function selfTest() {
   assert.notStrictEqual(ffLower, 6, 'the floor-free estimator must NOT reproduce run 1\'s 6 of 6');
   assert.strictEqual(ffLower, 3, 'and reads 3 of 6, which is the measured wrong answer');
 
+  // --- THE BOUNDARY, PROVED IN BOTH DIRECTIONS -------------------------------
+  //
+  // A control that cannot refuse is not a control, and one that refuses
+  // everything is not one either. So: one corpus that must be admitted, then
+  // one clause at a time broken on it, then the shapes the audit of #8615
+  // found the front door blessing — an EMPTY corpus, a TRUNCATED one, and one
+  // with duplicate or out-of-range rounds.
+  // THE DECLARATION IS A COMMITTED FILE AND ITS ABSENCE IS A FAILURE, not a
+  // skip. A self-test that quietly passes when its fixture is missing is the
+  // same class of defect as a boundary that admits an empty corpus.
+  const declPath = path.join(__dirname, 'data', 'alloc-legorder', 'pre-registration.json');
+  assert.ok(fs.existsSync(declPath), `the pre-registration must be committed at ${declPath}`);
+  {
+    const declared = JSON.parse(fs.readFileSync(declPath, 'utf8'));
+    // The smallest record the boundary will admit, SHAPED AS THE DRIVER WRITES
+    // ONE rather than as the declaration states it — `plan` is an object in a
+    // record and a name in a declaration, and a fixture that spread the
+    // declaration verbatim would be testing the boundary against a shape no
+    // run has. It carries no arm windows at all: admissibility is decided on
+    // declared parameters and controls, before a figure is read.
+    const w = declared.window;
+    const mk = (i) => {
+      const legs = w.writeLegs;
+      const flips = declared.runs[i].flips;
+      return {
+        passOrder: w.passOrder,
+        passSeed: declared.runs[i].passSeed,
+        rounds: w.rounds,
+        writePaired: w.writePaired,
+        writeLegs: legs.slice(),
+        segOrder: w.segOrder,
+        controlSlot: w.controlSlot,
+        plan: { name: w.plan, arms: true, rungs: true, fits: true },
+        roots: w.roots,
+        boundaries: w.boundaries,
+        writes: w.writes,
+        passSchedule: { flips: flips.slice(), attempts: 1, parityTied: false },
+        controlVerdict: { ok: true, perDouble: 8.08, differential: 8 },
+        verification: { unverified: 0 },
+        perRound: flips.map((f, r) => ({ round: r, writeLegs: f ? [...legs].reverse() : legs.slice(), arms: {} })),
+      };
+    };
+    const good = declared.runs.map((_, i) => ({ label: String(i + 1), row: mk(i) }));
+    const base = admissibleCorpus(good, declared);
+    assert.strictEqual(base.ok, true, `the declared corpus is admitted: ${base.reasons.join('; ')}`);
+
+    const breaks = [
+      ['positive control', (r) => { r.controlVerdict.ok = false; }],
+      ['unverified read-backs', (r) => { r.verification.unverified = 1; }],
+      ['pass order', (r) => { r.passOrder = 'parity'; }],
+      ['the seed', (r) => { r.passSeed = 'not-the-declared-seed'; }],
+      ['the round count', (r) => { r.rounds = 6; }],
+      ['the segment order', (r) => { r.segOrder = 'fixed-reversed'; }],
+      ['the control slot', (r) => { r.controlSlot = 'last'; }],
+      ['the boundary count', (r) => { r.boundaries = 8; }],
+      ['the write count', (r) => { r.writes = 5; }],
+      ['the plan', (r) => { r.plan = 'narrow'; }],
+      ['the write legs', (r) => { r.writeLegs = ['all', 'page']; }],
+      ['the paired write', (r) => { r.writePaired = false; }],
+      ['a parity-tied draw', (r) => { r.passSchedule.parityTied = true; }],
+      ['the declared schedule', (r) => { r.passSchedule.flips = declared.runs[1].flips.slice(); }],
+      ['the drive against the draw', (r) => { r.perRound[0].writeLegs = ['all', 'page']; }],
+      // THE THREE THE FRONT DOOR BLESSED.
+      ['an EMPTY drive', (r) => { r.perRound = []; }],
+      ['a TRUNCATED drive', (r) => { r.perRound = r.perRound.slice(0, 1); }],
+      ['a DUPLICATED round', (r) => { r.perRound[1] = { ...r.perRound[0] }; }],
+      ['an OUT-OF-RANGE round', (r) => { r.perRound[0] = { ...r.perRound[0], round: 99 }; }],
+    ];
+    for (const [name, breakIt] of breaks) {
+      const rows = declared.runs.map((_, i) => ({ label: String(i + 1), row: mk(i) }));
+      breakIt(rows[0].row);
+      const got = admissibleCorpus(rows, declared);
+      assert.strictEqual(got.ok, false, `breaking ${name} must refuse the corpus`);
+    }
+    // AND A SHORT CORPUS IS REFUSED ON ITS COUNT, which is the `--admit`
+    // exiting 0 on an empty corpus that the audit found.
+    assert.strictEqual(admissibleCorpus([], declared).ok, false, 'an empty corpus is refused');
+    assert.strictEqual(admissibleCorpus(good.slice(0, 2), declared).ok, false, 'a short corpus is refused');
+
+    // AND A SEEDED CORPUS READ WITHOUT ITS DECLARATION PRINTS NO FIGURE.
+    const undeclared = report([{ label: '1', row: mk(0) }], null);
+    assert.strictEqual(undeclared.refused, true, 'a seeded corpus with no declaration is refused');
+    assert.ok(!undeclared.lines.some((l) => l.includes('THE ROUND BLOCKS')), 'and prints no blocks');
+  }
+
+  // --- THE BAND'S OWN CONTROLS ------------------------------------------------
+  //
+  // Driven on synthetic blocks whose true term is known by construction, so
+  // what the reference must return is arithmetic rather than opinion.
+  const sched12 = admissibleSchedules(12);
+  assert.strictEqual(sched12.length, 48, 'the admissible set at 12 rounds');
+  assert.ok(
+    sched12.every((f) => sched12.some((g) => flipKey(g) === flipKey(f.map((x) => !x)))),
+    'the admissible set is closed under complement, which is what makes the reference symmetric'
+  );
+  for (const f of sched12) {
+    assert.strictEqual(parityDot(f), 0, 'every admissible schedule has q·parity 0');
+    assert.strictEqual(linearDot(f), 0, 'and q·linear 0');
+    assert.strictEqual(f.filter(Boolean).length, 6, 'and is balanced');
+  }
+
+  // The fixtures are driven over THE DECLARED EIGHT-RUN DESIGN, not over one
+  // schedule, because the band is a property of the corpus and not of a run —
+  // see the underpowered single run pinned at the end of this block. The
+  // `0.0001 * r` ramp is a tie-breaker and nothing more: without it a pure
+  // effect makes every block value ±`effect` and the median of six of them is
+  // degenerate, which is a property of the FIXTURE and not of any real corpus.
+  const declaredRuns = JSON.parse(fs.readFileSync(declPath, 'utf8')).runs;
+  const synth = (flips, label, { pass = 0, parity = 0 }) =>
+    flips.map((f, r) => ({
+      run: label, round: r, first: f ? 'all' : 'page', n: 1,
+      m: pass * (f ? -1 : 1) + parity * (r % 2 === 0 ? 1 : -1) + 0.0001 * r,
+      secondMinusFirst: 0, evenRound: r % 2 === 0,
+    }));
+  const corpus = (model) =>
+    declaredRuns.map((d, i) => ({ label: String(i + 1), rounds: 12, blocks: synth(d.flips, String(i + 1), model) }));
+  const band = (model) => termReference(corpus(model), { draws: 20000, seed: 'self-test' });
+
+  // A PURE PASS EFFECT AT THE SIZE THIS WINDOW IS LOOKING FOR — 0.6%, the
+  // median of the four terms published across phases 2 and 3 — must clear the
+  // band. A band that could not see the term it was built for would refuse
+  // every window by construction, which is not a refusal but a broken
+  // instrument.
+  const hit = band({ pass: 0.006 });
+  assert.ok(Math.abs(hit.observed - 0.006) < 1e-9, `a pure pass effect of 0.6% reads as 0.6%, got ${hit.observed}`);
+  assert.ok(hit.p <= 0.05, `a 0.6% pass effect must clear the band, got p=${hit.p}`);
+
+  // NO EFFECT MUST NOT CLEAR IT.
+  const flat = band({});
+  assert.ok(Math.abs(flat.observed) < 1e-9, 'no effect reads as 0');
+  assert.ok(flat.p > 0.05, `no effect must NOT clear the band, got p=${flat.p}`);
+
+  // A PURE PARITY EFFECT MUST NOT CLEAR IT, AND MUST READ AS EXACTLY ZERO.
+  // This is the failure mode the whole bead exists to prevent, tested here on
+  // the BAND rather than on the schedule: a parity term of 1 — 166 times the
+  // pass term the window is looking for — moves the pass reading not at all.
+  const par = band({ parity: 1 });
+  assert.ok(Math.abs(par.observed) < 1e-9, `a pure parity effect reads as a pass term of 0, got ${par.observed}`);
+  assert.ok(par.p > 0.05, 'and does not clear the band');
+
+  // AND THE TWO TOGETHER RECOVER THE PASS TERM, not a blend of the two.
+  const both = band({ pass: 0.006, parity: 1 });
+  assert.ok(Math.abs(both.observed - 0.006) < 1e-9, `parity 1 + pass 0.6% still reads 0.6%, got ${both.observed}`);
+  assert.ok(both.p <= 0.05, 'and still clears the band');
+
+  // THE PER-RUN REFERENCE IS COARSE, AND THE CORPUS SIZE IS WHAT BUYS
+  // RESOLUTION. One run's exact reference has exactly 48 points — every
+  // admissible re-labelling of its own twelve blocks — so the smallest
+  // p-value a single run can attain is 1/48, and no single run can say
+  // anything finer however large its term. That is a structural property of
+  // the design, pinned here rather than an effect size that would move with
+  // the fixture.
+  assert.strictEqual(hit.perRun.length, declaredRuns.length, 'every run gets its own exact reference');
+  for (const r of hit.perRun) {
+    assert.strictEqual(r.of, 48, 'each run is ranked among all 48 re-labellings');
+    assert.ok(r.p >= 1 / 48 - 1e-12, `and cannot beat 1/48, got ${r.p}`);
+  }
+
+  // THE REFERENCE IS A FUNCTION OF THE SEED AND NOTHING ELSE.
+  const twice = () => JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'k' }));
+  assert.strictEqual(twice(), twice(), 'the same seed returns the same reference');
+  assert.notStrictEqual(
+    JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'k' }).p95),
+    JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'other' }).p95),
+    'and a different seed returns a different one, so the seed is doing work'
+  );
+
   console.log(`[alloc-pass-position] self-test OK — 12 published blocks, both decompositions, `
-    + `the parity tie, the null arm's 38 cells, and the floor-free estimator's 3 of 6 all reproduce`);
+    + `the parity tie, the null arm's 38 cells, the floor-free estimator's 3 of 6, `
+    + `${sched12.length} admissible schedules, the band's three synthetic controls, and the `
+    + `fail-closed boundary in both directions all reproduce`);
 }
 
 if (require.main === module) {
@@ -509,15 +1068,29 @@ if (require.main === module) {
     selfTest();
     process.exit(0);
   }
-  if (!args.length) {
-    console.error('usage: alloc_pass_position.cjs <dataset.json>... | --self-test');
+  let declared = null;
+  let files = args;
+  if (args[0] === '--declared') {
+    if (args.length < 3) {
+      console.error('usage: alloc_pass_position.cjs --declared <pre-registration.json> <dataset.json>...');
+      process.exit(2);
+    }
+    declared = JSON.parse(fs.readFileSync(args[1], 'utf8'));
+    files = args.slice(2);
+  }
+  if (!files.length) {
+    console.error('usage: alloc_pass_position.cjs [--declared <pre-registration.json>] <dataset.json>... | --self-test');
     process.exit(2);
   }
-  const rows = args.map((f, i) => ({
-    label: String(i + 1),
-    row: JSON.parse(fs.readFileSync(f, 'utf8')).alloc,
-  }));
-  for (const line of report(rows)) console.log(line);
+  const rows = files.map((f, i) => {
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return { label: String(i + 1), row: j.alloc, box: j.box };
+  });
+  const { lines, refused } = report(rows, declared);
+  for (const line of lines) console.log(line);
+  // A REFUSAL EXITS NON-ZERO. The whole point of moving the boundary in is that
+  // a caller cannot mistake a refused corpus for a read one.
+  process.exit(refused ? 1 : 0);
 }
 
 module.exports = {
@@ -525,6 +1098,19 @@ module.exports = {
   FAMILIES,
   FLOOR_ARM,
   NULL_RUNG,
+  NULL_RUNGS,
+  passIndicator,
+  parityDot,
+  linearDot,
+  flipKey,
+  admissibleRun,
+  admissibleCorpus,
+  admissibleSchedules,
+  relabel,
+  passTerm,
+  meanRunTerm,
+  rng,
+  termReference,
   median,
   certifiedWindow,
   armOverFloor,
