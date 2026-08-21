@@ -532,29 +532,29 @@
               (fn [c] (= "present" (text-in c ".probe"))))
             (.then
               (fn [settled]
-                  (collector/reset-runtime!)
-                  (reset! !phases {})
-                  (let [real (server-bytes! [tray-screen {:tag :server}])]
+                (collector/reset-runtime!)
+                (reset! !phases {})
+                (let [real (server-bytes! [tray-screen {:tag :server}])]
 
-                    (testing "the harness's helper reports a SETTLED tray,
-                              because a client root played the enter
-                              transition before its markup was copied"
-                      (is (= "present" (probe-text settled))
-                          (str "got " (pr-str (probe-text settled)) " from " settled)))
+                  (testing "the harness's helper reports a SETTLED tray,
+                            because a client root played the enter
+                            transition before its markup was copied"
+                    (is (= "present" (probe-text settled))
+                        (str "got " (pr-str (probe-text settled)) " from " settled)))
 
-                    (testing "React's own server renderer reports an ENTERING
-                              tray for the very same tree under the very same
-                              frame — so the two producers are not
-                              interchangeable, and a hydration measured
-                              against the first is not a measurement of the
-                              second"
-                      (is (= "mounting" (probe-text real))
-                          (str "got " (pr-str (probe-text real)) " from " real))
-                      (is (not= (probe-text settled) (probe-text real))
-                          (str "settled=" (pr-str (probe-text settled))
-                               " real=" (pr-str (probe-text real))
-                               " — an equality here is the repair, and it
-                               rewrites this row rather than relaxing it"))))))
+                  (testing "React's own server renderer reports an ENTERING
+                            tray for the very same tree under the very same
+                            frame — so the two producers are not
+                            interchangeable, and a hydration measured
+                            against the first is not a measurement of the
+                            second"
+                    (is (= "mounting" (probe-text real))
+                        (str "got " (pr-str (probe-text real)) " from " real))
+                    (is (not= (probe-text settled) (probe-text real))
+                        (str "settled=" (pr-str (probe-text settled))
+                             " real=" (pr-str (probe-text real))
+                             " — an equality here is the repair, and it
+                             rewrites this row rather than relaxing it"))))))
             ;; No `:release!`: this row mounts nothing of its own.
             ;; `settled-server-html!` releases the client root it used to
             ;; produce the settled bytes, and `server-bytes!` is a
@@ -632,61 +632,61 @@
                     ;; listener outlive it.
                     (close!)
                     (stop!)
-                      (is (true? ok) "the root's own closer ran")
+                    (is (true? ok) "the root's own closer ran")
 
-                      (testing "the client's FIRST pass read its window and was
-                                born `:present`, against server bytes that said
-                                `mounting`. That is the seam, in one pair of
-                                readings"
-                        (is (= :present (first (get @!phases :client)))
-                            (str "the client's first phase; saw "
-                                 (pr-str (get @!phases :client)))))
+                    (testing "the client's FIRST pass read its window and was
+                              born `:present`, against server bytes that said
+                              `mounting`. That is the seam, in one pair of
+                              readings"
+                      (is (= :present (first (get @!phases :client)))
+                          (str "the client's first phase; saw "
+                               (pr-str (get @!phases :client)))))
 
-                      (let [complaints (filterv #(re-find #"Hydration failed" %) @captured)]
-                        (testing "so React could not adopt: it complained on the
-                                  page's own error channel, which
-                                  `report-recoverable-default!` delegates to
-                                  unconditionally"
-                          (is (pos? (count complaints))
-                              (str "expected React to report the divergence; captured "
-                                   (pr-str @captured))))
+                    (let [complaints (filterv #(re-find #"Hydration failed" %) @captured)]
+                      (testing "so React could not adopt: it complained on the
+                                page's own error channel, which
+                                `report-recoverable-default!` delegates to
+                                unconditionally"
+                        (is (pos? (count complaints))
+                            (str "expected React to report the divergence; captured "
+                                 (pr-str @captured))))
 
-                        (testing "and every complaint React made reached the
-                                  framework's instrumentation stream as Spec
-                                  011's `:rf.ssr/hydration-mismatch`, gated on
-                                  THIS root's window — which is the root
-                                  attribution: no other root could have emitted
-                                  it, because no other root holds this window"
-                          (is (= (count complaints) (count @seen))
-                              (str "React said " (count complaints)
-                                   ", the framework said " (count @seen)))
-                          (doseq [ev @seen]
-                            (let [tags (sup/tags-of ev)]
-                              (is (= :rf.ssr/hydration-mismatch (:operation ev)))
-                              (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
-                              (is (= :warned-and-replaced (:recovery tags)))
-                              (is (string? (:error tags)))))))
+                      (testing "and every complaint React made reached the
+                                framework's instrumentation stream as Spec
+                                011's `:rf.ssr/hydration-mismatch`, gated on
+                                THIS root's window — which is the root
+                                attribution: no other root could have emitted
+                                it, because no other root holds this window"
+                        (is (= (count complaints) (count @seen))
+                            (str "React said " (count complaints)
+                                 ", the framework said " (count @seen)))
+                        (doseq [ev @seen]
+                          (let [tags (sup/tags-of ev)]
+                            (is (= :rf.ssr/hydration-mismatch (:operation ev)))
+                            (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
+                            (is (= :warned-and-replaced (:recovery tags)))
+                            (is (string? (:error tags)))))))
 
-                      (testing "and the server's DOM was THROWN AWAY. The nodes
-                                on the page are not the nodes the bytes
-                                produced, so nothing was adopted — the whole
-                                point of shipping server markup is lost on this
-                                surface, and no value-level assertion anywhere
-                                can see it"
-                        (is (some? (.querySelector ca ".probe"))
-                            "premise: something is there to check, so the
-                             negative below is not vacuous")
-                        (is (false? (sup/server-node? (.querySelector ca ".probe")))
-                            "the probe node was re-created")
-                        (is (false? (sup/every-server-node? ca ".screen, .probe"))))
+                    (testing "and the server's DOM was THROWN AWAY. The nodes
+                              on the page are not the nodes the bytes
+                              produced, so nothing was adopted — the whole
+                              point of shipping server markup is lost on this
+                              surface, and no value-level assertion anywhere
+                              can see it"
+                      (is (some? (.querySelector ca ".probe"))
+                          "premise: something is there to check, so the
+                           negative below is not vacuous")
+                      (is (false? (sup/server-node? (.querySelector ca ".probe")))
+                          "the probe node was re-created")
+                      (is (false? (sup/every-server-node? ca ".screen, .probe"))))
 
-                      (testing "while the FINAL DOM reads exactly what a healthy
-                                adoption would have left — React's repair. This
-                                is the assertion that stays green through the
-                                whole failure, and the reason no row in this
-                                file rests on it"
-                        (is (= "present" (text-in ca ".probe")))
-                        (is (= "alpha" (text-in ca ".value"))))))
+                    (testing "while the FINAL DOM reads exactly what a healthy
+                              adoption would have left — React's repair. This
+                              is the assertion that stays green through the
+                              whole failure, and the reason no row in this
+                              file rests on it"
+                      (is (= "present" (text-in ca ".probe")))
+                      (is (= "alpha" (text-in ca ".value"))))))
                 (settle-row!
                   {:row      "§3 — hydrating the real server bytes diverges"
                    :done     done
@@ -734,18 +734,18 @@
                     ;; rejection path never reaches this line.
                     (close!)
                     (stop!)
-                      (is (true? ok) "the root's own closer ran")
+                    (is (true? ok) "the root's own closer ran")
 
-                      (testing "React adopted the real server render silently"
-                        (is (= [] (filterv #(re-find #"Hydration failed" %) @captured))
-                            (str "no complaint expected; captured " (pr-str @captured)))
-                        (is (= 0 (count @seen))
-                            (str "and no framework diagnostic; got "
-                                 (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+                    (testing "React adopted the real server render silently"
+                      (is (= [] (filterv #(re-find #"Hydration failed" %) @captured))
+                          (str "no complaint expected; captured " (pr-str @captured)))
+                      (is (= 0 (count @seen))
+                          (str "and no framework diagnostic; got "
+                               (pr-str (mapv (comp :error sup/tags-of) @seen)))))
 
-                      (testing "and kept the server's own nodes, which is what
-                                adoption MEANS and what §3 lost"
-                        (is (sup/every-server-node? ca ".screen, .value")))))
+                    (testing "and kept the server's own nodes, which is what
+                              adoption MEANS and what §3 lost"
+                      (is (sup/every-server-node? ca ".screen, .value")))))
                 (settle-row!
                   {:row      "§4 — the same real server path with no tray"
                    :done     done
