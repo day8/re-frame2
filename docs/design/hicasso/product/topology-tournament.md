@@ -877,6 +877,29 @@ consequential result.** At `B = 1000` the floor row reads **31.75 / 31.60 /
 **3.97, 3.85 and 3.79** in runs 1, 2 and 3 respectively. The floor is
 **arm-specific**, not a shared constant.
 
+> **[2026-08-22, `rf2-w01c`'s exclusive re-take — the claim replicates and the
+> factor does not.]** [Part 3](#part-3--the-re-take-rf2-w01c-the-exclusive-window)
+> re-ran this instrument under the exclusivity condition the #8466 audit asked
+> for. **The falsification above is confirmed and strengthened**: the floor is
+> arm-specific in all six readings it took, always larger on the arm with more
+> boundaries and reads, and at `B = 100` and `B = 300` its factors sit on top of
+> this series' — 2.15× / 2.12× against 2.18 / 2.22 / 2.17, and 3.19× / 3.00×
+> against 3.10 / 2.97 / 3.08.
+>
+> **At `B = 1000` the factor does NOT replicate**: 3.54× and 3.35× against the
+> 3.97 / 3.85 / 3.79 above, on cells that both read higher (`fine` 35.75 / 39.85,
+> `coarse` 10.10 / 11.90). So *"about 4×"* is this series' number and not the
+> instrument's; what survives re-measurement is *the floor is larger on the arm
+> with more boundaries and reads*, which is the sentence §2.9.7 already limits
+> itself to, plus the observation that **the factor itself grows with `B`** —
+> roughly 2.1× at 100, 3.0× at 300, 3.4× at 1000 — which one row count could not
+> show.
+>
+> **No figure in this section is replaced.** Part 3's series is two admissible
+> runs against a pre-registered three, so it is a record and not a window; the
+> values above stand as published. See
+> [§3.7](#37-the-adjudication-rule-by-rule-and-what-two-runs-may-close).
+
 What it varies with is not settled here. The three arms differ in boundary
 count (1001 / 1 / 41 at `B = 1000`), in subscription count and in nothing else
 that this window separates; the DOM element count is deliberately identical
@@ -1122,3 +1145,299 @@ pre-registration commit above touches this page and nothing else, so
 `topo/model.cljs` and `run.cjs` are byte-identical to that landed tree.
 **Nothing about the instrument moved between the two windows either**, which is
 what makes rule 2's comparison one of boxes rather than of instruments.
+
+### 3.3 What ran, and the two invocations that were VOIDED
+
+Five invocations of `topo/clock_app.cljs` through the lane's generic `run.cjs`,
+serial, nothing tuned, on 2026-08-22 between 04:52 and 05:13 AUSEST. All five
+reached the page and returned exit 0, so none was a rig fault. **Two of the
+five were then voided by §3.2's exclusivity condition, and the condition was
+applied mechanically rather than judged.**
+
+| invocation | wall clock | exit | peer write inside the bracket? | disposition |
+|---|---|---|---|---|
+| 1 | 04:52:34–04:56:07 | 0 | **yes**, 04:55:55 | **VOID** — not a reading |
+| 1 (re-take) | 04:57:49–05:01:17 | 0 | no | **run 1 of 3** |
+| 2 | 05:02:09–05:05:36 | 0 | no | **run 2 of 3** |
+| 3 | 05:09:26–05:13:04 | 0 | **yes**, 05:12:14 | **VOID** — not a reading |
+| — | — | — | — | run 3 **NOT TAKEN**; see §3.4 |
+
+**What the two peer writes were, because the condition is only as good as what
+it detects.** The 04:55:55 write was the dispatching loop's own tick recording a
+fence clearance; it merged a pull request during the invocation, which is a
+network fetch, a rebase and a trunk fast-forward on the same box. The 05:12:14
+write was a **gate artefact belonging to another worker** — a link-validation
+log named for a worktree that is not this one — and that worker's checkout had
+been created at 05:13:33 and was running a documentation site build seconds
+after the invocation ended.
+
+**Neither void was a close call, and neither needed a counter to see.** That is
+the point of registering the check as a directory listing rather than as a
+threshold: it answers *was anything else running* with a file name and a
+timestamp, which a reader can check later, rather than with a percentage that
+has to be believed.
+
+### 3.4 Why run 3 was not re-taken, and the series is INCOMPLETE
+
+A peer worker held the machine from 05:13 onward. §3.2 carries §2.9.1's *runs
+are serial and nothing else is run beside them* unchanged, and this bead's own
+fence is the strict reading of it — an exclusive box, clearing only when no
+other worker holds the machine at all. So a third run could not be taken.
+
+**And it may not be taken later either.** §2.9.2's rule is that a series
+interrupted and completed afterwards is *two instruments*, and it is exactly
+the rule the #8466 audit used to refuse replacing only run 1 of the published
+series. Completing this one after a peer's site build would repeat that defect
+in the same shape. **The pre-registered count was three; two were taken; the
+series is therefore INCOMPLETE and it does not supersede §2.9's table.**
+
+What follows is published as a **RECORD of two admissible exclusive runs**, not
+as a window. Every figure below is labelled with the number of runs behind it,
+and §3.7 states in terms which of §3.2's four adjudication rules it is entitled
+to close and which it is not.
+
+### 3.5 The box, bracketed around every invocation
+
+Counters read standalone, never inside an invocation, with §2.9.3's own three
+sources. **The two voided invocations' brackets are shown too**, because a
+bracket that only accompanies admitted runs cannot be checked for selection.
+
+| bracket | `\System\Processor Queue Length` (5) | `\Processor(_Total)\% Processor Time` | `LoadPercentage` |
+|---|---|---|---|
+| before invocation 1 (voided) | 0 / 0 / 0 / 0 / 0 | 38.68 / 30.30 / 31.45 / 37.34 / 39.10 | 51 |
+| after invocation 1 (voided) | 0 / 2 / 0 / 0 / 0 | 40.99 / 53.04 / 44.51 / 45.32 / 41.78 | 60 |
+| before run 1 | 0 / 0 / 0 / 0 / 0 | 56.38 / 46.94 / 41.39 / 33.74 / 54.27 | 82 |
+| after run 1 | 0 / 0 / 0 / 0 / 6 | 59.15 / 43.70 / 37.46 / 48.89 / 42.76 | 74 |
+| before run 2 | 1 / 1 / 0 / 0 / 0 | 14.32 / 12.58 / 12.30 / 16.12 / 9.01 | 8 |
+| after run 2 | 0 / 0 / 0 / 0 / 0 | 23.98 / 22.09 / 24.38 / 10.71 / 24.89 | 18 |
+| before invocation 3 (voided) | 0 / 0 / 0 / 0 / 0 | 17.75 / 20.82 / 20.45 / 12.76 / 17.76 | 1 |
+| after invocation 3 (voided) | 0 / 0 / 0 / 0 / 0 | 20.23 / 13.14 / 10.36 / 19.34 / 11.23 | 32 |
+
+**No `java`, `shadow-cljs` or `clojure` process was resident at any bracket**,
+and no headless browser outside an invocation. Twenty-two `node` processes were
+resident throughout, every one an idle harness server with under two seconds of
+*cumulative* CPU across days of uptime — process age, not load. **The
+`ssr:hicasso-serve` stray on port 8139 was resident at every bracket and was
+neither used nor killed**; the driver takes 8148, which was free at every
+bracket, so §3.2's port clause never bound.
+
+**The brackets do not predict the readings, and that is a finding rather than a
+caveat.** Run 1 began at the busiest bracket in the table (`LoadPercentage` 82)
+and run 2 at the quietest (8), yet run 2 is the *slower* run on 27 of the 45
+cells. An admissibility rule keyed to these counters would have admitted and
+refused the wrong runs, which is the strongest argument available for §3.2
+having recorded them and declined to gate on them.
+
+**A per-process CPU census, 5 s, taken after the series.** 2.29 busy cores of
+24 — 9.5%. The named consumers were the operator's own desktop: an editor's
+language service at **1.07 cores**, terminals and shells at 0.32, a screen-
+capture helper and device services at 0.15, browsers at 0.05. **Every agent
+process on the box summed to 0.52 cores — 23% of the busy time and 2% of the
+machine** — and that total includes this worker. §3.8 is what follows from it.
+
+### 3.6 The clock table — TWO admissible exclusive runs
+
+Same unit as §2.9.5: elapsed milliseconds for **one window of 20 commits** of
+that operation on an already-mounted page, under one clock, read-back outside
+the window. Not a per-commit latency. The centre is the median across the run's
+5 rounds of each round's within-round median of 12 samples — §2.9.5's estimator
+unchanged, because §3.2 forbids moving it.
+
+**Two figures per cell, one per run, in run order.** `virtual` is absent because
+no clock was started on it.
+
+| operation | `B` | `fine` r1/r2 | `coarse` r1/r2 | `chunked` r1/r2 |
+|---|---|---|---|---|
+| sparse | 100 | 3.45 / 3.85 | 8.10 / 8.65 | 3.50 / 3.70 |
+| sparse | 300 | 9.60 / 14.00 | 23.95 / 34.75 | 4.85 / 7.10 |
+| sparse | 1000 | 51.25 / 29.20 | 112.70 / 79.10 | 16.40 / 10.90 |
+| bulk | 100 | 19.70 / 24.25 | 8.75 / 9.90 | 9.25 / 10.95 |
+| bulk | 300 | 78.00 / 101.95 | 29.15 / 37.50 | 32.25 / 40.90 |
+| bulk | 1000 | 358.10 / 396.85 | 112.70 / 129.45 | 120.50 / 135.80 |
+| reorder | 100 | 4.35 / 5.70 | 8.15 / 11.25 | 9.80 / 13.20 |
+| reorder | 300 | 15.75 / 14.15 | 31.45 / 29.40 | 39.75 / 34.75 |
+| reorder | 1000 | 64.30 / 48.90 | 123.45 / 113.75 | 150.10 / 138.90 |
+| edit | 100 | 3.30 / 5.45 | 7.95 / 12.00 | 3.25 / 5.30 |
+| edit | 300 | 13.00 / 10.70 | 34.10 / 26.50 | 7.75 / 4.95 |
+| edit | 1000 | 44.30 / 34.25 | 104.00 / 94.10 | 13.90 / 13.65 |
+| **noop (floor)** | 100 | 2.80 / 3.60 | 1.30 / 1.70 | 1.40 / 1.80 |
+| **noop (floor)** | 300 | 11.00 / 7.20 | 3.45 / 2.40 | 3.80 / 2.65 |
+| **noop (floor)** | 1000 | 35.75 / 39.85 | 10.10 / 11.90 | 10.90 / 13.85 |
+
+The ratios against `fine`, each the arithmetic mean of that run's 5 per-round
+ratios of within-round medians — §2.9.6's estimator, unchanged. Below 1.00 means
+faster than `fine`.
+
+| operation | `B` | `coarse`/`fine` r1/r2 | `chunked`/`fine` r1/r2 |
+|---|---|---|---|
+| sparse | 100 | 2.331 / 2.233 | 0.977 † / 0.954 |
+| sparse | 300 | 2.477 / 2.482 | 0.504 / 0.518 |
+| sparse | 1000 | 2.248 / 2.663 | 0.312 / 0.365 |
+| bulk | 100 | 0.442 / 0.414 | 0.470 / 0.450 |
+| bulk | 300 | 0.367 / 0.382 | 0.412 / 0.419 |
+| bulk | 1000 | 0.307 / 0.342 | 0.334 / 0.360 |
+| reorder | 100 | 1.924 / 1.935 | 2.279 / 2.309 |
+| reorder | 300 | 2.020 / 1.992 | 2.434 / 2.406 |
+| reorder | 1000 | 1.897 / 2.314 | 2.338 / 2.822 |
+| edit | 100 | 2.369 / 2.264 | 0.997 † / 0.984 † |
+| edit | 300 | 2.641 / 2.550 | 0.556 / 0.513 |
+| edit | 1000 | 2.376 / 2.641 | 0.335 / 0.389 |
+| **noop (floor)** | 100 | 0.475 / 0.479 | 0.511 / 0.505 |
+| **noop (floor)** | 300 | 0.328 / 0.326 | 0.357 / 0.361 |
+| **noop (floor)** | 1000 | 0.282 / 0.289 | 0.307 / 0.334 |
+
+† straddles 1.00. Three of the 60 ratio readings carry the flag, all of them
+`chunked` against `fine` on a narrow operation at `B = 100` — the same two cells
+§2.9.6 flagged, reading the same way. Where those two arms sit near 3–5 ms over
+20 commits this instrument does not separate them, and that replicates.
+
+**The instrument certified on both runs.** The registered rendered-scale
+doubling, predicted 1.9996, band [1.4997, 2.4995]: 30 control rounds across the
+two runs, every one in band, positive and verified, spanning **[2.0118,
+2.4092]**. Controls at **0 unverified of 300 writes** per arm per run.
+**18 of 18 reportable arm-order verdicts in each run.** No `PROBE MISS` line was
+emitted in either. Both builds: 157 files, 102 compiled, **0 warnings** (20.73 s
+and 26.47 s). Runtime `HeadlessChrome 147.0.7727.15` via Playwright, `:advanced`,
+`goog.DEBUG` false — the same as §2.9's.
+
+### 3.7 The adjudication, rule by rule, and what two runs may close
+
+**Rule 1 — the inference. IT SURVIVES, and one half of one claim does not.**
+
+- **§2.9.7's falsification is confirmed, twice more and on an exclusive box.**
+  The floor row is arm-specific in all six readings, and always larger on the arm
+  with more boundaries and reads: `fine`/`coarse` reads **2.15× and 2.12×** at
+  `B = 100`, **3.19× and 3.00×** at `B = 300`, **3.54× and 3.35×** at
+  `B = 1000`. The premise this driver was built on — that the row holds the cost
+  that does *not* move with the arm — stays falsified, and nothing here rescues
+  it.
+- **§2.9.8's first claim survives with its number loosened.** `bulk` at
+  `B = 1000` still orders the arms with the smallest floor share in the table
+  (0.090–0.102 across arms and runs): `coarse`/`fine` reads 0.307 and 0.342,
+  `chunked`/`fine` 0.334 and 0.360 — so `fine` costs **2.9–3.3×** `coarse` and
+  **2.8–3.0×** `chunked`. §2.9.8 published *3.3–3.4×* and *2.9–3.0×*; the lower
+  end of both is not reproduced. The ordering is unchanged, the size is nearer
+  3× than 3.4×, and the *"three runs agreeing to within 3.8%"* half is not
+  reproduced at all — these two runs disagree by 11.4% on that cell.
+- **§2.9.8's second claim survives intact.** The reversal is stable in **all
+  eight** readings: on `sparse` and `edit` at `B ≥ 300`, `chunked` is fastest
+  (0.312–0.556 against `fine`) and `coarse` slowest (2.248–2.641), and `bulk`
+  inverts it.
+- **§2.9.8's third claim survives.** `fine` is fastest on `reorder`
+  (`coarse`/`fine` 1.90–2.31, `chunked`/`fine` 2.28–2.82) while its own
+  `reorder` window is 51–82% floor against competitors at or under 16%. The published
+  bracket was *55–80%*; two runs put it at 50.9–81.5%, which is the same
+  statement and not a tighter one.
+- **§2.9.8's fourth claim splits.** *The instrument certified on every run* is
+  confirmed. *The runs agree* is **NOT** confirmed — see rule 2.
+
+**Rule 2 — the values. THEY MOVED, and the direction is the opposite of the one
+the audit's premise implies.**
+
+Against §2.9.6's own published three-run envelope for each cell:
+**1 of 45 cells is CONSISTENT, 12 are SPLIT (one run in, one out) and 32 are
+MOVED.** The exclusive series reads **slower on 36 of the 45 cells**, with a
+cell-by-cell ratio to the published centre of min 0.901, median **1.094**, max
+1.341.
+
+And it is **noisier**, on the published series' own statistic:
+
+| statistic, `(max − min) / min` | published (3 runs) | exclusive (2 runs) |
+|---|---|---|
+| raw cell spread, 45 cells | median **9.0%**, max **25.1%** | median **28.6%**, max **75.5%** |
+| ratio-cell spread, 30 cells | median **3.9%**, max **10.1%** | median **3.8%**, max **22.0%** |
+
+**Read the two rows against each other, because the contrast is the result.**
+Three runs give a range more chances to widen than two do, so a two-run series
+ought to score *lower* on both. On the raw cells it scores three times higher.
+On the ratios it scores the same at the median. **The absolute cells moved with
+the box; the arm-to-arm ratios did not** — which is what an estimator built on
+within-round interleaving is supposed to do, and it is the first direct evidence
+on this lane that it does.
+
+**Rule 3 — a MOVED value does not overturn a qualitative inference.** It does
+not here. Every §2.9.8 ordering above is reproduced.
+
+**Rule 4 — both surfaces are revalidated in the commit that carries this
+section**, which is the #8471 audit's requirement. What that revalidation may
+say is bounded by §3.4: **two runs are not three, so no published value is
+replaced.** §2.9.5 and §2.9.6 stand exactly as published, and
+`clock_app.cljs`'s docstring keeps its figures. What both gain is a dated note
+recording that the `≈ 4×` floor factor at `B = 1000` did **not** replicate under
+an exclusive box, reading 3.35–3.54× instead — the claim it carries survives,
+the magnitude beside it is now known to be softer than one series suggested.
+
+### 3.8 What this window actually establishes, and the ruling it asks for
+
+**The finding is about the remedy, not about the arms.** The #8466 audit offered
+two remedies and this part took the expensive one. Taking it produced a series
+that is **worse by every stability statistic the published one reports** — three
+times the cell spread on two thirds of the runs — while reproducing every
+qualitative conclusion. That is evidence about the remedy itself, and it was not
+available before somebody spent the window.
+
+**The mechanism is measured, not guessed.** §3.5's census puts every agent
+process on this box at **0.52 of 2.29 busy cores**, against 1.07 for a single
+editor language service. The exclusivity condition governs the 23%. **A
+condition that can only reach a quarter of the load cannot deliver a quiet box
+on this machine**, and §3.5's brackets show the other three quarters moving
+between 1 and 82 on `LoadPercentage` across twenty minutes, uncorrelated with
+which run read fast.
+
+**So the question this part hands the operator is one sentence, and it is
+methodological rather than numerical:** *does the pre-registered exclusivity
+condition bind agent overlap only, or the whole box?* Both answers are
+defensible and they lead to different places.
+
+- **If it binds agent overlap only**, §2.9's published series has a defect that
+  this part has now shown does not reach its conclusions — every §2.9.8 ordering
+  reproduced under exclusivity — and the honest repair is a narrowing ruling
+  plus a note, not a third full window. That is the audit's own second remedy,
+  and this part is the evidence for it that the audit could not have had.
+- **If it binds the whole box**, then no window taken on this machine has ever
+  met the condition, §2.9's included and this part's included, and what is
+  needed is not another attempt but a different box — which is a programme
+  decision and outside a worker's authority.
+
+**What is NOT asked for, and would be the wrong repair.** Not a wider band: the
+control's band is §1.5's and stayed there. Not a longer window: `rf2-4t36`
+refuses enlarging it and this part started no clock on `virtual`. Not a
+threshold on the bracket counters: §3.5 shows they do not predict the readings,
+so a threshold fitted to them would be a bar chosen after seeing which side it
+falls on.
+
+### 3.9 What this part does not decide
+
+- **No ledger row moves**, in either direction, exactly as §3.2 registered
+  before any number was seen. Every cell here stays **UNASSESSED** against
+  `U1`–`U3` for §2.9.9's reason, which exclusivity does not touch: this window
+  is a commit bracketed by `flushSync` on a synthetic bench page, and those lines
+  are stated over a slice application's interactions through to a paint. `C3` and
+  `C4` are a different population and are not addressed. The ledger reads the
+  same 49 rows, 32 `MET`, 5 `BREACH`, 3 `UNRESOLVED`, 9 `UNPINNED` after this
+  part as before it.
+- **`U1`–`U4`, `S1`–`S8` and `C1`–`C8` are the ledger's DISTRIBUTIONAL rows and
+  `D1`–`D26`, `U5`, `U6` and `I9` are its deterministic ones** — twenty against
+  twenty-nine. That is not read off this page's prose, which is what the gate is
+  for: planting the `PR gate` lane onto `U2` returns *"L6 U2 is a distributional
+  row wired to the PR-gate lane"*, and moving `U5` off it returns *"L6 U5 is a
+  deterministic row in the `P-DEV-1 evidence run` lane"*, so the partition is the
+  checker's and both sides of it were exercised. **No row of either family is
+  touched here.**
+- **No third run, and no bound derived from two.** The pre-registered count was
+  three and it was not met, so §3.6 is a record and §2.9's table remains the
+  published one.
+- **`virtual` is still UNADDRESSED.** `rf2-4t36` stands; no clock was started on
+  it and this part supplies no bound on it in either direction, not even an upper
+  one.
+- **No claim about within-run quietness.** §3.5's counters bracket the
+  invocations and nothing was sampled inside one. What §3.3 establishes about the
+  admitted runs is narrower and it is what the condition actually checks: no
+  process other than this worker wrote into the shared scratch directory while
+  they ran.
+- **No `implementation/hicasso` generalisation.** Every figure here is an
+  **arm-1** figure taken through the bench's UIx-adapter runtime, as §2.1
+  requires, and nothing about the box condition softens that.
+- **No tuning iteration was spent.** §1.6 allows two per red cell; no cell was
+  established red and nothing was tuned between invocations, so the two remain
+  unspent.
