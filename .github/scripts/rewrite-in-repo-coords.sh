@@ -37,9 +37,13 @@
 # straight through to a registry with no yank. The failure moves from our
 # release job to the consumer's build.
 #
-# tools/xray is that case today (`day8/re-frame2-freehand`, unpublishable
-# until the EP-0036 F6 gate), which is why release-xray.yml drives the
-# single-coordinate helper over an explicit roster instead. Before pointing
+# tools/xray WAS that case (`day8/re-frame2-freehand`, unpublishable until
+# the EP-0036 F6 gate), which is why release-xray.yml drives the
+# single-coordinate helper over an explicit roster instead. That coordinate
+# went with the Freehand tree (rf2-0yp7w) and every coordinate Xray now
+# declares is publishable (rf2-gra70), so no caller is that case today — the
+# roster stays because the hazard recurs, not because it is live. Before
+# pointing
 # a new artefact at this script, check that every `:local/root` target
 # carries a `:clein/build` — or teach this script to partition on it and
 # report the skipped coordinates loudly.

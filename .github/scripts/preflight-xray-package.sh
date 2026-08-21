@@ -5,8 +5,10 @@
 #
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates. tools/xray/deps.edn
 # declares TEN of them in its main `:deps` — core, epoch, routing, flows,
-# schemas, resources, machines, freehand, machines-viz and reagent-slim —
-# and release-xray.yml rewrites the NINE that are publishable. Run against
+# schemas, resources, machines, hicasso, machines-viz and reagent-slim —
+# and release-xray.yml rewrites all ten. (It rewrote NINE until rf2-gra70:
+# the slot now held by `day8/re-frame2-hicasso` was `day8/re-frame2-freehand`
+# under rf2-5dut1, unpublishable and so deliberately unrewritten.) Run against
 # the in-tree deps.edn with no rewrite at all, `clein pom` prints ten
 # `Skipping coordinate` lines and writes a pom whose `<dependencies>` are
 # four third-party artefacts and nothing else; that was the shipping state

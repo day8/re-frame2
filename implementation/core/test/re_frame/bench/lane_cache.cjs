@@ -144,8 +144,10 @@ const path = require('node:path');
 
 // Clears the shared build cache entry for `buildId`, both modes. Returns the
 // directory if one was there, else null. `maxRetries` because this is Windows
-// and a scanner or a just-exited JVM can still hold a handle for a moment —
-// the same guard `package.json`'s `clean:freehand-*` scripts use.
+// and a scanner or a just-exited JVM can still hold a handle for a moment.
+// (The same guard `package.json`'s `clean:freehand-*` scripts once used;
+// they went with the Freehand tree under rf2-0yp7w and `package.json` now
+// carries no `clean:*` script at all.)
 function resetLaneBuildCache(implDir, buildId) {
   const dir = path.join(implDir, '.shadow-cljs', 'builds', buildId);
   if (!fs.existsSync(dir)) return null;

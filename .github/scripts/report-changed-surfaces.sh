@@ -1058,9 +1058,11 @@ else
         # a silent hole. This is the rule half; the `cljs` job's two
         # hicasso steps are the gate half.
         #
-        # ONE output, deliberately, and NOT the four the
-        # `implementation/freehand/*` case above sets. The artefact's
-        # coverage today is exactly what `cljs_node_test` schedules:
+        # ONE output, deliberately, and NOT the four the retired
+        # `implementation/freehand/*` case used to set. That case went with
+        # its tree (rf2-0yp7w) and no freehand arm survives here. The
+        # artefact's coverage today is exactly what `cljs_node_test`
+        # schedules:
         #
         #   - the package smoke `re-frame.hicasso.smoke-cljs-test`, which
         #     rides the consolidated `:node-test` build (hicasso/src +
@@ -1110,9 +1112,10 @@ else
         # is the widening it asked for.
         #
         # The failure it closes wore a GREEN BADGE, which is why it is
-        # worth spelling out. `:browser-test` selects
-        # `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$`, so those
-        # three namespaces are already IN the browser lane; the lane just
+        # worth spelling out. `:browser-test` selects `.*-dom-cljs-test$`
+        # (it carried a leading `(?!re-frame\.freehand\.bench\.)` exclusion
+        # until that tree went under rf2-0yp7w), so those three namespaces
+        # are already IN the browser lane; the lane just
         # never ran on a diff that touched them. The consolidated node
         # build compiles the same namespaces, and each DOM row there
         # reports a STATED GREEN SKIP — so the surface reported success
@@ -1159,9 +1162,10 @@ else
         hicasso_hmr=true
         # rf2-erjv — migration_hicasso_codemod, the reverse edge into the
         # codemod's JVM lane. It landed here as the SECOND of two such edges,
-        # the first being a classpath one on the `implementation/freehand/*`
-        # arm above; rf2-r4j91 moved that one here as well, so this arm now
-        # carries BOTH and the freehand arm carries neither.
+        # the first being a classpath one on the then-live
+        # `implementation/freehand/*` arm; rf2-r4j91 moved that one here as
+        # well, so this arm carries BOTH — and the freehand arm itself went
+        # with its tree under rf2-0yp7w.
         #
         # The classpath edge: the codemod's deps.edn puts
         # `../../../implementation/hicasso/src` on `:paths` so the tool and the
@@ -1599,7 +1603,8 @@ else
         ;;
       implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
         # rf2-9n2cv — self-protection, the same shape as the two freehand
-        # checkers above and for the same reason. `npm run test:story-static`
+        # checker arms that used to sit above (both retired with their tree
+        # under rf2-0yp7w) and for the same reason. `npm run test:story-static`
         # IS `node scripts/check-story-static.cjs`: the mounted-shell
         # assertions, the first-visit-overlay suppression check, the
         # ownership-token verification and the non-vacuity floor all live in

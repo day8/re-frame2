@@ -2596,7 +2596,7 @@ jobs:
   # gate and one does not terminate. That is because epoch's production posture
   # is that the artefact is OFF: a suite exercising epoch's recording, restore,
   # projection or silencing behaviour has no behaviour to exercise here. Unlike
-  # core / routing / ssr / freehand, whose exclusion lists shrink as
+  # core / routing / ssr, whose exclusion lists shrink as
   # dev-instrumentation assertions get split out, this one is not expected to
   # empty. The roster and the reasoning live in
   # `scripts/test-epoch-prod-gate.sh`; the triage bead is rf2-t7qh8. The roster
