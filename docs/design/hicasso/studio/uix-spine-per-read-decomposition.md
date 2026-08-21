@@ -66,10 +66,11 @@
 > [the converged witness set](p0-converged-witness-set.md).
 
 **Taken with — and it no longer runs.** The Freehand substrate was retired
-(`rf2-0yp7w`) and `implementation/freehand/` deleted, so the driver below is on
-no commit reachable from `main` and there is no tip equivalent to re-point it
-to. It is recorded as the instrument that produced the figures, not offered as
-a command:
+(`rf2-0yp7w`) and `implementation/freehand/` deleted, so the driver below is
+absent at tip and there is no live equivalent to re-point it to. The history
+survives: the path is still reachable from `main`, and the driver is intact at
+`ef3131f4a2`, the commit before the deletion. It is recorded as the instrument
+that produced the figures, not offered as a command:
 
 ```bash
 cd implementation
