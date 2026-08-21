@@ -16,7 +16,7 @@ this page is the window taken against it.
 > that merely DIFFER are not two separated terms.
 >
 > **Every figure below is left exactly as it was published and nothing measured
-> here is withdrawn**; the corrections are marked in place at three sites. **This
+> here is withdrawn**; the corrections are marked in place at four sites. **This
 > page's terminal conclusion survives** — the pass term is not established free
 > of round parity *here* — though it survives for a stronger reason than the one
 > given. The seat line above reads "phase 2 of two" because that is what was
@@ -511,6 +511,15 @@ any more than in the window before.
 difference measured on the same page in the same process, and which is the run
 that separated the two columns. It does mean run 2's *levels* may not be quoted
 beside run 1's or beside `rf2-0gjqi`'s.
+
+> **CORRECTED 2026-08-21 (`rf2-j0szk`, on phase 3's design control).** The
+> trailing clause ~~"and which is the run that separated the two columns"~~ is
+> the superseded reading again: **neither run separated them**, for the reason
+> given at [the answer](#the-answer-first). What the paragraph is actually
+> claiming is unaffected and stands — run 2's pass contrast is a within-round
+> paired difference measured on the same page in the same process, so the level
+> shift under it does not invalidate that contrast, and run 2's *levels* still
+> may not be quoted beside any other run's.
 
 ## The null arm, which is what licenses reading the rest
 
