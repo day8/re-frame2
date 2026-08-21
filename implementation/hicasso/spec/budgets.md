@@ -848,6 +848,24 @@ comparative against the best relevant adapter and this driver carries no donor
 arm at all — its four rows are a floor, two Hicasso interactions and a positive
 control. **All six rows keep `UNPINNED`, and nothing here decides one.**
 
+**[Window taken 2026-08-22, `rf2-85og2`, on a drained fleet. `U2` MOVES TO
+`MET`; the other five keep `UNPINNED`.]** The paragraph above is a true record
+of what the driver made possible and is no longer a true statement about `U2`.
+Three runs on one tree read the slice application's keystroke and toggle
+interactions through to the paint that follows them, and **the worst single
+window of the 360 measured across both event paths is `18.9 ms`** against a line
+of `50 ms` at `p95` and `100 ms` at `p99` — so the row is decided by the sample
+maximum, on a reading that was taken rather than interpolated, and the estimator
+is not load-bearing. `U1` is **not** decided, and the reason is its unit rather
+than its size: its line is stated in FRAMES, this instrument aligns every window
+to the phase with the longest wait to a rendering opportunity, and the literal
+and floor-relative readings of *within one 60 Hz frame* land on opposite sides.
+The record, the pre-registered adjudication rule and the ruling that would
+settle `U1` are
+[the window's own page](../../../docs/design/hicasso/studio/the-u1-u2-window-on-the-slice-echo-clock.md),
+and [§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
+carries the summary. No threshold was guessed and no band was widened.
+
 ### The §6 user-visible budgets
 
 Transcribed with their estimands. All are P-DEV-1-only and all inherit §1's
@@ -871,6 +889,10 @@ aim, because both landed drivers mount a synthetic bench page inside one
 a slice application.
 [The subsection above](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
 states the corrected condition.
+**[Amended 2026-08-22, `rf2-85og2`.]** `U2` is pinned on the package now, by the
+window that subsection's last amendment records; `U1`, `U3` and `U4` are not,
+and each is held by something different — `U1` by an unruled reading of its own
+unit, `U3` and `U4` by arms no driver carries.
 
 **`U5`'s estimand carries two counters as of 2026-08-14 (`rf2-mwr2`), and its
 line is unchanged.** Registered on bodies alone it read `PASS` on a coarse
@@ -1515,7 +1537,7 @@ loses no address.
 | S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.8081x` [0.6863–0.9302] — 19.2% recovered [7.0–31.4%], runs A, B and C pooled over fifteen rounds, on a 200-boundary mount; an observed range across per-round ratios, not a confidence interval. **Moved 2026-08-18 (`rf2-6zc2q`) from `0.7418x` [0.6458–0.8409] / 25.8% [15.9–35.4%]; that is a CHANGE OF BASIS — `{:warmup 3 :samples 6}` then, `{:warmup 8 :samples 12}` now — and the old basis is retired, so `0.7418x` cannot be re-taken. The status does not move: the range crossed the line on both bases** | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | keystroke p95 18.0 / 18.0 / 18.2 ms and toggle p95 18.0 / 18.0 / 17.8 ms over three runs; **the worst single window of the 360 measured across both event paths is 18.9 ms**, so every quantile including the p99 sits under it on a reading that was taken rather than interpolated | package | `MET` | slice interaction-to-paint clock, keystroke and toggle arms (P-DEV-1 evidence run) | `rf2-85og2` | — |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
@@ -1656,6 +1678,16 @@ or `C5` changes with it.
   and carries no donor arm.
   [§4 carries the corrected condition](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
   rather than a second copy of it here.
+  **[Window taken 2026-08-22, `rf2-85og2`. `U2` leaves this bullet; the other
+  four stay.]** That window read the two arms the driver serves and decided
+  `U2` on the meeting side of its line, by a margin the estimator cannot
+  reach — the worst of 360 measured windows is `18.9 ms` against `50 ms` at
+  `p95`. `U1` stayed, and its blocker CHANGED IN KIND rather than lifting: it
+  is no longer *no instrument on the governed population* but *the row's own
+  line is stated in a unit the instrument spends one of by construction*, so
+  the literal and the floor-relative readings of *within one 60 Hz frame*
+  disagree and choosing between them is a ruling rather than a worker's edit.
+  `U3`, `U4`, `C3` and `C4` are untouched by any of it.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
@@ -2324,3 +2356,91 @@ and not yet written, before `U3` and `U4` can be reached at all, and a donor
 arm beside it before `C3` and `C4` can. One comparison window across a change
 for `C1`. And for `C8`, a landed site, which no amount of machine time
 supplies.
+
+**[Window taken 2026-08-22, `rf2-85og2`, on a drained fleet. `U2` MOVES TO
+`MET`; `U1` DOES NOT MOVE, and the reason it does not is this window's most
+useful finding.]** The window the entry above says those two rows were waiting
+on has been taken. The full record — the pre-registration, committed before the
+runner was invoked once, and the runs beneath it — is
+[the window's own page](../../../docs/design/hicasso/studio/the-u1-u2-window-on-the-slice-echo-clock.md);
+what follows is the ledger's share of it.
+
+**One feasibility invocation, declared unquotable before it was taken, then
+three evidence invocations, three admissible, none excluded.** Each cleared the
+build id's cache entry and recompiled its own `:advanced` bundle, so no two
+shared a build. All five of the driver's exit-bearing checks were affirmative on
+every run — the arm-order self-test's twelve cases, the echo's negative control,
+`0 unverified of 400` windows, the positive control inside its band on every
+round, and a `reportable` arm-order verdict — and the captured exit codes (`0`,
+`0`, `0`) corroborate them rather than standing in for them.
+
+**`U2`: decided by the sample maximum, so the estimator is not load-bearing.**
+The worst single window of the **360 measured across both event paths and all
+three runs is `18.9 ms`**, against a line of `50 ms` at `p95` and `100 ms` at
+`p99`. No quantile estimator can answer above the sample maximum, so the row is
+met at `p95` and `p99` alike on readings that were taken rather than
+interpolated — which matters here, because at `n = 60` a `p99` sits between the
+top two order statistics and
+[§4's own note on `lane/quantile`](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+prices that as a value no reading ever took. The window was **not** lengthened
+to buy a better-resolved tail; it did not need to be, and the schedule this
+instrument shipped with is the schedule it was read on.
+
+**The population cell moved with the status, and it moved the way the gate says
+such a cell may move.** `check_budget_ledger.py`'s `POPULATION_PIN` pinned
+`U1`–`U4` to `—` and its own comment names the only route out — *a new
+measurement window and an edit here*. This is that window, the edit is beside
+it, and the subject is the slice witness application mounted through
+`re-frame.hicasso`'s own `h/mount!`, which is `package` on the same rule that
+puts `D17`–`D25` there. The gate's `—`-population control moved from `U2` to
+`U3` for the same reason and in the same commit: it needs a row nothing has
+measured, and `U2` had stopped being one.
+
+**`U1`: NOT decided, and the blocker is its unit rather than its size.** The row
+is registered *within one 60 Hz frame*, and this instrument aligns every window
+to the first task after a paint — the phase with the longest wait to the next
+rendering opportunity — so a whole rendering interval is inside every reading by
+construction. Two readings of the line were pre-registered and neither was
+privileged: the **literal** one, `p95` of the keystroke window against `16.7 ms`,
+misses in all three runs (`18.0`, `18.0`, `18.2 ms`); the **floor-relative** one,
+that same `p95` less the no-work floor's `p50`, meets in all three with about
+`14 ms` to spare (`2.5`, `2.5`, `2.8 ms`). They disagree, so by the rule declared
+before the first invocation the row is not decided here.
+
+**And the literal reading cannot decide it either, on the instrument's own
+terms.** It misses by `1.3`–`1.5 ms`, which is a tenth of the measured rendering
+interval — squarely inside the region the driver names as the one where the
+difference between the worst phase and the mean phase decides the row, and for
+which it records that the randomised-phase driver **is not built**. So the
+trigger that driver's docstring sets has fired, and `U1` wants either the
+operator's ruling on which reading its line means or that second driver. `U1`
+keeps `UNPINNED` and its population cell keeps `—`.
+
+**Reported and deliberately NOT a verdict.** Two figures a reader will want and
+neither decides anything. The application's own contribution — `:commit`, the
+whole of what a `flushSync` window would have seen — reads `p50 0.6 ms`, `p95`
+`0.8`–`0.9 ms` and never exceeds `1.1 ms` across 180 measured keystroke windows;
+the rest of each `~17 ms` window is the browser's frame grid. And the echo tally
+reads `0 unverified of 400` in every run, which witnesses `U1`'s STRUCTURAL
+clause — *controlled updates correct same-turn* — on every window rather than at
+`p95`. [§9.2](#92-what-each-not-green-row-is-waiting-on) already refuses that
+substitution for `rf2-hic-045`'s census and refuses it again here: *the echo is
+present before the turn yields* does not imply *the echo reaches the glass within
+`16.7 ms` at `p95`*.
+
+**No gate was built, and that is the routing rather than a shortfall.**
+[§7](#7-where-each-row-is-enforced) sends every distributional row to pinned
+evidence runs and forbids a pull-request threshold, so `U2`'s new instrument
+cell names the `P-DEV-1 evidence run` lane and nothing else. **No instrument
+edit either**: the driver's blob is the one `rf2-xa8wo` landed, and the window's
+page pins it.
+
+**The ledger moves for the first time on this bead: 49 rows, `32 MET`, `5
+BREACH`, `3 UNRESOLVED`, `9 UNPINNED`** — one row from `UNPINNED` to `MET` and
+nothing else. No threshold was guessed, no band widened, no figure restated and
+no other cell touched.
+
+**What this bead still owes, after this window.** `U1`, on a ruling or a second
+driver as above. A second driver plus a donor arm before `U3`, `U4`, `C3` and
+`C4` can be reached — filed separately as `rf2-9wmqd`. One comparison window
+across a change for `C1`. And for `C8`, a landed site.
