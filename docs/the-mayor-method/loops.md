@@ -465,9 +465,11 @@ refilling is itself what fences the window. While a window needing a quiet machi
 and unstarted, an item whose gate is heavyweight is not a slot to refill but a cost charged
 to that window: hold the fleet thin on purpose, say so on the window's own item with what
 releases the hold, and keep dispatching work whose gate leaves the machine quiet.
-Documentation and prose changes typically arm no gated surface at all, so the fleet stays
-busy while the window waits — the instruction is to stop making the machine loud, not to
-stop working.
+Quiet is a property of the whole set of gates an item arms, and **no single classifier's
+answer describes that set** — enumerate what covers the item and confirm each of those
+gates leaves the machine quiet. Documentation and prose usually clear that bar and are what
+keeps the fleet busy while a window waits, but earn that per item rather than granting it
+per category. The instruction is to stop making the machine loud, not to stop working.
 
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
