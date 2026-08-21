@@ -1252,11 +1252,16 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;;             recovery! stamps `:subscribe` on these dev-trace tags AND the
   ;;             always-on record (subscribe-realm by construction).
   ;;   :reason   router + ui/frames (the constant `:frame-destroyed`)
-  ;;   :where / :rf.sub/id / :rf.sub/query-v
-  ;;             NO LIVE EMITTER. The internal observation port's
-  ;;             `throw-frame-destroyed!` was the only one, and it went with the
-  ;;             port on 2026-08-21 (rf2-63t1i). The slots stay declared and
-  ;;             OPTIONAL — see the `:where` note below.
+  ;;
+  ;; `:where` / `:rf.sub/id` / `:rf.sub/query-v` were declared here until
+  ;; 2026-08-21 and are GONE (rf2-63t1i). Their only emitter was the internal
+  ;; observation port's `throw-frame-destroyed!`, which used the NAMESPACED sub
+  ;; spellings; the port was retired and nothing stamps them. A schema slot is
+  ;; a claim about what an emitter produces, so a slot with no producer
+  ;; describes nothing — unlike the machinery this retirement RETAINED at zero
+  ;; callers, where the law is core's. The 009 catalogue row's `:tags` cell
+  ;; dropped them in the same commit; `tags-column-keys-are-documented` reds if
+  ;; the two sides ever disagree.
   ;;
   ;; `:event` is `:any`, not `[:vector :any]`: the ui surface REDACTS a
   ;; `:dispatch` / dispatch-sync payload body at source (`privacy/redacted-
@@ -1266,28 +1271,13 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; any `:event` slot with `:rf/redacted` / `:rf.size/large-elided` on egress.
   ;; Declaring a vector there would be a claim the runtime does not honour.
   ;;
-  ;; `:where` is a SYMBOL, and — unlike `:event` — the tight type is honoured.
-  ;; The slot has NO producer today. It had exactly one when rf2-am6qs typed it:
-  ;; `substrate/observation/throw-frame-destroyed!`, whose three call sites all
-  ;; passed a quoted fn symbol. That namespace was retired on 2026-08-21
-  ;; (rf2-63t1i), and the emitters that remain — router, subs and ui/frames —
-  ;; never stamped `:where` and so cannot widen it. It stays typed `:symbol`
-  ;; rather than `:any` for the reason rf2-j4bg3 established on
-  ;; `NoFrameContextTags`: the catalogue conformance gate diffs KEY SETS only,
-  ;; so the declared type is the sole thing standing between this payload and a
-  ;; string, number or arbitrary object at `:where` — and re-widening a slot
-  ;; because its producer went away just re-opens the hole for the next one.
-  ;; OPTIONAL, as it has been throughout.
   [:map
    [:category       :keyword]
    [:frame          :keyword]
    [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe :capture]]
    [:event          {:optional true} :any]
    [:query-v        {:optional true} [:vector :any]]
-   [:reason         {:optional true} :keyword]
-   [:where          {:optional true} :symbol]
-   [:rf.sub/id      {:optional true} :any]
-   [:rf.sub/query-v {:optional true} [:vector :any]]])
+   [:reason         {:optional true} :keyword]])
 
 (def NoFrameContextTags
   ;; `:rf.error/no-frame-context` — a frame-scoped op carried no frame stamp and

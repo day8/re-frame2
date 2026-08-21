@@ -619,9 +619,11 @@
                            ;; `reopen-preserving-surface!`'s docstring.
                            (reopen-preserving-surface!))))]
         ;; ACTIVATE, then seed, then watch — and the activation is the
-        ;; whole fix for rf2-lynzk (the same defect shape as rf2-8cnxg,
-        ;; repaired in `re-frame.substrate.observation/build-node-handle!`
-        ;; — see its comment for the canonical statement of this order).
+        ;; whole fix for rf2-lynzk (the same defect shape as rf2-8cnxg, which
+        ;; was first repaired in the internal observation port's
+        ;; `build-node-handle!`; that port was retired on 2026-08-21 —
+        ;; rf2-63t1i — so this comment is now one of the sites that states
+        ;; the order rather than a pointer to one that does).
         ;;
         ;; This call used to be absent, on the stated premise that "a
         ;; reagent/re-frame reaction is already live the instant

@@ -1697,11 +1697,12 @@
 ;; it. Per Spec 002 §An ordinary :db return replaces only app-db + §Write
 ;; authority is by convention, and Spec 006 §Commit boundary.
 
-;; ---- per-frame commit epoch (Spec 006 §The internal observation port) ------
+;; ---- per-frame commit epoch ----------------------------------------------
 ;;
 ;; A monotonic per-frame counter bumped once per PHYSICAL frame-state install
 ;; (both write chokepoints: `commit-frame-transition!` and `swap-partition!`).
-;; The observation port's probe/acquire EVIDENCE carries it as `:frame-epoch`
+;; A re-frame-native view substrate's read EVIDENCE carries it as
+;; `:frame-epoch`
 ;; so the commit-side evidence comparison can detect "the frame's durable
 ;; state moved in the render→commit gap" without watching anything — a pure
 ;; counter read, no watch, no allocation on the read side. A value-equal-but-
@@ -1740,10 +1741,10 @@
 (defn frame-commit-epoch
   "Return the monotonic per-frame commit epoch for frame `id` — the count of
   physical frame-state installs since the frame's registration (0 for a fresh
-  or unknown frame). Consumed by the observation port's probe/acquire
-  evidence (Spec 006 §The internal observation port); a moved epoch between
-  two port reads means the frame's durable state was (re)installed in the
-  gap. Pure read."
+  or unknown frame). Consumed by a re-frame-native view substrate's read
+  evidence — `day8/re-frame2-hicasso`'s generation basis is the live caller; a
+  moved epoch between two reads means the frame's durable state was
+  (re)installed in the gap. Pure read."
   [id]
   (get @frame-commit-epochs id 0))
 
@@ -1950,8 +1951,7 @@
        (let [current   (adapter/read-container container)
              new-slice (apply f (get current pk) args)]
          (adapter/replace-container! container (assoc current pk new-slice))
-         ;; Observation-port evidence counter (Spec 006 §The internal
-         ;; observation port): one bump per physical frame-state install —
+         ;; Substrate evidence counter: one bump per physical frame-state install —
          ;; this is the second (and last) frame-state write chokepoint.
          (bump-commit-epoch! id)
          new-slice))
@@ -4081,7 +4081,7 @@
 
 (defn- dissoc-frame!
   ;; The frame record is keyed by the bare frame-id; removing it is a plain
-  ;; dissoc. Also clears the frame's observation-port commit-epoch counter so
+  ;; dissoc. Also clears the frame's commit-epoch counter so
   ;; the side table stays bounded by live frames (a fresh same-id incarnation
   ;; restarts at 0 — the incarnation change is what the port's `current?` /
   ;; frame-identity checks detect, not the counter value).

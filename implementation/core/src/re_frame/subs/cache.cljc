@@ -89,19 +89,26 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- intrinsic disposal cause (late-bound out to the observation port) ----
+;; ---- intrinsic disposal cause (late-bound out to a node-disposed hook) ----
 ;;
-;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1: the observation port needs each
-;; former-owner disposal notification tagged with the cause the node ACTUALLY
+;; NO READER TODAY (rf2-63t1i). The internal observation port's node-disposed
+;; hook was the only one, and the port was retired on 2026-08-21. The var and
+;; its bindings are RETAINED for the reason Spec 009 gives for
+;; `frame/guard-open-drain!` at zero call sites: the CAUSE is knowable only
+;; here, so a hook that ever needs it can only be served from here. Removing
+;; the bindings would make the information unrecoverable rather than merely
+;; unused.
+;;
+;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1: a former-owner disposal notification
+;; must be tagged with the cause the node ACTUALLY
 ;; died of (`:hmr` = re-registered, will rebuild → re-acquire; `:disposed` =
 ;; gone), NOT with whichever drain boundary happens to fire first. That cause is
 ;; known ONLY here, at the eviction site — HMR re-registration and a cache clear
 ;; both leave the frame live, so nothing downstream can recover which one ran.
 ;; Each site binds this var to its INTRINSIC reason around its `interop/dispose!`
-;; call(s); the observation port's node-disposed hook — which fires
-;; SYNCHRONOUSLY inside `interop/dispose!` — reads it (`re-frame.substrate.
-;; observation` requires THIS ns, so the read is a plain deref, no cycle) and
-;; maps `:hot-reload` → `:hmr`, every other reason → `:disposed`. nil outside any
+;; call(s); a node-disposed hook — which fires SYNCHRONOUSLY inside
+;; `interop/dispose!` — reads it as a plain deref, and maps
+;; `:hot-reload` → `:hmr`, every other reason → `:disposed`. nil outside any
 ;; eviction extent (an `acquire!`-stack re-check enqueue defaults `:disposed` —
 ;; never the re-acquire-signalling `:hmr`). Nested binding is correct: a
 ;; cascade that drives another site (e.g. an HMR eviction whose reaction dispose
@@ -112,8 +119,9 @@
 (def ^:dynamic *disposal-cause*
   "The INTRINSIC `:rf.sub/dispose` reason for the reaction(s) being disposed in
   the current synchronous `interop/dispose!` extent — bound by each eviction
-  site, read late-bound by the observation port's node-disposed hook. nil
-  outside any eviction extent. See the section comment above."
+  site, read late-bound by a node-disposed hook. ZERO READERS TODAY; see the
+  section comment above for why it is retained. nil outside any eviction
+  extent."
   nil)
 
 ;; ---- dispose trace emit ---------------------------------------------------
@@ -175,7 +183,7 @@
        ;; `interop/dispose!`) so we never double-emit under contention.
        (emit-dispose! frame-id k :no-more-derefers)
        (when-let [r (get-in old [k :reaction])]
-         ;; Tag the observation port's synchronous node-disposed notification
+         ;; Tag a synchronous node-disposed notification
          ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
          ;; :hmr by a co-pending HMR drain (rf2-r8jmdb).
          (binding [*disposal-cause* :no-more-derefers]
@@ -260,8 +268,7 @@
   eviction already took the +1 with it, so an unguarded decrement would
   either underflow a successor entry rebuilt under the same key or steal a
   ref another subscriber owns. Guarded, a stale release is a clean no-op: its
-  reference died with the eviction. (The observation port's `release!` carries
-  the same guard inline for the same reason.)
+  reference died with the eviction.
 
   Everything else is `unsubscribe!`'s: the same `swap-vals!`-after-CAS
   discipline (the swap-fn body is pure; the drop-to-zero signal is read from

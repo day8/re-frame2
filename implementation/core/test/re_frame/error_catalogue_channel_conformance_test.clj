@@ -1365,8 +1365,17 @@
   The canonical `CrossFrameCarriedOpTags` schema itself SURVIVES in
   spec/Spec-Schemas.md (it is a member of a larger record schema there); this
   integer records the pairing the diff reaches, not the schema roster, so it
-  moves by exactly one."
-  93)
+  moves by exactly one.
+
+  Lowered 93 -> 92 by rf2-63t1i (the internal observation port's retirement),
+  and the removal is in this same diff: `ObservationOnChangeFailedTags` was
+  DELETED from spec/Spec-Schemas.md because its category
+  `:rf.error/observation-on-change-failed` had exactly one emitter — the port's
+  `drain-pending-disposals!` — and both the emitter and the JVM macro namespace
+  that extracted the schema form from the Markdown went with the port. The
+  catalogue row went too, so the pairing it held is gone. One schema deleted,
+  one row deleted, one pairing lost: this integer moves by exactly one."
+  92)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
@@ -1919,17 +1928,15 @@
 ;; slot's own producers, taken separately (the answer does not transfer just
 ;; because rf2-j4bg3 found symbols):
 ;;
-;;   FrameDestroyedTags — ZERO producers today, and the typed declaration is
-;;     kept anyway. It had exactly one when rf2-am6qs typed it:
+;;   FrameDestroyedTags — GONE, and it is the reason this list is now TWO.
+;;     It had exactly one producer when rf2-am6qs typed it:
 ;;     `substrate/observation/throw-frame-destroyed!`, whose three call sites
 ;;     passed quoted fn symbols. That namespace — the internal observation
-;;     port — was retired on 2026-08-21 (rf2-63t1i), and the surviving
-;;     emitters of this category (router, subs) never stamped the slot at all;
-;;     nor did the removed `re-frame.ui`'s `ui/frames` before them. A `:symbol`
-;;     declaration over an unstamped slot costs nothing and still refuses the
-;;     keyword mutant below, which is the one that matters; widening it back to
-;;     `:any` because the producer went away would re-open the hole for the
-;;     next producer to fall into.
+;;     port — was retired on 2026-08-21 (rf2-63t1i); the emitters that remain
+;;     (router, subs) never stamped `:where` at all, nor did the removed
+;;     `re-frame.ui`'s `ui/frames` before them. So the SLOT went with the
+;;     port rather than the declaration being kept over nothing: a schema slot
+;;     is a claim about what an emitter produces. The two below are unchanged.
 ;;
 ;;   BadFrameProviderArgTags — the SHARP one, and why the bead was filed rather
 ;;     than left. `frame/require-frame-provider-target!` threads ONE `where`
@@ -1967,14 +1974,12 @@
    "a bare keyword" :subscribe})
 
 (def ^:private typed-where-slots
-  "The three slots rf2-am6qs tightened, each with a MINIMAL payload that
+  "The slots rf2-am6qs tightened, each with a MINIMAL payload that
   satisfies the schema's required slots — so the only thing an assertion below
-  can be reading is the `:where` type."
-  [{:schema   "FrameDestroyedTags"
-    :producer 're-frame.subs/subscribe
-    :base     {:category :rf.error/frame-destroyed
-               :frame    :app}}
-   {:schema   "BadFrameProviderArgTags"
+  can be reading is the `:where` type. THREE until 2026-08-21; `FrameDestroyed
+  Tags` no longer declares a `:where` at all (rf2-63t1i — see the section
+  comment above)."
+  [{:schema   "BadFrameProviderArgTags"
     :producer 're-frame.views.provider/frame-provider
     :base     {:category :rf.error/bad-frame-provider-arg
                :received "app"}}

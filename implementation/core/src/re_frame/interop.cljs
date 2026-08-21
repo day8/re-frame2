@@ -103,8 +103,8 @@
   needs to satisfy the spec's push clause: once the sources are captured, a
   write reaches `_handle-change` → the reaction enqueues itself → the
   substrate's ordinary batched flush recomputes and notifies. Nothing here
-  makes a subscription EAGER: activation happens at observation-port acquire
-  time, not at construction, so a sub no ViewCell observes is untouched, and
+  makes a subscription EAGER: activation happens when an observer attaches,
+  not at construction, so a sub nothing observes is untouched, and
   the change path stays batched (`:auto-run true` — the one-line \"fix\" —
   would instead recompute every Reagent-hosted subscription synchronously
   inside the app-db `reset!`).
