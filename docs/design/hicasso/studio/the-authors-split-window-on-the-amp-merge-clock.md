@@ -356,10 +356,283 @@ window is the fourth on that rig and the first at nine arms.**
 
 ## 7. The runs
 
-*Written after the window. At the time this half of the page was committed and
-pushed, the runner had not been invoked once.*
+**The headline is a REFUSAL, and it is the outcome
+[§4.1](#41-the-null-is-read-first-and-it-sets-the-resolution-bound) accepted in
+advance.** Both figures this bead exists to buy — (1') and (3') — come back
+**below the instrument's own demonstrated error on a difference known to be
+zero**. The window does not resolve the author's share, split or whole. What it
+does resolve is the codec's rung and the whole authoring change, both of which
+`rf2-z143r` already had.
+
+### 7.1 Invocation 0, and what it bought
+
+Taken before the opening bracket, declared unquotable in
+[§1](#1-declared-invocations), and it is quoted for nothing here. It
+established that the nine-arm plan builds, boots, clears `lane/self-test!`, the
+fairness gate and its negative control, completes five rounds and exits `0`. No
+figure of it appears on this page, and no evidence run was substituted for it.
+
+### 7.2 The six exit-bearing checks, per evidence run
+
+All six affirmative in **all three** runs, each read out of the run's own output:
+
+| check | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| `lane/self-test!` before the plan boots | passed | passed | passed |
+| fairness gate `:agree?`, judged arms | `true`, 7 arms × 1001 | `true`, 7 arms × 1001 | `true`, 7 arms × 1001 |
+| fairness gate's negative control `:can-fail?` | `true` | `true` | `true` |
+| read-back, `N unverified of M` | **0 of 1000** | **0 of 1000** | **0 of 1000** |
+| positive control, band `[1.500–2.500]` | all 5 rounds inside | all 5 rounds inside | all 5 rounds inside |
+| arm-order guard, by predecessor **and** by phase | **reportable** | **reportable** | **reportable** |
+| captured exit code | `0` | `0` | `0` |
+
+The control's per-round readings, which this page quotes rather than summarising
+as *ok*, because a control that adjudicates the window has to show its value:
+
+| run | `:ctl-2x`/`:expanded` per round |
+|---|---|
+| 1 | `[1.8876 2.0920 1.9576 1.8872 2.0488]` |
+| 2 | `[2.0625 1.9737 1.9259 1.9524 1.8430]` |
+| 3 | `[2.0444 1.9773 1.9431 1.9565 1.9516]` |
+
+`:ladder-sum-residual`, zero by construction because rungs (1), (2) and (3) are
+a chain, reads `0` to four decimal places in every round of every run — the
+arithmetic check the three-rung ladder owes.
+
+### 7.3 The null, first
+
+Reported before any ladder figure, as `rf2-adld3`'s standing instruction and the
+bead both require.
+
+| run | `:expanded-b`/`:expanded` per round | ns/field per round | worst magnitude |
+|---|---|---|---:|
+| 1 | `[0.9326 0.9885 0.9407 0.9774 0.9675]` | `[-750 -125 -875 -375 -500]` | **875** |
+| 2 | `[1.0000 1.0000 0.9753 0.9905 1.0083]` | `[0 0 -250 -125 125]` | 250 |
+| 3 | `[1.0111 1.0227 0.9837 1.0087 1.0000]` | `[125 250 -250 125 0]` | 250 |
+
+**Fifteen rounds, every one inside ±6.74% of `1.0`**, and the pooled ratio
+straddles `1.0` in all three runs, as a null must. **The `1.4737` did not
+recur** — this is the second consecutive window on the warmed rig in which it
+has not, now at nine arms rather than seven.
+
+**Run 1 is the loose one and it is reported rather than set aside.** Its null
+sits low in four rounds of five, and its `:expanded` arm carried a single
+`30.5 ms` first-third sample against a `p50` of `5.4 ms`. `p50` is what every
+figure on this page rests on, and the guard passed `:expanded` by predecessor
+and by phase regardless, so the run is admissible and is kept. It is also what
+sets the resolution bound below, which means the bound is set by the least quiet
+of the three rather than by the best.
+
+### 7.4 The resolution bound, and the instrument's quantum
+
+**`R = 875` ns/field** — the largest demonstrated error over fifteen rounds on a
+difference that is zero by construction.
+
+**It is identical, to the nanosecond, to `rf2-adld3`'s** published `875` ns/field
+over its own fifteen rounds. Two windows, two arm counts, two sets of three
+invocations, the same bound. Nothing was arranged for that, and it is not a
+prediction this page made.
+
+**The bound is seven quanta, and the quantum is the reason.** Every mount time
+this rig reports is a multiple of `0.05` ms, which over `400` fields is exactly
+`125` ns/field — so every ns/field figure on this page is a multiple of `125`,
+and `R` is `7 × 125`. **A difference smaller than `125` ns/field cannot be
+represented by this instrument at all**, which bounds what any future window on
+this rig can say about the author's share without a finer clock.
+
+### 7.5 (1') and (3'), the two figures the bead asks for
+
+Published separately, as the bead requires, with (1) and (3) beside them and
+never differenced against them. Figures are ns/field, pooled `p50` per run.
+
+| rung | run 1 | run 2 | run 3 | ratio ranges |
+|---|---:|---:|---:|---|
+| **(1')** `:helper-lean`/`:expanded` | `125` | `0` | `0` | straddles `1.0` in **all three** |
+| **(3')** `:merged`/`:no-dissoc-lean` | `625` | `250` | `750` | excludes `1.0` in runs 1 and 3, straddles in run 2 |
+| (1) `:helper`/`:expanded` | `1000` | `625` | `750` | excludes `1.0` in all three |
+| (3) `:merged`/`:no-dissoc` | `-625` | `-250` | `-750` | excludes `1.0` in runs 1 and 2, straddles in run 3 |
+
+**Under the rule committed before any of this was read, all four are NOT
+RESOLVED**, every one of them for the same reason — the magnitude clause. No
+term's smallest reading exceeds `R`:
+
+| term | smallest magnitude | signs | verdict |
+|---|---:|---|---|
+| (1') | `0` | `+`, `0`, `0` | **NOT RESOLVED** — below `R`, and signs do not agree |
+| (3') | `250` | `+`, `+`, `+` | **NOT RESOLVED** — below `R` |
+| (1) | `625` | `+`, `+`, `+` | **NOT RESOLVED** — below `R` |
+| (3) | `250` | `−`, `−`, `−` | **NOT RESOLVED** — below `R` |
+
+**(1') is the sharper of the two results.** The author's wrapper reads **exactly
+zero** in two runs of three and one quantum in the third. Whatever it costs is
+at or under the smallest difference this instrument can express — a tighter
+statement than the ladder could previously make about it, and still not a
+measurement of a value.
+
+### 7.6 `:author` beside them, and the residual
+
+| term | run 1 | run 2 | run 3 | verdict |
+|---|---:|---:|---:|---|
+| `:author` = (1)+(3), derived | `-125` | `375` | `125` | **NOT RESOLVED** — below `R`, signs disagree |
+| `:author-clean` = (1')+(3') | `625` | `250` | `1000` | **NOT RESOLVED** — below `R` |
+| `:split-residual` | `-625` | `125` | `-875` | **NOT RESOLVED** — below `R`, signs disagree |
+
+**`:author` reproduces `rf2-z143r`'s result rather than improving on it.** That
+window read `[-250 -500 -625 375 125]` ns/field and called it straddling zero;
+this one reads `-125`, `375` and `125` across three runs and straddles zero
+again. The derived sum is where it was.
+
+**The residual is the one place the refusal carries positive content.**
+[§4.3](#43-author-beside-them-and-a-residual-that-is-not-zero-by-construction)
+registered in advance that a residual within `R` would mean the two routes to
+the author's share are indistinguishable at this window's resolution. The
+residual's largest magnitude over three runs is `875`, which is `R` exactly and
+does not exceed it. **So the split route and the cancellation route do not
+disagree by more than this instrument can see** — which is what a reader who
+wondered whether the two constructions measure the same thing wanted to know,
+and is not a proof that they must.
+
+### 7.7 What is resolved
+
+Two terms clear the bar in every run and with agreeing signs:
+
+| term | run 1 | run 2 | run 3 | verdict |
+|---|---:|---:|---:|---|
+| **(2)** `:no-dissoc`/`:helper`, the CODEC's merge-caller | `2250` | `1500` | `2500` | **RESOLVED**, positive |
+| **`:whole`** `:merged`/`:expanded` | `2500` | `2250` | `2625` | **RESOLVED**, positive |
+
+`:whole` reads `1.1723x`, `1.1946x` and `1.1941x`, range excluding `1.0` in all
+three runs. **Neither is new** — `rf2-z143r` published rung (2) as clean, and
+this window re-takes it at nine arms and agrees. No status cell moves for either,
+per [§4.4](#44-what-is-read-but-not-adjudicated).
+
+### 7.8 The sign pattern the registered rule does not license
+
+Reported because leaving it out would be selective, and labelled because
+promoting it would be fitting.
+
+**(3) reads negative in all three runs and (3') reads positive in all three.**
+They share `:merged` as their numerator, so what separates them is the `:class`
+passenger and the arm carrying it — precisely the reversal the lean arm was
+built to look for, and it came back three for three in both directions.
+
+**It is not a verdict and this page does not make it one.** Both terms are below
+`R`, and [§4.1](#41-the-null-is-read-first-and-it-sets-the-resolution-bound) was
+written before any of it was on screen specifically so that a sign pattern this
+suggestive could not be promoted after the fact. A three-run sign agreement on
+quantities of one to six quanta is what a small real effect looks like and also
+what a small bias looks like; separating them needs a finer clock, not a better
+argument. **Recorded as an observation for whoever takes the next window, and as
+nothing else.**
+
+### 7.9 The schedule replay, confirmed by the instrument
+
+[§3.2](#32-the-predecessor-mix-is-not-invariant-in-n-at-this-sampling) predicted
+the `n = 9` predecessor mix from source before the window opened. The arm-order
+guard prints its own stratification, and it matches the replay **arm for arm and
+count for count** in every run:
+
+| arm | replay predicted | guard reported |
+|---|---|---|
+| `:expanded-b` (the null) | `expanded 30, merged 30` | `expanded n=30, merged n=30` |
+| `:expanded` | `floor 35, expanded-b 25` | `floor n=35, expanded-b n=25` |
+| `:ctl-2x` | `helper 30, merged 30` | `helper n=30, merged n=30` |
+| `:floor` | `no-dissoc-lean 35, expanded 25` | `no-dissoc-lean n=35, expanded n=25` |
+
+So the mix **did** move from `rf2-adld3`'s `35/25` to `30/30` at nine arms, as
+predicted — and the guard passed the null **by predecessor, within 10%**, in all
+three runs. The change of mix did not move the null's readings. The commitment
+in [§3.2](#32-the-predecessor-mix-is-not-invariant-in-n-at-this-sampling) not to
+attribute a null excursion to the mix was never called on, because there was no
+excursion to attribute.
+
+### 7.10 What this window did not do
+
+It did not recommend an optimisation, for `:&` or anything else. It did not
+touch `docs/design/hicasso/decisions.md`. It did not edit the rig, widen a band,
+raise `:warmup` or `:samples`, change the arm count, re-run an excluded
+invocation, or move a budget or ledger cell. **No threshold was guessed and no
+band was fitted to a reading.**
 
 ## 8. Conditions
 
-*Written after the window, and carrying the bracket-integrity test
-[§5](#5-the-box) registers.*
+Four invocations between **05:52 and 06:03 on 2026-08-22**, the three evidence
+runs back to back on a drained fleet inside a single box bracket. **The
+pre-registration half was committed and pushed at `a85302095d` before the first
+invocation**; a rebase preserves author dates, so the ordering is readable off
+this branch's history rather than resting on this sentence.
+
+| run | started | ended | elapsed | captured exit |
+|---|---|---|---:|---:|
+| 1 | 06:00:25 | 06:01:13 | 48 s | `0` |
+| 2 | 06:01:14 | 06:02:00 | 46 s | `0` |
+| 3 | 06:02:02 | 06:02:58 | 56 s | `0` |
+
+Each figure includes that run's own cold `:advanced` compile — the driver clears
+the `:hicasso-bench` build cache before every build, so no run inherited
+another's. Chromium 147.0.7727.15 via Playwright 1.59.1, shadow-cljs 3.4.10,
+React 19.2.0, `:advanced` with `goog.DEBUG false`, Windows 11, 24 logical cores.
+
+The box was bracketed at both ends, standalone, never sampled inside a run:
+
+| bracket | queue length | occupancy | `java` | `headless_shell` | processes | free |
+|---|---|---|---:|---:|---|---|
+| open, 05:59 | **0** on all 8 samples | 10.12% / 12.32% | **0** | **0** | 22 node / 108 chrome / 594 | 11.64 GB |
+| close, 06:03 | **0** on 6 of 8, **1** on two | 7.32% / 8.06% | **0** | **0** | 22 node / 108 chrome / 554 | 12.43 GB |
+
+Occupancy is attributed rather than assumed: the operator's editor reads
+`4.0`–`4.1%` at both brackets, more than a third of the total on its own, and
+the remainder is spread across the tracker and two agent processes at under
+`1.5%` each. The single bench-pattern process at the opening bracket was **this
+session's own shell**, whose recorded command line names the check it was
+running — a count alone would have read `1` and said nothing.
+
+**The bracket-integrity test, and it comes back clean.** This is the check
+[§5](#5-the-box) registered because the previous window on this machine lost two
+of its three runs to peer writes inside its brackets:
+
+| quantity | at open | at close | verdict |
+|---|---|---|---|
+| `origin/main` | `41feff66308b005bb6f59c373a8dbf6bdc62b36b` | unchanged | **unmoved** |
+| worktree list | 34 entries | 34 entries, identical | **unchanged** |
+| primary checkout `git status` | clean | clean | **unchanged** |
+
+**No pull request was merged, no worktree was created and no worker was
+dispatched while the window was open.** The `rf2-1yct` policy — exclusivity
+gated on whether an item breaks the bracket rather than on how loud it is — held
+on its first outing. The series is complete: three declared evidence
+invocations, three admissible, **none excluded**.
+
+**Three gates cover this change and no other gate does.** The change is one new
+page under `docs/design/hicasso/studio/` and nothing else — no source file, no
+rig file, no configuration.
+
+| gate | what it covers here | captured exit |
+|---|---|---:|
+| `scripts/check_doc_slugs.py` | this page's link targets and in-page anchors, under `docs/` | `0` |
+| `scripts/check_provenance_pins.py --changed-since origin/main` | this page, as a changed page under `docs/design/hicasso/` | `0` |
+| `scripts/check_provenance_pins.py --self-test` | the pin gate's own negative controls | `0` |
+
+**Each was shown able to refuse before its green was believed.** The slug gate
+returned **exit `1` on this very page**, naming two broken anchors, when the
+second half was still a forward reference — a real refusal on real content
+rather than a planted one, repaired by writing the sections the links pointed
+at. The pin gate reports `1 page inspected, 1 cited pin — 1 landed, 0 stranded,
+0 unresolvable, 0 findings`, so its zero is a positive extraction of the tree
+anchor in [§6](#6-the-instrument-and-the-subject) and not an empty sweep, and
+its `--self-test` exercises its own refusal paths.
+
+**`mkdocs build --strict` is not a gate for any of this and was not run.**
+`mkdocs.yml`'s `exclude_docs` block carries `design/hicasso/`, so the build
+cannot see this page at all; and `--strict` gates no in-page anchor anywhere,
+since `validation.links` sets only `unrecognized_links: warn` and carries no
+`anchors` key. `scripts/check_readme_links.py` is not this page's gate either —
+its surface is repo-root markdown and markdown beside source, and this page sits
+inside the doc gate's roots.
+
+**Verified by hand, because no gate reads them.** Nothing validates this page's
+prose, its tables' column counts or its arithmetic. Every table above was
+checked column for column against its header, and every ns/field figure was read
+off the runs' own printed vectors rather than recomputed — except the
+resolution-rule verdicts, which are the committed rule applied mechanically to
+those vectors.
