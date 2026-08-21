@@ -4755,23 +4755,39 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
 
 // ---------------------------------------------------------------------------
 // rf2-hic-021's complaint-catalogue contract, and the reverse edges that made a
-// classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje).
+// classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje;
+// re-measured after the register moved, rf2-xomo).
 //
 // `implementation/hicasso/scripts/check_complaint_catalogue.py` reads FOUR file
-// families. Exactly ONE of them — implementation/hicasso/** — arms
-// cljs_node_test, which is the output guarding the only job that hosted the
-// checker. The three rows below are the MEASUREMENT, pinned rather than
-// asserted: each is a file the checker reads and a tier that does not fire for
-// it, so each is a PR shape that could have broken the contract in silence.
+// families. TWO of them arm cljs_node_test, the output guarding the only job
+// that ever hosted the checker: the emit roots (hicasso/src + hicasso/test_kit/
+// src), and — since rf2-ps7ia moved the REGISTER out of docs/design/hicasso/
+// product/ and in beside the artefact — implementation/hicasso/spec/
+// complaints.md itself. Both ride the one `implementation/hicasso/*` arm, which
+// does not discriminate `.md`.
+//
+// So the hole is TWO families wide now, not three, and this test previously
+// asserted about an address the move had emptied — an assertion that went on
+// PASSING, because the classifier is a lexical path function that does not care
+// whether a path exists (rf2-xomo). The rows below are still the MEASUREMENT,
+// pinned rather than asserted: each is a file the checker reads and a tier that
+// does not fire for it, so each is a PR shape that could have broken the
+// contract in silence. The register's row is kept and INVERTED rather than
+// deleted, because a test that only ever asserts `false` passes just as well
+// against a classifier that has stopped arming anything at all.
 //
 // These rows must NOT be "fixed" by widening cljs_node_test. Arming a ~10-minute
 // CLJS compile for a Markdown edit is the trade TESTING.md's placement table
-// exists to refuse. The repair is the unconditional job asserted underneath.
+// exists to refuse — and the register now pays exactly that toll, plus three
+// Chromium lanes (cljs_browser, hicasso_controlled, hicasso_hmr), for a prose
+// edit. Whether to narrow the arm to `implementation/hicasso/spec/*.md` is an
+// open operator call (rf2-xomo finding 2), not something this test may settle
+// quietly. For the two families still in the hole the repair is unchanged: the
+// unconditional job asserted underneath.
 // ---------------------------------------------------------------------------
 
-test('the complaint catalogue reads three families that arm NO expensive tier (rf2-hic-021)', () => {
+test('the complaint catalogue reads two families that arm NO expensive tier (rf2-hic-021)', () => {
   for (const file of [
-    'docs/design/hicasso/product/complaints.md',
     'spec/009-Instrumentation.md',
     // The guide family the checker actually reads: its GUIDE_DIR followed the
     // corpus to docs/core/hicasso/ under rf2-0yp7w, and only REWRITE-NOTES.md
@@ -4788,6 +4804,18 @@ test('the complaint catalogue reads three families that arm NO expensive tier (r
         + 'unconditional hicasso-complaint-catalogue job instead',
     );
   }
+  // The register's own row, re-pointed and INVERTED (rf2-xomo). It left
+  // docs/design/hicasso/product/ under rf2-ps7ia and now rides
+  // `implementation/hicasso/*`, so it arms. This is also the control the two
+  // rows above need: without it a classifier that had stopped arming
+  // cljs_node_test for anything would satisfy them both and read as a pass.
+  assert.equal(
+    classify('implementation/hicasso/spec/complaints.md').cljs_node_test,
+    'true',
+    'the register moved beside the artefact and now arms the CLJS node-test '
+      + 'tier — if this reads false, the tier the two rows above are measured '
+      + 'against has stopped firing and their `false` means nothing',
+  );
 });
 
 test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-021)', () => {
@@ -4804,7 +4832,9 @@ test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-
     block,
     /^ {4}needs:/m,
     'hicasso-complaint-catalogue must not depend on detect_changed_surfaces — '
-      + 'three of the four file families its checker reads arm no output',
+      + 'two of the four file families its checker reads still arm no tier '
+      + 'that could host it (rf2-xomo re-measured the count after the '
+      + 'register moved beside the artefact)',
   );
   assert.doesNotMatch(
     block,
