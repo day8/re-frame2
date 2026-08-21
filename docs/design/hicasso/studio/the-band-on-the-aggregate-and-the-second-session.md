@@ -83,12 +83,12 @@ complements of 1 and 2, and 7 and 8 of 5 and 6; complementing inverts the pass
 order at every round **index**, so each pair balances the pass contrast against
 the index itself and not merely against its parity and its trend.
 
-| run | session | seed | flips | `q·parity` | `q·linear` |
+| run | session | seed | rounds that ran `page` first | `q·parity` | `q·linear` |
 |---|---|---|---|---|---|
-| 1, 5 | A, B | `fk6pj-9` | `011001100110` | 0 | 0 |
-| 2, 6 | A, B | `fk6pj-11` | `011001101001` | 0 | 0 |
-| 3, 7 | A, B | `fk6pj-2386` | `100110011001` | 0 | 0 |
-| 4, 8 | A, B | `fk6pj-33` | `100110010110` | 0 | 0 |
+| 1, 5 | A, B | `fk6pj-9` | {0, 3, 4, 7, 8, 11} | 0 | 0 |
+| 2, 6 | A, B | `fk6pj-11` | {0, 3, 4, 7, 9, 10} | 0 | 0 |
+| 3, 7 | A, B | `fk6pj-2386` | {1, 2, 5, 6, 9, 10} | 0 | 0 |
+| 4, 8 | A, B | `fk6pj-33` | {1, 2, 5, 6, 8, 11} | 0 | 0 |
 
 **Every run yielded 12 blocks of 12, and the realised `q·parity` is 0 in all
 eight.** That distinction is worth stating rather than gliding over: the
