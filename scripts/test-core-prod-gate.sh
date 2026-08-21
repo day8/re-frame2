@@ -408,8 +408,9 @@ fi
 #
 # Note how much a small batch can be worth: the sixth pass added only four
 # namespaces but 191 tests, because the two largest — `observation-port-cljs`
-# (94 tests) and `frame-destroy-incarnation-jvm` (29) — were rostered for a
-# minority of their deftests.  The floor tracks TESTS, not roster lines, which
+# (94 tests; since deleted with the port, rf2-63t1i — see "THE FIRST MOVE
+# DOWNWARD" below) and `frame-destroy-incarnation-jvm` (29) — were rostered for
+# a minority of their deftests.  The floor tracks TESTS, not roster lines, which
 # is the right variable for exactly this reason.
 #
 # The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
@@ -432,6 +433,24 @@ fi
 # coverage-reducing change should trigger.  That is deliberate.  Do not raise
 # the floor to make room for a tag without saying, in the same diff, what was
 # tagged and why it has no production residue.
+#
+# THE FIRST MOVE DOWNWARD: 1950 -> 1860 (rf2-63t1i), and the removal is in this
+# same diff.  Every prior move raised the number as the lane grew.  This one
+# LOWERS it, because the lane genuinely shrank: `re-frame.substrate.observation`
+# — the internal observation port — was retired, and its own suite
+# `observation_port_cljs_test.cljc` went with it.  That is the same namespace
+# the sixth-pass note above names as one of the two largest additions the lane
+# ever took, at 94 tests; measured here, the lane fell from 1986 to 1895.
+#
+# A lowering is the dangerous direction, so it is worth saying what makes this
+# one safe rather than a floor rotting downward to meet a collapse.  The lane
+# did not collapse: it ran 177 of 189 namespaces and reported `0 failures, 0
+# errors` in the same run that tripped this floor.  The drop is accounted for
+# to one namespace, that namespace is DELETED in this diff rather than
+# unrostered or tagged, and 1860 keeps the same ~35 tests of slack under the
+# observed count that the seventh pass established as the tagging budget.
+# Lowering it further, or lowering it without a deletion beside it, would be
+# the rot the paragraph above warns about.
 #
 # THE EIGHTH MOVE, 1900 -> 1920, WAS NOT A PASS.  It tags nothing and adds no
 # namespace; it repairs the budget the seventh pass set.  1900 was calibrated
@@ -481,7 +500,7 @@ fi
 # invokes, so the rule covers every lane in the repo rather than this one, and
 # it fires before a single test runs.  `verify_roster` below is unchanged and
 # still cannot see this class on its own — see its guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1950}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1860}"
 
 args=()
 for ns in $runnable; do
