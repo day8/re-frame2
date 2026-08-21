@@ -20,6 +20,28 @@ The naming ledger is live and appended-to by beads (see rf2-hic-065), and it now
 
 `invariants.md` is still the one page to check a change against, and it is still wholly transcribed from the governing documents that stayed here — so where a row and its owner disagree, **the owner governs and the row is the defect**. That relation is why the records below still cite it and it still cites them, across the two trees.
 
+## The teaching set (merged into the guide)
+
+**Nothing left this directory for the guide, and that is the ruled outcome rather than a shortfall.** Category 1 of the split says teaching content merges INTO the published chapters rather than moving as separate files, so the deliverable is prose in [`docs/core/hicasso/`](../../../core/hicasso/index.md) and a beside-amendment here.
+
+The set was established from [the product-record kind census](../product-kind-census.md), whose *reader-facing answer* kind is exactly this category: four pages carry it as their largest share — [`release-policy.md`](release-policy.md), [`forms-recipes.md`](forms-recipes.md), [`virtualizer-recipe.md`](virtualizer-recipe.md), [`async-routing-recipes.md`](async-routing-recipes.md) — and two more carry a minority share, [`per-keystroke.md`](per-keystroke.md) §6 and [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md). Six pages, about 608 attributed lines.
+
+**Four of the six were already answered on a published page**, which the census predicted and each page states of itself:
+
+| Carrier | Where the reader already meets it |
+|---|---|
+| [`release-policy.md`](release-policy.md) | its own §4 records that the consumer-facing abridgement lives at [`00-installation.md` §Supported versions](../../../core/hicasso/00-installation.md#supported-versions); §5.1's *the semantics are frozen and the spellings are not* stands there too |
+| [`async-routing-recipes.md`](async-routing-recipes.md) | its own closing states that [`08-async-resources.md`](../../../core/hicasso/08-async-resources.md) and [`07-routing-and-navigation.md`](../../../core/hicasso/07-routing-and-navigation.md) teach all three shapes already — settle-merge, per-instance mutation status, the dirty-navigation guard |
+| [`per-keystroke.md`](per-keystroke.md) §6 | [`19-performance.md`](../../../core/hicasso/19-performance.md) carries the one-frame echo budget and the keystroke trace whose step 6 is this section's finding |
+| [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md) | the ladder is published as [`escape-ladder.md`](../../../core/hicasso/escape-ladder.md); this file is also category 4, so its address was never in question |
+
+**Two genuine gaps were merged**, both places where the guide raised a question and answered it elsewhere or not at all:
+
+- [`06-lists-and-collections.md`](../../../core/hicasso/06-lists-and-collections.md) gained **Keep the focused row mounted**, **Announce the model's count, not the DOM's** and **Screen a virtualizer before adopting it**, from [`virtualizer-recipe.md`](virtualizer-recipe.md)'s Rules 3 and 4 and its *blessed* screen. The chapter had Rules 1 and 2 and said only that a row which does not exist cannot hold focus; [`22-accessibility.md`](../../../core/hicasso/22-accessibility.md)'s focus-ownership table routed the virtualised case here, where the answer was not.
+- [`05-forms.md`](../../../core/hicasso/05-forms.md) gained the **operable-while-invalid submit button**, from [`forms-recipes.md`](forms-recipes.md) §2. The chapter disabled the button on `(not can-submit?)` while relying on `:submit-attempted?`, which that same disabling makes unreachable — so its display gate could not fire.
+
+The audited per-version virtualizer package table stays on [`virtualizer-recipe.md`](virtualizer-recipe.md) and was deliberately not published: it is a dated reading of third-party releases, which is working-record discipline the guide does not carry.
+
 ## Records
 
 Standalone ledgers and decision records kept beside the three governing documents. Each states in its own opening what it owns and which document governs it.
@@ -88,7 +110,7 @@ That was ruled on 2026-08-16 under `rf2-rbme3`, retiring the snapshot contract t
 
 **Interim custody is over. This directory is now the permanent home of what remains — and only of what remains.** It was an interim home from `rf2-rbme3` (2026-08-16) until the operator ruled the destination split on 2026-08-21 under `rf2-ps7ia`. The ruling is a four-way split, and this section records it as executed rather than as pending:
 
-1. **Teaching and how-to** merges into the main published guide at [`docs/core/hicasso/`](../../../core/hicasso/index.md), which is already a first-class section in the MkDocs nav. Content merges INTO those pages; no file relocates as itself.
+1. **Teaching and how-to** merges into the main published guide at [`docs/core/hicasso/`](../../../core/hicasso/index.md), which is already a first-class section in the MkDocs nav. Content merges INTO those pages; no file relocates as itself. **Executed on 2026-08-21**, and it was a two-chapter change rather than a sweep — see [the teaching set](#the-teaching-set-merged-into-the-guide) below for what was merged, what the guide already carried, and why every source file stayed.
 2. **The operative contract** — the machine-gated documents — moved to [`implementation/hicasso/spec/`](../../../../implementation/hicasso/spec/README.md), beside the artefact, per the `tools/*/spec/` convention. [The five and their gates](#the-operative-contract-moved-out-rf2-ps7ia) are listed above. Their gates re-pointed in the same PR.
 3. **Framework-level touchpoints** reach root [`spec/`](../../../../spec/README.md) only as freshly authored text, on demand, where re-frame2's own pattern is affected. **Nothing relocates into root `spec/`**: the 004D precedent stands, and product prose is never re-aimed into pattern specification.
 4. **Governance and evidence** — the decision brief, the kill table and `validation.md`, the phase records, `lanes/`, `pilots/`, and the whole `studio/` tree — stay working design records at their existing addresses. Studio is evidence whose history is the content; it cannot graduate and must not be rewritten.
