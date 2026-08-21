@@ -217,8 +217,10 @@ under an instrument that cannot narrow the question without saying so.
 ### The controls, under both readings of the rule
 
 `lane/control-verdict` implements the **overlap** rule; HD-008 states a
-**strict** every-round-inside rule; **rf2-egdaq** is the open operator question
-of which governs. Both readings are reported here rather than adjudicated:
+**strict** every-round-inside rule; **rf2-egdaq** was the open operator question
+of which governs, and it has **since been settled as a split** — see the
+correction at the end of this section. Both readings are reported here rather
+than adjudicated:
 
 | run | row | predicted | measured range | ±25% band | overlap rule | strict rule |
 |---|---|---|---|---|---|---|
@@ -234,10 +236,28 @@ would fail a strict reading fail it by **0.0014**, and they fail it for a reason
 that is arithmetic rather than instrumental: the bulk floor's p50 is two to
 three of Chrome's 100 µs quanta, so the control's ratio can only land on a
 coarse lattice, and `2.5` is the lattice point immediately above a ceiling of
-`2.4986`. That is the shape of evidence rf2-egdaq needs and it points against
+`2.4986`. That is the shape of evidence rf2-egdaq needed and it points against
 tightening: **a strict rule would retroactively fail a control this page already
 published as passing**, on a quantisation artefact rather than on a loss of
 signal. Nothing here installs it.
+
+> **SETTLED SINCE, AND AS A SPLIT — 2026-08-21 (`rf2-egdaq`, recorded here under
+> `rf2-wmya0`).** No figure or verdict above moves and the six controls stand
+> exactly as published; the correction is to the STANDING of the question, which
+> the section above reports as open. `rf2-egdaq` resolved to **one rule per
+> instrument** rather than one rule for both arms. The **heap** arm went STRICT —
+> `lane/control-verdict-strict`, every round inside the band — because on a byte
+> counter overlap is not a weaker gate but an absent one: a round reading ~0 B
+> passes it beside five good ones. The **clock** arm, which is what every control
+> on this page is, **REFUSED strict and keeps overlap**, under the 2026-07-31
+> quantum ruling, and **that refusal stands**. So the reading above is the one that
+> prevailed: the two `0.0014` misses are the lattice of a floor two to three of
+> Chrome's 100 µs quanta wide, not a loss of signal, and a rule that failed them
+> would be failing the instrument's resolution. The operator's separate 2026-08-21
+> call re-adjudicates the ten published **heap** control figures under strict — all
+> ten pass, widest excursion 4,690,838 B against 4,700,000 B predicted, 0.195% low
+> against a ±25% band, no window re-run — and it reaches no clock row, so nothing
+> on this page is re-adjudicated.
 
 ## The control that could not fail, and the teardown that said nothing
 
@@ -375,7 +395,9 @@ It is the same signature the converged page records on its own M2 row, it agrees
 with the published verdict (*indistinguishable*), and it is exactly why **this
 row is graded diagnostic and must not be quoted against the bar.**
 
-Controls under both readings of rf2-egdaq's open question: M1 `1.963×
+Controls under both readings of rf2-egdaq's question — [since settled as a
+split](#the-controls-under-both-readings-of-the-rule), with overlap kept on this
+clock arm: M1 `1.963×
 [1.857 – 2.357]` and M2 `1.733× [1.500 – 2.000]` pass under **either** rule;
 bulk `2.000× [1.500 – 2.500]` passes the overlap rule and misses the strict one
 by **0.0014** — the same lattice artefact recorded above, on a floor of two to
