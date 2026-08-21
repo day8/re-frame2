@@ -544,7 +544,12 @@ use `bd history <id> --json`, which carries a full snapshot per commit. WALK ADJ
 PAIRS NEWEST-FIRST UNTIL THE FIRST CHANGE TO A TEXT-BEARING FIELD (description, notes,
 acceptance, design): the history holds duplicate checkpoint snapshots and status-only
 mutations, so the newest pair alone can truthfully say nothing changed while a live
-instruction change sits behind it. If the bead has children, re-enumerate them too: a
+instruction change sits behind it. AND A WALK THAT ENDS WITHOUT FINDING ONE HAS FOUND
+NOTHING, NOT “NO CHANGE” — say which of the two you have. Histories accumulate
+machine-written no-ops, so a walk bounded anywhere short of the item’s beginning reports
+“no text-bearing change” on an item that has several, and that reads as the revert
+signature whose remedy is to re-close. On a long history, search the text for the marker
+you expect rather than walking to it. If the bead has children, re-enumerate them too: a
 ruling is sometimes recorded as a NEW CHILD BEAD rather than as a note.
 
 TIMESTAMP ORDER DOES NOT ESTABLISH CURRENCY, so a perfect walk can still hand you
@@ -787,6 +792,11 @@ moved most. In the dominant toolchain that is the three-dot form, `<TRUNK>...HEA
 * Which numbers are captured, and which are reported by the harness?
 * What did it decline to do, and why? A report with no refusals, on a task that had a plausible one, is worth a second
   look.
+* Are you about to quote a figure or a phrase OUT of this report and into the next brief? Then it is a claim like
+  any other and the question is what produced it. A sequence of measurements and a correction to one measurement
+  read identically once compressed to a line: one mayor turned four per-window figures into “the number moved”
+  and briefed a worker to fix a figure that was correct. Reports invite this — they are dense, confident, and
+  written by an agent that has just spent its whole context being careful.
 * What did it find that you did not ask for? File those **with the owning item named in the new item**, so a later
   audit reopening that owner is recognisable as the same finding rather than a second one. One mayor skipped that and
   created a duplicate of its own within hours.

@@ -506,6 +506,17 @@ script.
 At the tail of a drain, dispatch is one-unblocks-the-next, not fan-out. Hold, surface what
 needs the operator, and do not manufacture work.
 
+### You are one of the concurrent writers
+
+The scratch area dispatched agents share is keyed to the SESSION, not to a worktree, and the
+mayor writes there too — change bodies, working notes, gate artefacts — while N workers do.
+Every naming rule you paste into a brief binds you equally. The block that carries it is
+written in a second person aimed at a dispatched agent, so it does not read as addressed to
+you: one mayor enforced that rule on eight dispatches and then lost its own change body to a
+peer, under exactly the bare name the rule forbids. **A rule scoped to a ROLE exempts whoever
+does not identify with the role** — when a hazard belongs to a shared resource, scope it to
+the resource.
+
 ---
 
 ## 3. Backlog reread
@@ -885,6 +896,15 @@ Watch specifically for:
 
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
 file — do not just note it.
+
+**But weigh WHICH artefact to change.** Where a reader-side rule has failed repeatedly, more text is
+usually not the repair. Two remedies landed the other way in one session: an item whose OLDEST field
+was rewritten to open with its disposition, after three workers had been dispatched at work that
+should not exist and each had correctly refused; and a commit guard that refused an edit the rule had
+already forbidden in words. Both changed the artefact a reader meets rather than the instruction they
+had read and recited. **And a guard is not a rule that cannot fail**: one added on an evening was RUN
+the next hour and misread, because a check executed carelessly returns the same reassuring answer as
+no check at all.
 
 ---
 
