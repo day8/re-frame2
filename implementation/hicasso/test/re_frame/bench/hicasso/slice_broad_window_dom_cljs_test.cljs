@@ -658,10 +658,11 @@
     (is (pos? clock/rounds))))
 
 (deftest the-record-labels-which-population-each-figure-is-taken-over
-  (testing "`:summary`, `:structure`, `:comparative` and `:over-floor` are
-           all taken over the measured visits, because the last two are
-           built out of the first two and a ratio whose numerator and
-           denominator are drawn from different populations is not a ratio.
+  (testing "`:summary`, `:structure`, `:comparative`, `:over-floor` and
+           `:resolution` are all taken over the measured visits, because
+           each of the last three is built out of the first two and a ratio
+           whose numerator and denominator are drawn from different
+           populations is not a ratio.
            `:echo` deliberately is not: it is a count of refusals rather
            than a distribution, and a verification is worth more the more
            windows it covers."
@@ -669,5 +670,6 @@
             :structure   :measured-visits
             :comparative :measured-visits
             :over-floor  :measured-visits
+            :resolution  :measured-visits
             :echo        :all-visits}
            clock/populations))))

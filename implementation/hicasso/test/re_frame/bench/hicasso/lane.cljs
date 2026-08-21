@@ -65,7 +65,11 @@
   2. **Ranges, never a mean alone.** [[across-rounds]] answers min/max/mean
      per arm and flags `:straddles-1?`; overlapping ranges mean
      INDISTINGUISHABLE and a report must say so rather than quote the
-     mean as a winner.
+     mean as a winner. That flag asks whether ONE arm separated from an
+     empty frame, which a pair must clear before it carries any ratio at
+     all — but clearing it does not mean the pair could resolve the line
+     it is read against, and [[resolution]] is the second question.
+     Neither answers the other.
   3. **Every measured write is read back out of the DOM inside its own
      window.** [[verified-write!]] reads the written cell after the clock
      stops and before the sample is banked; [[tally]] carries the count
@@ -865,6 +869,67 @@
      :min (apply min vs) :max (apply max vs)
      :per-round vs
      :straddles-1? (and (<= (apply min vs) 1.0) (>= (apply max vs) 1.0))}))
+
+(defn resolution
+  "What size of difference in the arms' OWN work a run could have SEEN,
+  for one [[ratio-between]] pair. Answers
+
+      {:denominator :floor-p50 :denominator-p50 :own-work
+       :own-work-share :spread :resolves-at}
+
+  ## The question [[across-rounds]] does not ask
+
+  `:straddles-1?` asks whether ONE arm separated from an empty frame. A
+  bar row asks whether TWO arms separate from EACH OTHER at a stated
+  line. Those are different questions, and the first can answer yes while
+  the second answers no — measured on `slice-broad-clock-app` under
+  rf2-9wmqd, where a pair cleared the floor in all three evidence runs
+  and still could not resolve `1.25x`. The gate is a sound NECESSARY
+  condition and stays exactly where it is; this is the other half.
+
+  ## The arithmetic, and why the frame grid is the whole of it
+
+  A paint-bounded window is mostly the wait for the browser's next
+  rendering opportunity, and that wait is in BOTH arms, so it enters the
+  ratio as dead weight. Only `:own-work` — the denominator arm's median
+  above the floor's — can move a window-level ratio at all, and it is
+  `:own-work-share` of the window. So if the numerator's own work were
+  `k` times the denominator's, the published ratio would move by
+  `(k - 1) * :own-work-share` and no further. Set that against the
+  scatter the run actually showed — `:spread`, the width of
+  [[ratio-between]]'s `:per-round` — and
+
+      :resolves-at = 1 + :spread / :own-work-share
+
+  is the smallest `k` whose displacement is as large as the run's own
+  noise. A difference below it is inside the scatter, where an observed
+  `1.00x` is consistent with `1.00x` and with `k` alike.
+
+  ## IT DECIDES NOTHING, and may not
+
+  No line appears here and none may: `budgets.md` §7 routes every
+  distributional row to a pinned evidence run and forbids converting one
+  into a lane threshold. This is an HONESTY AID — a run saying what it
+  could have seen — and the reader compares it against the line THEIR row
+  is stated at. Two edges, stated rather than special-cased:
+  `:resolves-at` is `nil` when the denominator arm did not clear the
+  floor, because a pair with no work above the grid resolves nothing at
+  any size; and the figure is bounded below by the run's own scatter, so
+  rounds that happened to agree exactly report `1.0`, which says the
+  scatter bounds nothing rather than that any difference is visible."
+  [{:keys [denominator per-round]} summary floor-id]
+  (let [d      (get-in summary [denominator :p50])
+        floor  (get-in summary [floor-id :p50])
+        own    (- d floor)
+        share  (/ own d)
+        spread (- (apply max per-round) (apply min per-round))]
+    {:denominator     denominator
+     :floor-p50       (round4 floor)
+     :denominator-p50 (round4 d)
+     :own-work        (round4 own)
+     :own-work-share  (round4 share)
+     :spread          (round4 spread)
+     :resolves-at     (when (pos? share) (round4 (+ 1.0 (/ spread share))))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Verified writes — "N unverified of M"
