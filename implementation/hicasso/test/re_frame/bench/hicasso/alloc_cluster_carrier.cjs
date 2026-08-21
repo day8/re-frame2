@@ -113,15 +113,31 @@
 // `docs/design/hicasso/studio/the-substrate-arm-a-pre-registered-thirty-run-window.md`.
 // The corpus is 161 runs / 4,560 collection-free / 4,392 positional after it.
 //
-// THE PRE-REGISTERED FIRST BRANCH IS THE ONE THAT HAPPENED. Inside
+// THE PRE-REGISTERED FIRST BRANCH IS THE DIRECTION THAT HAPPENED. Inside
 // `fixed-reversed`, within the same runs, `uix-subs` at position 0 reads 8 of
-// 136 against `reagent-subs` at position 1 at 0 of 161 — p = 0.0017, and 5 of 10
-// runs against 0 of 10 at run level. THE SUBSTRATE IS A CARRIER.
+// 136 against `reagent-subs` at position 1 at 0 of 161, and 5 of 10 runs against
+// 0 of 10 at run level.
+//
+// BUT THAT CONTRAST IS PAIRED AND WAS FIRST PUBLISHED AS THOUGH IT WERE NOT
+// (rf2-csca8, the audit of PR #8619). The two cells are the two arms of the SAME
+// ten runs, so the run-level census is ten PAIRS and not two independent
+// samples. Read as pairs it is 0 both, 5 uix-only, 0 reagent-only, 5 neither —
+// five discordant pairs, all one way — and the exact two-sided paired result is
+// 2 / 2^5 = 0.0625, not the 0.0325 an independent-sample Fisher returns on the
+// same marginals. THE PAIRED FIGURE IS THE ONE THE DESIGN LICENSES, and this
+// reader now computes and prints it; the window-level p = 0.0017 cannot stand in
+// for it, because windows repeat within runs and this reader says so everywhere
+// else. So the window shows the DIRECTION the first branch named and does NOT
+// resolve the substrate arm standing alone.
 //
 // AND THE SAME THIRTY RECORDS READ UNDER THE OLD MAXIMUM GIVE 3 of 136 vs 0 of
-// 161, p = 0.0949 — still unresolved at double the reversed-arm n. More runs
-// were never going to settle it; the reading had to change, and it had to change
-// first. Both readings are pinned in the self-test for exactly that reason.
+// 161, p = 0.0949 — 3 discordant pairs, paired p = 0.25. The masking is real and
+// the reading did have to change first. WHAT IS RETRACTED IS "more runs were
+// never going to settle it": this window's own `fixed` arm, ten pairs of the
+// same runs under the same paired test, reaches p = 0.0039 on nine discordant
+// pairs. The paired test resolves at n = 10 when the discordance rate is high
+// enough, so a persistent rate at the reversed cell was never ruled out by n.
+// All three readings are pinned in the self-test, and none replaces another.
 //
 // MODE SURVIVES AS A SECOND TERM rather than the only one: reversing the order
 // CUTS the rate at `uix-subs` (28 of 143 against 8 of 136, p = 6.21e-4) without
@@ -280,6 +296,111 @@ function fisherExactTwoSided(a, b, c, d) {
   return Math.min(1, p);
 }
 
+// --- the exact PAIRED test --------------------------------------------------
+//
+// WHY THIS EXISTS, AND WHY THE FISHER ABOVE IS NOT ENOUGH (rf2-csca8, the audit
+// of PR #8619). Fisher compares two INDEPENDENT samples. The CARRIER contrast is
+// not two samples: both of its cells come from the same ten runs, one cell per
+// arm of each run, which is the whole reason it is the primary. Feeding its two
+// marginal counts to Fisher throws the pairing away at the decisive step and
+// returns a smaller p than the design licenses — 0.0325 against 0.0625 on this
+// window's own table.
+//
+// THE TEST. Discordant pairs only: a run where exactly one of the two cells
+// carries the term. Concordant pairs — both or neither — carry no information
+// about which cell carries it, and are discarded rather than counted, which is
+// what makes this a statement about ten paired runs and not about 297 windows.
+// Under the null each discordant pair is a fair coin, so the discordant split is
+// Binomial(b + c, 1/2). This is the exact McNemar test, equivalently the exact
+// sign test, and there is no normal approximation anywhere in it.
+//
+// TWO-SIDED, BY THE SAME CONVENTION AS THE FISHER ABOVE: the sum of every
+// outcome no more probable than the observed one. With c = 0 that is exactly
+// 2 / 2^b, which is the arithmetic a reader can check by hand.
+//
+// AND IT IS TWO-SIDED FOR A REASON THAT IS NOT A PREFERENCE. The
+// pre-registration for this window named the within-run contrast but named no
+// paired test, no sidedness and no decision threshold; the only sidedness fixed
+// in advance is the one the reader committed alongside it computes, and every
+// comparison in it is two-sided. Halving a p by declaring a direction AFTER
+// seeing which direction the five discordant pairs fell is choosing the test
+// once the answer is known — the exact thing pre-registration exists to prevent,
+// and the thing the masking episode above already cost this record once. A
+// one-sided test here would be a decision for a FUTURE window's
+// pre-registration, argued before its runner is invoked, and never a retrofit
+// onto this one.
+//
+// THE FLOOR THIS PUTS UNDER A WINDOW, which is a fact about the design and not
+// about the data: with b discordant pairs all falling one way the smallest
+// attainable two-sided p is 2 / 2^b. Five discordant pairs cannot go below
+// 0.0625 however clean they are; six reach 0.03125; nine reach 0.0039. A window
+// that produces few discordant pairs has not been let down by its n so much as
+// told what its n bought.
+function pairedExactTwoSided(b, c) {
+  const n = b + c;
+  if (n === 0) return 1;
+  const observed = binomialHalf(n, b);
+  const ceiling = observed * (1 + 1e-9);
+  let p = 0;
+  for (let k = 0; k <= n; k++) {
+    const q = binomialHalf(n, k);
+    if (q <= ceiling) p += q;
+  }
+  return Math.min(1, p);
+}
+
+// P(X = k) for X ~ Binomial(n, 1/2), through log-factorials so a large n cannot
+// overflow the binomial coefficient before the division reaches it.
+function binomialHalf(n, k) {
+  return Math.exp(logFactorial(n) - logFactorial(k) - logFactorial(n - k) - n * Math.LN2);
+}
+
+// The paired 2x2 for one within-run contrast, built from RUNS rather than
+// windows: a run's cell counts as a hit when ANY window in it carries the term.
+// `both` and `neither` are reported rather than dropped — a table that printed
+// only its discordant counts would hide how much of the window was concordant,
+// and the concordance is what says whether the two cells move together.
+function pairedTable(rows) {
+  let both = 0;
+  let aOnly = 0;
+  let bOnly = 0;
+  let neither = 0;
+  for (const r of rows) {
+    if (r.a && r.b) both++;
+    else if (r.a) aOnly++;
+    else if (r.b) bOnly++;
+    else neither++;
+  }
+  return {
+    pairs: rows.length,
+    both,
+    aOnly,
+    bOnly,
+    neither,
+    discordant: aOnly + bOnly,
+    p: pairedExactTwoSided(aOnly, bOnly),
+  };
+}
+
+// THE WITHIN-RUN CONTRASTS, and they are the only ones this test may be applied
+// to. Both cells of each row are filled by the SAME run — one arm apiece, every
+// round — so the pairing is a property of the rig and not of a matching step.
+//
+// CARRIER is the window's pre-registered primary. MIRROR is the same substrate
+// contrast with the segment order forward, and it is here as a POSITIVE CONTROL
+// ON THE TEST: it says whether a paired exact test can separate at ten pairs at
+// all, which is the question any 0.0625 immediately raises.
+//
+// NOTE WHAT NEITHER ROW HOLDS FIXED. Each compares `uix-subs` at one position
+// with `reagent-subs` at the OTHER, because that is how a round is driven — so
+// POSITION IS DELIBERATELY CHANGED across the two cells, not held constant. What
+// the shared run does hold is every per-run term: the mode, the session, the
+// revision, the box that minute, and the level the floor settled at.
+const PAIRED_CONTRASTS = [
+  { label: 'CARRIER  | fixed-reversed, uix pos0 vs reagent pos1', mode: 'fixed-reversed', a: ['uix-subs', 0], b: ['reagent-subs', 1] },
+  { label: 'MIRROR   | fixed, uix pos1 vs reagent pos0', mode: 'fixed', a: ['uix-subs', 1], b: ['reagent-subs', 0] },
+];
+
 // --- the census -------------------------------------------------------------
 
 const CELL_KEY = (w) => `${w.segOrder}|${w.segment}|pos${w.position}`;
@@ -422,10 +543,24 @@ function analyse(datasets, opts = {}) {
         //
         // CARRIER is the PRIMARY row and the only WITHIN-RUN one on this list.
         // Both of its cells come from the same runs, the same session and the
-        // same mode, so every per-run term — the box that minute, the revision,
+        // same mode, so every PER-RUN term — the box that minute, the revision,
         // the level the floor settled at — is held constant by construction
         // rather than by matching. The three rows under it are between-mode and
         // carry the repeated-measures bound every other row here carries.
+        //
+        // WHAT IT DOES NOT HOLD CONSTANT IS POSITION. It compares `uix-subs` at
+        // position 0 with `reagent-subs` at position 1, so the position is
+        // deliberately CHANGED across the two cells — that is how a round is
+        // driven, and it is the whole point of the reversed arm. A record
+        // describing this row as holding position fixed is wrong; the POSITION
+        // rows above and the crossover in `parity` are where position is tested.
+        //
+        // AND THE p ON THIS ROW IS AN UNPAIRED ONE, computed with the same
+        // Fisher as every other row so the table stays comparable. It is NOT
+        // the test this row's design licenses. See `out.byStatistic[*].paired`
+        // for the exact paired test over the same records, and read the two
+        // together — the unpaired figure is smaller and the difference is the
+        // pairing this row was built to have.
         compare('CARRIER   | fixed-reversed, uix pos0 vs reagent pos1', pick('fixed-reversed', 'uix-subs', 0), pick('fixed-reversed', 'reagent-subs', 1)),
         compare('FOLLOWS   | uix, fixed pos1 vs fixed-reversed pos0', pick('fixed', 'uix-subs', 1), pick('fixed-reversed', 'uix-subs', 0)),
         compare('STAYS     | pos1, fixed uix vs fixed-reversed reagent', pick('fixed', 'uix-subs', 1), pick('fixed-reversed', 'reagent-subs', 1)),
@@ -433,10 +568,36 @@ function analyse(datasets, opts = {}) {
       ];
     }
 
+    // --- THE PAIRED READING OF THE WITHIN-RUN CONTRASTS -------------------
+    //
+    // Same records, same reading, same bands as `comparisons` above — read as
+    // PAIRS of runs rather than as two samples of runs. This is the reading the
+    // CARRIER row's design actually licenses, and it is computed beside the
+    // unpaired one rather than instead of it, so the disagreement between them
+    // stays on the page.
+    const paired = {};
+    for (const band of bands) {
+      const inThis = (w) => reading(w, band.lo, band.hi) !== null;
+      paired[band.name] = PAIRED_CONTRASTS.map((spec) => {
+        const runs = {};
+        for (const w of positional) {
+          if (w.segOrder !== spec.mode) continue;
+          const side =
+            w.segment === spec.a[0] && w.position === spec.a[1] ? 'a' :
+              w.segment === spec.b[0] && w.position === spec.b[1] ? 'b' : null;
+          if (!side) continue;
+          const r = (runs[w.runId] = runs[w.runId] || { a: false, b: false });
+          if (inThis(w)) r[side] = true;
+        }
+        return { label: spec.label, ...pairedTable(Object.values(runs)) };
+      }).filter((row) => row.pairs > 0);
+    }
+
     out.byStatistic[name] = {
       cells: Object.values(cells).sort((p, q) => p.key.localeCompare(q.key)),
       ordinals,
       comparisons,
+      paired,
     };
   }
 
@@ -715,6 +876,19 @@ function report(a) {
       }
       L.push('');
     }
+    for (const [band, rows] of Object.entries(s.paired || {})) {
+      if (!rows.length) continue;
+      L.push(`  EXACT PAIRED (McNemar / sign), TWO-SIDED — band ${band} B, RUNS not windows:`);
+      L.push(`    ${'within-run contrast'.padEnd(52)}${'pairs'.padStart(7)}${'both'.padStart(6)}${'a only'.padStart(8)}${'b only'.padStart(8)}${'neither'.padStart(9)}   p`);
+      for (const r of rows) {
+        L.push(`    ${r.label.padEnd(52)}${String(r.pairs).padStart(7)}${String(r.both).padStart(6)}${String(r.aOnly).padStart(8)}${String(r.bOnly).padStart(8)}${String(r.neither).padStart(9)}   p = ${pStr(r.p)}`);
+      }
+      L.push('    ^ discordant pairs only; concordant pairs carry no direction and are discarded.');
+      L.push('      With b discordant pairs all one way the smallest attainable two-sided p is');
+      L.push('      2 / 2^b — so the count in the `a only` / `b only` columns bounds the p BEFORE');
+      L.push('      the data are consulted, and a Fisher over the same marginals is NOT this test.');
+      L.push('');
+    }
     L.push('  WHAT THESE p-VALUES ARE NOT. Fisher counts each WINDOW as an independent trial.');
     L.push('  Windows repeat within runs, so any per-run term — the box that minute, the');
     L.push('  revision, the session — is shared across a whole row of them. Read the run-level');
@@ -787,6 +961,46 @@ function selfTest() {
   // AND IT DISCRIMINATES: the same counts under a pooled two-proportion z give
   // z = -0.0699, which is not a p-value at all and must not be mistaken for one.
   ok('fisher: 9/38 vs 2/43 reproduces 0.0204 and not the z', Math.abs(fisherExactTwoSided(9, 29, 2, 41) - 0.0204) < 5e-4);
+
+  // --- the exact PAIRED test, against values computable by hand -----------
+  // With every discordant pair falling one way the answer is exactly 2 / 2^b,
+  // which is the arithmetic a reader checks without running anything.
+  ok('paired: 5 discordant pairs all one way is exactly 2/2^5', Math.abs(pairedExactTwoSided(5, 0) - 0.0625) < 1e-12);
+  ok('paired: 6 discordant pairs all one way is exactly 2/2^6', Math.abs(pairedExactTwoSided(6, 0) - 0.03125) < 1e-12);
+  ok('paired: 9 discordant pairs all one way is exactly 2/2^9', Math.abs(pairedExactTwoSided(9, 0) - 2 / 512) < 1e-12);
+  ok('paired: 1 discordant pair cannot say anything — p = 1', Math.abs(pairedExactTwoSided(1, 0) - 1) < 1e-12);
+  ok('paired: NO discordant pair returns 1 rather than NaN', pairedExactTwoSided(0, 0) === 1);
+  ok('paired: an even split is p = 1', Math.abs(pairedExactTwoSided(3, 3) - 1) < 1e-12);
+  ok('paired: it is symmetric in its two arguments', Math.abs(pairedExactTwoSided(6, 1) - pairedExactTwoSided(1, 6)) < 1e-15);
+  // AND IT IS TWO-SIDED, which the one-sided value would halve. Pinned as a
+  // number so a later silent switch to one-sided reds here rather than landing.
+  ok('paired: 5-vs-0 is the TWO-sided 0.0625, not the one-sided 0.03125',
+    Math.abs(pairedExactTwoSided(5, 0) - 2 * Math.pow(0.5, 5)) < 1e-12 &&
+    Math.abs(pairedExactTwoSided(5, 0) - Math.pow(0.5, 5)) > 0.03);
+  // THE PIN THAT CARRIES THE WHOLE AUDIT FINDING: the two tests DISAGREE on the
+  // window's own table. Fisher over the marginals 5-of-10 against 0-of-10 gives
+  // 0.0325; the paired test over the same ten runs gives 0.0625. A reader that
+  // quoted the first for a within-run contrast discarded the pairing.
+  ok('paired: the window\'s table reads 0.0625 paired against Fisher\'s 0.0325',
+    Math.abs(pairedExactTwoSided(5, 0) - 0.0625) < 1e-12 &&
+    Math.abs(fisherExactTwoSided(5, 5, 0, 10) - 0.0325) < 5e-4 &&
+    pairedExactTwoSided(5, 0) > fisherExactTwoSided(5, 5, 0, 10));
+  // AND THE MARGINALS DO NOT DETERMINE THE PAIRED ANSWER, which is why the
+  // pairing cannot be recovered from a published 2x2. Both tables below have
+  // marginals 3-of-4 against 1-of-4 — one Fisher p, the tea-tasting 0.4857 —
+  // and they give DIFFERENT paired results because they pair differently.
+  ok('paired: identical marginals, one Fisher, two paired answers', (() => {
+    const maxConcordance = pairedTable([{ a: 1, b: 1 }, { a: 1, b: 0 }, { a: 1, b: 0 }, { a: 0, b: 0 }]);
+    const maxDiscordance = pairedTable([{ a: 1, b: 0 }, { a: 1, b: 0 }, { a: 1, b: 0 }, { a: 0, b: 1 }]);
+    return maxConcordance.discordant === 2 && Math.abs(maxConcordance.p - 0.5) < 1e-12 &&
+      maxDiscordance.discordant === 4 && Math.abs(maxDiscordance.p - 0.625) < 1e-12 &&
+      Math.abs(fisherExactTwoSided(3, 1, 1, 3) - 0.485714285714) < 1e-9;
+  })());
+  ok('paired: the table names both concordant cells rather than dropping them', (() => {
+    const t = pairedTable([{ a: 1, b: 1 }, { a: 1, b: 0 }, { a: 0, b: 1 }, { a: 0, b: 0 }]);
+    return t.pairs === 4 && t.both === 1 && t.aOnly === 1 && t.bOnly === 1 && t.neither === 1 &&
+      t.discordant === 2;
+  })());
 
   // --- the two worst-leg readings, and the window that separates them ------
   // `fixed-2` round 4's excess vector, verbatim.
@@ -927,6 +1141,62 @@ function selfTest() {
     const x = analyse([clustered, unclustered]);
     const r = x.runLevel['largest-positive'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`].find((c) => c.key === 'fixed|uix-subs|pos0');
     return r && r.band === 2 && r.runs === 2 && r.runsWithHit === 1 && r.maxPerRun === 2;
+  })());
+
+  // --- the paired census through `analyse`, on two sets that differ ONLY in
+  // how they pair. Both plant three `uix-subs` run-hits and one `reagent-subs`
+  // run-hit across four `fixed-reversed` runs, so their run-level MARGINALS are
+  // identical — 3 of 4 against 1 of 4 — and any unpaired test reads them as the
+  // same data. The paired table separates them, which is what says this reader
+  // is reading runs as pairs rather than re-deriving the marginals.
+  const pairHit = () => synthWindow('uix-subs', [20000, 20000, 20000, 20000, 21100, 20000]);
+  const pairMiss = (seg) => synthWindow(seg, [20000, 20000, 20000, 20000, 20000, 20000]);
+  const pairRun = (id, uixHit, reagentHit) => ({
+    id,
+    data: synthDataset('fixed-reversed', [{
+      'uix-subs|grid/floor': uixHit ? pairHit() : pairMiss('uix-subs'),
+      'reagent-subs|grid/floor': reagentHit
+        ? synthWindow('reagent-subs', [20000, 20000, 20000, 20000, 21100, 20000])
+        : pairMiss('reagent-subs'),
+    }]),
+  });
+  const concordantSet = [pairRun('c1', true, true), pairRun('c2', true, false), pairRun('c3', true, false), pairRun('c4', false, false)];
+  const discordantSet = [pairRun('d1', true, false), pairRun('d2', true, false), pairRun('d3', true, false), pairRun('d4', false, true)];
+  const pairedOf = (ds) => analyse(ds).byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+    .find((x) => x.label.startsWith('CARRIER'));
+  const marginalsOf = (ds) => {
+    const rl = analyse(ds).runLevel['any-leg'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`];
+    const at = (k) => rl.find((x) => x.key === k) || { runs: 0, runsWithHit: 0 };
+    return `${at('fixed-reversed|uix-subs|pos0').runsWithHit}/${at('fixed-reversed|uix-subs|pos0').runs} vs ` +
+      `${at('fixed-reversed|reagent-subs|pos1').runsWithHit}/${at('fixed-reversed|reagent-subs|pos1').runs}`;
+  };
+  ok('paired: the two sets have IDENTICAL run-level marginals, 3/4 vs 1/4',
+    marginalsOf(concordantSet) === '3/4 vs 1/4' && marginalsOf(discordantSet) === '3/4 vs 1/4');
+  ok('paired: through analyse, the concordant set is 1 both / 2 uix-only / 0 / 1 neither, p = 0.5', (() => {
+    const t = pairedOf(concordantSet);
+    return !!t && t.pairs === 4 && t.both === 1 && t.aOnly === 2 && t.bOnly === 0 && t.neither === 1 &&
+      Math.abs(t.p - 0.5) < 1e-12;
+  })());
+  ok('paired: through analyse, the discordant set is 0 both / 3 uix-only / 1 / 0 neither, p = 0.625', (() => {
+    const t = pairedOf(discordantSet);
+    return !!t && t.pairs === 4 && t.both === 0 && t.aOnly === 3 && t.bOnly === 1 && t.neither === 0 &&
+      Math.abs(t.p - 0.625) < 1e-12;
+  })());
+  ok('paired: so the same marginals give two different paired answers',
+    Math.abs(pairedOf(concordantSet).p - pairedOf(discordantSet).p) > 0.1);
+  // AND IT REACHES THE REPORT. A statistic computed and never printed is a
+  // statistic a record cannot quote, which is how the unpaired figure came to
+  // stand alone in the first place.
+  ok('paired: the report prints the paired table under its own heading', (() => {
+    const lines = report(analyse(discordantSet));
+    return lines.some((l) => l.includes('EXACT PAIRED (McNemar / sign), TWO-SIDED')) &&
+      lines.some((l) => l.includes('CARRIER  | fixed-reversed, uix pos0 vs reagent pos1') && l.includes('p = '));
+  })());
+  // A MODE WITH NO RECORDS PRODUCES NO ROW rather than an empty one: `MIRROR`
+  // is a `fixed` contrast and these four runs are all `fixed-reversed`.
+  ok('paired: a contrast with no runs is omitted rather than printed as 0 pairs', (() => {
+    const rows = analyse(discordantSet).byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`];
+    return rows.length === 1 && rows[0].label.startsWith('CARRIER');
   })());
 
   // --- the falls gate is respected ----------------------------------------
@@ -1199,14 +1469,83 @@ function selfTest() {
       const r = m('fixed-reversed|uix-subs|pos0');
       return f.anyLeg === 28 && f.worstLeg === 22 && r.anyLeg === 8 && r.worstLeg === 3;
     })());
-    // AT RUN LEVEL, which is the denominator the record treats as honest.
-    ok('substrate window: at RUN level the CARRIER contrast is 5 of 10 against 0 of 10, p = 0.0325', (() => {
+    // AT RUN LEVEL, which is the denominator the record treats as honest — and
+    // the run level of a WITHIN-RUN contrast is ten PAIRS, not two samples of
+    // ten. The marginal counts are pinned first.
+    ok('substrate window: at RUN level the CARRIER marginals are 5 of 10 against 0 of 10', (() => {
       const rl2 = (key) => sub().runLevel['any-leg'][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
         .find((x) => x.key === key);
       const u = rl2('fixed-reversed|uix-subs|pos0');
       const g = rl2('fixed-reversed|reagent-subs|pos1');
-      return u.runs === 10 && u.runsWithHit === 5 && g.runs === 10 && g.runsWithHit === 0 &&
-        Math.abs(fisherExactTwoSided(5, 5, 0, 10) - 0.0325) < 5e-4;
+      return u.runs === 10 && u.runsWithHit === 5 && g.runs === 10 && g.runsWithHit === 0;
+    })());
+    // AND THE PAIRED TABLE IS THE TEST, which is what this pin replaced. Until
+    // the audit of PR #8619 this check pinned `fisherExactTwoSided(5, 5, 0, 10)`
+    // — an INDEPENDENT-sample p on a contrast whose whole standing is that its
+    // two cells are the two arms of the same ten runs. That made 0.0325 an
+    // invariant of the suite, so the test protected the defect instead of
+    // catching it. The paired table is pinned in full, cell by cell.
+    ok('substrate window: the CARRIER pairs are 0 both / 5 uix-only / 0 reagent-only / 5 neither', (() => {
+      const t = sub().byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return !!t && t.pairs === 10 && t.both === 0 && t.aOnly === 5 && t.bOnly === 0 &&
+        t.neither === 5 && t.discordant === 5;
+    })());
+    ok('substrate window: the paired exact two-sided p is 2/2^5 = 0.0625', (() => {
+      const t = sub().byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return Math.abs(t.p - 0.0625) < 1e-12;
+    })());
+    // THE TWO TESTS DISAGREE ON THIS WINDOW, and the pin says so in both
+    // directions so neither figure can quietly become the other.
+    ok('substrate window: the unpaired Fisher on the same marginals is the SMALLER 0.0325', (() => {
+      const t = sub().byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return Math.abs(fisherExactTwoSided(5, 5, 0, 10) - 0.0325) < 5e-4 && t.p > 0.06 &&
+        t.p > fisherExactTwoSided(5, 5, 0, 10);
+    })());
+    // UNDER THE OLD MAXIMUM THE SAME TEN PAIRS GIVE 3 DISCORDANCES AND p = 0.25.
+    // Pinned beside the primary because this page's discipline is that the two
+    // readings' disagreement is preserved, not resolved by picking one.
+    ok('substrate window: the masked reading pairs 3 discordant, p = 0.25', (() => {
+      const t = sub().byStatistic['signed-furthest'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return !!t && t.pairs === 10 && t.aOnly === 3 && t.bOnly === 0 && Math.abs(t.p - 0.25) < 1e-12;
+    })());
+    // THE POSITIVE CONTROL ON THE PAIRED TEST ITSELF, and it is what retracts
+    // "more runs were never going to settle this". Ten pairs of these SAME runs,
+    // same test, same band — the `fixed` arm's within-run substrate contrast
+    // separates at p = 0.0039 on nine discordant pairs. So a paired exact test
+    // resolves at n = 10 when the discordance rate is high enough; what this
+    // window's reversed cell bought was five discordant pairs, whose smallest
+    // attainable two-sided p is 0.0625 by construction.
+    ok('substrate window: the MIRROR contrast in `fixed` is 9 discordant pairs, p = 0.0039', (() => {
+      const t = sub().byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('MIRROR'));
+      return !!t && t.pairs === 10 && t.both === 1 && t.aOnly === 9 && t.bOnly === 0 &&
+        t.neither === 0 && Math.abs(t.p - 2 / 512) < 1e-12;
+    })());
+    // AND POOLING THE FIFTEEN-RUN WINDOW'S FIVE PAIRS IS NOT WHAT THE PAGE
+    // CLAIMED. The page's "6 of 15 against 0 of 15" reproduces under no reading
+    // and no band: the older window carries a `reagent-subs` run-hit of its own,
+    // so the pooled reagent arm is 1 of 15 and never 0. Read as pairs the pooled
+    // fifteen are 8 discordant, p = 0.0078 — and they are POST-HOC either way,
+    // because those records informed the selection of `any-leg`.
+    ok('substrate window: pooled with revarm the pairs are 1 both / 8 uix-only / 0 / 6 neither', (() => {
+      const pooled = analyse(admitted.filter((d) => /^(revorder|revarm)-csca8\//.test(d.id)));
+      const t = pooled.byStatistic['any-leg'].paired[`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.label.startsWith('CARRIER'));
+      return !!t && t.pairs === 15 && t.both === 1 && t.aOnly === 8 && t.bOnly === 0 &&
+        t.neither === 6 && Math.abs(t.p - 2 / 256) < 1e-12;
+    })());
+    ok('substrate window: the pooled reagent arm is 1 of 15 runs, never the published 0 of 15', (() => {
+      const pooled = analyse(admitted.filter((d) => /^(revorder|revarm)-csca8\//.test(d.id)));
+      const at = (stat, key) => pooled.runLevel[stat][`${OBSERVED_LO_B}-${OBSERVED_HI_B}`]
+        .find((x) => x.key === key);
+      return ['any-leg', 'signed-furthest', 'largest-positive'].every((s) => {
+        const g = at(s, 'fixed-reversed|reagent-subs|pos1');
+        return g.runs === 15 && g.runsWithHit === 1;
+      });
     })());
     // THE SAME-SESSION POSITIVE CONTROL — the two zeros above are a finding
     // only because the instrument demonstrably saw the cluster this session.
@@ -1218,6 +1557,17 @@ function selfTest() {
     // one: reversing the order CUTS the rate at uix without abolishing it.
     ok('substrate window: STAYS is 28/143 vs 0/161 — the second-driven slot carries nothing',
       subCmp('any-leg', 'STAYS').b.k === 0 && subCmp('any-leg', 'STAYS').p < 1e-9);
+    // AND AT RUN LEVEL IT IS 10 OF 10 AGAINST 0 OF 10, not the 1 of 10 the page
+    // published. Pinned because the count was wrong in the record and nothing
+    // here reproduced it: no cell of this window reads 1 of 10 in that contrast
+    // under either band.
+    ok('substrate window: at RUN level STAYS is 10 of 10 against 0 of 10', (() => {
+      const rl2 = (band, key) => sub().runLevel['any-leg'][band].find((x) => x.key === key);
+      const narrow = `${OBSERVED_LO_B}-${OBSERVED_HI_B}`;
+      const f = rl2(narrow, 'fixed|uix-subs|pos1');
+      const g = rl2(narrow, 'fixed-reversed|reagent-subs|pos1');
+      return f.runs === 10 && f.runsWithHit === 10 && g.runs === 10 && g.runsWithHit === 0;
+    })());
     ok('substrate window: FOLLOWS is 28/143 vs 8/136 — cut, not abolished', (() => {
       const c2 = subCmp('any-leg', 'FOLLOWS');
       return c2.a.k === 28 && c2.b.k === 8 && c2.b.n === 136 && c2.p < 0.001;
@@ -1318,6 +1668,9 @@ module.exports = {
   admissibleCorpus,
   isFloorAlloc,
   fisherExactTwoSided,
+  pairedExactTwoSided,
+  pairedTable,
+  PAIRED_CONTRASTS,
   largestPositiveB,
   BAND_LO_B,
   BAND_HI_B,
