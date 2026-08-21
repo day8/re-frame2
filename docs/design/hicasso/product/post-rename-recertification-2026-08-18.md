@@ -94,7 +94,7 @@ moved inside it did not change its membership.
 ## 4. Family 5 — the pinned regression gate
 
 **It still does not exist, and this was re-derived at source rather than carried forward.**
-[`budgets.md`](budgets.md) line 1346 is the operative row:
+[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) line 1346 is the operative row:
 
 | Row | Estimand | Status | Instrument | Owner |
 |---|---|---|---|---|

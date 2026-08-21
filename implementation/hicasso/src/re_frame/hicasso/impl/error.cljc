@@ -321,7 +321,7 @@
   which is `re-frame.error`'s contract reproduced rather than delegated.
   The complaint TEXT stays here rather than being routed through core's
   builder; the reasons are recorded in
-  `docs/design/hicasso/product/complaints.md`, §Rulings this catalogue
+  `implementation/hicasso/spec/complaints.md`, §Rulings this catalogue
   owns.
 
   **`extra` merges UNDER the shape, never over it.** It carries the

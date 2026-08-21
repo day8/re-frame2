@@ -2,7 +2,7 @@
 
 > **Status: OPERATIVE by ruling — RATIFIED 2026-08-13, operator-reversible.**
 > This is the explicit
-> per-read K3 record [`budgets.md`](budgets.md) and the
+> per-read K3 record [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) and the
 > [decision brief](decision-brief.md) both name and neither takes. It discharges
 > `rf2-hic-070`. The **decider is Mike Thompson, acting as re-frame2 product
 > operator**; `rf2-hic-085` records what that decider rules and has filled the
@@ -88,7 +88,7 @@ down is named"* — **never plain green**.
 **S1–S5 are package figures as of 2026-08-12**, re-pinned by `rf2-fe0l` (PRs
 #7939 and #7941) in one solo quiet-window run of the P0 ladder repointed at
 `implementation/hicasso`, six rounds, package candidate and both donors in the
-same run set. They are quoted here from [`budgets.md` §4](budgets.md) and
+same run set. They are quoted here from [`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md) and
 [the ladder's own section](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l),
 which carry the controls. Nothing on this page is re-derived from raw samples.
 
@@ -148,7 +148,7 @@ Two contrasts exist in the package run, and **they are not the same estimand**:
 | **a-i** | design cost, substrate held fixed | 1,417 vs 948 B/read | **1.4953×** | what the collector costs above Reagent's own reactions when both sit on the ratom family |
 | **a-ii** | shipped configuration, substrate as it will ship | 2,115 vs 948 B/read | **≈2.23×** | what an application actually pays after the ABI freeze |
 
-`a-i` is quoted from [`budgets.md` §4](budgets.md), which also records that the
+`a-i` is quoted from [`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md), which also records that the
 re-pin deepened it from `1.3492×`. **`a-ii`'s ratio is computed here**, from the
 two package figures in [§2](#2-the-figures-this-record-disposes-and-the-tree-each-was-taken-on)
 and from nothing else: `2,115 / 948 = 2.231×` on the rounded figures. It is
@@ -203,7 +203,7 @@ It may not be netted against [scoreboard (b)](#4-scoreboard-b--architecture-prog
 or [(c)](#5-scoreboard-c--author-preference), and no result on either recolours
 it. It may not be netted against the R=0 shell row in either direction: a shell
 byte is not a per-read byte, the shell is `rf2-hic-018`'s axis, and
-[`budgets.md` §5](budgets.md) already forbids a relative allowance from
+[`budgets.md` §5](../../../../implementation/hicasso/spec/budgets.md) already forbids a relative allowance from
 recolouring it.
 
 ---
@@ -356,12 +356,12 @@ executable by the bead that owns its enforcement:
 |---|---|
 | Pinned witness | The P0 ladder's candidate arm pointed at `implementation/hicasso` — rungs 0/1/3/7/20 at B = 1,200 boundaries (4 roots × 300 cells), Q = E, six rounds, slope fitted over rungs 1/3/7/20 and never from the R=0 intercept |
 | Instrument | `p0_run.cjs --only ladder` with the package seams landed by PR #7939; the driver, donors, floor, harness, fixtures, fit rules and order guard unchanged from the run that set the baseline |
-| Profile | **P-DEV-1 only.** `CI-RUNNER-A` may never source this row — [`budgets.md` §1](budgets.md) |
+| Profile | **P-DEV-1 only.** `CI-RUNNER-A` may never source this row — [`budgets.md` §1](../../../../implementation/hicasso/spec/budgets.md) |
 | Governed baseline | The **shipped column**: `2,115 B/read` [2,109–2,118] (S4's Hicasso figure) |
 | Tracked, not gated | The ratom column, `1,417 B/read` [1,416–1,417] (S3's Hicasso figure). It is published and its movement is reported, but a regression on an arm that does not ship is not a product regression |
 | Trip point | `+10%` of the governed baseline is **`2,326.5 B/read`** — computed here as `1.10 × 2,115`, and stated to the half-byte because rounding it up would hand back a byte of allowance the rule did not grant. A reading above it trips |
 | Band reading | A confidence band that **crosses** the trip point is **UNRESOLVED, not a pass** — the same reading the operator froze for the `1,024 B` shell line on 2026-08-12, adopted here by analogy and overturnable with it |
-| What a breach does | It is **not** a blocking PR gate: [`budgets.md` §7](budgets.md) keeps the distributional family out of flaky PR thresholds. It blocks on the pinned interleaved evidence run until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
+| What a breach does | It is **not** a blocking PR gate: [`budgets.md` §7](../../../../implementation/hicasso/spec/budgets.md) keeps the distributional family out of flaky PR thresholds. It blocks on the pinned interleaved evidence run until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
 | Enforcement home | **`rf2-hic-071`**, with the early framework at `rf2-hic-089`. This record states the rule; it does not build the gate |
 
 **A re-pin is not a regression, and the distinction is load-bearing.** The
@@ -373,7 +373,7 @@ actually governs the same move was **0 B**: the spine segment reproduced
 `2,115 → 2,115`. The rule runs forward from the package baseline above, and its
 first same-witness comparison has not yet been taken.
 
-**The 5% rule is a different rule.** [`budgets.md` §4](budgets.md)'s
+**The 5% rule is a different rule.** [`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md)'s
 *"pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and
 instrument"* governs a different witness on a different axis; neither threshold
 may be quoted for the other, and a green result on one says nothing about the
@@ -397,7 +397,7 @@ The fields any governance change owes under the
 | Instruments | `p0_run.cjs --only ladder` on the package seams (PR #7939), one solo quiet-window run, six rounds, P-DEV-1, for (a) and (b); counted authoring plus a canonical-DOM and 17-step intent-parity witness for (c) |
 | Regression rule | The 10% same-witness per-read rule, made executable in [§8](#8-the-10-same-witness-per-read-regression-rule) |
 | Decider | Mike Thompson, acting as re-frame2 product operator |
-| Evidence owner | [`budgets.md`](budgets.md) for S1–S7, [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values, [`substrate-decision.md`](substrate-decision.md) for which column ships |
+| Evidence owner | [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) for S1–S7, [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values, [`substrate-decision.md`](substrate-decision.md) for which column ships |
 | Effective revision | **This ruling of 2026-08-13** — recorded on `rf2-hic-085` under operator-authorised delegation and reversible by the operator on sight — **effective from that date**. The carrying commit is `2fd1316442`, back-filled afterwards by `rf2-i7v0` under the `rf2-mcwm` rule, because no commit can contain its own hash; a back-fill is not an amendment and does not re-freeze this record ([the sibling precedent](resource-demand-criteria.md#amendment-rule)). The ruling in full is in the status note at the top; it ratifies this record as drafted and moves no figure, threshold, verdict or rule |
 | Reopen conditions | [§10](#10-reopen-and-revert) |
 | Revert condition | [§10](#10-reopen-and-revert) |
@@ -454,7 +454,7 @@ worse than none. Re-issuing it requires the same decider.
   **K4's WebKit half does not** — controlled text is verified on all three
   engines and the two native-IME cells read **Green** — by operator ruling of
   2026-08-13 (`rf2-hic-016`), recorded per engine in
-  [`dispositions.md` §2.3](dispositions.md#23-per-control-and-dom-conformance-dispositions).
+  [`dispositions.md` §2.3](../../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions).
   K4's criterion text is untouched and bites on a red result exactly as
   registered, and this record neither made that ruling nor carries it.
 - **Whether a Hicasso-owned derived-value container beats the spine.** No code,
@@ -465,7 +465,7 @@ worse than none. Re-issuing it requires the same decider.
 
 ## 12. Sources
 
-- [`budgets.md`](budgets.md) — S1–S7 with their trees and statuses, the
+- [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) — S1–S7 with their trees and statuses, the
   comparative and regression rules, the reference profiles, and §7's enforcement
   homes.
 - [`substrate-decision.md`](substrate-decision.md) — `rf2-hic-018`: which

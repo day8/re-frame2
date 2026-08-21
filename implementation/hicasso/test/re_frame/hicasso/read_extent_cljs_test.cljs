@@ -7,7 +7,7 @@
   > refuses with source and recovery. Dynamic reads reconcile from the
   > selected render without a general per-boundary dependency ledger.
   >
-  > — `docs/design/hicasso/product/invariants.md`, I7
+  > — `implementation/hicasso/spec/invariants.md`, I7
 
   The law is one sentence with two halves, and this file is the legality
   matrix that makes both halves checkable: three shapes that must work,

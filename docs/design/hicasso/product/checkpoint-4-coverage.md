@@ -66,11 +66,11 @@ counter. That substitution has been refused four times on this programme and it 
 | Fact | Home |
 |---|---|
 | The twenty coverage rows and their required proof | [`specification.md` §7](specification.md#7-complete-use-case-coverage) |
-| Each row's layer, and which rows stand as Gap | [`dispositions.md` §1.1](dispositions.md#11-classification-table) and [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) |
-| Per-surface server policy, by inventory id | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) |
-| Per-control conformance across three engines | [`dispositions.md` §2.3](dispositions.md#23-per-control-and-dom-conformance-dispositions) |
+| Each row's layer, and which rows stand as Gap | [`dispositions.md` §1.1](../../../../implementation/hicasso/spec/dispositions.md#11-classification-table) and [§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness) |
+| Per-surface server policy, by inventory id | [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md#21-surface-inventory-and-dispositions) |
+| Per-control conformance across three engines | [`dispositions.md` §2.3](../../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) |
 | What each row's witness actually is | [`requirements-mine.md`](requirements-mine.md) |
-| Every registered budget line and its verdict | [`budgets.md` §9](budgets.md#9-the-budget-line-reconciliation-ledger) |
+| Every registered budget line and its verdict | [`budgets.md` §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger) |
 | The bulk topology result | [`topology-tournament.md`](topology-tournament.md) |
 | This checkpoint's misses | [`correction-ledger.md`](correction-ledger.md) |
 
@@ -125,12 +125,12 @@ Three values, and *unaddressed* never reads as *works*.
 | Code splitting | **met** | §7's Required-proof cell for this row reads *load, fallback, error, retry, HMR*. The first four are `lazy_boundary_dom_cljs_test.cljs`'s (`rf2-hic-041`). **HMR is the fifth and it landed** — `testbed/hmr_spec.cjs`'s `native-lazy-island-across-a-save` drives one lazy island through a real `shadow-cljs watch` recompile on Chromium, Firefox and WebKit, with `pinned-lazy-head-sabotage` beside it as the arm that reds when the bridge caches its head across a save. **This row read NOT MET until 2026-08-15**, on the measurement that `hmr_registry_cljs_test.cljs` and `hmr_remount_cljs_test.cljs` carried zero occurrences of *lazy* between them. **That measurement is still exact and is no longer the deciding one**: both suites still return zero (re-measured 2026-08-15), and the witness landed in the browser HMR runner instead — a real recompile rather than an in-process re-mint, which is the stronger instrument of the two and the one §7's cell was always describing. `rf2-y5x6j` **closed** on a re-run by `rf2-dybf9`, which drove the runner rather than quoting it |
 | Multiple frames and roots | **met** | two roots with isolated ownership, root-scoped hydration adoption, same-public-id reincarnation and delayed-callback routing |
 | Suspense and Activity | **met** | hide/reveal releasing and reacquiring reads, and genuine abandonment, retry and rollback driven rather than simulated. Open correction `rf2-9ywe` |
-| SSR and hydration | **NOT MET** | §3 of this page. **The two beads this cell used to name are both closed** and neither closure moved the row: `rf2-2l8pw` repaired the claim's *denominator*, and `rf2-cfriw` replaced *four ids with no witness* by four ids that have been server-rendered and read — of which, in [§1.1](dispositions.md#11-classification-table)'s own words, *"not one of them went green"*. What the row now turns on is inside the inventory rather than outside it: `rf2-s52w` (**open, and the operator's call**), HS-33's decided-and-unbuilt repair, HS-34's unbuilt module, and HS-17/HS-18. **`rf2-fdg4w` stood in that list until 2026-08-15 and no longer does** — PR #8286 ruled HS-23's `n/$` route dispositioned rather than blocked — and **the row does not move with it**, because the five ids beside it are untouched and each still fails on its own |
+| SSR and hydration | **NOT MET** | §3 of this page. **The two beads this cell used to name are both closed** and neither closure moved the row: `rf2-2l8pw` repaired the claim's *denominator*, and `rf2-cfriw` replaced *four ids with no witness* by four ids that have been server-rendered and read — of which, in [§1.1](../../../../implementation/hicasso/spec/dispositions.md#11-classification-table)'s own words, *"not one of them went green"*. What the row now turns on is inside the inventory rather than outside it: `rf2-s52w` (**open, and the operator's call**), HS-33's decided-and-unbuilt repair, HS-34's unbuilt module, and HS-17/HS-18. **`rf2-fdg4w` stood in that list until 2026-08-15 and no longer does** — PR #8286 ruled HS-23's `n/$` route dispositioned rather than blocked — and **the row does not move with it**, because the five ids beside it are untouched and each still fails on its own |
 | Accessibility | **met** | §7's Required-proof cell for this row reads *names, roles, keyboard, virtualized/overlay focus*, and every limb of it is witnessed — `test_kit_a11y_cljs_test.cljs` over three L2 kit projections, `examples/slice/a11y_cljs_test.cljs`, `.../a11y_focus_dom_cljs_test.cljs` and `combobox_keyboard_dom_cljs_test.cljs` (`rf2-hic-043`); `examples/ledger/keyboard_dom_cljs_test.cljs`, `.../virtualized_dom_cljs_test.cljs` and `overlay_focus_dom_cljs_test.cljs` (`rf2-hic-049`). **This row read NOT MET until 2026-08-14** on one further deficit: an **axe** sweep, which is in no acceptance column here and which `rf2-5q8o` ruled a **DECLINE** — a non-goal, not an unlanded witness. With that the row's only remaining deficit is gone. `rf2-5q8o` |
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
 | Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` |
-| Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
+| Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
 
 **Nineteen met, one not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
 inside Large collections, where the clock half is unaddressed while the work census is met — and it is recorded there
@@ -138,9 +138,9 @@ rather than allowed to colour the row either way.
 
 ### What I did to §1.1, and why
 
-[§1.1](dispositions.md#11-classification-table)'s Planned-witness column was left to this checkpoint by name. It read
+[§1.1](../../../../implementation/hicasso/spec/dispositions.md#11-classification-table)'s Planned-witness column was left to this checkpoint by name. It read
 `Claimed` on all twenty rows, several of them naming a bead that had closed. `Claimed` was the strongest word the column
-had, and [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) had already recorded why that no longer
+had, and [§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness) had already recorded why that no longer
 worked: *"a closed bead owns nothing, and beads here close on PR-open, so closed does not even mean landed."*
 
 So a column built to say *who owes this* was being read for *is this proved*, and it could not say yes. I added a third
@@ -149,7 +149,7 @@ artefact named, four Gap with what is absent. `Claimed` now has no occupant, and
 because a future surface will be owed before it is proved and the word will be needed again. **Two of those four Gaps
 have since been corrected to Witnessed** — Accessibility, whose only deficit was the axe `rf2-5q8o` declined, and
 Migration, whose population had already run over three repositories. `rf2-2ius2` made both amendments, and
-[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) carries their working; the sixteen-and-four in the
+[§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness) carries their working; the sixteen-and-four in the
 sentence above is what this checkpoint wrote on 2026-08-14, not what §1.1 reads today.
 
 **[2026-08-15.] A third Gap should now move and has not, and it is not this page's cell to move.** §1.1's Code splitting
@@ -157,14 +157,14 @@ row still reads `Gap` on the ground that *"HMR … is not [witnessed], and no be
 when `rf2-y5x6j` closed: the witness is `hmr_spec.cjs`'s `native-lazy-island-across-a-save`, driven on three engines,
 and this page scores the row **met** on it above. The SSR cell beside it is current and was re-read rather than assumed —
 it already records `rf2-cfriw`'s corrected diagnosis and `rf2-2l8pw`'s three minted ids in its own words. §1.1 is
-[`dispositions.md`](dispositions.md)'s and a Planned-witness correction after this checkpoint's own §1.1 pass is an
-ordinary amendment under [§3](dispositions.md#3-append-protocol-and-ownership) rather than a coverage finding, so it is
+[`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md)'s and a Planned-witness correction after this checkpoint's own §1.1 pass is an
+ordinary amendment under [§3](../../../../implementation/hicasso/spec/dispositions.md#3-append-protocol-and-ownership) rather than a coverage finding, so it is
 **filed rather than reached for**: `rf2-oc6rn`. Recorded here so a reader who checks §1.1 against this page's count
 finds the discrepancy explained rather than fresh.
 **[DISCHARGED 2026-08-15, `rf2-oc6rn` (PR #8297). The paragraph above is kept as the record of a cross-page
 disagreement that was real when this page re-ran.]** §1.1's Code splitting cell now reads `Witnessed`, on
 `hmr_spec.cjs`'s `native-lazy-island-across-a-save`, and
-[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness)'s Gap count recomputed from two to one, its own
+[§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness)'s Gap count recomputed from two to one, its own
 2026-08-14 audit bullet carrying a beside-amendment in the same form. The two pages now agree — dispositions reads
 `Witnessed` where this page scores the row **met**. **Nothing in this checkpoint's score moves with it**: that cell was
 always §1.1's to move and never this page's count, which is exactly why the finding was filed rather than reached for.
@@ -173,7 +173,7 @@ always §1.1's to move and never this page's count, which is exactly why the fin
 its planned witness. That bead is the bounded Node service; the per-surface matrix is `rf2-hic-046`'s and `rf2-hic-005`'s.
 The cell named a bead that owns a different obligation, which is a worse defect than naming a closed one — a closed bead
 at least points at the right work. It is recorded here rather than in the ledger because correcting a Planned-witness
-cell is the coverage-matrix owner's own amendment under [§3](dispositions.md#3-append-protocol-and-ownership), and a
+cell is the coverage-matrix owner's own amendment under [§3](../../../../implementation/hicasso/spec/dispositions.md#3-append-protocol-and-ownership), and a
 finding I hold the fence for is a finding I fix.
 
 ## 3. The SSR/hydration conjunct, which is what fails this exit
@@ -191,7 +191,7 @@ whose acceptance is the *client* Activity lifecycle. §2.1's own note 3 was the 
 still owes a witness. The refusal must be shown to fire, at source, with its recovery — an unproved refusal is not a
 disposition."* `rf2-cfriw` landed `client_only_arms_ssr_cljs_test.cljs` — nine `deftest` rows driving all four through
 the real `react-dom/server` — and closed on a re-run by `rf2-dybf9`. **The finding is discharged and the diagnosis
-changed rather than the verdict**, which [§1.1](dispositions.md#11-classification-table) records independently of this
+changed rather than the verdict**, which [§1.1](../../../../implementation/hicasso/spec/dispositions.md#11-classification-table) records independently of this
 page: *"only ONE of the four owes an ordinary refusal at all, and not one of them went green"*. Measuring them is what
 established that:
 
@@ -199,7 +199,7 @@ established that:
   `<input>` into the response and refuses nothing — the module is an *arrangement* over doors that are already Render —
   so what is retired is the claim that a refusal was owed. Overlay's `:open?` false is the application's flag answering
   and not a policy, and its one remaining ident was taken out of the bytes by `rf2-9zz0y`. Neither is upgraded, because
-  [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and `rf2-cfriw`'s scope was
+  [§2.4](../../../../implementation/hicasso/spec/dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and `rf2-cfriw`'s scope was
   the refusal arm alone. Honest is not green, and this conjunct asks for green.
 - **HS-23 is the one the measurement made worse, and it is the one that is now SETTLED.** It read here as an open
   operator decision until 2026-08-15, when PR #8286 landed `rf2-fdg4w`'s ruling — **Disposition 1: accept the render on
@@ -212,7 +212,7 @@ established that:
   is why the `[:>]`/`n/$` split is a principled tier boundary and not the inconsistency this bullet used to call it.
   Through `n/$` there is **no Hicasso policy at all: React's own server semantics govern — bytes witnessed, no hydration
   claim made, and the route is NOT upgraded to Render**, because
-  [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and only the first of them is
+  [§2.4](../../../../implementation/hicasso/spec/dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and only the first of them is
   measured here. **A witness was never owed and none was added** —
   `client_only_arms_ssr_cljs_test.cljs`'s *through-n-dollar-a-visible-activity-subtree-reaches-the-response* is that
   witness, landed with `rf2-cfriw` and cited by HS-23's cell all along. The **disposition** that was owed now exists.
@@ -229,7 +229,7 @@ and its refusal is discharged rather than outstanding. Checked before scoring, b
 have been the easy error.
 
 **And the claim's denominator is short — which is the finding this checkpoint would not have got from any hand-off.**
-[§3](dispositions.md#3-append-protocol-and-ownership)'s second constraint reads: *"Adding a public surface adds an id. A
+[§3](../../../../implementation/hicasso/spec/dispositions.md#3-append-protocol-and-ownership)'s second constraint reads: *"Adding a public surface adds an id. A
 surface that reaches the facade without a row here has escaped the inventory, and the Phase 4 exit — every inventory id
 pointing at an applicable green row — silently stops meaning anything."* Three names on `re-frame.hicasso`'s alias block
 have no row anywhere in §2.1 or §2.2:
@@ -307,7 +307,7 @@ on that.
 
 ## 5. The three conformance findings, read as open
 
-[§2.3](dispositions.md#23-per-control-and-dom-conformance-dispositions) landed complete under `rf2-hic-040` — twenty
+[§2.3](../../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) landed complete under `rf2-hic-040` — twenty
 policies, zero `Owed | Owed` remaining, 190 checks across 25 sections green on Chromium 147.0.7727.15, Firefox 148.0.2
 and WebKit 26.4. Three of its cells are **findings, not certifications**, and its own text instructs this audit to read
 them as open. I do:
@@ -396,7 +396,7 @@ question — so it keeps its row above on its own evidence and is **not** swept 
 
 **Why this one was got wrong, since the same mistake has now been made twice.** The finding was reached by reading the
 tree for the population and not finding it — sound for every other row on this page, and unsound for this one.
-[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records that the external repositories are **cloned
+[§1.2](../../../../implementation/hicasso/spec/dispositions.md#12-rows-without-a-complete-planned-witness) records that the external repositories are **cloned
 read-only and measured, never vendored**, so a tree search here is looking in the one place the method guarantees will
 be empty. `rf2-hic-055`'s record is the evidence: three repositories, each with a commit hash, two controls, and two
 byte-identical athens runs for determinism. A closed bead's record is evidence about what ran even when the tree cannot

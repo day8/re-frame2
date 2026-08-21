@@ -54,7 +54,7 @@
   ## The island band, and the row this file does not pretend to be
 
   The island-performance deliverable is `C7` in
-  `docs/design/hicasso/product/budgets.md` §9, and it is `UNPINNED`, its
+  `implementation/hicasso/spec/budgets.md` §9, and it is `UNPINNED`, its
   authority resting with the budget gates. That page's §9.2 says why in
   terms: the 5% rule has no same-instrument anchor until the ladder is
   re-pinned, no package-resident clock instrument exists, and §7 forbids

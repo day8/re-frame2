@@ -6,7 +6,7 @@
   > callback, promise, timer, lazy sequence, or other escaped extent
   > refuses with source and recovery.
   >
-  > — `docs/design/hicasso/product/invariants.md`, I7
+  > — `implementation/hicasso/spec/invariants.md`, I7
 
   [[re-frame.hicasso.read-extent-cljs-test]] is the legality matrix:
   fourteen rows, three legal shapes, seven refusals asserted as exact

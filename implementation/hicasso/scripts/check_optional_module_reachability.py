@@ -3,7 +3,7 @@
 
 The product invariant is one line — *optional libraries: named consumer
 required; zero reachable production code when absent*
-(`docs/design/hicasso/product/invariants.md`, section 1) — and under a
+(`implementation/hicasso/spec/invariants.md`, section 1) — and under a
 whole-program compiler it reduces to one structural fact: **nothing a
 consumer reaches through the public door may lead to the module.**  A
 single `:require` of `re-frame.hicasso.motion` in `re-frame.hicasso`

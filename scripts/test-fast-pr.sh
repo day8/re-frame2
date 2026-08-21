@@ -1088,7 +1088,7 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
 
 # Hicasso naming census (rf2-st1x5, gate from rf2-hxbhe).  Every public name in
 # the ten shipped `implementation/hicasso` namespaces owes a row in
-# `docs/design/hicasso/product/naming-ledger.md` — `dispositions.md` section 3's
+# `implementation/hicasso/spec/naming-ledger.md` — `dispositions.md` section 3's
 # constraint, over all ten namespaces rather than the one door
 # `check_facade_inventory.py` reaches.  ALWAYS-ON, mirroring its unconditional
 # `hicasso-naming-census` job: the ledger half of its input is `docs/**`, which

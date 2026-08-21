@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """THE COMPLAINT-CATALOGUE GATE for implementation/hicasso/ (rf2-hic-021).
 
-`docs/design/hicasso/product/complaints.md` is the REGISTER of Hicasso's
+`implementation/hicasso/spec/complaints.md` is the REGISTER of Hicasso's
 diagnostic ids: every complaint the substrate can raise, every spelling
 claimed for a refusal whose surface is not built yet, and every spelling
 retired and therefore dead forever. That register is a document of
@@ -258,7 +258,7 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_ROOT = os.path.dirname(SCRIPTS_DIR)                       # implementation/hicasso
 REPO_ROOT = os.path.dirname(os.path.dirname(PACKAGE_ROOT))        # repo root
 
-REGISTER = os.path.join(REPO_ROOT, "docs", "design", "hicasso", "product", "complaints.md")
+REGISTER = os.path.join(PACKAGE_ROOT, "spec", "complaints.md")
 SPEC_009 = os.path.join(REPO_ROOT, "spec", "009-Instrumentation.md")
 # The guide R8 resolves its chapter anchors against.  It shipped from
 # `docs/design/hicasso/draft-guide/`; rf2-0yp7w promoted that corpus into the
@@ -1113,7 +1113,7 @@ def report(failures):
     print("FAIL: Hicasso complaint catalogue\n")
     for failure in failures:
         print("  " + failure)
-    print("\nThe register is docs/design/hicasso/product/complaints.md; the "
+    print("\nThe register is implementation/hicasso/spec/complaints.md; the "
           "rule each R-number names is in this script's header.")
     return 1
 

@@ -44,7 +44,7 @@
   "**SURFACE** — the tier's public contract. A consumer writes it, or a
   tool reads it, and Phase 3 freezes it. Each name's one-line
   justification is in `native.cljc`'s namespace docstring; the ledger
-  rows are in `docs/design/hicasso/product/naming-ledger.md`."
+  rows are in `implementation/hicasso/spec/naming-ledger.md`."
   #{"$"                 ; the one native authoring form (ledger row 7)
     "props"             ; the explicit dynamic props operand (row 8)
     "defcomponent"      ; the island declaration door (row 9)

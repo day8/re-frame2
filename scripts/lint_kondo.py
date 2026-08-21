@@ -373,7 +373,7 @@ def self_test() -> int:
     check("the workflow carrying the pin arms the lane",
           arms([".github/workflows/lint.yml"], roots))
     check("a doc-only change does not",
-          not arms(["docs/design/hicasso/product/budgets.md", "README.md"], roots))
+          not arms(["docs/design/hicasso/product/specification.md", "README.md"], roots))
     check("a near-miss prefix does not arm the lane",
           not arms(["implementation-notes/x.cljs"], roots))
 

@@ -26,10 +26,10 @@ than only the number.
 |---|---|
 | Which artefacts this repository publishes, and the lockstep rule they publish under | [`spec/Conventions.md` §Packaging conventions](../../../../spec/Conventions.md#packaging-conventions) |
 | How a release is actually cut — deploy DAG, recovery, pre-flight | [`docs/release-process.md`](../../../release-process.md) |
-| Which public surfaces exist, and their server/hydration disposition | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) |
+| Which public surfaces exist, and their server/hydration disposition | [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](../../../../implementation/hicasso/spec/dispositions.md#22-public-surfaces-with-no-server-render-behavior) |
 | What each React-version obligation is, per surface class | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
-| Which refusal ids exist and what stability they carry | [`complaints.md` §The stability rule](complaints.md#the-stability-rule) |
-| Which spellings changed, and under whose ruling | [`naming-packet.md`](naming-packet.md#21-operator-rulings-mike-2026-08-11), [`naming-ledger.md`](naming-ledger.md) |
+| Which refusal ids exist and what stability they carry | [`complaints.md` §The stability rule](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) |
+| Which spellings changed, and under whose ruling | [`naming-packet.md`](naming-packet.md#21-operator-rulings-mike-2026-08-11), [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) |
 | Which laws the ordinary facade is frozen under — and that names are not among them | [`facade-freeze.md`](facade-freeze.md#1-the-membership-and-how-it-was-decided) |
 | What ships as an artefact, and what does not | this file |
 
@@ -142,9 +142,9 @@ renamed without something going red.
 
 | Surface | Where it is enumerated | The gate that keeps it honest | Measured 2026-08-18 |
 |---|---|---|---|
-| The ordinary authoring door, `re-frame.hicasso` | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) | `implementation/hicasso/scripts/check_facade_inventory.py`, CI job `hicasso-facade-inventory` | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
-| The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
-| Refusal ids | [`complaints.md`](complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
+| The ordinary authoring door, `re-frame.hicasso` | [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](../../../../implementation/hicasso/spec/dispositions.md#22-public-surfaces-with-no-server-render-behavior) | `implementation/hicasso/scripts/check_facade_inventory.py`, CI job `hicasso-facade-inventory` | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
+| The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
+| Refusal ids | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
 | Optional modules — forms, motion, native, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | five modules, each proving zero reachable production code when absent |
 | The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
@@ -249,7 +249,7 @@ forward, which is exactly what a shim does carry forward.
 ### 5.1 What is stable today — the honest list
 
 **One thing, and it is genuinely promised: refusal ids.**
-[`complaints.md` §The stability rule](complaints.md#the-stability-rule) states it in four rules — an id never
+[`complaints.md` §The stability rule](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) states it in four rules — an id never
 changes meaning, an id never changes spelling, a retired id is tombstoned and never reused, a reserved id
 means only the sentence in its row — and rules 3 and 4 are mechanised, so a reserved or retired id that
 acquires an emitter reds the gate. A consumer's stored errors, a monitor's grouping rule and a page of prose
@@ -270,7 +270,7 @@ and the spellings are not.** An upgrade may cost you a rename. It should not cos
 Any public spelling may change in any release before 1.0. What such a change owes is not a courtesy — every
 item below is enforced by something that runs:
 
-- **A row recording the question and its disposition**, in [`naming-ledger.md`](naming-ledger.md) or the
+- **A row recording the question and its disposition**, in [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) or the
   packet that consolidates it. Nobody renames mid-flow; the ledger's own header rule is what stops it.
 - **The sweep applied to the whole corpus in the same change.** The guide's verb use-sites are resolved
   against the sources by `check_guide_samples.py` (CI job `hicasso-guide-samples`), so a rename that misses

@@ -165,7 +165,7 @@
 
   The alternative is a silent no-op — the panel opening in the top layer
   at the UA's default position, visibly unanchored, saying nothing. Per
-  `docs/design/hicasso/product/complaints.md` promoting the reservation
+  `implementation/hicasso/spec/complaints.md` promoting the reservation
   is ONE act and not three: the emitter, the `spec/009-Instrumentation.md`
   row and the move of the register row to `live` land together, because
   R3 and R6 of `check_complaint_catalogue.py` red on either half alone.

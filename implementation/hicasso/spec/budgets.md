@@ -1,6 +1,6 @@
 # Hicasso budgets: named reference profiles and pinned baselines
 
-This page prepares [specification §6](specification.md#6-performance-contract)
+This page prepares [specification §6](../../../docs/design/hicasso/product/specification.md#6-performance-contract)
 for ratification. It does not ratify anything. **Ratification authority is the
 re-frame2 product operator's (Mike Thompson)**; this document records the
 profiles a budget is stated *on*, the estimand/instrument/control standard each
@@ -20,7 +20,7 @@ another bead's to decide:
 | Question | Owner |
 |---|---|
 | The R=0 shell's breach of its paper-fail line — remediate, or disposition it | `rf2-hic-018` |
-| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in [`k3-disposition.md`](k3-disposition.md) |
+| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in [`k3-disposition.md`](../../../docs/design/hicasso/product/k3-disposition.md) |
 | Turning any row below into a blocking gate | `rf2-hic-089` (the early framework); `rf2-85og2` for the measurement half — `rf2-hic-071` held it until its 2026-08-14 close |
 
 ---
@@ -244,7 +244,7 @@ precedent would owe every distributional row a CI shadow reading. Funding a
 second physical machine is an operator hardware decision, and `S8` did not
 change its urgency. **If a second physical distributional profile ever
 registers, this ruling reopens automatically** on §1's standing invitation —
-and [specification §6](specification.md#6-performance-contract) now states the
+and [specification §6](../../../docs/design/hicasso/product/specification.md#6-performance-contract) now states the
 obligation in these terms, so the contradiction that forced the ruling cannot
 resurface.
 
@@ -284,7 +284,7 @@ its measurement remainder went there.]**
 **On D17–D25 — the per-keystroke census (`rf2-hic-045`).** These are the
 remaining five stages of one keystroke, counted on the two public-package
 witness applications and published in
-[`per-keystroke.md`](per-keystroke.md). They are registered here rather than
+[`per-keystroke.md`](../../../docs/design/hicasso/product/per-keystroke.md). They are registered here rather than
 left on that page because they are the only figures in the corpus that **scale
 with the mounted page**, and this section is where a reader finds out which
 budgets do. Their instrument is not `hm/bodies-run`: a counting wrapper on the
@@ -354,7 +354,7 @@ for a one-row write at `B` = 100, 300 and 1,000, and the coarse arm builds `B`
 — a factor of a thousand at the largest size, on an exact integer counter with
 no interval attached because none is needed. The chunked arm builds `k` = 25
 and the windowed arm builds 1; both are recorded
-[on the tournament page](topology-tournament.md#22-the-rung-2-teaching-table--rows-of-markup-built)
+[on the tournament page](../../../docs/design/hicasso/product/topology-tournament.md#22-the-rung-2-teaching-table--rows-of-markup-built)
 and neither is registered here, because a stated arm constant is a setting and
 not a result.
 
@@ -375,7 +375,7 @@ from* zero, which is the strongest form a distributional reading takes.
 `implementation/hicasso` in one solo quiet-window run, on the same P0 ladder
 `rf2-hic-006` had to refuse — repointed at the package by PR #7939 and read
 through by `rf2-fe0l`. **S6 and S7 are still carried unchanged** from
-[the evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence)
+[the evidence baseline](../../../docs/design/hicasso/product/lanes/evidence-baseline.md#pinned-economic-evidence)
 and are **not** package figures: no package-resident clock instrument exists,
 and the allocation row has no publishable claim to re-pin.
 **[Amended 2026-08-18, `rf2-xa8wo`.]** The first of those two reasons has
@@ -389,15 +389,15 @@ allocation instrument, and neither has been re-taken. `S6` and `S7` stay
 |---|---|---|---|---|
 | S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
 | S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
-| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
-| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
+| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](../../../docs/design/hicasso/product/k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
+| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](../../../docs/design/hicasso/product/k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
 | S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.8081x`, per-round escapes [0.6863–0.9302] over the fifteen rounds of runs A, B and C — **19.2% of mount time recovered** [7.0–31.4%]. **The figure MOVED on 2026-08-18 (`rf2-6zc2q`), and the move is a CHANGE OF BASIS rather than a correction**: the row read `0.7418x` [0.6458–0.8409] / 25.8% [15.9–35.4%] taken at `{:warmup 3 :samples 6}`, and this is the re-tuned `{:warmup 8 :samples 12}`. That old basis is RETIRED, so `0.7418x` can never be re-taken. What the new figure rests on, and the confound it does not resolve, are in the `S8` note below | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
 
 The run's evidence, its controls and its full provenance are
-[on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
+[on the ladder's studio page](../../../docs/design/hicasso/studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
 what follows is only what the re-pin does to this page's rows.
 
 **S3 is the one figure that moved, and the instrument says it is the
@@ -414,8 +414,8 @@ answer is **one line**: `interop/activate-derived-value!` in the collector's
 `wire-cell!`, a ratom-only correctness repair that landed between the two
 sessions. **The figure does not move** — S3 stays `1,417 B/read` — because the
 attribution names the cost rather than removing it. The bisection is
-[on the ladder](../studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z);
-the disposition is [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide).
+[on the ladder](../../../docs/design/hicasso/studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z);
+the disposition is [substrate-decision §6](../../../docs/design/hicasso/product/substrate-decision.md#6-what-this-page-does-not-decide).
 
 **S1 and S2 carry the substantive news for the shell.** The breach is not an
 artefact of the prototype — it survives the move to the package essentially
@@ -424,7 +424,7 @@ unchanged, at `1,100` and `1,095 B` against `1,103` and `1,097 B`.
 **S6 carries a standing prohibition, and ratification did not lift it.** The
 `1.25x` cold-mount ceiling was ratified and made operative on 2026-08-13 by
 operator ruling rather than by the sitting it was held for
-([`k1-price-acceptance.md`](k1-price-acceptance.md)). It prices S6's miss; it
+([`k1-price-acceptance.md`](../../../docs/design/hicasso/product/k1-price-acceptance.md)). It prices S6's miss; it
 does not clear it. The registered `1.10x` line is still the only adjudicated
 one, S6 stays `BREACH` against it, and **no evidence row may use the accepted
 ceiling to mark K1 green.**
@@ -881,7 +881,7 @@ is what closes that, and it is a **second counter and not a wider line**: no
 threshold moved, and a coarse arm that is genuinely cheap still passes both.
 The measurement, the four-arm table and the hole's shape are
 [§3's `D26` note](#3-deterministic-rows-pinned-on-the-moved-package) and
-[the tournament's §2.5](topology-tournament.md#25-u5-and-an-instrument-gap-in-it-that-this-tournament-exposed).
+[the tournament's §2.5](../../../docs/design/hicasso/product/topology-tournament.md#25-u5-and-an-instrument-gap-in-it-that-this-tournament-exposed).
 
 ### The comparative and regression rules
 
@@ -918,8 +918,8 @@ and its verdict is recorded there.
 
 > **AMENDED 2026-08-13 — the breach is ACCEPTED, SCOPED. The line is UNMOVED.**
 > The separate prospective disposition
-> [`specification.md` §6](specification.md#6-performance-contract) requires —
-> the one [the substrate decision's §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
+> [`specification.md` §6](../../../docs/design/hicasso/product/specification.md#6-performance-contract) requires —
+> the one [the substrate decision's §5.2](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
 > refused to draft and handed up — has been taken on `rf2-0xx2`. It is a
 > **delegated ruling**: recorded by a decision agent under operator-authorised
 > delegation after the reviewed dossier, and **reversible** by the operator. It
@@ -988,7 +988,7 @@ and its verdict is recorded there.
 ### What the package reading does to this row
 
 The shell has now been measured on `implementation/hicasso` itself
-([the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)),
+([the run](../../../docs/design/hicasso/studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)),
 and the freeze is **not load-bearing for the present verdict** on either tree:
 
 | R=0 shell | Reagent segment | UIx segment | worst round | vs `1,024 B` |
@@ -1014,7 +1014,7 @@ disposition.
 `rf2-hic-006` asks this page to resolve, **from the registered instrument's
 source of record**, whether the paper-fail line is 1,000 B or 1,024 B.
 
-**The source of record is [`validation.md`](../validation.md), and it does not
+**The source of record is [`validation.md`](../../../docs/design/hicasso/validation.md), and it does not
 resolve the question.** Its row reads, in full:
 
 > Exclusive retained per boundary (**the R=0 boundary shell**) — target
@@ -1062,7 +1062,7 @@ decision is the operator's.
 The current breach stands at **R=0 = 1,100 B / 1,095 B on the package**, against
 the frozen `1,024 B` line. It is a **live pressure owned by `rf2-0xx2`**, not a
 disposition this page may make — the substrate arm's disposition has since been
-taken, and it is [the substrate decision record](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)'s:
+taken, and it is [the substrate decision record](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)'s:
 the substrate arm is refused on the evidence, the breach is carried red, and the
 line is not re-registered. The row here is never silently normalised into a
 percentage allowance — §6 says in terms that a relative regression allowance
@@ -1207,7 +1207,7 @@ and no figure may be scaled from one onto the other.
 | Deterministic rows D1–D26 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-85og2` (`rf2-hic-071`'s measurement remainder, split there on its 2026-08-14 close) |
 | Distributional rows S1–S8, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-0xx2` |
-| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
+| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](../../../docs/design/hicasso/product/k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
 
 Row by row, with each verdict beside its line, that table is
 [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger). The routing
@@ -1313,7 +1313,7 @@ the verdict from those two numbers and refuses a status that disagrees — so
 
 **A `BREACH` row does not redden the gate; an unrecorded one does.** The
 distinction is the whole design. §5 says the shell breach is carried and never
-normalised, and [the substrate decision](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
+normalised, and [the substrate decision](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
 carried it red deliberately after refusing substrate remediation on the
 evidence. A gate that failed the build on that would be demanding a fix the
 programme has already ruled against; a gate that quietly greened it would be
@@ -1456,8 +1456,8 @@ list above**, by this definition's own test rather than against it. The
 operator's delegated ruling of 2026-08-15 reads their *Disposition* — the K1
 price acceptance, ratified 2026-08-13 with its effective revision filled — as a
 **taken, complete** ruling carrying its own reopen conditions
-([`k1-price-acceptance.md` §7.1](k1-price-acceptance.md#71-reopen-conditions))
-and revert trigger ([§7.2](k1-price-acceptance.md#72-revert-condition)), which
+([`k1-price-acceptance.md` §7.1](../../../docs/design/hicasso/product/k1-price-acceptance.md#71-reopen-conditions))
+and revert trigger ([§7.2](../../../docs/design/hicasso/product/k1-price-acceptance.md#72-revert-condition)), which
 is the second mode's test verbatim; a remaining contingency is not a live
 transition. Both cells therefore keep `rf2-hic-085` as the bead that **took**
 the recording, exactly as `S1`, `S2` and `C5` keep `rf2-0xx2`, and the closed
@@ -1506,9 +1506,9 @@ loses no address.
 | D24 | 8 DOM mutation records per keystroke, grid | 8 — the editor's seven plus one `characterData` on the row total's text node | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
 | D25 | 3 DOM mutation records for a refused keystroke | 3 — `name`/`type`/`name` with no `value` write; the attribution that makes D23's other four the commit's | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
 | D26 | 1 row of markup built for a one-row write under a fine topology, at every row count | 1 at B = 100, 300 and 1,000 — the coarse arm builds B, the chunked k=25, the windowed 1 | bench-tree | `MET` | `implementation/hicasso/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` (PR gate) | `rf2-mwr2` | — |
-| S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
-| S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
-| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
+| S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
+| S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
+| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [substrate-decision §6](../../../docs/design/hicasso/product/substrate-decision.md#6-what-this-page-does-not-decide) |
 | S4 | ≤ 10% regression on the same pinned witness | 2,115 vs UIx 2,980 per read | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | — |
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -1536,7 +1536,7 @@ Forty-nine rows: the twenty-six deterministic figures of §3, the eight distribu
 rows and six user-visible budgets of §4, the eight comparative rules §4 now
 gives ids to, and one row registered off this page — **I9**, the two-hook
 ceiling frozen by
-[the substrate decision](substrate-decision.md#4-the-two-hook-ceiling-frozen-with-its-measurement).
+[the substrate decision](../../../docs/design/hicasso/product/substrate-decision.md#4-the-two-hook-ceiling-frozen-with-its-measurement).
 I9 is here because it is a budget with a package-resident witness and no other
 ledger; its provenance is held in the gate rather than assumed.
 
@@ -1567,9 +1567,9 @@ population, which is what a registered line needs.
 ### 9.2 What each not-green row is waiting on
 
 Three rows have a disposition record of their own and point at it: `S1` and
-`S2` at [the substrate decision's §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition),
+`S2` at [the substrate decision's §5.2](../../../docs/design/hicasso/product/substrate-decision.md#52-the-read-free-boundary-shell--the-disposition),
 where the shell breach was carried red on the evidence, and `S3` at
-[its §6](substrate-decision.md#6-what-this-page-does-not-decide), where the
+[its §6](../../../docs/design/hicasso/product/substrate-decision.md#6-what-this-page-does-not-decide), where the
 `+139 B/read` package move is now attributed to one ratom-only correctness line
 (`rf2-l50z`) — an attribution, not a change to the figure, so `S3` is still
 `UNRESOLVED` against its own rule. Every other row that is not `MET`
@@ -1595,7 +1595,7 @@ live bead to hold it, and the cell naming who took it is the audit trail —
 `rf2-0xx2`'s close reason is where the scoping is recorded. The remaining path
 is not owed an owner either: a shell arm landing under `1,024 B` on the
 package, on which day the acceptance is **deleted rather than kept as a floor**,
-[stays live and deliberately unowned](correction-ledger.md#deferred-items-and-the-release-decision)
+[stays live and deliberately unowned](../../../docs/design/hicasso/product/correction-ledger.md#deferred-items-and-the-release-decision)
 by the programme's own choice, so there is no live bead to name and naming one
 would fabricate ownership the programme withheld. Contrast `S6` and `C2` below,
 where a route to change the record does exist and the cell names it: same rule,
@@ -1617,7 +1617,7 @@ or `C5` changes with it.
   on the rig that exists; each needs a clock instrument pointed at
   `implementation/hicasso`, on P-DEV-1, in its own window.
   **[Amended 2026-08-14, `rf2-hic-045`.]** `U1`'s **deterministic half is now
-  published** — [`per-keystroke.md`](per-keystroke.md) is the per-keystroke
+  published** — [`per-keystroke.md`](../../../docs/design/hicasso/product/per-keystroke.md) is the per-keystroke
   census of the two witness applications, and its §6 records that on both
   pages the typed field shows the model's value at the instant
   `dispatchEvent` returns, inside the discrete event, with no flush performed
@@ -1672,7 +1672,7 @@ or `C5` changes with it.
   standing prohibition — no evidence row may use the accepted ceiling to mark
   K1 green — is held as a pin on those two rows rather than as a sentence
   nobody re-reads. No line here is re-pinned by that ratification: the
-  [correction ledger](correction-ledger.md) reopens a budget line only when a
+  [correction ledger](../../../docs/design/hicasso/product/correction-ledger.md) reopens a budget line only when a
   ceiling *changes*, and this one did not move.
   **[Amended 2026-08-13.]** `S6` and `C2` keep `rf2-hic-085` as their
   authority, and keeping it is a decision rather than an omission. What these
@@ -1680,7 +1680,7 @@ or `C5` changes with it.
   their instrument cell is the estimator that already took one, `rf2-diaud`'s,
   and it decided them on the failing side. What is unsettled is the
   disposition, and the disposition is the price accepted for the miss;
-  [that record's §9](k1-price-acceptance.md#9-amendments-to-this-record) makes
+  [that record's §9](../../../docs/design/hicasso/product/k1-price-acceptance.md#9-amendments-to-this-record) makes
   `rf2-hic-085`, which owns its effective-revision field, the only route to a
   change in it. No other live bead holds that route, and a bead filed to hold
   it would be the same standing recorder under a second id. So the cell names
@@ -1703,8 +1703,8 @@ or `C5` changes with it.
   `S1`, `S2` and `C5` keep closed `rf2-0xx2` above. The closed id is the durable
   record and the reopen handle in one: `bd reopen rf2-hic-085` reuses this same
   id, and a fired
-  [§7.1](k1-price-acceptance.md#71-reopen-conditions) condition or
-  [§7.2](k1-price-acceptance.md#72-revert-condition) lapse returns that record
+  [§7.1](../../../docs/design/hicasso/product/k1-price-acceptance.md#71-reopen-conditions) condition or
+  [§7.2](../../../docs/design/hicasso/product/k1-price-acceptance.md#72-revert-condition) lapse returns that record
   to its decider by its own text, with or without a bead. The route survives;
   what retires is the sentinel. Nothing here re-pins a line, moves a figure or
   touches either row's `BREACH` status.
@@ -1768,7 +1768,7 @@ or `C5` changes with it.
   lane vocabulary rather than for want of machine time. It **reopens
   automatically if a second physical profile ever registers**. The reasoning is
   in [§3](#3-deterministic-rows-pinned-on-the-moved-package), and
-  [specification §6](specification.md#6-performance-contract) now states the
+  [specification §6](../../../docs/design/hicasso/product/specification.md#6-performance-contract) now states the
   obligation in those terms, so the *both reference profiles* wording this row
   was waiting on is gone at its source rather than annotated here.
 - **[Ruling 2, 2026-08-13, `rf2-5yn9`.] `C8` is adjudicated per landed escape
@@ -1831,13 +1831,13 @@ or `C5` changes with it.
   same-witness comparison actually decides it.
   **[Amended 2026-08-13.]** `C6`'s condition read *the day the K3 record is
   taken*, which promised a settlement the taking of a record cannot deliver.
-  The K3 record has now been taken — [`k3-disposition.md`](k3-disposition.md)
+  The K3 record has now been taken — [`k3-disposition.md`](../../../docs/design/hicasso/product/k3-disposition.md)
   is **ratified by the operator ruling of 2026-08-13**, recorded on
   `rf2-hic-085` — and `C6` stays `UNRESOLVED` across it. The ruling freezes the
   governed baseline at `2,115 B/read`, fixes the trip point at `2,326.5 B/read`
   and routes future enforcement to `rf2-hic-071`; it cannot manufacture a
   passing comparison, and
-  [that record's §8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)
+  [that record's §8](../../../docs/design/hicasso/product/k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)
   says in terms that the first forward same-witness comparison has not yet been
   taken. `S3` is untouched by it and is not recoloured: the Reagent contrast is
   a viability scoreboard, never a test of the forward 10% rule.
@@ -1856,7 +1856,7 @@ or `C5` changes with it.
   it held them for is discharged. What remains is the forward same-witness
   comparison, and the K3 record names its enforcement home in its own field
   table — `rf2-hic-071`, with the early framework at `rf2-hic-089`
-  ([§8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)),
+  ([§8](../../../docs/design/hicasso/product/k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)),
   which is also the paragraph above's *"the day the first `rf2-hic-071`
   same-witness comparison actually decides it"* read from the authority side.
   The handoff moves custody and nothing else: both rows stay `UNRESOLVED`,
@@ -1903,7 +1903,7 @@ or `C5` changes with it.
   destination is `rf2-85og2` for the measurement half, by this paragraph.** Two more
   are the 2026-08-15 amendment above, which already names the move and is correct.
   The last four are the §9.3 heading and the slug link into it —
-  [`per-keystroke.md`](per-keystroke.md) links that slug, so renaming it is a
+  [`per-keystroke.md`](../../../docs/design/hicasso/product/per-keystroke.md) links that slug, so renaming it is a
   two-file change this bead was not asked to make — the §9.4 heading, which records
   what `rf2-hic-071` actually took, and the deferral parenthetical in §6's studio
   note. Every one is a record of what that programme did rather than an instruction
@@ -1963,14 +1963,14 @@ the 5% comparison it makes meaningful, and the escape-benefit rule once a
 benefit-claiming escape site lands. A closed bead inherits nothing and takes
 nothing, so *the bead owns the status columns from the moment it takes them* reads
 of `rf2-85og2` now. **The heading above keeps `rf2-hic-071`'s name deliberately**:
-[`per-keystroke.md`](per-keystroke.md) links this section by that slug, so renaming
+[`per-keystroke.md`](../../../docs/design/hicasso/product/per-keystroke.md) links this section by that slug, so renaming
 it is a two-file change, and the heading records which bead the boundary was drawn
 against rather than who stands on the far side of it today.
 
 ### 9.4 What rf2-hic-071 has taken so far, and what it still cannot take
 
 **Taken, 2026-08-14.** Ten rows and one rule. `D17`–`D25` bring
-[the per-keystroke census](per-keystroke.md)'s five remaining stages under
+[the per-keystroke census](../../../docs/design/hicasso/product/per-keystroke.md)'s five remaining stages under
 `L4`'s round trip, `L5`'s population pin and `L6`'s witness check, so a figure
 that lived in prose on one page now has to keep agreeing with a witness a pull
 request runs. `D26` and `L7` close the fail-open `rf2-hic-036`'s tournament
@@ -2051,7 +2051,7 @@ spells out, and the one the lane's `:p50` was already computed under — and
 `lane/summarise` carries `:p95` and `:p99` beside the fields it always
 answered. The paragraph above, [§9.2](#92-what-each-not-green-row-is-waiting-on)'s
 *the instrument computes no `p95`* and
-[the tournament's §2.9.9](topology-tournament.md#299-what-was-not-concluded)
+[the tournament's §2.9.9](../../../docs/design/hicasso/product/topology-tournament.md#299-what-was-not-concluded)
 are each a true record of the lane as it stood when they were written, and each
 is now history rather than a live constraint.
 
@@ -2188,7 +2188,7 @@ argument: **one of them was runnable and two were not, and the drain was spent
 on the one that was.** The run count was declared per gate and committed before
 the runner was invoked once — three invocations for `C1`, zero for each of the
 other two, because neither has a runner to invoke. The record is
-[the `C1` anchor page](../studio/the-c1-anchor-on-the-package-arm.md).
+[the `C1` anchor page](../../../docs/design/hicasso/studio/the-c1-anchor-on-the-package-arm.md).
 
 **`C1`: three runs, three admissible, and the 5% line is now known to be
 measurable.** The package arm was read on the heap ladder three times on one

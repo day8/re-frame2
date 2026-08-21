@@ -46,7 +46,7 @@
   under late binding. Section 8 is the negative control: it rebuilds the
   late-binding mechanism out of the documented seam and reproduces BOTH
   failures, so nothing here can be passing because the instruments are dead.
-  See `docs/design/hicasso/product/invariants.md` §7.
+  See `implementation/hicasso/spec/invariants.md` §7.
 
   ## Companion
 

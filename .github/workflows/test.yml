@@ -1072,17 +1072,19 @@ jobs:
   #
   #   implementation/hicasso/**                   source + test kit — the ids
   #                                               the runtime actually raises
-  #   docs/design/hicasso/product/complaints.md   the register: live, reserved,
+  #   implementation/hicasso/spec/complaints.md   the register: live, reserved,
   #                                               pending-retirement, tombstoned
   #   spec/009-Instrumentation.md                 the rows R3 / R4 / R6 read
   #   docs/core/hicasso/**                        the chapters R8 cites
   #
   # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
   # invocation is a step of the `cljs` job under
-  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
-  # FIRST FAMILY ARMS THAT OUTPUT. Direct classifier probes measured the other
-  # three at `false`, so a register-only edit could drop or corrupt a live row,
-  # a Spec-009-only edit could break R3/R4/R6 and a guide-only edit could break
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. THE FIRST
+  # TWO FAMILIES ARM THAT OUTPUT — the second only since rf2-ps7ia moved the
+  # register out of `docs/design/hicasso/product/` and beside the artefact,
+  # where `implementation/hicasso/*` arms it; re-probed at the classifier
+  # rather than assumed. The remaining two still measure `false`, so a
+  # Spec-009-only edit could break R3/R4/R6 and a guide-only edit could break
   # R8 — with every PR check skipping the gate. #7808 itself happened to touch
   # the checker and package.json, which is the only reason the hole never
   # showed. The claim that chaining into the existing script created "no
@@ -1137,20 +1139,21 @@ jobs:
   # `implementation/hicasso/scripts/check_budget_ledger.py` reads THREE input
   # families:
   #
-  #   docs/design/hicasso/product/budgets.md          the reconciliation ledger
+  #   implementation/hicasso/spec/budgets.md          the reconciliation ledger
   #   docs/design/hicasso/product/substrate-decision.md   the disposition
   #                                                   records L3 resolves
   #   implementation/hicasso/**                       the witness files
   #
   # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
   # invocation is a step of the `cljs` job under
-  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
-  # LAST FAMILY ARMS THAT OUTPUT. Direct classifier probes measure the ledger
-  # page and the disposition page at every output `false`, so a LEDGER-ONLY
-  # edit — precisely the edit this gate exists to police, and the one a
-  # ledger-keeping habit produces most often — skips every check on the pull
-  # request. The gate would then next run on somebody else's source PR, red,
-  # over a row they did not write.
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. THE FIRST
+  # AND LAST FAMILIES ARM THAT OUTPUT — the ledger only since rf2-ps7ia moved
+  # it beside the artefact under `implementation/hicasso/**`, re-probed at the
+  # classifier rather than assumed. The disposition page still measures every
+  # output `false`, so a DISPOSITION-ONLY edit — the shape a LEDGER-ONLY edit
+  # used to be, and the one a ledger-keeping habit produces most often —
+  # skips every check on the pull request. The gate would then next run on
+  # somebody else's source PR, red, over a row they did not write.
   #
   # UNCONDITIONAL, rather than a new classifier output, for the reason the job
   # above gives at length and this one will not restate: the defect being
@@ -1194,22 +1197,26 @@ jobs:
   # families:
   #
   #   implementation/hicasso/src/re_frame/hicasso.cljc   the public door
-  #   docs/design/hicasso/product/dispositions.md        sections 2.1 and 2.2
+  #   implementation/hicasso/spec/dispositions.md        sections 2.1 and 2.2
   #
   # It is chained into `npm run test:hicasso-invariants`, whose only hosted
   # invocation is a step of the `cljs` job under
-  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
-  # FIRST FAMILY ARMS THAT OUTPUT — and that is the direction that matters
-  # most, because THE ESCAPE HAPPENS WHEN THE DOOR GROWS, not when the document
-  # changes: a PR adding a public name arms the classifier through
-  # `implementation/hicasso/*` and the chain reds on it there.
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. BOTH
+  # FAMILIES ARM THAT OUTPUT — the door always did, and the inventory does
+  # too since rf2-ps7ia moved it out of `docs/design/hicasso/product/` and
+  # beside the artefact, where `implementation/hicasso/*` arms it. Re-probed
+  # at the classifier rather than assumed. The door direction is still the one
+  # that matters most, because THE ESCAPE HAPPENS WHEN THE DOOR GROWS.
   #
-  # The document side arms nothing. `docs/**` measures false at every
-  # classifier output, so a PR that deleted a 2.2 row, renumbered the table or
-  # renamed a section heading would run this gate NOWHERE and next redden on
-  # somebody else's source PR, over a row they did not write. That is the exact
-  # shape `hicasso-complaint-catalogue` was split out to repair and
-  # `hicasso-budget-ledger` was split out to repair again.
+  # THE JOB STAYS ANYWAY, and not only out of caution: `--self-test` re-asserts
+  # a live premise against `docs/design/hicasso/product/specification.md`,
+  # which measures false at every classifier output and did not move. Before
+  # rf2-ps7ia the document side armed nothing at all, so a PR that deleted a
+  # 2.2 row, renumbered the table or renamed a section heading ran this gate
+  # NOWHERE and next reddened on somebody else's source PR, over a row they
+  # did not write. That is the exact shape `hicasso-complaint-catalogue` was
+  # split out to repair and `hicasso-budget-ledger` was split out to repair
+  # again; the move closes it for this input and this job keeps it closed.
   #
   # UNCONDITIONAL, rather than a new classifier output, for the reason those
   # two jobs give at length and this one will not restate: the defect being
@@ -1325,20 +1332,22 @@ jobs:
   # check_naming_census.py` landed under rf2-hxbhe as a runnable, self-proving
   # gate and ran NOWHERE: not in this workflow, not in any npm script.
   #
-  # It reads TWO input families (measured at the script — `PUBLIC` L151-163 and
-  # `LEDGER_REL` L166, not assumed):
+  # It reads TWO input families (measured at the script — `PUBLIC` L186-200 and
+  # `LEDGER_REL` L203, not assumed; the L151/L166 pins this comment carried
+  # were already stale before rf2-ps7ia re-pointed the ledger):
   #
   #   implementation/hicasso/src/**, test_kit/src/**   the ten shipped
   #                                                    namespaces, 105 public names
-  #   docs/design/hicasso/product/naming-ledger.md     the ledger those names owe
+  #   implementation/hicasso/spec/naming-ledger.md     the ledger those names owe
   #                                                    a row to
   #
-  # Only the first family arms anything (`cljs_node_test`, through
-  # `implementation/hicasso/*`), and that IS the direction that matters most —
-  # a name escapes when a NAMESPACE GROWS. The ledger side arms nothing:
-  # `docs/**` measures false at every classifier output, so a PR deleting a
-  # ledger row out from under a live name would run this gate nowhere and next
-  # redden on somebody else's source PR, over a row they did not write.
+  # BOTH families now arm `cljs_node_test` through `implementation/hicasso/*`,
+  # and the first IS still the direction that matters most — a name escapes
+  # when a NAMESPACE GROWS. The ledger side armed NOTHING until rf2-ps7ia moved
+  # it out of `docs/design/hicasso/product/` and beside the artefact (re-probed
+  # at the classifier rather than assumed): a PR deleting a ledger row out from
+  # under a live name ran this gate nowhere and next reddened on somebody
+  # else's source PR, over a row they did not write.
   #
   # UNCONDITIONAL, rather than a new classifier output, for the reason the four
   # jobs above give at length and this one will not restate. Sub-second pure

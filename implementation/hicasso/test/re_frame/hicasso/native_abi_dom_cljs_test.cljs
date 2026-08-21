@@ -50,7 +50,7 @@
   harness that failed to diverge.
 
   What this file does NOT settle is HS-21's disposition row and row 5's
-  required-result sentence — `docs/design/hicasso/product/dispositions.md`
+  required-result sentence — `implementation/hicasso/spec/dispositions.md`
   is the ledger keeper's, and a witness may not amend the row it witnesses.
 
   ## Browser lane

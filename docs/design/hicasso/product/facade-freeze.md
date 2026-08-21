@@ -58,7 +58,7 @@ The evidence this freeze reads is reported, not restated, in
 | Which laws the ordinary surface has, in their normative words | [`specification.md` §4](specification.md#4-target-programming-model), [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md) |
 | Which of them the Phase 2 witnesses reached, and what that was like | [`authoring-report-slice.md`](authoring-report-slice.md), [`authoring-report-todo.md`](authoring-report-todo.md) |
 | Whether the Phase 2 exit is met, and what was re-run to say so | [`checkpoint-2-slice.md`](checkpoint-2-slice.md) |
-| Every spelling still open | [`naming-ledger.md`](naming-ledger.md), [`naming-findings-cp2.md`](naming-findings-cp2.md) |
+| Every spelling still open | [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md), [`naming-findings-cp2.md`](naming-findings-cp2.md) |
 | What the ordinary surface **is**, and which laws are frozen | this file |
 
 ## 1. The membership, and how it was decided
@@ -107,7 +107,7 @@ application's `views.cljs` contains no callback at all. It is frozen as part of 
 
 **One member is frozen conditionally.** `reg-state` is on this list because two independent ordinary
 applications reached it, which is the evidence this freeze weighs. But
-[`naming-ledger.md`](naming-ledger.md) row 3 carries a live recommendation to *remove `h/reg-state`
+[`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 3 carries a live recommendation to *remove `h/reg-state`
 from the adaptor core and reconsider it in forms*, and `re-frame.hicasso.forms` has since shipped.
 That is a membership question, not a spelling, and it is `rf2-hic-065`'s sitting to settle. **This
 freeze records the demand and does not pre-empt the removal**: if the sitting removes it, `::h/clear`
@@ -143,7 +143,7 @@ against their standing witnesses. What each measurement was is
 
 [`specification.md` §4](specification.md#4-target-programming-model) fixes it at four — *event value,
 checked value, explicit prevention, and controlled-value revision* — and
-[`dispositions.md`](dispositions.md) HS-07 carries the same four with a server-side refusal arm.
+[`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md) HS-07 carries the same four with a server-side refusal arm.
 The runtime's marker list (`re-frame.hicasso`, ns docstring) names eight. The difference is
 accounted for and no part of it is a finding:
 
@@ -152,8 +152,8 @@ accounted for and no part of it is a finding:
 | `::h/value`, `::h/checked` | the two an ordinary application writes. Both witnesses, at every controlled element. **Ordinary.** |
 | `::h/prevent` | **frozen**: prevention is explicit via `::h/prevent` at every position except `:on-submit`, whose data spelling auto-prevents (operator ruling `rf2-j6fn`, 2026-08-13 — [§4](#4-the-one-law-that-was-amended)). [`specification.md` §4.1](specification.md#41-events), [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md) and the door docstring now say the same thing in the same words. Reached by neither witness, which is a fact about their populations — see below. |
 | `::h/revision` | frozen as a law and reached by neither witness. Its population is a reset that leaves every other read the body makes `=` — see [§5](#5-what-is-not-in-the-ordinary-surface). |
-| `::h/navigate` | framework-minted by `route-link`, never author-written. Already rowed as a reserved-vocabulary addition the brief's list omits — [`naming-ledger.md`](naming-ledger.md) row 35. |
-| `::h/mounting`, `::h/unmounting` | the **motion module's** vocabulary. They stay on the door's marker list because moving a namespace is not renumbering its keywords ([`naming-ledger.md`](naming-ledger.md) row 31). Not ordinary — neither application reached them. |
+| `::h/navigate` | framework-minted by `route-link`, never author-written. Already rowed as a reserved-vocabulary addition the brief's list omits — [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 35. |
+| `::h/mounting`, `::h/unmounting` | the **motion module's** vocabulary. They stay on the door's marker list because moving a namespace is not renumbering its keywords ([`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 31). Not ordinary — neither application reached them. |
 | `::h/clear` | `reg-state`'s clear event id. Frozen conditionally with `reg-state` — see [§1](#1-the-membership-and-how-it-was-decided). |
 
 So the four the specification reserves are all frozen, and **two of them are what an ordinary
@@ -207,7 +207,7 @@ evidence, not a ruling: keep the auto-prevent and amend both sentences.
 >
 > Amended in the same sweep, all to these words: `specification.md` §4.1,
 > [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md),
-> [`lanes/design-laws.md`](lanes/design-laws.md) law 4, [`invariants.md`](invariants.md) I10,
+> [`lanes/design-laws.md`](lanes/design-laws.md) law 4, [`invariants.md`](../../../../implementation/hicasso/spec/invariants.md) I10,
 > [`lanes/corpus-insights.md`](lanes/corpus-insights.md) (annotated, not rewritten — it is a dated
 > corpus record), the draft guide, and [`README.md`](README.md). The door already said it.
 
@@ -221,12 +221,12 @@ Deliberately chosen breadth, twice, and neither application reached any of these
 | Not ordinary | Where it belongs |
 |---|---|
 | `hfn` — the one callback form, on the facade as `event` since `rf2-hic-066` | real callbacks, render props and imperative APIs (§4.1). An application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything. |
-| `hframe` | [`naming-ledger.md`](naming-ledger.md) row 18 now carries an operator **ruling** to retire it, not the recommendation this row was written against — and the ruling is **not executed**: the seam it retires in favour of is `rf2-t32wg`, still open. §4 already says core's frame doors are the frame doors. |
+| `hframe` | [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 18 now carries an operator **ruling** to retire it, not the recommendation this row was written against — and the ruling is **not executed**: the seam it retires in favour of is `rf2-t32wg`, still open. §4 already says core's frame doors are the frame doors. |
 | `defhost`, `as-element`, `as-component`, `portal` | §4.3 host interop — Phase 3 freezes them from host witnesses, not from these. |
 | `::h/revision` | a reset that leaves **every other read the body makes `=`** — measured, not assumed (`rf2-36bd`). `impl.codec`'s `revision-key` is the mechanism: the revision is a value the body reads and its change *re-runs the body*, and the re-run's commit re-asserts the model over the DOM — so any re-render already does it. An ordinary discard moves three of the slice editor's reads and needs nothing. The populations that do need it are a **rejecting or normalising** field, and a DOM drifted by a route React never saw (autofill, an extension, a live composition); the controlled testbed's `revision` / `revision-strict` arms are the corpus's witnesses for both. |
 | `motion/presence` | the optional motion module. |
 | the whole `n/*` native tier | §5's rungs 3–5; Phase 3 freezes its grammar and ABI. |
-| `h/handler` (§4's spelling of the callback form when this page was written) | the same row as `hfn`. [`naming-ledger.md`](naming-ledger.md) row 1 has since settled it: ruled `h/event` (operator, 2026-08-11) and swept by `rf2-hic-066`, with `h/handler` rejected as a cross-adaptor false friend. |
+| `h/handler` (§4's spelling of the callback form when this page was written) | the same row as `hfn`. [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 1 has since settled it: ruled `h/event` (operator, 2026-08-11) and swept by `rf2-hic-066`, with `h/handler` rejected as a cross-adaptor false friend. |
 | grouped-`use-subs` ergonomics beyond one call site | one grouped read between two applications. Consistent with the operator's standing ruling that it sits below the ergonomics bar. |
 
 **Being absent from this list is not a demotion.** Each has a real use case named in the

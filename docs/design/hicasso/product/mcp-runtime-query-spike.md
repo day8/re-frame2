@@ -165,7 +165,7 @@ The two halves that already have answers are worth naming so the STOP is not rea
 
 - a refusal raised **inside an event or effect cascade** is a `:rf.error/*` trace op and rides `trace-window`'s `:errors` slot already — S1;
 - a refusal raised **during render or mint** is outside any cascade and is retained nowhere, which is S3 in its sharpest form: the finding is *the runtime does not retain that*, not *the read is broken*;
-- the **static** half — id, meaning, payload shape, recovery ladder — is [`complaints.md`](complaints.md), round-tripped against the runtime by `check_complaint_catalogue.py`, and an agent reads it directly.
+- the **static** half — id, meaning, payload shape, recovery ladder — is [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md), round-tripped against the runtime by `check_complaint_catalogue.py`, and an agent reads it directly.
 
 ### What this spike did not need, and did not touch
 
