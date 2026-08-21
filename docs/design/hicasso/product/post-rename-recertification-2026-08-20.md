@@ -444,11 +444,5 @@ That does not weaken §4's refusal; it is the refusal's own evidence, arriving w
 
 This is a claim about a window that closed when the sentence was written, not a standing property. What
 generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
-to know whether it still describes the trunk can re-run the commands above rather than take this
-paragraph's word for it.
-
-This is a claim about a window that closed when the sentence was written, not a standing property. What
-generalises is the anchor: **every figure on this page is stated of `2f96ecc98c`**, and a reader who needs
 to know whether it still describes the trunk can re-run the two commands above rather than take this
 paragraph's word for it.
-
