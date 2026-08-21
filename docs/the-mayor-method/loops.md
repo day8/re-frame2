@@ -229,6 +229,24 @@ the same number. The two readings differ by one question, and the answer is in t
 Check also that the diff matches its tracker item, that scope did not sprawl, that
 failure output stays actionable, and that the quality-gates section is present.
 
+**Read the FILE LIST against the item, not just the count — and "scope did not sprawl" does
+not already cover it.** Sprawl is EXTRA work, and it announces itself because extra files read
+as new work. The opposite shape does not: a change that silently REVERTS merged work is green.
+It is well-formed, it compiles, and it passes every gate the tree has. One change here carried
+twenty-four files under a subject accurate about the one its author meant to touch, at 611
+insertions against 910 deletions, out of a worktree whose base had moved. **So a path the item
+does not explain is a finding whichever DIRECTION it runs**, and direction is the test rather
+than size: for a surprising file, ask whether something PRESENT on the branch is ABSENT from the
+trunk. On that change a source file had put back a symbol belonging to a retired subsystem, so
+the branch's content was OLDER than the trunk's.
+
+**Do not reach for a gate here.** A revert of merged work is mechanically indistinguishable from
+a change that is not one; the only discriminator is whether the reader EXPECTED those paths, so a
+gate would be a control that cannot catch its own case. The worker-side half of this — diff
+against the merge base before pushing and read it for what you would revert — is already on every
+brief; this is the mayor-side half, for the case that half exists to catch and by definition did
+not: the worker that never ran it.
+
 Merge every green change **regardless of author**, including the operator's own.
 
 **Prefer server-side head-branch deletion over a client-side delete flag.** A branch
@@ -330,6 +348,13 @@ candidate. Once you have established the failure is the change's own and not the
 not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
 gate, not a proxy that already passed.
 
+**A failure BEFORE any repository code ran is the second case, and the failing step names
+itself** — an action download rate-limited, a runner setup step dying. The diff cannot have
+caused it, so no second observation is needed: re-run the failed jobs and hold the re-run to the
+same clauses. **But re-running is not a cure.** One job died in setup on the same rate limit
+twice, eight minutes apart, so when SEVERAL changes fail that way rather than one job twice,
+fleet size is the cause and the mayor says so rather than re-running indefinitely.
+
 **And a check that never TERMINATES is a third case that neither remedy fits.** It has not
 failed, so nothing above is triggered; it has not passed, so clause 3 rejects the change for
 as long as it runs. Read literally, the criterion leaves the mayor no move at all and the
@@ -417,7 +442,16 @@ duplicate.
 **A count is a claim too, and a symbol-shaped grep does not check it.** A census item
 ("54 chains", "15 hits", "eleven sites") asserts a number, not a symbol, so the symbol
 still resolves while the count is zero or triple. Re-run the item's own census at the
-current trunk tip. Measured drifts in one session: 8 → 9, "four hits" → 23 lines,
+current trunk tip.
+
+**Exclude any generated export from a tree-wide census.** Where the tracker keeps a
+whole-database export inside the working tree, it carries every title, description and comment
+and therefore matches almost any identifier a census greps for. Both halves of the cost are
+real and the second is the dangerous one: one such grep returned a hundred kilobytes of tracker
+rows before a single real hit, which in a context-bounded worker is a material loss for
+nothing; and nothing in the output announces that a tracker row is not a source file, so an
+inflated census reads exactly like a correct one and sends its worker looking for sites that do
+not exist. Exclude it in the brief as much as in your own check. Measured drifts in one session: 8 → 9, "four hits" → 23 lines,
 "roughly 6–10" → 23, "4 of 21 cached" → 13 of 21. Two items once went out in one wave
 against work merged fifteen hours earlier; both workers returned a correct "already
 fixed", so the waste was two dispatches rather than a wrong result.
@@ -628,7 +662,17 @@ outside, and both readings went wrong in a single day here, in opposite directio
    **And an unchanged tip says something only once it is corroborated with worktree activity.** A
    worker inside a long gate commits nothing by design, so a still tip is the *expected* reading
    for the commonest healthy state rather than a warning — which is why the corroboration, and
-   not the tip, is what carries the verdict.
+   not the tip, is what carries the verdict. **That corroboration is a WRITE clock, so a worker
+   that is only READING touches nothing** — twice in one day a worker grepping its own gate log
+   was called stranded on twenty-three minutes of no writes.
+   **And the most convincing false signature is on none of the discredited lists: a change fully
+   green at the band, a clean worktree, a tip commit some minutes old, and the change still a
+   DRAFT.** It reads as a worker that finished and forgot to publish — a real state, and the one
+   the message step exists to catch — but a worker presenting exactly so was on attempt three of
+   its local gate. **A green rollup is evidence about the PUSHED tree, not about the worker**: CI
+   ran on what was already pushed, and a clean tree is what you see *between* edits rather than
+   only after the last one. It belongs on the list precisely because it reads strong, and because
+   not one of its four parts observes the agent.
    **That timestamp split is by QUESTION, and the OTHER question takes the OPPOSITE answer.**
    Everything above asks *is this worker alive?*, and liveness wants the *committed* time: the
    rebase rewrites it, so it moves when the worker moves. But **DATING a change in prose — in a
@@ -715,6 +759,39 @@ a rule being followed; it is a rule delegated to a predicate that cannot see wha
 is a separate, deliberate step, run from a list of names for which you can point at the completion
 report you received. *"I think it is done"* is the inference this rule exists to forbid, and calling
 it "reported" does not change what it is.
+
+**Clearing the mayor's context destroys its ability to QUOTE a report, so record which worktree
+belongs to which agent at DISPATCH time** — one line per dispatch, in a mayor-local file the
+project does not track. The reap test is unchanged and nothing here weakens it; this only supplies
+a documented route to obtain the sentence once the context that held it is gone. Measured here:
+after one clear, fourteen worktrees existed and exactly three had a quotable report — all three
+dispatched after it — while nine of the remaining eleven held work that was fully upstream with
+their items closed. The rule failed safe and nothing was lost; the cost is monotone accumulation.
+
+**Dispatch time, not report time.** A report-time record has to survive the window between the
+report arriving and the clear; dispatch always precedes the report, so the line is on disk before
+a clear can matter.
+
+**What the id buys is the TRANSCRIPT, not a live conversation.** Messaging does not reach across a
+clear — every one of eight agents whose ids had been recorded exactly as prescribed answered *"no
+transcript found"*, while an agent dispatched by the current session resumed on the identical call.
+Their transcripts were nonetheless intact on disk, and seven of the eight opened their last message
+with precisely the sentence the reap test demands. **Reading it is a READ, not an inference** — the
+agent's own words, the same sentence you would have quoted from your own context — so it satisfies
+the test as written and adds no further proxy. The eighth carried only an interim progress note, and
+its worktree correctly stayed.
+
+Two cautions came out of establishing that. **An id is a way to FIND the report, never an answer in
+itself**: within the dispatching session, message first, because that distinguishes *alive* from
+*finished* and a transcript cannot. And **beware a per-agent scratch sink that merely shares the
+id** — one such file was empty for seven of those eight agents while their real transcripts sat
+complete elsewhere, was *also* empty for a current-session agent that finished normally, and for the
+eighth held a hardlink to the real transcript, so the wrong file returned exactly one plausible
+non-empty result and made the wrong conclusion self-consistent.
+
+**Whether to hold the report TEXT somewhere of your own is the operator's call.** A transcript path
+the platform documents as an implementation detail is not a contract, and local-history retention
+sweeps typically DELETE rather than truncate.
 
 **Reaping on the report is correct and still costs something.** A worker can need its tree *after*
 it reports, because its change hits a conflict and needs a rebase. Pushed commits make that

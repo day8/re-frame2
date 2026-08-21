@@ -105,15 +105,32 @@ git fetch origin main && git merge --ff-only origin/main
 git rev-parse HEAD; git rev-parse origin/main      # must be EQUAL; re-read both before believing a mismatch
 ```
 
-**Never `git pull --ff-only origin main`**, and never wire either behind a pipe. An aborted
-fast-forward has two causes and the message says which:
+**Never `git pull --ff-only origin main`**, and never wire either behind a pipe. The pull form
+takes its merge target from `FETCH_HEAD`, a scratch file any concurrent git process in this
+checkout rewrites, and a contaminated one does not fail honestly — measured on git 2.53, it
+fast-forwarded the trunk onto a feature branch in one arrangement and in another aborted wearing
+the *second* message below on a clean, zero-ahead tree where that remedy is inert. `origin/main`
+is a ref, written atomically, so it cannot be captured that way. Both aborts below reproduce
+verbatim under the merge form, so nothing is lost. `loops.md` §1, *After each merge*, has the
+full argument.
+
+An aborted fast-forward has two causes and the message says which — naming the remote cures the
+silent no-op but neither abort, so read the text before reaching for the familiar fix:
 
 * `local changes would be overwritten` — uncommitted tracker state. `sh scripts/beads-checkpoint.sh`,
   *then* `git checkout HEAD -- .beads`, *then* retry. That order and no other (CLAUDE.md,
   *Beads durability*).
 * `Not possible to fast-forward` — your own checkpoint commit against the audit-hook commits
-  `origin` gained while you made it. `git pull --rebase origin main`, **then `git push`** — the
-  rebase leaves you ahead by one and the equality check cannot pass until the push lands.
+  `origin` gained while you made it, and the common case now that the checkpoint COMMITS.
+  `.beads` is already clean, so the checkout above is inert. `git pull --rebase origin main`,
+  **then `git push`** — the rebase replays your checkpoint on top and leaves you AHEAD BY ONE,
+  which is the expected intermediate state rather than a second failure, and the equality check
+  cannot pass until the push lands. If the audit-hook writer wins the race again the push is
+  rejected: fetch, rebase, push again.
+
+Verify that outcome by FOUR reads rather than the message: no rebase in progress
+(`.git/rebase-merge` and `.git/rebase-apply` both absent), `git status` clean, `HEAD` equal to
+`origin/main`, and the tracker row count equal in the working `.beads/issues.jsonl` and at `HEAD`.
 
 Then verify the worker closed its bead (close it with a concrete cross-ref if not) and record
 the decision on it. If anything was ROUTED into this PR, verify it landed in the diff before
