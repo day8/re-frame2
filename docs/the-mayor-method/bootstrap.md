@@ -5,9 +5,8 @@ terse on purpose; it assumes you have read [`README.md`](README.md).
 
 Nothing in it is specific to one repository, one operating system or one
 toolchain. The concrete values it needs — your tracker's commands, your gate
-command, your hot-zone file list, your worktree parent directory — are facts
-about *your* project, and they belong in your project's agent-instructions file
-where every agent already reads them.
+command, your hot-zone file list, your worktree parent directory — belong in
+your project's agent-instructions file, where every agent already reads them.
 
 ```text
 You are the mayor for this repository.
@@ -88,11 +87,9 @@ Acknowledge "I am the Mayor now".
 
 ## The hard-won list
 
-These are the parts that bite. Each cost real hours, and none is obvious up front.
-
-The [loops](loops.md) page carries the ones that belong to a particular loop — the
-merge criterion, reaping, routing a finding, tracker mechanics. What follows is
-everything else.
+These are the parts that bite, and none is obvious up front. The [loops](loops.md)
+page carries the ones belonging to a particular loop — the merge criterion, reaping,
+routing a finding, tracker mechanics; what follows is everything else.
 
 ### Local-green is not CI
 
@@ -103,13 +100,13 @@ drift-check. Merge on a CI rollup that is complete as well as clean.
 A failing *touched-surface* gate is never an override. Dispatch a fix worker to the
 same branch that runs the **actual** failing gate.
 
-The brief must be able to say **which** required checks the local gate omits — and
-say it by citing one path, not by re-listing them, because the required set moves.
-Make the project *derive* that list rather than document it. Two shapes make a
-hand-written list wrong within a week: a second or third required status context the
-local runner has no lane in at all, and a required check that is a **step inside a
-job the runner does run**, which no skipped-tier enumeration can see and which
-reports under that job's name however little it resembles what the step does.
+The brief must say **which** required checks the local gate omits, by citing one path
+rather than re-listing them, because the required set moves — so make the project
+*derive* that list rather than document it. Two shapes make a hand-written list wrong
+within a week: a required status context the local runner has no lane in at all, and a
+required check that is a **step inside a job the runner does run**, which no
+skipped-tier enumeration can see and which reports under that job's name however little
+it resembles what the step does.
 
 ### The exit code is the verdict; the summary is decoration
 
@@ -130,15 +127,14 @@ The same blindness has three more shapes:
   a mutating step, **verify the tree rather than the message.**
 
 **But "capture the runner's own exit code" settles WHOSE number to read, not that the
-number means pass** — and the two sound alike enough that a brief writes the second
+number means pass**, and the two sound alike enough that a brief writes the second
 meaning the first. For an instrument whose job is to REFUSE, a non-zero exit is the
-NORMAL case: one measurement runner documents a non-zero expected exit, all twenty runs
-of a window exited the same way, nineteen were admissible, and the twentieth failed its
-positive CONTROL and read low while exiting exactly like the good ones. Admissibility
-lived in the artefact the run produced, not in its status. So a brief for such a gate
-names the record's own admissibility criteria and states what the expected exit code IS,
-so the worker can tell a routine refusal from a crash — and never says "the exit code is
-the verdict" for a runner that refuses by design.
+NORMAL case, and admissibility lives in the artefact the run produced rather than in its
+status: one window's twenty runs all exited identically, nineteen admissible and the
+twentieth failing its positive CONTROL. So a brief for such a gate names the record's own
+admissibility criteria and states what the expected exit code IS, so the worker can tell a
+routine refusal from a crash — and never says "the exit code is the verdict" for a runner
+that refuses by design.
 
 ### Concurrent workers share the machine's temp directory
 
@@ -210,16 +206,12 @@ dispatching. **A verified "nothing to do" is a good outcome; an assumed one is n
 
 ### The mayor's briefs are the main source of error
 
-This is the finding most worth knowing at the start.
-
-Across one sustained session, workers corrected the mayor's stated premises about
-twenty times. Not on style — on facts the mayor asserted and had not checked: counts
-that had drifted between filing and dispatch; a file asserted to carry a claim it did
-not carry; a defect described as fail-open that measured as fail-slow; a defect
-described as silent whose error was raised loudly at source and discarded one layer
-up; a remedy that was unsatisfiable for the same reason as the bug it fixed.
-
-Workers caught every one and nothing reached the trunk. But each cost a full worker
+This is the finding most worth knowing at the start. Across one sustained session,
+workers corrected the mayor's stated premises about twenty times — not on style, but on
+facts the mayor asserted and had not checked: counts drifted between filing and
+dispatch, a file asserted to carry a claim it did not, a defect called fail-open that
+measured as fail-slow, a remedy unsatisfiable for the same reason as the bug it fixed.
+Workers caught every one and nothing reached the trunk, but each cost a full worker
 cycle, and together they cost more than any worker-side failure in the same period.
 
 So "guard the mayor's context, dispatch bounded work" is necessary and not sufficient.
@@ -255,42 +247,35 @@ sentence, a worker handed a task that should not exist will invent one that does
 **The work**, with a control that proves it.
 
 The best refusal seen here came with measurement rather than argument. An item claimed a
-CI timeout was too tight. The worker sampled 183 runs of that step — median 13 seconds
-against a 300-second cap — then found the actual cause was a mirror serving 21 MB at
-52 kB/s while the same job had fetched 11 MB at 7.8 MB/s seconds earlier. It closed the
-item and left a comment in the workflow so nobody re-derives it. A refusal on principle
-can be argued with; that one cannot.
+CI timeout was too tight; the worker sampled 183 runs of that step — median 13 seconds
+against a 300-second cap — found the real cause was a slow mirror, closed the item, and
+left a comment in the workflow so nobody re-derives it. A refusal on principle can be
+argued with; that one cannot.
 
 ### Defect classes worth naming
 
-These recurred often enough that naming them helps you spot the next one.
-
 **The control that cannot catch its own case.** A scanner missed every forbidden import
-after the first. Its permanent test planted the forbidden import as the first and only
-entry, so the test exercised exactly the path that worked. The gate had been green about
-a class it did not cover, and the proof of coverage was the blind spot.
-
-Apply the generalisation deliberately: **ask of every control whether it is constructed so
-that it avoids the case it exists to catch.** The worker who found the above asked that
-question of every other control in the same file and found two more, one of which had no
-control at all.
+after the first; its permanent test planted one as the first and only entry, so the test
+exercised exactly the path that worked. The proof of coverage was the blind spot. **Ask of
+every control whether it is constructed so that it avoids the case it exists to catch** —
+the worker who found that one asked it of every other control in the same file and found
+two more, one of which had no control at all.
 
 **The hollow gate.** A test that proves something by observing the absence of a symptom,
-where the same absence occurs for unrelated reasons. There is a mechanical test for it:
-**delete the signal but keep the fault.** If the test stays green, it was proving nothing.
-One worker did exactly this and showed that three symptoms its item was built on — no
-requests, idle status, no output — all stayed green when only the error report was removed.
+where the same absence occurs for unrelated reasons. The mechanical test: **delete the
+signal but keep the fault.** If the test stays green, it was proving nothing — one worker
+did exactly that and showed three symptoms its item was built on all stayed green when only
+the error report was removed.
 
-**Replace a hollow control; do not patch it.** Every one found here was replaced, because
-patching one produces a second thing that looks like a control and is not — and the next
-reader trusts it harder for having a history of being fixed.
+**Replace a hollow control; do not patch it.** Patching produces a second thing that looks
+like a control and is not, and the next reader trusts it harder for having a history of
+being fixed.
 
 **Measured honestly, then interpreted too generously.** A worker predicted a focus cycle of
-four elements, measured five, and recorded what it measured. That was right. It then
-described the extra element as acceptable — but the extra element was the document body, and
-the feature is a focus trap. Measuring correctly and concluding wrongly is a distinct failure
-from measuring wrongly, and it is harder to see, because the evidence in the report is
-accurate.
+four elements, measured five, recorded what it measured — right so far — then called the
+extra element acceptable, when it was the document body and the feature is a focus trap.
+Measuring correctly and concluding wrongly is harder to see than measuring wrongly, because
+the evidence in the report is accurate.
 
 **The artefact a consumer copies still teaches the broken form.** Code fixed; the example,
 recipe or guide not. Seen three times. When reviewing a fix, ask what a reader copies, and
@@ -311,19 +296,17 @@ mistaken for one that was wrong.
 
 ### Two tensions the method does not resolve
 
-Naming them is more useful than pretending they are solved.
-
 **Keeping workers busy starves work that needs the machine quiet.** Timing measurements, or
-anything contended, cannot run while several workers compile. No amount of prioritisation fixes
-it, because the fleet is the constraint. What worked: notice when the only remaining work is
-the exclusive kind, then deliberately drain and take it. Make that a decision you announce, not
+anything contended, cannot run while several workers compile, and no amount of prioritisation
+fixes it because the fleet is the constraint. What worked: notice when the only remaining work
+is the exclusive kind, then deliberately drain and take it — **a decision you announce**, not
 something that happens by default.
 
-**"Reap only on the worker's own report" leaves residue.** The rule is correct — every proxy for
+**"Reap only on the worker's own report" leaves residue.** The rule is correct: every proxy for
 "this worker is finished" has killed a live run. But an agent that vanishes will never report,
-and its worktree becomes unreapable. There is a second cost too: a worker can need its tree
-*after* it reports, because its change hits a conflict and needs a rebase. Nothing is lost when
-that happens, because the commits were pushed, but the worker has to rebuild its tree first.
+and its worktree becomes unreapable. A second cost too: a worker can need its tree *after* it
+reports, because its change hits a conflict and needs a rebase — nothing is lost, since the
+commits were pushed, but it has to rebuild the tree first.
 
 Keep the rule. Let the residue accumulate, and clear it on explicit operator authority rather
 than inventing another proxy.
@@ -333,18 +316,16 @@ than inventing another proxy.
 The mayor surfaces decisions; the operator decides; the mayor records the decision on the item
 so future workers inherit it.
 
-One mayor got the split wrong in one direction: it was holding nine items "for the operator" when
-three were genuinely operator calls. The rest were decisions the project's stated stance already
-answered, and it was being deferential rather than useful. When you present a list of held items,
-sort them first — and it is fair for the operator to ask which of them actually need them.
-
-Two refinements that worked:
+One mayor held nine items "for the operator" when three were genuinely operator calls; the rest
+were already answered by the project's stated stance, and it was being deferential rather than
+useful. **Sort a list of held items before you present it**, and expect the operator to ask which
+of them actually need them.
 
 **Separate "needs a decision" from "needs work under a decision."** Many items are mostly the
 second. Ship the part that is true under every option, and leave the item open with the choice
-stated. Progress without pre-empting the operator.
+stated: progress without pre-empting the operator.
 
 **Record what a held decision is costing.** One held item caused a worker to read a correct,
 catalogued error as silence, which caused a mis-filed item, which cost another worker a cycle to
-refute. That chain belongs on the item. It is the difference between "still waiting" and "here is
-what waiting cost."
+refute. That chain belongs on the item — it is the difference between "still waiting" and "here
+is what waiting cost."
