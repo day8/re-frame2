@@ -494,9 +494,311 @@ refuses.
 
 ## 7. The runs
 
-*Written after the runner was first invoked. Nothing above this line was edited
-once it was.*
+**One feasibility invocation and three evidence invocations, as declared. Three
+admissible, none excluded, nothing above this line edited once the runner was
+first invoked.** Each invocation cleared the build id's cache entry and
+recompiled its own `:advanced` bundle, so no two shared a build.
+
+### 7.1 Invocation 0, and what it bought
+
+The feasibility invocation built in 21.76 s (202 files, 147 compiled, **0
+warnings**) and completed in about a minute, with every check in
+[§2](#2-what-makes-a-window-admissible-here) affirmative and captured exit `0`.
+Its figures are not quoted anywhere on this page, which is what was declared.
+
+What it established is that the rig builds, mounts both arms, gets past the
+parity gate **and** past the parity gate's own negative control — the two checks
+the sibling window has no counterpart for — and completes a full plan, so the
+three evidence invocations could be taken back to back inside one box bracket.
+
+It bought one thing more, and it is worth naming because it is the reason the
+window is worth reading at all: `shadow-cljs` printed its own config path,
+`…\re-frame2-worktrees\broadwin\implementation\shadow-cljs.edn`, so the build
+that produced every figure below is positively shown to have read this
+worktree's tree and not a sibling's.
+
+### 7.2 The seven exit-bearing checks, per evidence run
+
+| check | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| arm-order self-test, 12 cases | all `ok` | all `ok` | all `ok` |
+| parity gate — both arms build the same page | passed | passed | passed |
+| parity gate's negative control — a moved donor locale must DISAGREE | passed | passed | passed |
+| four echo negative controls — all four must REFUSE | passed | passed | passed |
+| echo tally, `N unverified of M` | **0 of 600** | **0 of 600** | **0 of 600** |
+| positive control, per-round difference against a `50 ms` prediction | 34.90, 34.45, 34.80, 33.90, 34.50 | 34.95, 34.60, 34.80, 34.65, 34.75 | 35.25, 33.95, 34.40, 34.55, 34.30 |
+| `control-verdict-strict`, band `[25–75]`, every round | `ok`, `:outside []` | `ok`, `:outside []` | `ok`, `:outside []` |
+| arm-order verdict, by predecessor and by phase, tolerance 10% | `reportable` | `reportable` | `reportable` |
+| rounds completed | 5 | 5 | 5 |
+| captured exit code | `0` | `0` | `0` |
+
+**The positive control's measured value is `~34.5 ms` against a `50 ms`
+prediction, and that is the instrument behaving as its own docstring predicts
+rather than a control missing by a third.** Both arms start at the same phase,
+so each round's figure is a difference of two paint-bounded windows; the
+injected block does not add to the wait the unblocked arm pays, it **subsumes**
+it and leaves whatever is left of the interval it landed inside. The residual is
+`50 − 34.5 = 15.5 ms`, one measured rendering interval — the floor arm reads
+`p50 16.6`–`16.7 ms` — so the control lands one grid interval below its
+prediction, in the direction and by the amount `control-slack` derives from the
+grid. It is also the sibling instrument's figure, `~34.3 ms`, taken on the same
+`window!` over a different page, which is what a shared mechanism should do.
+
+**The parity gate and the echo controls are affirmed by the run's progress past
+them rather than by a printed verdict, and that is worth saying plainly.** Each
+throws or it does not, so its all-clear is an absence. What positively witnesses
+them is `slice_broad_window_dom_cljs_test.cljs`, the suite item (b) landed,
+whose namespace the PR-blocking `:browser-test` selector matches — so those
+mechanisms are exercised on every pull request that arms this surface, not only
+here.
+
+### 7.3 The readings, `:ms` — one broad operation through to the paint that follows it
+
+`n = 60` measured windows per arm per run, pooled across five rounds.
+Milliseconds.
+
+| arm | run | min | `p50` | `p95` | `p99` | max |
+|---|---|---:|---:|---:|---:|---:|
+| `:idle-frame` (floor) | 1 | 15.2 | 16.60 | 17.60 | 17.82 | 18.0 |
+| | 2 | 14.9 | 16.70 | 18.00 | 18.21 | 18.5 |
+| | 3 | 15.1 | 16.60 | 17.61 | 18.28 | 18.4 |
+| `:locale` | 1 | 15.6 | 17.35 | 18.41 | 18.96 | **19.2** |
+| | 2 | 15.8 | 17.30 | 18.51 | 18.86 | 19.1 |
+| | 3 | 16.3 | 17.35 | 18.50 | 19.06 | **19.3** |
+| `:donor-locale` | 1 | 16.5 | 17.35 | 18.41 | 18.70 | 18.7 |
+| | 2 | 15.8 | 17.20 | 18.40 | 18.54 | 18.6 |
+| | 3 | 15.7 | 17.25 | 18.41 | 18.84 | 18.9 |
+| `:theme` | 1 | 15.5 | 16.90 | 18.20 | 18.44 | 18.5 |
+| | 2 | 16.1 | 17.10 | 18.00 | 18.04 | 18.1 |
+| | 3 | 15.9 | 17.20 | 18.40 | 18.44 | 18.5 |
+| `:donor-theme` | 1 | 16.2 | 17.10 | 18.51 | 18.84 | 18.9 |
+| | 2 | 15.6 | 16.90 | 18.21 | 18.38 | 18.5 |
+| | 3 | 15.5 | 17.10 | 18.12 | 18.40 | 18.4 |
+| `:ctl-blocked` (control) | 1 | 51.3 | 51.90 | 52.50 | 52.81 | 53.1 |
+| | 2 | 51.3 | 52.00 | 52.50 | 52.88 | 53.0 |
+| | 3 | 51.3 | 51.90 | 52.41 | 52.58 | 52.7 |
+
+The three runs reproduce closely on the Hicasso arms: across them the `:locale`
+`p95` spans `18.41`–`18.51 ms` (**0.5%**) and the `:theme` `p95` spans
+`18.00`–`18.40 ms` (**2.2%**).
+
+### 7.4 The decomposition, and what it rules out
+
+Published per arm because a rig that had reverted to a commit-bounded window
+would show the first leg and nothing else. Measured visits only, `p50` in
+milliseconds, run 1 / run 2 / run 3.
+
+| arm | `:commit` | `:to-raf` | `:raf-to-paint` |
+|---|---|---|---|
+| `:idle-frame` | 0.0 / 0.0 / 0.0 | 16.50 / 16.60 / 16.60 | 0.1 / 0.1 / 0.1 |
+| `:locale` | 1.0 / 0.9 / 1.0 | 16.45 / 16.50 / 16.55 | 0.8 / 0.8 / 0.7 |
+| `:donor-locale` | 0.9 / 0.8 / 0.8 | 16.50 / 16.40 / 16.40 | 0.8 / 0.8 / 0.8 |
+| `:theme` | 0.4 / 0.4 / 0.4 | 16.35 / 16.40 / 16.55 | 0.5 / 0.6 / 0.6 |
+| `:donor-theme` | 0.3 / 0.4 / 0.4 | 16.60 / 16.40 / 16.50 | 0.6 / 0.6 / 0.6 |
+| `:ctl-blocked` | 1.0 / 1.0 / 0.9 | 51.10 / 51.10 / 51.05 | 0.8 / 0.85 / 0.8 |
+
+All three legs are present and non-degenerate on every arm, the floor's
+`:commit` is exactly `0` because it performs no interaction, and
+`:ctl-blocked`'s injected 50 ms lands in `:to-raf` and not in `:commit` — which
+is the seam the control was placed on. **The application's own work is `p50 0.9`
+to `1.0 ms` on a locale switch and `0.4 ms` on a theme switch**, against a
+`:to-raf` leg of `~16.5 ms` that is the wait for a rendering opportunity. The
+theme update being the cheaper of the two is what the driver says it is — the
+narrower broad update, which is why both are carried.
+
+**No ratio is formed from the `:commit` column and that is deliberate.** The
+two arms differ there by `0.0`–`0.2 ms`, which is one or two of Chrome's
+`100 µs` `performance.now()` quanta. A ratio of two quantised readings a
+quantum apart is an artefact of the clamp, and this lane has a standing ruling
+about exactly that shape.
+
+### 7.5 `U3`: the numeric limb meets by `5.2x`, and the row is still not moved
+
+Against `≤ 100 ms p95`, over `:locale` and `:theme`:
+
+| quantity | run 1 | run 2 | run 3 |
+|---|---:|---:|---:|
+| worst single measured window, both arms | 19.2 ms | 19.1 ms | **19.3 ms** |
+| headroom to the `100 ms` `p95` line | 5.21x | 5.24x | **5.18x** |
+
+**Clause 1 of [§4.3](#43-u3s-two-limbs) fires on both arms in all three runs, so
+[§3](#3-the-schedule-is-taken-unchanged-and-that-is-a-derivation-rather-than-a-default)'s
+refusal condition never does.** No quantile estimator can answer above the
+largest reading in the sample, and the largest of the **360** measured windows
+across both operations and all three runs is `19.3 ms`. The line is met at every
+quantile on readings that were **taken**, and the interpolation that hangs over
+a `p99` at `n = 60` bears on nothing here. [§4.2](#42-the-phase-caveat-which-cuts-one-way-only)
+applies in the meeting direction, so the reading is conservative twice over.
+
+**The margin is wide enough that the positive control also meets the line**:
+`:ctl-blocked` injects 50 ms of blocked main thread and still reads a maximum of
+`53.1 ms`, `1.88x` inside `U3`'s line. That is context rather than a verdict,
+and it is the sharpest way to say how far this page's broad operations sit from
+`100 ms`.
+
+**The row does not move, and [§4.3](#43-u3s-two-limbs) said so before the
+numbers existed.** What was measured is the synchronous, frame-locked class; the
+async-door class — a route change, a save reply — is structurally outside a
+paint-bounded window, and the ruling on whether a line stated over *broad
+application operations* is decided by the synchronous class alone is the
+operator's. So `U3` keeps `UNPINNED` and its population cell keeps `—`.
+
+**One sentence settles it**, and the alternative is named so neither is guessed:
+
+1. **A ruling** that the synchronous class decides `U3` for this population. The
+   cell move is then a one-line edit in each of two files — the ledger row and
+   `POPULATION_PIN` — with this section as its evidence.
+2. **A drain-bounded driver**, whose window opens at the click and closes at the
+   paint that follows the router's `interop/next-tick` drain, which would reach
+   the async-door class on its own terms. It is a third window on this
+   mechanism and it is not built.
+
+### 7.6 The resolution gate bit, and it bit on the theme pair
+
+[§4.4](#44-the-resolution-gate-which-runs-before-any-c3-or-c4-figure-is-quoted)'s
+gate is each measured arm's `:over-floor` range against an **empty frame**.
+Per run, `:straddles-1?`:
+
+| arm | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| `:locale` | `false` — `[1.0029–1.0741]` | `false` — `[1.0118–1.0805]` | `false` — `[1.0150–1.0689]` |
+| `:donor-locale` | `false` — `[1.0058–1.0864]` | `false` — `[1.0149–1.0712]` | `false` — `[1.0090–1.0633]` |
+| `:theme` | `false` — `[1.0090–1.0453]` | `false` — `[1.0118–1.0433]` | `false` — `[1.0241–1.0480]` |
+| `:donor-theme` | **`true`** — `[0.9825–1.0833]` | **`true`** — `[1.0000–1.0495]` | `false` — `[1.0181–1.0480]` |
+
+**`:donor-theme` failed to separate from an empty frame in two of the three
+evidence invocations**, so by the rule declared before the first one **the theme
+pair is not resolved and carries no `C3` or `C4` verdict**. Its `:comparative`
+range is published for completeness and is labelled unresolved: `[0.9545–1.0297]`,
+`[0.9941–1.0118]`, `[0.9914–1.0059]`.
+
+The locale pair passes the gate in all three runs. Its `:comparative` per-round
+ranges are `[0.9856–1.0231]`, `[0.9716–1.0118]` and `[0.9941–1.0289]`, every one
+of them carrying `:straddles-1? true` — which says the two arms are
+**indistinguishable**, not that either won.
+
+### 7.7 `C3` and `C4`: not decided, and now with a number on why
+
+Two independent reasons, and the second is the one this window adds.
+
+**First, the one declared in [§4.6](#46-c3s-best-relevant-adapter-is-not-this-windows-to-settle-either).**
+`C3` is stated against the *best relevant adapter*, one donor cannot settle
+*best*, and the argument that UIx is the faster of the two available donors is
+transferred from a different clock over a different page rather than measured
+here. That alone keeps `C3`'s cell where it is.
+
+**Second, and this is measured: on this page the window could not have seen
+`C3`'s line even if it had been crossed.** The arms sit `2`–`8%` above the floor
+because a paint-bounded window is `~96%` frame grid, and the ratio the row is
+read on is a ratio of whole windows. Work out what a substrate difference would
+do to it, from this run's own published `p50`s and nothing else:
+
+| pair | run | donor's excess over floor | ratio if Hicasso's own work were `1.25x` | ratio if `1.5x` | observed per-round spread |
+|---|---:|---:|---:|---:|---:|
+| locale | 1 | 0.75 ms | `1.011` | `1.022` | 3.75 pp |
+| | 2 | 0.50 ms | `1.007` | `1.015` | 4.02 pp |
+| | 3 | 0.65 ms | `1.009` | `1.019` | 3.48 pp |
+| theme | 1 | 0.50 ms | `1.007` | `1.015` | 7.52 pp |
+| | 2 | 0.20 ms | `1.003` | `1.006` | 1.77 pp |
+| | 3 | 0.50 ms | `1.007` | `1.015` | 1.45 pp |
+
+**A `1.25x` difference in the arms' own work displaces the window-level ratio by
+`0.3`–`1.1` percentage points, against a per-round spread of `1.5`–`7.5`
+points.** A `1.5x` difference — `C4`'s line — displaces it by `0.6`–`2.2`
+points, still at or inside that spread. So the observed `~1.00x` is consistent
+with `1.00x`, with `1.25x` and with `1.5x` alike, and reading it as a pass would
+be reading the frame grid.
+
+**This is not a new adjudication rule and it does not move anything.** It is
+arithmetic on the same `:summary` and `:comparative` figures the pre-registered
+rule reads, it can only ever narrow a claim, and the claim it narrows is one
+this page had already declined to bank. It is written down because the number is
+what makes the next dispatch decidable.
+
+**So the conclusion is the driver's own, in the driver's own words, now with
+evidence rather than as a possibility**: *if the shipped seed cannot separate
+the measured arms from the floor, the honest conclusion is that `C3` needs a
+broader population than the slice's feed page.* `C3` and `C4` keep `UNPINNED`
+and their population cells keep `—`. **No band was widened and no ratio was
+quoted as a verdict.**
+
+What a broader population means, stated so it is not rediscovered: a page whose
+broad update costs enough that the arms clear the frame grid rather than sitting
+`2`–`8%` above it. `re-frame.hicasso.examples.ledger`'s virtualized 10,000-row
+list is the witness this repository already has at that scale, and it is the
+page `rf2-xc0bw`'s per-frame driver was built on.
+
+### 7.8 A finding about the gate itself: necessary, and not sufficient
+
+`:over-floor`'s `:straddles-1?` asks whether **one arm** separated from an empty
+frame. `C3` is a question about whether **two arms** separate from **each
+other** at a stated line. [§7.7](#77-c3-and-c4-not-decided-and-now-with-a-number-on-why)
+is a case where the first answers yes and the second answers no: the locale pair
+cleared the gate in all three runs and still could not resolve `1.25x`.
+
+**The gate is right to be where it is** — an arm that has not separated from the
+floor certainly cannot carry a ratio, so it is a sound necessary condition, and
+it did real work here by refusing the theme pair. What it cannot do is decide
+whether a comparison has the power to see the line it is read against. The
+instrument publishes everything that reading needs (`:summary`'s `p50`s per arm
+including the floor, and `:comparative`'s per-round spread); what it does not do
+is compute it, so it falls to whoever reads a run. That is filed as a finding
+for the next window on this mechanism rather than fixed here, because the
+window's own terms forbid improving the rig mid-measurement.
+
+### 7.9 What this window did not do
+
+No threshold was guessed and no band widened: the `100 ms`, `1.25x` and `1.5x`
+lines are the registered ones, and `control-slack`, `blocked-ms` and the guard
+tolerance are the instrument's. **No gate was built** — all three rows are
+distributional, so [§7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+forbids them a pull-request threshold and `check_budget_ledger.py` enforces it.
+**No instrument was edited and no arm added**: the driver's and the donor's
+blobs in [§6](#6-the-instrument-and-the-subject) are the ones PRs #8599 and
+#8606 landed, and the schedule they shipped with is the schedule they were read
+on. **No ledger cell moved** — 49 rows, 32 `MET`, 5 `BREACH`, 3 `UNRESOLVED`,
+9 `UNPINNED`, before this window and after it. What moved is the prose that says
+what each not-green row is waiting on.
 
 ## 8. Conditions
 
-*Written after the runner was first invoked.*
+Four invocations between **03:58 and 04:05 on 2026-08-22**, the three evidence
+runs back to back on one drained fleet inside a single box bracket, each about
+80 seconds including its own cold `:advanced` compile. Captured exits `0`, `0`,
+`0`. React 19.2.0, UIx 1.4.4, shadow-cljs 3.4.10, `:advanced` with `goog.DEBUG
+false`, headless Chromium 147.0.7727.15 via Playwright 1.59.1, Windows 11, 24
+logical cores, `navigator.deviceMemory` 32.
+
+The box was bracketed at both ends, standalone, never sampled inside a run:
+
+| bracket | queue length | occupancy | `java` | live bench runs | `headless_shell` | processes | free |
+|---|---|---|---:|---:|---:|---|---|
+| open, 04:00 | **0** on 7 of 8 samples, **1** on one | 7.27% / 8.02% | **0** | **0** | **0** | 22 node / 109 chrome / 633 | 13.19 GB |
+| close, 04:05 | **0** on 6 of 8 samples, **1** on two, **4** on one | 10.22% / 10.38% | **0** | **0** | **0** | 22 node / 109 chrome / 717 | 12.89 GB |
+
+Occupancy is attributed rather than assumed: the operator's editor reads
+`3.9`–`4.1%` at both brackets, and at the closing bracket the tracker's own
+process reads `1.7`–`1.9%` — together more than half the total. The single
+queue-length sample of `4` sits in the closing bracket, after the last
+invocation had finished.
+
+**The live-bench column is a judgement and the judgement is shown.** A pattern
+match for `shadow-cljs`, `clojure`, `p0_run`, `run.cjs`, `playwright` and the
+usual runners returns four processes at both brackets, and **not one of them is
+a bench executing**: two are shells whose recorded command line merely names one
+— a terminal host matched on the substring `workbench`, and this session's own
+shell, whose command line retains the runner it last invoked — and the other two
+are the single orphaned `ssr:hicasso-serve` listener
+[§5](#5-the-box) reports, which has used `0.77 s` of CPU in the 24.8 hours since
+it started and holds nothing but a socket. A count alone would have read `4` and
+said nothing; a count alone would equally have read `0` for the wrong reason if
+the pattern had been narrower.
+
+No worker was dispatched against this box while the window was open, and nothing
+else was run alongside the runs: the two pull requests in CI at the time
+(`#8677`, `#8678`) run on hosted runners, were checked green before the opening
+bracket, and neither touches this surface. The doc, provenance and ledger gates
+were taken **after** the last invocation; the source reading behind
+[§3](#3-the-schedule-is-taken-unchanged-and-that-is-a-derivation-rather-than-a-default)
+and [§4](#4-the-pre-registered-adjudication-rules) and the two planted-fault
+discrimination proofs on the doc gates were taken **before** the first.
