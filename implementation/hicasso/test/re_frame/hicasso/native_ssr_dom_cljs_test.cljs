@@ -63,10 +63,18 @@
     `re-frame.hicasso.roots-frames-hydration-dom-cljs-test`. What is
     native-specific is that two roots under OPPOSITE policies do not
     interfere, and that is the row below.
-  - **A Hicasso server entry.** There is none, and none is needed: the
-    consumer calls `react-dom/server` and the policy is honoured by
-    rendering. The harness here is `renderToString` called by hand, which
-    is the only server path in the package.
+  - **The product server door.** When this file was written there was
+    none, and the bullet said so. `re-frame.hicasso.server/render` has
+    shipped since, and it IS the package's server path:
+    `impl.roots/open-adoption-window!` names it as one of the two
+    minters of the adoption window, once per request, so the fork is
+    decided once for both sides of the wire. Its own rows are in
+    `re-frame.hicasso.server-render-ssr-dom-cljs-test`. What has not
+    changed is that the door is not a NATIVE-tier claim: what these
+    rows read is the `:server` declaration's effect on the bytes,
+    which is React's own under either caller, so the harness here
+    stays a hand-rolled `renderToString` rather than putting a request
+    envelope and a payload between the claim and the measurement.
 
   ## The mutation witnesses, one per assertion class
 
@@ -376,8 +384,12 @@
 
 (defn- server-html
   "The page as a REAL server render. `react-dom/server`'s own
-  `renderToString`, called by hand — the only server path this package
-  has, and exactly the call a consumer makes."
+  `renderToString`, called by hand: no adoption window, no payload, no
+  request envelope — the smallest thing that produces server bytes, so
+  what these rows read is the `:server` declaration's effect and
+  nothing else. The package's own server door is
+  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  instead of it."
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString
