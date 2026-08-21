@@ -450,10 +450,6 @@ vocabulary for the two rather than inventing a second.
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 
-**One agent owns a surface; surfaces run in parallel.** Same-surface items ride one
-agent, which never collides with itself. Two workers never share a surface — they
-merge-conflict and can silently revert each other.
-
 **The unit is the block, not the file.** Two items dispatched into the same *paragraph*
 of one document conflicted, the second change could not merge, and by the time its worker
 was resumed the hygiene loop had reaped its worktree. Two costs from one scheduling error.
@@ -559,12 +555,8 @@ backlog from the ready view is the exact failure this loop exists to go behind.
 block verbatim into every dispatch preamble.** This loop is that file's natural home,
 because it is also the loop that re-reads it.
 
-**Never summarise a stance.** The lenses say what good looks like; everything after them
-says when to STOP. A paraphrase keeps the memorable half and drops the restraining one, and
-what survives does not read as incomplete — it reads as a stance that wants MORE of
-everything, which is precisely the failure the second half exists to prevent.
-
-Which clauses turn out to be load-bearing is worth knowing in advance, because a summary
+**Never summarise a stance** — [`dispatch-prompt-template.md`](dispatch-prompt-template.md)
+carries why a paraphrase fails. Which clauses turn out to be load-bearing is worth knowing in advance, because a summary
 sheds those first. In one project: *"trust the programmer"* rejects a nagging diagnostic;
 *"close minutiae rather than actioning it"* lets an item die with its reasoning recorded
 instead of consuming a worker; *"a finding is a CLAIM"* stops an audit's output being

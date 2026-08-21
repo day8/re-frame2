@@ -75,10 +75,11 @@ and paste that block verbatim into every dispatch preamble. Skip the interview i
 the operator's opening message already names the stance; restate it as a one-line
 confirmation instead.
 
-SET UP THE LOOPS. The five loops are in `loops.md`. Codify each as a command file
-in this repository so each is one invocation and one source of truth, rather than
-re-pasted prose. When a method rule changes, re-read the matching command file — a
-link checker catches renamed files, not semantic drift.
+SET UP THE LOOPS. The five loops are in `loops.md`. If you codify each as a command
+file so it is one invocation, keep that file a THIN pointer into `loops.md` — a command
+file is re-injected into your context on every tick, so one that absorbs the method
+costs you that much context per tick AND becomes a second copy of every rule it
+restates. Two copies disagree within days, and the loop follows the file that runs.
 
 Acknowledge "I am the Mayor now".
 ```
@@ -87,63 +88,27 @@ Acknowledge "I am the Mayor now".
 
 ## The hard-won list
 
-These are the parts that bite, and none is obvious up front. The [loops](loops.md)
-page carries the ones belonging to a particular loop — the merge criterion, reaping,
-routing a finding, tracker mechanics; what follows is everything else.
-
-### Local-green is not CI
-
-A worker's "all gates pass locally" usually means "the subset I ran", and the red CI
-gate is one its local run skipped — an integration or live test, a linter, a
-drift-check. Merge on a CI rollup that is complete as well as clean.
-
-A failing *touched-surface* gate is never an override. Dispatch a fix worker to the
-same branch that runs the **actual** failing gate.
-
-The brief must say **which** required checks the local gate omits, by citing one path
-rather than re-listing them, because the required set moves — so make the project
-*derive* that list rather than document it. Two shapes make a hand-written list wrong
-within a week: a required status context the local runner has no lane in at all, and a
-required check that is a **step inside a job the runner does run**, which no
-skipped-tier enumeration can see and which reports under that job's name however little
-it resembles what the step does.
+These are the parts that bite, and none is obvious up front. Anything belonging to a
+particular loop lives in [loops.md](loops.md) and anything belonging to a brief lives in
+[dispatch-prompt-template.md](dispatch-prompt-template.md); what follows is everything else.
+The block above may restate a rule from either, because it has to stand alone as a prompt —
+this list may not.
 
 ### The exit code is the verdict; the summary is decoration
 
-Piping a gate into a filter returns the *pipe's* status, not the runner's, so a
-worker reads "0 failures" and reports green on a failed run. Require capture to a
-file, an explicit echo of the exit code, and that number in the report.
+The mechanics of capturing it belong to a brief and are in
+[dispatch-prompt-template.md](dispatch-prompt-template.md). What belongs here is the
+limit of the rule.
 
-The same blindness has three more shapes:
-
-* **A command's own failure and a later reassuring line land in one buffer.** A
-  failed fetch followed by "Already up to date" looks like a quiet no-op. Check the
-  exit of the step that fetched, not the summary of the step after it.
-* **The harness reports an exit code of its own, and it can be a trailing filter's.**
-  A run whose real status was 1 surfaced as 0 because a filter sat on the end of the
-  command line. Run each gate alone, with nothing appended.
-* **A command can succeed and still not do the thing.** A fast-forward pull printed
-  `Updating <old>..<new>` twice in one session while the head did not move. So after
-  a mutating step, **verify the tree rather than the message.**
-
-**But "capture the runner's own exit code" settles WHOSE number to read, not that the
-number means pass**, and the two sound alike enough that a brief writes the second
-meaning the first. For an instrument whose job is to REFUSE, a non-zero exit is the
-NORMAL case, and admissibility lives in the artefact the run produced rather than in its
-status: one window's twenty runs all exited identically, nineteen admissible and the
-twentieth failing its positive CONTROL. So a brief for such a gate names the record's own
+**"Capture the runner's own exit code" settles WHOSE number to read, not that the number
+means pass**, and the two sound alike enough that a brief writes the second meaning the
+first. For an instrument whose job is to REFUSE, a non-zero exit is the NORMAL case, and
+admissibility lives in the artefact the run produced rather than in its status: one
+window's twenty runs all exited identically, nineteen admissible and the twentieth
+failing its positive CONTROL. So a brief for such a gate names the record's own
 admissibility criteria and states what the expected exit code IS, so the worker can tell a
 routine refusal from a crash — and never says "the exit code is the verdict" for a runner
 that refuses by design.
-
-### Concurrent workers share the machine's temp directory
-
-Two workers writing the same log path overwrite each other, and the loser reads a
-green belonging to someone else's run — plausible numbers, wrong code. This defeats
-the rule above, because the captured exit code is also theirs.
-
-Use worktree-local paths, name every artefact for the worktree **and** the attempt,
-and have workers confirm a log is their own before believing it.
 
 ### A test pinning current broken behaviour, and the fix for it, are mutually invalidating
 
@@ -163,11 +128,10 @@ contradicts a live symptom.
 
 ### Never let a worker stash
 
-Stashes are repository-global. They surface in sibling worktrees and cross-contaminate
-them. Put a no-stash line in every dispatch; workers commit to their branch instead.
-
-Workers violate this rule repeatedly even when told, so pair the ban with the
-alternative — commit first, then rebase — and say why.
+Stashes are repository-global: they surface in sibling worktrees and contaminate them.
+Workers violate this rule repeatedly even when told, so **pair the ban with the
+alternative** — commit first, then rebase — and say why. A prohibition with no named
+substitute is the one workers route around.
 
 ### The worktree guard can be fooled
 
@@ -188,9 +152,7 @@ the item with the fix written out, and dispatch it.
 Workers die mid-run for reasons unrelated to their work. Put "commit and push as you
 go, not at the end" in every brief, with the reason.
 
-The mayor may push a worker's existing commits, which is pure durability. Never build
-a commit from someone else's uncommitted work — only that worker knows whether it
-forms a coherent change.
+The mayor may push a worker's existing commits, which is pure durability.
 
 ### A reviewer's "P1" can be out of scope
 
@@ -282,10 +244,7 @@ recipe or guide not. Seen three times. When reviewing a fix, ask what a reader c
 whether that changed.
 
 **The unsatisfiable instruction.** A rule that cannot be obeyed on some path — "every gate
-prints X" when a third of them do not. Workers facing one do not stop; they improvise, and
-the improvisation varies. **When a rule says *every*, check the quantifier.**
-
-Correcting one of these often surfaces something useful. Scoping "every gate derives its root
+prints X" when a third of them do not. Correcting one often surfaces something useful. Scoping "every gate derives its root
 from the script path" to the gates that actually do revealed that the others resolve against
 the working directory, which changes what a worker must do.
 
@@ -302,14 +261,10 @@ fixes it because the fleet is the constraint. What worked: notice when the only 
 is the exclusive kind, then deliberately drain and take it — **a decision you announce**, not
 something that happens by default.
 
-**"Reap only on the worker's own report" leaves residue.** The rule is correct: every proxy for
-"this worker is finished" has killed a live run. But an agent that vanishes will never report,
-and its worktree becomes unreapable. A second cost too: a worker can need its tree *after* it
-reports, because its change hits a conflict and needs a rebase — nothing is lost, since the
-commits were pushed, but it has to rebuild the tree first.
-
-Keep the rule. Let the residue accumulate, and clear it on explicit operator authority rather
-than inventing another proxy.
+**The reaping rule is correct and it leaks.** An agent that vanishes never reports, so its
+worktree can never be reaped, and the residue grows without bound. No proxy fixes this — that
+is the point of the rule — so the residue is a standing cost the operator clears on request,
+not a defect to engineer away.
 
 ### Deciding what is actually the operator's
 
