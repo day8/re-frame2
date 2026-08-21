@@ -604,89 +604,78 @@ and name the dispatch. Otherwise one line is enough.
 
 Look for items marked in-progress. If no live worker holds one, it may be stranded.
 
-**But start from the worktrees, because that set is routinely empty while workers are
-running.** Unless your dispatches explicitly claim their items, a worker holds items that
-still read *open*, and this loop's nominal input is empty by construction rather than by
-health. Measured here: the in-progress list returned nothing while a worker was provably
-alive — files being written seconds earlier, a gate process burning CPU — and the three items
-it held all read open. A *"nothing in progress, sweep clean"* report is then not evidence of
-anything, and a streak of them is a streak of reads of an empty set.
+**But start from the worktrees, because that set is routinely empty while workers are running.**
+Unless your dispatches explicitly claim their items, a worker holds items that still read *open*, so
+this loop's nominal input is empty by construction rather than by health. Measured here: the
+in-progress list returned nothing while a worker was provably alive — files written seconds earlier,
+a gate process burning CPU — and the three items it held all read open. A *"nothing in progress,
+sweep clean"* report is then not evidence of anything, and a streak of them is a streak of reads of
+an empty set.
 
-The failure is worse than a missed strand. A dead worker's items sit open, look dispatchable,
-and the next dispatch tick sends a **second worker to the same branch** — the collision this
-method spends a section forbidding. So enumerate the worktrees first, sweep each for recent
-file activity, and map trees to items; where an item *is* marked in-progress, read it too. It
-is a real signal, just never the complete one.
+**The failure is worse than a missed strand**: a dead worker's items sit open, look dispatchable, and
+the next dispatch tick sends a **second worker to the same branch**. So enumerate the worktrees
+first, sweep each for recent file activity, and map trees to items. Where an item *is* marked
+in-progress, read it too — a real signal, never the complete one.
 
-**Discriminate before acting** — a long-running worker and a stranded one look identical from
-outside, and both readings went wrong in a single day here, in opposite directions.
+**Discriminate before acting.** A long-running worker and a stranded one look identical from outside,
+and both readings went wrong in a single day here, in opposite directions.
 
-1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the
-   revision id, not a count of changes. **An *ahead* count — the changes your branch carries
-   beyond the trunk — survives a rebase unchanged**, and rebasing onto a moved trunk is what a
-   briefed worker does constantly, so a count fails on the common case rather than an edge one.
-   Say *which* count, because only the ahead count is invariant: counting everything reachable
-   from the branch does move under a rebase, having counted what the trunk gained as well — so
-   the misleading one is also the one you naturally read. A changed id says alive everywhere a
-   count does, plus that case; an unchanged id still says *nothing* on its own, which is why the
-   next step is to ask rather than to reap. A healthy worker here was called unchanged for two
-   consecutive ticks, having rebased two minutes before the second read with all of its assigned
-   work committed.
+1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the revision
+   id, never a count of changes: **an *ahead* count survives a rebase unchanged**, and rebasing onto a
+   moved trunk is what a briefed worker does constantly, so a count fails on the common case. A
+   healthy worker here was called unchanged across two ticks, having rebased two minutes before the
+   second read with all its work committed.
+
    **Read the tip from whichever ref the worker's commit updates DIRECTLY, and prefer a read that
-   performs no refresh at all** — a refresh is what exposes the shared fetch-head trap under
-   *After each merge*, which is on this read path too and is silent here. Where workers share one
-   repository metadata directory, the shared local ref moves the moment a worker commits while the
-   *published* ref moves only when that worker chooses to push: the published one lags, and it
-   lags in the direction that reads as death.
-   **An unchanged tip says something only once it is corroborated with worktree activity.** A
-   worker inside a long gate commits nothing by design, so a still tip is the *expected* reading
-   for the commonest healthy state rather than a warning — which is why the corroboration, and
-   not the tip, carries the verdict. **That corroboration is a WRITE clock, so a worker that is
-   only READING touches nothing** — twice in one day a worker grepping its own gate log was
-   called stranded on twenty-three minutes of no writes.
-   **The most convincing false signature is on none of the discredited lists: a change fully
-   green at the band, a clean worktree, a tip commit some minutes old, and the change still a
-   DRAFT.** It reads as a worker that finished and forgot to publish — a real state, and the one
-   the message step exists to catch — but a worker presenting exactly so was on attempt three of
-   its local gate. **A green rollup is evidence about the PUSHED tree, not about the worker**, and
-   a clean tree is what you see *between* edits rather than only after the last one. It belongs on
-   the list precisely because it reads strong, and because not one of its four parts observes the
-   agent.
-   **The timestamps split by QUESTION, and the two questions take OPPOSITE answers.** A rebase
-   replays the *authored* time and rewrites only the *committed* one, so two honest readers can
-   call one change forty-three minutes old and seventy-five seconds old and neither be misreading.
-   Liveness wants the *committed* time, which moves when the worker moves. But **DATING a change
-   in prose — a design record, a governance note, any claim about when work was done — wants the
-   *authored* time**, because that is when the work was written, while the committed time records
-   only when the trunk happened to replay it. Where the project merges by rebase the two differ on
-   essentially every landed change, and the error is invisible once made: both are real timestamps
-   on the same change, each correct for its own question. A reader who has met only the liveness
-   rule has been taught that the authored time is the untrustworthy one, and will "correct" a right
-   date into a wrong one — which happened here, costing a live worker a wrong flag and the loop a
-   retraction to the operator.
-2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
-   because the worker's context is still there. **The commonest strand by far is a worker that
-   detached a long gate and then ended its turn**, waiting for a completion event that nothing
-   sends. Seven such incidents happened in one day; every one recovered intact the moment
-   somebody asked for a status.
-3. **Only when there is no live task and no movement in the tip:** push any existing commits on the
-   branch — pure durability — then set the item back to open with a note saying what was found
-   and what was salvaged, and redispatch.
-   **Read WHY the worker stopped before you act on that last word.** When the stop reason names an
-   exhausted allowance — a spend cap, a rate limit, a usage quota with a stated reset — redispatch
-   is not a remedy, because *a remedy that draws on the resource whose exhaustion caused the
-   failure is not a remedy*: every attempt fails identically until the reset, and every attempt
-   spends. The salvage half still applies in full. Leave the item open with the reason and the
-   reset time recorded, and stop dispatching rather than retrying. **Merging is unaffected**, and
-   that is the half that still pays — integrating a finished change draws on none of that
-   allowance, and a change whose author has already stopped can still be the one unblocking
-   everything queued behind it. So the order is salvage, then merge whatever is green, then stop.
-   A reason naming a limit and a reset is categorically different from a crash, a timeout, or
-   step 2's detached-gate strand: **the reason text, not the symptom, chooses the remedy**, and
-   all three symptoms look identical from outside.
+   performs no refresh** — a refresh exposes the shared fetch-head trap under *After each merge*,
+   which is on this path too and is silent here. Where workers share one repository metadata
+   directory, the local ref moves the moment a worker commits while the *published* ref moves only
+   when that worker pushes: the published one lags, in the direction that reads as death.
 
-**Never build a commit from someone else's uncommitted work.** Only that worker knows whether
-it forms a coherent change.
+   **An unchanged tip says nothing on its own** — a worker inside a long gate commits nothing by
+   design, so a still tip is the *expected* reading for the commonest healthy state. Corroborate with
+   worktree activity, and note that **the corroboration is a WRITE clock, so a worker that is only
+   READING touches nothing**: twice in one day a worker grepping its own gate log was called stranded
+   on twenty-three minutes of no writes.
+
+   **The most convincing false signature is on none of the discredited lists: a change fully green at
+   the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
+   as a worker that finished and forgot to publish — a real state, and the one step 2 exists to catch
+   — but a worker presenting exactly so was on attempt three of its local gate. **A green rollup is
+   evidence about the PUSHED tree, not about the worker**, and a clean tree is what you see *between*
+   edits. It belongs on the list because it reads strong and not one of its four parts observes the
+   agent.
+
+   **The timestamps split by QUESTION, and the two questions take OPPOSITE answers.** A rebase replays
+   the *authored* time and rewrites only the *committed* one, so two honest readers can call one change
+   forty-three minutes old and seventy-five seconds old. Liveness wants the *committed* time, which
+   moves when the worker moves. But **DATING a change in prose — a design record, a governance note,
+   any claim about when work was done — wants the *authored* time**, because that is when the work was
+   written. Where the project merges by rebase the two differ on essentially every landed change, and
+   the error is invisible once made. A reader who has met only the liveness rule has been taught that
+   the authored time is the untrustworthy one, and will "correct" a right date into a wrong one.
+
+2. **Is there a live task to message?** Message first — resuming beats redispatching, because the
+   worker's context is still there. **The commonest strand by far is a worker that detached a long gate
+   and then ended its turn**, waiting for a completion event nothing sends. Seven such incidents in one
+   day; every one recovered intact the moment somebody asked for a status.
+
+3. **Only with no live task AND no tip movement:** push any existing commits — pure durability — then
+   set the item back to open with a note on what was found and salvaged, and redispatch.
+
+   **Read WHY the worker stopped before acting on that last word.** Where the stop reason names an
+   exhausted allowance with a stated reset, redispatch is not a remedy: *a remedy that draws on the
+   resource whose exhaustion caused the failure is not a remedy*, so every attempt fails identically
+   until the reset and every attempt spends. Salvage still applies in full — record the reason and the
+   reset time, and stop dispatching rather than retrying. **Merging is unaffected**, and that is the
+   half that still pays: integrating a finished change draws on none of that allowance, and a change
+   whose author has already stopped can still be the one unblocking everything queued behind it. So
+   the order is salvage, merge whatever is green, then stop. **The reason text, not the symptom,
+   chooses the remedy** — a quota death, a crash, a timeout and step 2's detached-gate strand look
+   identical from outside.
+
+**Never build a commit from someone else's uncommitted work.** Only that worker knows whether it forms
+a coherent change.
 
 ---
 
@@ -741,43 +730,35 @@ report you received. *"I think it is done"* is the inference this rule exists to
 it "reported" does not change what it is.
 
 **Clearing the mayor's context destroys its ability to QUOTE a report, so record which worktree
-belongs to which agent at DISPATCH time** — one line per dispatch, in a mayor-local file the
-project does not track. The reap test is unchanged; this only supplies a documented route to the
-sentence once the context that held it is gone. Measured here: after one clear, fourteen worktrees
-existed and exactly three had a quotable report, all three dispatched after it, while nine of the
-remaining eleven held work fully upstream with their items closed. The rule failed safe and nothing
-was lost; the cost is monotone accumulation.
-
-**Dispatch time, not report time.** A report-time record has to survive the window between the
-report arriving and the clear; dispatch always precedes the report, so the line is on disk before
-a clear can matter.
+belongs to which agent at DISPATCH time** — one line per dispatch, in a mayor-local file the project
+does not track. The reap test is unchanged; this only supplies a route to the sentence once the
+context that held it is gone. After one clear, fourteen worktrees existed and exactly three had a
+quotable report, all three dispatched after it. The rule failed safe; the cost is monotone
+accumulation. **Dispatch time, not report time** — dispatch always precedes the report, so the line
+is on disk before a clear can matter.
 
 **What the id buys is the TRANSCRIPT, not a live conversation.** Messaging does not reach across a
-clear — every one of eight agents whose ids had been recorded exactly as prescribed answered *"no
-transcript found"*, while an agent dispatched by the current session resumed on the identical call.
-Their transcripts were intact on disk nonetheless, and seven of the eight opened their last message
-with precisely the sentence the reap test demands. **Reading it is a READ, not an inference** — the
-agent's own words — so it satisfies the test as written and adds no further proxy. The eighth
-carried only an interim progress note, and its worktree correctly stayed.
+clear: eight agents whose ids had been recorded exactly as prescribed all answered *"no transcript
+found"*, while an agent dispatched by the current session resumed on the identical call. Their
+transcripts were intact on disk nonetheless, and seven of the eight opened their last message with
+precisely the sentence the reap test demands. **Reading it is a READ, not an inference**, so it
+satisfies the test as written and adds no further proxy.
 
-Two cautions came out of that. **An id is a way to FIND the report, never an answer in itself**:
-within the dispatching session, message first, because that distinguishes *alive* from *finished*
-and a transcript cannot. And **beware a per-agent scratch sink that merely shares the id** — one
-such file was empty for seven of those eight agents while their real transcripts sat complete
-elsewhere, was *also* empty for a current-session agent that finished normally, and for the eighth
-held a hardlink to the real transcript, so the wrong file returned exactly one plausible non-empty
-result and made the wrong conclusion self-consistent.
+**An id is a way to FIND the report, never an answer in itself**: within the dispatching session,
+message first, because that distinguishes *alive* from *finished* and a transcript cannot. And
+**beware a per-agent scratch sink that merely shares the id** — one was empty for seven of those
+eight while their real transcripts sat complete elsewhere, *also* empty for a current-session agent
+that finished normally, and for the eighth held a hardlink to the real transcript, so the wrong
+file returned one plausible non-empty result and made the wrong conclusion self-consistent.
 
-**Whether to hold the report TEXT somewhere of your own is the operator's call.** A transcript path
-the platform documents as an implementation detail is not a contract, and local-history retention
-sweeps typically DELETE rather than truncate.
+A transcript path the platform documents as an implementation detail is not a contract, and
+local-history retention sweeps typically DELETE rather than truncate — so whether to hold the report
+text somewhere of your own is the operator's call.
 
-**Reaping on the report is correct and still costs something.** A worker can need its tree *after*
-it reports, because its change hits a conflict and needs a rebase. Pushed commits make that
-survivable — the worker recreates the tree on the existing branch and continues. Whether to hold a
-worktree while its change is open is a real trade, and "leave the rule alone and accept the rebuild"
-is a defensible answer. **Do not add a second condition to a rule whose strength is that it has
-one.**
+**Reaping on the report is correct and still costs something**: a worker can need its tree *after*
+it reports, because its change hits a conflict. Pushed commits make that survivable — it recreates
+the tree on the existing branch and continues. **Do not add a second condition to a rule whose
+strength is that it has one.**
 
 ### Removing
 
