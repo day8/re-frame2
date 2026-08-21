@@ -771,10 +771,13 @@ what each not-green row is waiting on.
 
 ## 8. Conditions
 
-Four invocations between **03:58 and 04:05 on 2026-08-22**, the three evidence
+Four invocations between **03:57 and 04:05 on 2026-08-22**, the three evidence
 runs back to back on one drained fleet inside a single box bracket, each about
 80 seconds including its own cold `:advanced` compile. Captured exits `0`, `0`,
-`0`. React 19.2.0, UIx 1.4.4, shadow-cljs 3.4.10, `:advanced` with `goog.DEBUG
+`0`. **The pre-registration half was committed at 03:52 and pushed before the
+first invocation**; the rebase [§6](#6-the-instrument-and-the-subject) records
+re-minted that commit, but a rebase preserves author dates, so the ordering is
+readable off this branch's history rather than resting on this sentence. React 19.2.0, UIx 1.4.4, shadow-cljs 3.4.10, `:advanced` with `goog.DEBUG
 false`, headless Chromium 147.0.7727.15 via Playwright 1.59.1, Windows 11, 24
 logical cores, `navigator.deviceMemory` 32.
 
