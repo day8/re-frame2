@@ -1,42 +1,90 @@
 ---
 description: Mayor Loop — posture reread + reassert, then the stranded sweep (≈60m cadence). One-line confirmation unless drift.
 ---
-MAYOR LOOP (posture reread + reassert, then the stranded sweep) — `docs/the-mayor-method/loops.md` §4 is the generic body for BOTH halves; this file pins the concrete commands. Re-read docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/dispatch-prompt-template.md.
+MAYOR LOOP (posture reread + reassert, then the stranded sweep).
 
-**THE STANCE — paste this block VERBATIM into every dispatch preamble.** This file is its single source of truth. Paste it; do not summarise it:
+**`docs/the-mayor-method/loops.md` §4 is the body of BOTH halves** — why a stance is never
+summarised, why the in-progress list is empty by construction, and why each derived liveness
+signal misleads. It is the one place that reasoning lives; it is not restated here. **This file
+is the single source of the STANCE block, and pins the concrete commands.** Also re-read
+`docs/the-mayor-method/bootstrap.md` and `dispatch-prompt-template.md`.
+
+## The stance
+
+**Paste this block VERBATIM into every dispatch preamble. Do not summarise it.**
 
 > **PROJECT STANCE** — pre-alpha, aiming at a masterpiece. ELEGANCE, POWER, CLARITY, CORRECTNESS, GOOD PRACTICE. But NOT over-engineering and NOT gold-plating. We TRUST THE PROGRAMMER. The goal is high productivity for them and the AI they use: a library with excellent ergonomics, a minimal API, excellent tools, low friction. No back-compat shims; performance and completeness serve the lenses rather than outranking them. We do not need to litigate every last fine detail or drown in minutiae — reject over-engineering and nag-diagnostics at triage, and CLOSE minutiae rather than actioning it. An audit finding is a CLAIM, not automatically work; stale, moot and over-engineered remedies are rejected rather than dispatched. A source-located REFUSAL is an acceptable and possibly correct deliverable.
 
-**Which half a paraphrase drops, and why that is the whole point.** The five lenses say what good looks like. Everything after them says when to STOP — and a summary keeps the lenses, because they are the memorable half. What is left then does not read as incomplete; it reads as a stance that wants MORE of everything, which is exactly the failure the second half exists to prevent. "Trust the programmer" is what rejects a nag-diagnostic. "Close minutiae rather than actioning it" is what lets a bead die with its reasoning recorded instead of consuming a worker. "A finding is a CLAIM" is what stops an audit's output being mistaken for a queue. And the licence to refuse is load-bearing: in one session three of six dispatches came back as reasoned refusals — `rf2-jkdy`, `rf2-5gka`, `rf2-u5b4` — and each was worth more than the work would have been, because a migration performed on a false premise costs far more than a bead. A worker briefed on the lenses alone has no licence to return one.
+## Voice
 
-**Also reassert the voice.** The operator wants GOV.UK (GDS) house style in CHAT replies — plain English, short sentences, active voice, one idea per sentence, front-loaded so the most important thing is the first line, numerals for all numbers including 1 to 9, no latinisms (write "for example", not "e.g."), no metaphor or rhetorical flourish, and technical names (bead ids, paths, commands) kept exact. He has asked repeatedly and the drift returns within about ten turns, which is why this belongs in a recurring loop and not in one session's memory. It applies to CHAT ONLY; bead text, PR bodies and documents keep their own register.
+The operator wants GOV.UK (GDS) house style in CHAT replies — plain English, short sentences,
+active voice, one idea per sentence, front-loaded, numerals for all numbers including 1 to 9,
+no latinisms (write "for example", not "e.g."), no metaphor, and bead ids, paths and commands
+kept exact. CHAT ONLY: bead text, PR bodies and documents keep their own register.
 
-**Check that rule at source before "correcting" it — it has been filed as a bug against this line twice, and both filings read a superseded record.** `bd memories "gds"` returns the record that governs now: `operator-wants-govuk-gds-house-style` (2026-08-15), written the moment the operator asked for it directly, and it carries the practice list the sentence above compresses. **It REFINES the ASD-STE100 rule that stood here before it — it does not reverse it, and there is no contradiction here to resolve.** `bd memories "simplified technical english"` returns the two records it supersedes FOR CHAT, `mike-communication-ste100` (2026-08-09) and `operator-wants-simplified-technical-english` (2026-08-10); both already asked for short sentences, active voice and plain words, and GDS adds numerals for 1 to 9, no latinisms, front-loading, and a harder line on metaphor. **Nor is this a third re-litigation of the settled question**: `chat-voice-ste100-not-the-frozen-human-register` closed it with "only Mike can reopen this, and only by stating a new preference", and the 2026-08-15 record is him doing exactly that — so what you are reading is that record's own reopen clause working as designed. The 2026-08-10 record remains where "asked repeatedly" and "about ten turns" come from — it says "HE HAS NOW ASKED THREE TIMES" and "I DRIFT BACK WITHIN ABOUT TEN TURNS, EVERY TIME" — so the justification above is evidence FOR the rule it names, not, as `rf2-e5xag` inferred, about a different preference. An older record genuinely does disagree: `feedback_voice_tight_not_terse` (2026-07-13) asks for a human voice and full sentences over dash-chained fragments. It is superseded FOR CHAT by recency, and by sitting in the `~/.claude` store that `CLAUDE.md` froze on 2026-07-25 in favour of `bd remember` — **not** by scope, because its body reaches chat in as many words ("in docs edits and chat explanations alike"). It still governs DOCS prose, which is exactly what the chat-only fence above leaves it. If the operator's own voice line in the scheduler prompt disagrees with this paragraph, the prompt is the copy to change: `docs/the-mayor-method/loops.md` §4 deliberately says only "reassert any **voice** the operator has asked for" and leaves naming it to this file.
+**Check that at source before "correcting" it — it has been filed as a bug against this line
+twice, and both filings read a superseded record.** `bd memories "gds"` returns the record that
+governs, `operator-wants-govuk-gds-house-style` (2026-08-15). It REFINES the earlier
+ASD-STE100 records rather than reversing them, so there is no contradiction to resolve, and it
+is the operator restating a preference, which is exactly how the earlier record said the
+question could be reopened. `feedback_voice_tight_not_terse` (2026-07-13) still governs DOCS
+prose. If the operator's own voice line in the scheduler prompt disagrees with this paragraph,
+the prompt is the copy to change — `loops.md` §4 deliberately leaves naming the voice to here.
 
-**Then reassert to the operator in ONE line:** orchestration-not-implementation (the mayor does not code — guard context, dispatch bounded work to background workers in their own worktrees, only edit directly for tiny fixes/emergency cleanup).
+## Reassert
 
-If recent dispatches have drifted from this posture — mayor coding, missing worktree-boundary block, stance absent from preambles, stance PARAPHRASED rather than pasted, `--admin` misuse, minutiae actioned instead of closed, an audit finding dispatched without its premise checked at source — flag it explicitly and name the dispatch. Otherwise a one-line "posture holding" confirmation is enough.
+One line: orchestration-not-implementation — the mayor does not code; guard context, dispatch
+bounded work to background workers in their own worktrees, edit directly only for tiny fixes
+and emergency cleanup.
 
-**THEN RUN THE STRANDED SWEEP — this loop's second half.** It shares a tick with the posture reassert because `docs/the-mayor-method/loops.md` §4 is one loop, not two; it is written out here because an inline copy in a scheduler prompt is a second copy of a rule that no change can reach, and two copies of one rule disagree within days. §4 owns the reasoning; do not restate it below.
+If recent dispatches have drifted — mayor coding, missing worktree-boundary block, stance
+absent or PARAPHRASED rather than pasted, `--admin` misuse, minutiae actioned instead of
+closed, an audit finding dispatched without its premise checked at source — flag it and name
+the dispatch. Otherwise "posture holding" is enough.
 
-Read the in-progress beads: `bd list --status in_progress --limit 0 --flat --no-pager`. For each, ask whether a live worker still holds it. **Discriminate before acting** — a long-running worker and a stranded one look identical from outside, and both readings went wrong in a single day here, in opposite directions.
+## The stranded sweep — this loop's second half
 
-**START FROM THE WORKTREES, NOT FROM THAT LIST — the in-progress set is routinely EMPTY while workers are running, because dispatches do not claim their beads.** Measured 2026-08-15 22:14: `bd list --status in_progress` returned nothing at a moment when `worker/retire-final` was demonstrably alive — 80 files touched in 15 minutes, a JVM gate started 3 seconds earlier — and the three beads it held (`rf2-0yp7w.4`, `.6`, `.10`) all read open. So this loop's nominal input is empty by construction rather than by health, and a "0 in progress, sweep clean" report is **not evidence of anything**. Do not quote a streak of clean sweeps as assurance; a streak of reads of an empty set is what it may be. The failure is worse than a missed strand: the dead worker's beads sit open, look dispatchable, and the next dispatch tick is free to send a **second worker at the same branch** — the collision the method spends a section forbidding.
+**Start from the worktrees, not from the tracker.** Dispatches here do not claim their beads,
+so `bd list --status in_progress --limit 0 --flat --no-pager` is routinely EMPTY while workers
+run, and a "0 in progress, sweep clean" report is not evidence of anything.
 
-So enumerate `git worktree list` first and sweep each worker worktree for activity, then map trees to beads. One command settles a tree: count files touched recently, excluding `node_modules` and `.git`, and **read the newest filenames** — paths under `.cpcache`, `.scratch` or `implementation/out` mean a gate is running, a tracked source or doc file means the worker is editing, near-zero means a strand. Cross-check against processes started recently (`java`, `node`). That test is keyed to the worktree, which is where the truth is, rather than to a tracker field nobody sets. Where a bead IS marked in-progress, read it too — it is a real signal, just not the only one, and never the complete one.
+```bash
+git worktree list
+find <worktree> -newermt '20 minutes ago' -type f | grep -v '/\.git/' | wc -l
+```
 
-**BEFORE STEP 1, READ THE HARNESS'S OWN RUNNING-AGENT REPORT — it is the first discriminator, and it arrives unprompted.** The harness names each live agent with its current action (*"Polling `gate-fastpr-ymlparse-cb7hs-3.log`"*, *"Compiling browser-test with shadow-cljs"*), which observes the AGENT where every test below observes its output. Where it is present, it settles liveness and you stop: on 2026-08-16 three live workers were judged stranded on three different derived signatures while it was on screen for all three, and each message cost a live worker a turn for nothing (rf2-y7tu4). **Step 1 is the FALLBACK for when it is absent** — after a `/clear`, or for a worker someone else dispatched. Step 2 is unaffected and still earns its keep. `mayor-hygiene.md` carries why each derived signal misleads, including the "green PR + clean tree + still draft" signature, and remains the one place that reasoning lives.
+Read the newest filenames, not just the count: paths under `.cpcache`, `.scratch` or
+`implementation/out` mean a gate is running, a tracked source or doc file means the worker is
+editing, near-zero means a strand. Cross-check processes started recently (`java`, `node`).
+Where a bead IS marked in-progress, read it too.
 
-1. **Has that bead's branch TIP SHA moved since the last tick?** `git rev-parse worker/<name>`, against the SHA you recorded last tick. **Never a commit count, and never `%ar`.** `mayor-hygiene.md` carries why each misleads and is the one place that reasoning lives — the short of it is that the ahead count and the author date are both replayed unchanged by a rebase, while the tip SHA and `%cI` move (rf2-0vvw). **That ranking is for LIVENESS ONLY — when you DATE a commit in prose, `%aI` is the correct clock and `%cI` is the wrong one.** `docs/the-mayor-method/loops.md` under *The stranded sweep* carries why, and `mayor-hygiene.md` the measured instance (rf2-r0hq5).
+**BEFORE STEP 1, READ THE HARNESS'S OWN RUNNING-AGENT REPORT.** It names each live agent with
+its current action — *"Polling `gate-fastpr-ymlparse-cb7hs-3.log`"*, *"Compiling browser-test
+with shadow-cljs"* — and arrives unprompted, observing the AGENT where every test below
+observes its OUTPUT. Where it is present it settles liveness and you stop; three live workers
+were once judged stranded on three different derived signatures while it was on screen for all
+three. Step 1 is the FALLBACK for when it is absent — after a `/clear`, or for a worker someone
+else dispatched.
 
-   **Read the LOCAL ref, not `git ls-remote` — this line said "ask the REMOTE" until 2026-08-14 and it produced a false strand signal on three workers at once.** The remote rule was imported from the *pull* path, where the concern is real: a fetch there reads what the shared `.git/FETCH_HEAD` left behind. But `git rev-parse <branch>` consults the local ref directly and performs no fetch, so it never touches that file — the contamination this rule was guarding against cannot reach it. Meanwhile every worker worktree here is a LINKED worktree sharing one `.git`, so a worker's commit updates the local ref the instant it lands, while `origin` only moves when that worker chooses to push — which a briefed worker does at milestones, not continuously. The remote is therefore a LAGGING indicator, and lagging in exactly the direction that reads as death. Measured on 2026-08-14 05:15: `ls-remote` reported all three live workers unchanged since the previous tick, while their local refs showed `ciretire-cluster` at `b26de366d4` committed 04:59 and `walkctl-1huc` at `73508c1339` committed 05:08. All three were healthy; step 3 applied mechanically would have reopened five beads and redispatched over live work.
+1. **Has the branch TIP SHA moved since last tick?** `git rev-parse worker/<name>`, against the
+   SHA you recorded. **Never a commit count, never `%ar`.** Read the LOCAL ref, not
+   `git ls-remote`: every worker worktree here is a LINKED worktree sharing one `.git`, so the
+   local ref moves the instant a worker commits while `origin` moves only when it pushes — the
+   remote lags, and it lags in the direction that reads as death.
+   `git log -1 --format='%aI %cI' <ref>` gives both clocks. **`%cI` for LIVENESS; `%aI` when you
+   DATE a commit in prose** — `loops.md` §4 owns why, and this loop once "corrected" a right
+   date into a wrong one and had to retract (rf2-r0hq5).
+2. **Is there a live task to message?** Message before you redispatch. `SendMessage`'s response
+   shape answers it: *"queued for delivery"* = alive; *"had no active task; resumed from
+   transcript"* = idle.
+3. **Only when there is no live task AND no tip movement:** push whatever commits the branch
+   carries, then `bd update <id> --status open` with a note saying what was found and what was
+   salvaged, and redispatch. **Read the TERMINATION REASON first** — when it names a quota or
+   rate limit with a reset time, redispatch is not available and every attempt spends another
+   call. Leave the bead open with the reason and the reset time, and STOP DISPATCHING. Merging
+   is unaffected and `gh pr merge` spends no agent quota, so the order is salvage, then merge
+   everything green, then stop.
 
-   **And corroborate an unchanged SHA with worktree activity before it means anything.** A worker inside a twenty-five-minute gate commits nothing by design, so a still SHA is the *expected* reading for the commonest healthy state. `find <worktree> -newermt '20 minutes ago' -type f | grep -v '/\.git/' | wc -l` settles it in one command: the three workers above returned 8,025, 10,443 and 5,517 touched files, and a `.scratch/test-fast-pr.run` marker named the gate outright. Near-zero is what a strand looks like.
-2. **Is there a live task to message?** Message before you redispatch — resuming beats redispatching, because the worker's context is still there. `SendMessage`'s response shape answers it: *"queued for delivery"* = alive; *"had no active task; resumed from transcript"* = idle. **The commonest strand by far is a worker that detached a long gate and then ended its turn**, waiting for a completion event nothing sends; seven such incidents in one day, every one recovered intact the moment somebody asked for a status.
-3. **Only when there is no live task AND no movement in the tip:** push whatever commits the branch already carries — pure durability — then `bd update <id> --status open` with a note saying what was found and what was salvaged, and redispatch.
-
-   **Read the TERMINATION REASON before that last word, because when it names a quota or rate limit, redispatch is not available.** Two workers here died together on `Agent terminated early due to an API error: You've hit your weekly limit · resets Aug 20, 11am`, and a quota death presents EXACTLY as an ordinary strand: no live task, no tip movement. The discrimination above is therefore right and the SALVAGE half is right — push the branch, record what was salvaged, leave the uncommitted files to the worker under the rule below. Only redispatch fails: every `Agent` call returns that same error until the stated reset, so a mayor working step 3 mechanically burns attempts discovering it, and each attempt is itself a call. Leave the bead open with the reason AND the reset time in the note, and STOP DISPATCHING rather than retrying. **MERGING is unaffected** — `gh pr merge` spends no agent quota — and that is the load-bearing half: `rf2-hic-066`'s #8278 was merged after its author had already died, and it was the pin for seven blocked beads. So the order on a quota death is salvage, then sweep the open PRs and merge everything green, then stop. **The discriminator is the error TEXT**: a quota death names a limit and a reset time, where a crash, a harness timeout, and step 2's detached-gate strand — the commonest of the three, and recoverable by message — each read differently.
-
-**A MOVED SHA says alive; a STILL SHA authorises nothing on its own.** It is not a reap proxy: reaping is `mayor-hygiene.md`'s question and its test is still the agent's own completion report. And **never build a commit from someone else's uncommitted work** — only that worker knows whether it forms a coherent change.
-
-*Reasoning lives in docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/loops.md §4; this file carries the operational block.*
+**A MOVED SHA says alive; a STILL SHA authorises nothing on its own.** Reaping is
+`.claude/commands/mayor-hygiene.md`'s question and its test is still the agent's own report.
+**Never build a commit from someone else's uncommitted work.**
