@@ -304,9 +304,18 @@
 ;; There was no rejection arm anywhere in this file, so on a rejection the
 ;; handler was skipped, the `try` was never entered and the `finally` never
 ;; fired. Nothing ran: no `stop!`, no `release!`, no `done`. The row did not
-;; fail — it HUNG to `cljs.test`'s async timeout, reporting the timeout
-;; rather than the rejection, and it handed the next row a live root and a
-;; swallowing listener to take its census against.
+;; fail on its own account — it never settled, so `cljs.test`'s async runner
+;; had nothing to advance it with, and the next row was handed a live root
+;; and a swallowing listener to take its census against.
+;;
+;; On THIS lane it is worse than a hang, which is worth knowing before
+;; reading §6's sabotage as merely slow. An unsettled rejection is an
+;; unhandled one, so it reaches the page as an uncaught error, and the
+;; browser runner treats that as terminal (rf2-u0j8). Measured: the run
+;; stopped at this namespace with 85 announced, no summary line at all, and
+;; every namespace scheduled after it silently unrun — `shadow.test` runs
+;; the whole lane, and the closing summary, inside one `cljs.test/run-block`
+;; with no try/catch. So the cost of a rejection here was never one row.
 ;;
 ;; [[settle-row!]] is the one path all four now end with, and §6 is what
 ;; says it works — because its rejection arm is on no green path, and a
@@ -743,10 +752,11 @@
 ;; Under the shape this file carried before, nothing below the injection
 ;; runs at all. The rejection skips the fulfilment handler, so the `try` is
 ;; never entered and its `finally` never fires: no `stop!`, no `release!`,
-;; no `done`. The row does not go red — it hangs to `cljs.test`'s async
-;; timeout, reports the timeout instead of the rejection, and leaves the
-;; root mounted, the container in the document and `console.error` still
-;; replaced for whatever runs next.
+;; no `done`. Measured by removing [[settle-row!]]'s rejection arm and
+;; running the lane: the run stopped HERE, 85 namespaces in, with no summary
+;; line and every later namespace unrun — see the note above [[settle-row!]]
+;; for why an unsettled rejection is terminal on this runner rather than
+;; merely slow.
 
 (deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
   (if-not (mount/browser?)
