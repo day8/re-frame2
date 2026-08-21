@@ -222,58 +222,44 @@ the same number. The two readings differ by one question, and the answer is in t
 Check also that the diff matches its tracker item, that scope did not sprawl, that
 failure output stays actionable, and that the quality-gates section is present.
 
-**Read the FILE LIST against the item, not just the count — and "scope did not sprawl" does
-not already cover it.** Sprawl is EXTRA work, and it announces itself because extra files read
-as new work. The opposite shape does not: a change that silently REVERTS merged work is green,
-well-formed, compiles, and passes every gate the tree has. One change here carried twenty-four
-files under a subject accurate about the one its author meant to touch, at 611 insertions
-against 910 deletions, out of a worktree whose base had moved; a source file had put back a
-symbol belonging to a retired subsystem, so the branch's content was OLDER than the trunk's.
-**So a path the item does not explain is a finding whichever DIRECTION it runs**, and direction
-is the test rather than size: for a surprising file, ask whether something PRESENT on the branch
-is ABSENT from the trunk.
+**Read the FILE LIST against the item, not just the count — "scope did not sprawl" does not
+cover it.** Sprawl is EXTRA work and announces itself, because extra files read as new work. The
+opposite shape does not: a change that silently REVERTS merged work is green, well-formed,
+compiles, and passes every gate the tree has. One here carried twenty-four files at 611 insertions
+against 910 deletions, out of a worktree whose base had moved, putting back a symbol belonging to
+a retired subsystem — the branch's content was OLDER than the trunk's. **So a path the item does
+not explain is a finding whichever DIRECTION it runs**, and direction is the test rather than
+size: for a surprising file, ask whether something PRESENT on the branch is ABSENT from the trunk.
 
-**Do not reach for a gate here.** A revert of merged work is mechanically indistinguishable from
-a change that is not one; the only discriminator is whether the reader EXPECTED those paths, so a
-gate would be a control that cannot catch its own case. The worker-side half of this — diff
-against the merge base before pushing and read it for what you would revert — is already on every
-brief; this is the mayor-side half, for the case that half exists to catch and by definition did
-not: the worker that never ran it.
+**Do not reach for a gate here.** A revert is mechanically indistinguishable from a change that is
+not one; the only discriminator is whether the reader EXPECTED those paths, so a gate would be a
+control that cannot catch its own case. The worker-side half — diff against the merge base before
+pushing — is on every brief; this is the mayor-side half, for the worker that never ran it.
 
 Merge every green change **regardless of author**, including the operator's own.
 
-**Prefer server-side head-branch deletion over a client-side delete flag.** A branch
-still checked out in a worktree cannot be deleted locally, and clients typically
-abandon the *remote* deletion along with the local one — so the flag orphans a remote
-branch on every merge whose worker has not yet reported. Three for three in the
-session that measured it, against roughly twenty manual cleanups that were skipped
-more often than they were run. Turn on the repository setting instead: the server
-deletes the head branch as the merge lands and does not care what a worktree is
-holding. Zero orphans by construction, and nothing to remember afterwards.
-
-A manual remote delete then survives only as the rare fallback for a ref that
-outlives a verified merge — head-ref protection, or a cross-repo change whose head
-lives in a fork the server will not touch. **A surviving remote ref is never grounds
-to reap a worktree early.**
+**Prefer server-side head-branch deletion over a client-side delete flag.** A branch still
+checked out in a worktree cannot be deleted locally, and clients typically abandon the *remote*
+deletion along with the local one — so the flag orphans a remote branch on every merge whose
+worker has not yet reported. The repository setting has none of that: the server deletes the head
+branch as the merge lands and does not care what a worktree holds. Zero orphans by construction.
+A manual remote delete then survives only for a ref that outlives a verified merge — head-ref
+protection, or a head living in a fork the server will not touch. **A surviving remote ref is
+never grounds to reap a worktree early.**
 
 **"Base branch was modified" usually means stale — until something is moving the
 base.** The rejection reads like a lost race, so the reflex is to retry; seven
 retries here proved otherwise, the branch was simply behind, and the remedy is to
 update it and re-check.
 
-But any automation that writes to the trunk after a merge turns that reflex into a
-trap, because then the race is real. A post-merge hook that commits and pushes
-asynchronously means the base never holds still during a burst, and the next merge
-is refused for a reason no amount of updating fixes — **one change here was refused
-thirty times**, on both transports, and updating the branch made it worse before
-better, because CI restarts and another hook commit lands inside that window.
-
-The remedy is counterintuitive: **merge the whole queue FIRST, then give the
-straggler a genuinely empty window.** Raising its nominal priority does the opposite
-of what it looks like, because priority without an empty window is just more attempts
-against a moving base. And if a change refuses more than about three times while
-blocking nothing, **shelve it** and take it opportunistically. Persistence on an item
-that is blocking nothing is its own gold-plating.
+But any automation that writes to the trunk after a merge makes the race real. A post-merge hook
+that commits asynchronously means the base never holds still during a burst, and the next merge is
+refused for a reason no amount of updating fixes — **one change here was refused thirty times**,
+and updating the branch made it worse before better, because CI restarts and another hook commit
+lands inside that window. The remedy is counterintuitive: **merge the whole queue FIRST, then give
+the straggler a genuinely empty window.** Raising its priority is just more attempts against a
+moving base. If a change refuses more than about three times while blocking nothing, **shelve it**
+— persistence on an item blocking nothing is its own gold-plating.
 
 ### After each merge
 
@@ -292,19 +278,17 @@ four times in one session and was never real.
 Read the *fetch's* own exit code for the same reason. A failed fetch and a subsequent
 "Already up to date" print into the same buffer, and the reassuring line is the lie.
 
-**Do not collapse that pair back into a pull.** A pull picks its merge target out of a
-scratch file that any concurrent git process in the same checkout can rewrite — most
-exposed being the shared checkout every agent reaches into to add a worktree — and a
-captured target does not fail honestly. Measured here: in one arrangement it silently
-fast-forwarded the trunk **onto a feature branch**; in another it aborted wearing the
-divergence message below, on a clean tree zero commits ahead, where that message's remedy
-is inert. **A failure that borrows another cause's message cannot be discriminated by
-message text**, so the repair is to retire the command that reads the shared file, not to
-add a third case to the list. A remote-tracking ref cannot be captured that way: it is
-written atomically, and every concurrent fetcher sets it to the same trunk head or a newer
-one, both of which still fast-forward. Expect the exposure to **grow with fleet size** —
-dispatching immediately after merging is what puts the concurrent fetches and the
-fast-forward in the same seconds.
+**Do not collapse that pair back into a pull.** A pull picks its merge target out of a scratch
+file any concurrent git process in the same checkout can rewrite — most exposed being the shared
+checkout every agent reaches into to add a worktree — and a captured target does not fail
+honestly. Measured here: in one arrangement it silently fast-forwarded the trunk **onto a feature
+branch**; in another it aborted wearing the divergence message below, on a clean tree zero commits
+ahead, where that remedy is inert. **A failure that borrows another cause's message cannot be
+discriminated by message text**, so the repair is to retire the command that reads the shared
+file, not to add a third case. A remote-tracking ref cannot be captured that way: it is written
+atomically, and every concurrent fetcher sets it to the trunk head or newer, both of which still
+fast-forward. The exposure **grows with fleet size** — dispatching immediately after merging puts
+the concurrent fetches and the fast-forward in the same seconds.
 
 **An aborted fast-forward has two causes with different remedies, and the message says
 which** — and it says which only because the pair above no longer reads the shared file.
@@ -341,11 +325,10 @@ not — dispatch a fix worker onto the **existing** branch that runs the **actua
 gate, not a proxy that already passed.
 
 **A failure BEFORE any repository code ran is the second case, and the failing step names
-itself** — an action download rate-limited, a runner setup step dying. The diff cannot have
-caused it, so no second observation is needed: re-run the failed jobs and hold the re-run to the
-same clauses. **But re-running is not a cure.** One job died in setup on the same rate limit
-twice, eight minutes apart, so when SEVERAL changes fail that way rather than one job twice,
-fleet size is the cause and the mayor says so rather than re-running indefinitely.
+itself** — an action download rate-limited, a runner setup step dying. The diff cannot have caused
+it, so no second observation is needed: re-run the failed jobs and hold the re-run to the same
+clauses. **But re-running is not a cure** — when SEVERAL changes fail that way rather than one job
+twice, fleet size is the cause and the mayor says so.
 
 **And a check that never TERMINATES is a third case that neither remedy fits.** It has not
 failed, so nothing above is triggered; it has not passed, so clause 3 rejects the change for
