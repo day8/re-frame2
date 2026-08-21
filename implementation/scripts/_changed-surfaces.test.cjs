@@ -3938,12 +3938,13 @@ test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () 
 // rf2-hic-012 landed DOM suites, and nothing noticed — a rule with no
 // regression is exactly how a narrowing goes stale in silence.
 //
-// The failure mode was worse than a skipped job. `:browser-test` selects
-// `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$`, so these namespaces
-// were already in the browser lane; the lane simply never ran on a diff that
-// touched them, while the consolidated node build compiled the same
-// namespaces and reported each DOM row as a STATED GREEN SKIP. The surface
-// passed having executed none of its DOM assertions.
+// The failure mode was worse than a skipped job. `:browser-test` selected
+// `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$` at the time — it is
+// plain `.*-dom-cljs-test$` now that tree has gone (rf2-0yp7w) — so these
+// namespaces were already in the browser lane; the lane simply never ran on
+// a diff that touched them, while the consolidated node build compiled the
+// same namespaces and reported each DOM row as a STATED GREEN SKIP. The
+// surface passed having executed none of its DOM assertions.
 
 const HICASSO_DOM_TESTS = [
   'implementation/hicasso/test/re_frame/hicasso/kernel_commit_owns_dom_cljs_test.cljs',
@@ -4570,7 +4571,8 @@ test('implementation/hicasso/** arms cljs_node_test (rf2-8a6s)', () => {
 });
 
 test('the hicasso arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)', () => {
-  // Same reasoning as the freehand case above: `implementation/hicasso/*)` is
+  // Same reasoning the retired freehand case once carried:
+  // `implementation/hicasso/*)` is
   // a POSIX `case` glob whose `*` spans `/`, so the artefact root is covered
   // at any depth. rf2-hic-009 carves the runtime into owned modules, which is
   // exactly the change that would rot an enumeration — silently, because a new

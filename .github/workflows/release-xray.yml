@@ -273,10 +273,13 @@ jobs:
       # deps.edn is the exact defect this gate exists for. Mirrors
       # release-story.yml's preflight (rf2-wht9a).
       #
-      # STILL EXPECTED TO FAIL, on ONE coordinate:
-      # `day8/re-frame2-freehand` is unpublishable and therefore
-      # unrewritten, pending the operator ruling in rf2-5dut1. That
-      # refusal is the deliverable, not an obstacle to route around.
+      # NO LONGER EXPECTED TO FAIL. It was, on ONE coordinate:
+      # `day8/re-frame2-freehand` was unpublishable and therefore
+      # deliberately unrewritten, pending the operator ruling in
+      # rf2-5dut1. That coordinate went with the Freehand tree
+      # (rf2-0yp7w) and rf2-gra70 published the artefact that took its
+      # slot, so every coordinate Xray declares is now rewritten and
+      # this preflight is expected to PASS.
       # ─────────────────────────────────────────────────────────────
       - name: Preflight — Xray published package
         working-directory: tools/xray

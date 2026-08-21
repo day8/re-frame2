@@ -16,9 +16,8 @@
 
     * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
       suite with the `re-frame.debug` property genuinely set false on the JVM
-      command line, and `test-freehand-prod-gate.sh` /
-      `test-routing-prod-gate.sh` / `test-ssr-prod-gate.sh` for those
-      artefacts.
+      command line, and `test-routing-prod-gate.sh` /
+      `test-ssr-prod-gate.sh` for those artefacts.
 
       (Spelled without the literal `-D...=false` on purpose: that literal is
       itself one of the three honesty markers the drift ratchet greps for, and
