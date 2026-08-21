@@ -548,8 +548,25 @@ function report() {
   L();
   L('  NO WINDOW HAS AN INTERMEDIATE RUNG. Every ladder steps straight from a mode-1 value to a');
   L('  mode-2 one, because there is no intermediate population for a rung to sit in. The published');
-  L(`  p90 of ${PUBLISHED.p90} and phase 3's p90 of 61 are therefore the two MODES, read by an index that`);
-  L('  crossed the gap when occupancy passed roughly one in ten — not two points on a continuum.');
+  // PHASE 3'S p90, READ OFF PHASE 3 — rf2-oflj7. `61` was TYPED here, and it is
+  // the one figure in this paragraph the corpus can move: a window's percentile
+  // rather than a published constant. It still reads 61, which is exactly how a
+  // hardcoded figure survives a fold-in unnoticed — phase 4's arrival moved the
+  // pooled p90 two rows above and left this one where it was, so nothing on
+  // screen distinguished a number that had been re-read from one merely
+  // re-printed. The paragraph's `therefore` rests on the two figures lying in
+  // DIFFERENT modes, so that comparison selects the sentence now, and the arm
+  // for a corpus that put them on the same side of the floor is emittable
+  // rather than unthinkable.
+  const w3p90 = ladder(cellsOf(rows.filter((r) => r.window === 'phase 3'))).q[4];
+  if (PUBLISHED.p90 < MODE2_FLOOR_B && w3p90 >= MODE2_FLOOR_B) {
+    L(`  p90 of ${PUBLISHED.p90} and phase 3's p90 of ${num(w3p90)} are therefore the two MODES, read by an index that`);
+    L('  crossed the gap when occupancy passed roughly one in ten — not two points on a continuum.');
+  } else {
+    L(`  p90 of ${PUBLISHED.p90} and phase 3's p90 of ${num(w3p90)} are NO LONGER ONE MODE EACH: both now fall on the`);
+    L(`  same side of the ${MODE2_FLOOR_B} B/boundary floor, so this pair no longer shows the published p90 to be`);
+    L('  a RANK rather than a magnitude, and the reading above wants re-deriving before it is quoted.');
+  }
   L();
 
   L('D. WHAT IS COMPARABLE ACROSS WINDOWS: THE OVER-BAR FRACTION, not any percentile.');
@@ -659,7 +676,18 @@ function report() {
   L();
 
   L('THE VERDICT, in the three parts the bead asks for.');
-  L(`  THE MEDIAN, ${PUBLISHED.median} — HOLDS. Mode 1's median is 1.5 in the first window and 1.5 in the last.`);
+  // THE VERDICT'S MEDIAN CLAUSE, OFF THE TWO WINDOWS SECTION D ALREADY READS —
+  // rf2-oflj7. D says `Mode 1's median is 1.5 B/boundary in the first window and
+  // 1.5 in the last` and takes both endpoints off the ladders; this line said
+  // the same sentence in literals a hundred lines below it. That is the shape
+  // rf2-2iaph found between section A and the verdict's span clause — one
+  // derivation printed twice, once derived and once typed — sitting in the
+  // clause directly above the one it repaired. Both endpoints come off
+  // `wFirst`/`wLast` now, and HOLDS is a verdict about the PUBLISHED median, so
+  // it is EARNED by both endpoints reading it rather than asserted beside them.
+  const medHolds = wFirst.mode1.median === PUBLISHED.median && wLast.mode1.median === PUBLISHED.median;
+  L(`  THE MEDIAN, ${PUBLISHED.median} — ${medHolds ? 'HOLDS' : 'NO LONGER HOLDS AT BOTH ENDS'}. ` +
+    `Mode 1's median is ${num(wFirst.mode1.median)} in the first window and ${num(wLast.mode1.median)} in the last.`);
   L(`  THE BAR, ${PUBLISHED.barB} — DOES NOT MOVE. It ${barPosition(sh.barOffset)} a ${sh.spanWidth} B/boundary span`);
   L(`    that holds ${sh.spanN} of ${sh.n} cells, which is what makes its VALUE robust however its`);
   L('    derivation behaved. ROBUST IS NOT THE SAME AS EXACT, and A states the difference:');
@@ -709,7 +737,17 @@ function tables() {
   T(['window', 'run', 'n', ...LH],
     rows.map((r) => { const l = ladder(r.cells); return [r.window, r.run, l.n, ...lad(l)]; }));
 
-  out.push('<!-- TABLE 3: the ladder, per window (= per session) -->');
+  // `(= per session)` IS THE WINDOW/SESSION CLAIM A THIRD TIME — rf2-oflj7, and
+  // it is the copy that LEAVES this program: the marker labels the generated
+  // markdown a reader takes away, where `report()`'s paragraph and section C
+  // heading do not follow it. Both of those were repaired to count the grouping
+  // and this one was not, which would have left one run of one program labelling
+  // the same table two ways. Same grouping, same selection, so the three move
+  // together or none of them do.
+  const spanning3 = [...groupBy(rows, (r) => r.window)]
+    .map(([w, rs]) => [w, groupBy(rs, (r) => r.session).size]).filter(([, n]) => n > 1);
+  out.push(`<!-- TABLE 3: the ladder, per window${spanning3.length === 0 ? ' (= per session)'
+    : ` (NOT per session: ${spanning3.map(([w, n]) => `${w} carries ${n}`).join(', ')})`} -->`);
   T(['window', 'n', ...LH],
     [...[...groupBy(rows, (r) => r.window)].map(([w, rs]) => { const l = ladder(cellsOf(rs)); return [w, l.n, ...lad(l)]; }),
       ['**pooled**', pooled.n, ...lad(pooled)]]);
@@ -1008,10 +1046,13 @@ function selfTest() {
   const P_CENTRE = /its p90 (rises|falls|holds) from ([\d.]+) to ([\d.]+) over the same two\n;; {3}windows, a movement of ([\d.]+) against the ([\d.]+) the per-window p90 reports/;
   const P_BANDS = /Ten times MODE-1's p90 is ([\d.]+) B\/boundary over the whole corpus and ([\d.]+) on phase 3's own null/;
   const P_DELTA = /refused a term whose implied delta was ([\d.]+), which is below/;
+  const P_MODES = /p90 of ([\d.]+) and phase 3's p90 of ([\d.]+) are (therefore the two MODES|NO LONGER ONE MODE EACH)/;
+  const P_VERDICT_MED = /THE MEDIAN, ([\d.]+) — (HOLDS|NO LONGER HOLDS AT BOTH ENDS)\. Mode 1's median is ([\d.]+) in the first window and ([\d.]+) in the last\./;
 
   ck('each narrated figure is located exactly once as well',
-    [P_SESSIONS, P_LADDER_C, P_SUPPORT, P_MEDIAN, P_CENTRE, P_BANDS, P_DELTA].map(hits),
-    [1, 1, 1, 1, 1, 1, 1]);
+    [P_SESSIONS, P_LADDER_C, P_SUPPORT, P_MEDIAN, P_CENTRE, P_BANDS, P_DELTA,
+      P_MODES, P_VERDICT_MED].map(hits),
+    [1, 1, 1, 1, 1, 1, 1, 1, 1]);
 
   // WINDOW AGAINST SESSION. The paragraph and the TOTAL line three above it are
   // the pair the bead names, so the paragraph's own two counts are read back and
@@ -1077,6 +1118,32 @@ function selfTest() {
   ck('and the refusal clause is the one that comparison calls for',
     [/THAT REFUSAL STANDS EITHER WAY\./.test(rep), /THAT REFUSAL NO LONGER STANDS EITHER WAY/.test(rep)],
     [bandsD.every((b) => b > FK6PJ_IMPLIED_DELTA_B), !bandsD.every((b) => b > FK6PJ_IMPLIED_DELTA_B)]);
+
+  // SECTION C'S TWO MODES. `phase 3's p90 of 61` was the last figure in the body
+  // still typed, and it survived the fold-in by being RIGHT — the pooled p90 two
+  // rows above it moved and this one did not, so a reader had no way to tell a
+  // re-read number from a re-printed one. Read off phase 3 here, and the
+  // paragraph's `therefore` is held to the comparison it rests on rather than to
+  // its own wording.
+  const w3p90D = ladder(cellsOf(rows.filter((r) => r.window === 'phase 3'))).q[4];
+  ck('section C names the two modes with the published p90 and phase 3\'s own',
+    grab(P_MODES, (m) => [Number(m[1]), Number(m[2])]), [PUBLISHED.p90, w3p90D]);
+  ck('and calls them one mode each exactly when they straddle the mode-2 floor',
+    grab(P_MODES, (m) => m[3] === 'therefore the two MODES'),
+    PUBLISHED.p90 < MODE2_FLOOR_B && w3p90D >= MODE2_FLOOR_B);
+
+  // THE VERDICT'S MEDIAN CLAUSE. Section D derives these same two endpoints and
+  // the verdict typed them, which is rf2-2iaph's A-against-the-verdict defect in
+  // the clause immediately above the one it repaired. Both endpoints are held to
+  // the ladders, and the verdict WORD is held to what those endpoints imply
+  // about the PUBLISHED median — in both directions, so `HOLDS` has to be earned.
+  ck('the verdict\'s median clause reads the published median and the two windows\' own',
+    grab(P_VERDICT_MED, (m) => [Number(m[1]), Number(m[3]), Number(m[4])]),
+    [PUBLISHED.median, lFirst.mode1.median, lLast.mode1.median]);
+  ck('and says HOLDS exactly when both endpoints are the published median',
+    grab(P_VERDICT_MED, (m) => m[2]),
+    lFirst.mode1.median === PUBLISHED.median && lLast.mode1.median === PUBLISHED.median
+      ? 'HOLDS' : 'NO LONGER HOLDS AT BOTH ENDS');
   // ---------------------------------------------------------------------------
 
   // THE TABLES ARE RECTANGULAR. The record is largely tables and no gate in this
@@ -1094,6 +1161,30 @@ function selfTest() {
   }
   ck('every table row has its header\'s column count', bad, []);
   ck('there are six tables', (tbl.match(/<!-- TABLE /g) || []).length, 6);
+
+  // AND TABLE 3'S MARKER SAYS WHAT THE GROUPING SAYS — rf2-oflj7. It carried
+  // `(= per session)`, the window/session equality a third time, in the one copy
+  // that leaves this program with the generated markdown. Held two ways: against
+  // the grouping, and against SECTION C'S HEADING, which is the same claim
+  // rendered by a different function over the same runs. Two renderings that can
+  // drift is exactly the pair this bead and rf2-2iaph are both made of, so they
+  // are compared here rather than each checked alone.
+  const t3 = tbl.split('\n').filter((l) => l.startsWith('<!-- TABLE 3'));
+  ck('the table-3 marker occurs exactly once', t3.length, 1);
+  const T3_SPAN = /<!-- TABLE 3: the ladder, per window \(NOT per session: (.+?)\) -->/;
+  const wSessT = [...groupBy(rows, (r) => r.window)].map(([w, rs]) => [w, groupBy(rs, (r) => r.session).size]);
+  const spanT = wSessT.filter(([, n]) => n > 1);
+  const spanPhraseT = spanT.length === 0 ? null : spanT.map(([w, n]) => `${w} carries ${n}`).join(', ');
+  ck('the marker, section C\'s heading and the grouping all name the same spanning windows',
+    [(T3_SPAN.exec(t3[0] || '') || [null, null])[1],
+      grab(P_LADDER_C, (m) => (m[1] === 'also per session' ? null : m[1].replace('NOT also per session: ', '')))],
+    [spanPhraseT, spanPhraseT]);
+  // AND THE MARKER'S BRANCH IS THE ONE THE GROUPING CALLS FOR. Both arms are
+  // emittable, so this is one check with opposite booleans rather than a literal
+  // the run happens to satisfy.
+  ck('and the marker says `= per session` exactly when no window spans two sessions',
+    [/ \(= per session\)/.test(t3[0] || ''), / \(NOT per session: /.test(t3[0] || '')],
+    [spanT.length === 0, spanT.length > 0]);
 
   if (fail.length) {
     console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
