@@ -23,7 +23,7 @@ a capable agent. Placeholders:
 > **And a summary is not a lighter version of a stance.** The lenses say what good
 > looks like; everything after them says when to STOP. A paraphrase keeps the
 > memorable half and drops the restraining one, and what survives does not read as
-> incomplete. It reads as a stance that wants MORE of everything, which is precisely
+> incomplete — it reads as a stance that wants MORE of everything, which is precisely
 > the failure the second half exists to prevent.
 
 ---
@@ -32,30 +32,14 @@ a capable agent. Placeholders:
 
 The order is what makes it accurate. Each step is a check the next depends on.
 
-1. **Read the tracker item, and order it by the tracker's own TIMESTAMPS.** The
-   description is *usually* the oldest text and corrections accrete below it, so a
-   top-down read gets superseded instructions. But the bottom is not reliably newest
-   either: audit notes append into the description block while dated comments render
-   after it, so the last lines on screen can be days staler than material higher up.
-   `bd show | tail` is not a read-the-newest method.
-
-   **Nor is grepping the prose for dates.** A date inside the text is content, not a
-   mutation time — an undated scope correction is invisible to it, an old description
-   can cite a later release date, and `bd update --description` can make the
-   "oldest" field the most recently edited one. Use `bd history <id>`, which lists real
-   mutation times newest-first, and `bd comments <id> --json` for comment `created_at`.
-
-   **The plain history listing tells you a newer mutation exists, not what it says** —
-   it prints commit, time, author and the item's title and status, and names no changed
-   field. To see the change itself, `bd history <id> --json` carries a full item
-   snapshot per commit. **Walk adjacent pairs newest-first until you reach the first
-   change to a text-bearing field** — description, notes, acceptance, design — because
-   the history carries duplicate checkpoint snapshots and status-only mutations, so
-   comparing the newest pair alone can truthfully report "nothing changed" while a
-   still-current instruction change sits a few pairs back. **And if the bead
-   has children, re-enumerate them before concluding a decision is absent** — a ruling
-   is sometimes recorded as a *new child bead*, where no amount of reading the parent
-   will find it.
+1. **Read the tracker item, and order it by the tracker's own TIMESTAMPS** — not by
+   position, and not by dates written in the prose. The full mechanics are spelled out
+   for the worker under *Common preamble* below: the description is usually the oldest
+   text but the bottom is not reliably the newest either, a date in the prose is content
+   rather than a mutation time, the plain history listing names no changed field, you
+   walk adjacent snapshot pairs newest-first to the first text-bearing change, and you
+   re-enumerate a bead's children before concluding a decision is absent. Every one of
+   those binds the mayor writing the brief exactly as it binds the worker reading it.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
@@ -90,48 +74,36 @@ same case, and gets the sentence too.
 The first is the highest-yield sentence in the preamble. Read-the-item-first caught
 five stale briefs in a single day: one whose fix had landed two days earlier under a
 sibling item; one that named the wrong audit finding; one told to execute a resolution
-that had already merged; one that a scope correction had redefined from an allocation
-leak to a baseline-contamination leak; and one carrying three wrong path, flag and
-script details. **Every one of those briefs was accurate when it was written.**
-
-The yield is in *the item governs the brief*, not in the direction of reading. This
-sentence used to credit "the bottom-up rule" for those catches; the catches were real
-and the attribution was wrong.
+that had already merged; one a scope correction had redefined; and one carrying three
+wrong path, flag and script details. **Every one of those briefs was accurate when it
+was written**, and the yield is in *the item governs the brief* rather than in the
+direction of reading.
 
 **The third is scoped by the nominated gate's capabilities — not by prose versus
 code.** Ask whether the gate covering the edited surface affords a safe, bounded,
 discriminating fault at a line the brief is already touching. Where it does, the
-sentence is satisfiable and goes in — and a documentation correction is emphatically
-included, because the cheap validators that run over a docs tree red on one broken link
-target or one bad heading anchor and go green again on restore. That is measured rather
-than supposed: doc-only briefs have planted exactly those faults *in this file*, taken
-a red naming the plant, and hash-verified the restore against the committed object.
-Where the covering gate affords no such plant, the sentence is the unsatisfiable
-quantifier the method-reread loop is told to hunt for, and an unsatisfiable rule does
-not stop the reader — it makes one up.
+sentence goes in — and a documentation correction is emphatically included, because the
+cheap validators that run over a docs tree red on one broken link target or one bad
+heading anchor and go green again on restore. That is measured rather than supposed:
+doc-only briefs have planted exactly those faults *in this file*, taken a red naming the
+plant, and hash-verified the restore against the committed object. Where the covering
+gate affords no such plant, the sentence is the unsatisfiable quantifier the
+method-reread loop is told to hunt for, and an unsatisfiable rule does not stop the
+reader — it makes one up.
 
 **That failure was measured on the *enforcing* side rather than a worker's.** On one
-dispatch tick four editing briefs went out, two of them prose-only, and both carried
-the first two sentences verbatim while neither carried the third. Nobody decided to
-drop it. Each brief improvised the same omission separately, which is the tell that the
-rule was doing no work. That observation is why this section exists and it still
-holds — but the reason those briefs improvised is that the rule was **unscoped**, not
-that prose has no controls. Scoping it on the shape of the deliverable would have
-licensed the same two omissions with a reason attached, and it is the same wrong axis
-this section carried until it was corrected one section down, under *Quality gates —
-how a gate is run*.
+dispatch tick four editing briefs went out, two of them prose-only, and all four carried
+the first two sentences verbatim while none carried the third. Nobody decided to drop it;
+each brief improvised the same omission separately, which is the tell that the rule was
+doing no work — because it was **unscoped**, not because prose has no controls. Scoping
+it on the shape of the deliverable licenses the same omissions with a reason attached.
 
 **Say what a brief whose gate affords no plant does instead, or that gets improvised
-too.** Both wordings are already settled below, and they are different wordings for
-different cases. Where no automated gate covers the surface at all, *Quality gates —
-which gate* has it: the brief says so, and the worker verifies by hand and reports what
-it checked and the counts in the change body. Where a gate does cover the surface but
-affords no safe discriminating plant, *Quality gates — how a gate is run* has it: that
-gate still runs and the unconditional rules still bite; what lapses is only the
-planted-fault route to proving which tree was read, and the brief nominates the route
-the gate does supply or says outright that it supplies none. Point at both rather than
-restating either. Naming the alternative is what keeps the scoping from reading as
-permission to prove nothing.
+too.** Both wordings are settled below and cover different cases: where no automated gate
+covers the surface at all, *Quality gates — which gate*; where a gate does cover it but
+affords no safe discriminating plant, *Quality gates — how a gate is run*. Point at both
+rather than restating either — naming the alternative is what keeps the scoping from
+reading as permission to prove nothing.
 
 ---
 
@@ -174,13 +146,12 @@ Better still, when the number will keep moving: brief the fix to name the **clas
 than the count. A rule written as a class does not re-drift.
 
 **An item's LIST OF SITES goes stale the same way, and it is worse than a count, because it
-drifts in MEMBERSHIP rather than in magnitude.** A count that has drifted is obviously
-suspect once re-run. A list looks equally authoritative whether or not its entries are still
-true, and it is wrong in two directions at once: an entry somebody else already fixed sends
-a worker to edit correct text — or to revert a repair — while a site the list never had is
-left live. Four items in one session named sites that were already amended, or asserted a
-verification that a different change had since falsified; one named "three of four" when the
-standing state was one.
+drifts in MEMBERSHIP rather than in magnitude.** A list looks equally authoritative whether
+or not its entries are still true, and it is wrong in two directions at once: an entry
+somebody else already fixed sends a worker to edit correct text — or to revert a repair —
+while a site the list never had is left live. Four items in one session named sites already
+amended, or asserted a verification a later change had falsified; one named "three of four"
+when the standing state was one.
 
 **So require the list be RE-DERIVED at the current tip, and require the DELTA to be
 reported.** The delta is a deliverable in its own right, not bookkeeping: it is the only
@@ -200,18 +171,16 @@ So attach the measurement to the lean in the same breath. *"I think A beats B, a
 the cost that decides it, not a preference."*
 
 The evidence is one dispatch where every part of the author's lean was wrong and the number
-found it. The brief said compiling a doc corpus would beat growing a static checker, and
-guessed that speed was the risk. The worker measured: the compile takes **24.73s for 441
-files**, so the speed argument died. It then rejected compiling anyway, on three grounds the
-brief had not imagined — **12 of 25 required namespaces are imaginary**, so the compile runs
-against stubs whose fidelity nobody owns; only **52 of 206 blocks** open a namespace form, so
-the other 154 need grouping by hand, which is the very per-block harness the brief had named
-as disqualifying; and the job would move to a slower CI class already rejected elsewhere. Final
-margin: **0.12s against 46s, about 380x, for the same catch**.
-
-The same brief's fallback was wrong in a checkable way too — it prescribed scoping a rule
-**per page**, which flags **21 sites on a corpus that is correct**, where the item's own shape,
-**per section**, measures **0**. The worker followed the item over the brief and was right to.
+found it. The brief said compiling a doc corpus would beat growing a static checker and guessed
+that speed was the risk; the worker measured the compile at **24.73s for 441 files**, killing
+that argument, then rejected compiling anyway on three grounds the brief had not imagined — half
+the required namespaces are imaginary, so the compile runs against stubs whose fidelity nobody
+owns; three-quarters of the blocks open no namespace form, so they need the very per-block
+harness the brief had called disqualifying; and the job would move to a slower CI class already
+rejected elsewhere. Final margin: **0.12s against 46s, about 380x, for the same catch**. That
+brief's fallback was wrong in a checkable way too — it prescribed scoping a rule **per page**,
+which flags 21 sites on a corpus that is correct, where the item's own shape, **per section**,
+measures 0. The worker followed the item over the brief and was right to.
 
 Two rules come out of that. **Ask for the cost whenever you state a lean** — it converts a
 confident wrong brief into a correct outcome, and costs the worker one measurement. And
@@ -256,10 +225,10 @@ as owning nothing: what it will touch is recorded on the item it was dispatched 
 in version control.
 
 **A fence is derived, never remembered — and the worker derives it again at start-up.**
-Step 3 above settles how you establish it; this is what the brief then asks of the worker,
-because a list assembled from memory of who you dispatched is stale inside the dispatch's
-own lifetime and on a busy fleet can be wrong before the brief is finished. So the fence
-travels as a claim the worker re-checks, like every other premise, and its own result wins.
+Step 3 above settles how you establish it; a list assembled from memory of who you dispatched
+is stale inside the dispatch's own lifetime and on a busy fleet can be wrong before the brief
+is finished, so the fence travels as a claim the worker re-checks, like every other premise,
+and its own result wins.
 **That re-check is the load-bearing half, because the two staleness directions cost
 differently.** Too BROAD costs one re-derivation — the worker is warned off something
 nobody holds. Too NARROW omits a worker dispatched after you last looked, and two workers
@@ -417,27 +386,26 @@ at all.
   not. The warrant is three for three: every measurement change merged on one day was audited, and every
   one had its published claim stated slightly stronger than its evidence — three different workers, all
   exemplary on the run itself. One called three values *run-medians* when the code stored the arithmetic
-  MEAN of five per-round ratios, and the effect-versus-null separation those values carried was the whole
-  stated basis for the conclusion. One said a spread "loosely brackets" a figure that sat *above* the
-  maximum of its own three measured ratios, so it bracketed nothing. What slipped every time is the prose
-  ONE LAYER ABOVE the number: a worker that has just spent an hour being rigorous writes its summary in
-  ordinary confident English, and ordinary confident English overclaims. Not one audit overturned a
-  measurement or a refusal — what they corrected is the sentence a future reader will quote, and readers
-  quote the sentence, not the log. That is how a measured result becomes a false premise in someone
-  else's brief three weeks later. Premises-are-claims catches that on the INPUT side; this is the same
-  defect on the OUTPUT side, and nothing was checking it.
+  MEAN of five per-round ratios, which was the whole stated basis for its conclusion; one said a spread
+  "loosely brackets" a figure sitting *above* the maximum of its own measured ratios, so it bracketed
+  nothing. What slips is the prose ONE LAYER ABOVE the number: a worker that has just spent an hour being
+  rigorous writes its summary in ordinary confident English, and ordinary confident English overclaims.
+  Not one audit overturned a measurement or a refusal — what they corrected is the sentence a future
+  reader will quote, which is how a measured result becomes a false premise in someone else's brief three
+  weeks later. Premises-are-claims catches that on the INPUT side; this is the same defect on the OUTPUT
+  side, and nothing was checking it.
 - **An impossible reading cannot bound the quantity.** It tells you the instrument's error reached at
-  least that far. It does not calibrate the error and it does not bound the thing you are measuring. If
-  you report a bound, name the NULL OR CONTROL ARM that produced it. A bound derived from the impossible
-  readings themselves is not a bound — report the term as UNRESOLVED instead. The arithmetic: let an
-  observed delta *y* be an unknown positive true cost *t* plus estimator error *e*. A reading of
-  *y* = −0.0062 proves only that the negative error excursion exceeded 0.0062 + *t*; it does not make
-  ±0.0062 a calibrated symmetric floor, and it cannot upper-bound *t*. A most-negative observation is a
-  statement about the ERROR TERM, not about the quantity. Comparing most-negative readings from
-  *different* positive-cost arms at two window widths likewise cannot establish a floor-scaling factor.
-  One window reported membership as "bounded: < 0.006 ms/commit" from its own most-negative reading; the
-  merged-change audit refuted it, and the next window's second run then read −0.0141 — more than twice
-  the claimed floor — refuting it again on independent arithmetic.
+  least that far; it neither calibrates the error nor bounds what you are measuring. If you report a
+  bound, name the NULL OR CONTROL ARM that produced it — a bound derived from the impossible readings
+  themselves is not a bound, so report the term as UNRESOLVED instead. The arithmetic: let an observed
+  delta *y* be an unknown positive true cost *t* plus estimator error *e*. A reading of *y* = −0.0062
+  proves only that the negative error excursion exceeded 0.0062 + *t*; it does not make ±0.0062 a
+  calibrated symmetric floor, and it cannot upper-bound *t*. A most-negative observation is a statement
+  about the ERROR TERM, not about the quantity, and comparing most-negative readings from *different*
+  positive-cost arms at two window widths likewise cannot establish a floor-scaling factor. One window
+  reported membership as "bounded: < 0.006 ms/commit" from its own most-negative reading; the
+  merged-change audit refuted it, and the next window's second run then read −0.0141, refuting it again
+  on independent arithmetic.
 
 Report what ran, what refused and on which control, the raw numbers, and — as its own heading — what was
 **not** concluded. A window that publishes nothing still reports everything.
@@ -472,17 +440,17 @@ do.
 
 Several blocks below travel **verbatim** into every dispatch. Get them there by
 **extracting mechanically, then pasting the result into the prompt.** Both halves are
-mandatory and they close different failures. The extraction is what makes paraphrase
+mandatory and they close different failures: the extraction is what makes paraphrase
 impossible — a matched range cannot reword, where a mayor retyping two hundred lines of
-gate mechanics can and does. The paste is what makes non-receipt impossible: a block that
-is in the prompt cannot be un-received.
+gate mechanics can and does — and the paste is what makes non-receipt impossible, because
+a block that is in the prompt cannot be un-received.
 
 **Sending the worker to the FILE is not a substitute.** A worker that skims it, or reads
 part of it, has not received the block at all, and nothing in the transcript distinguishes
 that from a worker who read every line — so the first evidence is a worker doing something
 the block forbids. Between a failure prevented by construction and one prevented by a
-reader's diligence, take construction. The context cost is the acknowledged price and it is
-the right thing to spend context on: a brief is the mayor's scarce output.
+reader's diligence, take construction; the context cost is the acknowledged price, and a
+brief is the mayor's scarce output.
 
 **Anchor the extraction to CONTENT, never to line numbers.** A line range against a living
 document is a measured constant that goes stale exactly where it has to be right, and an
@@ -614,12 +582,10 @@ transcripts.
 **A pass that concludes only in the ignored tree concludes where nobody can read it.** Every project keeps
 some scratch tree version control cannot see, and that invisibility is what makes the failure silent: an
 item can cite a design by a path no maintainer has. Two audits were lost exactly that way here, and a mayor
-re-ran an entire three-design programme in one day for want of looking there first. Widening what version
-control tracks is not the fix — working notes still stay local, and only the *conclusion* is promoted, into
-whichever tracked record already owns the surface, as a dated amendment where one exists and a new page only
-when the evidence stands on its own. Three workers in a single day found their design already written in
-that tree and promoted the surviving conclusion rather than re-deriving it, which is why the preamble tells
-the worker to look there first.
+re-ran an entire three-design programme in one day for want of looking there first — which is why the
+preamble tells the worker to look there first. Widening what version control tracks is not the fix: working
+notes stay local, and only the *conclusion* is promoted, into whichever tracked record already owns the
+surface, as a dated amendment where one exists and a new page only when the evidence stands on its own.
 
 ---
 
@@ -627,18 +593,15 @@ the worker to look there first.
 
 Every editing dispatch runs the project's pre-checkin gate before opening a change, and lists what ran in a
 change-body section headed **exactly** `## Quality gates` with pass and fail counts. **The readers are the
-mayor's merge sweep and the merged-PR audits — both of them agents, and no machinery whatever.** An earlier
-version of this line called the verbatim heading a contract for automated audits, and no such audit exists: a
-fixed-string search for `Quality gates` across the tracked tree returns this file, the two mayor command
-files, the tracker export, one design page, and two test docstrings that point a reader at a PR's own section
-— no script, no workflow, no audit tool. The search was controlled by matching that same fixed string inside
-`docs/the-mayor-method/`, so the zero is a real absence and not a wrong pattern. **Exactly** stays regardless,
-because it is what lets a reader jump to the section in a long change body rather than read the whole thing.
-What the false justification cost is measured: PR #8376 headed its section `## Gates — captured exit codes`
-and carried every fact the rule asks for, and the mayor hand-edited the missing word into it seven seconds
-before merging it on 2026-08-16. **A heading that does not conform is a note to the worker and nothing more.**
-It is never grounds to edit somebody else's change body, and never a merge blocker — the five clauses are the
-merge criterion, and this is not among them.
+mayor's merge sweep and the merged-change audits — both of them agents, and no machinery whatever.** An
+earlier version of this line called the verbatim heading a contract for automated audits; a controlled
+fixed-string search for it found no script, no workflow and no audit tool anywhere in the tracked tree.
+**Exactly** stays regardless, because it is what lets a reader jump to the section in a long change body
+rather than read the whole thing — but that is a convention for readers, not a contract, and what the false
+justification cost is measured: one change carrying every fact the rule asks for under a differently-worded
+heading was hand-edited to conform seconds before it merged. **A heading that does not conform is a note to
+the worker and nothing more.** It is never grounds to edit somebody else's change body, and never a merge
+blocker — the five clauses are the merge criterion, and this is not among them.
 
 - **Gate the transitive surface, not just the file you changed.** A public-surface change breaks its
   *consumers*, not itself. Gate every artefact reachable from the diff through import edges.
@@ -678,11 +641,10 @@ restore. **A cheap prose gate is a *plantable* gate; what it is not is a *heavyw
 different questions.
 
 **That axis is a correction, and the evidence for it came from the dispatch that carried the old one.** An
-earlier version scoped by the shape of the deliverable, calling a documentation correction ungateable and then
-acknowledging four lines later that the same edit runs a link validator — while the worker carrying it had
-already planted a broken link target, watched the validator red on exactly that worktree-only fault, restored,
-and hashed the restore against the committed object. Read literally, that rule would have stripped the
-planted-fault and restore-hash clauses from precisely the brief where they did the work.
+earlier version scoped by the shape of the deliverable, calling a documentation correction ungateable, while the
+worker carrying it had already planted a broken link target, watched the validator red on exactly that
+worktree-only fault, restored, and hashed the restore against the committed object. Read literally, that rule
+would have stripped the planted-fault and restore-hash clauses from precisely the brief where they did the work.
 
 **The rest is unconditional for any dispatch that runs anything at all**, and is pasted verbatim whatever the
 deliverable: the detach-and-poll sanction, the never-pipe rule, the capture-your-own-exit-code rule, and the
@@ -690,29 +652,26 @@ artefact-naming rule. A one-line documentation edit still runs a link validator,
 
 **Say what a brief whose gate affords no plant does instead, or that gets improvised too** — the improvisation
 was measured on the *enforcing* side, where five dispatches in one session carried five different lengths of
-this one block, nobody having decided to drop anything. Three cases, and they are not the same. Where NO automated
-gate covers the surface, the wording is already settled under *Quality gates — which gate* above: the brief says
-so, and the worker verifies it by hand and reports what it checked and the counts in the change body. Where a
-gate DOES cover the surface but affords no safe discriminating plant, that gate still runs and the unconditional
-four still bite; what lapses is only the planted-fault route to proving which tree was read, and which route is
-left turns on the gate's *other* capability. If it prints its root, the brief nominates the root-banner route and
-the worker says which one it used. If it prints nothing either, neither route is on offer — the two-route rule
-below is explicit that many gates print nothing, so silent AND unplantable is a real pairing rather than a corner
-— and the brief says exactly that: no discriminating tree-verification route here, or the concrete bounded
-mechanism the gate does afford in place of one. Nominating a route the gate cannot supply is the failure recorded
-further down, where an earlier rule claimed every gate printed a banner and the workers who met it
-improvised. Point at the settled wording rather than restating it, and **scope the block rather than
-shortening it** — dropping the sanction along with the parts that do not apply is the same failure by a
-shorter road.
+this one block, nobody having decided to drop anything. Three cases, and they are not the same. Where NO
+automated gate covers the surface, the wording is settled under *Quality gates — which gate* above. Where a gate
+DOES cover the surface but affords no safe discriminating plant, that gate still runs and the unconditional four
+still bite; what lapses is only the planted-fault route to proving which tree was read, and which route is left
+turns on the gate's *other* capability. If it prints its root, the brief nominates the root-banner route and the
+worker says which one it used. If it prints nothing either, neither route is on offer — silent AND unplantable is
+a real pairing rather than a corner, since many gates print nothing — and the brief says exactly that: no
+discriminating tree-verification route here, or the concrete bounded mechanism the gate does afford in place of
+one. Nominating a route the gate cannot supply is the failure recorded further down, where an earlier rule
+claimed every gate printed a banner and the workers who met it improvised. Point at the settled wording rather
+than restating it, and **scope the block rather than shortening it** — dropping the sanction along with the
+parts that do not apply is the same failure by a shorter road.
 
 **But first, check whether the gate is COMPOUND — a script that chains two phases often splits into two runs
 that each fit.** This is strictly better than detaching, because it keeps every verdict in the foreground and
-removes the strand risk rather than managing it. A worker here met a build-and-run script that measured past
-the ceiling and ran each half as its own foreground call: both finished well inside it, nothing was killed,
-and no cache was left corrupt by an orphan. The same day, two workers detached the whole thing instead; both
-died at the cap, and one left a build cache so damaged that the next attempt failed with twenty-two cascading
-errors naming files it had never touched. **Read what the script actually runs before deciding it cannot be
-foregrounded.**
+removes the strand risk rather than managing it. A worker here split a build-and-run script that measured past
+the ceiling and both halves finished well inside it; the same day two workers detached the whole thing instead,
+both died at the cap, and one left a build cache so damaged that the next attempt failed with twenty-two
+cascading errors naming files it had never touched. **Read what the script actually runs before deciding it
+cannot be foregrounded.**
 
 **Where it genuinely does not split, detaching is CORRECT; ending the turn afterwards is the defect.** Where a
 harness hard-kills a foreground command well below what the full gate needs, "foreground, to completion" is not
@@ -779,12 +738,11 @@ typically the directory change: silent, and it yields a plausible zero.
 
 **The number you quote is the one you captured** — never one the harness reports about the same run. That is a
 different measurement and it disagrees routinely rather than rarely: at least forty-four times in three days
-across twenty-nine workers, counted from the workers' own completion reports and the merged changes whose bodies
-preserve them. Among them a compile failure from an unbalanced parenthesis, a genuine two-assertion failure, and a
-browser run standing over three real ones. **Every one surfaced as exit 0**, and every one was caught because the
-worker quoted the number it had captured. **At least twenty-three of the forty-four — more than half — were
-*deliberately sabotaged* runs**, where believing the reported zero would have read as "the control does not bite"
-and inverted the conclusion. Recount that census when you cite it; do not carry it forward by adding the
+across twenty-nine workers, among them a compile failure from an unbalanced parenthesis, a genuine
+two-assertion failure, and a browser run standing over three real ones. **Every one surfaced as exit 0**, and
+every one was caught because the worker quoted the number it had captured. **More than half were *deliberately
+sabotaged* runs**, where believing the reported zero would have read as "the control does not bite" and
+inverted the conclusion. Recount that census when you cite it rather than carrying it forward by adding the
 instances you have just seen, which is how it came to be understated by two thirds.
 
 **An ABSENT exit-code file is NO VERDICT — not a pass.** The rules above are about a number that is present and
