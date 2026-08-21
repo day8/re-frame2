@@ -218,19 +218,17 @@
   "Categories whose `:event-id` slot carries a SUB id — their source
   coords live under `[:sub sub-id]` in the always-on registry, so
   `dispatch-on-error!` resolves them there rather than under the
-  `[:event …]` default. Covers the parametric input-fn failures, the
-  reactive sub-exception, and the observation port's on-change-failure
-  wrapper (whose `:event-id` carries the former owner's ENTRY SUB id —
-  rf2-q3fmqm: `[:sub …]` is the ONLY lookup realm, so a macro-registered
-  sub resolves its exact coordinate and a same-id EVENT registration can
-  never steal attribution; a programmatic sub registration resolves nil
-  and the slot stays absent), so the always-on production error records
-  carry the failing sub's `:source-coord`."
+  `[:event …]` default. Covers the parametric input-fn failures and the
+  reactive sub-exception; `[:sub …]` is the ONLY lookup realm for them, so a
+  macro-registered sub resolves its exact coordinate and a same-id EVENT
+  registration can never steal attribution, while a programmatic sub
+  registration resolves nil and the slot stays absent. The always-on
+  production error records therefore carry the failing sub's
+  `:source-coord`."
   #{:rf.error/sub-input-fn-exception
     :rf.error/sub-input-fn-bad-return
     :rf.error/sub-exception
-    :rf.error/no-such-sub
-    :rf.error/observation-on-change-failed})
+    :rf.error/no-such-sub})
 
 ;; ---- raw query-vector identity on the always-on error :event slot --------
 ;;
@@ -261,29 +259,24 @@
   carries a subscription QUERY VECTOR (raw IDENTITY per #6441 / rf2-zwgqe), NOT
   a dispatched event. ENUMERATED STRUCTURALLY by reading each emit site — NOT
   matched by a category-name prefix: a `sub-*` prefix check catches the
-  reactive/compute + input-fn categories but MISSES the observation-port
-  query-vector categories and the frame-destroyed subscribe realm, re-leaking
-  the exact rf2-s3n6h 'bound that does not bound' class.
+  reactive/compute + input-fn categories but MISSES the frame-destroyed
+  subscribe realm, re-leaking the exact rf2-s3n6h 'bound that does not bound'
+  class.
 
-  A SUPERSET of [[sub-error-categories]] (whose narrower purpose is `[:sub id]`
-  SOURCE-COORD resolution). It ALSO includes the two observation-port
-  categories whose `:event` is the handle's query vector but whose source-coord
-  is deliberately NOT `[:sub]`-resolved:
-    - `:rf.error/read-after-release`         (`observation/read` on a released handle)
-    - `:rf.error/observation-retry-exhausted`(`observation/acquire!` — fired for a
-                                             frame it KNOWS is LIVE, so the
-                                             coincidental-path match genuinely bites)
-  Both pass the handle's `query-v` through `observation/emit-and-throw!` /
-  `observation/read`. The realm-AMBIGUOUS `:rf.error/frame-destroyed` is handled
-  separately in [[raw-identity-query-vector-event?]] — it carries a query vector
-  only in the `:subscribe` operation realm."
+  Currently EQUAL to [[sub-error-categories]] (whose narrower purpose is
+  `[:sub id]` SOURCE-COORD resolution), and kept a separate def because the
+  two answer different questions: this one asks what the `:event` slot
+  CARRIES, that one asks where the source coord LIVES. The internal
+  observation port contributed three members here that were not in that set —
+  `:rf.error/observation-on-change-failed`, `:rf.error/read-after-release` and
+  `:rf.error/observation-retry-exhausted` — and they went with it (rf2-63t1i).
+  The realm-AMBIGUOUS `:rf.error/frame-destroyed` is handled separately in
+  [[raw-identity-query-vector-event?]] — it carries a query vector only in the
+  `:subscribe` operation realm."
   #{:rf.error/sub-input-fn-exception
     :rf.error/sub-input-fn-bad-return
     :rf.error/sub-exception
-    :rf.error/no-such-sub
-    :rf.error/observation-on-change-failed
-    :rf.error/read-after-release
-    :rf.error/observation-retry-exhausted})
+    :rf.error/no-such-sub})
 
 (defn- raw-identity-query-vector-event?
   "STRUCTURAL discriminator: does the positional `event` slot for an `error-kw`
@@ -655,11 +648,10 @@
 
 ;; ---- first-emission provenance (exact-once at containment drains) ---------
 ;;
-;; Several fail-loud sites EMIT their category's canonical record (through
+;; A fail-loud site may EMIT its category's canonical record (through
 ;; [[emit-error-both!]] / [[dispatch-on-error!]]) and THEN throw the matching
-;; canonical typed error — e.g. the observation port's `read` on a released
-;; handle. A boundary that CATCHES such a throwable to keep draining siblings
-;; (a containment drain, e.g. the port's disposal-notification drain) cannot
+;; canonical typed error. A boundary that CATCHES such a throwable to keep
+;; draining siblings (a containment drain) cannot
 ;; otherwise tell a throwable whose category is ALREADY visible from one that
 ;; has never been fanned: re-dispatching every caught typed throwable
 ;; double-emits the already-fanned ones — TWO always-on records for ONE
@@ -697,10 +689,18 @@
   the throwing site had ALREADY fanned this failure's canonical record per
   its category's channel contract before throwing (the emit-then-throw
   idiom), so a downstream containment drain must NOT re-emit it on either
-  channel. Stamped by the throwing site via the canonical builder's `:extra`
-  (e.g. `re-frame.substrate.observation`'s fail-loud surfaces); consulted
-  through [[fanned-at-source?]]. Framework-internal — never part of the
-  public thrown-error shape contract."
+  channel. Stamped by the throwing site via the canonical builder's `:extra`;
+  consulted through [[fanned-at-source?]]. Framework-internal — never part of
+  the public thrown-error shape contract.
+
+  ZERO STAMPING SITES TODAY (rf2-63t1i). The internal observation port's
+  emit-then-throw surfaces were the only producers, and the port was retired
+  on 2026-08-21. This seam is RETAINED rather than deleted for the reason
+  Spec 009 gives for `frame/guard-open-drain!` at zero call sites: the law is
+  CORE's — any future emit-then-throw site plus any containment drain needs
+  exactly this provenance, and a drain that re-dispatches an already-fanned
+  throwable double-emits (Spec 009's one-runtime-error law). It is not
+  residue."
   ::fanned-at-source)
 
 (defn fanned-at-source?
