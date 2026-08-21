@@ -458,6 +458,17 @@ constraint a measurement window is already fenced under, seen from the other sid
 is held for a quiet machine, and a heavyweight gate is what makes the machine loud. Keep one
 vocabulary for the two rather than inventing a second.
 
+**A queued measurement window makes an otherwise-free slot not free.** The drain clause in
+the filter list does not reach this case — it lifts only once the exclusive items are all
+that remains — so where ordinary work is still available, nothing above holds you back and
+refilling is itself what fences the window. While a window needing a quiet machine is queued
+and unstarted, an item whose gate is heavyweight is not a slot to refill but a cost charged
+to that window: hold the fleet thin on purpose, say so on the window's own item with what
+releases the hold, and keep dispatching work whose gate leaves the machine quiet.
+Documentation and prose changes typically arm no gated surface at all, so the fleet stays
+busy while the window waits — the instruction is to stop making the machine loud, not to
+stop working.
+
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 
