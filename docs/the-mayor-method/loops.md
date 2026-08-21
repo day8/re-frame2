@@ -293,18 +293,18 @@ Read the *fetch's* own exit code for the same reason. A failed fetch and a subse
 "Already up to date" print into the same buffer, and the reassuring line is the lie.
 
 **Do not collapse that pair back into a pull.** A pull picks its merge target out of a
-scratch file that any concurrent git process in the same checkout can rewrite, and the
-checkout most exposed is the shared one every agent reaches into to add a worktree or read
-the trunk. A captured target does not fail honestly. Measured here: in one arrangement it
-silently fast-forwarded the trunk **onto a feature branch**; in another it aborted wearing
-the divergence message below, on a tree that was clean and zero commits ahead, where that
-message's remedy is inert. **A failure that borrows another cause's message cannot be
-discriminated by message text**, so the repair is to retire the command that reads the
-shared file, not to add a third case to the list. A remote-tracking ref cannot be captured
-that way: it is written atomically, and every concurrent fetcher sets it to the same trunk
-head or a newer one, both of which still fast-forward. Expect the exposure to **grow with
-fleet size** — dispatching immediately after merging is exactly what puts the concurrent
-fetches and the fast-forward in the same seconds.
+scratch file that any concurrent git process in the same checkout can rewrite — most
+exposed being the shared checkout every agent reaches into to add a worktree — and a
+captured target does not fail honestly. Measured here: in one arrangement it silently
+fast-forwarded the trunk **onto a feature branch**; in another it aborted wearing the
+divergence message below, on a clean tree zero commits ahead, where that message's remedy
+is inert. **A failure that borrows another cause's message cannot be discriminated by
+message text**, so the repair is to retire the command that reads the shared file, not to
+add a third case to the list. A remote-tracking ref cannot be captured that way: it is
+written atomically, and every concurrent fetcher sets it to the same trunk head or a newer
+one, both of which still fast-forward. Expect the exposure to **grow with fleet size** —
+dispatching immediately after merging is what puts the concurrent fetches and the
+fast-forward in the same seconds.
 
 **An aborted fast-forward has two causes with different remedies, and the message says
 which** — and it says which only because the pair above no longer reads the shared file.
