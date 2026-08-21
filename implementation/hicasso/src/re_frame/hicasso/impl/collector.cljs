@@ -225,9 +225,9 @@
   read of a key nothing holds yet is a **cold probe** ([[cold-read!]]):
   reuse a live sub-cache reaction by deref alone when one
   exists, else compute PURE against one coherent frame-state snapshot
-  through one render-scoped memo — the observation port's own cold-probe
-  discipline (`re-frame.substrate.observation/probe`, Spec 006 §The
-  slice-scoped probe memo), consumed rather than reinvented. The probe
+  through one render-scoped memo — the cold-probe discipline the internal
+  observation port carried before it was retired (rf2-63t1i), reached now
+  through the core seam it too used (`re-frame.subs/compute-sub-with-memo`). The probe
   creates no cache entry, takes no reference, installs no watch and
   leaves no disposal obligation, so an abandoned render leaves the world
   exactly as it found it — and unlike the `subscribe-once` crossing it
@@ -283,7 +283,7 @@
 
   [[re-frame.hicasso.impl.generation/generation]] counts flushes. `frame-commit-epoch` is the substrate's
   own counter, bumped once per physical frame-state install at both
-  write chokepoints, and Spec 006's observation port already uses it for
+  write chokepoints, and it exists for
   exactly this question — *did the frame's durable state move in the
   render→commit gap?* — because it answers without watching anything.
   [[re-frame.hicasso.impl.generation/registry-epoch]] counts `:sub` registrations, which are neither a
@@ -594,9 +594,8 @@
   there is at most one cell per `(frame, query)`, `subs/subscribe` hands
   back that pair's own cached reaction, and no two cells ever hold the
   same reaction — so one namespaced constant collides with nothing this
-  arm installs, and its namespace keeps it clear of the substrate's own
-  watchers (`substrate.observation` keys per handle on the same
-  reactions).
+  arm installs, and its namespace keeps it clear of any other watcher keyed
+  per observer on the same reactions.
 
   A `(keyword \"rf-hicasso\" (str \"w\" (vswap! counter inc)))` would buy
   that same uniqueness by allocating a `Keyword`, its name string and its
@@ -643,9 +642,9 @@
   performed twice — once when the cell is born and once when the
   substrate disposes the reaction out from under it.
 
-  **Activation comes first, and it is not optional** — the observation
-  port states the same order at `substrate/observation.cljc`:
-  \"ACTIVATE, then watch, then observe\".
+  **Activation comes first, and it is not optional** — \"ACTIVATE, then
+  watch, then observe\" (rf2-8cnxg; first stated by the internal observation
+  port, retired 2026-08-21, so this is now one of the sites that states it).
   A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
   built deliberately without `:auto-run`, and a Reaction learns its sources
   only through `deref-capture`: a plain deref taken outside `*ratom-context*`
@@ -1081,8 +1080,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- cold-read!
-  "One cold read — a key no committed cell answers for — on the
-  observation port's cold-probe discipline.
+  "One cold read — a key no committed cell answers for — on the cold-probe
+  discipline.
 
   Three rungs, cheapest first, all of them mutation-free:
 

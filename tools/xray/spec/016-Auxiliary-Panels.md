@@ -691,7 +691,9 @@ consumer (see [`018-Event-Spine.md` §5.4](./018-Event-Spine.md)), so no
 component render supplies the capture context that hides this defect
 elsewhere. The op is a no-op on adapters already push-based from birth
 and idempotent on an already-activated reaction. Same law, same fix
-order (activate → seed → watch) as the framework's own observation port.
+order (activate → seed → watch) the framework's internal observation port
+carried before it was retired (rf2-63t1i); the order now lives at each of
+its call sites rather than in one canonical statement.
 
 **Baseline seeding (rf2-8i1tg3).** The edge-detector's baseline count
 MUST be seeded from the reaction's value AT INSTALL TIME, before

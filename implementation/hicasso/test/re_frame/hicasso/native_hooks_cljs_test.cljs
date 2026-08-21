@@ -143,8 +143,8 @@
             because React repaints the moment the subscription lands"
     (is (= "<span>191</span>" (render-under-frame! (n/$ reader {:sym "AAPL"})))))
 
-  (testing "and it RETAINED nothing. A cold read is the observation port's
-            probe: no cell, no reader membership, no boundary, no edge, no
+  (testing "and it RETAINED nothing. A cold read is a pure probe:
+            no cell, no reader membership, no boundary, no edge, no
             disposal obligation. Narrowing caught: acquiring during the
             render rather than at commit — the ownership state machine's
             one prohibition — which would leave a cell and a membership

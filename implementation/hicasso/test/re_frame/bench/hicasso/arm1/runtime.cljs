@@ -197,9 +197,9 @@
   read of a key nothing holds yet is a **cold probe** ([[cold-read!]],
   rf2-6c237): reuse a live sub-cache reaction by deref alone when one
   exists, else compute PURE against one coherent frame-state snapshot
-  through one render-scoped memo — the observation port's own cold-probe
-  discipline (`re-frame.substrate.observation/probe`, Spec 006 §The
-  slice-scoped probe memo), consumed rather than reinvented. The probe
+  through one render-scoped memo — the cold-probe discipline the internal
+  observation port carried before it was retired (rf2-63t1i), reached now
+  through the core seam it too used (`re-frame.subs/compute-sub-with-memo`). The probe
   creates no cache entry, takes no reference, installs no watch and
   leaves no disposal obligation, so an abandoned render leaves the world
   exactly as it found it — and unlike the `subscribe-once` crossing it
@@ -255,7 +255,7 @@
 
   [[generation]] counts flushes. `frame-commit-epoch` is the substrate's
   own counter, bumped once per physical frame-state install at both
-  write chokepoints, and Spec 006's observation port already uses it for
+  write chokepoints, and it exists for
   exactly this question — *did the frame's durable state move in the
   render→commit gap?* — because it answers without watching anything.
   [[registry-epoch]] counts `:sub` registrations, which are neither a
@@ -598,9 +598,8 @@
   there is at most one cell per `(frame, query)`, `subs/subscribe` hands
   back that pair's own cached reaction, and no two cells ever hold the
   same reaction — so one namespaced constant collides with nothing this
-  arm installs, and its namespace keeps it clear of the substrate's own
-  watchers (`substrate.observation` keys per handle on the same
-  reactions).
+  arm installs, and its namespace keeps it clear of any other watcher keyed
+  per observer on the same reactions.
 
   It used to be `(keyword \"rf-hicasso-arm1\" (str \"w\" (vswap! counter inc)))`,
   which bought that same uniqueness by allocating a `Keyword`, its name
@@ -633,8 +632,8 @@
 (defn commit-basis
   "**The number both invariant-5 windows are judged against** — this
   runtime's flush [[generation]], plus `frame`'s own physical-install
-  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's
-  observation-port evidence counter, bumped once per frame-state install
+  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's read-evidence
+  counter, bumped once per frame-state install
   at both write chokepoints), plus the arm's [[registry-epoch]].
 
   The generation alone cannot carry it, and the reason is structural
@@ -643,7 +642,7 @@
   [[acquire-cell!]] installs **at commit**, so a key nothing holds yet
   can move without moving it. The frame's install epoch has no such
   dependency — it is a counter read, not a watch — which is exactly why
-  Spec 006's observation port uses it to ask whether durable state moved
+  it is the thing to ask whether durable state moved
   in the render→commit gap. And neither of them is a registry write, so
   the third term is what carries a `reg-sub` landing in that gap.
 
@@ -680,7 +679,7 @@
   Still silent on one axis, and permanently so: a same-id frame
   reincarnation RESTARTS `frame-commit-epoch` at 0 (measured: A's epoch
   and B's are both 1, so the basis TIES across the reincarnation), which
-  is the case the observation port needs its `:node-key` field for. That
+  is the case Spec 006 invariant 5's `:node-key` axis exists for. That
   axis is not this number's to carry, and rf2-2rtt6.44 settled why: the
   transition leaves the cell holding a reaction that can no longer answer
   for its key, so a moved number would only buy a re-render that read
@@ -1121,8 +1120,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- cold-read!
-  "One cold read — a key no committed cell answers for — on the
-  observation port's cold-probe discipline (rf2-6c237).
+  "One cold read — a key no committed cell answers for — on the cold-probe
+  discipline (rf2-6c237).
 
   Three rungs, cheapest first, all of them mutation-free:
 

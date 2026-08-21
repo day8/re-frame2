@@ -179,7 +179,7 @@
   (testing "The predecessor's third field. `frame-commit-epoch` is cleared
             by `dissoc-frame!`, so a same-id successor restarts at 0 and
             the basis is monotone only WITHIN one incarnation — which is
-            precisely why Spec 006's observation port carries `:node-key`
+            precisely why Spec 006 invariant 5 carries a `:node-key` axis
             rather than trusting the two epochs. The arm observes node
             identity nowhere, and does not need to: the destruction
             disposes the cell's reaction, and that is the same event the

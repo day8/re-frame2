@@ -66,8 +66,8 @@
 (defn commit-basis
   "**The number both invariant-5 windows are judged against** — this
   runtime's flush [[generation]], plus `frame`'s own physical-install
-  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's
-  observation-port evidence counter, bumped once per frame-state install
+  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's read-evidence
+  counter, bumped once per frame-state install
   at both write chokepoints), plus the arm's [[registry-epoch]].
 
   The generation alone cannot carry it, and the reason is structural
@@ -76,8 +76,8 @@
   [[re-frame.hicasso.impl.collector/acquire-cell!]] installs **at
   commit**, so a key nothing holds yet can move without moving it. The
   frame's install epoch has no such dependency — it is a counter read,
-  not a watch — which is exactly why Spec 006's observation port uses it
-  to ask whether durable state moved in the render→commit gap. And
+  not a watch — which is exactly why it is the thing to ask whether durable
+  state moved in the render→commit gap. And
   neither of them is a registry write, so the third term is what carries
   a `reg-sub` landing in that gap.
 
@@ -113,8 +113,8 @@
 
   Silent on one axis, and permanently so: a same-id frame reincarnation
   RESTARTS `frame-commit-epoch` at 0, so the basis TIES across the
-  reincarnation, which is the case the observation port needs its
-  `:node-key` field for. That axis is not this number's to carry. The
+  reincarnation, which is the case Spec 006 invariant 5's `:node-key` axis
+  exists for. That axis is not this number's to carry. The
   transition leaves the cell holding a reaction that can no longer answer
   for its key, so a moved number would only buy a re-render that read
   back through the same dead reference.

@@ -51,7 +51,7 @@
                           + `re-frame.frame/frame-commit-epoch`
                           + the runtime's registry epoch
 
-  The second term is the substrate's own observation-port evidence
+  The second term is the substrate's own read-evidence
   counter — one bump per physical frame-state install, at both write
   chokepoints — and Spec 006 already uses it to answer exactly this
   question without watching anything. The third counts `:sub`
