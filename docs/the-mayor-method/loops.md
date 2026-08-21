@@ -470,6 +470,13 @@ answer describes that set** — enumerate what covers the item and confirm each 
 gates leaves the machine quiet. Documentation and prose usually clear that bar and are what
 keeps the fleet busy while a window waits, but earn that per item rather than granting it
 per category. The instruction is to stop making the machine loud, not to stop working.
+But that test answers loudness alone, and a window may register more than quiet. Where
+one registers that no peer writes inside its bracket, **any write voids the run however
+cheap it is** — merging a change and creating a worktree each cost the machine almost
+nothing and each is a write, so a rule ordered by cost gets those two exactly backwards;
+for such a window the fleet is empty rather than thin, and you merge nothing either. Have
+the window record that condition as a test rather than an assurance, capturing the trunk
+tip and the worktree list at both brackets, so a violation is reported rather than assumed.
 
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
