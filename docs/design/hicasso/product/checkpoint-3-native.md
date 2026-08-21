@@ -195,6 +195,22 @@ sharpest question.
   attribution*; an outward-bridged root is built by the consumer's own `createElement`, so
   `impl.mount/hydrate-root!` cannot adopt it and a hand-rolled `hydrateRoot` installs no Spec 011
   reporter. Not a missing test — unsatisfiable without a door. → [`rf2-s52w`](#5-the-misses)
+
+  **[Amended 2026-08-21, `rf2-r3dgc`.]** Everything above still holds as a mechanism — a root the
+  consumer opened themselves carries no framework reporter, because `onRecoverableError` is an option
+  of an individual root. What has gone is the premise in the first clause: **the row no longer
+  requires mismatch attribution without qualification.** PR #8646 (`137bd927db`, `rf2-0brem`) rewrote
+  the *Server and hydration* required result in
+  [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist),
+  and the SSR/hydration matrix's blanket sentence with it, to owe the state only on roots a re-frame2
+  door opens — citing [Spec 011's hydration-mismatch
+  detection](../../../../spec/011-SSR.md#hydration-mismatch-detection), which had said so normatively
+  all along. `rf2-s52w` closed the same way on 2026-08-15, a **scope rather than a gap**, confirmed
+  and measured rather than repaired, and [`dispositions.md`](dispositions.md)'s HS-21 row records
+  that half. So this clause was never unmet, only unstated, and it is stated now. **This amendment
+  re-scores nothing**: it takes no measurement, runs no section of the protocol, and leaves Row 5's
+  *Not green* and this page's verdict where §2 put them. Whether the row's score moves is a §2 re-run's
+  to say.
 - **Quality — the row points at the wrong document.** Its deciding evidence is the SSR/hydration
   matrix, which is a table of **policy** carrying no witness column and no test citation. The witness
   ledger is [`dispositions.md` §2.1](dispositions.md). A reviewer following the release checklist
@@ -205,6 +221,19 @@ sharpest question.
   Both are outside the native tier and are already carried by open beads; this checkpoint files
   nothing against them and names them so the final audit does not read row 5's native half as the
   whole matrix.
+
+  **[Amended 2026-08-21, `rf2-r3dgc`.]** The phrase *the package's only server path* was true when
+  this record was written and stopped being true the same day. `re-frame.hicasso.server/render`
+  landed on 2026-08-14 as `30317bfe0e` (PR #8236, `rf2-b6jkj`), some hours after this page was first
+  filed, and `impl/roots.cljs` now names it one of **two** minters of the adoption window rather than
+  the one. The second half of the sentence went with it: that module does not emit the bare app
+  subtree but calls `impl.mount/tree` with the request's own window handle — the same function the
+  hydrating door calls — so it emits the Fragment-and-closer shape, and its namespace docstring
+  names HS-11's obstruction 2 as the thing it was built to answer. **The dispositions are not re-scored here, and
+  this bullet's point is unchanged**: HS-11, HS-14 and HS-33 are outside the native tier, this
+  checkpoint still files nothing against them, and whether the obstruction has actually lifted is
+  [`dispositions.md`](dispositions.md)'s to measure and say — it still records the obstruction as
+  standing. Filed as `rf2-lau0u` so the reading is taken rather than assumed.
 
 ### Row 6 — Dependency and rent
 **Not green**, and the met half is exemplary. The interpreted-only bundle is proved to contain no
