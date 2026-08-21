@@ -312,7 +312,7 @@ term is admitted that was not admitted before.
 |---|---|
 | Admissibility | **all 30 runs control-certified**; the report carries no INADMISSIBLE entry for this window |
 | Null arm | **9,642 control legs, 0 in the 1,000 – 1,300 B band** |
-| Same-session positive control | `fixed \| uix-subs \| pos1` reads **28 of 143 (19.6%)** here, against 20.8% (21 of 101) on the corpus as it stood before this window — the instrument was not asleep |
+| Same-session positive control | `uix-subs` under `fixed` at pos1 reads **28 of 143 (19.6%)** here, against 20.8% (21 of 101) on the corpus as it stood before this window — the instrument was not asleep |
 | Reader control | on the pooled corpus the published 14-run parity figures still reproduce exactly — **387 collection-free windows, 182 / 205 by position, 101 + 11 rider legs** — so the window extraction has not drifted |
 | Arm drives correctly | every `fixed-reversed` round drove `uix-subs` then `reagent-subs`; every `fixed` round the reverse; `parity` alternated |
 
