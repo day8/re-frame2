@@ -4,6 +4,27 @@ Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-fk6pj`, phase 2 of two. Phase 1
 landed the rig (`P0_ALLOC_PASS_ORDER=seeded`, PR #8596) and took no window;
 this page is the window taken against it.
 
+> **THE SEPARATION READING ON THIS PAGE IS SUPERSEDED, AND THE PROGRAMME RAN ON
+> PAST IT — 2026-08-21 (`rf2-j0szk`).** This record reads run 2 as separating the
+> pass column from the parity column where run 1 did not, and rests its outcome
+> on that one run. **Neither run separated them.** Phase 3 built a control that
+> decides it in both directions: over `R` balanced rounds the parity·pass inner
+> product is `q · p = 4a − R`, so **no balanced six-round schedule can identify
+> at all**, and the shipped decomposition **fails all three pure-pass /
+> pure-parity fixtures on this window's schedules** — reading a PASS term of
+> `−1` on a corpus built with no pass effect in it. Two marginal median contrasts
+> that merely DIFFER are not two separated terms.
+>
+> **Every figure below is left exactly as it was published and nothing measured
+> here is withdrawn**; the corrections are marked in place at three sites. **This
+> page's terminal conclusion survives** — the pass term is not established free
+> of round parity *here* — though it survives for a stronger reason than the one
+> given. The seat line above reads "phase 2 of two" because that is what was
+> committed before run 1; the programme ran to **four** phases, phase 4
+> established the term, and `rf2-fk6pj` is now CLOSED. See
+> [the design control comes before the window](the-design-control-comes-before-the-window.md)
+> and [the band on the aggregate, and the second session](the-band-on-the-aggregate-and-the-second-session.md).
+
 **This section down to and including [the pre-registered outcomes](#the-pre-registered-outcomes)
 was committed before the first run was taken.** The commit that carries it also
 carries `alloc_pass_position.cjs` and its self-test, so the estimator, the two
@@ -201,6 +222,23 @@ refuses, and the commit order is the evidence rather than the identifier.*
 
 ## The answer, first
 
+> **CORRECTED 2026-08-21 (`rf2-j0szk`, on phase 3's design control and the
+> merged-PR audit of PR #8601).** The bullets below are left as written, and two
+> of them are wrong in the same way — the reading rather than the arithmetic:
+> ~~"only ONE of the two runs separates anything"~~ and ~~"the independent block
+> count for the separation claim is therefore 1, not 2"~~. **Neither run
+> separated the two columns.** Run 1's two groupings returning the identical pair
+> of medians is a real observation and is visible in section B; run 2's groupings
+> differing is also real, and is **not** the same thing as identifying, because
+> at six rounds the two columns are correlated — `q · p` reads `+6`, `+2`, `−2`
+> or `−6` on every balanced six-round schedule and never 0. So the separation
+> claim rests on **no** independent block rather than on one. The window still
+> reads between outcomes 1 and 4 without choosing, and **`rf2-fk6pj` did not stay
+> open**: phase 3 built a design that identifies, and phase 4 established the
+> term. Everything else in this section stands as taken — the 7-of-12
+> non-reproduction, both decomposed signs, run 2's level shift, and the reader
+> defect the estimator's own positive control caught.
+
 **The window separates the two columns exactly as it was drawn — and it narrows
 the question without settling it.** Both runs' controls certify, the pooled
 design came out orthogonal as designed, and the pass term survives; but only ONE
@@ -371,6 +409,29 @@ exists to police, reproduced one level up in the estimator instead of in the rig
 Run 2's schedule sits at symmetric difference 4, the groups share one of three,
 and there the two readings come apart: +0.64% against −0.22%.
 
+> **CORRECTED 2026-08-21 (`rf2-j0szk`, on phase 3's design control).** The median
+> argument above is right, and phase 3 kept it: at three blocks per group the
+> median is one of them, and two partitions sharing two of three members will
+> often return the same one. What does not follow is the sentence it is used for.
+> Run 2's schedule sitting at symmetric difference 4 makes its two readings
+> **differ**; it does not make them identify. Phase 3's `alloc_pass_design.cjs`
+> drives the **shipped** `decompose` over synthetic block sets whose true terms
+> are known by construction, and on this window's run-2 schedule it reads
+> **PASS `−1` on a pure-parity corpus** and **PARITY `−1` on a pure-pass one**.
+> It fails all three fixtures on this window's schedules and passes all three on
+> each of phase 3's four twelve-round ones. The heading above is left standing
+> because it names this section and is linked from
+> [the answer](#the-answer-first), but it should be read as *why neither run
+> separated anything*.
+>
+> **The three-item list below was superseded rather than adopted, and item 1 was
+> refuted.** Both seeds at symmetric difference 4 is the `q · p = −2` case;
+> `q · p = 4a − R` is never zero at `R = 6`, so it would have bought four runs of
+> the same confound instead of two. Phase 3 took item 2 instead and made the
+> round count load-bearing — at `R = 12` the criterion is `q · p = 0` **within**
+> each run, which is the 2 × 2 balance — added `q · l = 0` against within-run
+> drift, and took item 3 as four twelve-round runs in two complementary pairs.
+
 **What this window owes its successor, and it is a DESIGN change rather than a
 rig change** — `p0_run.cjs` needs nothing:
 
@@ -516,3 +577,17 @@ predates the runs.
 - **Nothing here is a gate.** No run passes or fails on any figure above, no
   threshold moved, and τ was neither read nor calibrated against in either
   direction.
+
+> **CORRECTED 2026-08-21 (`rf2-j0szk`, on phase 3's design control).** The first
+> bullet's conclusion stands; its reason does not. ~~"One of two runs separated
+> the columns; the other returned the same medians for both groupings. A
+> separation claim on n = 1 is not a separation claim."~~ — **neither run
+> separated the columns**, so this is not a separation claim on `n = 1` but on
+> `n = 0`, which is the weaker position of the two and the one the bullet's
+> heading already takes. **The pass term is still NOT established free of round
+> parity by this window**, unchanged. It was established later and elsewhere:
+> phase 3 built a twelve-round design proved to identify *before* it was run, and
+> [phase 4](the-band-on-the-aggregate-and-the-second-session.md) read eight runs
+> of that design across two sessions against a band declared before run 1 — PASS
+> **+0.31%**, eight of eight runs positive — which closed `rf2-fk6pj`. The other
+> four bullets on this list are untouched, and so is every figure on this page.
