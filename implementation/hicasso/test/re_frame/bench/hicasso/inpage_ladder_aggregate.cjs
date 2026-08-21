@@ -38,13 +38,17 @@
 // **The rules are the page's, reproduced exactly, and deliberately not
 // improved.** `lane/control-verdict`'s `:ok?` asks whether the measured
 // range OVERLAPS the ±slack band; `hd8-rows/positive-control!` asks the
-// stricter question, whether EVERY round sits inside it. `lane.cljs` records
-// the disagreement between them as a KNOWN DEFECT reserved to an operator
-// ruling (rf2-egdaq / rf2-2rtt6.1) because tightening it turns a published
-// pass into a published failure. This file reconstructs a check that was
-// never run; it is not the place to also change the rule it reconstructs, so
-// it applies the OVERLAP rule the page applied and no other. A tighter
-// prospective policy is that open ruling's to make.
+// stricter question, whether EVERY round sits inside it. rf2-egdaq settled
+// that disagreement on 2026-08-21, and it settled as a SPLIT — one rule per
+// instrument, not one rule for both arms. The HEAP arm went strict; the
+// CLOCK arm REFUSED strict under the 2026-07-31 quantum ruling, where a low
+// round is the clock's resolution rather than a defect, and THAT REFUSAL
+// STANDS. This ladder is a clock instrument, so OVERLAP is the rule the
+// ruling LEAVES IN PLACE for it — not a defect it still carries, and not a
+// question awaiting an answer. This file reconstructs a check that was never
+// run; it is not the place to also change the rule it reconstructs, so it
+// applies the OVERLAP rule the page applied and no other — and that is now
+// the ruled rule as well as the published one.
 //
 // ## And it FAILED OPEN on a structural omission (rf2-409ab, audit item 2)
 //
@@ -242,8 +246,9 @@ function perRoundRatio(raw, id, floorId, roundIds) {
  * OVERLAP, not every-round: `ok` asks whether the measured range meets the
  * ±`slack` band anywhere, which is the weaker of the two rules this
  * programme uses and the one this instrument published under. See the header
- * — the stricter reading is a KNOWN DEFECT reserved to rf2-2rtt6.1, and
- * applying it here would retroactively fail an already-published run.
+ * — rf2-egdaq settled as a SPLIT and REFUSED strict for the CLOCK arm, which
+ * is this one, so overlap is the ruled rule here; and applying the stricter
+ * reading would in any case retroactively fail an already-published run.
  *
  * A non-finite measurement needs no separate test: `NaN <= hi` and
  * `NaN >= lo` are both false, so a control that did not produce numbers
