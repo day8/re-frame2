@@ -20,9 +20,9 @@
 
   ## Why [[can-submit?]] is a function and not a stored flag
 
-  R-A6 asks for a submit gate that *cannot go stale*: the view disables
-  the button from it and the submit handler refuses from it, and the two
-  may never disagree. The failure mode the requirement names is two
+  R-A6 asks for a submit gate that *cannot go stale*: the submit handler
+  refuses from it, `::subs/can-submit?` exposes the same answer to any
+  reader, and the two may never disagree. The failure mode is two
   independent recomputations drifting apart, so the fix is one
   DEFINITION rather than one cached value. `::subs/can-submit?` calls
   this function and `::events/submit` calls this function, so a change to

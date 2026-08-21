@@ -354,6 +354,21 @@
             "one problem — the blank assignee. The note is empty and empty is
              legal, so a gate that revealed both would be reporting a
              problem that does not exist")
+        ;; The refusal has to arrive somewhere a screen reader is looking.
+        ;; The button that produced it claims nothing, so this IS the
+        ;; announcement, and it has to be attached to the control it is
+        ;; about — that pairing is the coherence the whole recipe rests on.
+        (let [problem (node m ".field-problem")
+              input   (node m "#ticket-assignee")]
+          (is (= "alert" (.getAttribute problem "role"))
+              "a live region: the user pressed Save and is told, rather than
+               left to go looking")
+          (is (= "true" (.getAttribute input "aria-invalid")))
+          (is (= (.-id problem) (.getAttribute input "aria-describedby"))
+              "and the control points at THAT node")
+          (is (nil? (.getAttribute (node m "button.save") "aria-disabled"))
+              "while the button that revealed all of this still makes no
+               claim to be inoperable — the two halves agree"))
         ;; `[]` here would be a false green on its own: `::submit`'s write
         ;; would have gone out on the ASYNC dispatch queue, and reading the
         ;; recorder on the next line reads it before that turn. So a marker
@@ -378,9 +393,15 @@
         (is (false? (.-disabled button))
             "operable while invalid — which is what makes the submit-attempt
              gate reachable at all")
-        (is (= "true" (.getAttribute button "aria-disabled")))
+        (is (nil? (.getAttribute button "aria-disabled"))
+            "and the real element carries no aria-disabled either. ARIA
+             reads aria-disabled=true as \"not editable or otherwise
+             operable\", so a form whose only route to its errors is this
+             button must not be wearing it")
         (type-into! m (node m "#ticket-assignee") "ada")
-        (is (= "false" (.getAttribute button "aria-disabled")))
+        (is (nil? (.getAttribute button "aria-disabled"))
+            "still nothing once the form is valid — validity never reaches
+             this control in either direction")
         (.requestSubmit (node m "form.details"))
         ;; The write leaves on the async dispatch queue — an intent's own
         ;; dispatch is synchronous, but the `:fx [[:dispatch …]]` a handler

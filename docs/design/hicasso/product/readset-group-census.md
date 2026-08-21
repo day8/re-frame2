@@ -77,7 +77,9 @@ A sub-key is `[frame-kw query-v]` — the frame's public keyword, not its incarn
 
 First measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b9825071e5317441922e56489`, by `re-frame.hicasso.readset-group-census-dom-cljs-test` on the browser lane: seven witness applications, each mounted on a real React root, each censused while mounted. React decides how many boundaries exist; the census only counts them.
 
-**Re-measured 2026-08-13 08:31 AUSEST on a tree based at `c48f75a0d259f8e43359921553fc2cb077a97694` with `rf2-hic-074`'s changes applied.** The slice grew a pager, a digest region and five block renderers, so the corpus moved and the pinned row in the test went red — which is what it is for. The figures below are the new measurement, and the verdict did not move: `coalesced` went from −79.1% to −77.6% and `shareable` from 6.0% to 5.6%, both further from the trigger rather than nearer it. The extension contributed seven read-set entries — four `[1 1]`, two `[1 5]` and one `[2 0]` — and not one of them is the `B ≥ 2, R ≥ 2` shape grouping needs. That is the [*Why it is structural*](#why-and-why-it-is-structural-rather-than-a-property-of-these-seven-applications) section's prediction meeting an application written months after it: the new boundaries with several reads are singletons (a pager, a digest region), and the new boundary the corpus shares is read-free (two block renderers that take their block as a prop). An independent confirmation, not a correction.
+Re-measured 2026-08-13 08:31 AUSEST on a tree based at `c48f75a0d259f8e43359921553fc2cb077a97694` with `rf2-hic-074`'s changes applied. The slice grew a pager, a digest region and five block renderers, so the corpus moved and the pinned row in the test went red — which is what it is for. The verdict did not move: `coalesced` went from −79.1% to −77.6% and `shareable` from 6.0% to 5.6%, both further from the trigger rather than nearer it. The extension contributed seven read-set entries — four `[1 1]`, two `[1 5]` and one `[2 0]` — and not one of them is the `B ≥ 2, R ≥ 2` shape grouping needs. That is the [*Why it is structural*](#why-and-why-it-is-structural-rather-than-a-property-of-these-seven-applications) section's prediction meeting an application written months after it: the new boundaries with several reads are singletons (a pager, a digest region), and the new boundary the corpus shares is read-free (two block renderers that take their block as a prop). An independent confirmation, not a correction.
+
+**Re-measured again 2026-08-22 00:18 AUSEST on a tree based at `91502dff8b78343fdccc8cc2a8aacd6052c399e5` with `rf2-hic-051`'s accessibility repair applied; the figures below are that measurement.** The forms application's save button stopped reading `::subs/can-submit?` — the submit gate is no longer a button state, because `aria-disabled` on an activatable submit was a claim the form could not honour — so the corpus lost one read-set entry and the pinned row went red again. The verdict did not move, and the interesting part is that it moved slightly *toward* the trigger and still failed: `coalesced` went from −77.6% to −77.4% and `shareable` from 5.6% to 6.7%, because dropping that read left `save-button` and `save-failure` holding an IDENTICAL one-key set and the corpus gained a shared entry. It is a `[2 1]`, so it pays `(B−1)(R−1) − 1 = −1` and loses like every other one. A change made for reasons entirely unrelated to this question produced the shape grouping wants and it still did not pay — which is [*Why it is structural*](#why-and-why-it-is-structural-rather-than-a-property-of-these-seven-applications) arriving from a direction nobody aimed at it.
 
 `rf2-hic-083` names *the slice + editor/grid apps*. All seven were censused instead, because a verdict three applications support and four contradict is a verdict nobody should take, and the other four cost four mounts.
 
@@ -89,7 +91,7 @@ First measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b98250
 | editor | 7 | 12 | 19 | −7 | 0 | 0 | 1 | 4 | `{[1 4] 1, [1 2] 3, [1 1] 2, [1 0] 1}` |
 | grid | 111 | 121 | 232 | −111 | 1 | 11 | 11 | 1 | `{[1 1] 110, [11 1] 1}` |
 | todo | 7 | 10 | 17 | −7 | 0 | 0 | 1 | 3 | `{[1 3] 1, [1 2] 1, [1 1] 5}` |
-| forms | 7 | 12 | 20 | −8 | 1 | 0 | 2 | 3 | `{[1 3] 2, [1 2] 2, [1 1] 2, [2 0] 1}` |
+| forms | 6 | 11 | 18 | −7 | 2 | 2 | 2 | 3 | `{[1 3] 2, [1 2] 1, [1 1] 1, [2 1] 1, [2 0] 1}` |
 | typeahead | 2 | 5 | 7 | −2 | 0 | 0 | 1 | 3 | `{[1 3] 1, [1 2] 1}` |
 | navigation | 3 | 3 | 6 | −3 | 0 | 0 | 1 | 1 | `{[1 1] 3}` |
 
@@ -97,20 +99,20 @@ First measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b98250
 
 | quantity | value |
 |---|---|
-| read-set entries | 150, all claimed |
-| memberships today `M = Σ B·R` | **196** |
-| memberships grouped `M′ = Σ (R + B)` | **348** |
-| saved | **−152** |
-| `coalesced = (M − M′)/M` | **−77.6%** |
-| entries more than one boundary holds | **3 of 150** |
-| shareable memberships | **11 of 196 = 5.6%** |
+| read-set entries | 149, all claimed |
+| memberships today `M = Σ B·R` | **195** |
+| memberships grouped `M′ = Σ (R + B)` | **346** |
+| saved | **−151** |
+| `coalesced = (M − M′)/M` | **−77.4%** |
+| entries more than one boundary holds | **4 of 149** |
+| shareable memberships | **13 of 195 = 6.7%** |
 | entries that would SAVE a membership | **0** |
 | entries that would even BREAK EVEN | **0** |
 | landmark divergence, summed over seven applications | **0** |
 
 ### The census's own proofs
 
-- **NON-EMPTY** — every one of the seven answered a positive membership count, asserted per application. The pooled 196 is not a zero that a broken reporter and a clean corpus would produce identically.
+- **NON-EMPTY** — every one of the seven answered a positive membership count, asserted per application. The pooled 195 is not a zero that a broken reporter and a clean corpus would produce identically.
 - **CALIBRATION** — the entry-side walk (`refs × |set|` over the entry cache) reproduced the cell-side landmark (`readers.length` over the cell table, which is `impl.inventory/stats`'s `:cell-refs`) exactly, in all seven, for a pooled divergence of zero. The two walks discriminate: on a five-boundary shared population the entry side is one entry at `5 × 4` and the cell side four cells at five readers; on a five-boundary distinct-query population it is five entries at `1 × 4` and twenty cells at one reader. Both answer 20 by different routes.
 - **POSITIVE control** — on a constructed population of five boundaries reading one identical four-key set, the census reports `saved 11` and `coalesced 55%`. It can see coalescence.
 - **OVER-REPORT control** — on a legal distinct-query population of the same twenty memberships it reports zero shareable memberships and `saved −5`, with a sign rather than a zero a reader could mistake for neutrality.
@@ -127,20 +129,21 @@ The three read-free entries are `examples.editor/editor`, `examples.forms/screen
 
 **DO NOT ADOPT. The census decides it, and no spike is owed.**
 
-C1 fails on both denominators and is not close on either. `coalesced` is **−77.6%** — grouping does not fail to save memberships on this corpus, it nearly doubles them, from 196 to 348. The generous reading, `shareable`, is **5.6%**, below the row's own roughly-10% trigger. There is no denominator under which this population supports proceeding.
+C1 fails on both denominators and is not close on either. `coalesced` is **−77.4%** — grouping does not fail to save memberships on this corpus, it nearly doubles them, from 195 to 346. The generous reading, `shareable`, is **6.7%**, below the row's own roughly-10% trigger. There is no denominator under which this population supports proceeding.
 
-C2 and C3 are not reached, and would not be reachable: **not one of 150 read-set entries would save a membership, and not one would break even.**
+C2 and C3 are not reached, and would not be reachable: **not one of 149 read-set entries would save a membership, and not one would break even.**
 
 ### Why, and why it is structural rather than a property of these seven applications
 
-`(B−1)(R−1) − 1` needs both factors, and **`B` and `R` are anti-correlated by construction**. Two boundaries share an identical `(frame, ordered-read-set)` only when neither read carries a per-instance parameter; a boundary with no per-instance parameter is a shell over a page-wide fact; and a shell reads few keys. The two entries in this corpus that more than one boundary holds say it exactly:
+`(B−1)(R−1) − 1` needs both factors, and **`B` and `R` are anti-correlated by construction**. Two boundaries share an identical `(frame, ordered-read-set)` only when neither read carries a per-instance parameter; a boundary with no per-instance parameter is a shell over a page-wide fact; and a shell reads few keys. The four entries in this corpus that more than one boundary holds say it exactly:
 
 - **`examples.grid`** — the largest `B` the corpus offers, and it is `R = 1`. Eleven boundaries share one entry: the `grid` and its ten `grid-row`s, all reading `[::subs/dimensions]` and nothing else. `11 · 1 = 11` memberships today, `1 + 11 = 12` grouped. The single biggest fan-out in seven applications coalesces to a **net loss of one**.
 - **`examples.forms`** and **`examples.slice`** — two boundaries share one entry at `R = 0`, in each. Grouping would add two notify slots for nothing, twice.
+- **`examples.forms` again**, and this one is the corpus's only `B ≥ 2, R ≥ 1` entry outside the grid: `save-button` and `save-failure` both read `[:rf/mutation {:instance ::save}]` and nothing else, so they share one entry at `[2 1]`. It arrived in 2026-08 for an accessibility reason — the button stopped reading the submit gate, because a control that must be activatable may not also announce itself disabled — which makes it the closest thing this census has to an unmotivated sample. `2 · 1 = 2` memberships today, `1 + 2 = 3` grouped: **a net loss of one**, like every other `R = 1` entry, arrived at by an author who was not thinking about read sets at all.
 
 Meanwhile the boundaries with the largest read sets are all singletons. `examples.slice`'s `chrome` is the corpus maximum at `R = 7` — a locale, a theme and five translated strings — and `examples.editor`'s `readout` is `R = 4`, the four committed fields. Each is one of a kind, because a page has one chrome and one readout.
 
-The remaining 147 entries are the shape a real application is mostly made of: `[1 1]` and `[1 2]` — one boundary, its own parameterised key. `examples.grid`'s hundred cells and ten row totals are 110 of them, each reading `[::subs/cell r c]` or `[::subs/row-total r]`. Those are precisely the boundaries a fan-out scheme would want to be about, and their read sets are distinct **because** they are per-row — the parameter that makes a row independent is the same parameter that makes its read set unshareable.
+The remaining 145 entries are the shape a real application is mostly made of: `[1 1]` and `[1 2]` — one boundary, its own parameterised key. `examples.grid`'s hundred cells and ten row totals are 110 of them, each reading `[::subs/cell r c]` or `[::subs/row-total r]`. Those are precisely the boundaries a fan-out scheme would want to be about, and their read sets are distinct **because** they are per-row — the parameter that makes a row independent is the same parameter that makes its read set unshareable.
 
 This is not a finding about seven applications. It is what *fine row reads for sparse independent updates* — [specification §Rung 2](specification.md#rung-2--tune-hicasso-topology)'s first recommended topology — costs and buys. An application that produced material identical-set fan-out would be one whose rows all read the same page-wide keys, which is the coarse topology Rung 2 recommends *against* for independent updates.
 

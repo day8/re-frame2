@@ -197,8 +197,8 @@
                 landmark, so the pooled figure is the runtime's own
                 membership count: " (pr-str p)))
 
-      (is (= {:claimed 150 :memberships 196 :grouped 348 :saved -152
-              :shared-entries 3 :shareable 11}
+      (is (= {:claimed 149 :memberships 195 :grouped 346 :saved -151
+              :shared-entries 4 :shareable 13}
              (select-keys p [:claimed :memberships :grouped :saved
                              :shared-entries :shareable]))
           (str "The pooled census, PINNED. A red here means the witness
