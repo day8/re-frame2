@@ -70,9 +70,43 @@ main as `12e50c5b36`**, which recovers the measured read path in full
 Arm-order guard: clean on every arm, both phases. Positive control inside the
 interleave, adjudicated before anything is read.
 
-**The commit half** (per 141-key boundary commit through the runtime's own
-`commit-boundary!` seam; four identically-seeded frames per window; released
-and settled between samples behind a residue equality gate that never fired):
+**The commit half — REPUBLISHED, every arm taken at ONE commit** (`rf2-07rnj`'s
+re-take, 2026-08-21, base commit `3de77d3c23`; ms per 141-key boundary commit
+through the runtime's own `commit-boundary!` seam). **The window shape is stated
+because the shares are not invariant to it**: 32 identically-seeded frames per
+window, 8 × (2 + 8) = 64 kept samples per arm, eleven arms, grid 0.0015625
+ms/commit; three runs, `exit 0` each, released and settled between samples
+behind a residue equality gate that never fired. **Every term carries its own
+resolution verdict against its OWN run's null spread**, on a rule fixed before
+run 1 — the window note below sets both out.
+
+| term | run 1 | run 2 | run 3 | share of `c-local` | verdict |
+|---|---|---|---|---|---|
+| whole commit (`commit`, shipping seam) | 0.9391 | 0.9781 | 0.7859 | — | absolute; copy fidelity `c-local`/`commit` = 0.9501 / 0.9393 / 0.9841 |
+| `c-local` (the ablation baseline — every share below divides by it) | 0.8922 | 0.9187 | 0.7734 | — | absolute |
+| — **reaction build + cache insert** (`c-local − c-nosub`) | **0.6016** | **0.6156** | **0.5141** | **67.4% / 67.0% / 66.5%** | **RESOLVED** on every run |
+| — cell-map insert (`c-local − c-nomap`) | 0.0672 | 0.0656 | 0.0797 | 7.5% / 7.1% / 10.3% | RESOLVED on every run |
+| — watch wiring (`c-local − c-nowatch`) | 0.0594 | 0.0547 | 0.0500 | — | **UNRESOLVED** — clears its null in runs 1–2, ties it exactly in run 3 |
+| — activation capture (`c-local − c-noactivate`) | 0.0188 | 0.0187 | 0.0328 | — | **UNRESOLVED** on all three runs |
+| — reader membership (`c-local − c-noreaders`) | 0.0156 | 0.0062 | 0.0500 | — | **UNRESOLVED** on all three runs |
+| `b-build` (141 × subscribe + deref, no in-window dispose) | 0.6891 | 0.7047 | 0.5797 | — | context: build + compute alone |
+
+**Three of the five terms are unresolved, and NO BOUND IS PUBLISHED FOR ANY OF
+THEM.** Their readings are quoted above and nothing further is claimed: a null
+says what this instrument cannot SEE, never how large the invisible thing is.
+Reading any of those three rows as an upper bound would be the withdrawn
+`< 0.006 ms/commit` error one layer back, and that withdrawal stands.
+
+**What the re-take does settle is the thing this table was stale about.** Every
+share above divides by a `c-local` measured in the SAME run as its numerator, so
+the share column is no longer arithmetic across two instruments. The `c-noindex`
+arm and the `index write` row are gone — `rf2-dabt3` deleted the structure they
+priced — and `c-noreaders` stands in their place, unresolved and published as
+such.
+
+**The 2026-08-02 reading the table above replaces**, kept in place because the
+window notes below cite its cells by value (four identically-seeded frames per
+window — a quarter of the shape above, which is part of why its shares differ):
 
 | term | delta ms/commit | share of `c-local` |
 |---|---|---|
@@ -549,6 +583,134 @@ and settled between samples behind a residue equality gate that never fired):
 > **`rf2-07rnj` stays blocked.** It is blocked on the offset's cause being
 > established, and this window did not establish it.
 
+> **THE WHOLE RE-TAKE RAN AND PUBLISHES — TWO TERMS RESOLVE, THREE DO NOT**
+> (`rf2-07rnj`, 2026-08-21, base commit `3de77d3c23`; instrument **blob** hash
+> `c220a8c23c44ca6e19f9cab90528d932f271a784`, identical before the window and
+> after it, `:advanced`, Playwright HeadlessChrome). This is the re-take §1's
+> table now carries. Three runs, `exit 0` on each, **both arm-order guards
+> reportable on every run** (38 `[ok]` verdicts and no refusal on each), the
+> phase-A positive control passing on every run, the phase-B residue gate never
+> firing. The eleven-arm series `rf2-lo7uy` opened, so absolutes are not
+> arm-by-arm comparable with the nine- and eight-arm windows above.
+>
+> **What was fixed BEFORE run 1, and committed before run 1 so the ordering is
+> checkable rather than asserted.** The run count (three — the window does not
+> extend because an answer looks unsettled), the window shape (32 frames, 8 ×
+> (2 + 8) = 64 kept samples per arm, grid 0.0015625 ms/commit — the instrument's
+> own shape, no gate, tolerance or knob touched), and the adjudication rule
+> below. The pre-registration is the first commit of this window's branch and
+> the dataset `README.md` carries it in full.
+>
+> **THE RULE.** Each run carries its own three nulls, each of which is `c-local`
+> again through the same constructor, so each null delta has a true cost of
+> **exactly zero by construction**. That run's **null spread** is the interval
+> its three nulls span. A term **resolves in a run** iff its delta is strictly
+> greater than the maximum of that run's three nulls; a term is **RESOLVED** iff
+> it resolves in all three. Anything else is **UNRESOLVED AT THIS INSTRUMENT'S
+> RESOLUTION**, published with its readings quoted, **no bound, and no share**.
+> No null is subtracted from any term and no term is corrected by one.
+>
+> | null (`c-local −` the arm) | slot | run 1 | run 2 | run 3 |
+> |---|---|---|---|---|
+> | `c-null`, displaced in mean and shape | 2 | +0.0297 | +0.0141 | +0.0500 |
+> | `c-null-twin`, `c-local`'s footprint exactly | 9 | +0.0031 | +0.0281 | +0.0297 |
+> | `c-null-curve`, same mean, other shape | 10 | +0.0109 | +0.0172 | +0.0359 |
+> | **the run's null spread** | — | **[+0.0031, +0.0297]** | **[+0.0140, +0.0281]** | **[+0.0296, +0.0500]** |
+>
+> **The absolutes, all eleven arms** (p50 [min–max], ms per 141-key commit):
+>
+> | arm | run 1 | run 2 | run 3 |
+> |---|---|---|---|
+> | `commit` (shipping seam) | 0.9391 [0.6156–1.3469] | 0.9781 [0.6281–1.3781] | 0.7859 [0.6500–1.3031] |
+> | `c-local` (the copy) | 0.8922 [0.5969–1.2438] | 0.9187 [0.6875–1.3656] | 0.7734 [0.5906–0.9656] |
+> | `c-null` | 0.8625 [0.5938–1.2406] | 0.9047 [0.6031–1.3094] | 0.7234 [0.5813–0.9250] |
+> | `c-noactivate` | 0.8734 [0.6156–1.3406] | 0.9000 [0.6250–1.3813] | 0.7406 [0.5656–0.9781] |
+> | `c-nowatch` | 0.8328 [0.5688–1.2844] | 0.8641 [0.5844–1.1375] | 0.7234 [0.5688–0.9812] |
+> | `c-nosub` | 0.2906 [0.2031–0.4344] | 0.3031 [0.2094–0.4469] | 0.2594 [0.2031–0.3469] |
+> | `c-noreaders` | 0.8766 [0.6531–1.2656] | 0.9125 [0.5938–1.2875] | 0.7234 [0.5687–0.9906] |
+> | `c-nomap` | 0.8250 [0.5938–1.2125] | 0.8531 [0.5844–1.1750] | 0.6937 [0.5188–0.9063] |
+> | `b-build` | 0.6891 [0.5063–1.0125] | 0.7047 [0.4844–0.9437] | 0.5797 [0.4406–0.7437] |
+> | `c-null-twin` | 0.8891 [0.6062–1.2875] | 0.8906 [0.6250–1.2375] | 0.7438 [0.5719–0.9031] |
+> | `c-null-curve` | 0.8812 [0.5969–1.3031] | 0.9016 [0.6375–1.2813] | 0.7375 [0.5938–1.0500] |
+> | copy fidelity `c-local`/`commit` | 0.9501 | 0.9393 | 0.9841 |
+>
+> **THE SHARE COLUMN IS THE ROBUST STATISTIC HERE AND THE ABSOLUTES ARE THE
+> FRAGILE ONE**, which is worth saying plainly because it is the opposite of how
+> the two are usually read. `c-local` moved 0.7734–0.9187 across three runs of
+> one binary in one session — 19% — while the reaction build's share of it moved
+> 66.5–67.4%, a spread of nine tenths of one percentage point. A share divides
+> two arms measured microseconds apart in the same interleave, so whatever makes
+> the box faster or slower between runs largely divides out; an absolute carries
+> it whole. That is the case for republishing this decomposition as shares of a
+> same-run denominator, and it is also why no absolute here should be lifted out
+> of this table and quoted as a property of the tree.
+>
+> **THE TWO RESOLVED TERMS.** The reaction build + cache insert clears its run's
+> null by a factor of 10–20 on every run and is the dominant term of the commit
+> half at **66.5–67.4% of `c-local`**. The cell-map insert clears on every run at
+> **7.1–10.3%**. Those are the only two figures this window publishes.
+>
+> **THE THREE UNRESOLVED TERMS, AND NO BOUND ON ANY OF THEM.** Reader membership
+> reads `+0.0156 / +0.0062 / +0.0500` against null maxima of `0.0297 / 0.0281 /
+> 0.0500` — inside the spread on every run, and in run 3 exactly ON it. The
+> activation capture reads `+0.0188 / +0.0187 / +0.0328` against the same maxima
+> and is likewise inside on every run. **Watch wiring is the near miss and is
+> reported as a miss**: it clears in runs 1 and 2 (`+0.0594` and `+0.0547`) and
+> in run 3 reads `+0.0500` against a null maximum of `+0.0500` — an exact tie, at
+> a shape where `c-nowatch`, `c-noreaders` and `c-null` all returned the identical
+> p50 of `0.7234`. A rule fixed before the data is a rule you do not move once the
+> data is in, and moving "strictly greater" to "greater or equal" for one cell is
+> exactly the move the pre-registration exists to prevent. So it is published as
+> unresolved with its three readings quoted and nothing else claimed.
+>
+> **THIS SUPERSEDES THE EARLIER WINDOWS' READING OF WHICH TERMS RESOLVE, AND THE
+> DIFFERENCE IS THE TEST, NOT THE TREE.** The predecessors credited four of five
+> terms on **sign stability across runs**; three nulls at three slots is a
+> stricter and more honest test, and under it the activation capture and the watch
+> wiring join reader membership. Nothing about the terms themselves is claimed to
+> have changed — what changed is that they are now adjudicated against a measured
+> zero taken in the same run rather than against their own repeatability. It also
+> means `c-noactivate`'s standing is now settled from the other side: `rf2-tcffa`
+> established that it is not a noise floor and must not arbitrate a window's
+> width, and this window adds that it is not a resolved term either. It is an arm
+> whose delta this instrument cannot separate from zero.
+>
+> **What is NOT concluded.** No bound on any unresolved term, in either
+> direction. Not that any unresolved term is small — a term inside the null
+> spread has its size left open by that fact, which is the whole content of the
+> rule. Not that the window is too narrow: whether 128–256 frames would bring any
+> of the three clear is a prediction, and a rung added between runs makes the
+> series two instruments, so it was deliberately not attempted. Not any
+> restatement of §1's render half, of §4's render-half rows, or of the `rf2-lo7uy`
+> findings above; nothing was subtracted from anything.
+>
+> **The box.** Processor Queue Length (`\System\Processor Queue Length`) and
+> `% Processor Utility` were sampled together, five samples at 1 s, on a 24-core
+> host, immediately before the window and between every pair of runs. Queue:
+> `0,0,0,0,0` at 10:31:46 (utility ≤ 23.6%); `0,0,0,0,2` then `0,0,0,0,0` at
+> 10:35:11 and 10:35:32 (≤ 42.7% then ≤ 33.9%); `0,0,0,0,0` at 10:37:53
+> (≤ 26.9%); `0,0,3,0,1` then `0,0,0,0,0` at 10:41:09 and 10:41:29 (all +10:00).
+> **The two non-zero brackets are reported rather than dismissed**: each was taken
+> seconds after a run's own browser and node teardown, and each settled to all
+> zeroes on an immediate re-read, but nothing proves the first reading of the pair
+> was teardown rather than something else. The last bracket's utility of 59.7–66%
+> is this session's own tooling, which was active by then. **Nothing was sampled
+> inside a run**, so the quietness claim is a bracketing claim and nothing
+> stronger. One open PR on an unrelated surface and no other heavyweight worker in
+> flight, derived at start-up and re-derived before the edit.
+>
+> Raw driver output for all three runs is committed beside the instrument at
+> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-07rnj-retake/`
+> (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
+> `shadow-cljs - config:` banner line per file, whose absolute path is replaced by
+> `<worktree>` and marked inline as redacted — the portability gate refuses a
+> tracked personal home path. No figure, guard verdict or exit line was touched;
+> each file differs from the driver's own output by exactly that one line. The
+> per-round p50s and per-round deltas are in the transcripts under
+> `:read-profile-commit-per-round` and `-per-round-deltas`, so this window is
+> re-adjudicable without being re-taken. That directory's `README.md` carries the
+> pre-registration.
+
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
 `frame-state-value` 266; the `call-with-frame-resolution` wrap 206; the
@@ -576,21 +738,25 @@ sub-cache peek 18; the sub-key mint 53.
    page whose subs are all single-source. The landed shape is therefore
    peek → run-scoped **value map** → fresh seeded per-read memo.
 4. **The commit half is the durable wiring and stays.** Its dominant term is
-   the reaction build + cache insert (47.8%) — the once-per-unique-key
-   construction the design amortises over the mount, unavoidable without an
-   escrow the state machine forbids. The index write is 8.7% (~0.5 µs/key)
-   and the cell-map insert 4.3%; batching either buys tens of microseconds
-   on a 141-key mount and was declined as complexity the profile does not
-   license. **The index write half of that reading is HISTORICAL, and does
-   not describe this tree:** `rf2-dabt3` (`383ba2d645`) retired the
-   sub-index it prices — `front/sub_index.cljs` is deleted — so 8.7% prices
-   a structure the runtime no longer has, and there is no index write left
-   to batch. What that commit put in its place is not resolved by any window
-   this page publishes, so nothing is offered in the figure's stead and no
-   share in this list has been re-taken. The cell-map insert clause is
-   untouched by the retirement and stands. (The commit-half table at the top
-   of this section carries the same mark on its `index write` row, and the
-   window notes under it set the retirement out in full.)
+   the reaction build + cache insert, **66.5–67.4% of `c-local`** on
+   `rf2-07rnj`'s re-take — the once-per-unique-key construction the design
+   amortises over the mount, unavoidable without an escrow the state machine
+   forbids. The cell-map insert is **7.1–10.3%**; batching it buys tens of
+   microseconds on a 141-key mount and was declined as complexity the profile
+   does not license. (The 47.8% and 4.3% this list carried until the re-take
+   were the 2026-08-02 readings, taken at a quarter of the window shape and
+   against a `c-local` that has since lost the index write, lost the keyword
+   mint and gained the activation.) **The index write is gone from the list
+   entirely, and that half of the old reading was HISTORICAL rather than
+   merely stale:** `rf2-dabt3` (`383ba2d645`) retired the sub-index it priced
+   — `front/sub_index.cljs` is deleted — so 8.7% priced a structure the
+   runtime no longer has and there is no index write left to batch. What that
+   commit put in its place, reader membership, **the re-take could not
+   resolve: it sits inside the null spread on all three runs, and no figure
+   and no bound is offered for it** — nor for the watch wiring or the
+   activation capture, which the same rule leaves unresolved. (The
+   republished table at the top of this section carries every term with its
+   own verdict, and the window note under it carries the rule.)
 
 ## 2. The cheapening — the cold read becomes the port's probe
 
@@ -743,6 +909,15 @@ no longer the arm 0.7625 priced. The evidence is under §1's table and is not
 repeated here. 0.7625 and its 51.9 / 5.6 / 3.7% shares therefore stand exactly
 as they are, and the `index write` share among them names a structure
 `rf2-dabt3` has since deleted.
+
+**And they are now superseded as a description of this tree.** `rf2-07rnj`'s
+re-take ran on 2026-08-21 and republished the commit-half decomposition with
+every arm taken at ONE commit (§1): the reaction build is 66.5–67.4% of
+`c-local` and the cell-map insert 7.1–10.3%, while the watch wiring — 3.7%
+here — is one of three terms that re-take could not separate from its own
+measured null, and for which it publishes no figure and no bound. So 0.7625 and
+its 51.9 / 5.6 / 3.7% stand as the historical reading they are, taken at a
+window a quarter the width; the figures to carry forward are §1's.
 
 ## 5. The parity gap the re-take tripped over — found, bisected, repaired
 

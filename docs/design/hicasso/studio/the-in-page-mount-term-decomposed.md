@@ -287,9 +287,12 @@ the shipping commit half no longer performs an `index/mount!` plus a
 whole-set `record-reads!` but pushes one reader slot per key. **That is a
 fusion, not a removal** — work leaves and different work arrives — so unlike
 the mint it licenses no direction at all, and the cost of what replaced the
-index write is not resolved by the widened-window re-take recorded in
-[the cold-read mount term](the-cold-read-mount-term.md), which declines to
-publish that term at all. **0.827 and 0.7625
+index write is still not resolved. The whole re-take recorded in
+[the cold-read mount term](the-cold-read-mount-term.md) republished that page's
+commit-half decomposition on 2026-08-21 with every arm taken at one commit, and
+reader membership — the reader slot that replaced the index write — is one of
+three terms it could not separate from its own measured null. It publishes no
+figure and no bound for any of them. **0.827 and 0.7625
 therefore price a commit half whose structure this tree no longer has.** The
 like-for-like comparison between the two stands, because both predate the
 retirement; neither is a figure for today's seam, no direction is claimed
@@ -408,7 +411,10 @@ asymmetry.**
    clause prices describes a structure the tree no longer has. The cell-map
    insert survives the retirement, and the item's conclusion is unaffected
    in either direction: what left was a batching candidate that had already
-   been declined. Nothing here has been re-measured (`rf2-07rnj`).
+   been declined. Nothing on THIS page has been re-measured: `rf2-07rnj`'s
+   re-take republished the sibling page's commit-half decomposition on
+   2026-08-21, not these rows, and it resolved neither reader membership nor
+   the watch wiring nor the activation capture.
 3. **30% is the interpreter against a compiler**, and the fence forbids the
    remedy. UIx's `$` is compile-time; ours is a runtime walk over a hiccup
    tree we must also *build* (0.291 ms of it). Closing that gap means
