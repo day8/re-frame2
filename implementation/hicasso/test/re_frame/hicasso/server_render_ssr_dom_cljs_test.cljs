@@ -59,7 +59,17 @@
   `ssr/hydrate!` still answers a payload while installing nothing, which
   is precisely why the defect shipped green. The control asserts that
   shape directly, so §5's own green is a claim about the frame existing
-  and not about `hydrate!` being called."
+  and not about `hydrate!` being called.
+
+  ## §3b is about none of that
+
+  Every row from §4 on is asynchronous and holds a live React root, a
+  trace listener and sometimes a replaced `console.error` — none of
+  which the `:each` fixture takes back. §3b is the single settlement
+  path they all end with and the two controls that exercise its failure
+  branches, which no green path reaches. It measures no claim about
+  `server/render`; it is what stops one row's failure from being
+  reported against the next."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
@@ -366,6 +376,188 @@
              (.indexOf document "/js/app.js"))))))
 
 ;; ---------------------------------------------------------------------------
+;; 3b — HOW EVERY ASYNC ROW BELOW ENDS
+;; ---------------------------------------------------------------------------
+;;
+;; Every row from here down hydrates a real root and waits on
+;; `sup/adopted!`, and each of them holds things the `:each` fixture will
+;; NOT take back. The fixture resets frames, the cell table and the
+;; runtime; it does not unmount a React root, it does not unregister a
+;; trace listener, and it does not give `console.error` back to the page.
+;; Whatever a row fails to release itself, the NEXT row inherits.
+;;
+;; These rows used to end with a shape that released none of it when
+;; things went wrong, and did it in two different ways:
+;;
+;;   (-> (sup/adopted! handle)
+;;       (.then (fn [_] (try …assertions…
+;;                           (finally (h/unmount! handle) (done)))))
+;;       (.catch (fn [e] (is false …) (done))))
+;;
+;;   * A rejection BEFORE `.then` ran ended the row through the `.catch`,
+;;     which unmounted no handle and stopped no watcher.
+;;   * A throw INSIDE `.then` ran the `finally` — unmount, `done` — and
+;;     then rejected the promise `.then` answers, so the `.catch` fired
+;;     too and called `done` a SECOND time. `cljs.test`'s async runner
+;;     reads that as the next row starting, so a single failure advances
+;;     the runner twice and lands its report on whichever row is running
+;;     by then.
+;;
+;; [[settle-row!]] is the one path all of them now end with, and the two
+;; rows under it are what say it works — because neither branch is on any
+;; green path, and a repair to a branch nothing takes is untested by
+;; construction.
+
+(defn- settle-row!
+  "End an async row exactly ONCE, whatever `p` does. `opts` is
+  `{:row :done :release! :report!}`:
+
+    :row      names the row in the failure message. A shared settlement
+              still has to say WHICH row failed, which is the one thing
+              four hand-written `.catch`es gave away for free.
+    :done     `cljs.test`'s own, called exactly once.
+    :release! this row's teardown, called exactly once. Every primitive
+              it reaches for is idempotent and says so — `h/unmount!`,
+              `(:stop! watch)`, `(:close! capture)` — so a row whose BODY
+              already tore something down as part of an assertion (§4's
+              `(is (nil? (h/unmount! handle)))`) names it here as well
+              and the second call is a no-op. Omit only where the row
+              holds nothing.
+    :report!  what to do with a rejection. Defaults to failing the row,
+              which is what a real row wants; the two controls below pass
+              a recorder, because for them the rejection is the subject.
+
+  One `.then` carrying BOTH handlers rather than a `.then` and a
+  `.catch`: the two are mutually exclusive, so a body that throws cannot
+  also reach the rejection arm. The release and the `done` sit on the far
+  side of both, and `done` is in a `finally`, so a teardown that throws
+  still ends the row rather than leaving the runner to time it out.
+
+  The failure is carried as `nil`-or-`[e]` rather than as the value
+  itself, because a promise rejected with `js/undefined` reads as `nil`
+  in CLJS and would otherwise settle silently."
+  [p {:keys [row done release! report!]}]
+  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
+        release! (or release! (fn [] nil))
+        finish!  (fn [failure]
+                   (try
+                     (when failure (report! (str (first failure))))
+                     (release!)
+                     (catch :default te
+                       (is false (str row " could not release — " te)))
+                     (finally (done))))]
+    (.then p
+           (fn [_] (finish! nil))
+           (fn [e] (finish! [e])))))
+
+(deftest a-throwing-body-finishes-the-row-once-and-not-twice
+  ;; THE DOUBLE-FINISH CONTROL. No DOM in it — this is the promise
+  ;; discipline by itself — so it is the one row in this file that takes
+  ;; its reading in the node lane too.
+  (async done
+    (let [finishes (atom 0)
+          releases (atom 0)
+          reports  (atom [])]
+      (-> (js/Promise.resolve true)
+          (.then (fn [_] (throw (js/Error. "the body threw"))))
+          (settle-row! {:row      "the throwing-body control"
+                        :done     (fn [] (swap! finishes inc))
+                        :release! (fn [] (swap! releases inc))
+                        :report!  (fn [e] (swap! reports conj e))})
+          (.then
+            (fn [_]
+              (testing "a body that throws finishes the row ONCE. The shape
+                        this file used to carry ran its `finally` — unmount,
+                        `done` — and then let the `.catch` call `done` again,
+                        which advances `cljs.test`'s async runner past a row
+                        that never ran"
+                (is (= 1 @finishes) (str "done ran " @finishes " times"))
+                (is (= 1 @releases) (str "release ran " @releases " times")))
+              (testing "and the throw is REPORTED rather than swallowed — a
+                        settlement that ate it would turn a broken row into a
+                        silent green"
+                (is (= 1 (count @reports)) (str "got " (pr-str @reports)))
+                (is (str/includes? (str (first @reports)) "the body threw")
+                    (str "naming the error the body raised; got "
+                         (pr-str @reports))))))
+          (settle-row! {:row "the throwing-body control's own settlement"
+                        :done done})))))
+
+(deftest a-rejected-adoption-leaves-the-next-row-a-clean-page
+  ;; THE LEAK CONTROL. The rejection is injected AFTER the adoption
+  ;; completes, which is the harder case and not the weaker one: every
+  ;; resource the row owns is live and committed at that moment, so there
+  ;; is strictly more to release than there would be had `adopted!`
+  ;; rejected before the root ever adopted.
+  (if-not (mount/browser?)
+    (sup/skip! "what a rejection can leak is a real root and a real console")
+    (async done
+      (sup/leave-act-environment!)
+      (let [{:keys [html]} (server/render (request))
+            container      (sup/stamp-server-nodes! (sup/server-dom! html))
+            watch          (sup/watch-mismatches!)
+            console-before (.-error js/console)
+            capture        (sup/open-console-capture!)
+            stops          (atom 0)
+            finishes       (atom 0)
+            reports        (atom [])]
+        (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
+        (let [handle (h/hydrate! container
+                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
+                                 [id-page {}])]
+          (-> (sup/adopted! handle)
+              (.then (fn [shut?]
+                       (is shut? "premise: the root really did adopt")
+                       (is (not= sup/released (sup/census))
+                           (str "premise: the runtime is holding this root's "
+                                "cells and edges, so the census taken after "
+                                "the rejection is a RELEASE and not an empty "
+                                "page; got " (pr-str (sup/census))))
+                       (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
+              (settle-row! {:row      "the rejected-adoption control"
+                            :done     (fn [] (swap! finishes inc))
+                            :report!  (fn [e] (swap! reports conj e))
+                            :release! (fn []
+                                        ((:close! capture))
+                                        (swap! stops inc)
+                                        ((:stop! watch))
+                                        (h/unmount! handle))})
+              ;; The cell reapers are armed at unmount and run past a bare
+              ;; macrotask, so the table is read at the runtime's own
+              ;; horizon rather than one tick after the release.
+              (.then (fn [_] (sup/quiesced!)))
+              (.then
+                (fn [_]
+                  (testing "the rejection is reported, and the row ends once"
+                    (is (= 1 @finishes) (str "done ran " @finishes " times"))
+                    (is (= 1 (count @reports)) (str "got " (pr-str @reports)))
+                    (is (str/includes? (str (first @reports))
+                                       "adoption rejected on purpose")
+                        (str "naming the rejection; got " (pr-str @reports))))
+                  (testing "and the next row inherits NOTHING. Not one of these
+                            four is the `:each` fixture's to take back: it
+                            resets frames, the cell table and the runtime, but
+                            it does not unmount a root, unregister a trace
+                            listener, or hand `console.error` back"
+                    (is (= sup/released (sup/census))
+                        (str "no root: residue was " (pr-str (sup/census))))
+                    (is (empty? (sup/cell-frames))
+                        (str "no frame: the cell table still mentions "
+                             (pr-str (sup/cell-frames))))
+                    (is (= 1 @stops)
+                        (str "the mismatch watcher was stopped — `stop!` is "
+                             "what unregisters the trace listener; it ran "
+                             @stops " times"))
+                    (is (identical? console-before (.-error js/console))
+                        "`console.error` is the page's own again"))))
+              (settle-row! {:row      "the rejected-adoption control's own settlement"
+                            :done     done
+                            :release! (fn []
+                                        ((:close! capture))
+                                        ((:stop! watch))
+                                        (h/unmount! handle))})))))))
+
+;; ---------------------------------------------------------------------------
 ;; 4 — the far side: the bytes hydrate through the PUBLIC door
 ;; ---------------------------------------------------------------------------
 
@@ -393,9 +585,16 @@
                      (testing "the handle is the one every other door takes"
                        (is (some? (:root handle)))
                        (is (= wire-frame (:frame handle)))
-                       (is (nil? (h/unmount! handle))))
-                     (done)))
-            (.catch (fn [e] (is false (str "hydration row threw: " e)) (done))))))))
+                       (is (nil? (h/unmount! handle))))))
+            ;; The unmount above is an ASSERTION about the door's answer,
+            ;; not this row's teardown; the teardown is named again here
+            ;; so a rejection still gets one, and `unmount!` is
+            ;; idempotent by contract.
+            (settle-row! {:row      "§4's hydration row"
+                          :done     done
+                          :release! (fn []
+                                      ((:stop! watch))
+                                      (h/unmount! handle))}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4b — THE READING: the id itself, read off the bytes and read back off
@@ -470,42 +669,40 @@
                                  [id-page {}])]
           (-> (sup/adopted! handle)
               (.then (fn [shut?]
-                       (try
-                         (is shut? "the root's own adoption window shut")
-                         (is (some? server-id) "premise: the bytes carry an id")
+                       (is shut? "the root's own adoption window shut")
+                       (is (some? server-id) "premise: the bytes carry an id")
 
-                         (testing "the probe is the SERVER's own node, and this
-                                   row names it in the selector where §4 stops
-                                   at `.page` — an expando does not survive a
-                                   replacement, so this is what says the id
-                                   below was read off an adopted node"
-                           (is (sup/every-server-node? container ".page, .value, .probe")))
+                       (testing "the probe is the SERVER's own node, and this
+                                 row names it in the selector where §4 stops
+                                 at `.page` — an expando does not survive a
+                                 replacement, so this is what says the id
+                                 below was read off an adopted node"
+                         (is (sup/every-server-node? container ".page, .value, .probe")))
 
-                         (relabel! "alpha'")
-                         (testing "premise: a real client render ran. Both the
-                                   view and the ISLAND repainted, so the id on
-                                   the next line is the client's own answer and
-                                   not a server byte nobody touched"
-                           (is (= "alpha'" (text-in container ".value")))
-                           (is (= "alpha'" (text-in container ".label"))))
+                       (relabel! "alpha'")
+                       (testing "premise: a real client render ran. Both the
+                                 view and the ISLAND repainted, so the id on
+                                 the next line is the client's own answer and
+                                 not a server byte nobody touched"
+                         (is (= "alpha'" (text-in container ".value")))
+                         (is (= "alpha'" (text-in container ".label"))))
 
-                         (testing "THE READING — the client mints the id the
-                                   door's bytes already carried"
-                           (is (str/includes? server-id "pfx-a-")
-                               "the server's id carried the prefix")
-                           (is (= server-id (probe-id container))
-                               (str "the client's own id must equal the "
-                                    "server's; server " (pr-str server-id)
-                                    ", client " (pr-str (probe-id container)))))
+                       (testing "THE READING — the client mints the id the
+                                 door's bytes already carried"
+                         (is (str/includes? server-id "pfx-a-")
+                             "the server's id carried the prefix")
+                         (is (= server-id (probe-id container))
+                             (str "the client's own id must equal the "
+                                  "server's; server " (pr-str server-id)
+                                  ", client " (pr-str (probe-id container)))))
 
-                         (testing "and nothing reached Spec 011's channel"
-                           (is (= [] ((:stop! watch)))))
-                         (finally
-                           (h/unmount! handle)
-                           (done)))))
-              (.catch (fn [e]
-                        (is false (str "reading row threw: " e))
-                        (done)))))))))
+                       (testing "and nothing reached Spec 011's channel"
+                         (is (= [] ((:stop! watch)))))))
+              (settle-row! {:row      "§4b-2's reading row"
+                            :done     done
+                            :release! (fn []
+                                        ((:stop! watch))
+                                        (h/unmount! handle))})))))))
 
 (deftest the-hand-rolled-bytes-lose-the-id-through-the-same-door
   ;; THE CONTROL. Same public door, same helpers, same run — the other
@@ -529,49 +726,54 @@
                                  [id-page {}])]
           (-> (sup/adopted! handle)
               (.then (fn [shut?]
+                       ;; Closed HERE and not only in the settlement: the
+                       ;; assertions below must report through the page's
+                       ;; own `console.error` rather than into the capture
+                       ;; they are reading.
                        ((:close! capture))
-                       (try
-                         (is shut? "the root's own adoption window shut")
-                         (is (some? server-id) "premise: the bytes carry an id")
+                       (is shut? "the root's own adoption window shut")
+                       (is (some? server-id) "premise: the bytes carry an id")
 
-                         (testing "the divergence reaches Spec 011's channel,
-                                   attributed to source rather than left as an
-                                   uncaught window error"
-                           (let [seen ((:stop! watch))]
-                             (is (seq seen)
-                                 (str "the hand-rolled bytes must produce a "
-                                      "reported mismatch; the page complained "
-                                      (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                                    @(:captured capture)))))
-                             (when (seq seen)
-                               (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                                      (:where (sup/tags-of (first seen))))
-                                   (str "attributed to source; got "
-                                        (pr-str (:where (sup/tags-of (first seen)))))))))
+                       (testing "the divergence reaches Spec 011's channel,
+                                 attributed to source rather than left as an
+                                 uncaught window error"
+                         (let [seen ((:stop! watch))]
+                           (is (seq seen)
+                               (str "the hand-rolled bytes must produce a "
+                                    "reported mismatch; the page complained "
+                                    (pr-str (mapv #(subs % 0 (min 60 (count %)))
+                                                  @(:captured capture)))))
+                           (when (seq seen)
+                             (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                                    (:where (sup/tags-of (first seen))))
+                                 (str "attributed to source; got "
+                                      (pr-str (:where (sup/tags-of (first seen)))))))))
 
-                         (relabel! "alpha'")
-                         (testing "premise: a real client render ran"
-                           (is (= "alpha'" (text-in container ".label"))))
+                       (relabel! "alpha'")
+                       (testing "premise: a real client render ran"
+                         (is (= "alpha'" (text-in container ".label"))))
 
-                         (testing "THE CONTROL'S READING — the id the client
-                                   mints is NOT the one these bytes carried,
-                                   and the prefix is not what moved"
-                           (is (str/includes? server-id "pfx-a-"))
-                           (is (str/includes? (probe-id container) "pfx-a-")
-                               (str "both sides carry the prefix; got "
-                                    (pr-str (probe-id container))))
-                           (is (not= server-id (probe-id container))
-                               (str "and they differ all the same — obstruction "
-                                    "2's own mechanism, at the public door; "
-                                    "server " (pr-str server-id) ", client "
-                                    (pr-str (probe-id container)))))
-                         (finally
-                           (h/unmount! handle)
-                           (done)))))
-              (.catch (fn [e]
-                        ((:close! capture))
-                        (is false (str "control row threw: " e))
-                        (done)))))))))
+                       (testing "THE CONTROL'S READING — the id the client
+                                 mints is NOT the one these bytes carried,
+                                 and the prefix is not what moved"
+                         (is (str/includes? server-id "pfx-a-"))
+                         (is (str/includes? (probe-id container) "pfx-a-")
+                             (str "both sides carry the prefix; got "
+                                  (pr-str (probe-id container))))
+                         (is (not= server-id (probe-id container))
+                             (str "and they differ all the same — obstruction "
+                                  "2's own mechanism, at the public door; "
+                                  "server " (pr-str server-id) ", client "
+                                  (pr-str (probe-id container)))))))
+              ;; A rejection here would leave `console.error` replaced for
+              ;; every row that follows, which is the one leak in this file
+              ;; that no fixture takes back.
+              (settle-row! {:row      "§4b-3's control row"
+                            :done     done
+                            :release! (fn []
+                                        ((:close! capture))
+                                        ((:stop! watch))
+                                        (h/unmount! handle))})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM
@@ -658,11 +860,10 @@
                        (testing "and the framework reported no mismatch — the
                                  whole claim, since a frame seeded after the
                                  adopt would have diverged on this text"
-                         (is (= [] ((:stop! watch)))))
-                       (h/unmount! handle)
-                       (remove!)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "round-trip row threw: " e))
-                        (remove!)
-                        (done)))))))))
+                         (is (= [] ((:stop! watch)))))))
+              (settle-row! {:row      "§5's round-trip row"
+                            :done     done
+                            :release! (fn []
+                                        ((:stop! watch))
+                                        (h/unmount! handle)
+                                        (remove!))})))))))
