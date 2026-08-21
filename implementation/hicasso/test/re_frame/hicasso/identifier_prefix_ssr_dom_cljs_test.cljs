@@ -317,59 +317,9 @@
 ;; the whole lane, and the closing summary, inside one `cljs.test/run-block`
 ;; with no try/catch. So the cost of a rejection here was never one row.
 ;;
-;; [[settle-row!]] is the one path all four now end with, and §6 is what
+;; `sup/settle-row!` is the one path all four now end with, and §6 is what
 ;; says it works — because its rejection arm is on no green path, and a
 ;; repair to a branch nothing takes is untested by construction.
-
-(defn- settle-row!
-  "End an async row exactly ONCE, whatever `p` does. `opts` is
-  `{:row :done :release! :report!}`:
-
-    :row      names the row in the failure message. A shared settlement
-              still has to say WHICH row failed, which is the one thing a
-              hand-written rejection arm would give away for free.
-    :done     `cljs.test`'s own, called exactly once.
-    :release! this row's teardown, called exactly once. Every primitive it
-              reaches for is idempotent and says so — `mount/release!`,
-              `(:stop! watch)`, `(:close! capture)` — so a row whose BODY
-              already tore something down as part of an assertion (§4
-              unmounts both roots to take its census) names it here as well
-              and the second call is a no-op. Omit only where the row holds
-              nothing.
-    :report!  what to do with a rejection. Defaults to failing the row,
-              which is what a real row wants; §6 passes a recorder, because
-              for it the rejection is the subject.
-
-  One `.then` carrying BOTH handlers rather than a `.then` and a `.catch`:
-  the two are mutually exclusive, so a body that throws cannot also reach
-  the rejection arm and finish the row twice. The release and the `done`
-  sit on the far side of both, and `done` is in a `finally`, so a teardown
-  that throws still ends the row rather than leaving the runner to time it
-  out.
-
-  The failure is carried as `nil`-or-`[e]` rather than as the value itself,
-  because a promise rejected with `js/undefined` reads as `nil` in CLJS and
-  would otherwise settle silently.
-
-  **A local copy of `server-render-ssr-dom-cljs-test`'s helper of the same
-  name (rf2-sxhu, PR #8675), deliberately spelled identically** — same
-  parameters, same defaults, same `nil`-or-`[e]` carrier — so that lifting
-  the two into `roots-frames-support` when the remaining suites are
-  repaired is a deletion and a `:require`, not a reconciliation of two
-  designs. rf2-7ucn carries that lift and the count that justifies it."
-  [p {:keys [row done release! report!]}]
-  (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
-        release! (or release! (fn [] nil))
-        finish!  (fn [failure]
-                   (try
-                     (when failure (report! (str (first failure))))
-                     (release!)
-                     (catch :default te
-                       (is false (str row " could not release — " te)))
-                     (finally (done))))]
-    (.then p
-           (fn [_] (finish! nil))
-           (fn [e] (finish! [e])))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the SERVER side alone (no DOM; runs under :node-test)
@@ -497,7 +447,7 @@
                                "obstruction this row records; server "
                                (pr-str server-id) ", client "
                                (pr-str (probe-id container)))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "§2 — the bytes a consumer can bake today"
                    :done     done
                    :release! (fn []
@@ -552,7 +502,7 @@
                           (str "the client's own id must equal the server's; "
                                "server " (pr-str server-id) ", client "
                                (pr-str (probe-id container)))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "§3 — bytes of the hydrating root's own shape"
                    :done     done
                    :release! (fn []
@@ -647,7 +597,7 @@
                       (is (= sup/released (sup/census))
                           (str "both roots down; residue was "
                                (pr-str (sup/census)))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "§4 — two simultaneous hydrating roots"
                    :done     done
                    ;; The FULL handles, where the `finally` this replaced
@@ -728,7 +678,7 @@
                       (is (str/includes? (probe-id container) "pfx-b-")
                           (str "and it is the client's prefix; got "
                                (pr-str (probe-id container)))))))
-                (settle-row!
+                (sup/settle-row!
                   {:row      "§5 — a client prefix that disagrees with the bytes"
                    :done     done
                    :release! (fn []
@@ -740,7 +690,7 @@
 ;; 6 — THE LEAK CONTROL: a rejected adoption still releases the page
 ;; ---------------------------------------------------------------------------
 ;;
-;; §2 through §5 all FULFIL on a green run, so [[settle-row!]]'s rejection
+;; §2 through §5 all FULFIL on a green run, so `sup/settle-row!`'s rejection
 ;; arm is on no green path — and a repair to a branch nothing takes is
 ;; untested by construction. This row takes it.
 ;;
@@ -752,9 +702,9 @@
 ;; Under the shape this file carried before, nothing below the injection
 ;; runs at all. The rejection skips the fulfilment handler, so the `try` is
 ;; never entered and its `finally` never fires: no `stop!`, no `release!`,
-;; no `done`. Measured by removing [[settle-row!]]'s rejection arm and
+;; no `done`. Measured by removing `sup/settle-row!`'s rejection arm and
 ;; running the lane: the run stopped HERE, 85 namespaces in, with no summary
-;; line and every later namespace unrun — see the note above [[settle-row!]]
+;; line and every later namespace unrun — see the note above `sup/settle-row!`
 ;; for why an unsettled rejection is terminal on this runner rather than
 ;; merely slow.
 
@@ -767,7 +717,7 @@
             container      (sup/stamp-server-nodes! (sup/server-dom! html))
             watch          (sup/watch-mismatches!)
             ;; NOT `:swallow-uncaught? true`: this row manufactures a
-            ;; rejected PROMISE, which `settle-row!` handles, and no
+            ;; rejected PROMISE, which `sup/settle-row!` handles, and no
             ;; uncaught window error at all. Swallowing anywhere else is
             ;; the fail-open the browser runner's pageerror rule forbids.
             console-before (.-error js/console)
@@ -788,7 +738,7 @@
                            "is a RELEASE and not an empty page; got "
                            (pr-str (sup/census))))
                   (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (settle-row!
+              (sup/settle-row!
                 {:row      "the rejected-adoption control"
                  :done     (fn [] (swap! finishes inc))
                  :report!  (fn [e] (swap! reports conj e))
@@ -835,7 +785,7 @@
                              @stops " times"))
                     (is (identical? console-before (.-error js/console))
                         "`console.error` is the page's own again"))))
-              (settle-row!
+              (sup/settle-row!
                 {:row      "the rejected-adoption control's own settlement"
                  :done     done
                  :release! (fn []
