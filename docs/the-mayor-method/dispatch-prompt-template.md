@@ -400,6 +400,12 @@ at all.
   consume a drain. Classify the estimand before you schedule it. Getting this wrong is expensive in
   both directions: drain the fleet for a counter census and the idle machine is wasted, run a clock
   window beside a peer and the number is worthless while looking measured.
+- **While a clock window runs, every OTHER dispatch carries a clause reserving the machine** — naming
+  the heavyweight gates that worker may not run, **and** saying that *if the only gate covering your
+  surface is a heavy one, stop and report* is a correct outcome. Without that second half a worker
+  held off the machine runs the gate anyway, to satisfy the surface-gate menu the same brief hands it.
+  The failure is silent in both directions: the window does not fail, it returns a plausible number
+  that is worthless and then gets published and cited.
 - **One run at a time, never concurrent.** Concurrency is precisely the contention the window exists to
   exclude, so two runs the worker believes are independent still are not.
 - **Your published sentences are claims too, and they are audited.** For every summarising statement you
@@ -459,6 +465,29 @@ mayor-side commit guard both have and the reason they hold. The rejected alterna
 mayor check worker liveness before every merge: it works, but it must be remembered on every merge
 forever, and it re-introduces exactly the worktree-activity sweep the merge loop deliberately does not
 do.
+
+---
+
+## Pasting a block
+
+Several blocks below travel **verbatim** into every dispatch. Get them there by
+**extracting mechanically, then pasting the result into the prompt.** Both halves are
+mandatory and they close different failures. The extraction is what makes paraphrase
+impossible — a matched range cannot reword, where a mayor retyping two hundred lines of
+gate mechanics can and does. The paste is what makes non-receipt impossible: a block that
+is in the prompt cannot be un-received.
+
+**Sending the worker to the FILE is not a substitute.** A worker that skims it, or reads
+part of it, has not received the block at all, and nothing in the transcript distinguishes
+that from a worker who read every line — so the first evidence is a worker doing something
+the block forbids. Between a failure prevented by construction and one prevented by a
+reader's diligence, take construction. The context cost is the acknowledged price and it is
+the right thing to spend context on: a brief is the mayor's scarce output.
+
+**Anchor the extraction to CONTENT, never to line numbers.** A line range against a living
+document is a measured constant that goes stale exactly where it has to be right, and an
+extraction that silently returns the wrong two hundred lines is worse than either option
+that trade-off was weighing. Match the block's opening and closing text instead.
 
 ---
 

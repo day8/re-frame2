@@ -129,6 +129,17 @@ The same blindness has three more shapes:
   `Updating <old>..<new>` twice in one session while the head did not move. So after
   a mutating step, **verify the tree rather than the message.**
 
+**But "capture the runner's own exit code" settles WHOSE number to read, not that the
+number means pass** — and the two sound alike enough that a brief writes the second
+meaning the first. For an instrument whose job is to REFUSE, a non-zero exit is the
+NORMAL case: one measurement runner documents a non-zero expected exit, all twenty runs
+of a window exited the same way, nineteen were admissible, and the twentieth failed its
+positive CONTROL and read low while exiting exactly like the good ones. Admissibility
+lived in the artefact the run produced, not in its status. So a brief for such a gate
+names the record's own admissibility criteria and states what the expected exit code IS,
+so the worker can tell a routine refusal from a crash — and never says "the exit code is
+the verdict" for a runner that refuses by design.
+
 ### Concurrent workers share the machine's temp directory
 
 Two workers writing the same log path overwrite each other, and the loser reads a
