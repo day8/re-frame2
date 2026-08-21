@@ -559,8 +559,13 @@ band was fitted to a reading.**
 Four invocations between **05:52 and 06:03 on 2026-08-22**, the three evidence
 runs back to back on a drained fleet inside a single box bracket. **The
 pre-registration half was committed and pushed at `a85302095d` before the first
-invocation**; a rebase preserves author dates, so the ordering is readable off
-this branch's history rather than resting on this sentence.
+invocation**, authored on top of `41feff66308b005bb6f59c373a8dbf6bdc62b36b`,
+which is the landed anchor [§6](#6-the-instrument-and-the-subject) pins and the
+tip this branch was cut from; the authored head is retained because it is the
+true provenance of the ordering, and this repository rebase-merges, so it will
+be re-minted when this page lands. A rebase preserves author dates, so the
+ordering is readable off this branch's history rather than resting on this
+sentence.
 
 | run | started | ended | elapsed | captured exit |
 |---|---|---|---:|---:|
