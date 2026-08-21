@@ -778,6 +778,16 @@ eight while their real transcripts sat complete elsewhere, *also* empty for a cu
 that finished normally, and for the eighth held a hardlink to the real transcript, so the wrong
 file returned one plausible non-empty result and made the wrong conclusion self-consistent.
 
+**When no id was recorded at all, the report is not missing — only unindexed.** Search the
+transcripts for the worktree's own path, which a dispatch names and so does the report that ends
+the work, then read a bounded TAIL of a file that matches rather than opening it, because these are
+append-only logs of whole sessions and routinely run to megabytes. **But the match is many-to-one,
+and most of its hits are not the worker's own** — the dispatching session's own transcript names
+that path, and so does every peer brief that lists the in-flight write surfaces, because this
+method requires naming them — so identify a file as the WORKER'S OWN before anything in it counts
+as that worker's report; reaping on a peer's mention of a worktree is reaping on someone else's,
+which is strictly worse than leaving the tree standing.
+
 A transcript path the platform documents as an implementation detail is not a contract, and
 local-history retention sweeps typically DELETE rather than truncate — so whether to hold the report
 text somewhere of your own is the operator's call.
