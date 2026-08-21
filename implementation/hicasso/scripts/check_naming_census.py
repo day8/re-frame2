@@ -147,17 +147,21 @@ rather than waiting for a worker to remember it.
 
 ## Where it runs (rf2-st1x5)
 
-Two input families that do not arm the same lane, exactly as
+Two input families that, since rf2-ps7ia, arm the SAME lane -- exactly as
 `check_facade_inventory.py` documents for exactly this reason:
 
     implementation/hicasso/src/**, test_kit/src/**   the eleven namespaces
-    docs/design/hicasso/product/naming-ledger.md     the ledger
+    implementation/hicasso/spec/naming-ledger.md     the ledger
 
 A name escapes when the SOURCE grows, and a source change arms the `cljs`
-job under `cljs_node_test`. The document side arms nothing (`docs/**`
-measures false at every classifier output), so the doc-side direction --
-a ledger row deleted out from under a name -- needs an unconditional lane
-or it next reddens on somebody else's source PR.
+job under `cljs_node_test`. The ledger side armed NOTHING while it sat at
+`docs/design/hicasso/product/` (`docs/**` measures false at every
+classifier output), which is why the doc-side direction -- a ledger row
+deleted out from under a name -- was given an unconditional lane rather
+than left to redden next on somebody else's source PR. rf2-ps7ia moved the
+ledger beside the artefact, so that path arms `cljs_node_test` now too;
+the unconditional lane stays, because a gate that runs on every PR cannot
+be un-armed by the next path decision.
 
     hicasso-naming-census      .github/workflows/test.yml, UNCONDITIONAL and
                                named in `all-required-passed`'s `needs:` --
@@ -200,7 +204,7 @@ PUBLIC = [
 ]
 
 PACKAGE_REL = ("implementation", "hicasso")
-LEDGER_REL = ("docs", "design", "hicasso", "product", "naming-ledger.md")
+LEDGER_REL = ("implementation", "hicasso", "spec", "naming-ledger.md")
 
 EXIT_OK = 0
 EXIT_UNROSTERED = 1
@@ -724,7 +728,7 @@ def main(argv):
         sys.stderr.write(
             "\nhicasso naming census: FAIL -- {} public name(s) with no naming-ledger "
             "row.\ndispositions.md section 3: adding a public surface adds an id. Add a "
-            "row to\ndocs/design/hicasso/product/naming-ledger.md, or make the name "
+            "row to\nimplementation/hicasso/spec/naming-ledger.md, or make the name "
             "private.\n".format(len(missing))
         )
         return EXIT_UNROSTERED

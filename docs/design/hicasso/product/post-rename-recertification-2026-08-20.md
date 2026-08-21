@@ -51,7 +51,7 @@ overall; see [§6](#6-what-this-still-does-not-certify).
 | base | `2f96ecc98c36ce0c6c845969e39566134351dea1`, `origin/main` at 2026-08-20 23:40 AUSEST. The gates began at 23:42 and ran past midnight; the page is dated for the run's start, as the dispatch was. |
 | worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
 | `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
-| open PRs touching a family 1–4 surface, at the base | **none**. Two PRs were open: `#8559` on `docs/design/hicasso/product/dispositions.md`, and `#8555` on the bench trees plus `docs/design/hicasso/studio/`. `#8555` touched `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. **Both merged while this ran**; [§8](#8-the-trunk-moved-while-this-was-written-and-it-does-not-reach-here) records what they carried. |
+| open PRs touching a family 1–4 surface, at the base | **none**. Two PRs were open: `#8559` on `implementation/hicasso/spec/dispositions.md`, and `#8555` on the bench trees plus `docs/design/hicasso/studio/`. `#8555` touched `implementation/core/test/re_frame/bench/p0_run.cjs`, which is family **5**'s instrument and no other family's — that is part of [§4](#4-family-5--the-pinned-regression-gate-and-the-clock-versus-ladder-question-settled)'s finding rather than a caveat on families 1–4. **Both merged while this ran**; [§8](#8-the-trunk-moved-while-this-was-written-and-it-does-not-reach-here) records what they carried. |
 | the box at the first heavy gate | free physical **17.30 GB of 63.43 GB**; `java` **0**, `node` 20, `chrome` 96, at 23:42:48 AUSEST |
 
 **Every family was run one at a time and never in parallel**, and the reason is not politeness about
@@ -123,7 +123,7 @@ and the two steps do not point the same way.**
 says of family 5: *"what family 5 would be if it existed: a **clock** estimand."* That sentence does not
 survive a read of the row's own registry.
 
-- [`budgets.md`](budgets.md)'s §9.2 states `C1`'s blocker in as many words: *"`C1` compares a reading
+- [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md)'s §9.2 states `C1`'s blocker in as many words: *"`C1` compares a reading
   against the pinned ordinary-Hicasso benchmark … **Until the ladder is re-pinned**, 'the same
   instrument' names nothing."* The instrument `C1` is registered on is **the ladder**.
 - The same section's roster of what each not-green row waits on separates the two kinds explicitly: *"The

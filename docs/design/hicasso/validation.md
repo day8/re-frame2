@@ -787,7 +787,7 @@ rather than summarised:
   on all three engines under PR #7992; the synthetic composition sequence is
   green on all three; and the two remaining native-IME cells read **Green** — by
   operator ruling of 2026-08-13 (`rf2-hic-016`), recorded per engine in
-  [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions).
+  [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions).
   No manual native-IME session is scheduled. A real composition **range** stays
   Chromium-only, because `Input.imeSetComposition` is a CDP method. The
   criterion text is untouched and bites on a red result exactly as registered.
@@ -816,7 +816,7 @@ one the sentence above records as handed up — was taken on the same day, on
 operator-authorised delegation and operator-reversible, on all five fields
 [`specification.md` §6](product/specification.md#6-performance-contract)
 requires, written into
-[`budgets.md` §5](product/budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
+[`budgets.md` §5](../../../implementation/hicasso/spec/budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
 by PR #8095. It moves nothing in the sentence above, and the shell row stays
 **red**. The ceiling is **unchanged at `1,024 B`** and the acceptance covers the
 measured breach only — up to `1,107 B` (Reagent segment) and `1,101 B` (UIx

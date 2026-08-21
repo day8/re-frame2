@@ -48,7 +48,7 @@
 
   The two foreign components are written with React's own primitives and
   no Hicasso in them at all, which is what makes them a fair witness for
-  \"React facts die with the fiber\" ([I6](../../../docs/design/hicasso/product/invariants.md)):
+  \"React facts die with the fiber\" ([I6](../../../implementation/hicasso/spec/invariants.md)):
   the runtime is not being asked to preserve anything it could have
   preserved."
   (:require ["react" :as react]

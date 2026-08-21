@@ -7,7 +7,7 @@
   > renders leave no subscriptions and no diagnostic records; teardown is
   > exact and testable, with zero residue after quiescence.
   >
-  > — `docs/design/hicasso/product/invariants.md`, I5
+  > — `implementation/hicasso/spec/invariants.md`, I5
 
   [[re-frame.hicasso.kernel-commit-owns-cljs-test]] states the acquisition
   laws exactly, at the collector's published seam, and runs on every PR.

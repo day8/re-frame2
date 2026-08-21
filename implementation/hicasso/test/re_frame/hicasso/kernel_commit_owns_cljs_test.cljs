@@ -7,7 +7,7 @@
   > renders leave no subscriptions and no diagnostic records; teardown is
   > exact and testable, with zero residue after quiescence.
   >
-  > — `docs/design/hicasso/product/invariants.md`, I5
+  > — `implementation/hicasso/spec/invariants.md`, I5
 
   This is the **node half** of the bead's witnesses, and it exists because
   of where the gates are. The five *real* React abandonment mechanisms the

@@ -15,7 +15,7 @@
 
   ## WHY THIS IS A THIRD DRIVER ON A THIRD PAGE
 
-  `docs/design/hicasso/product/budgets.md` §4 registers `U4` as
+  `implementation/hicasso/spec/budgets.md` §4 registers `U4` as
   *Dragging/animation stay inside frame budget*, estimand **per-frame
   latency**, and §9.4 governs it — with `U1`–`U3` — on a witness
   application under `implementation/hicasso/test/re_frame/hicasso/

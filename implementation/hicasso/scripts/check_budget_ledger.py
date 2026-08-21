@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """THE BUDGET-LEDGER GATE for Hicasso (rf2-hic-089).
 
-`docs/design/hicasso/product/budgets.md` §9 is the RECONCILIATION LEDGER:
+`implementation/hicasso/spec/budgets.md` §9 is the RECONCILIATION LEDGER:
 one row per registered budget line, each stating its own verdict, its
 population, the instrument that read it, who owns it and where it was
 dispositioned. Eight sections of that page state budgets; the ledger is
@@ -173,8 +173,8 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_ROOT = os.path.dirname(SCRIPTS_DIR)                       # implementation/hicasso
 REPO_ROOT = os.path.dirname(os.path.dirname(PACKAGE_ROOT))        # repo root
 
-PRODUCT_DIR = os.path.join(REPO_ROOT, "docs", "design", "hicasso", "product")
-BUDGETS = os.path.join(PRODUCT_DIR, "budgets.md")
+SPEC_DIR = os.path.join(PACKAGE_ROOT, "spec")
+BUDGETS = os.path.join(SPEC_DIR, "budgets.md")
 
 OPEN_MARKER = "<!-- rf2-hic-089: ledger -->"
 CLOSE_MARKER = "<!-- rf2-hic-089: end-ledger -->"
@@ -214,8 +214,15 @@ DETERMINISTIC_IDS = frozenset(
 # L4.  Rows registered somewhere other than budgets.md, with the anchor that
 # registers them.  Held here rather than in a ledger column because it is a
 # one-row exception and a column would invite a second.
+#
+# The target is written RELATIVE TO THE LEDGER, exactly as the citation inside
+# `budgets.md` is, and `resolve` joins both against `SPEC_DIR`.  `rf2-ps7ia`
+# moved the ledger to `implementation/hicasso/spec/` and left
+# `substrate-decision.md` behind as a working design record, so what used to be
+# a bare sibling name now walks back out through `../../../docs/`.
 EXTRA_ROWS = {
-    "I9": "substrate-decision.md#4-the-two-hook-ceiling-frozen-with-its-measurement",
+    "I9": "../../../docs/design/hicasso/product/substrate-decision.md"
+          "#4-the-two-hook-ceiling-frozen-with-its-measurement",
 }
 
 # L5.  The landed adjudication, pinned so a cell rewrite cannot move it.
@@ -655,7 +662,12 @@ def resolve(target, cache):
     if "#" not in target:
         return None
     rel, anchor = target.split("#", 1)
-    path = os.path.normpath(os.path.join(PRODUCT_DIR, rel))
+    # Relative to the LEDGER's own directory, which is what a link inside
+    # `budgets.md` is written against — `implementation/hicasso/spec/` since
+    # `rf2-ps7ia` moved the operative contract beside the artefact.  The
+    # records the ledger points at stayed behind under `docs/design/`, so
+    # most targets now normalise back out through `../../../docs/`.
+    path = os.path.normpath(os.path.join(SPEC_DIR, rel))
     if not os.path.isfile(path):
         return None
     if path not in cache:
@@ -951,7 +963,7 @@ def report(failures):
     print("FAIL: Hicasso budget-line reconciliation ledger\n")
     for failure in failures:
         print("  " + failure)
-    print("\nThe ledger is docs/design/hicasso/product/budgets.md sec. 9; the rule "
+    print("\nThe ledger is implementation/hicasso/spec/budgets.md sec. 9; the rule "
           "each L-number names is in this script's header.")
     print("Note what a green run here does NOT mean: this gate gates the "
           "RECORD, never the budgets.")

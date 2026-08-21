@@ -107,23 +107,29 @@ input it could not read.
 
 WHERE IT RUNS
 -------------
-Two input families, and they do not arm the same lane:
+Two input families, and since rf2-ps7ia they arm the SAME lane:
 
   implementation/hicasso/src/re_frame/hicasso.cljc   the door
-  docs/design/hicasso/product/dispositions.md        the inventory
+  implementation/hicasso/spec/dispositions.md        the inventory
 
 Chained into `npm run test:hicasso-invariants` -- the local spine lane and
 the artefact's one-command run -- which is a step of the `cljs` job under
-`cljs_node_test`, armed by `implementation/hicasso/*`.  That is the
-direction that matters: **the escape happens when the door grows, not when
-the document changes**, and a door change arms it.
+`cljs_node_test`, armed by `implementation/hicasso/*`.  A door change arms
+it, and that is still the direction that matters most: **the escape happens
+when the door grows, not when the document changes**.
 
-The document side arms nothing (`docs/**` measures `false` at every
-classifier output), so `test.yml` carries an UNCONDITIONAL job as well --
-the same routing, for the same reason, as `hicasso-complaint-catalogue`
-and `hicasso-budget-ledger` above it.  A row deleted out from under a
-DECLARED entry, or a 2.2 row deleted from under a name, would otherwise
-next redden on somebody else's source PR.
+THE DOCUMENT SIDE USED TO ARM NOTHING, and that is why the unconditional
+job exists.  The inventory sat at `docs/design/hicasso/product/`, where
+`docs/**` measures `false` at every classifier output, so a PR that deleted
+a 2.2 row out from under a DECLARED entry, or a row out from under a name,
+ran this gate NOWHERE and next reddened on somebody else's source PR.
+rf2-ps7ia moved the inventory beside the artefact and the hole closed: the
+path now arms `cljs_node_test` like any other file under the package.
+`test.yml` keeps its UNCONDITIONAL job anyway -- the same routing, for the
+same reason, as `hicasso-complaint-catalogue` and `hicasso-budget-ledger`
+above it -- because `--self-test` re-asserts a live premise against
+`docs/design/hicasso/product/specification.md`, which did NOT move and
+still arms nothing.
 
 SELF-TEST
 ---------
@@ -143,9 +149,7 @@ PACKAGE_ROOT = os.path.dirname(SCRIPTS_DIR)                    # implementation/
 REPO_ROOT = os.path.dirname(os.path.dirname(PACKAGE_ROOT))     # repo root
 
 FACADE = os.path.join(PACKAGE_ROOT, "src", "re_frame", "hicasso.cljc")
-DISPOSITIONS = os.path.join(
-    REPO_ROOT, "docs", "design", "hicasso", "product", "dispositions.md"
-)
+DISPOSITIONS = os.path.join(PACKAGE_ROOT, "spec", "dispositions.md")
 
 # The door this gate reads, and the prefix its rows spell names under.
 #

@@ -77,14 +77,14 @@
   `server`, `substrate`) — a roster that has GROWN THREE TIMES without
   admitting routing, so the count evidences the absence more sharply
   than when this paragraph was written and it read three;
-  `docs/design/hicasso/product/naming-ledger.md` row 6 carries
+  `implementation/hicasso/spec/naming-ledger.md` row 6 carries
   `re-frame.hicasso.routing` as a PROVISIONAL recommendation and NOT
   under an open question — that ledger's publication note says every
   row is dispositioned and none is open, and its sibling
   `naming-packet.md`'s own row 6 glosses the marker in terms,
   *provisional — the namespace does not exist yet*, a better citation
   for THERE IS NO MODULE than an open question ever was; and
-  `docs/design/hicasso/product/invariants.md`'s route-link
+  `implementation/hicasso/spec/invariants.md`'s route-link
   row states the move in the FUTURE tense. `h/route-link`
   lives on the core facade today and is witnessed there as HS-40,
   Render, in `facade-roster-ssr-dom-cljs-test`. There is no declaration

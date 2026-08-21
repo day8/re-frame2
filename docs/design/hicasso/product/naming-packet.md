@@ -1,7 +1,7 @@
 # The naming packet — every Hicasso name, defaults applied, one sitting overrides
 
 **Published by `rf2-hic-065`.** This is the single consolidation point the whole
-programme has been deferring names to. [`naming-ledger.md`](naming-ledger.md) is the
+programme has been deferring names to. [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) is the
 row-by-row record and stays the place a new question is appended; this page is what the
 operator reads, and what `rf2-hic-066` sweeps from.
 
@@ -144,7 +144,7 @@ source-side census agrees at 14.
 | 37 | Xray evidence-envelope keyword spellings | keep | **keep as taught** | spec §10 pins this vocabulary in prose but not the keyword forms, and these are what a Tool-Pair consumer types against | `evidence_schema_cljs_test.cljs` | |
 | 38 | hydration-mismatch report `{:id :root :where :error}` | keep | **keep as taught** | `:rf.ssr/hydration-mismatch` is attested in re-frame.ssr; only the report-map keys are the mint | `identifier_prefix_ssr_dom_cljs_test.cljs` | |
 | 39 | migration tool surface | none — every one matches the codemod source | **no naming question** | Recorded so the sitting sees the whole sweep; of the migration surfaces only shadow mode (row 25) is a mint | `migration/reagent-to-hicasso/codemod` | |
-| 40 | twelve **reserved** complaint ids | keep; or respell when the surface is built | **keep as minted** | A reservation is cheap to hold and expensive to omit — a refusal with no id is invisible to a round trip and gets a second spelling from whoever builds the surface | [`complaints.md`](complaints.md) | |
+| 40 | twelve **reserved** complaint ids | keep; or respell when the surface is built | **keep as minted** | A reservation is cheap to hold and expensive to omit — a refusal with no id is invisible to a round trip and gets a second spelling from whoever builds the surface | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) | |
 | 41 | `hm/advance-clock!` + `{:clock true}` | keep | **keep both as shipped** | The verb is a carry-over, not a mint: `re-frame.freehand.presence-runtime` and `re-frame.ui.presence-runtime` both carry it, and a conformance fixture spells the step `:advance-clock` | `test_kit_clock_dom_cljs_test.cljs` | |
 | C2-3 | the L3 enqueued-work verb | `hm/drain!`; a `:until` option on `settle!` | **moot — ruled and shipped as `hm/settle-until!`** (row 42) | `interop/next-tick` is a macrotask with no fixed tick count, so an honest door states a condition and a deadline rather than queue quiescence | `rf2-6m4w`; `rf2-aiq7` | |
 
@@ -349,7 +349,7 @@ the committed gate: *"CENSUS: 105 public names across 10 shipped namespaces; 0 N
 in naming-ledger.md"*, exit **0**. That is the bead's acceptance condition met mechanically
 rather than by inspection. A non-zero count from here is a public name minted since
 publication with no ledger row — precisely what section 3 of
-[`dispositions.md`](dispositions.md) forbids.
+[`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md) forbids.
 
 **Standing since `rf2-st1x5`,** in two homes rather than the three that bead anticipated.
 The `hicasso-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —

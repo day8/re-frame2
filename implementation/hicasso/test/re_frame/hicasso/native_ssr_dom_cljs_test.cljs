@@ -38,7 +38,7 @@
   (`n/props`), HS-27 (`n/defcomponent`), HS-28 (`n/use-sub`), HS-29
   (`n/use-frame`) and HS-30 (memo/lazy/ref and both embedding
   directions) — the rows
-  `docs/design/hicasso/product/dispositions.md` §2.1 owes to this bead.
+  `implementation/hicasso/spec/dispositions.md` §2.1 owes to this bead.
   HS-19's composition rule is measured beside them, because it is what
   decides whether an island's own declaration is ever consulted: `[:>]`
   is the door with the declaration erased and its crossing is HARD
