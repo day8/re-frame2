@@ -349,21 +349,17 @@ at all.
   passed that should not have. Widening a threshold to admit today's run retro-admits that failure
   too, and the series loses the one property that made it worth running.
 - **Do not improve the rig mid-window.** No new instrument, no extra rungs, no third estimator,
-  however obvious the improvement looks from inside the run. One worker declined to build a rung it
-  genuinely needed, mid-series, on the grounds that *"a rung added between runs makes the series two
-  instruments"* — the clearest statement of this rule anyone here has managed. File the improvement
-  and run it as its own window.
+  however obvious it looks from inside the run: a rung added between runs makes the series two
+  instruments. File the improvement and run it as its own window.
 - **Do not restate a published figure on thin evidence.** A worker holding four reportable runs, every
   one reading *below* both published figures, recorded them without publishing. That was right: four
   runs disagreeing with a number are a reason to look again, not a mandate to move it.
-- **Verify the machine with real counters, not the convenient one.** One system's headline CPU counter
-  read 93% while the true value was 11%. Cross-check with a second source, and prefer the counter that
-  says whether anything is actually *waiting for a core* — that is the only thing the window cares
-  about. **Read that counter on its own, and never inside a measured run.** Sampled alongside anything
-  heavy it measures the sampler: one reading of 59–77 was the dispatcher's own directory copy, and it
-  nearly disqualified a window that was in fact idle. Sampled *inside* a run it measures the benchmark,
-  which answers nothing — so bracket the run and say plainly that nothing is claimed about within-run
-  quietness beyond the bracketing.
+- **Verify the machine with real counters, not the convenient one.** One system's headline CPU
+  counter read 93% while the true value was 11%. Cross-check, and prefer the counter saying whether
+  anything is actually *waiting for a core*. **Read it on its own, never inside a measured run**:
+  sampled beside anything heavy it measures the sampler — one reading of 59–77 was the dispatcher's
+  own directory copy — and sampled inside a run it measures the benchmark. Bracket the run, and say
+  plainly that nothing is claimed about within-run quietness beyond the bracketing.
 - **Only a CLOCK estimand needs the quiet machine.** A census of monotone counters — allocations,
   recomputations, calls — reads the same on a loaded box, so it may run beside anything and must not
   consume a drain. Classify the estimand before you schedule it. Getting this wrong is expensive in
@@ -377,35 +373,26 @@ at all.
   that is worthless and then gets published and cited.
 - **One run at a time, never concurrent.** Concurrency is precisely the contention the window exists to
   exclude, so two runs the worker believes are independent still are not.
-- **Your published sentences are claims too, and they are audited.** For every summarising statement you
-  write, name the exact evidence that licenses it and check the arithmetic of any comparison in it. Do
-  not attribute an observed spread to a single cause unless your own data excludes the others — if your
-  queue samples include a non-zero inside a measurement phase, you may not call the dispersion the
-  instrument's alone. Name the estimator you actually computed, not the one the surrounding prose
-  habitually says. A hedged sentence that survives audit is worth more than a confident one that does
-  not. The warrant is three for three: every measurement change merged on one day was audited, and every
-  one had its published claim stated slightly stronger than its evidence — three different workers, all
-  exemplary on the run itself. One called three values *run-medians* when the code stored the arithmetic
-  MEAN of five per-round ratios, which was the whole stated basis for its conclusion; one said a spread
-  "loosely brackets" a figure sitting *above* the maximum of its own measured ratios, so it bracketed
-  nothing. What slips is the prose ONE LAYER ABOVE the number: a worker that has just spent an hour being
-  rigorous writes its summary in ordinary confident English, and ordinary confident English overclaims.
-  Not one audit overturned a measurement or a refusal — what they corrected is the sentence a future
-  reader will quote, which is how a measured result becomes a false premise in someone else's brief three
-  weeks later. Premises-are-claims catches that on the INPUT side; this is the same defect on the OUTPUT
-  side, and nothing was checking it.
-- **An impossible reading cannot bound the quantity.** It tells you the instrument's error reached at
-  least that far; it neither calibrates the error nor bounds what you are measuring. If you report a
-  bound, name the NULL OR CONTROL ARM that produced it — a bound derived from the impossible readings
-  themselves is not a bound, so report the term as UNRESOLVED instead. The arithmetic: let an observed
-  delta *y* be an unknown positive true cost *t* plus estimator error *e*. A reading of *y* = −0.0062
-  proves only that the negative error excursion exceeded 0.0062 + *t*; it does not make ±0.0062 a
-  calibrated symmetric floor, and it cannot upper-bound *t*. A most-negative observation is a statement
-  about the ERROR TERM, not about the quantity, and comparing most-negative readings from *different*
-  positive-cost arms at two window widths likewise cannot establish a floor-scaling factor. One window
-  reported membership as "bounded: < 0.006 ms/commit" from its own most-negative reading; the
-  merged-change audit refuted it, and the next window's second run then read −0.0141, refuting it again
-  on independent arithmetic.
+- **Your published sentences are claims too.** **What slips is the prose ONE LAYER ABOVE the number**:
+  a worker that has just spent an hour being rigorous writes its summary in ordinary confident English,
+  and ordinary confident English overclaims. Three measurement changes merged in one day, all exemplary
+  on the run itself, and all three overstated their published claim — one called three values
+  *run-medians* where the code stored the arithmetic MEAN of five per-round ratios, which was its whole
+  stated basis; one said a spread "loosely brackets" a figure sitting *above* the maximum of its own
+  ratios. No audit overturned a measurement or a refusal. What they corrected is the sentence a future
+  reader will quote, which is how a measured result becomes a false premise in someone else's brief.
+  So: name the evidence licensing each summarising statement, check the arithmetic of any comparison,
+  name the estimator you actually computed rather than the one the surrounding prose habitually says,
+  and do not attribute a spread to one cause unless your data excludes the others.
+- **An impossible reading cannot bound the quantity.** Let an observed delta *y* be an unknown
+  positive true cost *t* plus estimator error *e*. A reading of *y* = −0.0062 proves only that the
+  negative error excursion exceeded 0.0062 + *t*: it neither makes ±0.0062 a calibrated symmetric
+  floor nor upper-bounds *t*. **A most-negative observation is a statement about the ERROR TERM, not
+  about the quantity** — and comparing most-negative readings from *different* positive-cost arms at
+  two window widths cannot establish a floor-scaling factor either. If you report a bound, name the
+  NULL OR CONTROL ARM that produced it; otherwise report the term as UNRESOLVED. One window quoted
+  "bounded: < 0.006 ms/commit" from its own most-negative reading, was refuted by audit, and was
+  refuted again by the next window reading −0.0141.
 
 Report what ran, what refused and on which control, the raw numbers, and — as its own heading — what was
 **not** concluded. A window that publishes nothing still reports everything.
