@@ -321,9 +321,223 @@ refuses.
 
 ## 7. The runs
 
-*To be written after the window closes. Nothing above this line was edited once
-the runner was first invoked.*
+**One feasibility invocation and three evidence invocations, as declared. Three
+admissible, none excluded, nothing above this line edited once the runner was
+first invoked.** Each invocation cleared the build id's cache entry and
+recompiled its own `:advanced` bundle, so no two shared a build.
+
+### 7.1 Invocation 0, and what it bought
+
+The feasibility invocation built in 21.64 s (199 files, 144 compiled, **0
+warnings**) and completed in under a minute, with every check below affirmative
+and captured exit `0`. Its figures are not quoted anywhere on this page, which
+is what was declared. What it established is that the rig builds, boots the
+slice, gets past the echo's negative control and completes a full plan — so the
+three evidence invocations could be taken back to back inside one box bracket
+rather than spread across three.
+
+### 7.2 The five exit-bearing checks, per evidence run
+
+| check | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| arm-order self-test, 12 cases | all `ok` | all `ok` | all `ok` |
+| echo negative control — setup mutation alone must REFUSE | passed | passed | passed |
+| echo tally, `N unverified of M` | **0 of 400** | **0 of 400** | **0 of 400** |
+| positive control, per-round difference against a `50 ms` prediction | 34.10, 34.45, 34.40, 34.25, 34.25 | 34.60, 34.30, 34.05, 33.45, 34.35 | 34.10, 34.50, 34.05, 34.20, 34.20 |
+| `control-verdict-strict`, band `[25–75]`, every round | `ok` | `ok` | `ok` |
+| arm-order verdict, by predecessor and by phase, tolerance 10% | `reportable` | `reportable` | `reportable` |
+| rounds completed | 5 | 5 | 5 |
+| captured exit code | `0` | `0` | `0` |
+
+**The positive control's measured value is `~34.3 ms` against a `50 ms`
+prediction, and that is the instrument behaving as its own docstring predicts
+rather than a control missing by a third.** Both arms start at the same phase,
+so each round's figure is a difference of two paint-bounded windows; the
+injected block does not add to the wait the unblocked arm pays, it **subsumes**
+it and leaves whatever is left of the interval it landed inside. The residual is
+`50 − 34.3 = 15.7 ms`, which is one measured rendering interval — the floor arm
+reads `p50 15.4`–`15.6 ms` — so the control lands exactly one grid interval
+below its prediction, in the direction and by the amount `control-slack` derives
+from the grid. That is why the band is `±50%` and why this page reports the
+number rather than the word `ok`.
+
+**The echo's negative control is affirmed by the run's progress past it rather
+than by a printed verdict, and that is worth saying plainly.** It throws or it
+does not, so its all-clear is an absence. What positively witnesses the
+mechanism is a row in the driver's own DOM self-test —
+`the-echo-refuses-the-setup-mutation-alone` in
+`slice_echo_window_dom_cljs_test.cljs`, whose namespace the PR-blocking
+`:browser-test` selector matches, so it runs on every pull request that arms
+this surface.
+
+### 7.3 The readings, `:ms` — one interaction through to the paint that follows it
+
+`n = 60` measured windows per arm per run, pooled across five rounds.
+Milliseconds.
+
+| arm | run | min | `p50` | `p95` | `p99` | max |
+|---|---|---:|---:|---:|---:|---:|
+| `:idle-frame` (floor) | 1 | 13.5 | 15.55 | 17.52 | 17.84 | 17.9 |
+| | 2 | 14.2 | 15.55 | 17.70 | 18.22 | 18.4 |
+| | 3 | 13.6 | 15.40 | 17.41 | 17.64 | 17.7 |
+| `:keystroke` | 1 | 15.3 | 16.90 | 18.00 | 18.28 | 18.4 |
+| | 2 | 15.4 | 17.10 | 18.02 | 18.30 | 18.3 |
+| | 3 | 15.2 | 17.00 | 18.21 | 18.30 | 18.3 |
+| `:toggle` | 1 | 13.7 | 16.55 | 18.01 | 18.24 | 18.3 |
+| | 2 | 14.0 | 16.70 | 18.00 | 18.34 | 18.4 |
+| | 3 | 13.9 | 16.60 | 17.80 | 18.49 | 18.9 |
+| `:ctl-blocked` (control) | 1 | 50.8 | 51.20 | 51.51 | 51.64 | 51.7 |
+| | 2 | 50.9 | 51.30 | 51.51 | 51.60 | 51.6 |
+| | 3 | 51.0 | 51.30 | 51.60 | 51.78 | 51.9 |
+
+The three runs agree closely enough that the question of reproducibility does
+not arise: across them the keystroke `p95` spans `18.00`–`18.21 ms` (**1.1%**)
+and the toggle `p95` spans `17.80`–`18.01 ms` (**1.2%**).
+
+### 7.4 The decomposition, and what it rules out
+
+Published per arm because a rig that had reverted to a commit-bounded window
+would show the first leg and nothing else. Measured visits only, milliseconds.
+
+| arm | `:commit` `p50` / `p95` / max | `:to-raf` `p50` | `:raf-to-paint` `p50` / max |
+|---|---|---:|---|
+| `:idle-frame` | 0 / 0 / 0 | 15.30–15.55 | 0.1 / 0.2 |
+| `:keystroke` | 0.6 / 0.8–0.9 / 1.1 | 16.40–16.60 | 0.5 / 0.6–0.8 |
+| `:toggle` | 0.6 / 0.8–0.9 / 1.2 | 16.20–16.40 | 0.3 / 0.4–0.5 |
+| `:ctl-blocked` | 0.6–0.7 / 0.9 / 1.1 | 50.70–50.80 | 0.5 / 0.7 |
+
+All three legs are present and non-degenerate on every arm, and the floor's
+`:commit` is exactly `0` because it performs no interaction. **The application's
+own contribution is `p50 0.6 ms` and never exceeded `1.1 ms` across 180 measured
+keystroke windows**; the remaining `~16 ms` of each window is the wait for a
+rendering opportunity plus the browser's rendering lifecycle. `:ctl-blocked`'s
+`:to-raf` carries the injected 50 ms and its `:commit` does not, which is the
+seam the control was placed on.
+
+### 7.5 `U2`: MET, and decided by a reading rather than by an estimator
+
+Against `≤ 50 ms p95` and `≤ 100 ms p99` to next paint, over `:keystroke` and
+`:toggle`:
+
+| quantity | run 1 | run 2 | run 3 |
+|---|---:|---:|---:|
+| worst single measured window, both arms | 18.4 ms | 18.4 ms | **18.9 ms** |
+| headroom to the `50 ms` `p95` line | 2.72x | 2.72x | **2.65x** |
+| headroom to the `100 ms` `p99` line | 5.43x | 5.43x | **5.29x** |
+
+**The row is decided by the sample maximum, so [§3](#3-the-schedule-is-taken-unchanged-and-that-is-a-derivation-rather-than-a-default)'s
+refusal condition never fires.** No quantile estimator can answer above the
+largest reading in the sample, and the largest of the 360 measured windows
+across both event paths and all three runs is `18.9 ms`. Both halves of the line
+are therefore met on readings that were **taken**, and the interpolation caveat
+that hangs over a `p99` at `n = 60` bears on nothing here.
+
+[§4.1](#41-the-phase-caveat-which-cuts-one-way-only) applies in the meeting
+direction, so the verdict is conservative twice over: this is the worst phase in
+the grid, and a user's uniformly random phase can only shorten the window.
+
+The status cell moves to `MET` and the population cell to `package` —
+`check_budget_ledger.py`'s `POPULATION_PIN` names exactly one route out of `—`,
+*a new measurement window and an edit here*, and this is that window with the
+edit beside it. The subject is the slice witness application mounted through
+`re-frame.hicasso`'s own `h/mount!`, which is `package` on the same rule that
+puts `D17`–`D25` there. **Reversing this is a one-line edit in each of two
+files** — the ledger row and that constant — and the evidence for it is this
+section.
+
+### 7.6 `U1`: NOT decided, and the reason is the row's unit
+
+Both pre-registered readings, per run:
+
+| reading | line | run 1 | run 2 | run 3 | verdict |
+|---|---:|---:|---:|---:|---|
+| (i) literal — `p95(:keystroke)` | ≤ 16.7 ms | 18.00 | 18.02 | 18.21 | **misses**, by 1.30–1.51 ms |
+| (ii) floor-relative — `p95(:keystroke) − p50(:idle-frame)` | ≤ 16.7 ms | 2.45 | 2.47 | 2.81 | **meets**, ~14 ms spare |
+
+**They disagree in all three invocations, so by the rule declared before the
+first one the row is not decided here.** Neither reading is privileged and
+neither is written into the ledger.
+
+**The literal reading cannot decide it either, and that is the stronger half of
+this finding.** It misses by `1.30`–`1.51 ms`, against a measured rendering
+interval of `15.4`–`15.6 ms` at the floor's `p50` — so the miss is under a tenth
+of one frame, squarely inside the region [§4.1](#41-the-phase-caveat-which-cuts-one-way-only)
+reserves. The driver names that region itself and names what would settle it:
+*what would warrant building [phase randomisation]: a reading whose `p95` sits
+close enough to a line that the difference between the worst phase and the mean
+phase decides it.* **That trigger has fired.**
+
+So `U1` has two ways forward and a worker may take neither:
+
+1. **A ruling on which reading its line means.** *Within one 60 Hz frame* is
+   unambiguous about the quantity and silent about whether the grid the
+   interaction waits on is charged to the application. One sentence settles it.
+2. **The randomised-phase driver**, which reproduces the user's phase
+   distribution and would decide the literal reading on its own terms — at the
+   cost of far more samples to resolve a tail.
+
+`U1` keeps `UNPINNED` and its population cell keeps `—`, which is what the
+ledger's own vocabulary says about a row no evidence decided.
+
+### 7.7 Reported and deliberately not a verdict
+
+Two figures a reader will want, neither of which decides a row.
+
+**The echo tally reads `0 unverified of 400` in every run.** Every window's echo
+— warm-up included — was read out of React's own committed mirror inside the
+frame's rendering steps, and `assert-verified!` would have refused the run at
+any nonzero count. That witnesses `U1`'s **structural** clause, *controlled
+updates correct same-turn*, on every window rather than at `p95`. It is not a
+`U1` verdict, for the reason
+[budgets §9.2](../../../../implementation/hicasso/spec/budgets.md#92-what-each-not-green-row-is-waiting-on)
+already gives about `rf2-hic-045`'s census: *the echo is present before the turn
+yields* does not imply *the echo reaches the glass within 16.7 ms at `p95`*.
+
+**The application's own work is `p50 0.6 ms` and never exceeded `1.1 ms`** in
+180 measured keystroke windows ([§7.4](#74-the-decomposition-and-what-it-rules-out)).
+Under any operationalisation that charges the application only for its own work,
+`U1` clears its line by more than an order of magnitude — which is context for
+the ruling above and not a substitute for it.
+
+### 7.8 What this window did not do
+
+No threshold was guessed and no band widened: the `50 ms`, `100 ms` and
+one-frame lines are the registered ones, and `control-slack` and the guard
+tolerance are the instrument's. **No gate was built** — `U2`'s instrument cell
+names the `P-DEV-1 evidence run` lane, because
+[§7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+forbids a distributional row a pull-request threshold and the ledger gate
+enforces it. **No instrument was edited**: the driver's blob in
+[§6](#6-the-instrument-and-the-subject) is the one `rf2-xa8wo` landed, and the
+schedule it shipped with is the schedule it was read on. One ledger cell pair
+moved and no other.
 
 ## 8. Conditions
 
-*To be written after the window closes.*
+Four invocations between **02:34 and 02:43 on 2026-08-22**, the three evidence
+runs back to back on one drained fleet inside a single box bracket, each about a
+minute including its own cold `:advanced` compile. Captured exits `0`, `0`, `0`.
+React 19.2.0, UIx 1.4.4, shadow-cljs 3.4.10, `:advanced` with `goog.DEBUG false`,
+headless Chromium 147.0.7727.15 via Playwright 1.59.1, Windows 11, 24 logical
+cores, `navigator.deviceMemory` 32.
+
+The box was bracketed at both ends, standalone, never sampled inside a run:
+
+| bracket | queue length | occupancy | `java` | bench-like | `headless_shell` | processes | free |
+|---|---|---|---:|---:|---:|---|---|
+| open, 02:39 | **0** on 7 of 8 samples, **1** on one | 10.09% / 11.20% | **0** | **0** | **0** | 22 node / 108 chrome / 550 | 14.55 GB |
+| close, 02:43 | **0** on 7 of 8 samples, **1** on one | 13.83% / 11.04% | **0** | **0** | **0** | 22 node / 108 chrome / 546 | 14.63 GB |
+
+Occupancy is attributed rather than assumed: the operator's editor reads
+`5.4`–`5.6%` at both brackets and the probe's own shell `1.4`–`1.6%`, together
+more than half the total. The **bench-like** column counts processes whose
+command line names `shadow-cljs`, `clojure`, `p0_run`, `run.cjs`, `playwright`
+or any of the usual test runners, and it is zero at both ends — no other worker
+held the machine, and no peer was running a gate. `headless_shell` is zero at
+the close because each invocation's Chromium had already exited.
+
+No worker was dispatched against this box while the window was open, and nothing
+else was run alongside the runs: the doc and ledger gates were taken **after**
+the last invocation and the source reading behind
+[§3](#3-the-schedule-is-taken-unchanged-and-that-is-a-derivation-rather-than-a-default)
+and [§4](#4-the-pre-registered-adjudication-rule) **before** the first.
