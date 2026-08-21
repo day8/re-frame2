@@ -3925,8 +3925,10 @@ function fixtureRoundsTask(over) {
 // inspected the BODY of `if (SELFTEST_ONLY)` while asserting nothing about how
 // `SELFTEST_ONLY` is DERIVED, so a mutation of either driver back to the old
 // token — or to any other — left every assertion here green. The rename was
-// pinned nowhere: `test:script-helpers` invokes only `ladder_band.cjs
-// --self-test` directly, which is why that third driver is not repeated here.
+// pinned nowhere: `test:script-helpers` invoked only `ladder_band.cjs
+// --self-test` directly, which is the PASSING case and says nothing about a
+// refusal. The third driver has its own block below now, for a reason the
+// next section gives.
 //
 // This is the missing pin, and it is deliberately four claims per driver and
 // no more: the argv definition itself, the closed flag vocabulary, that the
@@ -4007,6 +4009,121 @@ function fixtureRoundsTask(over) {
       );
     });
   }
+}
+
+// --- AND THE THIRD DRIVER, WHERE THE VOCABULARY ONLY HELD ON A PREFIX ------
+//
+// #8621 closed the vocabulary for the two drivers above and left this one
+// looking closed. Its merged-PR audit found it was not: `ladder_band.cjs` ran
+// the self-test and returned from INSIDE its argv loop, so it never read a
+// token that came after `--self-test`. Reproduced at that merge commit —
+//
+//     --self-test --selftest            exit 0
+//     --self-test --definitely-unknown  exit 0
+//     --selftest --self-test            exit 2
+//
+// — which is a spelling refused in one order and swallowed in the other, and
+// so not retired at all. THE ORDER PAIR IS THE TEST. A witness in the second
+// position alone passes against the broken parser, which is precisely how the
+// gap survived a landing: `test:script-helpers` invokes `ladder_band.cjs
+// --self-test` and nothing else, and that is the case that worked.
+//
+// The repair made PARSING and ACTING different things rather than adding a
+// validating pass — a second pass is where the care would have been needed,
+// because `--emit` and `--from` consume the token after them and a pass that
+// did not know it would read `--emit --from.json` as a flag. `parseArgv` is
+// pure and total, reads the vector once, and returns a plan only after
+// reaching the end of it; `main` is the only thing that acts.
+//
+// This driver takes DATASET FILENAMES where its two neighbours take none, so
+// its rule is scoped to the flag namespace and not to all of argv — the line
+// #8621 drew, kept. Hence no `unknownFlags` here: the vocabulary and the
+// arity of each flag in it are one question for this driver, and `parseArgv`
+// is where both are answered.
+{
+  const LB = path.join(__dirname, 'ladder_band.cjs');
+  const lb = require('./ladder_band.cjs');
+  const LBSRC = fs.readFileSync(LB, 'utf8');
+  const t = (what, fn) => test(`ladder_band.cjs: ${what}`, fn);
+
+  /** The driver as an operator meets it: a real process, a real exit code. */
+  const run = (...argv) => cp.spawnSync(process.execPath, [LB, ...argv], { encoding: 'utf8' });
+
+  t('the flag vocabulary is closed, and the retired spelling is not in it', () => {
+    assert.deepStrictEqual(lb.FLAGS, ['--self-test', '--emit', '--from']);
+    assert.ok(!lb.FLAGS.includes('--selftest'), 'no alias by decision (rf2-xk4is)');
+    // The usage line is the vocabulary an operator is shown, so it may not
+    // name a token the parser refuses.
+    assert.ok(!/--selftest/.test(lb.USAGE));
+  });
+
+  t('the retired spelling appears nowhere in the driver, comments included', () => {
+    // The two blocks above hold their drivers to this; the exception here is
+    // the header that RECORDS the retirement, which has to name the token to
+    // say what happened to it. Everywhere else it is an invitation to type it.
+    const hits = LBSRC.split('\n')
+      .map((line, i) => [i + 1, line])
+      .filter(([, line]) => /--selftest/.test(line) && !/^\s*\/\//.test(line))
+      .map(([n, line]) => `${n}: ${line.trim()}`);
+    assert.deepStrictEqual(hits, [], 'the retired spelling may survive only in prose that retires it');
+  });
+
+  t('an unknown flag is refused BEFORE `--self-test`', () => {
+    assert.deepStrictEqual(lb.parseArgv(['--selftest', '--self-test']), { error: 'unknown flag --selftest' });
+    assert.deepStrictEqual(lb.parseArgv(['--definitely-unknown', '--self-test']), {
+      error: 'unknown flag --definitely-unknown',
+    });
+  });
+
+  t('an unknown flag is refused AFTER `--self-test` — the position that used to exit 0', () => {
+    // THE ONE THAT MATTERS. Delete it and the pair above still passes against
+    // a parser that stops reading at the self-test flag.
+    assert.deepStrictEqual(lb.parseArgv(['--self-test', '--selftest']), { error: 'unknown flag --selftest' });
+    assert.deepStrictEqual(lb.parseArgv(['--self-test', '--definitely-unknown']), {
+      error: 'unknown flag --definitely-unknown',
+    });
+    // And after a VALUED flag too, which is the other way a parser stops
+    // reading early.
+    assert.deepStrictEqual(lb.parseArgv(['--from', 'x.json', '--selftest']), { error: 'unknown flag --selftest' });
+  });
+
+  t('the refusal is the process exit, in both positions and not just the plan', () => {
+    // A pure rule the entry point never consults is not a rule. These are the
+    // audit's own probes, run as probes.
+    assert.strictEqual(run('--self-test', '--selftest').status, 2, 'retired spelling AFTER the self-test flag');
+    assert.strictEqual(run('--self-test', '--definitely-unknown').status, 2, 'unknown flag AFTER the self-test flag');
+    assert.strictEqual(run('--selftest', '--self-test').status, 2, 'retired spelling BEFORE it');
+    const ok = run('--self-test');
+    assert.strictEqual(ok.status, 0, 'and the flag itself still works');
+    assert.match(ok.stdout, /ladder_band self-test ok/);
+  });
+
+  t('a valued flag consumes its value, so a filename is never read as a flag', () => {
+    // The trap a naive validate-then-act split falls into: `--from.json` here
+    // is a VALUE. Refusing it would break the driver in the name of closing
+    // the vocabulary.
+    assert.deepStrictEqual(lb.parseArgv(['--emit', '--from.json', 'a.json']), {
+      plan: { selfTest: false, emit: '--from.json', from: null, files: ['a.json'] },
+    });
+    assert.deepStrictEqual(lb.parseArgv(['--emit']), { error: '--emit needs a filename' });
+    assert.deepStrictEqual(lb.parseArgv(['--from']), { error: '--from needs a filename' });
+  });
+
+  t('nothing is executed above the parse, and the parse reads all of argv', () => {
+    const head = LBSRC.slice(LBSRC.indexOf('function main() {'), LBSRC.indexOf('  if (plan.selfTest) {'));
+    assert.ok(head.length > 0, 'could not locate the head of main() in ladder_band.cjs');
+    assert.match(head, /const \{ plan, error \} = parseArgv\(process\.argv\.slice\(2\)\);/);
+    assert.match(head, /process\.exit\(2\);/);
+    // The defect itself, stated: no mode may run from inside the parser.
+    const parser = LBSRC.slice(LBSRC.indexOf('function parseArgv(argv) {'), LBSRC.indexOf('function main() {'));
+    assert.ok(parser.length > 0, 'could not locate parseArgv in ladder_band.cjs');
+    assert.ok(
+      !/selfTest\(\)|readRun\(|process\.exit/.test(parser),
+      'parseArgv must parse and nothing else — running a mode inside it is what left the tail of argv unread'
+    );
+    // Requiring the driver must not RUN it, or this whole block would.
+    assert.match(LBSRC, /if \(require\.main === module\) main\(\);/);
+  });
 }
 
 // --- THE ADJECTIVE, which is what both instrument errors hid behind ---------
