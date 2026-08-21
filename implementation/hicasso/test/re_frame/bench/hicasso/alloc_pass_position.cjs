@@ -81,6 +81,33 @@
 // the realised round set must be the complete, unique `0..rounds-1`, so a
 // truncated record is refused rather than blessed.
 //
+// ## THREE MORE THINGS IT READ PAST, AND WHAT THEY HAVE IN COMMON (rf2-flxxa)
+//
+// The audit of PR #8634 and phase 4's own reading found three further shapes
+// the boundary blessed. All three are the same mistake in different clothes —
+// A CHECK ON WHAT THE RECORD SAYS, STANDING IN FOR A CHECK ON WHAT THE RECORD
+// SHOWS — and none of them moved a figure phase 4 published, which is what made
+// them worth closing rather than noting.
+//
+//   1. THE BALANCE WAS READ OFF THE DRAW, NOT OFF THE BLOCKS. `q·parity` and
+//      `q·linear` were computed on `passSchedule.flips`. A round whose mid-rung
+//      windows all failed to certify still appears there and still contributes
+//      no block, so the labelling the term is READ ON could be short and
+//      unbalanced under a draw that is neither. See `realisedLabelling`.
+//   2. A RECORD CARRYING NO MEASURED WINDOW AT ALL was admissible, because
+//      every clause was a declared parameter or a control and none of them
+//      needed data to exist. `admissibleCorpus` closes that; `admissibleRun`
+//      deliberately does not, and says why.
+//   3. THE DECLARED SESSION was carried through the boundary and never
+//      compared against the record. Collapsing all eight of phase 4's
+//      `box.session.sessionStartedAt` values to a single ID left the corpus
+//      admitted and OUTCOME 1 computed — a one-session window read as the
+//      two-session design it declared. See `sessionPartition`.
+//
+// None was repaired inside phase 4's window, and that was not an oversight: an
+// estimator must not change between a pre-registration and the runs it will be
+// read on. They were recorded on the window's page and owned by a bead instead.
+//
 // ## THE BAND IS A RESTRICTED RANDOMISATION, AND IT IS ON THE AGGREGATE
 //
 // Phase 3 (PR #8615) refused the pass term against a band built at ten times
@@ -280,6 +307,46 @@ function separation(bs) {
   return { dot, n: bs.length, orthogonal: dot === 0 };
 }
 
+// THE LABELLING THAT ACTUALLY CARRIED DATA, which is a different object from
+// the one the record says it DREW, and is the one the design's identification
+// is a property of.
+//
+// `passSchedule.flips` is a draw. A round contributes a block only if at least
+// one of its mid-rung cells had all four windows certify, so a round that lost
+// its windows drops out of the labelling entirely — and the block set left
+// behind can be short, and its `q·parity` and `q·linear` non-zero, while the
+// DRAWN schedule is balanced and orthogonal on both. `q·parity = 0` on the draw
+// is then a true statement about a set of blocks that does not exist.
+//
+// The centring is the SCHEDULED round count, not the surviving one: `l(r) = r −
+// (R−1)/2` is a column of the design, fixed when the schedule was drawn, and
+// re-centring it on whatever survived would silently redefine the term the
+// balance is a balance of.
+function realisedLabelling(row, scheduledRounds = null) {
+  const bs = blocks(row, null);
+  const R = scheduledRounds === null ? bs.length : scheduledRounds;
+  let parity = 0;
+  let linear = 0;
+  let unknownFirst = 0;
+  for (const b of bs) {
+    if (b.first !== 'page' && b.first !== 'all') { unknownFirst++; continue; }
+    const q = b.first === 'page' ? 1 : -1;
+    parity += q * (b.round % 2 === 0 ? 1 : -1);
+    linear += q * (b.round - (R - 1) / 2);
+  }
+  const rounds = bs.map((b) => b.round);
+  return { n: bs.length, rounds, distinct: new Set(rounds).size, parity, linear, unknownFirst };
+}
+
+// WHETHER A RECORD CARRIES ANY MEASURED WINDOW AT ALL. A record with every
+// round's `arms` empty is a PARAMETERS-ONLY FIXTURE — the shape a design
+// control builds to exercise the declared clauses before a figure exists — and
+// it asserts nothing about a labelling because it carries nothing to label.
+// The distinction is not a let-off: `admissibleCorpus` refuses such a record
+// outright, because a corpus is the thing a figure is read OFF.
+const carriesWindows = (row) =>
+  (row.perRound || []).some((r) => Object.keys(r.arms || {}).length > 0);
+
 // --- the controls, which arbitrate ------------------------------------------
 //
 // A run whose positive control failed contributes no data, so the verdict is
@@ -413,13 +480,122 @@ function admissibleRun(row, expect = {}) {
     }
   }
   if (scheduleDrove(row) !== true) reasons.push('the drive does not match the draw');
+
+  // AND THE REALISED LABELLING, WHICH IS NOT THE DRAWN ONE. Everything above
+  // reads `passSchedule.flips` — the schedule the record says it drew — and the
+  // `perRound` rows the drive produced. Neither is the block set that carried
+  // data: a round whose mid-rung windows all failed to certify is still a row
+  // in `perRound` and still matches its flip, and it still contributes no
+  // block. So the labelling the term is actually read on can be short, with a
+  // non-zero `q·parity` or `q·linear`, under a draw that is balanced and
+  // orthogonal on both — and the design's identification is a property of the
+  // realised labelling, never of the draw.
+  //
+  // Phase 4 realised 96 blocks of a possible 96 with `q·parity` 0 in all eight
+  // runs, so this clause changes no figure that window published. That is
+  // precisely why it has to be a clause: the reading was checked by hand and
+  // written into a paragraph, and a paragraph does not run.
+  if (carriesWindows(row)) {
+    const scheduled = sched && Array.isArray(sched.flips) ? sched.flips.length : null;
+    const real = realisedLabelling(row, scheduled);
+    if (real.n === 0) {
+      reasons.push('the realised block set is empty — no round carried a certified mid-rung cell');
+    } else if (scheduled !== null && (real.n !== scheduled || real.distinct !== scheduled)) {
+      reasons.push(
+        `the realised block set covers ${real.n} round(s) (${real.distinct} distinct), not the scheduled ${scheduled}`
+      );
+    }
+    if (real.unknownFirst) reasons.push(`${real.unknownFirst} realised block(s) carry no leg order`);
+    if (real.parity !== 0) reasons.push(`realised q·parity ${real.parity}`);
+    if (real.linear !== 0) reasons.push(`realised q·linear ${real.linear}`);
+  }
   return { ok: reasons.length === 0, reasons };
+}
+
+// THE DECLARED SESSION PARTITION, CHECKED RATHER THAN PRINTED (audit of PR
+// #8634).
+//
+// `declared.runs[i].session` is a LABEL — phase 4 declares four runs into `A`
+// and four into `B` — and it was the one declared parameter the boundary read
+// past. Every other field of a declared run is compared against the record;
+// this one was carried into `admissibleRun` and never looked at, so replacing
+// all eight `box.session.sessionStartedAt` values with a single ID left the
+// corpus ADMITTED and OUTCOME 1 computed, and a window that took ONE session
+// was read as the two-session design it declared. The session is the
+// independent unit here — it is the whole reason phase 4 cost eight runs
+// instead of four — so admitting a collapsed partition is not a cosmetic miss.
+//
+// It is checked at CORPUS level because the evidence is: no run can tell you
+// whether it shared a session with another. Two directions, and both are
+// needed — one alone passes the shape it is blind to:
+//
+//   - runs declared into the SAME session must carry the SAME actual session,
+//     or the declared group is really two and its runs are not the replicates
+//     the design says they are;
+//   - runs declared into DIFFERENT sessions must carry DIFFERENT actual ones,
+//     which is the collapse above.
+//
+// The record's own session identity is `box.session.sessionStartedAt`, written
+// by the rig at the record's TOP level beside `alloc` (rf2-24o2z). A run that
+// carries none cannot be shown to have taken the session it was declared into,
+// so it is refused rather than given one of its own — `report`'s
+// `unrecorded-<label>` fallback is a display convenience and would, used here,
+// make a missing rider look like a distinct session and PASS the collapse test.
+function sessionPartition(rows, declared) {
+  const reasons = [];
+  const runs = declared.runs || [];
+  if (!runs.some((r) => r && r.session !== undefined)) return reasons;
+
+  // declared label -> actual session id -> the run labels that carried it.
+  const byLabel = new Map();
+  rows.forEach(({ label, box }, i) => {
+    const want = runs[i] ? runs[i].session : undefined;
+    if (want === undefined) {
+      reasons.push(`run ${label}: the declaration partitions this window by session but names none for this run`);
+      return;
+    }
+    const got = box && box.session && box.session.sessionStartedAt;
+    if (!got) {
+      reasons.push(`run ${label}: declared session ${JSON.stringify(want)}, but the record carries no session rider`);
+      return;
+    }
+    if (!byLabel.has(want)) byLabel.set(want, new Map());
+    const actual = byLabel.get(want);
+    if (!actual.has(got)) actual.set(got, []);
+    actual.get(got).push(label);
+  });
+
+  for (const [want, actual] of byLabel) {
+    if (actual.size > 1) {
+      const split = [...actual].map(([id, ls]) => `${id} (run ${ls.join(',')})`).join(' and ');
+      reasons.push(`declared session ${JSON.stringify(want)} spans ${actual.size} actual sessions: ${split}`);
+    }
+  }
+  const owner = new Map();
+  for (const [want, actual] of byLabel) {
+    for (const [id, ls] of actual) {
+      if (owner.has(id) && owner.get(id) !== want) {
+        reasons.push(
+          `declared sessions ${JSON.stringify(owner.get(id))} and ${JSON.stringify(want)} are the SAME actual ` +
+            `session ${id} (run ${ls.join(',')}), so the declared partition did not happen`
+        );
+      } else {
+        owner.set(id, want);
+      }
+    }
+  }
+  return reasons;
 }
 
 // THE CORPUS, not one run of it. A window that declared eight runs and can show
 // six has not taken the window it declared, and the audit of #8615's `--admit`
 // exiting 0 on an EMPTY corpus is exactly that hole. There is no partial
 // credit: the count is fixed before run 1 and a short corpus is refused.
+//
+// TWO CLAUSES LIVE HERE AND NOT IN `admissibleRun`, because neither is a
+// property a single run can carry: the session partition is a relation BETWEEN
+// runs, and the parameters-only escape below is a distinction between a fixture
+// and a corpus.
 function admissibleCorpus(rows, declared) {
   const reasons = [];
   const runs = declared.runs || [];
@@ -432,6 +608,18 @@ function admissibleCorpus(rows, declared) {
     if (!got.ok) reasons.push(`run ${label}: ${got.reasons.join('; ')}`);
     return { label, ...got };
   });
+  // AND THERE IS NO PARAMETERS-ONLY ESCAPE AT CORPUS LEVEL. `admissibleRun`
+  // holds its realised-labelling clause off a record with no arm window at all,
+  // because such a record is a fixture asserting nothing about a labelling. A
+  // CORPUS is the thing a figure is read off, so here the escape is closed:
+  // a corpus whose windows all failed to certify would otherwise satisfy every
+  // declared parameter and every control and be read as zero blocks.
+  for (const { label, row } of rows) {
+    if (!carriesWindows(row)) {
+      reasons.push(`run ${label}: the record carries no arm window, so no figure can be read off it`);
+    }
+  }
+  reasons.push(...sessionPartition(rows, declared));
   return { ok: reasons.length === 0, reasons, per };
 }
 
@@ -744,11 +932,27 @@ function report(rows, declared = null) {
     }
     const signs = [...sessions.values()].map((rs) => Math.sign(meanRunTerm(rs) || 0));
     const agree = sessions.size > 1 && signs.every((s) => s === signs[0] && s !== 0);
-    out.push(
-      `;;     ${agree ? 'THE SESSIONS AGREE IN SIGN' : 'THE SESSIONS DO NOT AGREE IN SIGN'}` +
-        `, so a claim of this term is ${agree ? `carried by all ${sessions.size}` : 'capped at a single session'}.` +
-        ` With ${sessions.size} sessions that is a sign agreement on ${sessions.size} blocks and nothing stronger.`
-    );
+    // ONE SESSION IS NOT A DISAGREEMENT. The earlier wording had no clause for
+    // `sessions.size === 1`: it fell into the `agree === false` branch and
+    // printed "THE SESSIONS DO NOT AGREE IN SIGN … With 1 sessions that is a
+    // sign agreement on 1 blocks", which asserts the outcome of a comparison
+    // that was never made. Re-reading phase 3's four runs took that branch. No
+    // figure moves either way — what moves is whether the reader describes its
+    // own evidence truthfully, and a reader that does not is worth less than
+    // one that prints nothing.
+    if (sessions.size === 1) {
+      out.push(
+        ';;     ONE SESSION — NO CROSS-SESSION COMPARISON IS POSSIBLE. A claim of this term' +
+          ' is capped at a single session because there is no second session to agree or' +
+          ' disagree with it, not because two were compared and differed.'
+      );
+    } else {
+      out.push(
+        `;;     ${agree ? 'THE SESSIONS AGREE IN SIGN' : 'THE SESSIONS DO NOT AGREE IN SIGN'}` +
+          `, so a claim of this term is ${agree ? `carried by all ${sessions.size}` : 'capped at a single session'}.` +
+          ` With ${sessions.size} sessions that is a sign agreement on ${sessions.size} blocks and nothing stronger.`
+      );
+    }
   }
 
   return { lines: out, refused: false };
@@ -903,38 +1107,90 @@ function selfTest() {
   assert.ok(fs.existsSync(declPath), `the pre-registration must be committed at ${declPath}`);
   {
     const declared = JSON.parse(fs.readFileSync(declPath, 'utf8'));
-    // The smallest record the boundary will admit, SHAPED AS THE DRIVER WRITES
-    // ONE rather than as the declaration states it — `plan` is an object in a
-    // record and a name in a declaration, and a fixture that spread the
-    // declaration verbatim would be testing the boundary against a shape no
-    // run has. It carries no arm windows at all: admissibility is decided on
-    // declared parameters and controls, before a figure is read.
+    // A record SHAPED AS THE DRIVER WRITES ONE rather than as the declaration
+    // states it — `plan` is an object in a record and a name in a declaration,
+    // and a fixture that spread the declaration verbatim would be testing the
+    // boundary against a shape no run has.
+    //
+    // IT CARRIES CERTIFIED WINDOWS, AND THAT IS A CHANGE (rf2-flxxa). The
+    // earlier fixture set every round's `arms` to `{}` on the principle that
+    // admissibility is decided before a figure is read. That principle is
+    // still true of the DECLARED clauses, and `alloc_pass_design.cjs` still
+    // builds such a row for them — but it made the fixture structurally unable
+    // to exercise the realised-labelling clause, because a record with no
+    // window has no labelling to be short or unbalanced. A control that cannot
+    // reach the fault it exists to catch is not a control.
+    //
+    // The values are chosen to be inert and are not a figure: every cell reads
+    // `d_all = 1000 B/boundary`, and `page` reads 6 higher where `page` ran
+    // first and 6 lower where it ran second. Every round's block is therefore
+    // exactly ±0.60%, the sign follows the pass, and the pass term of every run
+    // is +0.60% — which is what makes the two-session sign-agreement branch
+    // below reachable at all.
     const w = declared.window;
-    const mk = (i) => {
-      const legs = w.writeLegs;
-      const flips = declared.runs[i].flips;
+    const armWindows = (flip) => {
+      const a = {};
+      const pageDelta = flip ? -24 : 24;
+      for (const { segment, arm } of FAMILIES) {
+        for (const rung of MID_RUNGS) {
+          a[`${segment}|${arm}#${rung}@all`] = { certified: true, legMedian: 5000 };
+          a[`${segment}|${arm}#${rung}@page`] = { certified: true, legMedian: 5000 + pageDelta };
+        }
+        a[`${segment}|${FLOOR_ARM}@all`] = { certified: true, legMedian: 1000 };
+        a[`${segment}|${FLOOR_ARM}@page`] = { certified: true, legMedian: 1000 };
+      }
+      return a;
+    };
+    const mk = (i, decl = declared) => {
+      const legs = decl.window.writeLegs;
+      const flips = decl.runs[i].flips;
+      const dw = decl.window;
       return {
-        passOrder: w.passOrder,
-        passSeed: declared.runs[i].passSeed,
-        rounds: w.rounds,
-        writePaired: w.writePaired,
+        passOrder: dw.passOrder,
+        passSeed: decl.runs[i].passSeed,
+        rounds: dw.rounds,
+        writePaired: dw.writePaired,
         writeLegs: legs.slice(),
-        segOrder: w.segOrder,
-        controlSlot: w.controlSlot,
-        plan: { name: w.plan, arms: true, rungs: true, fits: true },
-        roots: w.roots,
-        boundaries: w.boundaries,
-        writes: w.writes,
+        segOrder: dw.segOrder,
+        controlSlot: dw.controlSlot,
+        plan: { name: dw.plan, arms: true, rungs: true, fits: true },
+        roots: dw.roots,
+        boundaries: dw.boundaries,
+        writes: dw.writes,
         passSchedule: { flips: flips.slice(), attempts: 1, parityTied: false },
         controlVerdict: { ok: true, perDouble: 8.08, differential: 8 },
         verification: { unverified: 0 },
-        perRound: flips.map((f, r) => ({ round: r, writeLegs: f ? [...legs].reverse() : legs.slice(), arms: {} })),
+        perRound: flips.map((f, r) => ({
+          round: r,
+          writeLegs: f ? [...legs].reverse() : legs.slice(),
+          arms: armWindows(f),
+        })),
       };
     };
-    const good = declared.runs.map((_, i) => ({ label: String(i + 1), row: mk(i) }));
+    // THE SESSION RIDER IS PART OF THE FIXTURE NOW, because the partition is a
+    // declared parameter like any other. `session-A`/`session-B` stand in for
+    // the real `box.session.sessionStartedAt` timestamps.
+    const corpus = (decl = declared, ids = null) =>
+      decl.runs.map((d, i) => ({
+        label: String(i + 1),
+        row: mk(i, decl),
+        box: { session: { sessionStartedAt: ids ? ids[i] : `session-${d.session}` } },
+      }));
+    const good = corpus();
     const base = admissibleCorpus(good, declared);
     assert.strictEqual(base.ok, true, `the declared corpus is admitted: ${base.reasons.join('; ')}`);
+    // AND THE FIXTURE REALLY DOES CARRY THE LABELLING IT CLAIMS TO. Without
+    // this the realised clauses below would be refusing a record that was
+    // already short, and every one of them would pass for the wrong reason.
+    const realBase = realisedLabelling(good[0].row, w.rounds);
+    assert.strictEqual(realBase.n, w.rounds, 'the fixture realises every scheduled round');
+    assert.strictEqual(realBase.parity, 0, 'and its realised q·parity is 0');
+    assert.strictEqual(realBase.linear, 0, 'and its realised q·linear is 0');
 
+    // Each entry may name the reason it must be refused ON. `ok === false` is
+    // not enough for a clause added to a boundary that already had nineteen:
+    // any of them could be doing the refusing, and a control satisfied by
+    // somebody else's clause proves nothing about its own.
     const breaks = [
       ['positive control', (r) => { r.controlVerdict.ok = false; }],
       ['unverified read-backs', (r) => { r.verification.unverified = 1; }],
@@ -956,13 +1212,151 @@ function selfTest() {
       ['a TRUNCATED drive', (r) => { r.perRound = r.perRound.slice(0, 1); }],
       ['a DUPLICATED round', (r) => { r.perRound[1] = { ...r.perRound[0] }; }],
       ['an OUT-OF-RANGE round', (r) => { r.perRound[0] = { ...r.perRound[0], round: 99 }; }],
+      // AND THE REALISED LABELLING, WHICH THE DRAW CANNOT SPEAK FOR (rf2-flxxa).
+      // Every declared parameter is untouched in all three, the drive still
+      // covers every scheduled round exactly once, and the drawn schedule is
+      // still balanced with `q·parity = 0` and `q·linear = 0`. What moved is
+      // only which rounds CARRIED DATA — which is why nothing but the realised
+      // clause can refuse them, and why the reason is pinned.
+      [
+        'one round\'s mid-rung cells stripped of certification',
+        (r) => {
+          const round = r.perRound[0];
+          for (const k of Object.keys(round.arms)) round.arms[k] = { ...round.arms[k], certified: false };
+        },
+        /the realised block set covers 11 round\(s\) \(11 distinct\), not the scheduled 12/,
+      ],
+      [
+        'the floor windows of one round stripped of certification',
+        (r) => {
+          const round = r.perRound[1];
+          for (const k of Object.keys(round.arms)) {
+            if (k.includes(FLOOR_ARM)) round.arms[k] = { ...round.arms[k], certified: false };
+          }
+        },
+        /the realised block set covers 11 round\(s\)/,
+      ],
+      [
+        'EVERY window in the run stripped of certification',
+        (r) => {
+          for (const round of r.perRound) {
+            for (const k of Object.keys(round.arms)) round.arms[k] = { ...round.arms[k], certified: false };
+          }
+        },
+        /the realised block set is empty/,
+      ],
     ];
-    for (const [name, breakIt] of breaks) {
-      const rows = declared.runs.map((_, i) => ({ label: String(i + 1), row: mk(i) }));
+    for (const [name, breakIt, wantReason] of breaks) {
+      const rows = corpus();
       breakIt(rows[0].row);
       const got = admissibleCorpus(rows, declared);
       assert.strictEqual(got.ok, false, `breaking ${name} must refuse the corpus`);
+      if (wantReason) {
+        assert.ok(
+          got.reasons.some((r) => wantReason.test(r)),
+          `breaking ${name} must be refused ON its own clause, got: ${got.reasons.join('; ')}`
+        );
+      }
     }
+
+    // THE REALISED BALANCE IS ITS OWN CLAUSE, and it is not the completeness
+    // one wearing a different name. Drop the SAME NUMBER of rounds from both
+    // parity classes and the block set is short but still balanced; drop them
+    // all from one class and it is short AND unbalanced. Only the second can
+    // read `q·parity` non-zero, and pinning it is what proves the balance is
+    // being computed on the realised labelling rather than copied off the draw.
+    {
+      const uncertify = (r, roundIdx) => {
+        const round = r.perRound[roundIdx];
+        for (const k of Object.keys(round.arms)) round.arms[k] = { ...round.arms[k], certified: false };
+      };
+      const rows = corpus();
+      // Rounds 0 and 3 of run 1's declared schedule: `page`-first on an even
+      // round and `all`-first on an odd one, so removing both leaves q·parity
+      // where it was and only the count moves.
+      uncertify(rows[0].row, 0);
+      uncertify(rows[0].row, 3);
+      const balanced = realisedLabelling(rows[0].row, w.rounds);
+      assert.strictEqual(balanced.n, 10, 'two rounds dropped leaves ten blocks');
+      assert.strictEqual(balanced.parity, 0, 'and this pair leaves the realised q·parity at 0');
+      const one = corpus();
+      uncertify(one[0].row, 0);
+      const skewed = realisedLabelling(one[0].row, w.rounds);
+      assert.strictEqual(skewed.n, 11, 'one round dropped leaves eleven blocks');
+      assert.notStrictEqual(skewed.parity, 0, 'and moves the realised q·parity off 0');
+      const got = admissibleCorpus(one, declared);
+      assert.ok(
+        got.reasons.some((r) => /realised q·parity/.test(r)),
+        `an unbalanced realised labelling is refused on its balance, got: ${got.reasons.join('; ')}`
+      );
+    }
+
+    // A CORPUS OF PARAMETERS-ONLY RECORDS IS REFUSED, and this is the shape
+    // `admissibleRun` deliberately lets through. It satisfies every declared
+    // clause and every control, realises nothing, and would be read as zero
+    // blocks. The two levels disagreeing here is the design, not an oversight.
+    {
+      const bare = corpus();
+      for (const { row } of bare) for (const round of row.perRound) round.arms = {};
+      assert.strictEqual(
+        admissibleRun(bare[0].row, { ...w, ...declared.runs[0] }).ok, true,
+        'a parameters-only record is admissible as a RUN — the design control builds exactly this'
+      );
+      const got = admissibleCorpus(bare, declared);
+      assert.strictEqual(got.ok, false, 'but a CORPUS of them is refused');
+      assert.ok(
+        got.reasons.some((r) => /carries no arm window/.test(r)),
+        `and refused on that, got: ${got.reasons.join('; ')}`
+      );
+    }
+
+    // THE DECLARED SESSION PARTITION, IN BOTH DIRECTIONS (audit of PR #8634).
+    // The declaration puts runs 1–4 in session A and 5–8 in session B. Nothing
+    // below touches a single other field: only which actual session each record
+    // says it was taken in moves, so nothing but `sessionPartition` can refuse
+    // any of them, and each reason is pinned.
+    {
+      const ids = declared.runs.map((d) => `session-${d.session}`);
+      assert.strictEqual(admissibleCorpus(corpus(declared, ids), declared).ok, true,
+        'the declared partition, honoured, is admitted');
+
+      // COLLAPSED — the reproduction on the bead: every run in one session.
+      const collapsed = admissibleCorpus(corpus(declared, ids.map(() => 'one-session')), declared);
+      assert.strictEqual(collapsed.ok, false, 'a COLLAPSED session partition is refused');
+      assert.ok(collapsed.reasons.some((r) => /are the SAME actual session/.test(r)),
+        `and refused on the collapse, got: ${collapsed.reasons.join('; ')}`);
+
+      // MISPARTITIONED — run 4 was declared into A and taken in B.
+      const crossed = ids.slice();
+      crossed[3] = ids[4];
+      const mis = admissibleCorpus(corpus(declared, crossed), declared);
+      assert.strictEqual(mis.ok, false, 'a MISPARTITIONED corpus is refused');
+      assert.ok(mis.reasons.some((r) => /spans 2 actual sessions/.test(r)),
+        `and refused on the split group, got: ${mis.reasons.join('; ')}`);
+
+      // AND A RECORD THAT NEVER SAID. `report` would give it a session of its
+      // own and the collapse test would pass over it.
+      const silent = corpus(declared, ids);
+      silent[0].box = {};
+      const none = admissibleCorpus(silent, declared);
+      assert.strictEqual(none.ok, false, 'a run with no session rider is refused');
+      assert.ok(none.reasons.some((r) => /carries no session rider/.test(r)),
+        `and refused on that, got: ${none.reasons.join('; ')}`);
+
+      // AND THE CLAUSE DOES NOT SIMPLY REFUSE EVERY PARTITION. Phase 3's
+      // re-adjudication declares all four runs into ONE session, which is a
+      // legitimate declaration and must be admitted when the records agree.
+      const p3Path = path.join(__dirname, 'data', 'alloc-legorder', 'phase3-re-adjudication.json');
+      assert.ok(fs.existsSync(p3Path), `the phase-3 declaration must be committed at ${p3Path}`);
+      const p3 = JSON.parse(fs.readFileSync(p3Path, 'utf8'));
+      assert.strictEqual(admissibleCorpus(corpus(p3), p3).ok, true,
+        'a single-session declaration whose records agree is admitted');
+      const p3Split = admissibleCorpus(corpus(p3, ['s1', 's1', 's1', 's2']), p3);
+      assert.strictEqual(p3Split.ok, false, 'and one whose records do not is refused');
+      assert.ok(p3Split.reasons.some((r) => /spans 2 actual sessions/.test(r)),
+        `on the split group, got: ${p3Split.reasons.join('; ')}`);
+    }
+
     // AND A SHORT CORPUS IS REFUSED ON ITS COUNT, which is the `--admit`
     // exiting 0 on an empty corpus that the audit found.
     assert.strictEqual(admissibleCorpus([], declared).ok, false, 'an empty corpus is refused');
@@ -972,6 +1366,91 @@ function selfTest() {
     const undeclared = report([{ label: '1', row: mk(0) }], null);
     assert.strictEqual(undeclared.refused, true, 'a seeded corpus with no declaration is refused');
     assert.ok(!undeclared.lines.some((l) => l.includes('THE ROUND BLOCKS')), 'and prints no blocks');
+
+    // --- WHAT THE READER SAYS ABOUT ITS OWN SESSIONS, BOTH BRANCHES ----------
+    //
+    // The session verdict is the LAST line the band block prints, and it had no
+    // clause for a one-session corpus: it fell into `agree === false` and
+    // asserted that sessions which were never compared did not agree. Both
+    // branches are pinned here, the two-session one VERBATIM as published, so
+    // repairing the single-session wording cannot quietly move the other.
+    //
+    // `draws` is cut to 200 because the branch under test is a string and the
+    // reference distribution is not what is being pinned. Nothing else in the
+    // declaration is touched.
+    {
+      const cheap = (d) => ({ ...d, band: { ...d.band, draws: 200 } });
+      const verdict = (lines) => lines[lines.length - 1];
+
+      const two = report(corpus(), cheap(declared));
+      assert.strictEqual(two.refused, false, 'the two-session fixture is read');
+      assert.ok(two.lines.some((l) => l.includes('BY SESSION — 2 session(s)')), 'and reads two sessions');
+      assert.strictEqual(
+        verdict(two.lines),
+        ';;     THE SESSIONS AGREE IN SIGN, so a claim of this term is carried by all 2.'
+          + ' With 2 sessions that is a sign agreement on 2 blocks and nothing stronger.',
+        'the two-session wording is unchanged, to the byte'
+      );
+
+      const p3 = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'alloc-legorder', 'phase3-re-adjudication.json'), 'utf8'));
+      const one = report(corpus(p3), cheap(p3));
+      assert.strictEqual(one.refused, false, 'the one-session fixture is read');
+      assert.ok(one.lines.some((l) => l.includes('BY SESSION — 1 session(s)')), 'and reads one session');
+      assert.strictEqual(
+        verdict(one.lines),
+        ';;     ONE SESSION — NO CROSS-SESSION COMPARISON IS POSSIBLE. A claim of this term'
+          + ' is capped at a single session because there is no second session to agree or'
+          + ' disagree with it, not because two were compared and differed.',
+        'and a one-session corpus says so instead of claiming a disagreement'
+      );
+      assert.ok(!/AGREE IN SIGN/.test(verdict(one.lines)), 'it claims no agreement');
+      assert.ok(!/DO NOT AGREE/.test(verdict(one.lines)), 'and asserts no disagreement');
+    }
+  }
+
+  // --- THE REALISED CLAUSE ON A REAL RECORD -----------------------------------
+  //
+  // The fixtures above are synthetic, and a clause that only ever meets its own
+  // fixture has never been shown to survive contact with a record the rig
+  // wrote. This drives the same clause over phase 4's committed run 1: intact
+  // it realises all twelve rounds and is admitted; with round 0's windows
+  // stripped of certification it realises eleven, `q·parity` moves off zero,
+  // and it is refused. Nothing else about the record moves.
+  {
+    const dir4 = path.join(__dirname, 'data', 'alloc-legorder');
+    const declared = JSON.parse(fs.readFileSync(path.join(dir4, 'pre-registration.json'), 'utf8'));
+    const runPath = path.join(dir4, 'run1.json');
+    assert.ok(fs.existsSync(runPath), `phase 4's run 1 must be committed at ${runPath}`);
+    const want = { ...declared.window, ...declared.runs[0] };
+    const load = () => JSON.parse(fs.readFileSync(runPath, 'utf8')).alloc;
+
+    const intact = load();
+    const realIntact = realisedLabelling(intact, declared.window.rounds);
+    assert.strictEqual(realIntact.n, 12, 'phase 4 run 1 realised all twelve rounds');
+    assert.strictEqual(realIntact.parity, 0, 'with realised q·parity 0');
+    assert.strictEqual(realIntact.linear, 0, 'and realised q·linear 0');
+    assert.strictEqual(admissibleRun(intact, want).ok, true, 'and is admitted');
+
+    const stripped = load();
+    const round0 = stripped.perRound.find((r) => r.round === 0);
+    for (const k of Object.keys(round0.arms)) {
+      if (MID_RUNGS.some((rung) => k.includes(`#${rung}@`)) || k.includes(FLOOR_ARM)) {
+        round0.arms[k] = { ...round0.arms[k], certified: false };
+      }
+    }
+    const realStripped = realisedLabelling(stripped, declared.window.rounds);
+    assert.strictEqual(realStripped.n, 11, 'stripping round 0 leaves eleven realised blocks');
+    assert.notStrictEqual(realStripped.parity, 0, 'and an unbalanced realised labelling');
+    // The DRAW is untouched, which is the whole point: the old boundary read it
+    // and admitted this record.
+    assert.strictEqual(parityDot(stripped.passSchedule.flips), 0, 'the DRAWN q·parity is still 0');
+    assert.strictEqual(scheduleDrove(stripped), true, 'and the drive still matches the draw');
+    const got = admissibleRun(stripped, want);
+    assert.strictEqual(got.ok, false, 'yet the run is refused');
+    assert.ok(
+      got.reasons.every((r) => /^the realised block set|^realised q·/.test(r)),
+      `and ONLY on the realised clauses, got: ${got.reasons.join('; ')}`
+    );
   }
 
   // --- THE BAND'S OWN CONTROLS ------------------------------------------------
@@ -1058,8 +1537,10 @@ function selfTest() {
 
   console.log(`[alloc-pass-position] self-test OK — 12 published blocks, both decompositions, `
     + `the parity tie, the null arm's 38 cells, the floor-free estimator's 3 of 6, `
-    + `${sched12.length} admissible schedules, the band's three synthetic controls, and the `
-    + `fail-closed boundary in both directions all reproduce`);
+    + `${sched12.length} admissible schedules, the band's three synthetic controls, the `
+    + `fail-closed boundary in both directions, the realised labelling on both a fixture and `
+    + `phase 4's own run 1, the declared session partition collapsed and mispartitioned, and `
+    + `both branches of the session verdict all reproduce`);
 }
 
 if (require.main === module) {
@@ -1106,6 +1587,9 @@ module.exports = {
   admissibleRun,
   admissibleCorpus,
   admissibleSchedules,
+  realisedLabelling,
+  carriesWindows,
+  sessionPartition,
   relabel,
   passTerm,
   meanRunTerm,
