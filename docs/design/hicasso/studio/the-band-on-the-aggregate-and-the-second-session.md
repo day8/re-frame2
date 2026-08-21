@@ -415,6 +415,38 @@ eight-run reading all produce **byte-identical** output. Every figure on this
 page is measured on the blob `ccfa3057b3` and reproduces unchanged on the blob
 `eb44f78dc6`.
 
+**THE READER MOVED AFTER RUN 8 TOO, AND THAT CHANGE IS NOT COMMENT-ONLY.**
+`rf2-flxxa` repaired the two defects recorded in the next section, plus a third
+the audit of PR #8634 found afterwards — the boundary carried every declared
+`runs[].session` value through and never compared it against the record, so
+collapsing all eight `box.session.sessionStartedAt` values to a single ID left
+the corpus admitted and OUTCOME 1 computed. That carries
+`alloc_pass_position.cjs` from the blob `787ffde48a` pinned above to the blob
+`2f4f204780f902dcff9f80afe66a2a29c14989d7`.
+
+**The measured pin above is kept and the pre-registration was not amended**,
+which is the same rule phase 3 followed when its rig file moved under it. But
+phase 3's move was prose and this one is executable, so the evidence has to be
+stronger than a filtered diff: the whole control set and both readings were run
+against BOTH blobs and compared line for line.
+
+`--controls`, `--select`, both `--admit` quadruples and **the full eight-run
+reading are byte-identical across the two blobs** — every figure on this page,
+unchanged. Section D's re-adjudication of phase 3 differs in **exactly one line
+and nowhere else**, and that line is the repair: the session verdict now says a
+one-session corpus admits no cross-session comparison, where it used to assert
+that sessions which were never compared did not agree.
+
+Nothing else moved because three of the four repairs are REFUSAL clauses and
+this corpus takes none of them. It realised 96 blocks of a possible 96 with a
+realised `q·parity` of 0 in all eight runs; every record carries its arm
+windows; and the declared A/B partition is the one the records actually took —
+runs 1 to 4 share the session `2026-08-21T01:23:32.428Z` and runs 5 to 8 share
+`2026-08-21T02:41:21.789Z`. A comparison that reports "identical" proves nothing
+until it is shown to bite, so it was: a one-character change to the reference
+percentile in the same eight-run reading moved the null arm's reference p95 from
+2.82 to 2.89 B/boundary, and the identical diff reported it.
+
 ## Two defects found and deliberately NOT repaired
 
 An estimator must not change between a pre-registration and the runs it is read
@@ -432,6 +464,11 @@ on, so both are recorded here and owned by the bead rather than fixed in place.
   with a broken `q·parity` and be admitted. It did not occur — 96 blocks of 96,
   realised `q·parity` 0 in every run, verified in section B — but the check
   belongs in the boundary rather than in a paragraph.
+
+Both are now closed under `rf2-flxxa`, along with the session-partition defect
+the audit of PR #8634 found later. The reader that carries the repairs is the
+blob `2f4f204780`, named in the provenance note above; the figures on this page
+remain the ones measured on the blob `787ffde48a`, and reproduce on both.
 
 ## Reproduction
 
