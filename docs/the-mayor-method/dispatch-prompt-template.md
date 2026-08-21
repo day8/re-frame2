@@ -624,228 +624,144 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 
 ## Quality gates — how a gate is run
 
-Paste this section verbatim too, on the same footing as the boundary block. The gate menu settles *which*
-gate runs; only this settles *how*. **The paste begins at the next paragraph and runs to the end of the
-section** — starting at the first imperative instead drops the paragraphs that scope the block.
+The gate menu settles *which* gate runs; this settles *how*. Scope it to the gate the brief
+names: the wedge paragraph assumes a gate heavy enough that two cannot coexist, and the
+planted-fault paragraphs assume a gate in which a safe, bounded, discriminating fault can be
+planted at a line the worker is already editing. A cheap link validator is *plantable* without
+being *heavyweight* — two different questions. Everything else applies to any dispatch that runs
+anything at all.
 
-**This section is scoped, and the axis is the NOMINATED GATE'S CAPABILITIES — not prose versus code.** Read each
-part against the gate the brief actually names. The wedge-recovery paragraph assumes a *heavyweight* gate, one
-heavy enough that two cannot coexist on the machine; a cheap checker never wedges, and for it that paragraph
-describes nothing. The planted-fault half of the tree-verification rule, the scoped-plant paragraph and the
-restore-hashing cautions assume something far more common: a gate in which a safe, bounded, DISCRIMINATING fault
-can be planted at a line the worker is already editing, proving that the nominated gate reaches the edited
-surface. **Wherever such a plant exists those parts apply and are pasted** — emphatically including the cheap
-validators that run over a documentation edit, which red on a single broken link target and go green again on
-restore. **A cheap prose gate is a *plantable* gate; what it is not is a *heavyweight* one**, and those are two
-different questions.
+**Split a compound gate before you reach for detaching.** A script chaining two phases often
+splits into two runs that each fit inside the harness ceiling, which keeps every verdict in the
+foreground and removes the strand risk rather than managing it. Read what the script runs before
+concluding it cannot be foregrounded.
 
-**That axis is a correction, and the evidence for it came from the dispatch that carried the old one.** An
-earlier version scoped by the shape of the deliverable, calling a documentation correction ungateable, while the
-worker carrying it had already planted a broken link target, watched the validator red on exactly that
-worktree-only fault, restored, and hashed the restore against the committed object. Read literally, that rule
-would have stripped the planted-fault and restore-hash clauses from precisely the brief where they did the work.
+**Where it genuinely does not split, detaching is correct — ending the turn is the defect.**
+Detach, then poll both the log and the exit-code file in a bounded loop *within the same turn*.
+Poll both: the log shows progress, the exit file carries the verdict and appears only once the run
+is over. A worker that ends its turn waiting for a completion notification strands — the
+notification does not always arrive, and a turn that has ended has nothing left to wake. Every
+such worker was recovered intact the moment somebody asked it for a status. Word this as the
+sanctioned path, not as a concession; a worker who thinks it has erred reads for how to atone and
+straight past the instruction that would save it.
 
-**The rest is unconditional for any dispatch that runs anything at all**, and is pasted verbatim whatever the
-deliverable: the detach-and-poll sanction, the never-pipe rule, the capture-your-own-exit-code rule, and the
-artefact-naming rule. A one-line documentation edit still runs a link validator, and all four bite on it.
+**A gate heavy enough that two cannot coexist WEDGES rather than fails** — no progress, no exit
+file, no error, from a run that was healthy a minute ago. This is contention for the MACHINE, so
+per-attempt naming does nothing for it and every same-file rule around it misses it. To recover,
+correlate your own build artefact's modification time against the candidate runs' start times and
+**kill only the one you can show is yours**; a peer's run recovers by itself once memory frees.
 
-**Say what a brief whose gate affords no plant does instead, or that gets improvised too** — the improvisation
-was measured on the *enforcing* side, where five dispatches in one session carried five different lengths of
-this one block, nobody having decided to drop anything. Three cases, and they are not the same. Where NO
-automated gate covers the surface, the wording is settled under *Quality gates — which gate* above. Where a gate
-DOES cover the surface but affords no safe discriminating plant, that gate still runs and the unconditional four
-still bite; what lapses is only the planted-fault route to proving which tree was read, and which route is left
-turns on the gate's *other* capability. If it prints its root, the brief nominates the root-banner route and the
-worker says which one it used. If it prints nothing either, neither route is on offer — silent AND unplantable is
-a real pairing rather than a corner, since many gates print nothing — and the brief says exactly that: no
-discriminating tree-verification route here, or the concrete bounded mechanism the gate does afford in place of
-one. Nominating a route the gate cannot supply is the failure recorded further down, where an earlier rule
-claimed every gate printed a banner and the workers who met it improvised. Point at the settled wording rather
-than restating it, and **scope the block rather than shortening it** — dropping the sanction along with the
-parts that do not apply is the same failure by a shorter road.
+**Read the clock before killing anything on elapsed time.** Ask the system for the time rather
+than inferring it from how much has happened. This fails in both directions — one worker killed a
+healthy run believing seventeen minutes had passed when it had been two, and the loop watching
+from outside reads a worker that has just rebased as stalled.
 
-**But first, check whether the gate is COMPOUND — a script that chains two phases often splits into two runs
-that each fit.** This is strictly better than detaching, because it keeps every verdict in the foreground and
-removes the strand risk rather than managing it. A worker here split a build-and-run script that measured past
-the ceiling and both halves finished well inside it; the same day two workers detached the whole thing instead,
-both died at the cap, and one left a build cache so damaged that the next attempt failed with twenty-two
-cascading errors naming files it had never touched. **Read what the script actually runs before deciding it
-cannot be foregrounded.**
+**Invoke a backgrounded gate by its ABSOLUTE path**, for two independent reasons. A script that
+derives its repository root from its own invocation path gets a relative one back; and an
+interpreter handed a relative script path resolves it against the working directory first, so a
+wrong directory hands it a *sibling worktree's copy*, which then pins faithfully to the sibling's
+root. One run did exactly that inside another live worker's checkout and reported the resulting
+verdict as its own. A complete, internally consistent run about somebody else's work is far harder
+to catch than a broken one.
 
-**Where it genuinely does not split, detaching is CORRECT; ending the turn afterwards is the defect.** Where a
-harness hard-kills a foreground command well below what the full gate needs, "foreground, to completion" is not
-on offer however the brief is worded. Foreground a gate that fits inside the ceiling; **detach one that does
-not, then poll both its log and its exit-code file in a bounded loop, within the same turn.** Poll both, because
-they answer different questions: the log shows progress, while the exit file carries the verdict and appears
-only once the run is actually over.
+**Verify which tree the gate actually read**, by whichever of two routes it affords:
 
-What strands a worker is ending the turn instead, waiting for a completion notification — it does not always
-arrive, and a turn that has ended has nothing left to wake. The worker then reports "standing by" through idle
-tick after idle tick while its branch sits unmoved: four such incidents in a single day, then three more inside
-one hour, every one recovered intact the moment somebody asked it for a status.
+* Where it prints its root, check that line names your worktree. That check, not any naming rule,
+  is what has caught the observed cross-worktree collisions.
+* Where it prints nothing — and many will not — the proof is **the red from a planted fault**.
+  Plant at a line you are already editing and check the failure names what you planted. Do not
+  expect the reported path to name your worktree; a repository-relative path cannot tell two
+  checkouts apart. **The discrimination is the red itself**: the fault exists only in your tree,
+  so a run that had wandered into a sibling's would have come back green.
 
-**Do not word this grudgingly.** Two of that last three *apologised for detaching*, which is exactly why the
-polling instruction had not landed: a worker who believes it has already erred reads for how to atone rather
-than for what to do next, and reads straight past the instruction that would have saved it.
-
-**A gate heavy enough that two cannot coexist WEDGES rather than fails.** Two workers in one wave ran the same
-heavyweight suite concurrently, each holding several gigabytes, and both hung — neither returned, and neither
-reported a failure. Nothing else here catches that: every rule around it protects two workers writing the same
-*file*, and both of these had correct, distinct names throughout. This is contention for the MACHINE, and
-per-attempt naming does nothing for it. Recognise it rather than diagnosing it as a bug in your own change — no
-progress in the log, no exit file, from a run that was healthy a minute ago. To recover, correlate your own
-build artefact's modification time against the start times of the candidate runs, and **kill only the one you
-can show is yours**: a peer's run recovers by itself once memory frees, and killing it costs somebody else a
-full gate.
-
-**Read the clock before you kill anything on elapsed time.** That same worker briefly killed a healthy run
-because it believed seventeen minutes had passed when about two had. Ask the system for the time; do not infer
-it from how much has happened. Elapsed-time and count-based inference about a running process fail the same
-way, and this one runs in both directions — the loop watching from outside hits it too, reading a worker that
-has just rebased as stalled.
-
-**Invoke a backgrounded gate by its ABSOLUTE path.** This holds by two different mechanisms. A script that
-derives its repository root from its own invocation path gets a relative one when the invocation is relative.
-And an interpreter handed a relative script path resolves *that* against the working directory first, so a wrong
-directory hands it a sibling worktree's copy of the script, which then pins faithfully to the sibling's root.
-Either way, a `cd` followed by a relative invocation does not reliably keep that `cd` once backgrounded. One run
-did exactly that inside *another live worker's* checkout: it took that tree as its gate root, its diff root and
-its classifier input, then reported the resulting verdict as its own. **A complete, internally consistent run
-about somebody else's work is far harder to catch than a broken one.**
-
-**Verify which tree a gate actually read, by whichever of two routes it affords.**
-
-* Where a gate prints its root, check that line names your worktree. That check, not any naming rule, is what
-  has actually caught the observed cross-worktree collisions.
-* Where a gate prints nothing — and many will not — the proof is **the red from a planted fault.** Plant it at
-  a line you are already editing, run the gate red, and check the failure names what you planted. Do not expect
-  the reported path to name your worktree; a repository-relative path cannot tell two checkouts apart. **The
-  discrimination is the red itself**: the fault exists only in your tree, so a run that had wandered into a
-  sibling's would have come back green.
+Where a gate affords neither route, say so in the brief — silent and unplantable is a real pairing
+rather than a corner — and name whatever bounded mechanism it does afford instead. Nominating a
+route the gate cannot supply makes workers improvise, and the improvisation varies.
 
 **A green sabotage run is a reason to stop, not to proceed.**
 
-This half is written down because an earlier version of this rule claimed *every* gate printed a root banner,
-which is an instruction a worker on a silent gate cannot satisfy. Two hit it in one day, and one arrived at the
-negative control unprompted — because a worker facing an unsatisfiable rule improvises rather than stops.
+**Never pipe a gate through a filter.** A pipeline's exit status is its *last* command's, so a red
+runner reads green. Redirect to a log, echo the runner's own exit code, and quote that number —
+with the redirect and the echo on **one command line, in one shell**. A separate invocation starts
+a fresh shell whose status is whatever that shell last did, typically the directory change:
+silent, and it yields a plausible zero.
 
-**Never pipe a gate through a filter.** A pipeline's exit status is its *last* command's, so a red runner reads
-green and the change claims a pass it never got. Redirect to a log file, echo the runner's own exit code
-explicitly, and quote that number — with the redirect and the echo on **one command line, in one shell**. A
-separate invocation starts a *fresh* shell whose status is not the gate's but whatever that shell last did,
-typically the directory change: silent, and it yields a plausible zero.
+**Quote the number you captured, never one the harness reports about the same run.** That is a
+different measurement and it disagrees routinely — dozens of times across one fleet, including a
+compile failure, a genuine two-assertion failure and a browser run standing over three real ones.
+**Every disagreement surfaced as exit 0.** More than half were deliberately sabotaged runs, where
+believing the reported zero would have read as "the control does not bite" and inverted the
+conclusion.
 
-**The number you quote is the one you captured** — never one the harness reports about the same run. That is a
-different measurement and it disagrees routinely rather than rarely: at least forty-four times in three days
-across twenty-nine workers, among them a compile failure from an unbalanced parenthesis, a genuine
-two-assertion failure, and a browser run standing over three real ones. **Every one surfaced as exit 0**, and
-every one was caught because the worker quoted the number it had captured. **More than half were *deliberately
-sabotaged* runs**, where believing the reported zero would have read as "the control does not bite" and
-inverted the conclusion. Recount that census when you cite it rather than carrying it forward by adding the
-instances you have just seen, which is how it came to be understated by two thirds.
+**An ABSENT exit-code file is NO VERDICT, not a pass.** It reads as success because the log ends
+with the gate's own output and nothing contradicts it. Any death between the last line and the
+exit does it. **A gate you cannot quote a captured number for has not run** — re-run it, and say
+whether you re-ran the whole gate or one step.
 
-**An ABSENT exit-code file is NO VERDICT — not a pass.** The rules above are about a number that is present and
-wrong; this is about one that was never written, and it reads as success because the log ends with the gate's own
-output and nothing contradicts it. Any death between the last line and the exit does it: a runtime cap killing the
-shell in the final step, an OOM kill, a dropped connection. **A gate you cannot quote a captured number for has not
-run.** Re-run it, and say whether you re-ran the whole gate or one step.
+**A search that returns ZERO is not a check that passed.** A wrong pattern answers "no matches" in
+the same voice as "nothing is wrong"; the recurring instance is a backslash-bearing literal quoted
+so the shell strips them. Match fixed strings as fixed strings, and when a search underwrites a
+claim, run it once against something it should find.
 
-**A search that returns ZERO is not a check that passed.** A wrong *pattern* answers "no matches" in the same voice
-as "nothing is wrong" — the recurring instance is a backslash-bearing literal, quoted so the shell strips them,
-matching none of the files that plainly contained it. Match fixed strings as fixed strings (`grep -F`). When a search
-underwrites a claim, run it once against something it should find.
+**Name every gate artefact for your worktree AND for the attempt**, log and exit file both, in a
+directory version control ignores. A name missing either half fails the gate **open**, and the two
+halves close different holes. The scratch path is keyed to the session, so peers share one
+directory: two workers in one wave wrote the same exit-code filename, and one read a zero a peer
+had left while its own gate was still running. **The worktree suffix cannot close the second
+mechanism, because there both writers are you** — a runtime cap kills the *shell*, what it spawned
+survives holding the same open descriptors, and it writes at its offset while the restart writes
+from zero, so the artefact is spliced rather than clobbered. Measured twice: an `exit 0` sitting
+beside 18 real failures, and an orphan reporting two failures from a run already killed. Expect
+this route more often than the peer collision, since detaching is the sanctioned path and
+kill-and-restart is routine. **And clean the artefacts up: one leftover is enough to make a
+worktree unreapable.**
 
-**Put every gate artefact where version control ignores it, and name each one for your worktree AND for the
-attempt** — the log and the exit-code file both. Neither half is tidiness; a name missing either fails the gate
-**open**.
+**Verify a restore by hashing the bytes, never by reading a diff.** A rewrite that flips line
+endings reads clean having changed every line — and **a patch that never applied reads clean too**,
+because "unchanged" and "not attempted" are the same diff. That second one is the dangerous half:
+a plant that silently no-ops makes the sabotage run come back green, so the worker reports a guard
+that fired when nothing was ever broken. Hash before the plant, compare after the restore. Five
+cautions:
 
-The scratch path is keyed to the session, not the worktree, so every worker in a wave shares one directory. Two
-of six workers in a single wave wrote the same exit-code filename there; one then read a zero a peer's run had
-already left while its own gate was still running, and found its log interleaved by two writers at independent
-offsets, one line beginning mid-word.
+* **Where line endings are translated, use version control's own content hash against the
+  committed object**, not a byte digest of the working file — a checkout during a rebase rewrites
+  the working file after you hashed it, and a false "restore failed" sends the worker off to doubt
+  the sabotage result, which was the deliverable.
+* **Call it a *blob* hash in the words immediately before the token.** A content hash is
+  indistinguishable from a commit id, and a provenance checker classifying each hex token by the
+  nearest description on its left will file it as a citation of a commit that exists nowhere.
+* **Anchor a patch to a single line.** A multi-line anchor can match nothing, with no error and no
+  edit.
+* **An anchor at the end of a line matches nothing where line endings are translated** — a
+  carriage return sits between the text and the line ending. This defeats a single-line anchor as
+  readily as a multi-line one, so the caution above does not cover it. **Read the match count
+  before you run the gate**: zero is unambiguous and free, where the hash convicts a no-op plant
+  only after a whole run has been spent.
+* **A hash proves the SOURCE changed, not that the runtime ever saw it.** One plant applied
+  genuinely — the hashes differed — but the file was not in the build's module graph, so the
+  watcher served the pre-plant compile and the witness came back green. A green sabotage run is
+  evidence only once both halves hold: the hash for the source, and positive evidence the runtime
+  observed the plant.
 
-**The worktree suffix cannot close the second mechanism, because there both writers are the same worktree.** A
-process the harness could not kill goes on writing to an inherited descriptor after its replacement has started:
-the runtime cap kills the *shell*, and what that shell spawned survives holding the same open log and exit file.
-It writes at *its* offset while the restart writes from zero, so the artefact is not cleanly clobbered but spliced.
-Measured twice independently: one worker was left with `exit 0` sitting beside 18 real failures; another found an
-orphaned test process reporting two failures from a run that had already been killed. The worktree suffix was
-present and correct in both and made no difference to either.
+**Scope a plant to the suite under test.** Where the runner executes a whole lane in one block
+without catching exceptions, a plant that crashes any namespace stops every namespace after it and
+the log still looks plausible. Compare namespace and assertion counts against a control run.
 
-**Expect this route more often than the peer collision, not less**, because detaching a long gate is the sanctioned
-path, so kill-and-restart is routine rather than exceptional. A fresh number per attempt sends the orphan's write
-somewhere you will never quote. It is belt to the capture rule's braces rather than a replacement for it — the
-second worker above was saved by quoting its own shell's captured code instead of the log.
+**Re-run the gates on the final base after every rebase.** A pre-rebase green is evidence about a
+tree that no longer exists, and nothing warns you: the rebase reports success and the old log still
+says exit 0. One worker rebased four times past eleven landings, and re-running changed the
+artefact rather than reconfirming it — fixes for three of its own findings had merged in the
+interval, so the record it was about to publish carried a count false of the trunk.
 
-**One leftover artefact is enough to make a worktree unreapable.** Nine accumulated exactly that way before anyone
-worked out why they would not remove. The cheapest fix is to not create the residue.
-
-**Verify a restore by hashing the bytes, never by reading a diff.** A brief that proves a guard is *exact* rather
-than merely present tells the worker to plant a fault, run the gate, then restore — and a diff misreads that restore
-two ways. A rewrite that flips line endings reads clean having changed every line; and **a patch that never applied
-reads clean too**, because "unchanged" and "not attempted" are the same diff. The second is the dangerous one: a
-plant that silently no-ops makes the sabotage run come back green, so the worker reports a guard that fired when
-nothing was ever broken — a false proof of a real guard, which is worse than no proof.
-
-Hash the file before the plant and compare after the restore. Five cautions:
-
-* **On a checkout whose line endings are translated, use version control's own content hash against the committed
-  object, not a plain byte digest of the working file.** A checkout during a rebase can rewrite the working file
-  after you hashed it, so a plain digest reports a *correct* restore as failed. A false "restore failed" is not
-  merely noise: the worker's next move is to doubt the whole sabotage result, and the sabotage result is the
-  deliverable.
-* **When you write that hash down, call it a *blob* hash in the words immediately before the token.** A content
-  hash is forty hex characters, indistinguishable from a commit id, and the prose carrying it is commit-flavoured
-  by construction — "identical before the plant and after it, against the committed object". A provenance checker
-  that classifies each hex token by the *nearest* description on its left reads "committed", files the token as a
-  citation of a commit that exists nowhere, and reds a gate over the one sentence in the record that describes its
-  own evidence. "The identical blob hash `<token>`" costs a word and settles it; the correct word further left
-  loses to whatever sits closer.
-* **Anchor a patch to a single line.** One worker's multi-line anchor matched nothing, with no error and no edit,
-  and only the hash caught it.
-* **A pattern anchored at the end of a line matches nothing where line endings are translated** — a carriage
-  return sits between the text and the line ending, so the anchor never reaches the text. This defeats a
-  single-line anchor exactly as readily as a multi-line one, so the caution above does not cover it. And the
-  detector here is cheaper and earlier than the hash: **read the match count before you run the gate.** Zero is
-  unambiguous and free, where the hash convicts a no-op plant only after a whole gate run has been spent, and
-  convicts it as a signal the worker still has to interpret.
-* **A hash proves the SOURCE changed, not that the runtime ever saw it.** One worker planted a one-line fault and
-  its live witness came back green. The hashes differed, so the plant had genuinely applied and the rule above
-  reported success — but the file was not in the host build's module graph, so the watcher never noticed the edit
-  and served the pre-plant compile. Restarting the build produced the red at once. So **a green sabotage run is
-  evidence only once both halves hold**: the hash for the source, and positive evidence the runtime observed the
-  plant. Read without that second half, the green says *my witness proves nothing*, and the worker's next move is
-  to tune the witness until it reds against a fault that was never being compiled — a conclusion about the wrong
-  artefact altogether. The hash deepens this trap rather than closing it, because it is genuine evidence for a
-  narrower claim than the worker needs.
-
-**Scope a plant to the suite under test.** If the runner executes the whole lane in one block without catching
-exceptions, a plant that crashes any namespace stops every namespace after it — and the log still looks plausible.
-One worker's unconditional plant aborted partway and the suite it was trying to prove never ran. Compare namespace
-and assertion counts against a control run.
-
-**Re-run the gates on the final base after every rebase.** A pre-rebase green is evidence about a tree that no longer
-exists, and under a saturated wave the trunk moves under a worker routinely. Nothing warns you: the rebase reports
-success, and the old log still says exit 0. One worker rebased four times past eleven landings, and re-running the
-gates on the final base *changed the artefact* rather than merely reconfirming it — fixes for three of its own five
-findings had merged in the interval, so the governance record it was about to publish carried a membership count
-**false of the trunk**. A false count in a record like that is not caught later; it is cited later.
-
-**Diff your branch against its MERGE BASE before you push, and read that diff for what you would REVERT.** Not for
-conflicts — version control reports those itself, and a clean rebase is exactly the case this rule is for. The
-question the diff answers is whether your push undoes something a sibling landed while you worked, which nothing will
-raise and no gate covers: a revert of a merged change is well-formed, it compiles, and it passes every check the tree
-has. In a shared document, a stale copy of one region reapplies as a silent deletion of everything that landed in it
-since. One worker's first push would have reverted a concurrent rewrite of a shared ledger; it caught that by reading
-the diff before reporting, and by nothing else.
-
-**The base is half that instruction, and the wrong base defeats it.** Compare against the point your branch left the
-trunk, never against the trunk's current tip. A tip comparison also carries everything the *trunk* gained while you
-worked, which is not what this step asks: it buries the one hunk that matters under siblings' unrelated work, and it
-degrades worst exactly when the trunk has moved most — which is when this read is most needed. One worker, following
-a tip-shaped wording, read several hundred kilobytes of content none of which was its own. In the dominant toolchain
-the merge-base comparison is the three-dot form, `<TRUNK>...HEAD`; plain `<TRUNK>` is the two-dot one that produced
-that noise.
+**Diff your branch against its MERGE BASE before you push, and read that diff for what you would
+REVERT.** Not for conflicts — version control reports those, and a clean rebase is exactly the case
+this rule is for. The question is whether your push undoes something a sibling landed while you
+worked, which no gate covers: a revert of a merged change is well-formed, compiles, and passes
+every check the tree has. In a shared document, a stale copy of one region reapplies as a silent
+deletion of everything that landed in it since. **The base is half the instruction** — compare
+against the point your branch left the trunk, never the trunk's current tip, which buries the one
+hunk that matters under siblings' unrelated work and degrades worst exactly when the trunk has
+moved most. In the dominant toolchain that is the three-dot form, `<TRUNK>...HEAD`.
 
 ---
 
