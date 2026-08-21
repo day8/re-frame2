@@ -560,6 +560,15 @@ the ready view, not what you remember filing. On each one order the material by 
 own timestamps rather than by position, and re-enumerate any children; *Dispatch* above
 explains why.
 
+**And every note you leave here becomes the NEWEST text on that item.** The currency rules are
+written for the reader, and reader and writer are not symmetric: a reader can walk past a stale note
+that sits below newer text, but nothing defends against a stale note that IS the newest text — a
+newest-first walk lands on it and stops. So a note built by re-deriving an item's state from its
+DESCRIPTION, rather than from the notes that already overtook it, is newer by timestamp and older in
+substance, and it buries the true state under your own signature. **The tell is mechanical: a note
+repeating a figure some later note retracted is a note that re-derived instead of re-checking.**
+Cite the check you made, or say plainly that you are summarising and from what.
+
 Four things surface here and nowhere else.
 
 **A fence that has cleared.** The dispatch tick records the fence on the item and moves on,
@@ -662,6 +671,13 @@ and both readings went wrong in a single day here, in opposite directions.
    READING touches nothing**: twice in one day a worker grepping its own gate log was called stranded
    on twenty-three minutes of no writes.
 
+   **That clock says "no activity" in three voices and you can only tell them apart with a control.**
+   Besides the reading worker, a path that resolves to nothing answers identically — and so does a
+   span shorter than the worktree's own age, where every file is recent and the count is the
+   checkout rather than the worker. That last one is the counter-intuitive half, because it returns a
+   large number that reads as proof of life: measured once at *the same count* over fifteen minutes
+   and over six hours. Run the clock twice at different spans before believing either reading.
+
    **The most convincing false signature is on none of the discredited lists: a change fully green at
    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
    as a worker that finished and forgot to publish — a real state, and the one step 2 exists to catch
@@ -721,6 +737,13 @@ a coherent change.
 ---
 
 ## 5. Hygiene
+
+**A measurement window makes this whole loop unsafe, and this is the only loop where that is not
+obvious.** Removing a worktree changes the worktree list, which a window registering an
+exclusivity condition captures at both of its brackets — so a reap during one is recorded as a
+violation and can cost the window its runs. The dispatch loop states the condition; nothing carries
+it here, and hygiene is the loop that performs the measured action. Hold the whole loop until the
+window reports. Nothing in it is urgent.
 
 ### Reaping
 
