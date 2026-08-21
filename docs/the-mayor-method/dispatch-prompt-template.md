@@ -533,19 +533,28 @@ superseded instructions.
 BUT ORDER IT BY THE TRACKER'S TIMESTAMPS, NOT BY POSITION AND NOT BY DATES IN THE
 PROSE. The bottom of the output is NOT reliably the newest text — audit notes often
 append into the DESCRIPTION block while dated comments render after it, so the last
-lines on screen can be older than material higher up. `bd show <id> | tail` is not a
-read-the-newest method. Neither is grepping the text for dates: a date in the prose is
-CONTENT, not a mutation time, so an undated scope correction is invisible to it and an
-edited description can be the newest field on the bead. Use `bd history <id>`, which
-lists real mutation times newest-first, and `bd comments <id> --json` for comment
-`created_at`. THE PLAIN LISTING TELLS YOU A NEWER MUTATION EXISTS, NOT WHAT IT SAYS —
-it names no changed field, so for the change itself use `bd history <id> --json`, which
-carries a full snapshot per commit. WALK ADJACENT PAIRS NEWEST-FIRST UNTIL THE FIRST
-CHANGE TO A TEXT-BEARING FIELD (description, notes, acceptance, design): the history
-holds duplicate checkpoint snapshots and status-only mutations, so the newest pair alone
-can truthfully say nothing changed while a live instruction change sits behind it. If
-the bead has children, re-enumerate them too: a ruling is sometimes recorded as a NEW
-CHILD BEAD rather than as a note.
+lines on screen can be older than material higher up. Neither `bd show <id> | tail` nor
+a HEAD slice of the notes section is a read-the-newest method. Nor is grepping the text
+for dates: a date in the prose is CONTENT, not a mutation time, so an undated scope
+correction is invisible to it and an edited description can be the newest field on the
+bead. Use `bd history <id>`, which lists real mutation times newest-first, and
+`bd comments <id> --json` for comment `created_at`. THE PLAIN LISTING TELLS YOU A NEWER
+MUTATION EXISTS, NOT WHAT IT SAYS — it names no changed field, so for the change itself
+use `bd history <id> --json`, which carries a full snapshot per commit. WALK ADJACENT
+PAIRS NEWEST-FIRST UNTIL THE FIRST CHANGE TO A TEXT-BEARING FIELD (description, notes,
+acceptance, design): the history holds duplicate checkpoint snapshots and status-only
+mutations, so the newest pair alone can truthfully say nothing changed while a live
+instruction change sits behind it. If the bead has children, re-enumerate them too: a
+ruling is sometimes recorded as a NEW CHILD BEAD rather than as a note.
+
+TIMESTAMP ORDER DOES NOT ESTABLISH CURRENCY, so a perfect walk can still hand you
+superseded text: the newest note by mutation time can be a faithful re-derivation of a
+list an OLDER note already ruled stale. Where a note QUOTES or SUMMARISES another rather
+than citing a check it made itself, look for an intervening note that overtook it —
+prefer "verified at source at <tip>" over "from its own note on PR #NNNN". AND THE
+CHEAPEST GUARD IS THE TREE, NOT THE ITEM: before you brief or build X, check whether X
+ALREADY EXISTS AT TIP — one directory listing would have ended the dispatch that
+produced this rule.
 
 Where the item and this brief disagree, the ITEM governs — follow it, and say in your
 report what differed.
