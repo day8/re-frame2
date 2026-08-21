@@ -97,6 +97,26 @@
   reads* and nothing sharper. See
   [§2.9.7](../../../../../../../docs/design/hicasso/product/topology-tournament.md#297-the-floor-row-and-the-thing-it-turned-out-not-to-be).
 
+  **[2026-08-22.] A second series, taken under the exclusivity condition
+  the merged-PR audit of #8466 asked for, CONFIRMS the falsification and
+  RETIRES the `about 4x`.** Read the two apart, because only one of them
+  replicated. The claim did, in all six of its readings — the floor is
+  arm-specific and always larger on the arm with more boundaries and
+  reads — and at the two smaller row counts its factors land on top of
+  the series above, 2.15x / 2.12x at `B = 100` and 3.19x / 3.00x at
+  `B = 300`. **The factor at `B = 1000` did not**: 3.54x and 3.35x, on
+  cells that both read higher (`fine` 35.75 / 39.85 against `coarse`
+  10.10 / 11.90). So `about 4x` describes the series above rather than
+  this instrument, and the sentence this file is entitled to is the one
+  it already narrows itself to. What the second series adds is that **the
+  factor grows with `B`** — near 2.1x, 3.0x and 3.4x at the three row
+  counts — which no single row count could have shown.
+
+  **The figures above are NOT replaced**, and this note is why rather
+  than an omission: that series is two admissible runs against a
+  pre-registered three, so it is a record and not a window. See
+  [Part 3](../../../../../../../docs/design/hicasso/product/topology-tournament.md#part-3--the-re-take-rf2-w01c-the-exclusive-window).
+
   The sentence above — that a reader handed an arm-to-arm ratio without
   the floor cannot tell a topology result from a floor — is
   **STRENGTHENED** by that and not weakened: a floor that is itself
