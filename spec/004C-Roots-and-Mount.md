@@ -666,7 +666,8 @@ carried at S1, recorded as history and never as a surface to build on.
 
 A runtime-assembled vector was the same compile error as at `mount` (§3). In both
 forms, `{:sub-overrides {query value}}` combined freely — the explicit JVM
-override door ([006 §The static override handle](006-ReactiveSubstrate.md#the-static-override-handle)),
+override door (006 §The static override handle, a subsection of the internal
+observation port, retired with it on 2026-08-21 — rf2-63t1i),
 with `:owned? false` honesty unchanged. Registrations came from the loaded namespaces;
 `ui.test` had no frame constructor, so a caller minted one with `rf/make-frame`
 ([002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),

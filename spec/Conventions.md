@@ -1725,20 +1725,6 @@ Each per-feature artefact is **independent**. Core MUST NOT transitively `:requi
 
 The independence rule applies to the per-adapter tier too: adapters depend on core; core never depends on an adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
 
-### Internal cross-artefact seams
-
-A narrow companion to the independence rule: an **internal seam** is a core-shipped namespace a named sibling artefact consumes by direct `:require` — neither public API nor an optional-capability hook. There is currently one such seam: **`re-frame.substrate.observation`**, the six-operation observation port (normative home: [Spec 006 §The internal observation port](006-ReactiveSubstrate.md#the-internal-observation-port-adapter-internal)). It ships inside `day8/re-frame2` (core), and the consumer the category is written for is a re-frame-native view runtime in a sibling artefact.
-
-**No shipped namespace requires the port today, and whether one should is open (rf2-63t1i).** The port's original requirers were `re-frame.ui` and `re-frame.freehand`, and both requires went when those artefacts were retired. `day8/re-frame2-hicasso` is the sibling the role was expected to fall to, but its collector reaches the same core sub-machinery the port itself uses (`re-frame.subs/compute-sub-with-memo`) rather than reaching through the port — a peer consumer of that core seam, not a consumer of this one. Every surviving `:require` of `re-frame.substrate.observation` is a test namespace. Until that is settled, read the posture below as the terms this category imposes on a consumer rather than as a description of a live edge.
-
-The packaging posture, pinned:
-
-- **Not public API.** The namespace is not re-exported from `re-frame.core`, is not an entry in the Spec 006 adapter contract (the 11-key adapter spec map stays closed for v1), and adds no feature predicate — a consumer cannot branch on the port's presence because the port is not consumable. Third-party consumption is unsupported by construction.
-- **Not late-bind.** A consumer reaches the seam by direct `:require` (the allowed dependency direction: consumer artefact → core). The late-bind hook registry exists for optional capabilities reached from the always-loaded facade; the port is reached from no facade surface and is not optional for the runtimes that reach it, so it mints no hook keys.
-- **Lockstep-versioned, ABI-guarded.** No consumer is ever resolved independently of the core it reads: `day8/re-frame2-hicasso` ships on core's lockstep release train. The port may therefore change shape between releases without deprecation ceremony. Skew is a boot error, never undefined behaviour: the namespace exports an integer `port-abi-version`, and a consumer records the version it compiled against and asserts it at load, failing loudly with `:rf.error/observation-port-version-mismatch` (catalogued per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
-
-The seam category is deliberately exceptional: absent a ruled exception of this shape, cross-artefact plumbing stays on the late-bind registry per the independence rule above.
-
 ### Optional-artefact wrapper convention
 
 <a id="facade-re-export-artefact-require"></a>
