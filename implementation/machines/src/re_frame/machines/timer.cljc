@@ -663,9 +663,11 @@
                     ;; dynamic-delay subscription is not actually wired up.
                     (try
                       ;; ACTIVATE, then watch — the order is the whole fix for
-                      ;; rf2-wmpte, and it mirrors
-                      ;; `re-frame.substrate.observation/build-node-handle!`
-                      ;; (rf2-8cnxg / rf2-jt8vz).
+                      ;; rf2-wmpte. It first landed in the internal observation
+                      ;; port's `build-node-handle!` (rf2-8cnxg / rf2-jt8vz);
+                      ;; that port was retired on 2026-08-21 (rf2-63t1i), so
+                      ;; the rule now lives at each of its call sites rather
+                      ;; than in one canonical statement.
                       ;;
                       ;; `resolve-delay-ms`'s "subscribe to keep the reaction
                       ;; live" is FALSE on the ratom family, and silently so. A

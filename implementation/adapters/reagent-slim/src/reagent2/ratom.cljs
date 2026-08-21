@@ -491,9 +491,9 @@
   never called, and `_queued-run` requires `(some? watching)`, so `flush!`
   moves nothing either. A reader that only ever `add-watch`es (never derefs
   inside a reactive context) consequently holds a watch that CANNOT fire —
-  which is exactly what a compiled ViewCell does through re-frame's
-  observation port. A component render normally supplies the capture; a
-  ViewCell is not a component, so it asks for it here.
+  which is exactly what a re-frame-native view cell does. A component render
+  normally supplies the capture; a view cell is not a component, so it asks
+  for it here.
 
   Idempotent: a Reaction whose `watching` is already populated is on the
   push path and is left alone rather than recomputed. Total: a no-op on

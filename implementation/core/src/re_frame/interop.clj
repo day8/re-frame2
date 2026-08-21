@@ -125,7 +125,7 @@
   "The JVM twin of the CLJS hook-routed op (rf2-8cnxg / rf2-jt8vz). There is
   no substrate here and no tracking graph: the JVM `Reaction` recomputes `f`
   on EVERY deref and has no source-capture step to perform, so there is
-  nothing to activate. Present so the CLJC observation port can call it
+  nothing to activate. Present so a CLJC caller can invoke it
   unconditionally rather than reader-conditionalising the call site."
   [_derived]
   nil)
