@@ -866,6 +866,48 @@ settle `U1` are
 and [§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
 carries the summary. No threshold was guessed and no band was widened.
 
+**[Window taken 2026-08-22, `rf2-9wmqd`, on a drained fleet. NO ROW MOVES, and
+that was declared before the runner was invoked once.]** The paragraph two above
+is a true record of what the echo driver did not serve and is no longer a true
+statement about the instruments: `slice_broad_clock_app.cljs` and
+`slice_donor_views.cljs` landed under this bead in PRs #8599 and #8606, so `U3`,
+`C3` and `C4` have arms on the governed population. This window read them. **The
+blocker on all three has therefore changed in kind, and in three different ways
+that a single `UNPINNED` cell cannot distinguish** —
+[the window's own page](../../../docs/design/hicasso/studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md)
+carries the record, the pre-registration and the arithmetic.
+
+- **`U3` is held by a RULING, not by an instrument.** Its numeric limb meets by
+  `5.2x`: the worst single window of the 360 measured across both broad
+  operations and all three runs is `19.3 ms` against `100 ms` at `p95`, decided
+  by the sample maximum rather than by an estimator. What is not decided is
+  whether a line stated over *broad application operations* is settled by the
+  **synchronous** class alone. Two of the three operations the sibling driver
+  glosses the row with — a route change, a save reply — end at
+  `router/dispatch!`, the async door, so a window that stops at the first paint
+  after the click stops **before the operation has begun**, and no paint-bounded
+  window can bracket them. Reaching them is a drain-bounded driver, and it is
+  not built.
+- **`C3` and `C4` are held by the POPULATION, and the slice's feed page is now
+  measured to be too small for them.** The pre-registered resolution gate —
+  `:over-floor`'s `:straddles-1?` on each measured arm — refused the theme pair
+  outright, `:donor-theme` failing to separate from an empty frame in two runs
+  of three. The locale pair cleared it and read `1.00x`, straddling `1.0` in
+  every run. But the window is `~96%` frame grid, so on this run's own `p50`s a
+  `1.25x` difference in the arms' own work would displace the ratio by
+  `0.3`–`1.1` percentage points against a per-round spread of `1.5`–`7.5`
+  points, and a `1.5x` difference by `0.6`–`2.2` points. **The observed `1.00x`
+  is therefore consistent with `1.00x`, `1.25x` and `1.5x` alike**, which is the
+  driver's own predicted conclusion — *`C3` needs a broader population than the
+  slice's feed page* — now carrying a number instead of a possibility. `C3` is
+  additionally held by *best relevant adapter*, which one donor cannot settle.
+- **`U4` is unchanged and is not this bead's**, for the reason the paragraph
+  above gives: the slice publishes no drag and no animation. Its driver was
+  filed and landed as `rf2-xc0bw` on the ledger witness.
+
+No threshold was guessed, no band was widened, no gate was built and no
+instrument was edited.
+
 ### The §6 user-visible budgets
 
 Transcribed with their estimands. All are P-DEV-1-only and all inherit §1's
@@ -893,6 +935,13 @@ states the corrected condition.
 window that subsection's last amendment records; `U1`, `U3` and `U4` are not,
 and each is held by something different — `U1` by an unruled reading of its own
 unit, `U3` and `U4` by arms no driver carries.
+**[Corrected the same day, `rf2-9wmqd`, and the correction is to `U3` alone.]**
+`U3` **does** have arms: `slice_broad_clock_app.cljs` carries a locale switch
+and a theme switch on the slice's feed page with a UIx donor beside each, and
+the window above them has now been taken. What holds `U3` is a **ruling** —
+whether the synchronous class of broad operation decides a line stated over all
+of them, when the async-door class cannot be bracketed by a paint-bounded window
+at all. `U4`'s half of the sentence stands.
 
 **`U5`'s estimand carries two counters as of 2026-08-14 (`rf2-mwr2`), and its
 line is unchanged.** Registered on bodies alone it read `PASS` on a coarse
@@ -1688,6 +1737,24 @@ or `C5` changes with it.
   the literal and the floor-relative readings of *within one 60 Hz frame*
   disagree and choosing between them is a ruling rather than a worker's edit.
   `U3`, `U4`, `C3` and `C4` are untouched by any of it.
+  **[Window taken 2026-08-22, `rf2-9wmqd`. `U3`, `C3` and `C4` keep `UNPINNED`;
+  what each is waiting on CHANGES.]** That window read the slice's broad
+  operations on the driver and donor this bead landed, and no cell moved —
+  which was declared before the runner was invoked once, not decided
+  afterwards. `U3` is no longer waiting on an instrument but on **one sentence
+  from the operator**: its numeric limb meets by `5.2x` on the synchronous
+  class, and what is undecided is whether a line stated over *broad application
+  operations* is settled by that class when the async-door class — a route
+  change, a save reply — cannot be bracketed by a paint-bounded window at all.
+  `C3` and `C4` are waiting on a **broader population**, which is measured
+  rather than supposed: the window is `~96%` frame grid, so a `1.25x` difference
+  in the arms' own work would move the published ratio by `0.3`–`1.1` percentage
+  points against a per-round spread of `1.5`–`7.5`, and the resolution gate
+  refused the theme pair outright. `C3` also still wants a second donor, since
+  one adapter cannot settle *best*. `U4` is untouched and is `rf2-xc0bw`'s.
+  [The window's own page](../../../docs/design/hicasso/studio/the-u3-c3-c4-window-on-the-slice-broad-clock.md)
+  carries the record; [§4 carries the same finding from the instrument side](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+  rather than a second copy of it here.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
