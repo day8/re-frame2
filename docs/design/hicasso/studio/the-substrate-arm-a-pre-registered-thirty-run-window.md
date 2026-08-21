@@ -183,30 +183,111 @@ records by:
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
 ```
 
-and this window alone is read by naming its records:
+That report prints, for each of the three readings and both bands, the cell
+census, the run-level census, the unpaired Fisher comparisons **and** the
+`EXACT PAIRED (McNemar / sign)` table this page's primary contrast is tested
+with. The paired table and its `p` are pinned in the reader's `--self-test`.
+
+This window alone is read by naming its records:
 
 ```bash
 node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs \
   implementation/hicasso/test/re_frame/bench/hicasso/data/revorder-csca8/*.json
 ```
 
-## The answer, first
+## The answer, first — and the retraction that followed it
 
-**The SUBSTRATE is a carrier. The pre-registered primary contrast separates, and
-the first of the three declared outcomes is the one that happened.**
+> **RETRACTED 2026-08-21, by the merged-PR audit of #8619 (`rf2-csca8`).** This
+> section originally opened *"The SUBSTRATE is a carrier. The pre-registered
+> primary contrast separates."* **It does not separate under a test that respects
+> its own pairing.** Every count below is unchanged and every one of them is
+> still what the records say; what is withdrawn is the inference drawn from them.
+> **This window shows the DIRECTION the first declared outcome named. It does not
+> resolve the substrate arm standing alone.**
 
-Inside `fixed-reversed`, with the mode held constant and both cells drawn from
-the same ten runs, `uix-subs` at position 0 reads **8 of 136** and `reagent-subs`
-at position 1 reads **0 of 161** — Fisher two-sided **p = 0.0017** at the
-1,050 – 1,224 B band. At **run level**, the denominator this page treats as the
-honest one, that is **5 of 10 runs against 0 of 10, p = 0.0325**. Pooled with the
-fifteen-run window's five reversed runs it is **6 of 15 against 0 of 15,
-p = 0.0169**.
+**The direction.** Inside `fixed-reversed`, with the mode held constant and both
+cells drawn from the same ten runs, `uix-subs` at position 0 reads **8 of 136**
+and `reagent-subs` at position 1 reads **0 of 161** at the 1,050 – 1,224 B band.
+At **run level**, the denominator this page treats as the honest one, that is
+**5 of 10 runs against 0 of 10**.
 
-**The substrate moved position and the cluster went with it.** Position, mode,
-session, revision, box and the level the run settled at are all held constant by
-construction here rather than by matching, because the two cells are the two arms
-of the same runs.
+**The substrate moved position and the cluster went with it.** What the shared
+run holds constant is every **per-run** term: the mode, the session, the
+revision, the box that minute, and the level the run settled at.
+
+**POSITION IS NOT ONE OF THEM, and this page said it was.** The contrast compares
+`uix-subs` at position **0** with `reagent-subs` at position **1** — that is how
+a round is driven, and moving `uix-subs` to position 0 is the entire purpose of
+the reversed arm. So position is **deliberately changed** across the two cells,
+not held fixed. The broader crossover evidence may still distinguish position —
+the POSITION rows and the `parity` alternation are where it is tested — but this
+primary contrast alone cannot be described as holding it constant.
+
+### The primary contrast is PAIRED, and it was first tested as though it were not
+
+The two cells are the two arms of **the same ten runs**. That is exactly what
+makes this the primary contrast rather than a matched one — and it means the
+run-level census is **ten pairs**, not two independent samples of ten. The
+originally published run-level `p = 0.0325` came from `fisherExactTwoSided(5, 5,
+0, 10)`, an **independent-sample** test, which discards the pairing at the one
+step the whole design exists to supply.
+
+Read as pairs, at the 1,050 – 1,224 B band, over this window's own thirty
+records:
+
+| Reading | pairs | both | `uix` only | `reagent` only | neither | discordant | exact two-sided paired `p` |
+|---|---|---|---|---|---|---|---|
+| **`any-leg`** — this window's pre-registered reading | 10 | 0 | **5** | 0 | 5 | 5 | **0.0625** |
+| `signed-furthest` — the earlier pre-registered maximum | 10 | 0 | 3 | 0 | 7 | 3 | 0.25 |
+
+Five discordant pairs, all falling the same way. The exact two-sided result is
+**2 / 2⁵ = 0.0625** — the McNemar exact test, equivalently the sign test, and
+arithmetic a reader can check without running anything. **Concordant pairs carry
+no information about which cell carries the term and are discarded**, which is
+what makes this a statement about ten paired runs rather than about 297 windows.
+
+**The window-level `p = 0.0017` cannot stand in for it.** That figure counts each
+window as an independent trial, and this page says in three separate places that
+they are not; borrowing it to rescue a run-level claim would be using the bound
+this page publishes as though it were not there.
+
+**The pooled figure is withdrawn too, and for a second and simpler reason.** This
+section originally read *"Pooled with the fifteen-run window's five reversed runs
+it is 6 of 15 against 0 of 15, p = 0.0169."* **That count does not reproduce
+under any reading and either band.** The fifteen-run window carries a
+`reagent-subs` run-hit of its own — the run-level census reads its reversed
+`reagent` cell as 1 of 5 under all three readings — so the pooled `reagent` arm
+is **1 of 15** and never 0. Read as pairs the pooled fifteen are 1 both, 8 `uix`
+only, 0 `reagent` only, 6 neither: eight discordant pairs, paired `p` = 0.0078.
+**And it would not be confirmatory even so.** Those five older records **informed
+the selection of `any-leg`**, which this page's own pre-registration labels
+POST-HOC over every record predating this window. A post-hoc population cannot
+convert a pre-registered window into confirmatory evidence, and pooling it in was
+the wrong move whatever the arithmetic came to.
+
+### What that leaves standing, stated exactly
+
+- **The direction is as the first declared outcome named**, and the `reagent`
+  cell is empty in all 161 of its windows and all ten of its runs.
+- **The pre-registered primary does not reach a conventional two-sided level
+  under the exact paired test**: `p` = 0.0625.
+- **No decision threshold was pre-registered**, so "does not reach 0.05" is
+  itself a convention applied after the fact, and is stated here as such rather
+  than dressed as the window's own rule.
+- **The substrate arm is therefore NOT resolved by this window standing alone**,
+  and the page's earlier claim that it was is withdrawn above.
+
+**No one-sided test is offered here, and offering one would be the same mistake
+in a new place.** The pre-registration named the within-run contrast but no
+paired test, no sidedness and no decision threshold; the only sidedness fixed in
+advance is the one the reader committed alongside it computes, and every
+comparison in that reader is two-sided. Declaring a direction **after** seeing
+which way the five discordant pairs fell would halve the `p` by choosing the test
+once the answer was known — the exact thing pre-registration exists to prevent,
+and the exact mistake the masking episode above already cost this record once. If
+a one-sided test is defensible it is a decision for a **future** window's
+pre-registration, argued on the record before its runner is invoked, and never a
+retrofit onto this one.
 
 ### And the statistic is what had been blocking it — this window shows that on its own records
 
@@ -214,14 +295,33 @@ The fifteen-run window said the substrate arm was blocked by a **defect in the
 statistic rather than a shortage of runs**. That is now measured rather than
 argued, on one set of thirty records read two ways:
 
-| Reading, at the 1,050 – 1,224 B band | CARRIER contrast | p |
-|---|---|---|
-| `signed-furthest` — the earlier pre-registered worst-leg maximum | 3 of 136 vs 0 of 161 | 0.0949 |
-| `any-leg` — this window's pre-registered masking-free reading | 8 of 136 vs 0 of 161 | **0.0017** |
+| Reading, at the 1,050 – 1,224 B band | CARRIER contrast, windows | unpaired `p` | CARRIER contrast, pairs | paired `p` |
+|---|---|---|---|---|
+| `signed-furthest` — the earlier pre-registered worst-leg maximum | 3 of 136 vs 0 of 161 | 0.0949 | 3 discordant of 10 | 0.25 |
+| `any-leg` — this window's pre-registered masking-free reading | 8 of 136 vs 0 of 161 | **0.0017** | 5 discordant of 10 | **0.0625** |
 
-**At double the reversed-arm n the old statistic still cannot resolve the
-question, and the new one resolves it on the same data.** More runs would not
-have fixed this; the reading had to change, and it had to change before the runs.
+**Both readings are kept, and neither is discarded for the other.** The
+masking-free reading finds more than twice the windows and nearly twice the
+discordant pairs on the same records, which is what says the masking was real and
+that the reading did have to change before the runs.
+
+> **RETRACTED 2026-08-21.** This paragraph originally read *"At double the
+> reversed-arm n the old statistic still cannot resolve the question, and the new
+> one resolves it on the same data. More runs would not have fixed this."* **The
+> second sentence is withdrawn.** `3 of 136` against `0 of 161` at n = 10
+> establishes that **this** window did not resolve the question, not that a
+> persistent nonzero rate never could at a larger n.
+
+**This window's own records show why.** With `b` discordant pairs all falling one
+way, the smallest attainable two-sided paired `p` is `2 / 2^b`: five discordant
+pairs cannot go below 0.0625 however clean they are, six reach 0.03125, nine
+reach 0.0039. That is a fact about the design, not about the data — and the same
+ten runs' **`fixed` arm**, tested with the same exact paired test at the same
+band, reaches **`p` = 0.0039 on nine discordant pairs**. A paired exact test
+resolves perfectly well at ten pairs when the discordance rate is high enough.
+What the reversed cell bought was five discordant pairs. **So what the reading
+fixed was the masking; what n bought was the number of discordant pairs, and n is
+not shown to be irrelevant to it.**
 
 The masking is visible as a rate. Of the windows carrying an in-band leg, the
 share where that leg **is** the window's worst runs at **79%** in
@@ -233,17 +333,24 @@ window measured the same asymmetry as 80% against 20%.
 
 - **POSITION stays refuted, now at higher n and under the masking-free reading.**
   With `reagent-subs` in the second-driven slot, that slot carries nothing:
-  **28 of 143 against 0 of 161**, p = 1.43e-10, and 10 of 10 runs against 1 of 10
-  at run level.
+  **28 of 143 against 0 of 161**, p = 1.43e-10, and **10 of 10 runs against 0 of
+  10** at run level. *(Corrected 2026-08-21: this line originally read "1 of 10".
+  No cell of this window reads 1 of 10 in that contrast under either band — the
+  `fixed-reversed` `reagent-subs` pos1 cell is 0 of 10 runs at 1,050 – 1,224 B
+  and 4 of 10 at 1,000 – 1,300 B. The count is now pinned in the reader.)* This
+  is a **between-mode** contrast and carries the repeated-measures bound in full;
+  it is not paired and no paired figure is offered for it.
 - **MODE is a SECOND term, on top of the substrate rather than instead of it.**
   Reversing the order does not abolish the cluster at `uix-subs`, it cuts it:
   **28 of 143 under `fixed` against 8 of 136 under `fixed-reversed`**,
   p = 6.21e-4, both at `uix-subs`. And the forward order stands well above parity
   at the matched cell — 28 of 143 against 3 of 66, p = 0.0033.
 
-**So the bead's three-way question resolves as two terms and not one:** the
-`uix-subs` substrate carries the cluster, the forward fixed order multiplies the
-rate at which it appears, and the within-round position carries nothing.
+**So the bead's three-way question points at two terms and not one:** the
+direction of the substrate arm is as declared but is **not resolved by this
+window standing alone** (see the retraction above), the forward fixed order
+multiplies the rate at which the cluster appears, and the within-round position
+carries nothing.
 
 ## What this window does NOT settle
 
@@ -252,13 +359,45 @@ rate at which it appears, and the within-round position carries nothing.
   counts too small to bound anything. What is established is the **within-mode**
   substrate contrast, not a reversed-versus-parity difference.
 - **It names no mechanism**, and nothing here proposes one.
+- **It does not resolve the substrate arm.** The pre-registered primary reads
+  `p` = 0.0625 under the exact paired test its own design licenses. The direction
+  is the declared one; the resolution claimed in the original text of this page
+  is retracted above.
 - **Every window-level p carries the repeated-measures bound in full.** Fisher
   treats each window as an independent trial and they are not. The run-level
-  census is published beside every one of them, and the primary contrast is the
-  one that survives at run level. **No cluster-robust or mixed-effects estimate is
-  offered and none should be** — at ten clusters per arm a variance component is
-  not identifiable and a cluster-robust standard error is badly biased.
+  census is published beside every one of them — and for the primary contrast the
+  run level is **ten pairs**, tested as pairs. *(Corrected 2026-08-21: this
+  bullet originally ended "and the primary contrast is the one that survives at
+  run level". It does not survive at run level once the pairing is respected.)*
+  **No cluster-robust or mixed-effects estimate is offered and none should be** —
+  at ten clusters per arm a variance component is not identifiable and a
+  cluster-robust standard error is badly biased.
 - **τ did not move, the band did not move, and `p0_run.cjs` was not edited.**
+
+## A gap in the pre-registration, recorded rather than repaired
+
+**The pre-registration above names the within-run contrast and names no test for
+it.** It fixes the statistic (`any-leg`), the band, the run count, the stopping
+rule, the interleaving and the admissibility rule — and then declares CARRIER as
+the primary without naming a **paired test**, a **sidedness** or a **decision
+threshold**. What landed retrofitted an independent-sample two-sided Fisher onto
+a contrast whose whole standing is that it is paired.
+
+**The pre-registration text is left standing as written**, on the same principle
+the band limitation below is left standing: rewriting a pre-registration once its
+outcome is known is the thing pre-registration exists to prevent, and a page that
+silently repaired its own declaration would be worth less than one that flags it.
+
+Two things partly fill the gap and neither closes it. **Sidedness** was fixed in
+advance, but only indirectly: the reader committed with this pre-registration
+computes every comparison two-sided, which is why the paired figure above is
+two-sided and why a switch to one-sided now would be a retrofit. **A threshold**
+was fixed nowhere at all, so the 0.05 the retraction above measures against is a
+convention borrowed after the fact and is labelled as one.
+
+**What is not offered here is a continuation.** Designing the window that would
+settle the substrate arm is a fresh pre-registration, argued before its runner is
+invoked, and nothing on this page is that.
 
 ## A limitation of the band, found after this window closed
 
@@ -284,9 +423,15 @@ than lucky: this band was never derived from a quantile at all.** It is the
 bead's own observed cluster range, and what licenses reading it is a **direct,
 unit-matched in-band count on the null arm** — 0 of 41,862 control legs on the
 committed corpus and 0 of 9,642 on this window's own controls, **0 of 51,504
-together**. That count is indifferent to how the null arm partitions. And the
-partition makes the margin explicit rather than narrower: mode 2's **maximum**
-sits at 135.5 B/boundary, where this band's **floor** is 1,050 B.
+together**. That count is indifferent to how the null arm partitions.
+
+*(Removed 2026-08-21, per the downstream-consumer audit filed on `rf2-0eu1s`: a
+sentence here compared mode 2's maximum of 135.5 **B/boundary** against this
+band's floor of 1,050 **B**. That is the very unit crossing the paragraph below
+condemns, made two paragraphs above condemning it. The direct in-band count is
+unit-matched and licenses the band on its own, so nothing is lost by deleting the
+comparison rather than converting it — a converted figure would re-open the same
+question.)*
 
 **One sentence in the pre-registration above is wrong, and it is fairer to say so
 than to quietly edit it.** It compares the band floor to `rf2-0eu1s`'s pooled p90
@@ -355,8 +500,30 @@ the blob the pre-registration pins.
 
 ## Where this leaves `rf2-csca8`
 
-The bead asked which of three properties carries the cluster. **All three arms now
-have an answer**: substrate YES, position NO, mode YES as a second and separate
-term. The one arm that had resisted — the substrate — is settled by a
-pre-registered, within-run contrast, and the reason it had resisted is settled
-too and was a property of the statistic rather than of the corpus.
+*(Rewritten 2026-08-21. This section originally read: "All three arms now have an
+answer: substrate YES, position NO, mode YES as a second and separate term. The
+one arm that had resisted — the substrate — is settled by a pre-registered,
+within-run contrast." The substrate half of that is retracted.)*
+
+The bead asked which of three properties carries the cluster.
+
+- **POSITION: refuted**, at higher n and under the masking-free reading, and the
+  reversed arm is what refuted it. That arm is closed.
+- **MODE: a second and separate term.** Reversing the order cuts the rate at
+  `uix-subs` without abolishing it, and the forward order stands above parity at
+  the matched cell. Between-mode and carrying the repeated-measures bound, but
+  the direction is consistent across two matched sessions.
+- **SUBSTRATE: the direction is as declared, and the arm is NOT settled by this
+  window standing alone.** The pre-registered within-run contrast reads
+  `p` = 0.0625 under the exact paired test its own design licenses. The `reagent`
+  cell is empty in all 161 windows and all ten runs, which is a real asymmetry
+  and is why the direction is stated at all — but five discordant pairs cannot
+  reach a conventional two-sided level, and no threshold was pre-registered
+  either way.
+
+**The masking finding stands and is the durable part of this window.** The reason
+the substrate arm had resisted was a property of the statistic and not of the
+corpus, and that is measured here on one set of records read two ways rather than
+argued. What does not follow from it is that the arm is now closed.
+
+**τ did not move, the band did not move, and `p0_run.cjs` was not edited.**
