@@ -5089,22 +5089,22 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
     for (const key of forbidden) {
       assert.equal(result[key], 'false', `${file} must not arm ${key}`);
     }
-    if (file !== 'spec/Spec-Schemas.md') {
-      assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
-    }
+    assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
   }
 });
 
-test('spec/Spec-Schemas.md also arms the node build — a COMPILE-TIME edge (rf2-61ar)', () => {
-  // implementation/core/test/re_frame/observation_schema_extract.clj is a JVM
-  // MACRO namespace that parses the ObservationOnChangeFailedTags def form out
-  // of this Markdown; observation_port_cljs_test.cljc pulls it in through
-  // `:require-macros`, so the schema is inlined into the consolidated
-  // `:node-test` build. Editing the def form changes what the `cljs` job
-  // compiles, not merely what a JVM suite slurps.
+test('spec/Spec-Schemas.md arms the JVM suites and NO CLJS output (rf2-61ar / rf2-63t1i)', () => {
+  // It armed `cljs_node_test` until 2026-08-21, on ONE compile-time edge:
+  // implementation/core/test/re_frame/observation_schema_extract.clj was a JVM
+  // MACRO namespace parsing the ObservationOnChangeFailedTags def form out of
+  // this Markdown, and observation_port_cljs_test.cljc pulled it in through
+  // `:require-macros`. Both namespaces and the schema went with the internal
+  // observation port (rf2-63t1i), so nothing reads this file at
+  // macro-expansion time now — every remaining reader is a JVM suite that
+  // slurps it at run time.
   const result = classify('spec/Spec-Schemas.md');
   assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_node_test, 'false', 'no macro-expansion edge reads this file');
   assert.equal(result.cljs_browser, 'false', 'no mounted surface reads this file');
 });
 

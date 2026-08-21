@@ -1355,7 +1355,7 @@ else
       #                                        _test.clj             → jvm-machines
       #   spec/Pattern-FormAction.md         ssr_doc_example_form_action_test.clj
       #                                                              → jvm-ssr
-      #   spec/Spec-Schemas.md               SIX suites in FIVE artefacts — see
+      #   spec/Spec-Schemas.md               FOUR suites in THREE artefacts — see
       #                                        its own arm below.
       #
       # WHY `implementation_jvm` AND NOT SOMETHING NARROWER. There is nothing
@@ -1420,33 +1420,33 @@ else
         implementation_jvm=true
         ;;
       spec/Spec-Schemas.md)
-        # The widest single miss in the roster, and the only prose file in the
-        # repo that arms a CLJS output.
+        # The widest single miss in the roster.
         #
-        # FIVE suites in THREE artefacts extract schema forms from this file:
+        # FOUR suites in THREE artefacts extract schema forms from this file:
         #   error_catalogue_channel_conformance_test.clj      (core)
-        #   observation_schema_extract.clj                    (core)
         #   epoch_silence_contract_test.clj                   (epoch)
         #   destroyed_reason_channel_conformance_test.clj     (machines)
         #   spawn_all_schema_extract.clj                      (machines)
         # — jvm-core, jvm-epoch and jvm-machines, all on
         # `implementation_jvm`.
         #
-        # `cljs_node_test` as well, and this is the part no other prose arm
-        # needs: `observation_schema_extract.clj` is a JVM MACRO namespace, and
-        # `observation_port_cljs_test.cljc` pulls it in through
-        # `:require-macros`. So the ObservationOnChangeFailedTags schema is
-        # extracted from this Markdown at COMPILE TIME and inlined into the
-        # consolidated `:node-test` build. Editing the def form here changes
-        # what the `cljs` job compiles and asserts, not merely what a JVM suite
-        # slurps. (The Freehand corpus arm was the other case built on this
-        # same macro-expansion-time reasoning; it retired with the tree that
-        # read it — rf2-0yp7w.6.)
+        # It armed `cljs_node_test` as well until 2026-08-21, and no longer
+        # does. That arm rested ENTIRELY on one compile-time edge:
+        # `observation_schema_extract.clj` was a JVM MACRO namespace and
+        # `observation_port_cljs_test.cljc` pulled it in through
+        # `:require-macros`, so the ObservationOnChangeFailedTags schema was
+        # inlined into the consolidated `:node-test` build. Both namespaces
+        # went with the internal observation port (rf2-63t1i), and the schema
+        # went with them, so nothing extracts from this Markdown at
+        # macro-expansion time any more — every remaining reader is a JVM suite
+        # that slurps it at RUN time. (The Freehand corpus arm was the other
+        # case built on the same reasoning; it retired with the tree that read
+        # it — rf2-0yp7w.6. This file now arms no CLJS output at all.)
         #
         # Must precede the `spec/*` catch-all below: a POSIX `case` takes the
-        # FIRST match, and the catch-all does not set `cljs_node_test`.
+        # FIRST match. Both set `implementation_jvm`, but this arm is kept
+        # explicit because its roster is the documentation.
         implementation_jvm=true
-        cljs_node_test=true
         ;;
       spec/*)
         # The catch-all, and WHOLESALE on purpose.
