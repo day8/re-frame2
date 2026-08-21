@@ -530,6 +530,13 @@ peer, under exactly the bare name the rule forbids. **A rule scoped to a ROLE ex
 does not identify with the role** — when a hazard belongs to a shared resource, scope it to
 the resource.
 
+Naming one shared area re-creates that exemption one level down. Reaching for a system temp
+directory feels like stepping out of a shared area into a private one, and it is the reverse:
+every session on the machine writes there, where the session scratch area holds only the
+current session's agents. It changes the resource without changing the hazard, and it reads
+as exempt precisely because it is not the area the rule names — so the scope is **every
+directory you do not exclusively own**, not the one a rule happens to name.
+
 ---
 
 ## 3. Backlog reread
