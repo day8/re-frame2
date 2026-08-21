@@ -4485,6 +4485,14 @@ function ladderStructuralFailures(row) {
 //
 // The verdict NAMES ITS OWN RULE (`verdict.rule`) rather than this printer
 // asserting one, for that same reason — the string comes from the answer.
+//
+// So the VERDICT line below names no adjudicator of its own. It used to
+// carry the literal `lane/control-verdict-strict` beside the dynamic
+// `rule`, which the merged-PR audit of #8574 caught: a caller moved back
+// to the overlap rule would have printed both names in one sentence, and
+// the hardcoded half is the one a reader believes. `:rule` is the lane's
+// own identifier for which of its two rules answered — `every-round` here,
+// `overlap` there — so it is the whole label this record needs.
 function printHeapControl(row) {
   const c = row.control.measured;
   console.log(
@@ -4493,7 +4501,7 @@ function printHeapControl(row) {
   );
   const v = row.control.verdict;
   console.log(
-    `;;   VERDICT (lane/control-verdict-strict, rule ${v.rule}, ` +
+    `;;   VERDICT (rule ${v.rule}, ` +
       `slack ±${(row.control.slack * 100).toFixed(0)}%): ${v.ok ? 'OK' : 'FAILED'}`
   );
   console.log(`;;     ${v.why}`);
