@@ -2,6 +2,23 @@
 
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-0eu1s`.
 
+> **THE CORPUS HAS GROWN SINCE THIS PAGE WAS WRITTEN, AND THREE FIGURES ON IT
+> HAVE MOVED.** Every figure below is the record of a re-derivation over 242
+> cells, 3 windows and 3 sessions, and is left exactly as it was published.
+> `rf2-fk6pj`'s phase-4 window has since added 8 runs and 327 cells, taking the
+> corpus to **569 cells over 4 windows and 5 sessions**. What moved: the empty
+> span now holds **one** cell of 569; the over-bar fraction **stopped rising**,
+> reading 17.4% against phase 3's 23.2%; and the session question is partly
+> answered, because phase 4 is **one design held still across two sessions** and
+> its over-bar fraction reads 17.7% against 17.2% — **the second population is
+> not session-carried on that evidence**. What did not move: the pooled median,
+> mode 1's absolute median of 1.5 B/boundary, and rounds 0 and 1 carrying no
+> mode-2 cell at all — now over 85 cells rather than 43. **No verdict on this
+> page is withdrawn and the 1.5 / 4.5 / 45 triple is untouched; the ruling this
+> bead awaits is unaffected.** `alloc_null_floor.cjs` reads the larger corpus and
+> its self-test pins the new figures. See
+> [the band on the aggregate, and the second session](the-band-on-the-aggregate-and-the-second-session.md).
+
 **No window was taken for this page.** It is a re-analysis over run records that
 already existed, by a reader that launches no browser, builds no bundle and
 writes nothing. Every figure below is printed by

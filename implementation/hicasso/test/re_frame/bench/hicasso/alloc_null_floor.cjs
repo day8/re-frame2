@@ -36,6 +36,39 @@
 // THE TWO the 90th-percentile index happens to land in. Every figure below is a
 // consequence of that.
 //
+// ## AMENDMENT — WHAT rf2-fk6pj's PHASE-4 WINDOW ADDED, 2026-08-21
+//
+// Everything from here to the end of this header was written over the corpus as
+// it stood at 242 cells across 3 windows and 3 sessions, and it is left as
+// written because it is the record of that derivation. The corpus is now 569
+// cells across 4 windows and 5 sessions. Three things moved, and the self-test
+// pins all three at their measured values rather than at these:
+//
+//   1. THE GAP IS NO LONGER EMPTY. It holds ONE cell of 569 — 38.5 B/boundary,
+//      phase 4's run 4 round 5, `reagent-subs | lad/reagent`. At 0.18% the
+//      two-population SHAPE is NARROWED AND NOT OVERTURNED (466 below, 102
+//      above), but "the gap holds zero" was load-bearing prose here and now has
+//      a named exception. The report prints the occupancy and, when it is
+//      non-zero, stops claiming that any bar inside the span classifies alike.
+//   2. THE OVER-BAR FRACTION STOPPED RISING. The published sequence was
+//      5.3% -> 10.0% -> 23.2%; phase 4 reads 17.4%, BELOW phase 3. That is the
+//      first datum this corpus has had against a monotone reading, and it
+//      weakens "the fraction has risen across windows" to "it varies".
+//   3. THE SESSION QUESTION IS NOW PARTLY ANSWERED, and this is the measurement
+//      the bead named as missing. Phase 4 is ONE DESIGN HELD STILL ACROSS TWO
+//      SESSIONS — the first corpus here where session is not confounded with
+//      design and date — and the over-bar fraction reads 17.7% in its first
+//      session against 17.2% in its second. ON THIS EVIDENCE THE SECOND
+//      POPULATION IS NOT SESSION-CARRIED.
+//
+// WHAT DID NOT MOVE, and is why the bead's verdicts are untouched here: the
+// pooled median is still 0, mode 1's absolute median still 1.5 B/boundary, and
+// rounds 0 and 1 still carry NO mode-2 cell at all — now over 85 cells rather
+// than 43, so the one internally controlled comparison in this corpus is
+// STRENGTHENED. The 1.5 / 4.5 / 45 triple is untouched and the ruling this bead
+// waits on is unaffected: nothing above re-cuts a percentile or moves the bar.
+// Record: docs/design/hicasso/studio/the-band-on-the-aggregate-and-the-second-session.md
+//
 // ## WHY THE POOLED p90 CANNOT BE READ AS A MAGNITUDE HERE
 //
 // Sorted, the 242 committed cells run 0 … 21, then NOTHING AT ALL, then
@@ -147,6 +180,26 @@ const WINDOWS = [
       'alloc-passterm/run2.json',
       'alloc-passterm/run3.json',
       'alloc-passterm/run4.json',
+    ],
+  },
+  {
+    // ADDED BY rf2-fk6pj's PHASE-4 WINDOW, which is the first corpus here to
+    // hold ONE DESIGN ACROSS TWO SESSIONS — the measurement this bead named as
+    // missing, since every earlier window changed design and session together.
+    // It roughly triples the corpus and it moves one pinned finding, which is
+    // recorded at the check rather than smoothed over: see the empty-span
+    // check in `selfTest`.
+    window: 'phase 4',
+    design: 'seeded, 8 x 12 rounds, 2 sessions',
+    runs: [
+      'alloc-legorder/run1.json',
+      'alloc-legorder/run2.json',
+      'alloc-legorder/run3.json',
+      'alloc-legorder/run4.json',
+      'alloc-legorder/run5.json',
+      'alloc-legorder/run6.json',
+      'alloc-legorder/run7.json',
+      'alloc-legorder/run8.json',
     ],
   },
 ];
@@ -370,8 +423,23 @@ function report() {
   L(`  mode 2, at or above ${MODE2_FLOOR_B} B/boundary : ${m2.length} cells`);
   L(`  Both edges are observed, not chosen: ${MODE1_CEIL_B} is the largest cell below the gap and`);
   L(`  ${MODE2_FLOOR_B} the smallest above it, over all ${all.length}.`);
-  L(`  THE PUBLISHED BAR AT ${PUBLISHED.barB} SITS HALF A BYTE ABOVE THAT SPAN. Any bar in`);
-  L(`  (${MODE1_CEIL_B}, ${MODE2_FLOOR_B}] classifies all ${all.length} cells identically; the published one differs`);
+  L(`  THE PUBLISHED BAR AT ${PUBLISHED.barB} SITS HALF A BYTE ABOVE THAT SPAN.`);
+  if (gap.length === 0) {
+    L(`  Any bar in (${MODE1_CEIL_B}, ${MODE2_FLOOR_B}] classifies all ${all.length} cells identically; the published one differs`);
+  } else {
+    // PHASE 4 PUT A CELL IN THE SPAN, so the "any bar in the span is the same
+    // bar" sentence is no longer true and is not printed. It was true of the
+    // 242 cells this reader was written on and is false of the corpus now:
+    // a bar below a cell sitting inside the span classifies that cell into
+    // mode 2, and a bar above it does not. The two-population SHAPE is
+    // narrowed rather than overturned — the span still holds a fraction of a
+    // percent of the corpus — but "identically" was an absolute claim and it
+    // has an exception, so the reader states the exception instead.
+    const pct = ((gap.length / all.length) * 100).toFixed(2);
+    L(`  THE SPAN IS NO LONGER EMPTY: ${gap.length} of ${all.length} cells (${pct}%) sit inside it, so bars within`);
+    L(`  (${MODE1_CEIL_B}, ${MODE2_FLOOR_B}] no longer all classify alike. The shape is narrowed, not overturned —`);
+    L(`  ${m1.length} cells below and ${m2.length} above against ${gap.length} between. The published one differs`);
+  }
   L(`  from that partition on EXACTLY ONE cell of ${all.length}, the one at ${MODE2_FLOOR_B}, which it counts`);
   L('  below the bar. So the bar\'s VALUE is robust however its derivation behaved — and so are');
   L('  the two counts below, which differ by that one cell and by nothing else:');
@@ -574,7 +642,7 @@ function selfTest() {
   const { carrying, excluded } = discover();
   const pinned = WINDOWS.flatMap((w) => w.runs).sort();
   ck('discovery finds exactly the pinned corpus', carrying.map((c) => c.rel).sort(), pinned);
-  ck('the corpus is eight runs', pinned.length, 8);
+  ck('the corpus is sixteen runs', pinned.length, 16);
 
   // AND THE EXCLUSIONS ARE BY CONSTRUCTION, which is the positive control on
   // that discovery: a run with no null-arm cell must be a floor-plan run, not a
@@ -591,8 +659,8 @@ function selfTest() {
 
   const rows = corpus();
   const all = cellsOf(rows);
-  ck('the whole committed corpus is 242 cells', all.length, 242);
-  ck('over three sessions', groupBy(rows, (r) => r.session).size, 3);
+  ck('the whole committed corpus is 569 cells', all.length, 569);
+  ck('over five sessions', groupBy(rows, (r) => r.session).size, 5);
   ck('one of which predates the session field', rows.filter((r) => !r.sessionRecorded).length, 2);
   ck('every run\'s positive control passed', rows.filter((r) => !r.controlOk).length, 0);
   ck('with no unverified read-backs anywhere', rows.filter((r) => r.unverified !== 0).length, 0);
@@ -624,8 +692,15 @@ function selfTest() {
     rows.filter((r) => r.window === 'phase 3').map((r) => ladder(r.cells).q[4]), [59.5, 64, 53.5, 62.5]);
 
   // THE GAP IS EMPTY, which is the finding everything else rests on.
-  ck('no cell lies strictly between the two modes',
-    all.filter((c) => c.abs > MODE1_CEIL_B && c.abs < MODE2_FLOOR_B).length, 0);
+  // THE SPAN WAS EMPTY OVER 242 CELLS AND IS NOT OVER 569. rf2-fk6pj's phase-4
+  // window put ONE cell in it — 38.5 B/boundary, its run 4 round 5,
+  // `reagent-subs | lad/reagent`. Pinned at the measured value rather than
+  // relaxed to an inequality, because the exact count is the finding: 1 of 569
+  // is 0.18%, so the two-population SHAPE is narrowed and not overturned
+  // (466 below, 102 above), but "the gap holds zero" was load-bearing prose in
+  // rf2-0eu1s's argument and it now has a named exception.
+  ck('the span between the two modes holds exactly the one phase-4 cell',
+    all.filter((c) => c.abs > MODE1_CEIL_B && c.abs < MODE2_FLOOR_B).length, 1);
   ck('and both edges are occupied, so the gap is observed rather than assumed',
     [all.filter((c) => c.abs === MODE1_CEIL_B).length > 0, all.filter((c) => c.abs === MODE2_FLOOR_B).length > 0],
     [true, true]);
@@ -653,8 +728,12 @@ function selfTest() {
   // THE OVER-BAR FRACTION IS ORDERED, AND SURVIVES THE COMMON-SUPPORT CONTROL.
   // Stated on the published basis, so these are the bead's own three figures.
   const occ = [...groupBy(rows, (r) => r.window)].map(([, rs]) => ladder(cellsOf(rs)).overBarPct);
-  ck('the three windows reproduce the bead\'s published fractions',
-    occ.map((x) => Number(x.toFixed(1))), [5.3, 10.0, 23.2]);
+  // The first three are rf2-0eu1s's published figures and must not move; the
+  // fourth is rf2-fk6pj's phase 4 and is new evidence rather than a
+  // re-derivation. It sits BELOW phase 3 rather than continuing the rise, which
+  // is the first datum this corpus has had against a monotone reading.
+  ck('the three published windows reproduce, and phase 4 joins them',
+    occ.map((x) => Number(x.toFixed(1))), [5.3, 10.0, 23.2, 17.4]);
   const occ05 = [...groupBy(rows, (r) => r.window)]
     .map(([, rs]) => ladder(cellsOf(rs).filter((c) => c.round <= 5)).overBarPct);
   ck('and are still strictly increasing on rounds 0-5 alone',
@@ -666,20 +745,27 @@ function selfTest() {
   const inMode2 = (cs) => cs.filter((c) => c.abs >= MODE2_FLOOR_B).length;
   const early = all.filter((c) => c.round <= 2);
   const late = all.filter((c) => c.round >= 3);
-  ck('rounds 0-2 carry two mode-2 cells of 73', [inMode2(early), early.length], [2, 73]);
-  ck('rounds 3+ carry 43 of 169', [inMode2(late), late.length], [43, 169]);
+  ck('rounds 0-2 carry seven mode-2 cells of 142', [inMode2(early), early.length], [7, 142]);
+  ck('rounds 3+ carry 95 of 427', [inMode2(late), late.length], [95, 427]);
+  // THE WITHIN-RUN STRUCTURE REPLICATES AT DOUBLE THE SAMPLE. rf2-0eu1s found
+  // rounds 0 and 1 carrying no mode-2 cell over 43; they still carry none over
+  // 85. That is the one internally controlled comparison in this corpus and
+  // phase 4 strengthens it rather than moving it.
   ck('rounds 0 and 1 carry none at all',
-    [inMode2(all.filter((c) => c.round <= 1)), all.filter((c) => c.round <= 1).length], [0, 43]);
+    [inMode2(all.filter((c) => c.round <= 1)), all.filter((c) => c.round <= 1).length], [0, 85]);
   const r12 = all.filter((c) => c.round === 1 || c.round === 2);
-  ck('rounds 1-2 are a near-complete sample of the possible 64', r12.length, 61);
+  ck('rounds 1-2 are a near-complete sample of the possible 128', r12.length, 120);
   ck('round 0 is not, and is reported separately for that reason',
-    all.filter((c) => c.round === 0).length, 12);
+    all.filter((c) => c.round === 0).length, 22);
 
   // THE REPORT STATES WHAT THE DERIVATION FOUND, so a figure cannot drift from
   // the reasoning behind it.
   const rep = report();
-  ck('the report states the corpus total', /TOTAL 242 cells over 8 runs, 3 windows, 3 sessions\./.test(rep), true);
-  ck('the report states the gap is empty', /the gap, \(21, 44\.5\)\s+: 0 cells/.test(rep), true);
+  ck('the report states the corpus total', /TOTAL 569 cells over 16 runs, 4 windows, 5 sessions\./.test(rep), true);
+  ck('the report states the span occupancy, which is now one rather than zero',
+    /the gap, \(21, 44\.5\)\s+: 1 cells/.test(rep), true);
+  ck('and says so in prose rather than still claiming any bar in the span is the same bar',
+    /THE SPAN IS NO LONGER EMPTY/.test(rep) && !/classifies all \d+ cells identically/.test(rep), true);
   ck('the report refuses to move the bar', /THE BAR, 45 — DOES NOT MOVE\./.test(rep), true);
   ck('the report does not claim the bar lies inside the empty span',
     /SITS HALF A BYTE ABOVE THAT SPAN/.test(rep) && !/LANDS INSIDE THAT GAP/.test(rep), true);
@@ -713,7 +799,15 @@ function selfTest() {
     console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
     process.exit(1);
   }
-  console.log(`self-test OK (${checks} checks) — 242 cells, 8 runs, 3 windows, 3 sessions; the gap holds 0`);
+  // DERIVED, NOT TRANSCRIBED. This line was hardcoded at 242 cells / 8 runs /
+  // 3 windows / 3 sessions / gap 0, so it went on printing the corpus the
+  // reader was WRITTEN on rather than the one it just read — a green summary
+  // asserting figures no check had verified. It reads them off the corpus now.
+  console.log(
+    `self-test OK (${checks} checks) — ${all.length} cells, ${pinned.length} runs, ` +
+      `${WINDOWS.length} windows, ${groupBy(rows, (r) => r.session).size} sessions; ` +
+      `the gap holds ${all.filter((c) => c.abs > MODE1_CEIL_B && c.abs < MODE2_FLOOR_B).length}`
+  );
 }
 
 if (require.main === module) {
