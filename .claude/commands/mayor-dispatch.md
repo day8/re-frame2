@@ -42,7 +42,10 @@ glob is over-broad on `spec/` (serialising pages nobody holds, costing coverage)
 on everything CLAUDE.md lists outside it, including the pair it marks one-toucher by
 construction.
 
-Bucket the survivors by file-surface, then pick the shape per `dispatch-prompt-template.md`.
+Bucket the survivors by file-surface, then pick the shape per `dispatch-prompt-template.md`
+(*Choosing solo or cluster*). Its tiers map onto this tracker as: **P1** always solo, **P2**
+solo by default, **P3/P4** small and same-surface are the primary clustering target, and any
+LARGE bead or measurement window is solo whatever its priority.
 
 ### Verifying a census before you dispatch it
 
