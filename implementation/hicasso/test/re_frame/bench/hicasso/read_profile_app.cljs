@@ -472,7 +472,7 @@
   (local-entry-hit?))
 
 ;; ---------------------------------------------------------------------------
-;; The candidate — the observation port's cold-probe discipline, per read
+;; The candidate — the cold-probe discipline, per read
 ;; ---------------------------------------------------------------------------
 
 (defn- probe-pass!

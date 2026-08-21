@@ -36,7 +36,7 @@
   ;; function call on an undefined var. This is the JVM-only assumption the
   ;; rf2-lgozq rename exposed — all seven tests here errored on the CLJS lane
   ;; with `No protocol method IDeref.-deref defined for type undefined` until
-  ;; this line existed. Same shape as `observation_port_cljs_test.cljc`.
+  ;; this line existed.
   #?(:cljs (:require-macros [re-frame.machines.test-support :as mtest])))
 
 (use-fixtures :each

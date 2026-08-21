@@ -22,9 +22,10 @@
 
   ## What it does NOT do
 
-  It carries no `probe` / observation-port arm and computes no
-  Freehand-versus-Reagent increment. That comparison is held pending an
-  operator ruling; this file measures `@(subscribe [:q])` and its parts,
+  It carries no observation-port arm and computes no
+  Freehand-versus-Reagent increment. It never did; the JVM sibling's port
+  ladder was the only one, and it went when the port was retired
+  (rf2-63t1i). This file measures `@(subscribe [:q])` and its parts,
   which is what rf2-x0fe2 asks for and all it asks for.
 
   ## Why NODE, and what that costs

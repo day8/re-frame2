@@ -1,8 +1,8 @@
 (ns re-frame.bench.hicasso.arm1.cold-read-cljs-test
   "THE COLD PROBE'S OWN CONTRACT (rf2-6c237).
 
-  rf2-6c237 rebuilt `read-key!`'s cold branch on the observation port's
-  cold-probe discipline: reuse a live sub-cache reaction by deref alone,
+  rf2-6c237 rebuilt `read-key!`'s cold branch on the cold-probe
+  discipline: reuse a live sub-cache reaction by deref alone,
   else compute pure against one render-scoped frame-state snapshot
   through one render-scoped memo — no reaction build, no cache insert,
   no in-tick evict, no dispose cascade per read. The read profile
@@ -161,8 +161,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-cold-unregistered-read-emits-no-such-sub-once-and-recovers-nil
-  (testing "the probe's memo is seeded with the observation port's opts
-           key, so an unregistered cold read emits the always-on
+  (testing "the probe's memo is seeded with `subs/observation-opts-key`,
+           so an unregistered cold read emits the always-on
            `:rf.error/no-such-sub` exactly as the reactive build does —
            and the memo dedupes, so two reads of the same unknown query
            in one run emit once"

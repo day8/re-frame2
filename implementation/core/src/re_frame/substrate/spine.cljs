@@ -559,17 +559,15 @@
   "The frozen per-slot MOVEMENT law, spelled
   spine-local for the React-hook derived-value fan-out gate: `Object.is(a,b)
   OR (= a b)`. Kept core-local (a transcription, NOT a `:require`) so core
-  depends on no view artefact,
-  exactly as the observation port keeps its own `node-value=` spelling (Spec
-  006). The load-bearing consequence for rf2-vxgfnd.203: `##NaN` is STABLE
+  depends on no view artefact. The load-bearing consequence for rf2-vxgfnd.203: `##NaN` is STABLE
   (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN across
   a source tick reports NO movement and does not fan out — unlike raw `=`/`not=`,
   under which `(= ##NaN ##NaN)` is false so every NaN reads as fresh and fans
   out on a no-move. (`-0.0`/`+0.0` still compare EQUAL via the `=` branch, as
   the ruled law and the prior `not=` gate both give — no behaviour change
   there; NaN→NaN is the sole pair this gate now treats differently.) One frozen
-  relation across the direct adapter, the observation port, and the view
-  layer, so the three fan-out boundaries agree on cardinality."
+  relation across the direct adapter and the view layer, so the fan-out
+  boundaries agree on cardinality."
   [a b]
   (or ^boolean (js/Object.is a b)
       (= a b)))
@@ -693,9 +691,9 @@
           ;;   1. Gate on the frozen `rf=` MOVEMENT law, not raw `not=`. Raw
           ;;      `(not= ##NaN ##NaN)` is true, so a derived value that stays
           ;;      NaN across a source tick would fan out on a NO-move — a false
-          ;;      direct invalidation the observation port and ViewCell layer
-          ;;      (both `rf=`-gated) do not raise. `rf=` treats NaN→NaN as
-          ;;      stable, so all three fan-out boundaries agree on cardinality.
+          ;;      direct invalidation the view layer (also `rf=`-gated) does not
+          ;;      raise. `rf=` treats NaN→NaN as
+          ;;      stable, so the fan-out boundaries agree on cardinality.
           ;;      The `unset` baseline is never `rf=` a real value, so the first
           ;;      post-construction change still notifies (unchanged).
           ;;
@@ -3702,9 +3700,9 @@
     ;; context, with no `auto-run`, runs the body RAW and leaves the
     ;; reaction's `watching` nil — so it is watchable, and watched, and
     ;; notifies nobody. A component render is normally the capture context,
-    ;; which is why an ordinary app never sees this; the observation port's
-    ;; consumer (a compiled ViewCell) is NOT a component of this substrate,
-    ;; so nothing supplies it and the port's `add-watch` observes a node
+    ;; which is why an ordinary app never sees this; a re-frame-native view
+    ;; cell is NOT a component of this substrate,
+    ;; so nothing supplies it and its `add-watch` observes a node
     ;; that can never fire. This hook is that missing capture, called by
     ;; `re-frame.interop/activate-derived-value!` from the port's
     ;; `build-node-handle!`.

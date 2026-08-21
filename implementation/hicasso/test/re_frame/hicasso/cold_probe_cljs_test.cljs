@@ -9,8 +9,9 @@
   invalidated out from under it. That is the majority of the reads this
   runtime performs, and the package had no witness for any of it.
 
-  The contract, from the observation port's cold-probe discipline, is
-  four promises in one sentence:
+  The contract — the cold-probe discipline the internal observation port
+  carried before it was retired (rf2-63t1i) — is four promises in one
+  sentence:
 
   > reuse a live sub-cache reaction by deref alone, else compute pure
   > against ONE render-scoped frame-state snapshot through ONE

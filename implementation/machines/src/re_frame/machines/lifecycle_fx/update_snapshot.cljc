@@ -60,7 +60,7 @@
   Incarnation fence (rf2-vxgfnd.22): the escape-hatch store-write is fenced to
   the exact frame incarnation, mirroring the destroy / finalize / spawn
   incarnation-fencing family. The `:db` hard-disallow trace below is a PRE-WRITE
-  callback that fires synchronous trace listeners (the observation-port epoch
+  callback that fires synchronous trace listeners (the epoch
   capture + any app-registered `:trace` handler); one may destroy the frame
   incarnation A that owns the in-flight event and publish a same-id successor B.
   Ownership is rechecked AFTER that emit and before the read/merge/write, and
@@ -83,7 +83,7 @@
         ;; emitting event's fx drain, so `*event-owner*` names the exact
         ;; incarnation A that owns the in-flight event. `owner-gone?` fires once
         ;; a synchronous callback below — the `:db` hard-disallow trace, whose
-        ;; sync listeners include the observation-port epoch capture + any
+        ;; sync listeners include the epoch capture + any
         ;; app-registered `:trace` handler — has destroyed A / published a
         ;; same-id successor B; `owner-token` binds the store-write to A's OWN
         ;; container. An eventless caller (no owner bound) yields
@@ -113,7 +113,7 @@
                             :frame           frame-id
                             :recovery        :logged-and-skipped}))
       ;; rf2-vxgfnd.22 — the `:db` hard-disallow trace above fires SYNC trace
-      ;; listeners (the observation-port epoch capture + any app-registered
+      ;; listeners (the epoch capture + any app-registered
       ;; `:trace` listener); one may destroy A and re-seed a same-id successor
       ;; B on this stack. Recheck ownership BEFORE the read/merge/write — a
       ;; callback that lost A must not drive an A-derived merge onto B: B's
@@ -151,7 +151,7 @@
                           machine-id merged)
                     ;; rf2-vxgfnd.22 — route the store-write through the EXACT
                     ;; durable write so it NO-OPS on owner loss: no merge onto
-                    ;; B, and no phantom commit-epoch bump (the observation-port
+                    ;; B, and no phantom commit-epoch bump (a
                     ;; signal B never earned). The `validate-update-snapshot-
                     ;; data!` callback above is itself schema/app code that can
                     ;; lose A, so the exact write is the terminal fence for that
