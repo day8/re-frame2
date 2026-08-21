@@ -228,13 +228,52 @@ runs TAKEN, and thirty-five were taken on each arm.
 
 **One disclosure that is not a criterion.** `lane/control-verdict` adjudicates on
 **overlap** — whether the measured range contains a value within slack of the prediction
-— not on the point estimate, and `rf2-egdaq` is the open ruling on whether it tightens.
+— not on the point estimate. `rf2-egdaq`, the ruling on whether it tightens, has since
+been SETTLED, and neither half of it reaches this row's criterion; see below.
 Six of the sixty-nine runs pass with a mean `perDouble` above 9 against the predicted 8
 (the loosest is 11.06); the other sixty-three sit at 8.08–8.11. Four of the six loose runs
 read high and two read low, against 33 of 63 high among the tight ones, and the loose runs
 fall in both arms. **`controlVerdict.ok` was the pre-declared criterion and it is the one
 applied**; the point estimates are published here so a reader adjudicating under a future
 stricter rule can re-score this window without re-running it.
+
+### The rule since settled: a split, and what it does not reach (rf2-egdaq)
+
+`rf2-egdaq` was open when this window was published and is **no longer open**. The answer
+is a **SPLIT** — one rule per instrument, not one rule for both arms — landed in PR #8574
+and completed by the operator's records ruling of 2026-08-21.
+
+- **The HEAP arm went STRICT.** `re-frame.bench.p0-heap`'s positive control is adjudicated
+  by `lane/control-verdict-strict`: EVERY ROUND inside the ±25% band. On a byte counter
+  overlap is not a weaker gate but an absent one — the failure this control exists to
+  catch is a collector that has stopped seeing transient garbage, and its shape is a round
+  reading ~0 B, which under overlap PASSES, because `min` 0 sits under the roof while
+  `max` ~4,700,000 sits over the floor and a good round vouches for a dead one.
+- **The CLOCK arm REFUSED strict, and that refusal STANDS.** `re-frame.bench.p0-app`'s
+  control is a clock RATIO, and the 2026-07-31 quantum ruling keeps **overlap** where the
+  legs sit within a few of Chrome's 100 µs `performance.now()` quanta and a low round is
+  the clock's resolution rather than a defect. Eighty controls re-adjudicated from the
+  committed record read **80 of 80** under overlap and **64 of 80** under strict, every
+  miss LOW and every one on the two rows whose legs are one to three quanta wide, while
+  the 20-plus-quantum rows pass strict 40 of 40 —
+  [the breakdown](p0-converged-witness-set.md#the-strict-reading-over-eighty-controls-rf2-egdaq).
+  Nothing here reopens it, and the split is the point.
+
+**The ten published heap-control figures are RE-ADJUDICATED under strict, and all ten
+pass.** That is the operator's 2026-08-21 call, taken so that the published evidence and
+the current rule agree with no two-rules asterisk. **No window was re-run**: a published
+`[min–max]` whose two ends both sit inside the band bounds every round inside it, so the
+committed records settle it as they stand. The widest excursion either way across that
+series is **4,690,838 B against a prediction of 4,700,000 B — 0.195% low, against a band
+of ±25%** and better than two orders of magnitude inside it. Nothing flips.
+
+**None of that moves a figure on this page, and the reason is stated rather than left to
+be inferred.** This is the `--only alloc` row, and its `controlVerdict.ok` is neither lane
+rule: it is that row's own test in `p0_run.cjs`, an absolute-error check on the **mean**
+`perDouble` and on the differential slope, at **±75%**. The split above adjudicates the
+heap and clock rows and does not reach this one, whose control is `rf2-rs8q6` territory.
+So the six loose runs disclosed just above stand on exactly the terms they were published
+under, and so do all sixty-nine admissible readings.
 
 ## What this window does not settle
 
