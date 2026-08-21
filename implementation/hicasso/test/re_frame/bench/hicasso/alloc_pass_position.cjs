@@ -129,9 +129,16 @@
 // admissible only if it is balanced, `q·parity = 0` and `q·linear = 0` — the
 // criteria `alloc_pass_design.cjs` selected the real schedules under. At
 // twelve rounds there are 48 such schedules and the set is CLOSED UNDER
-// COMPLEMENT, so every reference distribution here is exactly symmetric about
-// zero by construction rather than by assumption, and any parity structure or
-// linear drift in the block values enters every re-labelling symmetrically.
+// COMPLEMENT, so any parity structure or linear drift in the block values
+// enters every re-labelling symmetrically.
+//
+// AND THE RESTRICTION IS ON THE WHOLE ASSIGNMENT, NOT ON EACH RUN SEPARATELY,
+// which is the repair `rf2-t4vu1` filed. Phase 4 drew TWO schedules and the
+// design forced the other two as their complements, then repeated the quadruple
+// verbatim in the second session — so the eight-run assignment ranges over
+// 48 × 46 = 2,208 configurations and not over 48⁸. See `assignmentRoles` for
+// why each restriction is load-bearing and `termReference` for what follows
+// from the support being closed under global complement.
 //
 // WHAT IT DOES NOT CONTROL, named rather than assumed away: residual functions
 // of the round index that the two balanced columns do not span — `r mod 4`
@@ -651,6 +658,127 @@ function relabel(bs, flips) {
 
 const passTerm = (bs) => decompose(bs, (b) => b.first === 'page').half;
 
+// The index of each schedule's complement inside the same enumeration. The
+// admissible set is closed under complement and no balanced schedule is its own
+// complement, so this is a fixed-point-free involution on `0..n−1`.
+function complementIndex(schedules) {
+  const at = new Map(schedules.map((f, i) => [flipKey(f), i]));
+  return schedules.map((f) => at.get(flipKey(f.map((x) => !x))));
+}
+
+// --- THE DESIGN'S OWN ASSIGNMENT SUPPORT -------------------------------------
+//
+// A RUN'S SCHEDULE IS NOT DRAWN INDEPENDENTLY OF ITS SIBLINGS, and an earlier
+// revision of this reference behaved as though it were: it drew each of the
+// eight runs from that run's own 48 admissible schedules, a support of 48⁸.
+// Phase 4 never drew eight schedules. `alloc_pass_design.cjs`'s rule draws
+// TWO — the first admissible seed, then the first subsequent one drawing
+// neither that schedule nor its complement — and the design then FORCES the
+// other two as their exact complements, after which the pre-registration
+// REPEATS the quadruple verbatim in session B. The whole eight-run labelling is
+// a function of two free schedules, and 48⁸ admits assignments this design
+// could not have produced: quadruples that are not complementary pairs, and
+// second sessions that do not repeat the first.
+//
+// Both restrictions are load-bearing rather than incidental. THE COMPLEMENT
+// PAIRING is what cancels every per-index nuisance out of the pooled pass
+// contrast — the whole reason the design carries it — so a reference that
+// breaks it ranks the observation against assignments in which a nuisance is
+// free that in the observation was cancelled. THE CROSS-SESSION REPEAT is what
+// makes the session the only thing differing between the two halves, which is
+// the contrast this window took a second session to obtain.
+//
+// `assignmentRoles` READS THAT STRUCTURE OFF THE DECLARATION rather than
+// assuming it: for each declared run, which free schedule it takes and whether
+// it takes that schedule complemented. A declaration of eight unrelated
+// schedules yields eight generators, and the old independent support falls out
+// as that special case rather than being the general one.
+function assignmentRoles(declaredRuns) {
+  const generatorKeys = [];
+  const roles = declaredRuns.map((d) => {
+    const key = flipKey(d.flips);
+    const anti = flipKey(d.flips.map((x) => !x));
+    const own = generatorKeys.indexOf(key);
+    if (own >= 0) return { generator: own, complement: false };
+    const inverted = generatorKeys.indexOf(anti);
+    if (inverted >= 0) return { generator: inverted, complement: true };
+    generatorKeys.push(key);
+    return { generator: generatorKeys.length - 1, complement: false };
+  });
+  return { roles, generatorKeys };
+}
+
+// The design a reference is taken over, read off the committed declaration.
+const bandDesign = (declared) => ({
+  ...assignmentRoles(declared.runs),
+  rounds: declared.window.rounds,
+});
+
+// `S · (S−2) · … · (S−2(k−1))` — see `assignmentSupport`.
+function supportSize(generators, n) {
+  let size = 1;
+  for (let j = 0; j < generators; j++) size *= n - 2 * j;
+  return size;
+}
+
+// Every ordered tuple of admissible schedules the design could have drawn its
+// free schedules as: distinct, and no two complementary. Each choice removes
+// the schedule taken AND its complement, because a design that drew one
+// schedule twice — or a schedule beside its own complement — is not the design
+// that was declared, and its quadruple would not be four distinct runs.
+//
+// ORDERED, because the runs are not interchangeable: run 1 and run 2 carry
+// different blocks, so handing them the two free schedules the other way round
+// is a different assignment. At phase 4's `k = 2` over `S = 48` that is
+// 48 × 46 = 2,208 — small enough to enumerate, so the reference is EXACT.
+function assignmentSupport(generators, schedules) {
+  const comp = complementIndex(schedules);
+  const out = [];
+  const walk = (tuple) => {
+    if (tuple.length === generators) {
+      out.push(tuple.slice());
+      return;
+    }
+    const taken = new Set();
+    for (const t of tuple) {
+      taken.add(t);
+      taken.add(comp[t]);
+    }
+    for (let i = 0; i < schedules.length; i++) {
+      if (taken.has(i)) continue;
+      tuple.push(i);
+      walk(tuple);
+      tuple.pop();
+    }
+  };
+  walk([]);
+  return out;
+}
+
+// One assignment drawn uniformly from that same support, for a design whose
+// support is too large to enumerate. Each generator is drawn from the schedules
+// not already taken and not the complement of one — the support's own
+// definition — so the draw is uniform over it.
+function drawAssignment(next, generators, schedules, comp) {
+  const tuple = [];
+  const taken = new Set();
+  while (tuple.length < generators) {
+    const pool = [];
+    for (let i = 0; i < schedules.length; i++) if (!taken.has(i)) pool.push(i);
+    const i = pool[Math.floor(next() * pool.length)];
+    tuple.push(i);
+    taken.add(i);
+    taken.add(comp[i]);
+  }
+  return tuple;
+}
+
+// Where the support fits under this it is enumerated and the reference is
+// exact; above it, the declared `draws` and `seed` sample from the SAME
+// support. Phase 4's 2,208 is two orders below. A design drawing four free
+// schedules would be 48 × 46 × 44 × 42 = 4,080,384 and would not be.
+const EXACT_SUPPORT_LIMIT = 250000;
+
 // The term this window reads: the MEAN of the per-run pass terms. Each run is a
 // complete balanced design on its own, so a run-level offset — and phase 2
 // measured one of 20% on a floor — cancels exactly out of every per-run
@@ -681,44 +809,101 @@ function rng(seed) {
 
 // THE REFERENCE DISTRIBUTION, and the two-sided rank of the observation in it.
 //
-// Each run's own reference set is EXACT — all 48 admissible re-labellings, so
-// the per-run p-value is a rank among 48 and involves no sampling at all. Only
-// the COMBINATION across runs is sampled, because the product is 48^8 and that
-// is not enumerable. The sample is a fixed count from a committed seed.
+// The statistic is re-read over every assignment THE DESIGN COULD HAVE DRAWN,
+// which is NOT every combination of per-run schedules — see `assignmentRoles`
+// for what that distinction cost. At phase 4's two free schedules over 48
+// admissible ones the support holds 48 × 46 = 2,208 assignments, so the
+// reference is EXACT: `p` is a rank among all of them, nothing is sampled, and
+// the declared `draws` and `seed` do the sampling they were declared for only
+// where the support is too large to enumerate.
 //
-// The p-value counts the observation itself, which is the standard
-// conservative convention: with `draws` re-labellings the smallest attainable
-// two-sided p is `1/(draws+1)`.
-function termReference(runs, { draws, seed }) {
-  const sets = runs.map((r) => {
-    const flips = admissibleSchedules(r.rounds);
-    return { blocks: r.blocks, flips, terms: flips.map((f) => passTerm(relabel(r.blocks, f))) };
-  });
-  const observed = meanRunTerm(runs);
-  const next = rng(seed);
-  const sample = [];
-  for (let d = 0; d < draws; d++) {
+// IT IS EXACTLY SYMMETRIC ABOUT ZERO, by construction rather than by
+// assumption. The support is closed under complementing every free schedule at
+// once, that map complements every run's labelling, and a complemented
+// labelling negates that run's term exactly — so each assignment's statistic is
+// paired with its own negation. Two consequences a page reading this has to
+// carry: a two-sided count is always EVEN, and the smallest attainable p is
+// `2/|support|` rather than `1/|support|`.
+//
+// The sampled branch keeps the conservative convention it always had — the
+// observation is counted, so the smallest attainable p there is `1/(draws+1)`.
+//
+// AND A REFERENCE THAT DOES NOT CONTAIN THE OBSERVATION IS NOT A REFERENCE FOR
+// IT. An executed assignment whose free schedules are not themselves admissible
+// is refused rather than ranked, and so is one the record does not reproduce.
+function termReference(runs, { draws, seed, design }) {
+  const schedules = admissibleSchedules(design.rounds);
+  const comp = complementIndex(schedules);
+  const at = new Map(schedules.map((f, i) => [flipKey(f), i]));
+  const observedTuple = design.generatorKeys.map((k) => at.get(k));
+  if (observedTuple.some((i) => i === undefined)) {
+    return { refused: 'the executed assignment draws a schedule the design does not admit' };
+  }
+
+  // Each run's term under EVERY admissible re-labelling, computed once and read
+  // by index from here on: the support is enumerated over schedule INDICES, so
+  // no assignment re-derives a median.
+  const terms = runs.map((r) => schedules.map((f) => passTerm(relabel(r.blocks, f))));
+  const statistic = (tuple) => {
     let s = 0;
     let n = 0;
-    for (const set of sets) {
-      const t = set.terms[Math.floor(next() * set.terms.length)];
+    for (let i = 0; i < design.roles.length; i++) {
+      const g = tuple[design.roles[i].generator];
+      const t = terms[i][design.roles[i].complement ? comp[g] : g];
       if (t !== null) { s += t; n++; }
     }
-    sample.push(n ? s / n : 0);
+    return n ? s / n : 0;
+  };
+
+  const observed = meanRunTerm(runs);
+  // AN ARM THAT CARRIES NO BLOCK HAS NO TERM, AND THAT IS A REFUSAL RATHER THAN
+  // A PASS. The earlier revision let `observed` be `null`, compared every draw
+  // against `Math.abs(null) = 0`, and returned p = 1 — so a corpus carrying no
+  // R = 0 arm at all cleared the null-arm control vacuously and outcome 1 was
+  // read with no negative control under it. Same class as the `--admit` that
+  // exited 0 on an empty corpus.
+  if (observed === null) {
+    return { refused: 'the arm carries no block at all, so there is no term to rank' };
   }
+  // AND THE OBSERVATION MUST BE A POINT OF ITS OWN REFERENCE. Re-labelling the
+  // blocks under the schedules the declaration says were drawn has to reproduce
+  // the measured term exactly; where it does not, the record and the
+  // declaration disagree about what ran and no rank off either is meaningful.
+  if (statistic(observedTuple) !== observed) {
+    return { refused: 'the declared assignment does not reproduce the measured term' };
+  }
+
+  const generators = design.generatorKeys.length;
+  const support = supportSize(generators, schedules.length);
+  const exact = support > 0 && support <= EXACT_SUPPORT_LIMIT;
+  let sample;
+  if (exact) {
+    sample = assignmentSupport(generators, schedules).map(statistic);
+  } else {
+    const next = rng(seed);
+    sample = [];
+    for (let d = 0; d < draws; d++) sample.push(statistic(drawAssignment(next, generators, schedules, comp)));
+  }
+
   const atLeast = sample.filter((t) => Math.abs(t) >= Math.abs(observed)).length;
   const sorted = sample.map(Math.abs).sort((a, b) => a - b);
   return {
     observed,
-    draws,
-    seed,
-    // Per run, the exact rank among that run's own 48 re-labellings.
-    perRun: sets.map((set, i) => {
-      const t = passTerm(runs[i].blocks);
-      const ge = set.terms.filter((x) => Math.abs(x) >= Math.abs(t)).length;
-      return { label: runs[i].label, term: t, of: set.terms.length, p: ge / set.terms.length };
+    exact,
+    support,
+    generators,
+    draws: exact ? sample.length : draws,
+    seed: exact ? null : seed,
+    // Per run, the exact rank among that run's own 48 re-labellings. A MARGINAL
+    // statement and now labelled as one: it is what a single run's schedule
+    // could have been holding its siblings nowhere, and the joint support above
+    // is what the window is adjudicated on.
+    perRun: runs.map((r, i) => {
+      const t = passTerm(r.blocks);
+      const ge = terms[i].filter((x) => Math.abs(x) >= Math.abs(t)).length;
+      return { label: r.label, term: t, of: terms[i].length, p: ge / terms[i].length };
     }),
-    p: (atLeast + 1) / (draws + 1),
+    p: exact ? atLeast / sample.length : (atLeast + 1) / (draws + 1),
     p95: sorted[Math.floor(sorted.length * 0.95)],
     p975: sorted[Math.floor(sorted.length * 0.975)],
   };
@@ -868,26 +1053,50 @@ function report(rows, declared = null) {
 
   if (declared && declared.band) {
     const { draws, seed, alpha } = declared.band;
+    const design = bandDesign(declared);
     const runsOf = (rungs, stat) =>
       rows.map(({ label, row }) => ({ label, rounds: row.rounds, blocks: blocks(row, label, rungs, stat) }));
-    const signal = termReference(runsOf(MID_RUNGS, 'ratio'), { draws, seed });
-    const control = termReference(runsOf(NULL_RUNGS, 'delta'), { draws, seed });
+    const signal = termReference(runsOf(MID_RUNGS, 'ratio'), { draws, seed, design });
+    const control = termReference(runsOf(NULL_RUNGS, 'delta'), { draws, seed, design });
+
+    if (signal.refused || control.refused) {
+      out.push(';;');
+      out.push(';; THE BAND IS REFUSED AND NO p IS PRINTED. A rank is only a rank against a');
+      out.push(';; reference the observation is a member of.');
+      for (const r of [signal.refused, control.refused]) if (r) out.push(`;;   ${r}`);
+      return { lines: out, refused: true };
+    }
 
     out.push(';;');
-    out.push(';; THE BAND — a restricted randomisation of the PASS LABELS over the schedules');
-    out.push(`;; the design would equally have admitted (${admissibleSchedules(declared.window.rounds).length} at ${declared.window.rounds} rounds, closed under`);
-    out.push(`;; complement). Block VALUES are untouched. ${draws} draws from the committed seed`);
-    out.push(`;; ${JSON.stringify(seed)}; alpha ${alpha}. Nothing here is a byte threshold.`);
+    out.push(';; THE BAND — a restricted randomisation of the PASS LABELS over the assignments');
+    out.push(';; THE DESIGN ITSELF could have drawn, which is not every combination of per-run');
+    out.push(`;; schedules. ${signal.generators} free schedule(s) out of the ${admissibleSchedules(design.rounds).length} admissible at ${design.rounds} rounds (closed`);
+    out.push(`;; under complement); the rest of the ${design.roles.length} runs are FORCED by the declaration's`);
+    out.push(`;; complement pairing and its session repeat. ${signal.support} assignments in all, and the`);
+    out.push(';; block VALUES are untouched.');
+    if (signal.exact) {
+      out.push(`;;   EXACT — every one of the ${signal.support} is enumerated, so nothing is sampled and the`);
+      out.push(`;;   declared ${draws} draws from ${JSON.stringify(seed)} are not used. The support is closed under`);
+      out.push(';;   global complement, so the reference is exactly symmetric about zero, every');
+      out.push(`;;   two-sided count is even, and the smallest attainable p is 2/${signal.support}.`);
+    } else {
+      out.push(`;;   SAMPLED — the support is too large to enumerate, so ${draws} draws from the committed`);
+      out.push(`;;   seed ${JSON.stringify(seed)}. The observation is counted, so the smallest attainable p is`);
+      out.push(`;;   1/${draws + 1}.`);
+    }
+    out.push(`;;   alpha ${alpha}. Nothing here is a byte threshold.`);
     out.push(';;   arm | term | two-sided p | reference p95 | reference p97.5');
     for (const [name, ref, unit] of [['MID-RUNG (signal)', signal, '%'], ['R=0 NULL (control)', control, 'B/boundary']]) {
       const shown = unit === '%' ? pct(ref.observed) : `${ref.observed === null ? 'n/a' : ref.observed.toFixed(2)} B/bnd`;
       const p95 = unit === '%' ? pct(ref.p95) : `${ref.p95.toFixed(2)} B/bnd`;
       const p975 = unit === '%' ? pct(ref.p975) : `${ref.p975.toFixed(2)} B/bnd`;
-      out.push(`;;   ${name} | ${shown} | ${ref.p.toFixed(4)} | ${p95} | ${p975}`);
+      out.push(`;;   ${name} | ${shown} | ${ref.p.toFixed(6)} | ${p95} | ${p975}`);
     }
     out.push(';;');
-    out.push(';;   PER RUN, exact — the rank of the run\'s own term among all its re-labellings.');
-    out.push(';;     run | mid-rung term | exact p (of 48) | null term | exact p');
+    out.push(';;   PER RUN, MARGINAL — the rank of the run\'s own term among all its own');
+    out.push(';;   re-labellings, holding its siblings nowhere. The verdict above is the JOINT');
+    out.push(';;   rank over the design\'s assignments, and it is the one the outcome reads.');
+    out.push(`;;     run | mid-rung term | marginal p (of ${signal.perRun[0] ? signal.perRun[0].of : 0}) | null term | marginal p`);
     signal.perRun.forEach((s, i) => {
       const c = control.perRun[i];
       out.push(
@@ -901,14 +1110,14 @@ function report(rows, declared = null) {
     out.push(';;');
     if (!ctlOk) {
       out.push(`;;   OUTCOME 3 — NO VERDICT. The R = 0 null arm, whose true term is ZERO by`);
-      out.push(`;;   construction, itself returns p = ${control.p.toFixed(4)} <= ${alpha} through the identical`);
+      out.push(`;;   construction, itself returns p = ${control.p.toFixed(6)} <= ${alpha} through the identical`);
       out.push(';;   pipeline. A band that fires on a known-zero population cannot adjudicate the');
       out.push(';;   mid rungs, and the pre-registration makes that a refusal rather than a footnote.');
     } else if (sigOk) {
       out.push(`;;   OUTCOME 1 — THE PASS TERM IS ESTABLISHED as a within-window term at alpha ${alpha}:`);
-      out.push(`;;   p = ${signal.p.toFixed(4)}, with the null-arm control clear at p = ${control.p.toFixed(4)}.`);
+      out.push(`;;   p = ${signal.p.toFixed(6)}, with the null-arm control clear at p = ${control.p.toFixed(6)}.`);
     } else {
-      out.push(`;;   OUTCOME 2 — THE PASS TERM IS NOT ESTABLISHED. p = ${signal.p.toFixed(4)} > ${alpha}; the term`);
+      out.push(`;;   OUTCOME 2 — THE PASS TERM IS NOT ESTABLISHED. p = ${signal.p.toFixed(6)} > ${alpha}; the term`);
       out.push(';;   sits inside the spread the same design returns on re-labelled data.');
     }
 
@@ -1135,6 +1344,15 @@ function selfTest() {
         for (const rung of MID_RUNGS) {
           a[`${segment}|${arm}#${rung}@all`] = { certified: true, legMedian: 5000 };
           a[`${segment}|${arm}#${rung}@page`] = { certified: true, legMedian: 5000 + pageDelta };
+        }
+        // AND AN R = 0 ARM, reading the floor exactly under both legs so its
+        // true term is zero the way the real null arm's is. It is here because
+        // the band now REFUSES an arm carrying no block rather than returning
+        // p = 1 for it: a fixture with no null arm would exercise the refusal
+        // instead of the two-session verdict it is built for.
+        for (const rung of NULL_RUNGS) {
+          a[`${segment}|${arm}#${rung}@all`] = { certified: true, legMedian: 1000 };
+          a[`${segment}|${arm}#${rung}@page`] = { certified: true, legMedian: 1000 };
         }
         a[`${segment}|${FLOOR_ARM}@all`] = { certified: true, legMedian: 1000 };
         a[`${segment}|${FLOOR_ARM}@page`] = { certified: true, legMedian: 1000 };
@@ -1476,6 +1694,43 @@ function selfTest() {
   // effect makes every block value ±`effect` and the median of six of them is
   // degenerate, which is a property of the FIXTURE and not of any real corpus.
   const declaredRuns = JSON.parse(fs.readFileSync(declPath, 'utf8')).runs;
+
+  // --- THE JOINT ASSIGNMENT SUPPORT, WHICH IS THE DESIGN'S AND NOT EACH RUN'S -
+  //
+  // `rf2-t4vu1`'s repair, pinned on the SUPPORT rather than only on each run's
+  // 48 marginal schedules — which is exactly what the earlier pins reached and
+  // is why an eight-fold independent draw sat under them unnoticed.
+  const design = bandDesign(JSON.parse(fs.readFileSync(declPath, 'utf8')));
+  assert.strictEqual(design.generatorKeys.length, 2, 'phase 4 draws exactly TWO free schedules');
+  assert.deepStrictEqual(
+    design.roles.map((r) => `${r.generator}${r.complement ? '~' : ''}`),
+    ['0', '1', '0~', '1~', '0', '1', '0~', '1~'],
+    'and the declared eight runs are [A, B, ~A, ~B] repeated verbatim in session B'
+  );
+
+  // THE SIZE IS ARITHMETIC AND IS DERIVABLE WITHOUT RUNNING ANYTHING: 48 ways to
+  // draw A; B must be admissible, not A and not ~A, and the set is closed under
+  // complement with no schedule its own complement, so exactly two are removed
+  // and 46 remain. 48 × 46 = 2,208, ORDERED because run 1 and run 2 carry
+  // different blocks.
+  const support = assignmentSupport(2, sched12);
+  assert.strictEqual(supportSize(2, 48), 2208, 'the closed form is 48 × 46');
+  assert.strictEqual(support.length, 2208, 'and the enumeration returns exactly that many');
+  assert.strictEqual(new Set(support.map((t) => t.join(','))).size, 2208, 'with no repeats');
+
+  // AND IT REFUSES IN BOTH DIRECTIONS, which is what makes the count evidence
+  // rather than a number that happened to come out right. Dropping the
+  // exclusion would give 48 × 48 = 2,304 — 96 more — so the two degenerate
+  // shapes are named and each is checked for absence.
+  {
+    const compIdx = complementIndex(sched12);
+    const inSupport = new Set(support.map((t) => t.join(',')));
+    assert.ok(inSupport.has(`0,${1 === compIdx[0] ? 2 : 1}`), 'a distinct non-complementary pair IS in the support');
+    assert.ok(!inSupport.has('0,0'), 'a design that drew one schedule twice is not this design');
+    assert.ok(!inSupport.has(`0,${compIdx[0]}`), 'nor is one that drew a schedule beside its own complement');
+    assert.strictEqual(2304 - support.length, 96, 'and the exclusion removes exactly the 96 such pairs');
+  }
+
   const synth = (flips, label, { pass = 0, parity = 0 }) =>
     flips.map((f, r) => ({
       run: label, round: r, first: f ? 'all' : 'page', n: 1,
@@ -1484,7 +1739,9 @@ function selfTest() {
     }));
   const corpus = (model) =>
     declaredRuns.map((d, i) => ({ label: String(i + 1), rounds: 12, blocks: synth(d.flips, String(i + 1), model) }));
-  const band = (model) => termReference(corpus(model), { draws: 20000, seed: 'self-test' });
+  const band = (model) => termReference(corpus(model), { draws: 20000, seed: 'self-test', design });
+  assert.strictEqual(band({}).exact, true, 'the reference over this design is enumerated, not sampled');
+  assert.strictEqual(band({}).support, 2208, 'over all 2,208 assignments');
 
   // A PURE PASS EFFECT AT THE SIZE THIS WINDOW IS LOOKING FOR — 0.6%, the
   // median of the four terms published across phases 2 and 3 — must clear the
@@ -1526,18 +1783,90 @@ function selfTest() {
     assert.ok(r.p >= 1 / 48 - 1e-12, `and cannot beat 1/48, got ${r.p}`);
   }
 
-  // THE REFERENCE IS A FUNCTION OF THE SEED AND NOTHING ELSE.
-  const twice = () => JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'k' }));
-  assert.strictEqual(twice(), twice(), 'the same seed returns the same reference');
-  assert.notStrictEqual(
-    JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'k' }).p95),
-    JSON.stringify(termReference(corpus({ pass: 0.004 }), { draws: 500, seed: 'other' }).p95),
-    'and a different seed returns a different one, so the seed is doing work'
+  // THE REFERENCE IS EXACT, SO THE DECLARED SEED IS INERT — and that is the
+  // property to pin now, where before it was the opposite one. An exhaustive
+  // enumeration of 2,208 assignments is a function of the corpus and the design
+  // alone; a reader that still varied with the seed would be sampling
+  // something. The declaration's `draws` and `seed` are kept and reported
+  // unused rather than deleted: they are what the sampled branch needs, and a
+  // pre-registration is not amended after its runs.
+  const ref = (s, d) => termReference(corpus({ pass: 0.004 }), { draws: d, seed: s, design });
+  assert.strictEqual(JSON.stringify(ref('k', 500)), JSON.stringify(ref('k', 500)), 'the reference is deterministic');
+  assert.strictEqual(
+    JSON.stringify(ref('k', 500)),
+    JSON.stringify(ref('other', 7)),
+    'and neither the seed nor the draw count moves it, because nothing is sampled'
   );
+
+  // --- THE JOINT SUPPORT IS WHAT IS BEING RANKED, AND HERE IS THE PROOF -------
+  //
+  // EIGHT COPIES OF ONE RUN READ EXACTLY ZERO AT EVERY ONE OF THE 2,208
+  // ASSIGNMENTS, and that is arithmetic rather than a measurement. Complementing
+  // a labelling negates that run's term, and the design hands each free schedule
+  // to two runs as itself and to two more complemented; with identical runs the
+  // four terms cancel in pairs and the mean is exactly 0 whatever A and B are.
+  //
+  // IT IS THE CONTROL THAT DISCRIMINATES THE TWO SUPPORTS. Under eight
+  // independent per-run draws the same corpus has a real spread — the pairing is
+  // what collapses it — so a reference that had gone back to drawing each run
+  // separately would fail here and nowhere else in this block.
+  {
+    const compIdx = complementIndex(sched12);
+    const one = corpus({ pass: 0.006 })[0].blocks;
+    const t = sched12.map((f) => passTerm(relabel(one, f)));
+    let worst = 0;
+    for (const tuple of support) {
+      let s = 0;
+      for (const role of design.roles) {
+        const g = tuple[role.generator];
+        s += t[role.complement ? compIdx[g] : g];
+      }
+      worst = Math.max(worst, Math.abs(s / design.roles.length));
+    }
+    assert.ok(worst < 1e-15,
+      `eight identical runs read exactly 0 at every one of the ${support.length} assignments, got ${worst}`);
+    // AND THE DEGENERACY IS THE PAIRING'S, NOT FLAT DATA'S. The same run's own
+    // 48 marginal terms have a real spread — an assignment handing every run
+    // one schedule, which is what an eight-fold independent draw permits and
+    // this design does not, reads that schedule's own term.
+    assert.ok(Math.max(...t.map(Math.abs)) > 1e-6,
+      'the run itself carries a real term, so the cancellation is the design and not the data');
+  }
+
+  // THE SUPPORT IS CLOSED UNDER GLOBAL COMPLEMENT, so the reference is exactly
+  // symmetric about zero and a two-sided count is always EVEN. That is why the
+  // smallest attainable p is 2/2208 and not 1/2208 — a floor a page quoting this
+  // band has to quote correctly, and one no amount of sampling would have shown.
+  {
+    const compIdx = complementIndex(sched12);
+    for (const [a, b] of support.slice(0, 64)) {
+      assert.ok(
+        support.some(([x, y]) => x === compIdx[a] && y === compIdx[b]),
+        'every assignment (A, B) is in the support beside (~A, ~B)'
+      );
+    }
+    const counted = (r) => Math.round(r.p * r.support);
+    for (const r of [band({ pass: 0.006 }), band({}), band({ parity: 1 }), band({ pass: 0.006, parity: 1 })]) {
+      assert.strictEqual(counted(r) % 2, 0, `a two-sided count over a symmetric support is even, got ${counted(r)}`);
+    }
+  }
+
+  // AND A REFERENCE THE OBSERVATION IS NOT A MEMBER OF IS REFUSED, NOT RANKED.
+  {
+    const bogus = { ...design, generatorKeys: [flipKey(Array.from({ length: 12 }, () => false)), design.generatorKeys[1]] };
+    const got = termReference(corpus({ pass: 0.006 }), { draws: 500, seed: 'k', design: bogus });
+    assert.ok(/does not admit/.test(got.refused || ''), `an inadmissible free schedule is refused, got: ${JSON.stringify(got.refused)}`);
+    const crossed = { ...design, generatorKeys: [design.generatorKeys[1], design.generatorKeys[0]] };
+    const swap = termReference(corpus({ pass: 0.006 }), { draws: 500, seed: 'k', design: crossed });
+    assert.ok(/does not reproduce/.test(swap.refused || ''),
+      `an assignment the record does not reproduce is refused, got: ${JSON.stringify(swap.refused)}`);
+  }
 
   console.log(`[alloc-pass-position] self-test OK — 12 published blocks, both decompositions, `
     + `the parity tie, the null arm's 38 cells, the floor-free estimator's 3 of 6, `
-    + `${sched12.length} admissible schedules, the band's three synthetic controls, the `
+    + `${sched12.length} admissible schedules, the design's own ${support.length}-assignment support in both `
+    + `directions, the identical-run degeneracy that only the paired support produces, `
+    + `the band's four synthetic controls, the `
     + `fail-closed boundary in both directions, the realised labelling on both a fixture and `
     + `phase 4's own run 1, the declared session partition collapsed and mispartitioned, and `
     + `both branches of the session verdict all reproduce`);
@@ -1593,6 +1922,12 @@ module.exports = {
   relabel,
   passTerm,
   meanRunTerm,
+  complementIndex,
+  assignmentRoles,
+  assignmentSupport,
+  supportSize,
+  bandDesign,
+  EXACT_SUPPORT_LIMIT,
   rng,
   termReference,
   median,
