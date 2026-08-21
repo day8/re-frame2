@@ -46,6 +46,34 @@ the window publishes the refusal and its evidence rather than a number.
 **The rig does not change mid-window.** A defect found mid-window stops the
 window; no figure is published across a rig change.
 
+## WHAT THE WINDOW RETURNED
+
+All three runs certified: `exit 0` each, both arm-order guards reportable on
+every run (38 `[ok]` verdicts and no refusal per run), the phase-A positive
+control passing on every run, the phase-B residue gate never firing. The
+instrument **blob** hash was `c220a8c23c44ca6e19f9cab90528d932f271a784` before
+the window and after it.
+
+Each run's null spread, and the maximum the terms are adjudicated against:
+
+| null (`c-local −` the arm) | slot | run 1 | run 2 | run 3 |
+|---|---|---|---|---|
+| `c-null` | 2 | +0.0297 | +0.0141 | +0.0500 |
+| `c-null-twin` | 9 | +0.0031 | +0.0281 | +0.0297 |
+| `c-null-curve` | 10 | +0.0109 | +0.0172 | +0.0359 |
+| **maximum** | — | **+0.0297** | **+0.0281** | **+0.0500** |
+
+| term (`c-local −` the arm) | run 1 | run 2 | run 3 | verdict |
+|---|---|---|---|---|
+| reaction build + cache insert | +0.6016 | +0.6156 | +0.5141 | **RESOLVED** — 67.4% / 67.0% / 66.5% of `c-local` |
+| cell-map insert | +0.0672 | +0.0656 | +0.0797 | **RESOLVED** — 7.5% / 7.1% / 10.3% of `c-local` |
+| watch wiring | +0.0594 | +0.0547 | +0.0500 | UNRESOLVED — clears in runs 1–2, exact tie with the null maximum in run 3 |
+| activation capture | +0.0188 | +0.0187 | +0.0328 | UNRESOLVED on all three runs |
+| reader membership | +0.0156 | +0.0062 | +0.0500 | UNRESOLVED on all three runs |
+
+**No bound is published for any unresolved term**, in either direction. A term
+inside the null spread has its size left open by that fact.
+
 ## Reproduction
 
 ```bash
