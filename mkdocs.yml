@@ -59,6 +59,17 @@ exclude_docs: |
 # excluded from the built site" is capped at INFO in MkDocs itself
 # (`min(logging.INFO, ...)` in pages.py), so no config value gates links into
 # `exclude_docs` trees.  That class is rf2-75q3l's, and it needs its own check.
+#
+# ANCHORS ARE A SEPARATE KEY, LEFT UNSET ON PURPOSE (rf2-zk50).  `anchors`
+# defaults to INFO (mkdocs/config/defaults.py), so `--strict` PRINTS a broken
+# in-page or cross-file anchor and still exits 0 — the promotion rule above,
+# reaching a class the `links` levels do not.  Raising it to `warn` MEASURED
+# GREEN on 2026-08-22 — a clean strict build emits no anchor INFO at all — so
+# the objection is not breakage but redundancy and arming:
+# scripts/check_doc_slugs.py already gates anchors across docs/, spec/, skills/
+# and migration/, including trees `exclude_docs` hides from this build, and
+# runs unguarded on every PR in test.yml's `verify-readme-links` — seconds,
+# where this build costs minutes.  Raising it is a ruling, not a side effect.
 validation:
   links:
     unrecognized_links: warn
