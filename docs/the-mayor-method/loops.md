@@ -621,14 +621,19 @@ and both readings went wrong in a single day here, in opposite directions.
    edits. It belongs on the list because it reads strong and not one of its four parts observes the
    agent.
 
-   **The timestamps split by QUESTION, and the two questions take OPPOSITE answers.** A rebase replays
-   the *authored* time and rewrites only the *committed* one, so two honest readers can call one change
-   forty-three minutes old and seventy-five seconds old. Liveness wants the *committed* time, which
-   moves when the worker moves. But **DATING a change in prose — a design record, a governance note,
-   any claim about when work was done — wants the *authored* time**, because that is when the work was
-   written. Where the project merges by rebase the two differ on essentially every landed change, and
-   the error is invisible once made. A reader who has met only the liveness rule has been taught that
-   the authored time is the untrustworthy one, and will "correct" a right date into a wrong one.
+   **A change carries two clocks recording two different EVENTS, so name the event before you read a
+   clock.** The *authored* time records when the work was written; the *committed* time records when it
+   was last replayed onto the trunk. A rebase replays the first unchanged and rewrites the second, so
+   where a project merges by rebase they differ on essentially every landed change — two honest readers
+   called one change forty-three minutes old and seventy-five seconds old, and neither had misread.
+
+   Liveness asks *did this worker do something recently*, which is the replay event, so it reads the
+   committed time. A date in prose asks something else, and **which** something else is the whole
+   question: when the work was written is the authored time, when it reached the trunk is the committed
+   time, and a record that says only "dated" has not been specified. **Name the event in the sentence**
+   — "written on", "landed on" — and the clock follows from it. Do not write a rule that says prose
+   takes one clock: that trades a defect for its mirror, and the error is invisible once made, because
+   both are real timestamps on the same change and each is correct for its own event.
 
 2. **Is there a live task to message?** Message first — resuming beats redispatching, because the
    worker's context is still there. **The commonest strand by far is a worker that detached a long gate

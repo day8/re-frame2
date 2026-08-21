@@ -388,8 +388,10 @@ at all.
   negative error excursion exceeded 0.0062 + *t*: it neither makes ±0.0062 a calibrated symmetric
   floor nor upper-bounds *t*. **A most-negative observation is a statement about the ERROR TERM, not
   about the quantity** — and comparing most-negative readings from *different* positive-cost arms at
-  two window widths cannot establish a floor-scaling factor either. If you report a bound, name the
-  NULL OR CONTROL ARM that produced it; otherwise report the term as UNRESOLVED. One window quoted
+  two window widths cannot establish a floor-scaling factor either. **Where a bound is inferred from
+  estimator error or noise-floor behaviour, name the NULL OR CONTROL ARM that produced it**; otherwise
+  report the term as UNRESOLVED. A bound resting on a direct analytic argument or an independently
+  calibrated error figure needs no arm at all — say which warrant you have. One window quoted
   "bounded: < 0.006 ms/commit" from its own most-negative reading, was refuted by audit, and was
   refuted again by the next window reading −0.0141.
 
@@ -710,8 +712,14 @@ worktree unreapable.**
 endings reads clean having changed every line — and **a patch that never applied reads clean too**,
 because "unchanged" and "not attempted" are the same diff. That second one is the dangerous half:
 a plant that silently no-ops makes the sabotage run come back green, so the worker reports a guard
-that fired when nothing was ever broken. Hash before the plant, compare after the restore. Five
-cautions:
+that fired when nothing was ever broken. Hash before the plant, compare after the restore.
+
+**Commit your own edits before you plant anything**, because the obvious restore — asking version
+control for the file back — returns it to the last COMMITTED state, not to your pre-plant working
+state. Plant from a dirty tree and that restore silently discards the very work the gate was being
+run against, and the run afterwards is green about a tree you did not mean to have. The hash check
+is what catches it, which is the case for doing the hash check rather than an argument against the
+restore. Six cautions:
 
 * **Where line endings are translated, use version control's own content hash against the
   committed object**, not a byte digest of the working file — a checkout during a rebase rewrites
