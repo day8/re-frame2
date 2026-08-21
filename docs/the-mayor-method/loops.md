@@ -629,6 +629,17 @@ outside, and both readings went wrong in a single day here, in opposite directio
    worker inside a long gate commits nothing by design, so a still tip is the *expected* reading
    for the commonest healthy state rather than a warning — which is why the corroboration, and
    not the tip, is what carries the verdict.
+   **That timestamp split is by QUESTION, and the OTHER question takes the OPPOSITE answer.**
+   Everything above asks *is this worker alive?*, and liveness wants the *committed* time: the
+   rebase rewrites it, so it moves when the worker moves. But **DATING a change in prose — in a
+   design record, a governance note, any claim about when work was done — wants the *authored*
+   time**, because that is when the work was written, while the committed time records only when
+   the trunk happened to replay it. Where the project merges by rebase the two differ on
+   essentially every landed change, so this is the common case rather than a corner of it, and the
+   error is invisible once made: both are real timestamps on the same change, and each is correct
+   for its own question. A reader who has met only the liveness rule has been taught that the
+   authored time is the untrustworthy one, and will "correct" a right date into a wrong one — which
+   happened here, costing a live worker a wrong flag and the loop a retraction to the operator.
 2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
    because the worker's context is still there. **The commonest strand by far is a worker that
    detached a long gate and then ended its turn**, waiting for a completion event that nothing
