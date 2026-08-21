@@ -719,7 +719,7 @@ control for the file back — returns it to the last COMMITTED state, not to you
 state. Plant from a dirty tree and that restore silently discards the very work the gate was being
 run against, and the run afterwards is green about a tree you did not mean to have. The hash check
 is what catches it, which is the case for doing the hash check rather than an argument against the
-restore. Six cautions:
+restore. Five cautions on the plant itself:
 
 * **Where line endings are translated, use version control's own content hash against the
   committed object**, not a byte digest of the working file — a checkout during a rebase rewrites
