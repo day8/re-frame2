@@ -190,7 +190,173 @@ node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cj
   implementation/hicasso/test/re_frame/bench/hicasso/data/revorder-csca8/*.json
 ```
 
-## Result
+## The answer, first
 
-*Committed deliberately empty. This section is written after the thirtieth run
-and not before it.*
+**The SUBSTRATE is a carrier. The pre-registered primary contrast separates, and
+the first of the three declared outcomes is the one that happened.**
+
+Inside `fixed-reversed`, with the mode held constant and both cells drawn from
+the same ten runs, `uix-subs` at position 0 reads **8 of 136** and `reagent-subs`
+at position 1 reads **0 of 161** — Fisher two-sided **p = 0.0017** at the
+1,050 – 1,224 B band. At **run level**, the denominator this page treats as the
+honest one, that is **5 of 10 runs against 0 of 10, p = 0.0325**. Pooled with the
+fifteen-run window's five reversed runs it is **6 of 15 against 0 of 15,
+p = 0.0169**.
+
+**The substrate moved position and the cluster went with it.** Position, mode,
+session, revision, box and the level the run settled at are all held constant by
+construction here rather than by matching, because the two cells are the two arms
+of the same runs.
+
+### And the statistic is what had been blocking it — this window shows that on its own records
+
+The fifteen-run window said the substrate arm was blocked by a **defect in the
+statistic rather than a shortage of runs**. That is now measured rather than
+argued, on one set of thirty records read two ways:
+
+| Reading, at the 1,050 – 1,224 B band | CARRIER contrast | p |
+|---|---|---|
+| `signed-furthest` — the earlier pre-registered worst-leg maximum | 3 of 136 vs 0 of 161 | 0.0949 |
+| `any-leg` — this window's pre-registered masking-free reading | 8 of 136 vs 0 of 161 | **0.0017** |
+
+**At double the reversed-arm n the old statistic still cannot resolve the
+question, and the new one resolves it on the same data.** More runs would not
+have fixed this; the reading had to change, and it had to change before the runs.
+
+The masking is visible as a rate. Of the windows carrying an in-band leg, the
+share where that leg **is** the window's worst runs at **79%** in
+`fixed | uix-subs | pos1` and **38%** in `fixed-reversed | uix-subs | pos0` —
+because position 0 is where the ~748 B rider wins the maximum. The fifteen-run
+window measured the same asymmetry as 80% against 20%.
+
+### The other two arms
+
+- **POSITION stays refuted, now at higher n and under the masking-free reading.**
+  With `reagent-subs` in the second-driven slot, that slot carries nothing:
+  **28 of 143 against 0 of 161**, p = 1.43e-10, and 10 of 10 runs against 1 of 10
+  at run level.
+- **MODE is a SECOND term, on top of the substrate rather than instead of it.**
+  Reversing the order does not abolish the cluster at `uix-subs`, it cuts it:
+  **28 of 143 under `fixed` against 8 of 136 under `fixed-reversed`**,
+  p = 6.21e-4, both at `uix-subs`. And the forward order stands well above parity
+  at the matched cell — 28 of 143 against 3 of 66, p = 0.0033.
+
+**So the bead's three-way question resolves as two terms and not one:** the
+`uix-subs` substrate carries the cluster, the forward fixed order multiplies the
+rate at which it appears, and the within-round position carries nothing.
+
+## What this window does NOT settle
+
+- **It does not separate `fixed-reversed` from `parity` at `uix-subs`.** That
+  contrast is **8 of 136 against 5 of 140, p = 0.4069** — a failure to reject, on
+  counts too small to bound anything. What is established is the **within-mode**
+  substrate contrast, not a reversed-versus-parity difference.
+- **It names no mechanism**, and nothing here proposes one.
+- **Every window-level p carries the repeated-measures bound in full.** Fisher
+  treats each window as an independent trial and they are not. The run-level
+  census is published beside every one of them, and the primary contrast is the
+  one that survives at run level. **No cluster-robust or mixed-effects estimate is
+  offered and none should be** — at ten clusters per arm a variance component is
+  not identifiable and a cluster-robust standard error is badly biased.
+- **τ did not move, the band did not move, and `p0_run.cjs` was not edited.**
+
+## A limitation of the band, found after this window closed
+
+**Recorded, not repaired. The band did not move and must not: it was pre-registered
+and it is fenced.**
+
+While this window was running, `rf2-0eu1s`'s re-derivation landed on
+`worker/floorderv-cluster` (PR #8620), record
+`docs/design/hicasso/studio/the-floor-is-two-populations.md` — **cited by path
+rather than linked, because at this commit it is on that branch and not on
+`main`, and a link to it would be a broken target here.** **Verified first-hand on that
+branch rather than taken from the report:** over 242 committed null-arm cells the
+sorted values run 0 to 21, then **nothing at all**, then 44.5 to 135.5 — mode 1
+holds 197 cells, mode 2 holds 45, and the span between them holds **zero of 242**.
+Those are two disjoint populations, not one distribution with a heavy end. A
+pooled p90 over them is therefore **not a magnitude**; it reports only which
+population the 90th-percentile index happened to fall in, which is why a band cut
+at ten times it can swing by a factor of thirteen between windows whose centres
+agree to 1.5 B/boundary.
+
+**This does not reach this window's band, and the reason is structural rather
+than lucky: this band was never derived from a quantile at all.** It is the
+bead's own observed cluster range, and what licenses reading it is a **direct,
+unit-matched in-band count on the null arm** — 0 of 41,862 control legs on the
+committed corpus and 0 of 9,642 on this window's own controls, **0 of 51,504
+together**. That count is indifferent to how the null arm partitions. And the
+partition makes the margin explicit rather than narrower: mode 2's **maximum**
+sits at 135.5 B/boundary, where this band's **floor** is 1,050 B.
+
+**One sentence in the pre-registration above is wrong, and it is fairer to say so
+than to quietly edit it.** It compares the band floor to `rf2-0eu1s`'s pooled p90
+of 61 and calls it "roughly seventeen times that measured p90". That comparison
+is defective **twice**: it leans on exactly the pooled p90 the finding above shows
+is a mode-selector rather than a scale, and it crosses units — the null-floor
+figures are **B/boundary**, while this band and the cluster it describes are leg
+excesses in **B** over a window's own leg median. **It was decorative and never
+load-bearing** — the justification the band actually rests on is the direct
+in-band count, which is unit-matched by construction, since
+`alloc_cluster_carrier.cjs` computes control-leg excesses over their own leg
+median exactly as it computes the arms'. **The pre-registration text is left
+standing as written**, because rewriting a pre-registration after its outcome is
+known is the thing pre-registration exists to prevent, and a page that silently
+repaired its own declaration would be worth less than one that flags it.
+
+**Nothing here widens anything.** τ is untouched, the band is untouched, and no
+term is admitted that was not admitted before.
+
+## Controls, published before the comparatives were read
+
+| Control | Reading |
+|---|---|
+| Admissibility | **all 30 runs control-certified**; the report carries no INADMISSIBLE entry for this window |
+| Null arm | **9,642 control legs, 0 in the 1,000 – 1,300 B band** |
+| Same-session positive control | `fixed \| uix-subs \| pos1` reads **28 of 143 (19.6%)** here, against 20.8% (21 of 101) on the corpus as it stood before this window — the instrument was not asleep |
+| Reader control | on the pooled corpus the published 14-run parity figures still reproduce exactly — **387 collection-free windows, 182 / 205 by position, 101 + 11 rider legs** — so the window extraction has not drifted |
+| Arm drives correctly | every `fixed-reversed` round drove `uix-subs` then `reagent-subs`; every `fixed` round the reverse; `parity` alternated |
+
+### The level read
+
+**7 of 10 `fixed`, 9 of 10 `fixed-reversed` and 8 of 10 `parity` runs settled in
+the high mode** — a much higher share than the fifteen-run window's one per arm.
+The box moved into the high mode partway through this session and largely stayed
+there.
+
+**It is balanced across the three arms, and the primary contrast cannot be
+touched by it at all**, because both of that contrast's cells come from the same
+runs: whatever level a run settled at, it settled there for `uix-subs` and
+`reagent-subs` alike. This is reported because an unexplained excursion reported
+plainly is worth more than a clean-looking number taken over it.
+
+## Deviations from the pre-registration, declared
+
+**Two, both recorded rather than smoothed over.**
+
+1. **One aborted attempt, which produced no record.** `parity-3`'s first attempt
+   was killed by the harness runtime cap at round 14 of 18. The runner writes its
+   record only at the end, so **no file was written and no partial record exists**;
+   it was then re-taken in its pre-registered slot in the cycle. **This is not a
+   re-roll** — no completed record was inspected, discarded or replaced, and the
+   distinction is the one that matters for a pre-registered series.
+2. **The row's exit verdict changed partway through.** The first eleven runs
+   exited 1 on the falls gate and the leg-tolerance gate — this row's normal
+   verdict, and what all fifteen runs of the previous window did. Runs 12 – 30
+   exited 0. The box changed state mid-session, and the level read above shows the
+   same shift. **Strict interleaving is exactly what bounds this**: a drift over
+   wall-clock is spread evenly across the three arms by construction, and the
+   primary contrast is within-run, so it is immune to it rather than merely
+   protected from it.
+
+Otherwise the pre-registration held to the letter: **30 runs taken, none dropped,
+none re-rolled, the stopping rule not extended on a null or cut short on a
+positive**, the band and τ untouched in either direction, and the rig frozen at
+the blob the pre-registration pins.
+
+## Where this leaves `rf2-csca8`
+
+The bead asked which of three properties carries the cluster. **All three arms now
+have an answer**: substrate YES, position NO, mode YES as a second and separate
+term. The one arm that had resisted — the substrate — is settled by a
+pre-registered, within-run contrast, and the reason it had resisted is settled
+too and was a property of the statistic rather than of the corpus.
