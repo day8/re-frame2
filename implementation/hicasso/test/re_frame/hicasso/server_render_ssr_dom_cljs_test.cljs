@@ -179,6 +179,55 @@
     (mount/tree {:frame frame-kw :adoption (roots/open-adoption-window!)} hiccup)
     #js {"identifierPrefix" prefix}))
 
+(defn- plain-html-for-this-request!
+  "The bytes a HAND-ROLLED route ships for the very request [[request]]
+  describes — [[plain-server-html!]] driven from the same snapshot, at the
+  same prefix, through a frame minted and destroyed for the purpose.
+
+  Seeding matters: rendered against a frame that does not exist, the page
+  answers a nil label and the bytes would then differ from the door's in
+  the LABEL as well as in the id, which is a second difference §4b's
+  control would silently be measuring."
+  []
+  (let [frame-kw ::plain-request]
+    (try
+      (rf/make-frame {:id frame-kw :initial-events [[:rf/set-db snapshot]]})
+      (plain-server-html! frame-kw [id-page {}] "pfx-a-")
+      (finally (rf/destroy-frame! frame-kw)))))
+
+(defn- without-the-id
+  "`html` with its probe id replaced by a fixed token — the two shapes'
+  bytes with the one thing that may differ taken out of them.
+
+  `[\\s\\S]*?` rather than a dot with a DOTALL flag: `re-pattern` builds a
+  JavaScript `RegExp`, which has no inline `(?s)`."
+  [html]
+  (str/replace html #"(<b class=\"probe\">)[\s\S]*?(</b>)" "$1ID-ELIDED$2"))
+
+;; ---------------------------------------------------------------------------
+;; DOM reads — the far side of an adoption
+;; ---------------------------------------------------------------------------
+
+(defn- text-in [container sel]
+  (some-> (.querySelector container sel) .-textContent))
+
+(defn- probe-id
+  "The id this container's probe is DISPLAYING — the client's answer once
+  a render has run, not a server byte nobody touched."
+  [container]
+  (text-in container ".probe"))
+
+(defn- relabel!
+  "Dispatch into the wire frame and let the sync-lane notification commit,
+  so the reading on the next line is taken after a REAL client render.
+
+  The probe's `:label` prop moves with it, which is what stops React
+  bailing out of the island and re-reading a body that never ran."
+  [label]
+  (rf/with-frame wire-frame (rf/dispatch-sync [::relabel label]))
+  (mount/settle!)
+  nil)
+
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE REPAIR: the entry emits the tree the door adopts
 ;; ---------------------------------------------------------------------------
@@ -347,6 +396,182 @@
                        (is (nil? (h/unmount! handle))))
                      (done)))
             (.catch (fn [e] (is false (str "hydration row threw: " e)) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; 4b — THE READING: the id itself, read off the bytes and read back off
+;;      the DOM, with the hand-rolled path beside it as the control
+;; ---------------------------------------------------------------------------
+;;
+;; §4 above asserts a SILENCE — no mismatch reported — and a silence is
+;; not by itself a reading. `identifier_prefix_ssr_dom_cljs_test` §3 says
+;; why in as many words: reading the id back is *the only reading that
+;; separates "the client minted the same id" from "nobody touched the
+;; server's text"*, and it takes that reading against a shape it builds
+;; BY HAND and does not offer as a product path. Its §4 preamble records
+;; the gap outright — *what it does NOT witness is a product door that
+;; emits these bytes*.
+;;
+;; These three rows close it at the door, and they are a PAIR plus its
+;; premise rather than three independent claims:
+;;
+;;   §4b-1  the two shapes' bytes differ in EXACTLY the id — which is why
+;;          every markup-reading row in the package stayed green while
+;;          obstruction 2 stood, and what makes the id the only thing the
+;;          two rows below can be measuring.
+;;   §4b-2  the door's bytes keep their id across a real client render.
+;;   §4b-3  the hand-rolled bytes lose theirs, through the SAME public
+;;          door, with the same helpers, in the same file.
+;;
+;; §4b-3 is not decoration. Without it §4b-2's equality is a number with
+;; no scale, and *the plain path would have mismatched* would be an
+;; inference — which is the one thing `dispositions.md` §2.4 does not
+;; accept in place of a showing.
+
+(deftest the-door-s-bytes-differ-from-the-hand-rolled-bytes-in-exactly-the-id
+  (testing "one snapshot, one prefix, two tree shapes. The closer renders
+            no DOM, so the id is the ONLY byte that may move — and this
+            row is what says so rather than assuming it"
+    (let [door  (:html (server/render (request)))
+          plain (plain-html-for-this-request!)
+          d-id  (id-in-html door)
+          p-id  (id-in-html plain)]
+      (is (some? d-id) "premise: the door's bytes carry an id")
+      (is (some? p-id) "premise: so do the hand-rolled ones")
+      (is (not= d-id p-id)
+          (str "premise: the fork must still move the id — if these agree, "
+               "the rows below are measuring nothing; got " (pr-str d-id)
+               " both times"))
+      (is (str/includes? door "alpha")
+          "premise: both were rendered from the same seeded snapshot, so
+           the label cannot be a second difference")
+      (is (str/includes? plain "alpha"))
+      (is (= (without-the-id door) (without-the-id plain))
+          (str "with the id taken out, the two shapes' bytes must be "
+               "IDENTICAL — that is why obstruction 2 shipped invisible to "
+               "every row that reads markup. Door " (count door)
+               " chars, hand-rolled " (count plain))))))
+
+(deftest the-door-s-id-survives-the-adoption-and-a-real-client-render
+  (if-not (mount/browser?)
+    (sup/skip! "an id read back off the DOM needs a real React DOM")
+    (async done
+      (sup/leave-act-environment!)
+      (let [{:keys [html]} (server/render (request))
+            server-id      (id-in-html html)
+            container      (sup/stamp-server-nodes! (sup/server-dom! html))
+            watch          (sup/watch-mismatches!)]
+        ;; State before DOM, the order `h/hydrate!`'s own docstring
+        ;; teaches, so the first client render sees what the server
+        ;; rendered from and the only thing left to disagree about is the
+        ;; id.
+        (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
+        (let [handle (h/hydrate! container
+                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
+                                 [id-page {}])]
+          (-> (sup/adopted! handle)
+              (.then (fn [shut?]
+                       (try
+                         (is shut? "the root's own adoption window shut")
+                         (is (some? server-id) "premise: the bytes carry an id")
+
+                         (testing "the probe is the SERVER's own node, and this
+                                   row names it in the selector where §4 stops
+                                   at `.page` — an expando does not survive a
+                                   replacement, so this is what says the id
+                                   below was read off an adopted node"
+                           (is (sup/every-server-node? container ".page, .value, .probe")))
+
+                         (relabel! "alpha'")
+                         (testing "premise: a real client render ran. Both the
+                                   view and the ISLAND repainted, so the id on
+                                   the next line is the client's own answer and
+                                   not a server byte nobody touched"
+                           (is (= "alpha'" (text-in container ".value")))
+                           (is (= "alpha'" (text-in container ".label"))))
+
+                         (testing "THE READING — the client mints the id the
+                                   door's bytes already carried"
+                           (is (str/includes? server-id "pfx-a-")
+                               "the server's id carried the prefix")
+                           (is (= server-id (probe-id container))
+                               (str "the client's own id must equal the "
+                                    "server's; server " (pr-str server-id)
+                                    ", client " (pr-str (probe-id container)))))
+
+                         (testing "and nothing reached Spec 011's channel"
+                           (is (= [] ((:stop! watch)))))
+                         (finally
+                           (h/unmount! handle)
+                           (done)))))
+              (.catch (fn [e]
+                        (is false (str "reading row threw: " e))
+                        (done)))))))))
+
+(deftest the-hand-rolled-bytes-lose-the-id-through-the-same-door
+  ;; THE CONTROL. Same public door, same helpers, same run — the other
+  ;; answer, shown rather than inferred.
+  (if-not (mount/browser?)
+    (sup/skip! "an id read back off the DOM needs a real React DOM")
+    (async done
+      (sup/leave-act-environment!)
+      (let [html      (plain-html-for-this-request!)
+            server-id (id-in-html html)
+            container (sup/stamp-server-nodes! (sup/server-dom! html))
+            watch     (sup/watch-mismatches!)
+            ;; MANUFACTURED here and asserted on here — the only shape of
+            ;; call site at which swallowing an uncaught error is not the
+            ;; fail-open the runner's pageerror rule exists to prevent.
+            ;; React routes a hydration failure to `reportError`.
+            capture   (sup/open-console-capture! {:swallow-uncaught? true})]
+        (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
+        (let [handle (h/hydrate! container
+                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
+                                 [id-page {}])]
+          (-> (sup/adopted! handle)
+              (.then (fn [shut?]
+                       ((:close! capture))
+                       (try
+                         (is shut? "the root's own adoption window shut")
+                         (is (some? server-id) "premise: the bytes carry an id")
+
+                         (testing "the divergence reaches Spec 011's channel,
+                                   attributed to source rather than left as an
+                                   uncaught window error"
+                           (let [seen ((:stop! watch))]
+                             (is (seq seen)
+                                 (str "the hand-rolled bytes must produce a "
+                                      "reported mismatch; the page complained "
+                                      (pr-str (mapv #(subs % 0 (min 60 (count %)))
+                                                    @(:captured capture)))))
+                             (when (seq seen)
+                               (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                                      (:where (sup/tags-of (first seen))))
+                                   (str "attributed to source; got "
+                                        (pr-str (:where (sup/tags-of (first seen)))))))))
+
+                         (relabel! "alpha'")
+                         (testing "premise: a real client render ran"
+                           (is (= "alpha'" (text-in container ".label"))))
+
+                         (testing "THE CONTROL'S READING — the id the client
+                                   mints is NOT the one these bytes carried,
+                                   and the prefix is not what moved"
+                           (is (str/includes? server-id "pfx-a-"))
+                           (is (str/includes? (probe-id container) "pfx-a-")
+                               (str "both sides carry the prefix; got "
+                                    (pr-str (probe-id container))))
+                           (is (not= server-id (probe-id container))
+                               (str "and they differ all the same — obstruction "
+                                    "2's own mechanism, at the public door; "
+                                    "server " (pr-str server-id) ", client "
+                                    (pr-str (probe-id container)))))
+                         (finally
+                           (h/unmount! handle)
+                           (done)))))
+              (.catch (fn [e]
+                        ((:close! capture))
+                        (is false (str "control row threw: " e))
+                        (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM
