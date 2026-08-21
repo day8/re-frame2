@@ -63,8 +63,10 @@ That single fact reorganises everything the bead observed:
    for it to have passed through on the way.
 2. **The bar at 45 B/boundary is correct and must not move.** It was derived by
    an arithmetic that turned out to be unstable, but the number it landed on sits
-   at the top of a 23.5 B/boundary span that holds **zero of 242 cells**. It
-   separates the two populations.
+   **half a byte above** a 23.5 B/boundary span that holds **zero of 242 cells**.
+   That makes its value robust, which is not the same as separating the two
+   populations exactly: it differs from the population partition on the single
+   cell at 44.5, which it counts below the bar. Section A proves both halves.
 3. **What cannot be repaired by re-cutting is the p90 itself**, because a pooled
    percentile is not a magnitude on a two-population mixture. That is a ruling
    and not this page's call — the triple is cited by other windows' bands.
@@ -297,10 +299,13 @@ that window's verdict.
 window and 1.5 in the last. It is the most stable figure in the published triple
 and nothing here disturbs it.
 
-**The bar, 45 — DOES NOT MOVE.** It sits at the top of a 23.5 B/boundary span
-holding zero of 242 cells and separates the two populations correctly. Its
-derivation was unsound; its value is right. Those are different claims and only
-the first is being made.
+**The bar, 45 — DOES NOT MOVE.** It sits half a byte above a 23.5 B/boundary
+span holding zero of 242 cells, which is what makes its value robust however its
+derivation behaved. **Robust is not the same as exact**, and the difference is
+stated here rather than smoothed over: the bar's partition differs from the
+population partition on one cell of 242, the one at 44.5 that it counts below
+the bar (A). Its derivation was unsound; its value is right. Those are different
+claims and only the second is being made.
 
 **The p90, 4.5 — CANNOT BE REPAIRED BY RE-CUTTING IT.** A pooled percentile is
 not a magnitude on a two-population mixture, so no re-cut value would be stable
@@ -331,8 +336,9 @@ is the cheapest measurement that would.
    B/boundary span, not one population with a tail.
 3. The pooled p90 is therefore a mode selector rather than a magnitude, and every
    window's quantile ladder is a step function with exactly one step.
-4. The published bar's value separates the two populations and is robust; the
-   rule that produced it is not.
+4. The published bar's value is robust — every bar in (21, 44.5] classifies all
+   242 cells alike, and 45 differs from the population partition on one cell
+   only; the rule that produced it is not robust.
 5. The over-bar fraction rises 5.3% → 10.0% → 23.2%, and survives restriction to
    the rounds every run has at 5.3% → 10.0% → 18.8%.
 6. Mode-2 cells are absent from rounds 0 and 1 across the whole corpus and rare
