@@ -400,6 +400,21 @@ four runs against**, so phase 3's session and this window's two are the same
 instrument on the same estimand — which is what licenses re-reading phase 3's
 corpus in section D at all.
 
+**THE DESIGN CONTROL MOVED AFTER RUN 8, AND THE CHANGE DELETES A DEAD
+BINDING.** `alloc_pass_design.cjs` destructured `scheduleDrove` out of the
+reader and never called it — a leftover from the delegation in section A, which
+moved the clause list into `alloc_pass_position.cjs` and left the front door
+importing a name it no longer used. The repo's ESLint gate reads that as
+`no-unused-vars` and refuses the branch, so the line is deleted, carrying the
+file from the blob `ccfa3057b3` above to the blob
+`eb44f78dc655fb2f977c5c14efbd2c00f087b932`. The identifier survives in three
+comments and in no expression, so no code path moves, and the window was re-run
+across the two blobs rather than argued about: `--controls`, `--select`,
+`--admit` over both quadruples, the estimator's self-test and the full
+eight-run reading all produce **byte-identical** output. Every figure on this
+page is measured on the blob `ccfa3057b3` and reproduces unchanged on the blob
+`eb44f78dc6`.
+
 ## Two defects found and deliberately NOT repaired
 
 An estimator must not change between a pre-registration and the runs it is read

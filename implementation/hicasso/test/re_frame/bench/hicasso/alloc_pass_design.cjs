@@ -76,7 +76,6 @@ const { allocPassFlips } = require('../../../../../core/test/re_frame/bench/p0_r
 const {
   decompose,
   separation,
-  scheduleDrove,
   admissibleRun: readerAdmissibleRun,
 } = require('./alloc_pass_position.cjs');
 
