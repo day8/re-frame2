@@ -458,10 +458,34 @@ function report() {
   L(`  TOTAL ${all.length} cells over ${rows.length} runs, ${WINDOWS.length} windows, ` +
     `${groupBy(rows, (r) => r.session).size} sessions.`);
   L();
-  L('WINDOW AND SESSION ARE THE SAME PARTITION HERE. The bead asks for the ladder per window AND');
-  L('per session; in this corpus each window is exactly one session, so the two tables would be');
-  L('the same table. That is not a convenience — it is the reason nothing below can attribute the');
-  L('movement to the session rather than to the design, the round count or the date.');
+  // WINDOW AND SESSION, COUNTED OFF THE RUNS RATHER THAN ASSERTED — rf2-oflj7.
+  // This paragraph said `each window is exactly one session, so the two tables
+  // would be the same table` from three lines below a TOTAL that had been
+  // printing `4 windows, 5 sessions` ever since phase 4 folded in. It was true
+  // of the corpus it was written on — 3 windows, 3 sessions, one each — and
+  // nothing re-read it afterwards, because nothing was watching it: the claim
+  // carried no check of any kind, so one run of one program stated a partition
+  // and then contradicted it three lines up. The counts below come off the same
+  // `rows` the TOTAL line counts, and the sentence is SELECTED by them rather
+  // than typed, so the two cannot part company again.
+  const windowSessions = [...groupBy(rows, (r) => r.window)]
+    .map(([w, rs]) => [w, groupBy(rs, (r) => r.session).size]);
+  const spanning = windowSessions.filter(([, n]) => n > 1);
+  const spanningPhrase = spanning.map(([w, n]) => `${w} carries ${n}`).join(', ');
+  if (spanning.length === 0) {
+    L(`WINDOW AND SESSION ARE THE SAME PARTITION HERE: ${windowSessions.length} windows, one session each. The bead`);
+    L('asks for the ladder per window AND per session; in this corpus the two tables would be the');
+    L('same table. That is not a convenience — it is the reason nothing below can attribute the');
+    L('movement to the session rather than to the design, the round count or the date.');
+  } else {
+    L(`WINDOW AND SESSION ARE NO LONGER THE SAME PARTITION: ${windowSessions.length} windows over ` +
+      `${groupBy(rows, (r) => r.session).size} sessions. The bead`);
+    L(`asks for the ladder per window AND per session; ${windowSessions.length - spanning.length} of the ` +
+      `${windowSessions.length} windows carry one session each, so`);
+    L(`for those the two tables would be the same table, and ${spanningPhrase}. Every table below`);
+    L('groups by WINDOW and pools the sessions of any window holding more than one. Where a window');
+    L('is one session, nothing below can tell the session from the design, the round count or the date.');
+  }
   L();
 
   L('A. THE SHAPE, WHICH GOVERNS EVERY LADDER BELOW: TWO POPULATIONS, NOT ONE TAIL.');
@@ -505,7 +529,13 @@ function report() {
   }
   L();
 
-  L('C. THE LADDER, PER WINDOW — which is also per session, see above.');
+  // THE SAME CLAIM AS THE PARAGRAPH ABOVE, IN FOUR WORDS, AND IT WENT STALE
+  // WITH IT — rf2-oflj7. Rendered from the same grouping, so the heading and the
+  // paragraph cannot disagree, and when a window does span it is NAMED here
+  // rather than glossed: a reader looking at this table needs to know which row
+  // pools two sessions.
+  L(`C. THE LADDER, PER WINDOW — which is ${spanning.length === 0 ? 'also per session'
+    : `NOT also per session: ${spanningPhrase}`}, see above.`);
   L('  window | n | med Δ | |med| | p50 | p75 | p80 | p85 | p90 | p95 | max | step | over bar');
   for (const [w, rs] of groupBy(rows, (r) => r.window)) {
     const l = ladder(cellsOf(rs));
@@ -532,9 +562,25 @@ function report() {
   L(`  POOLED | ${pooled.overBar}/${pooled.n} (${f1(pooled.overBarPct)}%) | ${pooled.mode1.n} | ` +
     `${num(pooled.mode1.median)} | ${num(pooled.mode1.p90)} | ${num(pooled.mode1.p95)} | ${num(pooled.mode1.max)}`);
   L();
-  L('  THE CENTRE HELD AND THE OCCUPANCY MOVED. Mode 1\'s median is 1.5 B/boundary in the first');
-  L('  window and 1.5 in the last; its p90 rises from 3 to 9, which is real and is a twentieth of');
-  L('  the movement the pooled p90 reports.');
+  // FIRST WINDOW TO LAST, TAKEN FROM THE FIRST AND LAST WINDOWS — rf2-oflj7.
+  // This sentence named its own frame as first-window-to-last in one clause and
+  // then read `its p90 rises from 3 to 9` in the next. 9 is PHASE 3's, which was
+  // the last window when the sentence was written; the last window is phase 4
+  // and its mode-1 p90 is 4.5, two rows above in the very table this sentence
+  // summarises. The endpoints come off the ladders now, and so does the
+  // DIRECTION — a sentence that says `rises` about a fall is the same defect one
+  // step on, and `a twentieth of the movement the pooled p90 reports` is gone in
+  // favour of the two movements themselves, which are numbers a reader can check
+  // against the table rather than a ratio nobody can reconstruct.
+  const byWindow = [...groupBy(rows, (r) => r.window)].map(([, rs]) => ladder(cellsOf(rs)));
+  const wFirst = byWindow[0];
+  const wLast = byWindow[byWindow.length - 1];
+  const moved = (a, b) => (b > a ? 'rises' : b < a ? 'falls' : 'holds');
+  L(`  THE CENTRE HELD AND THE OCCUPANCY MOVED. Mode 1's median is ${num(wFirst.mode1.median)} B/boundary in the first`);
+  L(`  window and ${num(wLast.mode1.median)} in the last; its p90 ${moved(wFirst.mode1.p90, wLast.mode1.p90)} from ` +
+    `${num(wFirst.mode1.p90)} to ${num(wLast.mode1.p90)} over the same two`);
+  L(`  windows, a movement of ${num(Math.abs(wLast.mode1.p90 - wFirst.mode1.p90))} against the ` +
+    `${num(Math.abs(wLast.q[4] - wFirst.q[4]))} the per-window p90 reports across them.`);
   L();
 
   L('E. THE ROUND-INDEX STRUCTURE — the one comparison here that is INTERNALLY CONTROLLED,');
@@ -560,7 +606,14 @@ function report() {
 
   L('F. THE COMMON-SUPPORT CONTROL. Phase 3 ran twelve rounds where the earlier windows ran six,');
   L('   so the round structure in E is a candidate explanation for the window ordering. Restricting');
-  L('   every window to rounds 0-5, which all eight runs have, removes it.');
+  // `WHICH ALL EIGHT RUNS HAVE` OUTLIVED THE FOLD-IN TO SIXTEEN — rf2-oflj7, and
+  // the report prints the true count itself, forty lines up. Both the count and
+  // the word `all` are derived now: `all` is warranted only while every run in
+  // the corpus really does carry rounds 0-5, and if one does not the sentence
+  // says how many do instead of overstating its own support.
+  const with05 = rows.filter((r) => r.rounds >= 6).length;
+  L(`   every window to rounds 0-5, which ${with05 === rows.length ? `all ${rows.length} runs`
+    : `${with05} of the ${rows.length} runs`} have, removes it.`);
   L('  window | over the bar, all rounds | over the bar, rounds 0-5 only');
   for (const [w, rs] of groupBy(rows, (r) => r.window)) {
     const cs = cellsOf(rs);
@@ -579,10 +632,30 @@ function report() {
   L(`  bar came from, ${10 * w3.q[4]} on phase 3, ${10 * pooled.q[4]} over the whole corpus — with nothing in between`);
   L('  available for it to return, because the statistic it multiplies has nothing in between to');
   L('  take. A band built that way records which mode its own null arm landed in, and no more.');
-  L(`  Ten times MODE-1's p90 is ${10 * pooled.mode1.p90} B/boundary over the whole corpus and ` +
-    `${10 * w3.mode1.p90} on phase 3's own null`);
-  L(`  arm. rf2-fk6pj refused a term whose implied delta was ${FK6PJ_IMPLIED_DELTA_B}, which is below both, SO`);
-  L('  THAT REFUSAL STANDS EITHER WAY. The correction changes the band\'s scale, not its verdict.');
+  // THE REFUSAL CLAUSE IS SELECTED BY THE COMPARISON IT ASSERTS — rf2-oflj7.
+  // `which is below both, SO THAT REFUSAL STANDS EITHER WAY` was unconditional
+  // prose about two DERIVED bands, and the only thing standing behind it was a
+  // self-test asking whether that string was present — which it was, and would
+  // have gone on being had a window taken either band under the refused delta.
+  // It has already survived one change in the numbers it talks about without
+  // anyone checking that it had: the bands read 75 and 90 when it was written
+  // and read 60 and 90 now. Both arms below are emittable, and the count of
+  // bands above the delta chooses between them.
+  const bands = [10 * pooled.mode1.p90, 10 * w3.mode1.p90];
+  const bandsAbove = bands.filter((b) => b > FK6PJ_IMPLIED_DELTA_B).length;
+  L(`  Ten times MODE-1's p90 is ${bands[0]} B/boundary over the whole corpus and ` +
+    `${bands[1]} on phase 3's own null`);
+  if (bandsAbove === bands.length) {
+    L(`  arm. rf2-fk6pj refused a term whose implied delta was ${FK6PJ_IMPLIED_DELTA_B}, which is below both, SO`);
+    L('  THAT REFUSAL STANDS EITHER WAY. The correction changes the band\'s scale, not its verdict.');
+  } else {
+    L(`  arm. rf2-fk6pj refused a term whose implied delta was ${FK6PJ_IMPLIED_DELTA_B}, which is below ${bandsAbove} of those`);
+    L('  two bands and not both, SO THAT REFUSAL NO LONGER STANDS EITHER WAY — which band is taken');
+    // Deliberately NOT the p90 verdict's `THAT IS A RULING, NOT THIS READER'S
+    // CALL` wording: that literal is pinned elsewhere in the self-test and a
+    // second copy of it would make the pin ambiguous about which line it read.
+    L('  now decides it, and that is a ruling rather than this reader\'s call.');
+  }
   L();
 
   L('THE VERDICT, in the three parts the bead asks for.');
@@ -907,8 +980,104 @@ function selfTest() {
     /IS THE TAIL SESSION-CARRIED\? NOT DECIDABLE HERE\./.test(rep), true);
   ck('the report proposes no mechanism for the round structure',
     /THIS READER HAS NOT\n;; {3}TESTED WHETHER THOSE ARE THE SAME THREE/.test(rep), true);
-  ck('the report records that fk6pj\'s refusal stands under the correction',
-    /THAT REFUSAL STANDS EITHER WAY\./.test(rep), true);
+
+  // ---------------------------------------------------------------------------
+  // THE NARRATION, HELD AGAINST THE COUNTS IT NARRATES — rf2-oflj7.
+  //
+  // Four sentences in the body and one in G were true of the 242-cell corpus and
+  // false or unguarded on this one, and each sat within a few lines of the
+  // derived figure that contradicted it: `each window is exactly one session`
+  // three lines under `4 windows, 5 sessions`; `which all eight runs have` forty
+  // lines under `over 16 runs`; `its p90 rises from 3 to 9` in a sentence whose
+  // own clause before it says first-window-to-last, two rows under a table
+  // reading 4.5 for the last window. Nothing red, because nothing was looking:
+  // none of the four carried a check of ANY kind, and G's carried one that asked
+  // only whether `THAT REFUSAL STANDS EITHER WAY.` appeared — the same hollow
+  // shape rf2-2iaph replaced above, which is why the replacement here follows
+  // that block rather than inventing a second style beside it.
+  //
+  // So each check below EXTRACTS NUMBERS from the rendered report and holds them
+  // against a derivation made here from `rows` and the cells; a pattern that
+  // finds nothing yields `NO MATCH` and FAILS rather than passing for want of
+  // anything to read; and every pattern must locate its line exactly once, so no
+  // check can end up reading one sentence against itself.
+  const P_SESSIONS = /WINDOW AND SESSION ARE (?:THE SAME PARTITION HERE: (\d+) windows, one session each|NO LONGER THE SAME PARTITION: (\d+) windows over (\d+) sessions)\./;
+  const P_LADDER_C = /C\. THE LADDER, PER WINDOW — which is (also per session|NOT also per session: .+?), see above\./;
+  const P_SUPPORT = /every window to rounds 0-5, which (?:all (\d+) runs|(\d+) of the (\d+) runs) have, removes it\./;
+  const P_MEDIAN = /Mode 1's median is ([\d.]+) B\/boundary in the first\n;; {3}window and ([\d.]+) in the last;/;
+  const P_CENTRE = /its p90 (rises|falls|holds) from ([\d.]+) to ([\d.]+) over the same two\n;; {3}windows, a movement of ([\d.]+) against the ([\d.]+) the per-window p90 reports/;
+  const P_BANDS = /Ten times MODE-1's p90 is ([\d.]+) B\/boundary over the whole corpus and ([\d.]+) on phase 3's own null/;
+  const P_DELTA = /refused a term whose implied delta was ([\d.]+), which is below/;
+
+  ck('each narrated figure is located exactly once as well',
+    [P_SESSIONS, P_LADDER_C, P_SUPPORT, P_MEDIAN, P_CENTRE, P_BANDS, P_DELTA].map(hits),
+    [1, 1, 1, 1, 1, 1, 1]);
+
+  // WINDOW AGAINST SESSION. The paragraph and the TOTAL line three above it are
+  // the pair the bead names, so the paragraph's own two counts are read back and
+  // held against the corpus rather than against that line's wording.
+  const wSess = [...groupBy(rows, (r) => r.window)].map(([w, rs]) => [w, groupBy(rs, (r) => r.session).size]);
+  const nSpanning = wSess.filter(([, n]) => n > 1).length;
+  ck('the window/session paragraph counts the windows and sessions the corpus has',
+    grab(P_SESSIONS, (m) => (m[1] !== undefined ? [Number(m[1]), Number(m[1])] : [Number(m[2]), Number(m[3])])),
+    [WINDOWS.length, groupBy(rows, (r) => r.session).size]);
+  // AND THE SENTENCE IS THE ONE THE GROUPING CALLS FOR. Both are emittable, so
+  // this is one check with opposite booleans rather than two literals — the same
+  // shape as the empty-span branch above.
+  ck('and says they are the same partition exactly when no window spans two sessions',
+    /WINDOW AND SESSION ARE THE SAME PARTITION HERE/.test(rep), nSpanning === 0);
+
+  // SECTION C'S HEADING is that claim again in four words, and it went stale with
+  // it. Held against the same grouping, and required to NAME any window that
+  // spans rather than to gloss it.
+  ck('section C\'s heading agrees with the grouping, and names any window that spans',
+    grab(P_LADDER_C, (m) => m[1]),
+    nSpanning === 0 ? 'also per session'
+      : `NOT also per session: ${wSess.filter(([, n]) => n > 1).map(([w, n]) => `${w} carries ${n}`).join(', ')}`);
+
+  // THE COMMON-SUPPORT CONTROL'S RUN COUNT, read back against the corpus size...
+  ck('F states how many runs carry rounds 0-5, and it is the corpus it just read',
+    grab(P_SUPPORT, (m) => (m[1] !== undefined ? [Number(m[1]), Number(m[1])] : [Number(m[2]), Number(m[3])])),
+    [rows.filter((r) => r.rounds >= 6).length, rows.length]);
+  // ...and the word `all` earns itself: it is warranted only while no run in the
+  // corpus is short of those rounds, which is checked by NAMING the ones that
+  // are. An empty list here is the claim, not the absence of one.
+  ck('and `all` is warranted, because no run in the corpus is short of them',
+    rows.filter((r) => r.rounds < 6).map((r) => `${r.window} ${r.run}`), []);
+
+  // SECTION D, FIRST WINDOW TO LAST. `3 to 9` was phase 3's pair, left behind
+  // when phase 4 became the last window. Four numbers and a direction word, read
+  // back against ladders taken here.
+  const lads = [...groupBy(rows, (r) => r.window)].map(([, rs]) => ladder(cellsOf(rs)));
+  const lFirst = lads[0];
+  const lLast = lads[lads.length - 1];
+  ck('section D\'s median endpoints are the first and last windows\' own',
+    grab(P_MEDIAN, (m) => [Number(m[1]), Number(m[2])]), [lFirst.mode1.median, lLast.mode1.median]);
+  ck('and so are its p90 endpoints, with the direction word the two of them imply',
+    grab(P_CENTRE, (m) => [m[1], Number(m[2]), Number(m[3])]),
+    [lLast.mode1.p90 > lFirst.mode1.p90 ? 'rises'
+      : lLast.mode1.p90 < lFirst.mode1.p90 ? 'falls' : 'holds',
+    lFirst.mode1.p90, lLast.mode1.p90]);
+  // THE TWO MOVEMENTS IT COMPARES are differenced HERE rather than taken from the
+  // sentence's own endpoints, so the figures the sentence is held to are not its
+  // own arithmetic restated.
+  ck('and the two movements it sets against each other are the windows\' own',
+    grab(P_CENTRE, (m) => [Number(m[4]), Number(m[5])]),
+    [Math.abs(lLast.mode1.p90 - lFirst.mode1.p90), Math.abs(lLast.q[4] - lFirst.q[4])]);
+
+  // SECTION G'S REFUSAL. The bands are read back, the delta with them, and the
+  // clause is required to be the one the comparison calls for — in BOTH
+  // directions, which is the whole of what the presence check could not do.
+  const bandsD = [10 * pooled.mode1.p90,
+    10 * ladder(cellsOf(rows.filter((r) => r.window === 'phase 3'))).mode1.p90];
+  ck('G states the two mode-1 bands, and they are ten times those p90s',
+    grab(P_BANDS, (m) => [Number(m[1]), Number(m[2])]), bandsD);
+  ck('and the delta it holds them against is the one the record pins',
+    grab(P_DELTA, (m) => Number(m[1])), FK6PJ_IMPLIED_DELTA_B);
+  ck('and the refusal clause is the one that comparison calls for',
+    [/THAT REFUSAL STANDS EITHER WAY\./.test(rep), /THAT REFUSAL NO LONGER STANDS EITHER WAY/.test(rep)],
+    [bandsD.every((b) => b > FK6PJ_IMPLIED_DELTA_B), !bandsD.every((b) => b > FK6PJ_IMPLIED_DELTA_B)]);
+  // ---------------------------------------------------------------------------
 
   // THE TABLES ARE RECTANGULAR. The record is largely tables and no gate in this
   // repository reads a markdown table, so the column count is checked here.
