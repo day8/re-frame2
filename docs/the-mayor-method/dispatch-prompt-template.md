@@ -428,11 +428,10 @@ byte-identical diff; once a merge landed mid-gate, and the remainder took a whol
 review cycle to carry. Neither merge was wrong on the criterion — both were green on every clause.
 
 **Use the host's own draft flag rather than a rule to remember.** Merge commands refuse a draft, so the
-interlock is enforced where it cannot be forgotten, which is the property the no-stash rule and a
-mayor-side commit guard both have and the reason they hold. The rejected alternative was to have the
-mayor check worker liveness before every merge: it works, but it must be remembered on every merge
-forever, and it re-introduces exactly the worktree-activity sweep the merge loop deliberately does not
-do.
+interlock is enforced where it cannot be forgotten — the property the no-stash rule and a mayor-side
+commit guard both have, and the reason they hold. The rejected alternative, having the mayor check
+worker liveness before every merge, works but must be remembered on every merge forever, and it
+re-introduces exactly the worktree-activity sweep the merge loop deliberately does not do.
 
 ---
 
