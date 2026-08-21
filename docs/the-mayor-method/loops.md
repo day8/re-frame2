@@ -92,6 +92,13 @@ new job landed is computed against the superseded matrix and legitimately reads
 band-minus-one, which the count alone cannot distinguish from a change genuinely one
 job short. Update the branch and re-check before judging this clause.
 
+**A third cause is commoner than both, and its remedy is neither: the set is still BEING BUILT.**
+A change opened moments ago legitimately reads a small fraction of the band while its runs are
+created, and the count climbs to full over the following minutes. Updating the branch there
+repairs nothing and restarts the wait. Clause 4 already separates the cases, so read it first when
+the count is short: below band **with** live runs at the head is a set still building, and the
+answer is to wait; below band with **none** is the case this clause is actually about.
+
 **And one reading above the band is correct.** A change that adds a required job
 sees that job in its own rollup, so it legitimately reads band-plus-one before the
 standing band has moved — the arming proving itself rather than a miscount, and the
@@ -397,7 +404,11 @@ Filter out before shaping anything:
 * items gated on another's merge;
 * items whose surface a live worker holds;
 * items colliding in a hot-zone file;
-* items whose resource is exclusive and currently contended.
+* items whose resource is exclusive and currently contended — but this exclusion has a release
+  condition, and it is the only one on the list that the loop itself must eventually lift. Where
+  the exclusive items are all that REMAINS, the filter has stopped protecting the fleet and is
+  simply refusing the backlog. Say so, stop refilling, let the fleet drain, and take that work
+  deliberately. A filter with no release condition becomes a permanent fence.
 
 **A ready list overstates readiness by a lot.** In practice roughly a fifth of "ready"
 items were genuinely dispatchable; the rest were fenced by something the tracker cannot
@@ -916,6 +927,16 @@ for either answer.
 rollback to an earlier snapshot, a re-import over the top — and nothing in the loop surfaces it, so the
 session's "closed" count quietly overstates. Verifying at the moment you close is not enough. Each cycle,
 re-check everything closed this session and re-close what genuinely reverted, with evidence.
+
+**But a status change made by a LIVE worker is that worker speaking, not corruption.** The rule
+above trains you to read an unexpected status as a bad write, and it supplies no competing
+reading, so the wrong one arrives with nothing to check it. A worker that un-claims an item is
+often saying something precise — commonly that only part of it was shippable and the rest is the
+operator's, which holding the item would bury. Its report is the authority on what it meant, and
+the report is usually minutes behind the status. **Where a worker is alive on the item, read the
+report before you act on the clock**: tracker history timestamps cluster tightly enough that a
+one-second gap is no evidence of a machine write, and reversing a worker's deliberate signal
+destroys the message.
 
 **But read the item's notes before re-closing anything.** If your process audits merged changes, expect
 closed items to reappear: twelve did in one session, and every one was a legitimate audit reopening the

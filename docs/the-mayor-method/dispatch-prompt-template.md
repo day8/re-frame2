@@ -695,6 +695,13 @@ the same voice as "nothing is wrong"; the recurring instance is a backslash-bear
 so the shell strips them. Match fixed strings as fixed strings, and when a search underwrites a
 claim, run it once against something it should find.
 
+**This is not a fact about searching, and reading it as one is how it gets past you.** ANY
+instrument that can answer "nothing here" gives the same answer when misused, and a misused one
+raises no error — so its all-clear is complete, well-formed and plausible. Measured: a
+surface-classifier handed revisions where it expects file paths reported every surface as
+unaffected, which is exactly what a genuinely unaffected change looks like. Exercise any such
+instrument once against an input it should flag, whatever kind of instrument it is.
+
 **Name every gate artefact for your worktree AND for the attempt**, log and exit file both, in a
 directory version control ignores. A name missing either half fails the gate **open**, and the two
 halves close different holes. The scratch path is keyed to the session, so peers share one
