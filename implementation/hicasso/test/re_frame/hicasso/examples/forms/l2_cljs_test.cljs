@@ -168,26 +168,51 @@
 ;; Recipe 3 — the status the write owns
 ;; ---------------------------------------------------------------------------
 
-(defn- button-tree [{:keys [can? save]}]
+(defn- button-tree
+  "The button's ENTIRE read set is the write's instance. There is no
+  `::subs/can-submit?` fixture here and that omission is load-bearing:
+  `:subs` refuses a read it cannot answer, so the day this button reaches
+  for the gate again, this file reds and says so."
+  [{:keys [save]}]
   (ht/tree [views/save-button {}]
-           {:subs {[:rf/mutation {:instance events/save-instance}] (or save idle)
-                   [::subs/can-submit?]                            (boolean can?)}}))
+           {:subs {[:rf/mutation {:instance events/save-instance}] (or save idle)}}))
 
-(deftest an-invalid-form-leaves-the-button-operable-and-says-so
-  (let [attrs (ht/attrs (button-tree {:can? false}))]
+(deftest an-invalid-form-leaves-the-button-operable-and-claims-nothing
+  (let [attrs (ht/attrs (button-tree {}))]
     (is (false? (:disabled attrs))
         "operable — a disabled submit is out of the tab order and explains
          nothing, and it is also what would make `:attempted?` unreachable
          and the whole submit-attempt gate dead code")
-    (is (= "true" (:aria-disabled attrs)))
-    (is (= "Save ticket" (ht/text (button-tree {:can? false}))))))
+    (is (nil? (:aria-disabled attrs))
+        "and it says nothing to assistive technology either. WAI-ARIA
+         defines aria-disabled=true as perceivable but disabled — \"not
+         editable or otherwise operable\" — the same claim `disabled`
+         makes. Pressing this button is the ONLY way the form reveals
+         what is wrong, so announcing it inoperable would be telling a
+         screen reader user that the one instruction they have does not
+         work. This row is the semantic-coherence half; an attribute pin
+         alone could not see it")
+    (is (= "Save ticket" (ht/text (button-tree {}))))))
+
+(deftest validity-reaches-the-user-through-the-fields-instead
+  (testing "what the button gave up, the field carries — and carries
+            better, because it names WHICH value is wrong"
+    (let [tree    (field-tree {:field :assignee :label "Assignee"
+                               :text "" :problem :problem/assignee-blank})
+          input   (ht/attrs (tagged tree :input))
+          problem (classed tree "field-problem")]
+      (is (= "true" (:aria-invalid input)))
+      (is (= :alert (ht/role problem))
+          "a live region, so a refused submission is heard rather than
+           found")
+      (is (= (:id (ht/attrs problem)) (:aria-describedby input))))))
 
 (deftest a-write-in-flight-disables-the-button-from-the-writes-own-status
-  (let [attrs (ht/attrs (button-tree {:can? true :save (assoc idle :pending? true)}))]
+  (let [attrs (ht/attrs (button-tree {:save (assoc idle :pending? true)}))]
     (is (true? (:disabled attrs))
         "busy is a projection of the instance. There is no `:saving?` key
          in this application's app-db for a failure branch to forget")
-    (is (= "Saving…" (ht/text (button-tree {:can? true :save (assoc idle :pending? true)}))))))
+    (is (= "Saving…" (ht/text (button-tree {:save (assoc idle :pending? true)}))))))
 
 (deftest a-field-in-flight-is-disabled-and-recovers-on-failure
   (is (true? (:disabled (ht/attrs (tagged (field-tree {:field :assignee :label "Assignee"
@@ -257,7 +282,7 @@
                   :problem :problem/assignee-blank})
      (field-tree {:field :notes :label "Notes" :multiline? true
                   :text "note" :problem nil})
-     (button-tree {:can? false})
+     (button-tree {})
      (ht/tree [views/save-failure {}]
               {:subs {[:rf/mutation {:instance events/save-instance}]
                       (assoc idle :error? true :settled? true)}})

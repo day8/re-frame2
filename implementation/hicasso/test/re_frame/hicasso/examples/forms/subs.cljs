@@ -63,6 +63,8 @@
   (fn [db [_ field]] (db/shown-problem (:form db) field)))
 
 (rf/reg-sub ::can-submit?
-  {:doc "The submit gate. Calls the same `db/can-submit?` the submit
-         handler calls, so button and handler cannot disagree."}
+  {:doc "The submit gate, as a read. Calls the same `db/can-submit?` the
+         submit handler calls, so no reader can disagree with the
+         refusal. The save button deliberately does NOT read it — see
+         the views namespace."}
   (fn [db _] (db/can-submit? db)))

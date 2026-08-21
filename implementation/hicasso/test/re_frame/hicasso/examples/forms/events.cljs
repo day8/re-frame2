@@ -29,10 +29,14 @@
 
   ## Recipe 2 — the gate is a function, and the handler calls it
 
-  [[submit]] refuses through `db/can-submit?`, and
-  `::subs/can-submit?` disables the button through the same function.
-  R-A6's failure is two recomputations drifting apart, and one definition
-  is what makes that impossible.
+  [[submit]] refuses through `db/can-submit?`, and `::subs/can-submit?`
+  answers the same question through the same function. R-A6's failure is
+  two recomputations drifting apart, and one definition is what makes
+  that impossible.
+
+  What the gate does NOT do is take the button away, or say anything on
+  the button at all — see the views namespace for why `aria-disabled`
+  belongs to a control the handler really refuses and not to this one.
 
   A refused submission is not a no-op: it sets `:attempted?`, which is
   what turns every hidden problem visible at once. That asymmetry is the

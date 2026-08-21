@@ -165,20 +165,32 @@ fields were touched and whether the user attempted submission:
         (get (validate draft) field)))))
 ```
 
-A controlled field marks itself touched on blur and displays the derived error:
+A controlled field marks itself touched on blur, and displays the derived error
+as something a screen reader can find:
 
 ```clojure
 (h/defview editor-title-field []
-  [:fieldset.form-group
-   [:input.form-control
-    {:type        :text
-     :placeholder "Todo title"
-     :value       (h/sub [:todo.editor/field :title])
-     :on-input    [:todo.editor/edit-field :title ::h/value]
-     :on-blur     [:todo.editor/touch-field :title]}]
-   (when-let [error (h/sub [:todo.editor/field-error :title])]
-     [:div.error-messages error])])
+  (let [error (h/sub [:todo.editor/field-error :title])]
+    [:fieldset.form-group
+     [:input.form-control
+      {:id               "todo-title"
+       :type             :text
+       :placeholder      "Todo title"
+       :value            (h/sub [:todo.editor/field :title])
+       :aria-invalid     (if error "true" "false")
+       :aria-describedby (when error "todo-title-error")
+       :on-input         [:todo.editor/edit-field :title ::h/value]
+       :on-blur          [:todo.editor/touch-field :title]}]
+     (when error
+       [:div.error-messages {:id "todo-title-error" :role "alert"} error])]))
 ```
+
+Three attributes carry the whole story. `:aria-invalid` says *this value is
+wrong*; `:aria-describedby` names the node that says why; `role="alert"` makes
+that node announce itself the moment it appears, which is what turns a rejected
+submission into something a user hears rather than something they have to go
+looking for. The error node is **absent** rather than empty while the gate is
+shut, so `:aria-describedby` never points at an id that is not in the document.
 
 Because the error is derived from the current draft, it clears as soon as a
 touched field becomes valid. For a buffered field, mark the field touched in
@@ -186,9 +198,10 @@ its `:on-commit` handler and use the same gated subscription.
 
 ## Materialise the submit gate once
 
-The view needs to reflect whether the form can be submitted and the handler
-needs to reject an invalid submission. Compute that decision once rather than
-maintaining two validation paths. A flow can materialise it into app-db:
+The handler needs to reject an invalid submission, and anything else that asks
+*may this be saved?* must get the same answer. Compute that decision once
+rather than maintaining two validation paths. A flow can materialise it into
+app-db:
 
 ```clojure
 (def can-submit-flow
@@ -210,8 +223,9 @@ maintaining two validation paths. A flow can materialise it into app-db:
     (boolean (get-in db [:todo.editor :can-submit?]))))
 ```
 
-Register the flow once during boot. The view subscribes to the result; the
-handler reads the same value directly from `db`:
+Register the flow once during boot. The subscription is the public read of the
+gate; the handler reads the same value directly from `db`, so the two cannot
+drift:
 
 ```clojure
 (def save-instance :todo.editor/save)
@@ -234,20 +248,36 @@ handler reads the same value directly from `db`:
 ```
 
 A rejected submit still sets `:submit-attempted?`, which exposes all remaining
-field errors. The button and the handler cannot disagree because both read the
-same materialised fact.
+field errors at once — every one of them announced, and each tied to the
+control it belongs to. That reveal is the whole reason the attempt is allowed
+to happen.
 
-**That is why an invalid form keeps an operable submit button.** A `:disabled`
+**So an invalid form keeps a genuinely operable submit button.** A `:disabled`
 button drops out of the tab order and announces nothing, so a keyboard or
 screen reader user is told only that the control has gone, never which field is
 wrong. It also makes `:submit-attempted?` unreachable — the attempt that would
 set it is the one the disabled button prevents — and the whole submit-attempt
 half of the display gate becomes dead code.
 
-So there are two different kinds of unavailable, and they get two different
-spellings. **In flight** is `:disabled`: the write is really running and a
-second one would be wrong. **Invalid** is `:aria-disabled`: the button stays
-focusable and activatable, and the handler refuses.
+So there are two kinds of unavailable, and only one of them is a state the
+button may claim. **In flight** is `:disabled`: the write is really running, a
+second one would be wrong, and the handler genuinely suppresses it. **Invalid
+is not an unavailable state at all.** The button is enabled and carries no
+unavailability marking of any kind, because activating it is the action that
+reveals the errors.
+
+In particular, do not reach for `:aria-disabled` here. WAI-ARIA defines
+[`aria-disabled="true"`](https://www.w3.org/TR/wai-aria/#aria-disabled) as
+perceivable but disabled — the element "is not editable or otherwise operable".
+It is the accessible spelling of the same claim `:disabled` makes, minus the
+tab-order loss, and it is a claim this form would be making falsely. A page
+that requires the user to press Save to find out what is wrong, and then tells
+assistive technology that Save is inoperable, has contradicted itself: the one
+instruction a screen reader user is given is the one the markup says will not
+work. Reserve `:aria-disabled` for an action the handler really does refuse to
+perform — a pager arrow already at the end of the list, a control that is
+inert on this screen. Submit-while-invalid is not one of those, because it
+does something: it sets `:submit-attempted?` and every hidden error appears.
 
 ## Read submit status by instance
 
@@ -256,19 +286,18 @@ instance's status as data:
 
 ```clojure
 (h/defview editor-form []
-  (let [save        (h/sub [:rf/mutation {:instance save-instance}])
-        can-submit? (h/sub [:todo.editor/can-submit?])]
+  (let [save (h/sub [:rf/mutation {:instance save-instance}])]
     [:form {:on-submit [:todo.editor/submit]}
      (when (:error? save)
        [:ul.error-messages
         [:li "Save failed — check the fields and try again."]])
      [editor-title-field]
      [:button.btn.btn-primary
-      {:type          :submit
-       ;; In flight is genuinely unavailable: take it out of the tab order.
-       :disabled      (:pending? save)
-       ;; Invalid is announced, not removed. The handler does the refusing.
-       :aria-disabled (not can-submit?)}
+      ;; The only unavailability this button ever claims is the write it
+      ;; is really waiting on. Validity is not on this control at all —
+      ;; it is on the fields that are wrong.
+      {:type     :submit
+       :disabled (:pending? save)}
       "Save todo"]]))
 ```
 
@@ -299,7 +328,8 @@ runtime errors. Underlying controlled elements still use errors such as
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Errors appear on the untouched form | Error display is not gated | Show each error only after that field is touched or submission was attempted |
-| Pressing Save on an invalid form reveals nothing | The button is `:disabled` while invalid, so the submit never fires and `:submit-attempted?` is never set | Disable only while the write is in flight; mark invalid with `:aria-disabled` and refuse in the handler |
+| Pressing Save on an invalid form reveals nothing | The button is `:disabled` while invalid, so the submit never fires and `:submit-attempted?` is never set | Disable only while the write is in flight; leave the button enabled while invalid and refuse in the handler |
+| A screen reader says Save is unavailable, but pressing it is the only way to see the errors | The button carries `:aria-disabled` while invalid — ARIA reads that as "not operable" | Drop `:aria-disabled`; put the state on the fields with `:aria-invalid` and an `:aria-describedby` message |
 | The button enables but the handler rejects, or the reverse | The two sites recompute validity independently | Materialise one gate; subscribe in the view and read the same db value in the handler |
 | Escape clears the field and the old draft returns on blur | A second draft copy exists outside the module | Keep one addressed draft. The module's trailing blur already no-ops after cancel |
 | Two fields overwrite one another's drafts | Their `:control` addresses collide | Include form instance and field identity, for example `[:todo id :title]` |

@@ -23,10 +23,22 @@
   A disabled submit button is the tempting spelling and it is the wrong
   one: it removes the control from the tab order, it announces nothing,
   and it leaves the user holding an invalid form with no way to ask what
-  is wrong. So the button stays operable, carries `aria-disabled`, and
-  the refusal happens in the handler — which is what makes
-  `:attempted?` reachable at all, and therefore what makes every hidden
-  problem appear at once.
+  is wrong. So the button stays operable and the refusal happens in the
+  handler — which is what makes `:attempted?` reachable at all, and
+  therefore what makes every hidden problem appear at once.
+
+  `aria-disabled` is NOT the softer spelling of that, and reaching for it
+  here is the mistake this docstring exists to stop. WAI-ARIA defines
+  `aria-disabled=\"true\"` as perceivable but disabled — the element \"is
+  not editable or otherwise operable\" — so it makes exactly the claim
+  `disabled` makes, minus the tab-order loss. Pressing Save is the ONLY
+  way this form reveals what is wrong, so a button that announced itself
+  inoperable would be telling a screen reader user that the one available
+  instruction does not work. Validity is therefore not on the button at
+  all: it is on the fields, as `aria-invalid` plus a described problem
+  region that announces itself when it appears. `aria-disabled` is for a
+  control the handler really does refuse — the slice application's pager
+  arrow at the end of its list is one, and this button is not.
 
   The button IS disabled while the write is in flight, and that comes
   from the write's own status rather than from a flag this application
@@ -154,16 +166,21 @@
     [:p.save-failure {:role "alert"} "Saving failed. Nothing was lost — try again."]))
 
 (h/defview save-button
-  "Submit. Operable while the form is invalid and disabled while the
-  write is in flight — see the namespace docstring on why those are not
-  the same kind of unavailable."
+  "Submit. Disabled while the write is in flight and carrying nothing at
+  all while the form is invalid — see the namespace docstring on why
+  those are not two grades of the same thing.
+
+  It does not read `::subs/can-submit?`, and that absence is the point.
+  The only honest thing the button could do with validity is claim to be
+  unavailable, and it is not: activating it is what reveals the errors.
+  The gate still has exactly one definition — `db/can-submit?` — read by
+  the submit handler and exposed at `::subs/can-submit?` for anything
+  that needs the answer; `l0` pins those two agreeing."
   [_]
-  (let [busy? (:pending? (h/sub [:rf/mutation {:instance events/save-instance}]))
-        can?  (h/sub [::subs/can-submit?])]
+  (let [busy? (:pending? (h/sub [:rf/mutation {:instance events/save-instance}]))]
     [:button.save
-     {:type          "submit"
-      :disabled      busy?
-      :aria-disabled (if can? "false" "true")}
+     {:type     "submit"
+      :disabled busy?}
      (if busy? "Saving…" "Save ticket")]))
 
 ;; ---------------------------------------------------------------------------
