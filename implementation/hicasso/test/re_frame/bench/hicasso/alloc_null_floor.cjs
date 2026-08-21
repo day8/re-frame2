@@ -333,6 +333,42 @@ function step(l) {
   return null;
 }
 
+// THE SHAPE OF THE CORPUS AGAINST THE BAR — DERIVED ONCE, PRINTED TWICE.
+// Section A and THE VERDICT four hundred lines of output below it both state
+// the span's occupancy, the bar's position relative to the span, and how far
+// the bar's partition is from the two-population one. They used to state them
+// SEPARATELY: A read the cells, the verdict carried literals written when the
+// corpus was 242 cells and the span really did hold none. When phase 4 put a
+// cell in the span, A said `1 cells` and the verdict went on saying
+// `zero of ${all.length}` — the wrong count wearing the right corpus size — so
+// one run of one program contradicted itself in two places (rf2-2iaph). Both
+// now read this object, and can no longer disagree without disagreeing with
+// the cells.
+function shape(all) {
+  const pooled = ladder(all);
+  return {
+    n: all.length,
+    // STRICTLY BELOW THE SPAN, which is not `ladder`'s mode-1 population: that
+    // one is everything under the mode-2 floor and so includes the span's own
+    // cell. Section A's three counts must partition the corpus, so this is the
+    // narrow one.
+    mode1n: all.filter((c) => c.abs <= MODE1_CEIL_B).length,
+    spanN: all.filter((c) => c.abs > MODE1_CEIL_B && c.abs < MODE2_FLOOR_B).length,
+    mode2n: pooled.mode2n,
+    overBar: pooled.overBar,
+    spanWidth: MODE2_FLOOR_B - MODE1_CEIL_B,
+    // SIGNED, so that no sentence below has to carry the direction as a word:
+    // positive is above the span's upper edge, negative is inside the span.
+    barOffset: PUBLISHED.barB - MODE2_FLOOR_B,
+    // The cells the two partitions disagree about, counted DIRECTLY rather than
+    // by differencing the two totals — which gives the self-test a second and
+    // independent derivation of the same number to hold this one against.
+    splitDiff: all.filter((c) => (c.abs > PUBLISHED.barB) !== (c.abs >= MODE2_FLOOR_B)).length,
+    splitDiffAt: [...new Set(all.filter((c) => (c.abs > PUBLISHED.barB) !== (c.abs >= MODE2_FLOOR_B))
+      .map((c) => c.abs))].sort((a, b) => a - b),
+  };
+}
+
 // --- the corpus, assembled ---------------------------------------------------
 
 // `{ window, design, run, rel, session, cells }` per committed run, in the
@@ -385,10 +421,24 @@ function groupBy(rows, key) {
 const f1 = (x) => (x === null || x === undefined ? 'n/a' : x.toFixed(1));
 const num = (x) => (x === null || x === undefined ? 'n/a' : String(x));
 
+// WHERE THE BAR SITS RELATIVE TO THE SPAN, IN WORDS RENDERED FROM THE OFFSET.
+// "half a byte above" is the wording the record settled on, and it is
+// ARITHMETIC rather than a figure of speech — 45 − 44.5 = 0.5 — so it is
+// rendered here rather than typed. The third rendering is the point: a bar that
+// fell inside the span would SAY SO, in this reader's own voice. The check this
+// replaced forbade the literal `LANDS INSIDE THAT GAP` in a program that had no
+// way to emit it, and so could only ever agree with itself.
+const barPosition = (d) => (d > 0
+  ? `sits ${d === 0.5 ? 'half a byte' : `${f1(d)} B`} above`
+  : d < 0 ? `lands ${f1(-d)} B inside`
+    : 'sits on the upper edge of');
+
 function report() {
   const rows = corpus();
   const all = cellsOf(rows);
   const pooled = ladder(all);
+  // Section A and THE VERDICT both print from this. See `shape`.
+  const sh = shape(all);
   const out = [];
   const L = (s) => out.push(s === undefined ? ';;' : `;; ${s}`.trimEnd());
 
@@ -415,16 +465,13 @@ function report() {
   L();
 
   L('A. THE SHAPE, WHICH GOVERNS EVERY LADDER BELOW: TWO POPULATIONS, NOT ONE TAIL.');
-  const gap = all.filter((c) => c.abs > MODE1_CEIL_B && c.abs < MODE2_FLOOR_B);
-  const m1 = all.filter((c) => c.abs <= MODE1_CEIL_B);
-  const m2 = all.filter((c) => c.abs >= MODE2_FLOOR_B);
-  L(`  mode 1, at or below ${MODE1_CEIL_B} B/boundary : ${m1.length} cells`);
-  L(`  the gap, (${MODE1_CEIL_B}, ${MODE2_FLOOR_B})              : ${gap.length} cells`);
-  L(`  mode 2, at or above ${MODE2_FLOOR_B} B/boundary : ${m2.length} cells`);
+  L(`  mode 1, at or below ${MODE1_CEIL_B} B/boundary : ${sh.mode1n} cells`);
+  L(`  the gap, (${MODE1_CEIL_B}, ${MODE2_FLOOR_B})              : ${sh.spanN} cells`);
+  L(`  mode 2, at or above ${MODE2_FLOOR_B} B/boundary : ${sh.mode2n} cells`);
   L(`  Both edges are observed, not chosen: ${MODE1_CEIL_B} is the largest cell below the gap and`);
   L(`  ${MODE2_FLOOR_B} the smallest above it, over all ${all.length}.`);
-  L(`  THE PUBLISHED BAR AT ${PUBLISHED.barB} SITS HALF A BYTE ABOVE THAT SPAN.`);
-  if (gap.length === 0) {
+  L(`  THE PUBLISHED BAR AT ${PUBLISHED.barB} ${barPosition(sh.barOffset).toUpperCase()} THAT SPAN.`);
+  if (sh.spanN === 0) {
     L(`  Any bar in (${MODE1_CEIL_B}, ${MODE2_FLOOR_B}] classifies all ${all.length} cells identically; the published one differs`);
   } else {
     // PHASE 4 PUT A CELL IN THE SPAN, so the "any bar in the span is the same
@@ -435,14 +482,14 @@ function report() {
     // narrowed rather than overturned — the span still holds a fraction of a
     // percent of the corpus — but "identically" was an absolute claim and it
     // has an exception, so the reader states the exception instead.
-    const pct = ((gap.length / all.length) * 100).toFixed(2);
-    L(`  THE SPAN IS NO LONGER EMPTY: ${gap.length} of ${all.length} cells (${pct}%) sit inside it, so bars within`);
+    const pct = ((sh.spanN / all.length) * 100).toFixed(2);
+    L(`  THE SPAN IS NO LONGER EMPTY: ${sh.spanN} of ${all.length} cells (${pct}%) sit inside it, so bars within`);
     L(`  (${MODE1_CEIL_B}, ${MODE2_FLOOR_B}] no longer all classify alike. The shape is narrowed, not overturned —`);
-    L(`  ${m1.length} cells below and ${m2.length} above against ${gap.length} between. The published one differs`);
+    L(`  ${sh.mode1n} cells below and ${sh.mode2n} above against ${sh.spanN} between. The published one differs`);
   }
-  L(`  from that partition on EXACTLY ONE cell of ${all.length}, the one at ${MODE2_FLOOR_B}, which it counts`);
-  L('  below the bar. So the bar\'s VALUE is robust however its derivation behaved — and so are');
-  L('  the two counts below, which differ by that one cell and by nothing else:');
+  L(`  from that partition on EXACTLY ${sh.splitDiff} of ${all.length} cells, at ${sh.splitDiffAt.join(', ')} B/boundary,`);
+  L(`  which it counts ${sh.barOffset > 0 ? 'below' : 'above'} the bar. So the bar's VALUE is robust however its derivation`);
+  L('  behaved — and so are the two counts below, which differ by those cells and by nothing else:');
   L(`    over the ${PUBLISHED.barB} B bar : ${pooled.overBar}/${all.length}      in mode 2 : ${pooled.mode2n}/${all.length}`);
   L('  Every cross-window comparison below is stated OVER THE BAR, the basis the published');
   L('  figures use. Mode-2 membership is used only for the shape and for mode 1\'s own ladder.');
@@ -540,8 +587,10 @@ function report() {
 
   L('THE VERDICT, in the three parts the bead asks for.');
   L(`  THE MEDIAN, ${PUBLISHED.median} — HOLDS. Mode 1's median is 1.5 in the first window and 1.5 in the last.`);
-  L(`  THE BAR, ${PUBLISHED.barB} — DOES NOT MOVE. It lands inside a ${MODE2_FLOOR_B - MODE1_CEIL_B} B/boundary span that holds`);
-  L(`    zero of ${all.length} cells, and it separates the two populations correctly.`);
+  L(`  THE BAR, ${PUBLISHED.barB} — DOES NOT MOVE. It ${barPosition(sh.barOffset)} a ${sh.spanWidth} B/boundary span`);
+  L(`    that holds ${sh.spanN} of ${sh.n} cells, which is what makes its VALUE robust however its`);
+  L('    derivation behaved. ROBUST IS NOT THE SAME AS EXACT, and A states the difference:');
+  L(`    its partition differs from the two-population one on ${sh.splitDiff} of ${sh.n} cells.`);
   L(`  THE p90, ${PUBLISHED.p90} — CANNOT BE REPAIRED BY RE-CUTTING IT, because a pooled percentile is not a`);
   L('    magnitude on a two-population mixture. It should be RETIRED and replaced by two figures');
   L(`    that are: mode 1's own dispersion (p90 ${pooled.mode1.p90} over the corpus) and the fraction over the`);
@@ -764,11 +813,93 @@ function selfTest() {
   ck('the report states the corpus total', /TOTAL 569 cells over 16 runs, 4 windows, 5 sessions\./.test(rep), true);
   ck('the report states the span occupancy, which is now one rather than zero',
     /the gap, \(21, 44\.5\)\s+: 1 cells/.test(rep), true);
-  ck('and says so in prose rather than still claiming any bar in the span is the same bar',
-    /THE SPAN IS NO LONGER EMPTY/.test(rep) && !/classifies all \d+ cells identically/.test(rep), true);
   ck('the report refuses to move the bar', /THE BAR, 45 — DOES NOT MOVE\./.test(rep), true);
-  ck('the report does not claim the bar lies inside the empty span',
-    /SITS HALF A BYTE ABOVE THAT SPAN/.test(rep) && !/LANDS INSIDE THAT GAP/.test(rep), true);
+
+  // ---------------------------------------------------------------------------
+  // SECTION A AND THE VERDICT, READ BACK AND COMPARED AS NUMBERS — rf2-2iaph.
+  //
+  // What stood here asserted the ABSENCE of the literal `LANDS INSIDE THAT GAP`
+  // from a program that had never had a way to emit that string, while the
+  // verdict said `lands inside a 23.5 B/boundary span that holds zero of
+  // ${all.length} cells` — a hardcoded count wearing the right corpus size,
+  // false since phase 4 put a cell in the span, and flatly contradicting
+  // section A four hundred lines above it. The suite was green through every
+  // run of that. It had to be: a phrase the program cannot print is not a
+  // control, and the check could only ever see the words.
+  //
+  // The demonstration is one line long. Leave the claim exactly as it was and
+  // change only its WORDING to contain the forbidden phrase, and the old check
+  // goes red — same fault, opposite verdict. It was measuring the sentence.
+  //
+  // So nothing below tests for a phrase. Each check EXTRACTS A NUMBER from the
+  // rendered report — once from section A, once from the verdict — and holds
+  // both against a third derived here from the cells. Three consequences, and
+  // they are why this cannot go hollow the way its predecessor did:
+  //
+  //   * a hardcoded figure in either section disagrees with the cells and reds,
+  //     whatever words surround it;
+  //   * `above` and `inside` are ONE check with opposite signs rather than two
+  //     literals, so the report cannot claim a position the arithmetic denies;
+  //   * a wording change that stops a number being found yields `NO MATCH` and
+  //     FAILS. A pattern that matches nothing is the failure mode this whole
+  //     bead is about, so it must never be the quiet answer.
+  const sh = shape(all);
+  const grab = (re, f) => { const m = re.exec(rep); return m === null ? 'NO MATCH' : f(m); };
+  // AND EACH PATTERN MUST FIND ITS LINE EXACTLY ONCE. `exec` stops at the first
+  // match, so without this a pattern loose enough to hit both sections would
+  // compare one section's number with itself and pass. That is the trap a
+  // permanent test walks straight past when it only ever plants one thing to
+  // find, and it is worth more here than anywhere: the checks below exist
+  // precisely to make two sections disagree out loud.
+  const hits = (re) => (rep.match(new RegExp(re.source, 'g')) || []).length;
+
+  const A_SPAN = /the gap, \([\d.]+, [\d.]+\)\s+: (\d+) cells/;
+  const A_POS = /THE PUBLISHED BAR AT ([\d.]+) (?:SITS|LANDS) (HALF A BYTE|[\d.]+ B) (ABOVE|INSIDE) THAT SPAN\./;
+  const A_DIFF = /from that partition on EXACTLY (\d+) of (\d+) cells, at ([\d., ]+) B\/boundary/;
+  const V_POS = /DOES NOT MOVE\. It (?:sits|lands) (half a byte|[\d.]+ B) (above|inside) a ([\d.]+) B\/boundary span/;
+  const V_SPAN = /that holds (\d+) of (\d+) cells, which is what makes its VALUE robust/;
+  const V_DIFF = /its partition differs from the two-population one on (\d+) of (\d+) cells\./;
+
+  ck('each figure the two sections are compared on is located exactly once',
+    [A_SPAN, A_POS, A_DIFF, V_POS, V_SPAN, V_DIFF].map(hits), [1, 1, 1, 1, 1, 1]);
+
+  // THE SPAN'S OCCUPANCY, three ways: what A prints, what the verdict prints,
+  // and what the cells say. This is the bead's own contradiction, as a check.
+  ck('the span occupancy agrees between section A, the verdict and the cells',
+    [grab(A_SPAN, (m) => Number(m[1])), grab(V_SPAN, (m) => Number(m[1])), grab(V_SPAN, (m) => Number(m[2]))],
+    [sh.spanN, sh.spanN, sh.n]);
+
+  // THE BAR'S POSITION, read back as a SIGNED OFFSET rather than as a direction
+  // word. `sits on the upper edge of` is deliberately unmatched by both
+  // patterns: a corpus that put the bar exactly on the mode-2 floor reds here
+  // and gets looked at, rather than sliding through on a third wording.
+  const offset = (mag, dir) => (mag.toLowerCase() === 'half a byte' ? 0.5 : Number(mag.split(' ')[0])) *
+    (dir.toLowerCase() === 'above' ? 1 : -1);
+  ck('section A states the bar and its offset from the span, and both are derived',
+    grab(A_POS, (m) => [Number(m[1]), offset(m[2], m[3])]), [PUBLISHED.barB, sh.barOffset]);
+  ck('the verdict states the same offset, and the span\'s width with it',
+    grab(V_POS, (m) => [offset(m[1], m[2]), Number(m[3])]), [sh.barOffset, sh.spanWidth]);
+
+  // HOW FAR THE BAR'S PARTITION IS FROM THE TWO-POPULATION ONE — the verdict's
+  // third clause, which said `separates the two populations correctly` while A
+  // said it differs on one cell. Both sections now print the count, and A
+  // prints the cells it is.
+  ck('the partition difference agrees between section A, the verdict and the cells',
+    [grab(A_DIFF, (m) => [Number(m[1]), Number(m[2]), m[3]]), grab(V_DIFF, (m) => [Number(m[1]), Number(m[2])])],
+    [[sh.splitDiff, sh.n, sh.splitDiffAt.join(', ')], [sh.splitDiff, sh.n]]);
+  // ...and that count is derived a SECOND way here, by differencing the two
+  // totals rather than by counting the cells the partitions disagree about, so
+  // the number the report is held to is not the report's own arithmetic.
+  ck('and differencing the two totals gives the same count',
+    pooled.mode2n - pooled.overBar, sh.splitDiff);
+
+  // THE BRANCH IS THE ONE THE OCCUPANCY CALLS FOR. Both of these sentences are
+  // emittable — unlike the literal the old guard forbade — and exactly one of
+  // them belongs in any given run.
+  ck('the empty-span sentence is printed exactly when the span is empty',
+    [/classifies all \d+ cells identically/.test(rep), /THE SPAN IS NO LONGER EMPTY/.test(rep)],
+    [sh.spanN === 0, sh.spanN > 0]);
+  // ---------------------------------------------------------------------------
   ck('the report names the basis of its cross-window comparisons',
     /Every cross-window comparison below is stated OVER THE BAR/.test(rep), true);
   ck('the report leaves the p90 to a ruling', /THAT IS A RULING, NOT THIS READER'S CALL/.test(rep), true);
@@ -818,6 +949,6 @@ if (require.main === module) {
 
 module.exports = {
   PUBLISHED, MODE1_CEIL_B, MODE2_FLOOR_B, WINDOWS, LADDER,
-  allRecords, discover, nullCells, median, quantile, ladder, step, corpus, cellsOf,
+  allRecords, discover, nullCells, median, quantile, ladder, step, shape, corpus, cellsOf,
   report, tables, selfTest,
 };
