@@ -28,6 +28,8 @@ The application's foreign-dependency roster is **four** namespaces: `re-frame.co
 
 ## The four rules
 
+> **The reader-facing half of this section now stands in the published guide, 2026-08-21 (`rf2-ps7ia` step (b)).** The operator's destination split ruled teaching content into [`docs/core/hicasso/`](../../../core/hicasso/index.md) by merging it into the chapters rather than by moving any file, so Rules 1 and 2 were already carried by [`06-lists-and-collections.md` §Window the DOM](../../../core/hicasso/06-lists-and-collections.md#window-the-dom) and the crossing itself by [`cookbook.md` §A foreign React component](../../../core/hicasso/cookbook.md#a-foreign-react-component); Rule 3, Rule 4's `aria-rowindex` half and the *blessed* screen below were merged into that chapter in the same pass, as **Keep the focused row mounted**, **Announce the model's count, not the DOM's** and **Screen a virtualizer before adopting it**. **Nothing here is superseded and nothing was moved.** This page stays where it is as the evidence for [specification.md](specification.md#7-complete-use-case-coverage) §7's *Large collections* row, and it keeps what the guide deliberately does not carry: the audited per-version package table below, whose claims are dated and re-read rather than published.
+
 ### Rule 1 — the key is the row's place in the MODEL
 
 ```clojure

@@ -225,10 +225,72 @@ Important parts of this crossing:
   keys would use.
 - Scroll position remains host mechanics rather than app-db state.
 
-The host defaults to Client-only on the server. Test focus and keyboard
-behaviour in a real browser: a row that does not exist cannot hold focus.
-Virtualization also changes find-in-page, select-all, print, and assistive
-technology behaviour.
+The host defaults to Client-only on the server. Virtualization also changes
+find-in-page, select-all, print, and assistive technology behaviour. The
+sections below are what a windowed collection has to get right that an ordinary
+list never has to think about, and each needs verifying in a real browser.
+
+## Keep the focused row mounted
+
+**A row that does not exist cannot hold focus.** When the window moves past the
+row the user is typing in, React unmounts its node, focus falls to
+`document.body`, and the next keystroke goes nowhere. Nothing on screen says so.
+
+The application does not fix this by managing focus. It records which row has
+focus and asks the virtualizer to keep rendering that row wherever the window
+has got to:
+
+- an `:on-focus` intent writes the row's model index into app-db;
+- the view reads it back and hands it to the virtualizer as the index to keep
+  rendered, at its true offset, off screen;
+- the pin is released by the next focus, and by nothing else.
+
+Nothing calls `.focus()` and nothing reads `document.activeElement`. The
+platform goes on owning focus; the pin only stops React from deleting the node
+that focus is already in. That is the difference between a recipe and a focus
+manager, and it is why this stays a few lines rather than a subsystem.
+
+Do not release the pin on blur. A `:on-blur` companion unmounts the row while
+the platform is still moving focus through it, and buys back one row of DOM.
+
+**Not every virtualizer can do this**, so it is worth checking before choosing
+one. Reaching a row far outside the visible window needs an API that decides
+which indices render — TanStack Virtual's `rangeExtractor` is one such — and a
+library whose only lever is an overscan count cannot reach a row hundreds of
+places away.
+
+## Announce the model's count, not the DOM's
+
+Once a collection is windowed **the document has stopped being the model**, and
+only a value the author writes can carry the model into the accessibility tree.
+Two attributes are the whole of it:
+
+- `:aria-rowcount` on the grid is the model's total, not the number of rows
+  currently rendered;
+- `:aria-rowindex` on each row is that row's model index plus one, not its
+  position in the window.
+
+Without them a screen reader announces the size of the window, confidently and
+wrongly: two dozen rows for a collection of ten thousand. They are also the pair
+a window-relative implementation gets wrong while looking right, announcing
+"row 1 of 10,000" for whatever record happens to be at the top of the window —
+so assert both on a row and again after a scroll.
+
+## Screen a virtualizer before adopting it
+
+Three properties decide whether a foreign virtualizer can be reached through one
+`h/defhost` declaration. They are ordinary library features rather than anything
+Hicasso asks for, and a package either has them or does not:
+
+| Property | Why it matters | What its absence breaks |
+| --- | --- | --- |
+| The consumer supplies the key | Identity across a scroll is a model fact, and only the consumer knows the model | A slot-keyed wrapper moves focus and caret to a different record on every scroll |
+| Its own wrappers are the consumer's to shape | `role="grid"` owns `role="row"`, and a virtualizer inserts elements between them | The rows stop being the grid's rows and the table's semantics collapse into a scroll container |
+| It can be told to keep a row mounted | React destroys the focused node the moment the window leaves it | Focus is lost mid-interaction, silently, on an ordinary scroll |
+
+The third is the one packages most often lack. A collection with nothing
+focusable in its rows never touches that property, and for that screen a
+library without it is a fair choice.
 
 ## Avoid large oscillating read sets
 
