@@ -724,8 +724,9 @@
   "Record a never-cached recovery classification for the
   [[acquire-cache-reaction!]] path — `kind` ∈ `:cycle` /
   `:input-fn-exception` / `:input-fn-bad-return`; `data` carries the typed
-  error id + context the caller re-throws with. A no-op (channel nil-bound) on the public subscribe /
-  compute-sub paths, so this is invisible there. rf2-vxgfnd.27."
+  error id + context the caller re-throws with. A no-op (channel nil-bound) on
+  the public subscribe / compute-sub paths, so this is invisible there.
+  rf2-vxgfnd.27."
   [kind data]
   (when-some [sink *acquire-recovery*]
     (vreset! sink (assoc data :recovery kind)))
