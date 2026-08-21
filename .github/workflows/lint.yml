@@ -3,7 +3,18 @@ name: lint
 # Multi-linter CI gate.
 #
 # Three complementary linters run as parallel jobs — two over the Clojure
-# trees, one over the JavaScript ones:
+# trees, one over the JavaScript ones. They are not, however, the whole of what
+# this file gates, and reading the list below as the answer to "what does my
+# diff arm?" undercounts it (rf2-63il). Two further jobs sit alongside them.
+# `api-manifest` (Public-API manifest drift-check) is not a linter at all, yet
+# it is gated on the very same `lint_surface` output as clj-kondo and Splint,
+# so a change under implementation/ or tools/ arms FOUR gated jobs rather than
+# three — and the three linters do not even share one classifier between them,
+# since ESLint keys on the separately-computed `js_surface` instead.
+# `provenance-pins-corpus` runs only when the event is not a `pull_request`,
+# so despite a name that reads like a per-PR check it never runs on a PR, and
+# it is not among the `Lint required` aggregator's `needs:`. The three linters
+# themselves:
 #
 #   - clj-kondo: bug-class linter (unresolved symbols, arity mismatches,
 #     redefined vars, unused bindings). The `.clj-kondo/config.edn` at
@@ -42,13 +53,33 @@ name: lint
 #     must stay that way: fix a finding, or file a bead naming it, but
 #     never silence it with a disable comment.
 #
-# Lint surface: implementation/, tools/ (minus template/resources/),
-# examples/, testbeds/. Generated trees (.shadow-cljs/, target/,
-# node_modules/, .beads/, ai/) are excluded by virtue of the explicit
+# LINT SURFACE — ONE NAME, TWO DIFFERENT SETS (rf2-63il). The phrase names
+# both what the linters READ and what ARMS them on a PR, and those are not the
+# same set, so each is stated separately below. The distinction earns its words
+# because confusing the two fails OPEN: a worker who consults the shorter list
+# to decide whether a diff arms this gate concludes it does not, and skips a
+# gate that would have run.
+#
+# What clj-kondo and Splint LINT: implementation/, tools/ (minus
+# template/resources/), examples/, testbeds/. Generated trees (.shadow-cljs/,
+# target/, node_modules/, .beads/, ai/) are excluded by virtue of the explicit
 # `--lint` paths below. The `tools/template/resources/` deps-new
 # template tree is excluded explicitly — those `.cljs` files carry
 # `{{placeholder}}` substitutions and are not valid Clojure (see
 # tools/deps.edn for the matching shadow-cljs exclusion rationale).
+#
+# What ARMS `lint_surface` is wider. The `detect` classifier below lights on
+# those four trees and ALSO on `.clj-kondo/*` and on this very file,
+# `.github/workflows/lint.yml` — the shared kondo config and this workflow
+# govern how the linters behave, so a change to either has to re-run them —
+# and on `.splint.edn` plus the manifest-projection paths that arm the
+# api-manifest job (spec/API.md, the two api-manifest EDN files, skills/*,
+# docs/core/*, docs/*/concepts.md, spec/Privacy.md, docs/api/*,
+# docs/story/api/*). None of those is a lint TARGET: kondo lints no YAML and
+# no EDN config. Treat the classifier's `case` arms as the authority on this
+# set rather than any list up here — each arm carries the bead that added it,
+# and a copy kept at this distance from the code is what drifted in the first
+# place.
 #
 # REQUIRED-CHECK SHAPE (rf2-aemyt). The `pull_request` trigger is
 # deliberately UNFILTERED so the `Lint required` aggregator below posts a
