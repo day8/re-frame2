@@ -181,15 +181,21 @@ across**:
   source — as a blockquote, or as a paragraph that says so in its closing
   sentence.
 - **the 131-run admissible corpus** — the two together, **3,688 collection-free,
-  3,520 positional**, against 116 / 3,258 / 3,090 here. **Nothing on this page is
-  read on it at all.**
+  3,520 positional**, against 116 / 3,258 / 3,090 here. That census is published
+  by the record named above and quoted here like every other figure of its. **No
+  effect, `p` or verdict on this page is DERIVED on it.** The census just given
+  and the reader's self-test pin under [Reproduction](#reproduction) are figures
+  ABOUT the 131 and are the only two; apart from them, nothing on this page is
+  read on it at all.
 
 So a figure this page derives is a figure about the 116; a figure quoted inside a
 superseding block is a figure about the fifteen, or — where the block says so —
 about the two matched sessions pooled at RUN level: this page's three `fixed`
 runs with the window's five, and its three `parity` with the window's five, 8
-against 8, and no part of the rest of either corpus. And no figure anywhere on
-this page is a figure about the 131.
+against 8, and no part of the rest of either corpus. And no effect, `p` or
+verdict anywhere on this page is derived on the 131 — the census of it above and
+the reader's self-test pin under [Reproduction](#reproduction) are figures ABOUT
+that corpus rather than readings taken on it, and they are the only two.
 
 **Two `plan=floor` runs are in the directory and out of this corpus**, and the
 reader names both rather than dropping them:
