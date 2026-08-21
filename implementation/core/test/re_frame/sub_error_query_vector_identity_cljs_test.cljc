@@ -134,23 +134,21 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Every query-vector-bearing category — enumerated STRUCTURALLY, not by a
-;;    `sub-*` prefix. Includes the two observation-port categories the bead did
-;;    NOT name (`:rf.error/read-after-release`,
-;;    `:rf.error/observation-retry-exhausted`) but which pass the handle's query
-;;    vector on a LIVE frame — found by reading the emit sites.
+;;    `sub-*` prefix. The structural enumeration is the point and it is what
+;;    rf2-s3n6h bought: it once carried three internal-observation-port
+;;    categories a `sub-*` prefix check would have missed, and those went with
+;;    the port on 2026-08-21 (rf2-63t1i). The realm-ambiguous
+;;    `:rf.error/frame-destroyed` in section 3 below is the surviving member a
+;;    prefix check still misses.
 ;; ---------------------------------------------------------------------------
 
 (deftest every-query-vector-category-egresses-raw
   (testing "every category whose `:event` is a query vector ships it VERBATIM
-            on both routes — the sub-* categories AND the observation-port
-            categories a prefix check would miss (rf2-s3n6h)."
+            on both routes (rf2-s3n6h)."
     (doseq [cat [:rf.error/sub-input-fn-exception
                  :rf.error/sub-input-fn-bad-return
                  :rf.error/sub-exception
-                 :rf.error/no-such-sub
-                 :rf.error/observation-on-change-failed
-                 :rf.error/read-after-release
-                 :rf.error/observation-retry-exhausted]]
+                 :rf.error/no-such-sub]]
       (let [[listener-seen sink-seen] (install-probe!)]
         (emit! cat query-v :patient/record)
         (is (= query-v (:event (only @listener-seen)))

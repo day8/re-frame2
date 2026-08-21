@@ -207,43 +207,6 @@
     ;; through `dispatch-error-record!` (the `record-categories` branch below)
     ;; to prove the listener fan-out.
     :rf.error/drain-depth-exceeded
-    ;; rf2-vxgfnd.7: the observation-port always-on pair (Spec 006 §The
-    ;; internal observation port; Spec 009 catalogue rows landed in the same
-    ;; PR). Both are THROWING port surfaces that fan the always-on record
-    ;; through `emit-error-both!` → `dispatch-on-error!` BEFORE the typed
-    ;; throw, so a boundary-swallowed throw still reaches off-box shippers:
-    ;; `read-after-release` is the substrate-bug read of a released handle
-    ;; (armed in production); `observation-port-version-mismatch` is the
-    ;; R-6 lockstep ABI boot guard (`assert-port-abi-version!`). The port's
-    ;; own suite (`observation_port_cljs_test.cljc`) pins the real emit
-    ;; sites; this leg drives the categories through the per-event axis
-    ;; (the `:else` branch) to prove the listener fan-out.
-    ;;
-    ;; rf2-vxgfnd.79: `acquire!`'s retry-EXHAUSTED livelock — the bounded
-    ;; live-cache-displacement retry budget exhausted while the targeted frame
-    ;; incarnation stayed verifiably live. A THROWING acquire! surface that fans
-    ;; the always-on record via `emit-error-both!` BEFORE the typed throw
-    ;; (exactly like its sibling `:rf.error/frame-destroyed`), so an off-box
-    ;; shipper sees the livelock even when the ViewCell error boundary swallows
-    ;; the throw. It is the TRUTHFUL condition acquire! reports instead of lying
-    ;; `:rf.error/frame-destroyed` for a frame it just proved alive.
-    ;;
-    ;; rf2-6ui49w: an UNTYPED throwable escaping a former-owner `on-change`
-    ;; callback during the observation port's HMR / disposal notification drain
-    ;; (`drain-pending-disposals!`) was contained per-handle + re-thrown after the
-    ;; drain, but BOTH real boundaries discard that rethrow (registrar's per-hook
-    ;; catch on the `:hmr` path, an unobserved next-tick Future on `:disposed`),
-    ;; so an untyped consumer-callback bug vanished silently. The port now wraps
-    ;; it in the stable catalogued `:rf.error/observation-on-change-failed` and
-    ;; fans it on the always-on axis (surface #4) via `dispatch-on-error!` BEFORE
-    ;; the boundary swallows the throw — a typed escape keeps its own id and is
-    ;; not double-reported under the wrapper. The port's own suite pins the real
-    ;; emit site at both boundaries; this leg drives the category through the
-    ;; per-event axis (the `:else` branch) to prove the listener fan-out.
-    :rf.error/read-after-release
-    :rf.error/observation-port-version-mismatch
-    :rf.error/observation-retry-exhausted
-    :rf.error/observation-on-change-failed
     ;; rf2-2hkfy: the closed-vocabulary `:rf.nav/scroll` strategy rejection
     ;; graduated `always-on` in the Spec 009 catalogue. rf2-px26m made the
     ;; handler's default branch loud, but through `trace/emit-error!` ALONE —
