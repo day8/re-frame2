@@ -515,8 +515,8 @@
   "The ref-count ATTACH, as a `swap-vals!` function — the ONE expression of
   Spec 006 §Lookup algorithm's CAS-after-snapshot discipline, shared by the
   three sites that adopt an already-cached node (`subscribe`'s hit path,
-  `compute-and-cache!`'s lost-the-install-race adoption, and the observation
-  port's `acquire!`).
+  `compute-and-cache!`'s lost-the-install-race adoption, and
+  [[acquire-cache-reaction!]]).
 
   Bumps `[k :ref-count]` ONLY while the slot is still present holding the SAME
   `reaction` the caller snapshotted; otherwise answers `m` untouched, so the
@@ -692,34 +692,39 @@
 
 (declare subscribe subscribe-in-frame unsubscribe compute-and-cache!)
 
-;; ---- observation-port acquire recovery channel (rf2-vxgfnd.27) -----------
+;; ---- acquire recovery channel (rf2-vxgfnd.27) ----------------------------
 ;;
-;; The observation port's `acquire!` is the cache's ref-count ATTACH (Spec 006
-;; §The internal observation port). Three build outcomes hand back a NON-NIL but
-;; NEVER-CACHED, zero-ref recovery reaction instead of a canonical node: a
-;; cyclic entry sub (`compute-and-cache!`'s outermost catch), a parametric
-;; `input-fn` failure (`build-and-cache!*`'s `input-error?` escaped-caching
-;; branch), and a frame destroyed mid-build (the same branch with `cache` nil).
-;; There is no cache node to attach to, so the port must NOT acquire a lying
-;; `owned?`-true zero-ref reaction — it re-derives WHICH recovery happened and
-;; throws the matching typed error. This out-channel carries that classification
-;; from the build sites up to `acquire-cache-reaction!`. It is bound ONLY by the
-;; port's acquire path; on the public `subscribe` / `compute-sub` paths it is
-;; nil and every recorder call short-circuits, so those paths are byte-identical.
+;; [[acquire-cache-reaction!]] is the cache's ref-count ATTACH for a
+;; re-frame-native view substrate's commit. Three build outcomes hand back a
+;; NON-NIL but NEVER-CACHED, zero-ref recovery reaction instead of a canonical
+;; node: a cyclic entry sub (`compute-and-cache!`'s outermost catch), a
+;; parametric `input-fn` failure (`build-and-cache!*`'s `input-error?`
+;; escaped-caching branch), and a frame destroyed mid-build (the same branch
+;; with `cache` nil). There is no cache node to attach to, so the caller must
+;; NOT acquire a lying `owned?`-true zero-ref reaction — it re-derives WHICH
+;; recovery happened and throws the matching typed error. This out-channel
+;; carries that classification from the build sites up to
+;; `acquire-cache-reaction!`. It is bound ONLY by that acquire path; on the
+;; public `subscribe` / `compute-sub` paths it is nil and every recorder call
+;; short-circuits, so those paths are byte-identical.
+;;
+;; It is retained at zero callers alongside `acquire-cache-reaction!` itself
+;; (rf2-63t1i) — see that fn's section comment.
 
 (def ^:dynamic ^:no-doc *acquire-recovery*
-  "Port-internal recovery out-channel (rf2-vxgfnd.27) — a `volatile!` bound by
+  "Acquire-path recovery out-channel (rf2-vxgfnd.27) — a `volatile!` bound by
   `acquire-cache-reaction!` around the reactive build, or nil on the public
   subscribe / compute-sub paths. The never-cached recovery sites record their
-  classification into it via [[record-acquire-recovery!]]; the port reads it to
-  throw the matching typed error rather than acquire a zero-ref recovery reaction."
+  classification into it via [[record-acquire-recovery!]]; the acquiring caller
+  reads it to throw the matching typed error rather than acquire a zero-ref
+  recovery reaction."
   nil)
 
 (defn- record-acquire-recovery!
-  "Record a never-cached recovery classification for the observation-port
-  acquire path — `kind` ∈ `:cycle` / `:input-fn-exception` /
-  `:input-fn-bad-return`; `data` carries the typed error id + context the port
-  re-throws with. A no-op (channel nil-bound) on the public subscribe /
+  "Record a never-cached recovery classification for the
+  [[acquire-cache-reaction!]] path — `kind` ∈ `:cycle` /
+  `:input-fn-exception` / `:input-fn-bad-return`; `data` carries the typed
+  error id + context the caller re-throws with. A no-op (channel nil-bound) on the public subscribe /
   compute-sub paths, so this is invisible there. rf2-vxgfnd.27."
   [kind data]
   (when-some [sink *acquire-recovery*]
@@ -824,11 +829,11 @@
                           :rf.error/sub-input-fn-bad-return
                           :rf.error/sub-input-fn-exception)]
         (emit-sub-input-fn-error! error-kw query-id query-v frame-id e where)
-        ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
-        ;; parametric-failure classification so `acquire!` throws the matching
+        ;; `acquire-cache-reaction!` path only (rf2-vxgfnd.27): record the
+        ;; parametric-failure classification so the acquire throws the matching
         ;; typed error instead of acquiring this never-cached recovery reaction.
         ;; `emit-sub-input-fn-error!` ALREADY fanned the always-on record above,
-        ;; so the port re-throws the same id WITHOUT a second fan (one record,
+        ;; so the caller re-throws the same id WITHOUT a second fan (one record,
         ;; one throw). No-op on the subscribe / compute-sub paths.
         (record-acquire-recovery!
           (if bad-return? :input-fn-bad-return :input-fn-exception)
@@ -1424,8 +1429,8 @@
 
   `expected-incarnation` (rf2-7w1im, 3-arity) is the captured incarnation token
   threaded straight through to `build-and-cache!*`'s exact-incarnation fence; nil
-  (the observation-port acquire path + the ambient/address-directed miss) is the
-  unchanged bare-id build."
+  (the [[acquire-cache-reaction!]] path + the ambient/address-directed miss) is
+  the unchanged bare-id build."
   ([frame-id query-v] (compute-and-cache! frame-id query-v nil))
   ([frame-id query-v expected-incarnation]
    (let [construction-key [frame-id (cache-key query-v)]
@@ -1888,9 +1893,13 @@
     supplied))
 
 (def ^:no-doc observation-opts-key
-  "INTERNAL (observation port, Spec 006 §The internal observation port).
-  Memo-atom slot key the port's COLD-PROBE path seeds before handing the
-  memo to [[compute-sub-with-memo]]. Value shape: `{:frame <frame-id>}`.
+  "INTERNAL (re-frame-native view substrate). Memo-atom slot key an
+  OWNERSHIP-FREE READ path seeds before handing the memo to
+  [[compute-sub-with-memo]]. Value shape: `{:frame <frame-id>}`. Named for the
+  internal observation port, which seeded it and was retired on 2026-08-21
+  (rf2-63t1i); the key spelling is deliberately unchanged, because
+  `:where :observation-cold-probe` below is a catalogued error-record value
+  (Spec 009) and the two must keep reading as one mechanism.
 
   When present, an UNREGISTERED sub encountered MID-GRAPH during the pure
   compute (a `:<-` / parametric input naming a sub that has no
@@ -1905,8 +1914,8 @@
 
 (defn- maybe-emit-cold-probe-no-such-sub!
   "Emit the always-on `:rf.error/no-such-sub` for an unregistered sub hit
-  MID-GRAPH under an observation-port cold probe (the `memo` carries
-  [[observation-opts-key]]). No-op for every other `compute-sub` caller.
+  MID-GRAPH under an ownership-free read whose `memo` carries
+  [[observation-opts-key]]. No-op for every other `compute-sub` caller.
   Mirrors the reactive build's emission shape (`build-and-cache!*`) with a
   `:where :observation-cold-probe` discriminator. Returns nil."
   [memo query-v]
@@ -1970,7 +1979,7 @@
       (if-not meta
         ;; Unregistered sub computes to nil; memoise so a repeated
         ;; reference within the same call is also a single resolution.
-        ;; Under an observation-port cold probe (and ONLY there — see
+        ;; Under an opted-in ownership-free read (and ONLY there — see
         ;; `observation-opts-key`) the miss additionally emits the
         ;; always-on `:rf.error/no-such-sub`, matching the reactive
         ;; graph's one-error-event / nil-substituted contract. The memo
@@ -2229,18 +2238,29 @@
   ;; unchanged; the memo is purely an internal accumulator.
   (compute-sub* query-v db (atom {})))
 
-;; ---- observation-port internal entry points (Spec 006 §The internal ------
-;; observation port). Two `^:no-doc` seams `re-frame.substrate.observation`
-;; consumes; NOT public API and NOT for adapters or apps.
+;; ---- re-frame-native view-substrate entry points -------------------------
+;;
+;; Two `^:no-doc` seams for a re-frame-native view runtime's commit path; NOT
+;; public API and NOT for adapters or apps. They were written for the internal
+;; observation port (Spec 006 §The internal observation port), which was
+;; retired on 2026-08-21 (rf2-63t1i).
+;;
+;; [[compute-sub-with-memo]] has a live caller — `day8/re-frame2-hicasso`'s
+;; collector reaches it directly. [[acquire-cache-reaction!]] has NONE, and is
+;; RETAINED for the reason Spec 009 gives for `frame/guard-open-drain!` at zero
+;; call sites: the law is CORE's. A commit that takes ownership of a cache node
+;; without re-resolving render context (invariant 2) is what the ref-count
+;; attach owes any such substrate; the port was the only thing that has needed
+;; it yet, not its owner. Do not delete it as residue.
 
 (defn ^:no-doc compute-sub-with-memo
-  "INTERNAL (observation port). [[compute-sub]] with a CALLER-SUPPLIED memo
-  atom — the slice-scoped pure memo table behind the port's cold `probe`
-  (Spec 006 §The slice-scoped probe memo): N sibling cold probes within one
-  synchronous slice thread ONE memo atom, so shared derivation parents
-  compute once per slice instead of once per probe. The memo may carry
-  [[observation-opts-key]] (seeded by the port) to opt the unregistered-
-  mid-graph-input miss into the always-on `:rf.error/no-such-sub` emission.
+  "INTERNAL (re-frame-native view substrate). [[compute-sub]] with a
+  CALLER-SUPPLIED memo atom — a slice-scoped pure memo table behind an
+  ownership-free read: N sibling reads within one synchronous slice thread ONE
+  memo atom, so shared derivation parents compute once per slice instead of
+  once per read. The memo may carry [[observation-opts-key]] to opt the
+  unregistered-mid-graph-input miss into the always-on `:rf.error/no-such-sub`
+  emission.
   Pure apart from that emission; creates no cache entry, no watch, no
   disposal obligation. Same value contract as `compute-sub`."
   [query-v db memo]
@@ -2258,7 +2278,7 @@
       (identical? reaction (:reaction (get @cache k))))))
 
 (defn- build-and-classify!
-  "Drive `compute-and-cache!` for the observation-port acquire path and
+  "Drive `compute-and-cache!` for [[acquire-cache-reaction!]] and
   DISCRIMINATE its result (rf2-vxgfnd.27). Returns `{:reaction r}` for a
   CANONICAL cached node (a real ref-count attach) or `{:recovery kind …}` for a
   never-cached, zero-ref recovery reaction:
@@ -2296,15 +2316,19 @@
       (or @sink {:recovery :frame-destroyed}))))
 
 (defn ^:no-doc acquire-cache-reaction!
-  "INTERNAL (observation port). Resolve-or-build the canonical sub-cache
-  node for `query-v` in `frame-id` and take ONE reference on it — the
-  ref-count attach of Spec 006 §Lookup algorithm, exactly the CAS-after-
-  snapshot hit/bump/build discipline `subscribe` uses — WITHOUT the public
-  subscribe path's render-context machinery: no sub-override consult
-  (invariant 2 — commit must not re-resolve context), no dev deref-sink /
-  fragmentation hooks, no recover-to-nil frame handling (the PORT is the
-  fail-loud surface; it checks frame liveness + registration BEFORE calling
-  here and throws typed). Runs under the target frame's image-resolution
+  "INTERNAL (re-frame-native view substrate). ZERO CALLERS TODAY — see the
+  section comment above for why it is retained rather than deleted
+  (rf2-63t1i).
+
+  Resolve-or-build the canonical sub-cache node for `query-v` in `frame-id`
+  and take ONE reference on it — the ref-count attach of Spec 006 §Lookup
+  algorithm, exactly the CAS-after-snapshot hit/bump/build discipline
+  `subscribe` uses — WITHOUT the public subscribe path's render-context
+  machinery: no sub-override consult (invariant 2 — commit must not re-resolve
+  context), no dev deref-sink / fragmentation hooks, no recover-to-nil frame
+  handling (the CALLER is the fail-loud surface; it checks frame liveness +
+  registration BEFORE calling here and throws typed). Runs under the target
+  frame's image-resolution
   seam so an image-loaded frame's build resolves the sub through its own
   generation, byte-identical to `subscribe`.
 
@@ -2321,7 +2345,7 @@
                                `:frame-destroyed` (the frame's cache vanished
                                before or during the build). `acquire` IS the
                                ref-count attach — there is no node to own — so
-                               the caller (the fail-loud observation port) throws
+                               the fail-loud caller throws
                                the matching typed error rather than acquire a
                                lying `owned?`-true zero-ref reaction.
 

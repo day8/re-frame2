@@ -1,53 +1,23 @@
 (ns re-frame.bench.read-attribution
-  "rf2-mvqwe — WHO pays the observation port's per-read allocation?
+  "rf2-j8ls2 / rf2-ncjyt — WHERE do `subscribe`'s bytes go?
 
-  rf2-21pck measured a 300-dependency Freehand render on the JVM and found
-  `resolve-target` + `probe` to be 81.5% of the render leg's allocation —
-  3733 B per dependency read, for a subscription whose whole body is
-  `(get-in db [:items i])`. That cost lives in CORE's observation port and
-  sub-cache, not in the view substrate, which raises the only question that
-  can move a product decision: does an application reading re-frame
-  subscriptions pay it REGARDLESS of view substrate?
+  A 300-dependency render on the JVM allocates about 3.7 kB per dependency
+  read, for a subscription whose whole body is `(get-in db [:items i])`.
+  That cost lives in CORE's sub-cache rather than in any view substrate, so
+  every application reading re-frame subscriptions pays it, on every
+  substrate. This namespace attributes it, in ONE process against the REAL
+  sub-cache and REAL live nodes.
 
-  This namespace answers that by measuring, in ONE process against the REAL
-  sub-cache and REAL live nodes, both readers side by side:
+  This file also carried a second ladder that priced the internal
+  observation port beside `subscribe` (rf2-mvqwe / rf2-21pck). The port was
+  retired on 2026-08-21 (rf2-63t1i) and that ladder went with it; the arms
+  below are the ones `re-frame.subs` itself still cites.
 
-    PORT     `(probe (resolve-target {:query-v q}))`  — what a Freehand
-             ViewCell does per reactive read (`cell/record-read!`, minus
-             its stabilization and its ledger write, which rf2-21pck
-             already priced at 2.0% and 16.6%).
+  ## Inside `subscribe` (rf2-j8ls2 / rf2-ncjyt)
 
-    RGREAD   `@(subscribe q)`                          — what an idiomatic
-             Reagent view body does per reactive read. Same frame, same
-             sub-cache, same reaction. No view substrate is involved at
-             all: it is the SUBSTRATE-FREE READER.
-
-  Neither is a simulation. Both call the shipped public functions.
-
-  ## The decomposition
-
-  Each arm below is a strict subset of the one above it, so subtracting
-  neighbours attributes bytes to a layer rather than to a guess:
-
-    GETIN     the application's own work — `(get-in db [:items i])`
-    RAWREACT  + a bare `interop/make-reaction` over the same container:
-              the host reaction shell with NO re-frame sub machinery
-    DEREF     + re-frame's signal graph — `@reaction` on a cached node.
-              EVERY consumer of a re-frame subscription pays this, on
-              every substrate, and it is what `probe` and `subscribe`
-              both end in.
-    RGSUB     `subscribe` WITHOUT the deref: frame resolution, cache
-              lookup and the ref-count attach.
-    RESOLVE   `resolve-target` alone.
-    CACHEGET  the bare `(get @sub-cache q)` the port performs.
-    PORT      the whole port call.
-
-  ## The `subs` suite — inside `subscribe` (rf2-j8ls2 / rf2-ncjyt)
-
-  `RM_SUITE=subs` runs a SECOND ladder that opens `subscribe`'s cache-HIT
-  path the same way `PRELUDE` / `PRENODE` opened `probe`'s. Arms S1..S4
-  are strict prefixes of `RGSUB`, re-walked through public functions
-  only, so neighbour subtraction attributes bytes to a step:
+  The ladder opens `subscribe`'s cache-HIT path. Arms S1..S4 are strict
+  prefixes of `RGSUB`, re-walked through public functions only, so
+  neighbour subtraction attributes bytes to a step:
 
     S1-CURFRM  `require-current-frame!` on the happy path — the SHIPPED
                reader-then-require spelling (rf2-a8bw0)
@@ -85,7 +55,7 @@
                the irreducible cost of a persistent one-key change
     RC-EASSOC  pure `(assoc entry :ref-count n)` — the INNER copy alone
 
-  The `N-*` arms open rf2-ncjyt's `PRELUDE` the same way: the throwaway
+  The `N-*` arms open the pre-node lookups the same way: the throwaway
   frame VALUE the retired `frame-resolution-target` minted, the late-bind
   flush consult, the generation read, the `binding` alone, and `registrar/
   lookup` on both its branches (generation-bound and registrar-atom).
@@ -146,7 +116,7 @@
   Byte counts do not, and neither does one behaviour: the JVM plain-atom
   adapter's derived value RECOMPUTES ON EVERY DEREF (there is no caching
   layer — see `re-frame.substrate.plain-atom`), while the CLJS spine
-  caches and recomputes only when a source moved. So the DEREF arm here
+  caches and recomputes only when a source moved. So every arm here
   prices a read whose value MOVED. That is the right shape for the
   broad-update case every measured row is about (a write all 300
   subscriptions read moves all 300), and the wrong shape for a narrow
@@ -162,9 +132,7 @@
   ranges rather than single samples), RM_TOLERANCE (the guard's
   relative-median tolerance, default 0.10 — TLAB accounting is exact, so a
   real arm reproduces to a fraction of a percent), RM_ORDER=rev (reverse the
-  base plan before scheduling — a knob now, not the mitigation),
-  RM_SUITE=port|subs|all (which ladder to run; `port` is the default and is
-  exactly the original thirteen arms)."
+  base plan before scheduling — a knob now, not the mitigation)."
   (:require [re-frame.bench.order-guard :as guard]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -173,7 +141,6 @@
             [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
-            [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support])
   (:import [java.lang.management ManagementFactory]))
@@ -261,95 +228,13 @@
 ;; ---------------------------------------------------------------------------
 ;; the arms
 
-(defn- arm-resolve [n]
-  (let [qs (:qs @rig)]
-    (dotimes [k n]
-      (vreset! sink (if (obs/resolve-target {:query-v (nth qs k)}) 1 0)))))
-
-;; FREEHAND's per-read port call.
-(defn- arm-port [n]
-  (let [qs (:qs @rig)]
-    (dotimes [k n]
-      (obs/probe (obs/resolve-target {:query-v (nth qs k)})))))
-
-;; REAGENT's per-render read of a re-frame subscription. The substrate-free
-;; reader: `@(rf/subscribe [:q])` is the whole of what a Reagent view body
-;; does, and nothing here knows what a view is.
-(defn- arm-rgread [n]
-  (let [qs (:qs @rig)]
-    (dotimes [k n]
-      (vreset! sink (if (deref (subs/subscribe (nth qs k))) 1 0)))))
-
+;; `subscribe` WITHOUT the deref — frame resolution, cache lookup and the
+;; ref-count attach. It is the whole that S1..S4 plus the attach must add
+;; back up to, and nothing here knows what a view is.
 (defn- arm-rgsub [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
       (vreset! sink (if (subs/subscribe (nth qs k)) 1 0)))))
-
-(defn- arm-cacheget [n]
-  (let [{:keys [qs cache]} @rig]
-    (dotimes [k n]
-      (vreset! sink (if (:reaction (get @cache (nth qs k))) 1 0)))))
-
-;; The bare signal-graph read: a reaction we already hold, so no lookup, no
-;; resolution, no evidence map — the recompute and nothing else. This is the
-;; floor under BOTH readers, and it is also the LOWER bound on what a Reagent
-;; form-2 component pays, since such a component closes over the reaction once
-;; and derefs it per render.
-(defn- arm-deref [n]
-  (let [rs (:held @rig)]
-    (dotimes [k n]
-      (vreset! sink (if (deref (nth rs k)) 1 0)))))
-
-;; Below the sub machinery: the host reaction shell over the same container
-;; computing the same body, and then the application's work alone.
-(defn- arm-rawreact [n]
-  (let [rs (:raw @rig)]
-    (dotimes [k n]
-      (vreset! sink (if (deref (nth rs k)) 1 0)))))
-
-(defn- arm-getin [n]
-  (let [db (deref (:db-container @rig))]
-    (dotimes [k n]
-      (vreset! sink (if (get-in db [:items k]) 1 0)))))
-
-;; INSIDE `probe`, so the port's own share can be attributed rather than
-;; guessed. Both arms below re-walk `probe`'s live branch through PUBLIC
-;; functions only, and each is a strict prefix of the next:
-;;
-;;   PRELUDE  resolve, frame lookup, the frame-resolution scope, the
-;;            registry lookup, the cache get. Everything before the node
-;;            is touched.
-;;   PRENODE  + the node deref itself.
-;;
-;; PORT - PRENODE is then the tail: `validate-target!`, the node-record
-;; advance, and the evidence map. If these do not bracket PORT they are
-;; not tracking `probe` and must not be quoted.
-(defn- arm-probe-prelude [n]
-  (let [{:keys [qs cache]} @rig]
-    (dotimes [k n]
-      (let [target (obs/resolve-target {:query-v (nth qs k)})
-            fid*   (:frame-id target)
-            query  (:query target)]
-        (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
-        (live-frame/call-with-frame-resolution
-          fid*
-          (fn []
-            (registrar/lookup :sub (first query))
-            (vreset! sink (if (:reaction (get @cache query)) 1 0))))))))
-
-(defn- arm-probe-prenode [n]
-  (let [{:keys [qs cache]} @rig]
-    (dotimes [k n]
-      (let [target (obs/resolve-target {:query-v (nth qs k)})
-            fid*   (:frame-id target)
-            query  (:query target)]
-        (when (nil? (frame/frame fid*)) (throw (ex-info "no frame" {})))
-        (live-frame/call-with-frame-resolution
-          fid*
-          (fn []
-            (registrar/lookup :sub (first query))
-            (let [r (:reaction (get @cache query))]
-              (vreset! sink (if (deref r) 1 0)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-j8ls2 — INSIDE `subscribe`'s cache-HIT path.
@@ -545,26 +430,13 @@
 
 ;; ---------------------------------------------------------------------------
 
-(defn- census
-  "How many of the n probes hit a LIVE cache node, and how many compute
-  COLD? Decides whether the figure below is a node deref or a pure
-  recompute — a different question with a different answer."
-  [n]
-  (let [qs (:qs @rig)]
-    (reduce (fn [[live cold] k]
-              (if (:live? (obs/probe (obs/resolve-target {:query-v (nth qs k)})))
-                [(inc live) cold]
-                [live (inc cold)]))
-            [0 0]
-            (range n))))
-
 (defn run
   "Measure every arm and print the attribution. Answers the results map,
   keyed by arm label, plus `::refused?` — the arm-order guard's verdict on
   whether anything in it may be quoted."
-  [{:keys [n iters warmup alloc-iters reverse-order? suite rounds tolerance]
+  [{:keys [n iters warmup alloc-iters reverse-order? rounds tolerance]
     :or   {n 300 iters 400 warmup 400 alloc-iters 200 reverse-order? false
-           suite "port" rounds 6 tolerance 0.10}}]
+           rounds 6 tolerance 0.10}}]
   ;; Ahead of everything: a broken guard makes every figure below
   ;; unpublishable, and the checks are fixtures replayed from recorded
   ;; readings, so this is deterministic and costs nothing.
@@ -579,16 +451,15 @@
       (rf/reg-sub id (fn [db _] (get-in db [:items i]))))
     (live-frame/make-frame {:id fid})
     (frame/replace-app-db! fid (db-of 0))
-    (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d rounds=%d base order=%s suite=%s"
+    (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d rounds=%d base order=%s"
                      interop/debug-enabled? n iters warmup alloc-iters rounds
-                     (if reverse-order? "REVERSED" "forward") suite))
+                     (if reverse-order? "REVERSED" "forward")))
     (println (format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %.0f%%"
                      (* 100.0 tolerance)))
     (binding [frame/*current-frame* fid]
       ;; Hold n subscriptions the way a mounted application holds them, so
-      ;; every node is live for the whole run — which is what makes `probe`
-      ;; take its LIVE path rather than its cold-compute one, and what gives
-      ;; DEREF something to deref.
+      ;; every node is live for the whole run — which is what makes
+      ;; `subscribe` take its cache-HIT path rather than building.
       (let [held  (mapv subs/subscribe qs)
             src   (frame/app-db-container fid)
             cache (:sub-cache (frame/frame fid))
@@ -607,24 +478,21 @@
                       :snap         @cache
                       :bumped       (mapv #(update (get @cache %) :ref-count inc) qs)
                       :gen          (live-frame/frame-resolution-generation fid)}))
-      (let [[live cold] (census n)]
-        (println (format ";; probe census: %d LIVE / %d COLD of %d" live cold n)))
       (vswap! gen inc)
       (frame/replace-app-db! fid (db-of @gen))
       ;; Every reader must return the value the writer just wrote, or the
       ;; arms are not reading the same thing and nothing below is comparable.
       (let [g       @gen
-            probe-v (:value (obs/probe (obs/resolve-target {:query-v (nth qs 7)})))
             rg-v    (deref (subs/subscribe (nth qs 7)))
             dr-v    (deref (nth (:held @rig) 7))
             raw-v   (deref (nth (:raw @rig) 7))
-            agree?  (= [g 7] probe-v rg-v dr-v raw-v)]
-        (println (format ";; agreement at site 7, gen %d: probe %s rgread %s deref %s raw %s -> %s"
-                         g (pr-str probe-v) (pr-str rg-v) (pr-str dr-v) (pr-str raw-v)
+            agree?  (= [g 7] rg-v dr-v raw-v)]
+        (println (format ";; agreement at site 7, gen %d: rgread %s deref %s raw %s -> %s"
+                         g (pr-str rg-v) (pr-str dr-v) (pr-str raw-v)
                          (if agree? "AGREE" "*** DISAGREE ***")))
         (when-not agree?
           (throw (ex-info "arms disagree; measurement is meaningless"
-                          {:gen g :probe probe-v :rgread rg-v :deref dr-v :raw raw-v}))))
+                          {:gen g :rgread rg-v :deref dr-v :raw raw-v}))))
       (let [advance! (fn [] (vswap! gen inc)
                        (frame/replace-app-db! fid (db-of @gen)))
             ;; ONE round of one arm. Split out of the old `measure` so the
@@ -652,13 +520,7 @@
             controls [["NOOP"    arm-noop]
                       ["CTRL-S"  arm-ctrl-small]
                       ["CTRL-L"  arm-ctrl-large]]
-            port-plan [["RESOLVE" arm-resolve]  ["PORT"     arm-port]
-                       ["CACHEGET" arm-cacheget] ["DEREF"   arm-deref]
-                       ["RGSUB"   arm-rgsub]    ["RGREAD"   arm-rgread]
-                       ["RAWREACT" arm-rawreact] ["GETIN"   arm-getin]
-                       ["PRELUDE" arm-probe-prelude]
-                       ["PRENODE" arm-probe-prenode]]
-            ;; rf2-j8ls2 / rf2-ncjyt. RGSUB is in BOTH plans because it is the
+            ;; rf2-j8ls2 / rf2-ncjyt. RGSUB heads the plan because it is the
             ;; whole that S1..S4 + the attach must add back up to.
             subs-plan [["RGSUB"     arm-rgsub]
                        ["S1-CURFRM" arm-s1-curfrm]  ["S1-EAGER"  arm-s1-eager]
@@ -673,11 +535,7 @@
                        ["N-FLUSH"   arm-n-flush]    ["N-BINDONLY" arm-n-bindonly]
                        ["N-CWFRNOG" arm-n-cwfr-nogen]
                        ["N-LOOKGEN" arm-n-lookgen]  ["N-LOOKATOM" arm-n-lookatom]]
-            port?     (contains? #{"port" "all"} suite)
-            subs?     (contains? #{"subs" "all"} suite)
-            plan (vec (concat controls
-                              (when port? port-plan)
-                              (when subs? (if port? (rest subs-plan) subs-plan))))
+            plan (vec (concat controls subs-plan))
             ;; The order the SCHEDULE indexes into. `plan` itself stays in
             ;; base order, because the report below reads `(rest plan)` to
             ;; skip NOOP.
@@ -743,7 +601,7 @@
         (doseq [l (map first (rest plan))]
           (println (format ";; %-10s raw %11.0f B   net %11.0f B   %9.1f B/read"
                            l (b l) (net l) (per l))))
-        (when subs?
+        (do
           (println ";;")
           (println ";; rf2-j8ls2 — INSIDE subscribe's cache-HIT path (prefix ladder)")
           (doseq [[lbl v] [["require-current-frame! (S1)"            (net "S1-CURFRM")]
@@ -782,37 +640,6 @@
           (println (format ";;   %-38s %8.1f B/call"
                            "the dynamic binding (S3-S2 - N-CWFRNOG)"
                            (- (per "S3-CWFR") (per "S2-TGTID") (per "N-CWFRNOG")))))
-        (when port?
-        (println ";;")
-        (println ";; ATTRIBUTION")
-        (println (format ";;   PORT   (freehand's per-read)          %9.1f B/read" (per "PORT")))
-        (println (format ";;   RGREAD (reagent's per-read, no substrate) %6.1f B/read  = %.1f%% of PORT"
-                         (per "RGREAD") (* 100.0 (/ (net "RGREAD") (net "PORT")))))
-        (println (format ";;   DEREF  (held reaction; reagent form-2)   %6.1f B/read  = %.1f%% of PORT"
-                         (per "DEREF") (* 100.0 (/ (net "DEREF") (net "PORT")))))
-        (println (format ";;   PORT - RGREAD (freehand-only increment)  %6.1f B/read  = %.1f%% of PORT"
-                         (- (per "PORT") (per "RGREAD"))
-                         (* 100.0 (/ (- (net "PORT") (net "RGREAD")) (net "PORT")))))
-        (println ";;")
-        (println ";; LAYERS - every re-frame reader pays the first three")
-        (doseq [[lbl v] [["application work    (GETIN)"           (net "GETIN")]
-                         ["host reaction shell (RAWREACT-GETIN)"  (- (net "RAWREACT") (net "GETIN"))]
-                         ["re-frame sub graph  (DEREF-RAWREACT)"  (- (net "DEREF") (net "RAWREACT"))]]]
-          (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
-                           lbl (/ v (double n)) (* 100.0 (/ v (net "PORT"))))))
-        (println ";; INSIDE probe (public-fn re-walk of its live branch):")
-        (doseq [[lbl v] [["resolve + lookups   (PRELUDE)"          (net "PRELUDE")]
-                         ["the node deref      (PRENODE-PRELUDE)"  (- (net "PRENODE") (net "PRELUDE"))]
-                         ["validate+record+evidence (PORT-PRENODE)" (- (net "PORT") (net "PRENODE"))]]]
-          (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
-                           lbl (/ v (double n)) (* 100.0 (/ v (net "PORT"))))))
-        (println ";; then ONE of:")
-        (doseq [[lbl v] [["reagent: subscribe  (RGSUB)"           (net "RGSUB")]
-                         ["freehand: resolve   (RESOLVE)"         (net "RESOLVE")]
-                         ["freehand: probe shell (PORT-RESOLVE-DEREF)"
-                          (- (net "PORT") (net "RESOLVE") (net "DEREF"))]]]
-          (println (format ";;   %-38s %8.1f B/read  %5.1f%% of PORT"
-                           lbl (/ v (double n)) (* 100.0 (/ v (net "PORT")))))))
         ;; --- arm order, LAST, and it governs everything above -------------
         ;; The refusal is about what may be QUOTED, not about throwing the
         ;; measurement away, so the figures are printed either way and the
@@ -844,7 +671,6 @@
                        :alloc-iters    (env-int "RM_ALLOC" 200)
                        :rounds         (max 2 (env-int "RM_ROUNDS" 6))
                        :tolerance      (env-num "RM_TOLERANCE" 0.10)
-                       :suite          (or (System/getenv "RM_SUITE") "port")
                        :reverse-order? (= "rev" (System/getenv "RM_ORDER"))})))))
     (shutdown-agents)
     ;; A run whose figures the arm-order guard refused is not a green run.
