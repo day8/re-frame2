@@ -772,15 +772,15 @@ has never been.
 | **Verification** | **0 unverified of 7,860** — 600 M1 mounts + 600 M2 mounts + 630 broad writes + 6,030 narrow writes |
 | **Positive controls** | **this sweep's** four rows × two segments = eight, **eight passes** under the overlap rule; see below for the strict reading. Not the page's live count — the [positive-control table](#the-positive-controls) carries the ensemble's **eighty** |
 
-**The M2 control that rf2-egdaq holds open reads differently on this sweep,
-and the ruling is still the operator's.** The published M2 control range
+**The M2 control that rf2-egdaq turned on reads differently on this sweep,
+and the ruling has since been taken.** The published M2 control range
 `[1.333 – 2.000]` sits against a ±25% band whose floor is `1.4559`: it passes
 the overlap rule `lane/control-verdict` implements and fails a strict
 every-round-inside reading. **This sweep's M2 controls are `[1.500 – 2.000]`
 (Reagent segment) and `[1.600 – 2.000]` (UIx segment) — both wholly inside the
 band, so both pass under *either* reading.** That is reported, not used: a
 re-run producing a friendlier control is not an argument for a rule, and
-rf2-egdaq is not settled here. **Eighty controls have since been measured on the
+rf2-egdaq was not settled here. **Eighty controls have since been measured on the
 balanced ensemble and they say something this one sweep could not** — the strict
 reading fails 7 of 20 M2 controls, with a worst round 19.9% below the band floor;
 [the breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq) is under the
@@ -788,6 +788,25 @@ positive controls. The broad row's controls on this sweep, `[1.600
 – 2.500]` and `[1.667 – 2.500]`, miss the strict reading by `0.0014` — the
 lattice point above a `2.4986` ceiling on a floor of two to three quanta, the
 same quantisation artefact the denominator page records.
+
+> **THE RULING HAS SINCE BEEN TAKEN, AND IT IS A SPLIT — 2026-08-21 (`rf2-egdaq`,
+> recorded here under `rf2-wmya0`).** Nothing above is withdrawn and no figure on
+> this page moves; what changed is the standing of the question, not any reading.
+> `rf2-egdaq` resolved to **one rule per instrument** rather than one rule for both
+> arms. The **heap** arm went STRICT — `lane/control-verdict-strict`, every round
+> inside the ±25% band — because on a byte counter overlap is not a weaker gate but
+> an absent one: a round reading ~0 B passes it beside five good ones, which is the
+> exact failure the control exists to catch. The **clock** arm, which is what every
+> control on this page is, **REFUSED strict and keeps overlap**, under the
+> 2026-07-31 quantum ruling, where a low round on a leg one to three of Chrome's
+> 100 µs quanta wide is the clock's resolution rather than a defect. **That refusal
+> stands.** The operator's separate 2026-08-21 call re-adjudicates the ten published
+> **heap** control figures under strict — all ten pass, widest excursion
+> **4,690,838 B against 4,700,000 B predicted, 0.195% low** — with no window re-run,
+> and it reaches no clock row. So the paragraph above is still right that this one
+> sweep settles nothing, and
+> [the eighty-control breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq)
+> below is a large part of what the clock arm's refusal was decided ON.
 
 ### The denominator reproduces rf2-2rtt6.2
 
@@ -1379,10 +1398,30 @@ universal, which is the more useful statement anyway.
 ### The strict reading, over eighty controls (rf2-egdaq)
 
 `lane/control-verdict` adjudicates a control by **overlap** with the ±25% band;
-**rf2-egdaq** holds open the question of whether to require **every round**
+**rf2-egdaq** held open the question of whether to require **every round**
 inside it. The ensemble is the first sample large enough to say what that choice
 would cost, so it is stated here as an observation. **The ruling is the
 operator's and nothing below decides it.**
+
+> **THE RULING WAS TAKEN, AND THIS SECTION IS PART OF WHAT IT WAS DECIDED ON —
+> 2026-08-21 (`rf2-egdaq`, recorded here under `rf2-wmya0`).** Everything below is
+> left exactly as measured and nothing here is withdrawn. The paragraph above is
+> left standing rather than repaired because it records that this section PRECEDED
+> the ruling; its present tense — "holds on", "the held ruling" — should be read as
+> past throughout the section. **The answer is a SPLIT, one rule per instrument,
+> not one rule for both arms.** The **heap** arm went STRICT under
+> `lane/control-verdict-strict`, because a byte counter makes overlap an absent gate
+> rather than a weak one: a round reading ~0 B passes beside five good ones, and a
+> good round vouching for a dead one is the failure that control exists to catch.
+> The **clock** arm — which is every control on this page — **REFUSED strict and
+> keeps overlap**, under the 2026-07-31 quantum ruling, and **that refusal stands**.
+> The eighty controls below are a large part of the evidence it turned on: 80 of 80
+> under overlap and 64 of 80 under strict, every miss LOW and every one on the two
+> rows whose legs are one to three of Chrome's 100 µs quanta, while the
+> 20-plus-quantum rows pass strict 40 of 40. The operator's separate 2026-08-21 call
+> covers the **heap** arm's published rows only — ten figures re-adjudicated under
+> strict, all ten passing, widest excursion 4,690,838 B against 4,700,000 B
+> predicted, 0.195% low, no window re-run — and it re-adjudicates nothing here.
 
 | row | band | strict passes | worst single round |
 |---|---|---|---|
@@ -2170,7 +2209,7 @@ from the repository rather than merely stated by it.
 | **Canonical-DOM parity** | `{:problems [] :ok? true}` on all 40 — in both segments and across the seam |
 | **Verification** | **0 unverified of 92,160** — per run 720 M1 mounts + 504 M2 mounts + 756 broad writes + 7,236 narrow writes = 9,216, times ten |
 | **Segment-order control** | **no refusal on any row of any run**; `magnitude-resolved? true` on **37 of 40**, and `:balanced-design? true` on all 40 |
-| **Positive controls** | **80, and 80 passes** under `lane/control-verdict`'s overlap rule; 64 of 80 under the strict every-round-inside reading — [the breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq) |
+| **Positive controls** | **80, and 80 passes** under `lane/control-verdict`'s overlap rule; 64 of 80 under the strict every-round-inside reading, which `rf2-egdaq`'s split adjudication **REFUSED for this clock arm** under the 2026-07-31 quantum ruling — [the breakdown](#the-strict-reading-over-eighty-controls-rf2-egdaq) |
 
 The instrument, by content hash. These are the blobs every one of the ten runs
 was measured at:

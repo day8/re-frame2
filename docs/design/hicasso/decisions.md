@@ -1612,7 +1612,9 @@ why the separation is claimed between runs and not within one. The per-round
 ranges are weaker evidence than that and are printed rather than leaned on —
 run 2's includes 1.0.
 
-**The positive control, and the rule it passed under (`rf2-egdaq`).** `:ctl-2x`
+**The positive control, and the rule it passed under (`rf2-egdaq` — SETTLED
+2026-08-21 as a split: strict on the heap arm, overlap kept on clock legs sitting
+inside Chrome's 100 µs clamp).** `:ctl-2x`
 predicts 2.00x by construction and passed in all three runs: measured 8.250 ms
 against a predicted 8.100, 8.350 against 8.500, and 8.500 against 8.600 — every
 one within 2% of its own prediction. That verdict was `lane/control-verdict`'s
