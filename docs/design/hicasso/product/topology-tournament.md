@@ -999,3 +999,126 @@ window did not relitigate that refusal.
 - **No tuning iteration was spent.** §1.6 allows two per red cell; no cell was
   established red, nothing was tuned between runs, and the two iterations
   remain unspent.
+
+---
+
+## Part 3 — the re-take (`rf2-w01c`, the exclusive window)
+
+### 3.1 Why there is a second window at all
+
+[§2.9](#29-the-clock-table--the-window-rf2-w01c) published a three-run series
+and the merged-PR audit of that publication (#8466, 2026-08-20) found it did
+not satisfy its own fixed-before-run plan. The finding is narrow and it is
+mechanical: [§2.9.1](#291-the-plan-fixed-before-the-first-run) pre-registered
+that the runs are serial and *"nothing else is run beside them"*, and
+[§2.9.3](#293-the-box-bracketed-around-each-run-and-never-sampled-inside-one)
+then records in terms that a second agent working a documentation bead was
+demonstrably active on the box during run 1.
+
+**Passing controls do not repair that, and the audit says why.** Disclosing an
+overlap is honest; it does not convert a pre-registered condition into an
+optional caveat after the fact. And replacing only run 1 is refused by
+[§2.9.2](#292-two-attempts-and-only-the-second-one-publishes)'s own rule — a
+series completed later is two instruments. The audit named exactly two
+remedies: a fresh end-to-end three-run series under the registered exclusive
+condition, or an explicit methodological ruling narrowing that condition. This
+part is the first of those.
+
+**§2.9's table is preserved and not deleted.** It is a transparent record of
+what was measured and under what disclosure. What this part settles is which
+series is the honoured `rf2-w01c` window.
+
+### 3.2 The plan, fixed before the first invocation
+
+Committed as its own commit, ahead of the first invocation of the runner, so
+that no stopping rule and no adjudication can be chosen after seeing an answer.
+Nothing below was decided later. Where a clause repeats §2.9.1 it is because
+[§1.7](#17-what-this-page-will-not-do) forbids changing the plan between
+windows, not because it was re-derived.
+
+**Carried unchanged from §2.9.1:**
+
+- **Three runs.** Not "until they agree" and not "until one is clean". All
+  three are taken whatever the first two say.
+- **A RUN is an invocation that reaches the page and returns a verdict** —
+  exit 0, 1 or 2. Its result is recorded whichever of the three it is.
+- **A RIG FAULT is an invocation that never reaches the page** — a build
+  failure, a missing dependency, a port already held. It is reported and it
+  does **not** consume one of the three, because it measured nothing.
+- **Nothing is tuned between runs.** Not the sampling, not `batch-k`, not the
+  band, not the arms.
+- **Runs are serial.** One at a time, never two, and nothing else is run beside
+  them.
+- **The controls arbitrate, not the operator.** A refused control withholds the
+  cells for that arm under §1.5, and the refusal is the result.
+
+**Added by this window, because §2.9 did not need them and this one does:**
+
+- **THE EXCLUSIVITY CONDITION, made falsifiable rather than asserted.** The
+  defect being repaired was detected *after the fact*, from a peer's writes into
+  the session-shared scratch directory at the minute run 1 began. That is the
+  check, so it is registered as the check: the scratch directory's modification
+  times are enumerated immediately before and immediately after each run, and
+  **any file not this worker's own, modified inside a run's wall-clock bracket,
+  voids that run**. A voided run is reported and re-taken; it does not consume
+  one of the three, for the same reason a rig fault does not — a run taken
+  beside a peer is the defect this window exists to repair, so it is not a
+  reading.
+- **The box is bracketed with §2.9.3's own counters** — `\System\Processor
+  Queue Length` over five samples, `\Processor(_Total)\% Processor Time`, and
+  `Win32_Processor.LoadPercentage` — read standalone before run 1, between
+  runs, and after run 3. Never sampled inside a run. Nothing is claimed about
+  within-run quietness beyond the brackets. The counters are RECORDED; **no
+  counter reading is an admissibility criterion**, because setting a threshold
+  on one after seeing §2.9.3's values would be choosing a bar known to be
+  clearable.
+- **THE ADJUDICATION RULE, and it is comparative.** This window's question is
+  not *what are the cells* — §2.9 already published cells — but *does the
+  exclusive series change the published values or the inference drawn from
+  them*. So the verdict is fixed here, before any number:
+    1. **The inference is adjudicated first**, on the four claims §2.9.8 makes
+       and the one §2.9.7 makes. Each is re-evaluated against this series alone.
+       A claim survives if this series supports it on its own evidence.
+    2. **The values are adjudicated against §2.9.6's own published run-to-run
+       spread**, which is `(max - min) / min` over the three run means with a
+       recorded median of **3.9%** and a maximum of **10.1%**. A cell whose
+       exclusive-series figure sits within the published series' own three-run
+       envelope for that cell is **CONSISTENT**; one outside it is **MOVED** and
+       is named individually. This is a pre-registered comparison against a
+       number the previous window published, not a band invented for this one.
+    3. **A MOVED value does not by itself overturn an inference.** §2.9.7's
+       falsification and §2.9.8's orderings are qualitative; they are overturned
+       only by this series contradicting them qualitatively.
+    4. **If the inference survives and the values are consistent, the published
+       table stands** and this part records that the honoured window is the
+       exclusive series. **If either moves, `clock_app.cljs`'s docstring and
+       §2.9.7 are updated in the same commit**, which is the #8471 audit's
+       requirement and is not optional.
+- **NO BAND IS WIDENED AND NO WINDOW IS ENLARGED.** `rf2-4t36`'s ruling stands
+  unchanged: `virtual` is UNADDRESSED, no clock is started on it, and this
+  window supplies no bound on it in either direction. The control's band stays
+  §1.5's. `batch-k`, `sampling` and `rounds` are the instrument's own and are
+  read out of it rather than chosen here.
+- **THE PORT.** The driver takes `HICASSO_PORT=8148`, which is its own
+  docstring's value and not a choice made here. A stray idle `ssr:hicasso-serve`
+  holds **8139** on this box; that is a different port, so nothing is moved and
+  nothing is killed. Had it collided, §2.9.1's rig-fault clause already covers
+  *a port already held*.
+- **WHAT THIS WINDOW DOES NOT DECIDE, registered here rather than discovered
+  later.** It adjudicates **no ledger row**. §2.9.9's reasoning is unchanged and
+  is not weakened by the series being exclusive: this table's window is a commit
+  bracketed by `flushSync` on a synthetic bench page, and `U1`-`U3` are stated
+  over a slice application's interactions through to a paint. Every cell stays
+  `UNASSESSED` against them, `C3` and `C4` stay unaddressed as different
+  populations, and no `implementation/hicasso` generalisation is drawn from an
+  arm-1 figure. **No row of
+  [`budgets.md` §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger)
+  moves as a result of this part, in either direction.**
+
+**The tree.** This window runs the instrument exactly as it stands at
+`2a93f2c112fe81ebaccff5dafa085671fc5e6857`, which is an ancestor of `main`. The
+pre-registration commit above touches this page and nothing else, so
+`topo/clock_app.cljs`, `topo/control_app.cljs`, `topo/arms.cljs`,
+`topo/model.cljs` and `run.cjs` are byte-identical to that landed tree.
+**Nothing about the instrument moved between the two windows either**, which is
+what makes rule 2's comparison one of boxes rather than of instruments.
