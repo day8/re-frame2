@@ -6,6 +6,29 @@ seeded window (PR #8601, record
 [the pass order drawn independently of parity](the-pass-order-drawn-independently-of-parity.md))
 and narrowed the question without settling it. This page is phase 3.
 
+> **THIS WINDOW'S REFUSAL IS SUPERSEDED, AND THE PROGRAMME RAN ON PAST IT —
+> 2026-08-21 (`rf2-wv8rz`).** The seat line above reads "phase 3 of three"
+> because that is what was committed before run 1; the programme ran to **four**
+> phases. Phase 4 held **this** design still, declared a band on the AGGREGATE
+> before its first run — a restricted randomisation of the pass labels over the
+> **48** schedules this design would equally have admitted, taking no percentile
+> of any null arm and citing no published floor — and read eight twelve-round
+> runs across **two sessions**: PASS **+0.31%**, *p* = 1/20001, eight of eight
+> runs positive; PARITY **−0.03%**, straddling zero. **The pass-position term is
+> ESTABLISHED and `rf2-fk6pj` is CLOSED.**
+>
+> **Nothing measured here is withdrawn and every figure below is left exactly as
+> it was published** — the pre-registration included, because rewriting one once
+> its runs are taken destroys the only evidence it preceded them. **The refusal
+> below was this window's BAND's, not its data's**: phase 4 re-read these same
+> four committed runs through its band with nothing else changed and they clear
+> α at *p* = 0.0013, which confirms the diagnosis
+> [this page filed against its own band](#the-defect-in-this-band-recorded-and-not-repaired)
+> and declined to act on after seeing the answer. The two corrections that
+> follow from it are marked in place at [the answer](#the-answer-first) and at
+> [what this window establishes](#what-this-window-establishes-and-what-it-does-not).
+> See [the band on the aggregate, and the second session](the-band-on-the-aggregate-and-the-second-session.md).
+
 **This section down to and including [the pre-registered outcomes](#the-pre-registered-outcomes)
 was committed before the first run was taken.** The commit that carries it also
 carries `alloc_pass_design.cjs`, so the round count, the four seeds, the
@@ -325,6 +348,19 @@ unresolvable from a fresh clone, and the commit order is the evidence rather tha
 the identifier.*
 
 ## The answer, first
+
+> **AMENDED 2026-08-21 (`rf2-wv8rz`, on phase 4's band on the aggregate and its
+> second session).** Every figure in this section is left as taken and none is
+> withdrawn: the terms below are what this corpus reads, and **outcome 3 is what
+> this window's own pre-registered band returns on them**. Two of its sentences
+> do not survive phase 4, and both are about the ruler rather than the reading.
+> ~~"`rf2-fk6pj` therefore stays OPEN"~~ — the bead is **CLOSED**. And **"does
+> not establish the pass-position term" is a verdict of this band, not of these
+> runs**: re-read through phase 4's band with nothing else changed, these same
+> four committed runs clear α at *p* = 0.0013, at a mean run term of **+0.44%**
+> beside the **+0.45%** pooled figure published below. Refusing to repair the
+> band inside the window that declared it was the correct call and is why the
+> corpus was still there to re-read.
 
 **The design did what phase 2's could not: it identified.** All four runs were
 admitted, `q · p` read 0 inside every run and 0 over the pooled forty-eight
@@ -677,6 +713,29 @@ stands until a window that owns it says otherwise.
 5. **THE INDEX-TIED TERM IS SEEN, NOT IDENTIFIED.** The complementary pairs
    disagree by +0.22% and +0.17%, which locates a per-round-index nuisance and
    names no column.
+
+> **AMENDED 2026-08-21 (`rf2-wv8rz`, on phase 4 —
+> [the band on the aggregate, and the second session](the-band-on-the-aggregate-and-the-second-session.md)).**
+> The five items above are left standing as what this window concluded on the
+> date it was taken. **Phase 4 answered the first two, and neither is open now.**
+>
+> - **Item 1 is answered: the pass term IS established.** Phase 4 held this
+>   design still and read it against a band declared before run 1 and computed on
+>   the same object as the figure it adjudicates — PASS **+0.31%**, *p* = 1/20001
+>   with not one of 20,000 re-labellings reaching the observed term, eight of
+>   eight runs positive — while the R = 0 null arm, whose true term is zero by
+>   construction, declined to fire at *p* = 0.0934. **This window's own four runs
+>   clear that band too**, at *p* = 0.0013.
+> - **Item 2 is answered: there are two sessions**, eight runs across them on one
+>   unchanged design, so the session-level independent count is **2**.
+> - **Items 3, 4 and 5 stand exactly as written.** Phase 4 proposes no mechanism
+>   and excludes none, changes no estimand, and names the residual functions of
+>   the round index its two balanced columns do not span rather than filtering
+>   them out.
+>
+> **All three of the successor's debts below are discharged, by that same
+> window**: a band on the aggregate, a second session, and the fail-closed
+> boundary moved inside `alloc_pass_position.cjs`.
 
 **WHAT THE SUCCESSOR OWES**, in terms a dispatch can act on, and none of it a rig
 change:
