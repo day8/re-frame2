@@ -13,7 +13,7 @@ THE NEXT WINDOW OWES. No rig change; `p0_run.cjs` needs nothing."*
 | phase | design | what it returned |
 |---|---|---|
 | [`rf2-0gjqi`](the-sign-follows-the-pass-not-the-write.md) | `parity`, 2 × 6 rounds | The pass that ran second read lower in **10 of 12** blocks. Could not tell PASS from PARITY: the rig tied them. |
-| [phase 2](the-pass-order-drawn-independently-of-parity.md) (PR #8601) | `seeded`, 2 × 6 rounds | 10-of-12 did **not** reproduce (7 of 12, chance). The decomposed PASS term did, in sign. Only one run separated, so the claim rested on *n* = 1. |
+| [phase 2](the-pass-order-drawn-independently-of-parity.md) (PR #8601) | `seeded`, 2 × 6 rounds | 10-of-12 did **not** reproduce (7 of 12, chance). The decomposed PASS term did, in sign. It read run 2 as separating and run 1 as not; **neither did** — no balanced six-round schedule can identify at all — so the claim rested on **no** independent block. |
 | [phase 3](the-design-control-comes-before-the-window.md) (PR #8615) | `seeded`, 4 × 12 rounds | The design **identified** — `q·parity = 0` inside every run. PASS term +0.65, +0.64, +0.20, +0.29, pooling to **+0.45%**. **The pre-registered band REFUSED it.** |
 
 Phase 3 then recorded two defects in its own design rather than repairing them,
