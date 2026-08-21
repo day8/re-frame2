@@ -247,12 +247,25 @@ EXTRA_ROWS = {
 # `arm1` prototype runtime, and the package ships one topology and cannot mount
 # four.  Promoting it by rewriting the cell would claim a package reading that
 # nothing took.
+#
+# `U2` is the one row this constant has ever moved, and it moved on exactly the
+# terms the paragraph above sets: a measurement window, taken on a quiet box,
+# with the edit here beside it.  `rf2-85og2`'s 2026-08-22 window read the slice
+# application's own keystroke and toggle interactions through to the paint that
+# follows them, three runs on one tree, and the SUBJECT is the slice witness
+# application mounted through `re-frame.hicasso`'s own `h/mount!` — the same
+# rule that puts `D17`-`D25` on `package`, since those ran on the public-package
+# witness applications too.  `U1`, `U3` and `U4` stay `—`: `U1` because that
+# window did not decide it (its line is stated in FRAMES and the instrument's
+# phase alignment spends one by construction, so the two readings of the line
+# disagree and choosing between them is a ruling), `U3` and `U4` because no
+# driver reaches their estimands at all.
 POPULATION_PIN = dict(
     [("D%d" % n, "package") for n in range(1, 26)]
     + [("D26", "bench-tree")]
     + [("S%d" % n, "package") for n in range(1, 6)]
     + [("S6", "bench-tree"), ("S7", "bench-tree"), ("S8", "package")]
-    + [("U%d" % n, "—") for n in range(1, 5)]
+    + [("U1", "—"), ("U2", "package"), ("U3", "—"), ("U4", "—")]
     + [("U5", "package"), ("U6", "package")]
     + [("C1", "—"), ("C2", "bench-tree"), ("C3", "—"), ("C4", "—"),
        ("C5", "package"), ("C6", "package"), ("C7", "—"), ("C8", "—")]
@@ -1113,7 +1126,12 @@ def self_test():
     red("L5", rows=patched("S1", line="1,000 B, R=0 shell, Reagent segment"))
     red("L5", rows=patched("S6", line="1.25x cold mount against direct UIx"))
     red("L5", rows=patched("C3", line="≤ 1.25x, subject to ratification"))
-    red("L5", rows=patched("U2", current="42 ms p95"))
+    # The control needs a row NOTHING HAS MEASURED, so it follows the `—`
+    # population rather than a particular id: it sat on `U2` until `rf2-85og2`'s
+    # 2026-08-22 window measured that row, at which point a value stated for it
+    # stopped being a fabrication and the control would have gone green about a
+    # rule that still bites.  `U3` is the same family and is still unmeasured.
+    red("L5", rows=patched("U3", current="42 ms p95"))
     # ...and the eager direction: C3's `1.25x` is the REGISTERED broad-update
     # rule, and must not be caught by the prohibition aimed at the cold-mount
     # proposal.
