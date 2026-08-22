@@ -538,6 +538,12 @@ was resumed the hygiene loop had reaped its worktree. Two costs from one schedul
 
 **Dispatch immediately on clear.** A clear, unblocked item goes out now, not next tick.
 
+**And write the dispatch's record line as you dispatch it.** The mayor-local line that lets a later
+tick find this worker's completion report is written here and read in the hygiene loop. What it must
+carry, which field the reap test uses, and why an untracked file needs its fields specified
+somewhere else at all, are under *Reaping* there — deliberately not repeated here, because a field
+list kept in two places is a field list that will disagree with itself.
+
 ### Routing a finding onto a live worker's file
 
 Under fan-out, findings keep landing on files somebody already holds — from an audit,
@@ -899,6 +905,24 @@ context that held it is gone. After one clear, fourteen worktrees existed and ex
 quotable report, all three dispatched after it. The rule failed safe; the cost is monotone
 accumulation. **Dispatch time, not report time** — dispatch always precedes the report, so the line
 is on disk before a clear can matter.
+
+**Nothing validates that line, so specify its fields somewhere tracked.** The file is mayor-local
+and version-ignored by design: no gate reads it, no review sees it, and its own header is the only
+description of it that exists. That is precisely the condition under which a header and its rows
+drift apart unobserved, and here they did — both carried five fields, so no count disagreed, but the
+names sat one place to the left of the contents and a reader addressing a field BY NAME got its
+neighbour's value. Reading the last field as the header named it returned a well-formed answer for
+seventeen of thirty worktrees, and every one of those answers was an identifier rather than the
+report it was taken for. **Name the fields, in the order a dispatch writes them, in the project's
+own agent-instructions file**, and have the local header cite that record instead of standing as its
+own authority.
+
+**Two of those fields belong to this rule and the rest belong to the project**: the worktree,
+because it is the thing you are deciding about, and the agent id, because it is the entire route to
+the report. **The reap test reads no field of that line at all** — it reads the report, which the id
+leads you to. So a field holding the report TEXT is the operator's call recorded at the end of this
+section, not a column this rule turns on, and a header that names one before that call is made is
+describing a field no dispatch writes.
 
 **What the id buys is the TRANSCRIPT, not a live conversation.** Messaging does not reach across a
 clear: eight agents whose ids had been recorded exactly as prescribed all answered *"no transcript
