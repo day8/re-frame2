@@ -958,6 +958,17 @@ method requires naming them — so identify a file as the WORKER'S OWN before an
 as that worker's report; reaping on a peer's mention of a worktree is reaping on someone else's,
 which is strictly worse than leaving the tree standing.
 
+**Three tests separate them, and the obvious one is not sufficient by itself.** COUNT the hits per
+file: a worker's own log names its worktree tens to hundreds of times where a peer names it once or
+twice, so the gap is two orders of magnitude rather than a judgement call. But **ranking by that
+count can still hand you the wrong file** — measured across eleven trees, the top scorer for one of
+them was a peer that had simply worked longer beside it. The decisive test is the report's own
+claim about where it ran: a worker states its worktree root, so a file whose report names a
+DIFFERENT root is not that worker's however often your path appears in it. And where a directory
+name has been reused, both incarnations match — separate those by the branch the tree carries NOW,
+because the earlier one names a branch that is no longer there and tends to end mid-flight rather
+than in a report.
+
 A transcript path the platform documents as an implementation detail is not a contract, and
 local-history retention sweeps typically DELETE rather than truncate — so whether to hold the report
 text somewhere of your own is the operator's call.
