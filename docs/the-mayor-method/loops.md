@@ -574,8 +574,11 @@ assumes an item accumulates — that notes accrete, that currency is a walk over
 That is a property of the TOOL, not of the item, and where the verb replaces, the walk you are
 teaching a reader to make runs over text you have already deleted. Expect no error and no warning:
 the item afterwards looks well-maintained, because what remains is your note, correctly formatted,
-saying something true. Both mayors on one project hit this, months apart, and the second read the
-first's account of it four hours after repeating it. **If your tracker exports to a versioned file,
+saying something true. Two mayors on one project hit this two DAYS apart, and the second read the
+first's account of it four hours after repeating it. The short interval is the alarming half: a
+fresh, accurate account of the hazard was sitting in the same tracker and still did not reach the
+next reader, which is why this belongs here rather than only on an item. **If your tracker exports
+to a versioned file,
 the loss is fully recoverable** — the pre-damage text sits in any checkpoint predating the write, so
 this is a reason to check the verb rather than to panic about the damage.
 
