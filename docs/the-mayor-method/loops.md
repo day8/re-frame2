@@ -886,8 +886,8 @@ does not announce itself as infrastructure. Gates die naming real, present files
 which twice read as a genuine regression to the worker that received it. Once it landed on a
 *negative control*, inverting a meta-test about exit codes.
 
-The signals that have never lied are reads rather than inferences: the agent's own completion
-report, and whether the messaging tool finds a live task to deliver to.
+The signal that has never lied is a read rather than an inference: the agent's own completion
+report.
 
 **And the report has to say the work is FINISHED.** An interim status, a progress note, a partial
 hand-off and a change-opened announcement are all the agent *speaking* rather than the agent
