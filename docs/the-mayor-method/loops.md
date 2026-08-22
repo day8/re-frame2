@@ -1046,9 +1046,14 @@ locked, waited out for two days, and were all simply dirty:
 * **Partial** — a *husk*. The tool deregistered the worktree and deleted its metadata, then hit the
   lock and stopped. It no longer appears in the worktree listing, pruning has nothing to clear, and a
   status check inside it *fails and prints nothing* — which is exactly why a clean/dirty test reads a
-  husk as clean. Retrying is futile; an ordinary recursive delete once the lock clears is all that
-  remains. **A partial removal kills a running gate exactly as a complete one does** — never read it
-  as "nothing happened".
+  husk as clean. Retrying the ordinary path is futile — the registered-worktree check refuses a
+  husk forever. **But do not reach for a raw recursive delete, which is the operation the top of
+  this section forbids**: a husk still holds every file the worktree had, any linked dependency
+  directory among them, so a plain delete follows that link and empties what it points at. Reach
+  for the tool's acknowledged-husk path, which disarms the link before deleting anything; the
+  paragraph below states the two conditions it is gated on, and a tool that offers no such path
+  is one to fix rather than to work around. **A partial removal kills a running gate exactly as a
+  complete one does** — never read it as "nothing happened".
 
 **A husk is identified, never inferred.** "The tool does not list it, and it has no metadata" is true
 of a husk and equally true of an ordinary directory, a mistyped argument and an unrelated project.
