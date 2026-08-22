@@ -969,6 +969,19 @@ name has been reused, both incarnations match — separate those by the branch t
 because the earlier one names a branch that is no longer there and tends to end mid-flight rather
 than in a report.
 
+**A worktree the MAYOR occupied has no agent, so the search comes back empty for that reason
+alone.** Work an operator declines to delegate still needs a tree, and such a tree never had a
+worker to write a transcript. The empty search then reads as *no report exists*, which is the reap
+test's blocking condition, and the tree becomes permanently unreapable — the empty-sink error one
+level up: an absent transcript is a fact about the SEARCH, and one of the things it can mean is
+that nobody was ever there. **The rule does not bend, because for that tree the mayor IS the
+agent** and its authorising report is the mayor's own knowledge that the work is finished. What has
+to come first is identification: read what the tree's tip revision actually carries, which names
+the work and therefore its author, instead of concluding anything from an empty result. **And do
+not promote occupancy into a proxy.** A tree sitting at the trunk with nothing of its own is the
+ordinary state of a worker just created and not yet committed — the most dangerous tree to remove,
+not the safest. It corroborates an identification; it never substitutes for one.
+
 A transcript path the platform documents as an implementation detail is not a contract, and
 local-history retention sweeps typically DELETE rather than truncate — so whether to hold the report
 text somewhere of your own is the operator's call.
