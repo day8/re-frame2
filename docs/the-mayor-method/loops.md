@@ -976,11 +976,17 @@ test's blocking condition, and the tree becomes permanently unreapable — the e
 level up: an absent transcript is a fact about the SEARCH, and one of the things it can mean is
 that nobody was ever there. **The rule does not bend, because for that tree the mayor IS the
 agent** and its authorising report is the mayor's own knowledge that the work is finished. What has
-to come first is identification: read what the tree's tip revision actually carries, which names
-the work and therefore its author, instead of concluding anything from an empty result. **And do
-not promote occupancy into a proxy.** A tree sitting at the trunk with nothing of its own is the
-ordinary state of a worker just created and not yet committed — the most dangerous tree to remove,
-not the safest. It corroborates an identification; it never substitutes for one.
+to come first is identification, and the tip revision alone will not do it: it names the WORK, not
+the occupant, because an auditor, a reviewer, a bisect or a monitor all sit at a commit they did
+not write. Ask instead whether the tree is on the branch the work was PUBLISHED from — an author's
+is, and a process inspecting that work carries a branch of its own, named for the thing it
+inspects. **And do not promote occupancy into a proxy.** A tree sitting at the trunk with nothing
+of its own is the ordinary state of a worker just created and not yet committed — the most
+dangerous tree to remove, not the safest. It corroborates an identification; it never substitutes
+for one. **Expect automated processes to hold worktrees too**, at commits they did not author and
+under directory names they recycle: one observed here reappeared at a path two minutes after that
+path was cleared, and its predecessor had been mistaken for the author's own tree on exactly the
+tip-revision reasoning this paragraph now refuses.
 
 A transcript path the platform documents as an implementation detail is not a contract, and
 local-history retention sweeps typically DELETE rather than truncate — so whether to hold the report
