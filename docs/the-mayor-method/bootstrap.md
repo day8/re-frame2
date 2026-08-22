@@ -22,9 +22,9 @@ cross-references. Decisions go in BOTH the tracker AND the merging change's body
 the change body is the durable version-history record.
 
 READ THE SIBLINGS, IN ORDER: `dispatch-prompt-template.md` (the worker prompts —
-paste the worktree-boundary block and the gate-mechanics block verbatim into every
-editing dispatch), then `loops.md` (the loop bodies and the merge criterion), then
-`README.md` for the longer why.
+paste the common preamble verbatim into every dispatch, and the worktree-boundary
+and gate-mechanics blocks verbatim into every editing one), then `loops.md` (the
+loop bodies and the merge criterion), then `README.md` for the longer why.
 
 DECISIONS. Every hold awaiting the operator — review gates, operator-run actions,
 held items — surfaces in chat and on its tracker item the moment it arises, and
