@@ -822,6 +822,21 @@ and both readings went wrong in a single day here, in opposite directions.
    and then ended its turn**, waiting for a completion event nothing sends. Seven such incidents in one
    day; every one recovered intact the moment somebody asked for a status.
 
+   **But whether that question has an answer depends on your messaging tool, and it may not.**
+   Measured twice here, a send to an agent stopped mid-turn was ACCEPTED — success returned and
+   delivery promised at the agent's *next tool round*, which for a stopped agent never comes.
+   Acceptance is a queue confirmation, not a liveness report. **The reply is the read; the send is
+   not**, and the asymmetry is total: a reply proves life, while silence proves only that nothing
+   has been delivered yet.
+
+   So the clause below is UNSATISFIABLE if you read *no live task* as something the tool reports
+   — where it behaves this way it never will, and a precondition that cannot be met either blocks
+   a legitimate redispatch forever or gets discharged by an invented proxy, which is the failure
+   this section exists to prevent. Read it instead as a request left unanswered across a window you
+   declare and stand behind, corroborated by the other discriminators. **The error is cheap in one
+   direction only, and it favours waiting**: a late reply costs nothing, because a live worker
+   resumes, while acting on a wrong *no task* destroys the run.
+
 3. **Only with no live task AND no tip movement:** push any existing commits — pure durability — then
    set the item back to open with a note on what was found and salvaged, and redispatch.
 
