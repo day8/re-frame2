@@ -569,6 +569,16 @@ substance, and it buries the true state under your own signature. **The tell is 
 repeating a figure some later note retracted is a note that re-derived instead of re-checking.**
 Cite the check you made, or say plainly that you are summarising and from what.
 
+**And check, ONCE, whether your tracker's update verb appends or REPLACES.** Every rule above
+assumes an item accumulates — that notes accrete, that currency is a walk over that accumulation.
+That is a property of the TOOL, not of the item, and where the verb replaces, the walk you are
+teaching a reader to make runs over text you have already deleted. Expect no error and no warning:
+the item afterwards looks well-maintained, because what remains is your note, correctly formatted,
+saying something true. Both mayors on one project hit this, months apart, and the second read the
+first's account of it four hours after repeating it. **If your tracker exports to a versioned file,
+the loss is fully recoverable** — the pre-damage text sits in any checkpoint predating the write, so
+this is a reason to check the verb rather than to panic about the damage.
+
 Four things surface here and nowhere else.
 
 **A fence that has cleared.** The dispatch tick records the fence on the item and moves on,
@@ -594,6 +604,16 @@ the first pile. For the ones that genuinely need the operator, record what the h
 costing: which items are behind it, and what stops if it stays. A hold with no cost written
 on it reads as free, and the cheapest-looking item in a list is the one that stays there
 longest.
+
+**But read WHY the hold was set before you write what it costs, because the count reads the
+same either way.** An oversight and a deliberate dormancy put the identical number of items
+behind a hold, so a queue length alone converts into urgency whichever one you are looking at.
+Where the item records a disposition — parked pending a decision nobody has taken yet, with a
+reactivation trigger and an act that does not expire — the queue behind it is parked by the same
+decision and there is no cost until somebody wants the thing it gates. **Cost is only cost
+against a want.** This is the harder half to catch, because the instruction above tells you
+exactly what to count, and counting feels like compliance: a mayor who stops the moment it has
+the number stops one paragraph short of the disposition that changes what the number means.
 
 In-progress items are read here too, but their liveness question belongs to the stranded
 sweep in the next loop. Read them for scope and for fences; leave *is this worker still
@@ -669,7 +689,13 @@ and both readings went wrong in a single day here, in opposite directions.
    design, so a still tip is the *expected* reading for the commonest healthy state. Corroborate with
    worktree activity, and note that **the corroboration is a WRITE clock, so a worker that is only
    READING touches nothing**: twice in one day a worker grepping its own gate log was called stranded
-   on twenty-three minutes of no writes.
+   on twenty-three minutes of no writes. **So look for a signal OUTSIDE the worktree too — where your
+   tracker records that a worker claimed its item, only a running agent could have done that, and it
+   lands in the tracker rather than the tree, where no file-activity clock can ever see it.** That is
+   the one positive signal a purely reading worker still produces, and the opening minutes of every
+   dispatch are exactly when you need it, because the first thing every brief tells a worker to do is
+   read. Its absence proves nothing — not every dispatch claims — which is why the sweep starts from
+   the worktrees in the first place.
 
    **That clock says "no activity" in three voices and you can only tell them apart with a control.**
    Besides the reading worker, a path that resolves to nothing answers identically — and so does a
