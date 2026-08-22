@@ -429,6 +429,22 @@ and reuse it verbatim. What does the work is the sameness rather than the wordin
 scan is only ever as good as its phrase roster and it answers *clear* in the same voice whether
 the item is clear or the roster is short.
 
+**But a marker makes a DISCHARGED hold findable exactly as well as a live one, and that is the
+cost of the rule above rather than an argument against it.** A scan cannot tell the two apart:
+the banner is the same string either way, and the note that discharged it is somewhere below,
+where the scan was introduced precisely so nobody has to read. Measured: an item sat in the
+awaiting-a-decision pile for a whole session, reported to the operator that way every tick,
+while a note further down recorded the ruling and said in terms that the header was discharged
+and the work should be dispatched. The scan found the header. It was right that the header was
+there and wrong about everything that mattered.
+
+So the marker is written by whoever SETS the hold, and **it is struck by whoever discharges it,
+in the same act** — not left standing with a correction beneath. If your tracker will not let you
+edit the original text, add the marker's negation in the same words, so that a scan for the
+banner returns both and a reader sees the pair rather than the header alone. **Treat a banner
+with no discharge beneath it as a claim about the past**: check who set it and whether what they
+were waiting for has since happened, before you report it as the current state.
+
 **Verify before dispatching, not after.** Grep that the alleged broken symbol, missing
 file or stale convention is still there. If it already landed, close as a verified
 duplicate.
