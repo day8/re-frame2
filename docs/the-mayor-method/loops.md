@@ -526,9 +526,8 @@ answers presence — so stopping there swaps one proxy for another while feeling
 measurement, and it feels like measurement precisely because the instruction was to measure
 the machine. **Measure LOAD, at both brackets — not the fleet that was supposed to have
 quietened the box, and not a census of what happens to be resident on it.** The test
-named just above does not reach this: a trunk tip and a worktree list say nothing about what is still running. And
-the fleet count is not wrong, which is what makes it hard to catch — it answers a question
-about your own dispatching, accurately, and is being read as an answer about the box.
+named just above does not reach this: a trunk tip and a worktree list say nothing about
+what is still running.
 
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
@@ -1057,6 +1056,18 @@ no check at all.
 
 These belong to no single loop and bite in all of them.
 
+
+**An instrument can be RIGHT and still answer a different question from the one you asked.** The
+rule about an instrument that says *"nothing here"* covers the case where its answer is wrong.
+This is the other case, and the remedy for the first is inert against it: exercise the instrument
+against an input it should flag and it comes back GREEN, because nothing is malfunctioning. Four
+in one session, one from each of four loops — a count of running workers read as *the machine is
+quiet*; a count of resident processes read as *the machine is busy*; a marker scan finding a
+banner read as *this item is held*; a note true when written read as *true now*. Every answer was
+correct and every reading was wrong. **Write the question the instrument answers, in its own
+terms, beside the question you are asking.** The gap is invisible in the answer and obvious the
+moment both sentences are on the page. This is the harder half to catch, because a wrong answer
+gives you something to be suspicious of and a right one does not.
 **A dependency can outlive what it was enforcing.** An item blocked "until X lands" stays blocked if X
 is later reopened by an audit for an unrelated residual — even though the thing it was waiting for
 shipped. Force the close and **write the reasoning on the item**: what the dependency was enforcing,

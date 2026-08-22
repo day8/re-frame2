@@ -45,6 +45,13 @@ The order is what makes it accurate. Each step is a check the next depends on.
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
    a summary and are opposite in force.
+   **Then one question of a different kind: is this work still OUTSTANDING?** The four
+   above ask whether a claim is TRUE. A note saying "X is all that remains" was true when
+   it was written and says nothing about now, so checking it at source confirms the wrong
+   thing. Check the TREE. The sentence that says so is addressed to you and sits in the
+   common preamble below — inside the block you extract and paste without reading, because
+   its audience looks like the worker. A dispatch went out for work that had merged the
+   previous day, and the worker's deliverable was refuting the premise.
 3. **Establish the fence by asking who is live, not what is open.** A listing of open
    changes misses a worker that has not pushed yet.
 4. **Name the discriminator**, if the task is "find every X".
