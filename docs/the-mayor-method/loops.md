@@ -478,6 +478,21 @@ for such a window the fleet is empty rather than thin, and you merge nothing eit
 the window record that condition as a test rather than an assurance, capturing the trunk
 tip and the worktree list at both brackets, so a violation is reported rather than assumed.
 
+**An empty fleet is not a quiet machine.** Everything above treats loudness as something
+the mayor causes — gates it arms, work it dispatches — so the remedy it reaches for is to
+dispatch less and finally nothing. That closure does not hold, because the processes a gate
+starts routinely outlive it: the run ends, the change merges, the worktree is reaped, and
+build servers and browser processes stay resident with nothing left pointing at them.
+Measured on an idle project with no worker in flight, no work outstanding and two worktrees
+removed minutes earlier: well over a hundred resident processes and a port still bound, not
+one of them a gate anybody had armed. So a mayor can follow every word of this section —
+hold the fleet thin, enumerate what the item arms, empty the fleet, merge nothing — and
+still hand the window a loud machine. **Measure the machine itself at both brackets, not
+the fleet that was supposed to have quietened it.** The test named just above does not
+reach this: a trunk tip and a worktree list say nothing about what is still running. And
+the fleet count is not wrong, which is what makes it hard to catch — it answers a question
+about your own dispatching, accurately, and is being read as an answer about the box.
+
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 
