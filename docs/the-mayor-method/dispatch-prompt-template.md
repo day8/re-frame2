@@ -446,6 +446,20 @@ document is a measured constant that goes stale exactly where it has to be right
 extraction that silently returns the wrong two hundred lines is worse than either option
 that trade-off was weighing. Match the block's opening and closing text instead.
 
+**But match that closing text as a HEADING — anchored to the start of a line — because a block
+that documents its own boundaries contains its own end anchor.** The gate-mechanics block opens
+by naming where it stops and which neighbouring section it is not, so BOTH of its boundary
+strings occur twice in this file: once as the real heading, once inside that sentence. A plain
+search for the closing text stops at the mention, and the extraction returns the block's first
+five lines out of a hundred and sixty-four — 206 characters of 11,925 — while raising no error,
+because both anchors were found. Measured on this document.
+
+That is a worse failure than the stale line range this rule exists to avoid, and worse in the way
+that matters: a stale range returns the wrong two hundred lines, which reads wrong on sight, where
+this returns a plausible opening paragraph that reads like a short block. **So check the extracted
+SIZE before you paste it** — a block you can read in one screen is not the one you meant to send,
+and that check costs nothing where the paste costs a worker.
+
 ---
 
 ## The worktree boundary block
