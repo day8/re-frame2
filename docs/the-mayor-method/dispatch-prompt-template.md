@@ -426,12 +426,13 @@ re-introduces exactly the worktree-activity sweep the merge loop deliberately do
 
 ## Pasting a block
 
-Several blocks below travel **verbatim** into every dispatch. Get them there by
-**extracting mechanically, then pasting the result into the prompt.** Both halves are
-mandatory and they close different failures: the extraction is what makes paraphrase
-impossible — a matched range cannot reword, where a mayor retyping two hundred lines of
-gate mechanics can and does — and the paste is what makes non-receipt impossible, because
-a block that is in the prompt cannot be un-received.
+Three blocks below travel **verbatim** into a dispatch: the **common preamble** into every
+one, the **worktree boundary block** and the **gate-mechanics block** into every editing
+one. Get them there by **extracting mechanically, then pasting the result into the
+prompt.** Both halves are mandatory and they close different failures: the extraction is
+what makes paraphrase impossible — a matched range cannot reword, where a mayor retyping
+two hundred lines of gate mechanics can and does — and the paste is what makes non-receipt
+impossible, because a block that is in the prompt cannot be un-received.
 
 **Sending the worker to the FILE is not a substitute.** A worker that skims it, or reads
 part of it, has not received the block at all, and nothing in the transcript distinguishes
