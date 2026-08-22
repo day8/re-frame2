@@ -501,9 +501,16 @@ Measured on an idle project with no worker in flight, no work outstanding and tw
 removed minutes earlier: well over a hundred resident processes and a port still bound, not
 one of them a gate anybody had armed. So a mayor can follow every word of this section —
 hold the fleet thin, enumerate what the item arms, empty the fleet, merge nothing — and
-still hand the window a loud machine. **Measure the machine itself at both brackets, not
-the fleet that was supposed to have quietened it.** The test named just above does not
-reach this: a trunk tip and a worktree list say nothing about what is still running. And
+still be handed a machine it has measured nothing about. **But do not stop at counting
+those processes, which is the same error one level down and is how this clause was first
+written.** A five-second per-process census of that same box put total load at 2.6 cores of
+24: the hundred-odd processes accounted for 0.14 of it between them, the largest single
+consumer was an editor, and they were resident and IDLE. Presence is not load, and a count
+answers presence — so stopping there swaps one proxy for another while feeling like
+measurement, and it feels like measurement precisely because the instruction was to measure
+the machine. **Measure LOAD, at both brackets — not the fleet that was supposed to have
+quietened the box, and not a census of what happens to be resident on it.** The test
+named just above does not reach this: a trunk tip and a worktree list say nothing about what is still running. And
 the fleet count is not wrong, which is what makes it hard to catch — it answers a question
 about your own dispatching, accurately, and is being read as an answer about the box.
 
