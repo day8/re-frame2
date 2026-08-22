@@ -676,7 +676,11 @@ and both readings went wrong in a single day here, in opposite directions.
    span shorter than the worktree's own age, where every file is recent and the count is the
    checkout rather than the worker. That last one is the counter-intuitive half, because it returns a
    large number that reads as proof of life: measured once at *the same count* over fifteen minutes
-   and over six hours. Run the clock twice at different spans before believing either reading.
+   and over six hours. **And the age itself is the worktree's CREATION time, not its
+   last-modification time**, which the very writes you are trying to detect keep bumping: the wrong
+   clock reads right on an idle tree, where the age does not matter, and seconds old on a live one,
+   where the age is the whole question. Run the clock twice at different spans before believing
+   either reading.
 
    **The most convincing false signature is on none of the discredited lists: a change fully green at
    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
