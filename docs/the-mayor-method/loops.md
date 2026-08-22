@@ -669,6 +669,21 @@ against a want.** This is the harder half to catch, because the instruction abov
 exactly what to count, and counting feels like compliance: a mayor who stops the moment it has
 the number stops one paragraph short of the disposition that changes what the number means.
 
+**And the mirror of that case: a hold that expires on a DATE while its reason does not.** Where
+the tracker can defer an item until a date, the date is a hold it enforces and then silently
+stops enforcing. An item parked for something no date can settle therefore returns to the ready
+list on its own, carrying its priority and an empty blocker column — and reading as MORE
+legitimate than an ordinary item, because a reappearance looks like something happened. Nothing
+happened; a date passed. Measured on one board: four deferred items, three of them sharing a
+single date, every one with no dependency recorded, and two of them the heads of chains holding
+four more items behind them. Each needed an operator act the date says nothing about.
+
+**So read the defer dates across the whole deferred set rather than on the item in front of
+you** — they cluster, because they get set in batches, and a cluster lapsing together makes the
+list look suddenly and misleadingly rich. Where the reason will outlive the date, write that on
+the item BEFORE the date arrives. Afterwards nothing in the list prompts anybody, which is the
+whole difficulty: this is the one hold that removes its own evidence.
+
 In-progress items are read here too, but their liveness question belongs to the stranded
 sweep in the next loop. Read them for scope and for fences; leave *is this worker still
 alive?* to the loop that owns it.
