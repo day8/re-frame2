@@ -914,6 +914,16 @@ eight while their real transcripts sat complete elsewhere, *also* empty for a cu
 that finished normally, and for the eighth held a hardlink to the real transcript, so the wrong
 file returned one plausible non-empty result and made the wrong conclusion self-consistent.
 
+**An empty file keyed by the id says nothing whatever about whether a report exists** — it is a
+fact about that file. Measured again later, at larger scale: the sink read empty for fifteen of
+seventeen worktrees, every one of those fifteen transcripts sat complete elsewhere, and fourteen of
+them opened with the completion sentence the test demands. The two non-empty ones are what made it
+read as a survey rather than an artefact — a wholly empty result would have looked broken and sent
+the reader looking. So the id names a FILE only once you know which file is the agent's OWN; until
+then it names a directory to search. Read emptiness as *not found here*, never as *not written* —
+the cost of the wrong reading is the whole point of this section, since it converts "no report
+exists" into a standing residue that nothing will ever clear.
+
 **When no id was recorded at all, the report is not missing — only unindexed.** Search the
 transcripts for the worktree's own path, which a dispatch names and so does the report that ends
 the work, then read a bounded TAIL of a file that matches rather than opening it, because these are
