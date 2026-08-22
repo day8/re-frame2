@@ -1097,6 +1097,14 @@ Watch specifically for:
   *every*, check the quantifier.**
 * **Blocks that have diverged from the command files that paste them.** Two copies of one rule
   disagree within days.
+* **A hazard recorded without the test that discharges it.** *"Beware X"* with nothing saying how
+  to tell X from the legitimate case that looks identical. Whoever wrote it had just performed that
+  test, so it read as part of the observation rather than as a separate thing needing words; the
+  reader arrives having performed none of it and must reconstruct the test while looking at the very
+  evidence the hazard produces. Three in one session, all in one section, and the one I had read
+  within the hour was the one I walked into. This document already says a remedy written without its
+  discriminator **is worse than no remedy at all** — that judgement applies to its own prose, and
+  this loop is the only place that checks whether it does.
 
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
 file — do not just note it.
