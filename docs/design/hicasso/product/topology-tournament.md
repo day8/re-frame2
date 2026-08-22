@@ -640,6 +640,60 @@ section is the window that ran it. It is written in the order it happened: the
 plan first, committed before the driver was invoked, then what the runs
 returned.
 
+> **[2026-08-22, `rf2-w01c` — the audit's second remedy, taken. A narrowing
+> ruling, not a re-run and not a re-score.]** The merged-PR audit of #8466
+> (2026-08-20) found that the series below did not satisfy its own
+> fixed-before-run plan — [§2.9.1](#291-the-plan-fixed-before-the-first-run)
+> pre-registered that the runs are serial and *"nothing else is run beside
+> them"*, and a second agent was demonstrably active on the box during run 1 —
+> and it named exactly two remedies: a fresh exclusive three-run series, or an
+> explicit methodological ruling narrowing the condition.
+> [Part 3](#part-3--the-re-take-rf2-w01c-the-exclusive-window) attempted the
+> first. That exclusive window ran on **2026-08-22 between 04:52 and 05:13**
+> and returned **two admissible runs of a pre-registered three**: two
+> invocations were voided by the condition's own peer-write rule, and
+> [§2.9.2](#292-two-attempts-and-only-the-second-one-publishes)'s *a series
+> completed later is two instruments* forbids finishing the third another day.
+>
+> **The ruling, given on `rf2-w01c` on 2026-08-22 — the pre-registered
+> exclusivity condition binds AGENT OVERLAP ONLY, not the whole box.** Read as
+> the whole box it is unsatisfiable on this machine: at the quietest moment the
+> project reaches, with no worker in flight at all, the box still carries
+> resident build servers and browser processes belonging to no live agent, so
+> that reading would retroactively void every window ever taken here, this
+> section's included. Under the ruling as given, Part 3's two runs stand as
+> **evidence rather than as a failed attempt**, and **no third window is
+> owed**. The ruling is the mayor's and the operator's to overturn; if it is
+> overturned, this note is the single thing to withdraw.
+>
+> **What the two exclusive runs reproduce.**
+> [§2.9.7](#297-the-floor-row-and-the-thing-it-turned-out-not-to-be)'s
+> falsification is **confirmed in all six readings** — the floor row is
+> arm-specific, always larger on the arm with more boundaries and reads. The
+> narrow/broad reversal holds in **all eight** readings, and `bulk` still
+> orders the arms. Every ordering [§2.9.8](#298-what-the-table-settles) states
+> is reproduced under exclusivity. **The one half that does not reproduce** is
+> §2.9.8's *"and the three runs agree"* — which is the incompleteness itself,
+> two runs having no third to agree with, rather than a disagreement about the
+> table.
+>
+> **The absolute cells moved with the box and the arm-to-arm ratios did not**,
+> measured on the published series' own statistic: raw cell spread reads a
+> published median of **9.0%** against the exclusive series' **28.6%**, while
+> ratio-cell spread reads **3.9%** published against **3.8%** exclusive.
+>
+> **The narrowing itself is one sentence: the defect the audit found in this
+> section's published series does not reach this section's conclusions** — and
+> the exclusive window is the evidence for that which the audit could not have
+> had, because at the time of the audit nobody had spent the window.
+>
+> **Nothing below is replaced and nothing is re-scored.** Two runs are not
+> three, so Part 3 is a **record** and not a window: every figure in §2.9.5 and
+> §2.9.6 stands exactly as published, and **no ledger row moves** in either
+> direction. See
+> [§3.4](#34-why-run-3-was-not-re-taken-and-the-series-is-incomplete) and
+> [§3.7](#37-the-adjudication-rule-by-rule-and-what-two-runs-may-close).
+
 #### 2.9.1 The plan, fixed before the first run
 
 Committed as its own commit, ahead of the first invocation, so that no stopping
