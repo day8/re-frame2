@@ -415,6 +415,20 @@ items were genuinely dispatchable; the rest were fenced by something the tracker
 represent. **Record the fence on the item** when you find it, with what clears it, or
 every tick re-derives the same conclusion.
 
+**And record it where a scan will find it, on the item it fences, in the same words every
+time.** The tick that reads a fence back is scanning rather than reading — it has the whole
+list to get through — so a fence written truthfully in the middle of a long field is a fence
+that does not exist for the next tick, and the rule above is satisfied while its stated purpose
+fails. Measured on one item: probed for the six phrases its peers used to mark exactly that
+state, all six came back absent, and it read as the only free item on the board — the answer
+was there, in different words, and cost a full read of twenty-odd thousand characters to reach
+a conclusion one line could have given. A second item the same session cost a full read for the
+neighbouring reason: the sentence naming its hold sat on the item that fenced it rather than on
+the item fenced, where its own reader would never meet it. Pick one marker, put it at the top,
+and reuse it verbatim. What does the work is the sameness rather than the wording, because a
+scan is only ever as good as its phrase roster and it answers *clear* in the same voice whether
+the item is clear or the roster is short.
+
 **Verify before dispatching, not after.** Grep that the alleged broken symbol, missing
 file or stale convention is still there. If it already landed, close as a verified
 duplicate.
