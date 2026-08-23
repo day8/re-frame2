@@ -448,6 +448,16 @@ the block forbids. Between a failure prevented by construction and one prevented
 reader's diligence, take construction; the context cost is the acknowledged price, and a
 brief is the mayor's scarce output.
 
+**But "verbatim" forbids WEAKENING a block, not adding to it — and the paragraphs addressed to YOU
+are not part of what travels.** Each block opens by naming itself and saying where it stops, so a
+mechanical extraction carries that frame along: paste it untouched and the worker receives
+instructions about pasting blocks into dispatches it will never make, and a pointer by name to a
+neighbouring section, which is the go-and-read-it this page has just forbidden. Drop that frame,
+and add whatever caution the lane needs — the rationale above is paraphrase and non-receipt, and
+neither is defeated by a sentence making the block bite harder on the gate you actually nominated.
+Reword and omission are what is forbidden. **The test is whether the block still refuses everything
+it refused before you touched it.**
+
 **Anchor the extraction to CONTENT, never to line numbers.** A line range against a living
 document is a measured constant that goes stale exactly where it has to be right, and an
 extraction that silently returns the wrong two hundred lines is worse than either option
