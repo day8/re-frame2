@@ -21,7 +21,29 @@
   cycle, so `-boundary-prod-test$` is what puts the smoke in this lane. The
   single require this namespace used to carry was accurate, which is the
   trap — it read as the mechanism while being a coincidence of there being
-  exactly one match."
+  exactly one match.
+
+  ## Why `{:dev/always true}` is load-bearing, in EVERY mode
+
+  `env/get-test-data` is a MACRO: it expands at compile time into a literal
+  map naming every test var the compiler knows about, freezing the roster
+  into this file's compiled JS. shadow-cljs keys its per-namespace compile
+  cache off `:immediate-deps` — the ns form's own requires — while the test
+  namespaces reach this runner as `:extra-requires`, which order compilation
+  and nothing else. The roster can therefore change completely without
+  invalidating this namespace's cache entry, and a namespace LEAVING it
+  leaves the stale expansion dereferencing vars that are no longer in the
+  bundle: an uncaught `TypeError: Cannot read properties of undefined` in
+  `init`, before any test runs, so the lane aborts with no `cljs.test`
+  summary. rf2-2ohy is that failure on the sibling
+  `re-frame.prod-elision-runner` lane, which see for the full account.
+
+  Despite its name `shadow.build.compiler/is-cache-blocked?` reads
+  `:dev/always` with no mode gate, so it blocks caching under `release` too.
+  The stock `shadow.test.browser` / `shadow.test.node` runners and this
+  repo's `re-frame.test-quiet.shadow-node` all carry it; any namespace
+  expanding `shadow.test.env/get-test-data` needs it."
+  {:dev/always true}
   (:require [shadow.test :as st]
             [shadow.test.env :as env]))
 
