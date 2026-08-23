@@ -157,6 +157,17 @@ report what it does not yet know is coming. One change here read `ok=78 canc=0
 fail=0 pend=0 total=78` — settled by every field it exposed — while the branch's own
 run listing showed two runs queued. Merging there ships it two workflows short.
 
+**And the checks may not be LATE — they may be absent by construction.** A run triggered by
+something other than the change event — a manual dispatch, a schedule — executes against the same
+head revision and contributes NOTHING to that change's rollup, ever. The rollup is not behind; it
+will never mention that run however long you wait. Measured here: a change whose rollup sat at the
+FULL band, every check passed or skipped, terminal state clean, while a dispatched run against its
+exact head revision ran on for a further sixteen minutes and put not one check in the rollup — whose
+entire contents came from the four workflows the change event had triggered. **That is the opposite
+reading from the case above, and the more dangerous one**: a short count announces itself and sends
+you looking, where a full one closes the question. The heading is the rule and the count is not the
+trigger, so query the runs whatever the count says.
+
 So query the branch's runs as well as the rollup, and key that query to the branch
 **and** to the current head revision. It fails in both directions and both have
 already bitten:
