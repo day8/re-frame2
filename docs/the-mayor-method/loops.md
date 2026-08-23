@@ -543,9 +543,11 @@ what is still running.
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 
-**The unit is the block, not the file.** Two items dispatched into the same *paragraph*
-of one document conflicted, the second change could not merge, and by the time its worker
-was resumed the hygiene loop had reaped its worktree. Two costs from one scheduling error.
+**The unit is the block, not the file.** The tell is that the two items read as *nominally
+different concerns*, which is why the collision is invisible at the moment you schedule them,
+and cheap to avoid only there. What it cost once, and the sequencing remedy, are under
+*Fences* in [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — deliberately not
+repeated here.
 
 **Dispatch immediately on clear.** A clear, unblocked item goes out now, not next tick.
 
