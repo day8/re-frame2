@@ -59,8 +59,8 @@ push as they go because pushed commits are the only durable worker state, so *gr
 and *done* are separate facts and this criterion only ever measured the first.
 Marking a change ready for review is the worker's last act, and hosts refuse to merge
 a draft, so the interlock costs this loop nothing to remember. See
-*Publishing the change* in
-[`dispatch-prompt-template.md`](dispatch-prompt-template.md).
+[*Publishing the change*](dispatch-prompt-template.md#publishing-the-change) in
+`dispatch-prompt-template.md`.
 
 Resolve the head first — the branch name **and** the head revision — because
 clauses 4 and 5 are both keyed to it.
@@ -393,7 +393,8 @@ were ready, because a homegrown filter kept answering empty.
 
 **Read the newest note first, and order the item by the tracker's own timestamps** — not by
 position, and not by dates written in the prose. The mechanics are set out for the worker under
-*Common preamble* in [`dispatch-prompt-template.md`](dispatch-prompt-template.md), and they bind
+[*Common preamble*](dispatch-prompt-template.md#common-preamble) in
+`dispatch-prompt-template.md`, and they bind
 the mayor reading the item exactly as they bind the worker: `bd show | tail` is not a
 read-the-newest method, `bd history <id>` lists real mutation times newest-first,
 `bd history <id> --json` carries the snapshot that says *what* changed, and you walk adjacent
@@ -541,8 +542,8 @@ quietened the box, and not a census of what happens to be resident on it.** The 
 named just above does not reach this: a trunk tip and a worktree list say nothing about
 what is still running.
 
-Pick the shape by kind first, then priority, then size. The shapes are in
-[`dispatch-prompt-template.md`](dispatch-prompt-template.md).
+Pick the shape by kind first, then priority, then size. The shapes are under
+[*Dispatch shapes*](dispatch-prompt-template.md#dispatch-shapes) in `dispatch-prompt-template.md`.
 
 **The unit is the block, not the file.** The tell is that the two items read as *nominally
 different concerns*, which is why the collision is invisible at the moment you schedule them,
