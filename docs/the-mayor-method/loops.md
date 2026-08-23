@@ -1129,6 +1129,19 @@ shape reversed deletes a live worker's branch on its sibling's verdict. **Ask fo
 field and compare it for equality yourself.** A search term substring-matches; only equality
 identifies.
 
+**But comparing it yourself still leaves you filtering a WINDOW, and that failure is the silent one.**
+A listing returns the most recent N changes; your equality test over it is correct and its answer is
+only as wide as the listing. Measured here: a filter over the four hundred most recent changes
+reported that nothing proposed two branches whose commits predate that window entirely — and a zero
+over the wrong range reads exactly like a zero over the right one. The sibling trap at least leaves a
+wrong row on screen; this leaves nothing at all. **So prefer an instrument that takes the identity as
+INPUT** — most forges accept the head reference as a query parameter, which asks the whole set at once
+and cannot be windowed. **Exercise it in both directions before trusting it**, because a query that
+silently matches nothing returns the reassuring answer to every question. Measured here: the equality
+query returned the one merged change for a branch that had one, and returned NOTHING for a prefix of
+that same branch name — where the search form returned SIX changes for that prefix and ranked the
+full branch's own first, which is the paragraph above reproduced at this tip.
+
 Then prune stale remote-tracking refs and clear any stray stashes.
 
 **Merge state is the test for a branch, never for a worktree.** Conflating the two is how the reaping
