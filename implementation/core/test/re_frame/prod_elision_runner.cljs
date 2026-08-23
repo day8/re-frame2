@@ -45,7 +45,40 @@
   If a lane ever needs an authoritative roster, the place to put it is the
   build's `:namespaces` key, which `find-test-namespaces` honours AHEAD of
   `:ns-regexp` — there a missing entry is a real, detectable omission
-  instead of a comment."
+  instead of a comment.
+
+  ## Why `{:dev/always true}` is load-bearing, in EVERY mode
+
+  `env/get-test-data` is a MACRO. It expands, at the moment this namespace
+  is compiled, into a literal map naming every test var the compiler knows
+  about — so the roster is frozen into this file's compiled JS. shadow-cljs
+  caches compiled namespaces per-namespace, and the cache key
+  (`shadow.build.compiler/make-cache-key-map`) is built from
+  `:immediate-deps`, which comes from the ns form's own requires. The test
+  namespaces are attached to this runner as `:extra-requires`
+  (`shadow.build.test-util/inject-extra-requires`), and those are used ONLY
+  to order compilation — they are not in `:immediate-deps`. So the roster
+  can change completely without invalidating this namespace's cache entry.
+
+  A namespace LEAVING the roster is the destructive direction: the stale
+  cached expansion still dereferences vars whose namespaces are no longer in
+  the bundle, and under `:advanced` that lands as an uncaught
+  `TypeError: Cannot read properties of undefined` inside `init` — before a
+  single test runs, so the lane aborts with no `cljs.test` summary at all.
+  That is rf2-2ohy: the Freehand / re-frame.ui removal took fourteen
+  `*-elision-prod-test` namespaces out of this lane, and every nightly from
+  2026-08-16 on restored a warm `.shadow-cljs` cache and served the
+  pre-removal runner.
+
+  `{:dev/always true}` is what stops it. Despite the name,
+  `shadow.build.compiler/is-cache-blocked?` reads that key with no mode
+  gate, so it blocks caching in `release` exactly as in `:dev`. The stock
+  runners `shadow.test.browser` and `shadow.test.node` both carry it for
+  this reason, as does this repo's own `re-frame.test-quiet.shadow-node`;
+  this runner and `re-frame.schemas-boundary-prod-runner` were written from
+  the stock runner's body without its ns metadata. Any namespace that
+  expands `shadow.test.env/get-test-data` needs this."
+  {:dev/always true}
   (:require [shadow.test :as st]
             [shadow.test.env :as env]))
 
