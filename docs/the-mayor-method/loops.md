@@ -452,9 +452,10 @@ there and wrong about everything that mattered.
 So the marker is written by whoever SETS the hold, and **it is struck by whoever discharges it,
 in the same act** — not left standing with a correction beneath. If your tracker will not let you
 edit the original text, add the marker's negation in the same words, so that a scan for the
-banner returns both and a reader sees the pair rather than the header alone. **Treat a banner
-with no discharge beneath it as a claim about the past**: check who set it and whether what they
-were waiting for has since happened, before you report it as the current state.
+banner returns EVERY occurrence and **the newest one governs** — a hold can be set, discharged,
+and then set again on a different question, so finding a discharge is not finding the end. **Treat
+a banner with no discharge beneath it as a claim about the past**: check who set it and whether
+what they were waiting for has since happened, before you report it as the current state.
 
 **Verify before dispatching, not after.** Grep that the alleged broken symbol, missing
 file or stale convention is still there. If it already landed, close as a verified
