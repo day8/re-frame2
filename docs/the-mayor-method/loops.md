@@ -784,22 +784,25 @@ and both readings went wrong in a single day here, in opposite directions.
    before believing either reading.
 
    **And "only reading" has a sibling that is not reading at all: a worker that POLLS.** It edits
-   nothing and commits nothing, so both clocks above stay still for hours — but a fetch is a write,
-   and it lands in exactly one place, the fetch-head file in that item's OWN metadata directory,
-   which each linked worktree gets its own copy of the first time anything fetches from it. Read that
-   file twice, thirty to sixty seconds apart. **Movement is proof of life and needs no
-   corroboration**, which makes this the one test in this section that answers without a control;
-   stillness restores the ambiguity rather than resolving it, so it only ever answers in one
+   nothing and commits nothing, so both clocks above stay still for hours — but a fetch ordinarily
+   writes as it reads, into exactly one place: the fetch-head file in that item's OWN metadata
+   directory, which each linked worktree gets its own copy of the first time a fetch writes that
+   clock there. Read that file twice, thirty to sixty seconds apart. **Movement is proof of life and
+   needs no corroboration**, which makes this the one test in this section that answers without a
+   control; stillness restores the ambiguity rather than resolving it, so it only ever answers in one
    direction. **Its PRESENCE says nothing about life** — a stopped worker leaves its copy behind,
-   frozen at that worker's last fetch, which is why one read is worthless and two are decisive. **But
-   its ABSENCE is not nothing either, and it is not a broken probe**: it says only that nothing has
-   ever fetched from that tree, which is itself worth knowing about a tree you did not create —
-   measured here at four of seven, the three without being trees this method did not make. Measured
-   on a poller that six consecutive sweeps had read as silent, on both of the other clocks, while it
-   fetched every forty-two seconds. **And do not let the fetch-head trap under *After each merge*
-   talk you out of it**: that rule is about the SHARED file being unusable as a merge TARGET because
-   any concurrent process rewrites it. The per-item copy is unusable for that same reason and useful
-   for precisely it — here you are reading the rewriting, not the contents.
+   frozen at that worker's last fetch, which is why one read is worthless and two are decisive. **And
+   its ABSENCE says less than it looks like saying**: only that no fetch has written that clock
+   there, which is not the same as no fetch having run, because the write is suppressible by a flag
+   on the fetch itself — a poller configured that way is invisible to this test altogether. So read
+   absence as a reason to reach for another signal rather than as a history of the tree, though it
+   stays a hint about one you did not create: measured here at four of seven, the three without being
+   trees this method did not make. Measured on a poller that six consecutive sweeps had read as
+   silent, on both of the other clocks, while it fetched every forty-two seconds. **And do not let
+   the fetch-head trap under *After each merge* talk you out of it**: that rule is about the SHARED
+   file being unusable as a merge TARGET because any concurrent process rewrites it. The per-item
+   copy is unusable for that same reason and useful for precisely it — here you are reading the
+   rewriting, not the contents.
 
    **The most convincing false signature is on none of the discredited lists: a change fully green at
    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
