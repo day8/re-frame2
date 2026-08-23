@@ -786,16 +786,20 @@ and both readings went wrong in a single day here, in opposite directions.
    **And "only reading" has a sibling that is not reading at all: a worker that POLLS.** It edits
    nothing and commits nothing, so both clocks above stay still for hours — but a fetch is a write,
    and it lands in exactly one place, the fetch-head file in that item's OWN metadata directory,
-   which every linked worktree has separately. Read that file twice, thirty to sixty seconds apart.
-   **Movement is proof of life and needs no corroboration**, which makes this the one test in this
-   section that answers without a control; stillness restores the ambiguity rather than resolving it,
-   so it only ever answers in one direction. **The file's PRESENCE says nothing** — every item has
-   one, frozen at the moment its worker stopped, which is exactly why one read is worthless and two
-   are decisive. Measured on a poller that six consecutive sweeps had read as silent, on both of the
-   other clocks, while it fetched every forty-two seconds. **And do not let the fetch-head trap under
-   *After each merge* talk you out of it**: that rule is about the SHARED file being unusable as a
-   merge TARGET because any concurrent process rewrites it. The per-item copy is unusable for that
-   same reason and useful for precisely it — here you are reading the rewriting, not the contents.
+   which each linked worktree gets its own copy of the first time anything fetches from it. Read that
+   file twice, thirty to sixty seconds apart. **Movement is proof of life and needs no
+   corroboration**, which makes this the one test in this section that answers without a control;
+   stillness restores the ambiguity rather than resolving it, so it only ever answers in one
+   direction. **Its PRESENCE says nothing about life** — a stopped worker leaves its copy behind,
+   frozen at that worker's last fetch, which is why one read is worthless and two are decisive. **But
+   its ABSENCE is not nothing either, and it is not a broken probe**: it says only that nothing has
+   ever fetched from that tree, which is itself worth knowing about a tree you did not create —
+   measured here at four of seven, the three without being trees this method did not make. Measured
+   on a poller that six consecutive sweeps had read as silent, on both of the other clocks, while it
+   fetched every forty-two seconds. **And do not let the fetch-head trap under *After each merge*
+   talk you out of it**: that rule is about the SHARED file being unusable as a merge TARGET because
+   any concurrent process rewrites it. The per-item copy is unusable for that same reason and useful
+   for precisely it — here you are reading the rewriting, not the contents.
 
    **The most convincing false signature is on none of the discredited lists: a change fully green at
    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
