@@ -1060,6 +1060,19 @@ re-check the snapshot and **fail loudly if the signature moved**, naming the rec
 constant cannot detect a delta, and a top-level count alone cannot see files vanishing from under
 packages whose directories survive — so count immediate entries *and* recursive files.
 
+**And count both sides the SAME WAY.** A listing that hides entries does not merely undercount — it
+turns the comparison into an offset, and in one direction that offset CANCELS a real loss of its own
+size. Measured here on a tree of 103 immediate entries, two of them hidden: the hiding form reads 101
+before, and the showing form reads 101 again after two visible entries have been destroyed. No delta,
+two entries gone. The other direction is only a false alarm, which is the cheaper half and the one you
+will meet first — it cost a real detour here before the flags were compared.
+
+**So make the decisive control a clock rather than a count**: the newest modification time inside the
+tree, which a removal moves and a change of listing options cannot. Note which entry carries it before
+you start. On the tree measured here that entry was itself one of the two hidden ones, so the listing
+form that suppressed the count also suppressed the control — worth checking rather than assuming, in
+either direction.
+
 **Sweep with a narrow force flag, never a blanket one.** A disposable-only force removes a tree
 only when every untracked path is build or gate output, and refuses any tree holding a modified
 tracked file, a note or a draft. That guard is not hypothetical: when it was written, one worktree
