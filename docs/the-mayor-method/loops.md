@@ -1234,6 +1234,7 @@ correct and every reading was wrong. **Write the question the instrument answers
 terms, beside the question you are asking.** The gap is invisible in the answer and obvious the
 moment both sentences are on the page. This is the harder half to catch, because a wrong answer
 gives you something to be suspicious of and a right one does not.
+
 **A dependency can outlive what it was enforcing.** An item blocked "until X lands" stays blocked if X
 is later reopened by an audit for an unrelated residual — even though the thing it was waiting for
 shipped. Force the close and **write the reasoning on the item**: what the dependency was enforcing,
