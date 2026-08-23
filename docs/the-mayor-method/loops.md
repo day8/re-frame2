@@ -665,9 +665,8 @@ thing it was waiting for shipped, and only a full read notices. The remedy, and 
 needs its reasoning written onto the item, is under *Tracker mechanics* below.
 
 **A closure that reverted.** Verifying at the moment you close is not enough, so re-check
-what this session closed. **But read the item's notes before re-closing anything.** On a
-project that audits its merged changes, most reappearances are the audit working rather
-than a lost write, and re-closing one destroys a real finding while looking like tidiness.
+what this session closed. **But read the item's notes before re-closing anything** — what a
+reappearance usually is, and what the reflex destroys, is under *Tracker mechanics* below.
 
 **A hold that is costing more than it is holding.** Separate *needs a decision* from *needs
 work under a decision already made* — the second is dispatchable now, and it tends to sit in
