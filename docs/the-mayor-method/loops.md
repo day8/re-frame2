@@ -772,16 +772,30 @@ and both readings went wrong in a single day here, in opposite directions.
    read. Its absence proves nothing — not every dispatch claims — which is why the sweep starts from
    the worktrees in the first place.
 
-   **That clock says "no activity" in three voices and you can only tell them apart with a control.**
-   Besides the reading worker, a path that resolves to nothing answers identically — and so does a
-   span shorter than the worktree's own age, where every file is recent and the count is the
-   checkout rather than the worker. That last one is the counter-intuitive half, because it returns a
-   large number that reads as proof of life: measured once at *the same count* over fifteen minutes
-   and over six hours. **And the age itself is the worktree's CREATION time, not its
-   last-modification time**, which the very writes you are trying to detect keep bumping: the wrong
-   clock reads right on an idle tree, where the age does not matter, and seconds old on a live one,
-   where the age is the whole question. Run the clock twice at different spans before believing
-   either reading.
+   **That clock says "no activity" in four voices and you can only tell them apart with a control.**
+   Besides the reading worker and the poller treated just below, a path that resolves to nothing
+   answers identically — and so does a span shorter than the worktree's own age, where every file is
+   recent and the count is the checkout rather than the worker. That last one is the counter-intuitive
+   half, because it returns a large number that reads as proof of life: measured once at *the same
+   count* over fifteen minutes and over six hours. **And the age itself is the worktree's CREATION
+   time, not its last-modification time**, which the very writes you are trying to detect keep
+   bumping: the wrong clock reads right on an idle tree, where the age does not matter, and seconds
+   old on a live one, where the age is the whole question. Run the clock twice at different spans
+   before believing either reading.
+
+   **And "only reading" has a sibling that is not reading at all: a worker that POLLS.** It edits
+   nothing and commits nothing, so both clocks above stay still for hours — but a fetch is a write,
+   and it lands in exactly one place, the fetch-head file in that item's OWN metadata directory,
+   which every linked worktree has separately. Read that file twice, thirty to sixty seconds apart.
+   **Movement is proof of life and needs no corroboration**, which makes this the one test in this
+   section that answers without a control; stillness restores the ambiguity rather than resolving it,
+   so it only ever answers in one direction. **The file's PRESENCE says nothing** — every item has
+   one, frozen at the moment its worker stopped, which is exactly why one read is worthless and two
+   are decisive. Measured on a poller that six consecutive sweeps had read as silent, on both of the
+   other clocks, while it fetched every forty-two seconds. **And do not let the fetch-head trap under
+   *After each merge* talk you out of it**: that rule is about the SHARED file being unusable as a
+   merge TARGET because any concurrent process rewrites it. The per-item copy is unusable for that
+   same reason and useful for precisely it — here you are reading the rewriting, not the contents.
 
    **The most convincing false signature is on none of the discredited lists: a change fully green at
    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
