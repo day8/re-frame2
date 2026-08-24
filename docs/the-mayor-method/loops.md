@@ -1207,7 +1207,11 @@ Watch specifically for:
   this loop is the only place that checks whether it does.
 
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
-file — do not just note it.
+file — do not just note it. **And the fix is bounded in change, not in search.** What this loop finds is
+mechanical, so a defect in one place usually has siblings: [*"Bounded repair" bounds the change, not the
+search*](dispatch-prompt-template.md#name-the-discriminator) is set out for the worker and binds the
+mayor's own repairs exactly as it binds a worker's. Measured here: a pointer repaired in this loop left
+three identical siblings standing, and a later pass found them rather than the repair did.
 
 **But weigh WHICH artefact to change.** Where a reader-side rule has failed repeatedly, more text is
 usually not the repair. Two remedies landed the other way in one session: an item whose OLDEST field
