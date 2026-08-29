@@ -329,7 +329,7 @@ const REQUIRED_SECTIONS = {
   'child-hook-state-in-a-host': 6,
   'active-imperative-host': 7,
   'frame-routing-across-a-save': 13,
-  'native-lazy-island-across-a-save': 40,
+  'native-lazy-island-across-a-save': 31,
   'pinned-lazy-head-sabotage': 8,
   'zero-stale-registrations': 28,
   'lost-cleanup-sabotage': 30,

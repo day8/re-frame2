@@ -59,8 +59,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.hicasso.impl.inventory :as inventory]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -266,11 +265,13 @@
            :instances (into {} (map (fn [{:keys [frame]}]
                                       [frame (get-in @!instances [frame :current])]))
                             frames)
-           ;; The native tier's objects, frozen the same way and for the
-           ;; same reason: every one of them is documented to be REPLACED
-           ;; by a save, and identity is the only instrument that can say
-           ;; so. Held as the raw JS object the module answers, so a head
-           ;; added there appears here without a second roster to keep.
+           ;; The island's objects — the function, its `react/memo` record
+           ;; and the two `react/lazy` heads — frozen the same way and for
+           ;; the same reason: each is a top-level `def` the save
+           ;; re-evaluates, so every one of them is REPLACED by a save, and
+           ;; identity is the only instrument that can say so. Held as the
+           ;; raw JS object the module answers, so a head added there
+           ;; appears here without a second roster to keep.
            :heads    (views/live-heads)
            :islands  (into {} (for [{:keys [frame]} frames
                                     slot island-slots]
@@ -293,29 +294,21 @@
     (count (filter (fn [r] (some #(identical? % r) before)) now))))
 
 (defn- head-report
-  "Which of the native tier's objects survived the save, and what each one
-  still says about itself.
+  "Which of the island's objects survived the save — the function, its
+  `react/memo` record, the two `react/lazy` heads, and the head the app
+  actually RENDERS.
 
-  The two halves answer different bead questions and are deliberately in
-  one place. `same?` is rf2-y5x6j's and rf2-iq0a's shared claim that a
-  reload REPLACES — `n/component`, `n/memo` and `n/defcomponent` each say
-  so in their own docstring and none of them was measured under a real
-  recompile. `name`, `server` and `displayName` are rf2-iq0a's other half:
-  the tier marker has to be READABLE on the far side of a save, because a
-  marker that a reload silently dropped would leave Xray naming an
-  anonymous boundary where an island is, and nothing on the page would
-  look any different."
+  One question per head, answered as a boolean: is it the same object the
+  baseline captured? `same?` is rf2-y5x6j's and rf2-iq0a's shared claim
+  that a reload REPLACES. That is React's own remount rule — a top-level
+  `def` the save re-evaluates is a fresh allocation, never a lookup by
+  name — and until this gate nothing had measured it under a real
+  recompile."
   [base]
-  (let [now  (views/live-heads)
-        was  (:heads base)
-        read (fn [k]
-               (let [head   (unchecked-get now k)
-                     marker (n/marker head)]
-                 {:same?       (identical? (unchecked-get was k) head)
-                  :name        (some-> marker (unchecked-get "name"))
-                  :server      (some-> marker (unchecked-get "server"))
-                  :displayName (unchecked-get head "displayName")}))]
-    (into {} (map (fn [k] [k (read k)]))
+  (let [now (views/live-heads)
+        was (:heads base)]
+    (into {} (map (fn [k] [k {:same? (identical? (unchecked-get was k)
+                                                  (unchecked-get now k))}]))
           ["islandBody" "islandMemo" "hostHead" "escapeHead" "rendered"])))
 
 (defn- identity-report

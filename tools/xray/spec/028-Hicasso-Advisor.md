@@ -315,7 +315,7 @@ subtree.
 Two consequences follow, and both are asserted rather than described:
 
 1. **Links 5-7 are constants.** `link-host` reads no argument `slice` was given,
-   so an interpreted-only boundary, one rendering an `n/defcomponent` island and
+   so an interpreted-only boundary, one rendering a raw-React island through `h/defhost` and
    one rendering a `[:>]` foreign escape produce three identical rows.
    `:host-opaque` means *React owns commit and paint for any boundary*; it does
    **not** mean *a foreign subtree was crossed*, and a consumer must not read it
@@ -430,7 +430,7 @@ bead: no new sentinel, no new evidence machinery, and no code under
 | `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.hicasso-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
 | `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
-| `…panels.hicasso-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real `n/defcomponent` island reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
+| `…panels.hicasso-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
 would go green against a causal slice that had drifted back, and a causal-only
@@ -457,8 +457,8 @@ finding restated as a measurement.
 The native-island suite is the one that needs a fiber, and it is the only one
 here that does. `n/use-sub` is a real React hook, and per
 `docs/design/hicasso/product/lanes/testing-xray.md` foreign regions are
-mounted-test territory with no fake hook dispatcher, ever — so a native-tier
-subject cannot be simulated at the node tier and the namespace takes the
+mounted-test territory with no fake hook dispatcher, ever — so an island
+reading through the hook cannot be simulated at the node tier and the namespace takes the
 `-dom-cljs-test` suffix that selects `:browser-test`. `:node-test` compiles it
 too (`cljs-test$` matches both suffixes), where each row degrades to a stated
 skip rather than to a false green.

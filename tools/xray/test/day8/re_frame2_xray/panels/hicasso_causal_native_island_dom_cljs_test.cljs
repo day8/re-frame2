@@ -34,7 +34,7 @@
 
   That makes the honest reading of row 7's phrase the narrow one. Xray
   names and times the boundary and observes the island's reads — those
-  are witnessed below, over a genuine `n/defcomponent`. What it does NOT
+  are witnessed below, over a genuine raw-React island. What it does NOT
   do is report an opacity that is ABOUT a foreign subtree, and the third
   row asserts that in the only form the claim can take: identical output
   over two subjects that differ precisely in whether a foreign subtree
@@ -43,8 +43,9 @@
 
   ## The subjects are real, and one of them is not ours at all
 
-  The island is `n/defcomponent` + `n/use-sub` + `n/$`, so its read is a
-  real React hook against the collector's own entry cache. The foreign
+  The island is a raw React function component — `react/createElement`
+  and `n/use-sub`, mounted through `h/defhost` — so its read is a real
+  React hook against the collector's own entry cache. The foreign
   subtree is a plain React function component with its own `useState`,
   reached through the `[:>]` raw escape — *`defhost` with the declaration
   erased* (`impl/codec` §HD-011). Nothing in it is Hicasso's, which is
@@ -101,9 +102,9 @@
 (defonce ^:private !foreign-runs (atom 0))
 
 (defn- Foreign
-  "A FOREIGN React component. Not a `defview`, not an `n/defcomponent`,
-  no `h/sub`, no `n/use-sub` — it reads nothing of the application's, and
-  Hicasso knows only that React was handed a function.
+  "A FOREIGN React component. Not a `defview`, not an island reading
+  through `n/use-sub`, no `h/sub` — it reads nothing of the
+  application's, and Hicasso knows only that React was handed a function.
 
   It holds its own `useState` so a row can prove it really rendered and
   really re-rendered, which is what turns its absence from every roster
@@ -122,23 +123,31 @@
                                 "onClick"   (fn [_] (set-local inc))}
                            "nudge"))))
 
-(n/defcomponent island
-  "PAST THE FENCE. A real React function component reading a real
-  subscription through a real hook, with its own nested native markup —
-  the `n/$` tree below is what the tool tier must not be able to see."
+(defn- island
+  "PAST THE FENCE. A raw React function component reading a real
+  subscription through a real hook, with its own nested React markup —
+  the `react/createElement` tree below is what the tool tier must not be
+  able to see."
   [^js _props]
   (let [v (n/use-sub [::island])]
-    (n/$ :div {:class "island" :data-testid "island-root"}
-         (n/$ :span {:class "island-depth-1"}
-              (n/$ :b {:class "island-depth-2"} (str v))))))
+    (react/createElement
+      "div" #js {"className" "island" "data-testid" "island-root"}
+      (react/createElement
+        "span" #js {"className" "island-depth-1"}
+        (react/createElement "b" #js {"className" "island-depth-2"} (str v))))))
+
+(h/defhost island-host
+  "The declared crossing to the island — `defhost` names it, and the
+  island is React on the far side."
+  island)
 
 (h/defview crossing-boundary
   "One interpreted boundary whose subtree crosses the fence TWICE: a
-  native island below it, and a foreign React component beside that."
+  raw-React island below it, and a foreign React component beside that."
   [_]
   [:div.crossing
    [:u.shell (str (h/sub [::shell]))]
-   (n/$ island)
+   [island-host {}]
    [:> Foreign]])
 
 (h/defview interpreted-boundary

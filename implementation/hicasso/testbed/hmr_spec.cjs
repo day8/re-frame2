@@ -511,15 +511,8 @@ async function frameRoutingAcrossASave(page, w, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. The native tier and the React.lazy bridge, through a real recompile
+// 7. The island and the React.lazy bridge, through a real recompile
 // ---------------------------------------------------------------------------
-
-// The name `n/defcomponent` computes for the island — `<ns>/<sym>`, the
-// tier's address rule, written out for the same reason `hmr_remount`'s
-// `view-name` is: the marker has to be readable under the IDENTICAL name
-// after a save, and a constant derived from whatever came back would agree
-// with itself no matter what the reload did to it.
-const ISLAND_NAME = 'hicasso-hmr-testbed.views/island-body';
 
 // rf2-y5x6j and rf2-iq0a in one section, because they are one fixture.
 //
@@ -528,9 +521,13 @@ const ISLAND_NAME = 'hicasso-hmr-testbed.views/island-body';
 // landed in `lazy_boundary_dom_cljs_test`, which then stated the hot-reload
 // fact in PROSE: "the retry a rejected chunk needs is a NEW HEAD, which is
 // the same allocation a hot reload performs". Nothing had performed one.
-// Separately, `n/component`, `n/memo` and `n/defcomponent` each promise in
-// their own docstring that a reload REPLACES what they mint, and the native
-// tier appeared nowhere in this gate at all.
+// Separately, the island is a raw React function component behind a
+// `react/memo` record and two `react/lazy` heads — top-level `def`s in the
+// reloaded namespace, every one — and React's own remount rule says a save
+// REPLACES each of them: the def re-evaluates, the element type at that
+// position is a new object, and React rebuilds the subtree. Allocation,
+// never a lookup by name. Nothing had measured that under a real recompile
+// either.
 //
 // Both claims are about the same event, so they are measured on the same
 // save. The instrument is the LOADER COUNT and OBJECT IDENTITY, never the
@@ -564,17 +561,6 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   w.eq(await islandLoads(page), loadsBefore,
     'CONTROL — and nothing re-fetched the chunk, so the count below is the save\'s');
 
-  // THE PREMISE, before the save: the marker is there to be lost. A row
-  // asserting it is readable afterwards says nothing unless it was
-  // readable first.
-  w.eq(quiet.heads.islandBody.server, 'client-only',
-    'the island declares its server policy and the marker carries it');
-  w.eq(quiet.heads.islandBody.name, ISLAND_NAME, 'under the tier\'s address rule');
-  w.eq(quiet.heads.hostHead.server, 'client-only',
-    'and the lazy head is Client-only — its own policy, not the island\'s');
-  w.eq(quiet.heads.hostHead.name, ISLAND_NAME,
-    'with the arrived component\'s name filled into the head\'s own marker');
-
   await ctx.save();
   await waitForIslands(page);
 
@@ -585,7 +571,7 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   // The bead requires this row to state one and assert it, rather than
   // assert whichever happened. It is THE BOUNDARY RE-LOADS. A head is a
   // top-level `def` in the reloaded namespace, so the save re-evaluates it
-  // and `n/lazy` allocates a fresh `react/lazy` record; a fresh payload is
+  // and `react/lazy` allocates a fresh record; a fresh payload is
   // Uninitialized, so React calls the loader again and the chunk is
   // fetched a second time. The loaded module does NOT survive the save.
   //
@@ -603,27 +589,12 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
     'the defhost crossing\'s lazy head was re-minted by the save');
   w.eq(after.heads.escapeHead['same?'], false, 'and the [:>] crossing\'s');
   w.eq(after.heads.islandMemo['same?'], false,
-    'and the memo record — `n/memo`\'s docstring says it must NOT survive a '
-    + 'hot reload, which nothing had run one to check');
+    'and the `react/memo` record — a memo record is the element type React '
+    + 'reconciles on, so it must NOT survive a hot reload, and nothing had run '
+    + 'one to check');
   w.eq(after.heads.islandBody['same?'], false,
-    'and the island `n/defcomponent` minted — allocation, never a lookup by name');
-
-  // ------------------------------------------------------------------
-  // rf2-iq0a: the tier survives the save as a DESCRIPTION of itself
-  // ------------------------------------------------------------------
-  //
-  // The objects are all new; what must be unchanged is what they SAY. A
-  // reload that dropped the marker would leave Xray naming an anonymous
-  // boundary where an island is, and the page would look identical.
-  w.eq(after.heads.islandBody.name, ISLAND_NAME,
-    'the re-minted island carries the same tier name — an address, not an identity');
-  w.eq(after.heads.islandBody.server, 'client-only', 'and the same server policy');
-  w.eq(after.heads.islandBody.displayName, ISLAND_NAME, 'and the same display name');
-  w.eq(after.heads.hostHead.server, 'client-only',
-    'the fresh lazy head is Client-only before anything has arrived in it');
-  w.eq(after.heads.hostHead.name, ISLAND_NAME,
-    'and its marker took the re-arrived component\'s name, so the head names '
-    + 'the island on the far side of the save too');
+    'and the island function itself — allocation, never a lookup by name, '
+    + 'which is React\'s own remount rule');
 
   // The subtree really was rebuilt, read three independent ways: React's
   // own fiber state, the DOM node the ref is attached to, and the ref
@@ -666,14 +637,16 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
 // rf2-y5x6j's third acceptance clause: break the bridge's reload path and
 // the row above fails BY NAME.
 //
-// The fault modelled is the one the tier's own docstring names.
-// `n/component` says caching a head by name "would preserve identity across
-// a reload and quietly contradict the recorded contract" — so the sabotage
-// is a runtime that does exactly that, holding the head it had before the
-// save and rendering it afterwards. Everything else is untouched: the
-// module still re-evaluates, `n/lazy` still mints a fresh head, and the
-// `defhost` crossing beside it still takes the new one. Only what the
-// `[:>]` crossing RENDERS is pinned.
+// The fault modelled is a bridge that caches a head BY NAME. React's
+// remount rule is that a `def` the save re-evaluates is a new object and
+// the subtree at that position is rebuilt; a runtime that went on
+// rendering the head it had before the save would preserve identity
+// across a reload and quietly contradict that. So the sabotage is exactly
+// that runtime, holding the head it had before the save and rendering it
+// afterwards. Everything else is untouched: the module still
+// re-evaluates, `react/lazy` still mints a fresh head, and the `defhost`
+// crossing beside it still takes the new one. Only what the `[:>]`
+// crossing RENDERS is pinned.
 //
 // Unlike the lost-cleanup sabotage this one is RECOVERABLE, so all four
 // phases assert: arm, confirm red, disarm, confirm green.
@@ -697,7 +670,7 @@ async function pinnedLazyHeadSabotage(page, w, ctx) {
 
   w.eq(red.heads.rendered['same?'], true,
     'RED — but the head the app RENDERS survived the save: a bridge that '
-    + 'cached by name, which is the conduct `n/component` forbids in prose');
+    + 'cached by name, which is the conduct React\'s remount rule forbids');
   w.eq(await islandLoads(page), loadsBefore + 1,
     'RED — and the chunk was fetched ONCE, not twice: a resolved payload is '
     + 'never re-read, so the pinned crossing silently skipped its re-load. '

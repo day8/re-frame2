@@ -42,19 +42,19 @@
   | [[field]] | the focused controlled input — caret, selection and composition across a save |
   | [[hook-child]] / [[hook-host]] | a child's `useState` inside a host crossing |
   | [[imperative-note]] / [[note-host]] | the active imperative host: a live instance, held through a callback `:ref`, with a side effect React does not know about |
-  | [[island-body]] | the NATIVE-TIER island, and the one component every wrapper is carried across (rf2-iq0a) |
-  | [[host-head]] / [[escape-head]] | that island behind `n/lazy`, so the `React.lazy` bridge meets a real recompile (rf2-y5x6j) |
+  | [[island-body]] | the island — a raw React function component, and the one component every wrapper is carried across (rf2-iq0a) |
+  | [[host-head]] / [[escape-head]] | that island behind a raw `react/lazy`, so the `React.lazy` bridge meets a real recompile (rf2-y5x6j) |
   | [[app]] | the head whose re-mint is the whole cause, rendered once per frame so frame routing is readable per root |
 
-  The two foreign components are written with React's own primitives and
-  no Hicasso in them at all, which is what makes them a fair witness for
-  \"React facts die with the fiber\" ([I6](../../../implementation/hicasso/spec/invariants.md)):
+  The foreign components — the hook child, the imperative host and the
+  island — are written with React's own primitives and no Hicasso in
+  them at all, which is what makes them a fair witness for \"React facts
+  die with the fiber\" ([I6](../../../implementation/hicasso/spec/invariants.md)):
   the runtime is not being asked to preserve anything it could have
   preserved."
   (:require ["react" :as react]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.hicasso :as h]))
 
 ;; ---------------------------------------------------------------------------
 ;; The hot line
@@ -166,19 +166,28 @@
           "p" #js {"data-testid" "note" "ref" node-ref} "")))))
 
 ;; ---------------------------------------------------------------------------
-;; The native-tier island, and the `React.lazy` bridge it arrives through
+;; The island, and the `React.lazy` bridge it arrives through
 ;; ---------------------------------------------------------------------------
 ;;
-;; ONE component, carried across every wrapper the ABI has (rf2-iq0a), and
-;; reached through a real `n/lazy` payload so the code-splitting bridge
+;; ONE component, carried across every wrapper React has (rf2-iq0a), and
+;; reached through a real `react/lazy` payload so the code-splitting bridge
 ;; meets a real recompile (rf2-y5x6j). The chain is
 ;;
-;;   island-body   n/defcomponent   the author's function, tier marker and all
-;;     -> island   n/memo           the memo record, marker carried across
-;;     -> *-head   n/lazy           the Client-only gate over a react/lazy payload
+;;   island-body   defn             a raw React function component over
+;;                                  react/createElement, no Hicasso in it
+;;     -> island   react/memo       the memo record around it
+;;     -> *-head   react/lazy       a lazy record over the payload, one per crossing
 ;;     -> crossed  defhost AND [:>] both crossings, so neither door is assumed
-;;                                  to behave like the other
+;;                                  to behave like the other: the defhost one
+;;                                  declares `:server :client-only` and gates
+;;                                  the head behind it, the [:>] one is the
+;;                                  door with the declaration erased
 ;;   with a callback `:ref` through both, and the save's re-mint over the top.
+;;
+;; Every link is a top-level `def` in this namespace, so a save re-evaluates
+;; each one and the object at that position is NEW — allocation, never a
+;; lookup by name. That is React's own remount rule, and it is the whole of
+;; the island's HMR contract: the gate measures it by identity.
 ;;
 ;; ## The island holds NO SUBSCRIPTION, and that is a decision
 ;;
@@ -210,43 +219,45 @@
   []
   @!island-loads)
 
-(n/defcomponent island-body
-  "THE ISLAND — a native-tier component, declared through the tier's own
-  macro with an explicit server policy so the policy is a fact a driver
-  can read back after a save rather than a default nobody wrote.
+(defn- island-body
+  "THE ISLAND — a raw React function component: a plain `defn` over
+  `react/createElement`, with no Hicasso in it. Its server policy is
+  declared where a crossing declares one, on [[island-host]].
 
   Its `useState` instance id is minted from the counter that outlives the
   reload, exactly as [[HookChild]]'s is, so a rebuilt island and a
   preserved one are told apart by a number rather than by a repaint."
-  {:server :client-only}
   [^js props]
   (let [[id _] (react/useState next-instance-id!)]
-    (n/$ "div" #js {"data-testid" (.-slot props)
-                    "ref"         (.-nodeSink props)}
-         (n/$ "span" #js {"data-testid" (str (.-slot props) "-instance")}
-              (str id))
-         (n/$ "span" #js {"data-testid" (str (.-slot props) "-gen")}
-              generation-label))))
+    (react/createElement
+      "div" #js {"data-testid" (.-slot props)
+                 "ref"         (.-nodeSink props)}
+      (react/createElement "span" #js {"data-testid" (str (.-slot props) "-instance")}
+                           (str id))
+      (react/createElement "span" #js {"data-testid" (str (.-slot props) "-gen")}
+                           generation-label))))
 
 (def island
-  "The memo wrapper. `n/memo` rather than `react/memo` because the tier
-  marker and the display name have to survive the wrapping — and because
-  `n/memo`'s own docstring says this record MUST NOT survive a hot reload,
-  which until now nothing measured under one."
-  (n/memo island-body))
+  "The memo wrapper — `react/memo` and nothing else. A memo record is the
+  element type React reconciles on; a save re-evaluates this `def` and
+  allocates a fresh record around the fresh function, so the record MUST
+  NOT survive a hot reload, and the gate measures that by identity."
+  (react/memo island-body))
 
 (defn- load-island!
   "The chunk fetch, counted.
 
   A resolved promise rather than a network round trip: what is under test
-  is the BRIDGE — `n/lazy`'s payload, its Client-only gate, React's
-  Suspense and the re-mint — and a real `shadow.lazy/load` would add a
-  second module to the build without adding anything to the claim. The
-  loader is the one part of the shape that is stubbed, and it is stubbed
-  where `lazy_boundary_dom_cljs_test`'s `deferred-loader` stubs it."
+  is the BRIDGE — `react/lazy`'s payload, the Client-only gate `defhost`
+  puts in front of it, React's Suspense and the re-mint — and a real
+  `shadow.lazy/load` would add a second module to the build without
+  adding anything to the claim. The loader resolves to the module record
+  `React.lazy` reads, `#js {:default island}`; it is the one part of the
+  shape that is stubbed, and it is stubbed where
+  `lazy_boundary_dom_cljs_test`'s `deferred-loader` stubs it."
   []
   (vswap! !island-loads inc)
-  (js/Promise.resolve island))
+  (js/Promise.resolve #js {:default island}))
 
 ;; TWO heads over ONE loader, which is `lazy_boundary_dom_cljs_test`'s own
 ;; shape for the same reason: it puts the payload's identity on the table.
@@ -255,22 +266,23 @@
 ;; of them and costs one.
 
 (def host-head
-  "The head behind the `defhost` crossing."
-  (n/lazy load-island!))
+  "The head behind the `defhost` crossing — a raw `react/lazy` record."
+  (react/lazy load-island!))
 
 (def escape-head
   "The head behind the `[:>]` crossing — the one the sabotage pins."
-  (n/lazy load-island!))
+  (react/lazy load-island!))
 
 ;; --- the sabotage: a head that survived the reload -------------------------
 ;;
-;; The fault rf2-y5x6j asks for, and it is the one the tier's own docstring
-;; names: `n/component` says caching a head by name "would preserve identity
-;; across a reload and quietly contradict the recorded contract". This is
-;; that runtime, toggled at run time — the app renders the head it captured
-;; before the save instead of the one the save minted. Recoverable, unlike
-;; the lost-cleanup sabotage: disarming restores the live head and the next
-;; save re-mints normally.
+;; The fault rf2-y5x6j asks for: a bridge that caches a head BY NAME. That
+;; would preserve identity across a reload and quietly contradict React's
+;; remount rule — a `def` the save re-evaluates is a new object, and React
+;; replaces the subtree at that position. This is that runtime, toggled at
+;; run time — the app renders the head it captured before the save instead
+;; of the one the save minted. Recoverable, unlike the lost-cleanup
+;; sabotage: disarming restores the live head and the next save re-mints
+;; normally.
 
 (defonce ^:private !pinned-escape-head (volatile! nil))
 
@@ -325,8 +337,13 @@
 
 (h/defhost island-host
   "The `defhost` crossing over the lazy head — a declaration, with the
-  island's props ABI and its `:ref` passing straight through the gate."
-  host-head)
+  island's server policy written where a crossing declares one.
+  `:server :client-only` is the default and needs no writing; it is
+  written so the policy is a fact a reader can see rather than a default
+  nobody wrote. The island's props ABI and its `:ref` pass straight
+  through the gate."
+  host-head
+  {:server :client-only})
 
 (h/defview field
   "The focused controlled input. An ordinary `:value` off a subscription
