@@ -59,8 +59,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.hicasso.test.runtime :as runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
