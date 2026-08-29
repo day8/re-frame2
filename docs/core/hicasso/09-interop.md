@@ -110,8 +110,8 @@ pure and must return a React element, not raw Hiccup:
 
 `h/as-element` converts the Hiccup result. `h/event` captures the supplying
 view's frame, so event vectors inside that result later dispatch to the correct
-frame. Dispatching while the render callback itself runs raises
-`:rf.error/hicasso-dispatch-in-render-position`.
+frame. The callback itself is pure: its return is the render output, and
+nothing is dispatched while it runs.
 
 A plain function is legal under any callback contract and passes through
 without a wrapper. It is enough when the callback returns a Hicasso view head
@@ -278,7 +278,7 @@ crossing, including during server render.
 ## Render a Hicasso view from native React
 
 `h/as-component` converts a Hicasso view head into a real React component for
-UIx, `n/defcomponent`, JavaScript, or TypeScript parents:
+UIx, raw React, JavaScript, or TypeScript parents:
 
 ```clojure
 (def article-card*
@@ -313,8 +313,9 @@ as a component.
 ## When not to host
 
 Use `defhost` for foreign components. Do not wrap application-owned hot code in
-a host as a performance technique; the native tier is the measured path for
-that case.
+a host as a performance technique. Speed is decided by measurement
+([Performance](19-performance.md)); when a measured region does move to React,
+[Islands](10-native-tier.md) shows the crossing.
 
 If a library is a thin wrapper over a small amount of ordinary Hiccup, writing
 that Hiccup may provide better testability and diagnostics. Hosted widgets are

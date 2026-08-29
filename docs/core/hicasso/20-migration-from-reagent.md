@@ -281,8 +281,8 @@ tool. The reporter records the site rather than guessing.
 
 - For a very small application, run the reporter and port by hand. A shadow
   harness may cost more than reviewing a handful of screens.
-- Keep a React-first screen native or UIx instead of converting it to Hiccup on
-  principle ([The native tier](10-native-tier.md)).
+- Keep a React-first screen in raw React or UIx instead of converting it to
+  Hiccup on principle ([Islands](10-native-tier.md)).
 - When a screen is being redesigned, shadow comparison cannot prove intended
   behavioural change. Spend identity-proof effort on screens that must remain
   unchanged.

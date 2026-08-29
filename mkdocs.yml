@@ -274,7 +274,7 @@ nav:
       - "7. Routing and navigation": core/hicasso/07-routing-and-navigation.md
       - "8. Async resources": core/hicasso/08-async-resources.md
       - "9. Interop": core/hicasso/09-interop.md
-      - "10. The native tier": core/hicasso/10-native-tier.md
+      - "10. Islands": core/hicasso/10-native-tier.md
       - "11. Ephemeral state": core/hicasso/11-ephemeral-state.md
       - "12. Motion and presence": core/hicasso/12-motion-and-presence.md
       - "13. Overlays and focus": core/hicasso/13-overlays-and-focus.md

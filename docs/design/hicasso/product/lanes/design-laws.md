@@ -33,14 +33,14 @@ These laws define the product and constrain every implementation choice.
 
 ## Native boundary
 
-This section is the canonical owner of the native-tier laws. Other documents classify surfaces, sequence work, or define witnesses; they link here rather than restating these laws.
+This section is the canonical owner of the native-boundary laws. Other documents classify surfaces, sequence work, or define witnesses; they link here rather than restating these laws.
 
-1. Native React is the performance and ecosystem contract. Hicasso-native, UIx, and raw React/JavaScript are supported authoring routes; UIx is a comparator and optional toolkit, never a Hicasso dependency.
-2. `[...]` always means interpreted Hiccup. `n/$` compiles only its own explicit native form and never analyzes or rewrites a `defview` body.
+1. Native React is the performance and ecosystem contract. UIx and raw React/JavaScript are the supported authoring routes for an island; UIx is a comparator and optional toolkit, never a Hicasso dependency. (*This law listed* "Hicasso-native" *as a third route until 2026-08-29, `rf2-6c12m.3`, which retired that route.*)
+2. `[...]` always means interpreted Hiccup. A React element is never interpreted; it passes through unchanged, and nothing analyzes or rewrites a `defview` body. (*This law read* "`n/$` compiles only its own explicit native form and never analyzes or rewrites a `defview` body" *until 2026-08-29, `rf2-6c12m.3`, which deleted `n/$`.*)
 3. Native props, callbacks, children, keys, refs, hooks, control behavior, and errors follow React semantics. The native authoring surface may normalize only top-level prop-name spelling; Hicasso intent lowering, controlled-field repair, structural inspection, and tree diagnostics stop at the boundary.
 4. Native work remains under the same React root, re-frame2 frame context, and application-state owner. `n/use-sub` and `n/use-frame` reuse the substrate-neutral React spine and existing direct-React frame hook; they neither import UIx nor fork frame, store, teardown, or error semantics.
-5. Element construction, `n/defcomponent`, memo, lazy loading, refs, and both embedding directions share one props/children ABI. There is no separate “ergonomic” and “fast” ABI.
-6. The native namespace is separately reachable. An interpreted-only production dependency graph and bundle contain neither native-tier runtime nor UIx code.
+5. Element construction, memo, lazy loading, refs, and both embedding directions share one props/children ABI, and it is React's own. There are no ABI helpers, and no separate “ergonomic” and “fast” ABI. (*This law listed `n/defcomponent` among the sharers, and the ABI helpers that preserved a tier marker through memo and lazy loading, until 2026-08-29, `rf2-6c12m.3`.*)
+6. The hooks namespace, `re-frame.hicasso.native`, is separately reachable and holds exactly `n/use-sub` and `n/use-frame`. An interpreted-only production dependency graph and bundle contain neither it nor UIx code. (*This law read* "The native namespace is separately reachable. An interpreted-only production dependency graph and bundle contain neither native-tier runtime nor UIx code" *until 2026-08-29, `rf2-6c12m.3`.*)
 7. Xray may name and time the native boundary and observe reads made through supported native hooks. The inner React tree is otherwise explicitly opaque.
 
 ## Economics and scope

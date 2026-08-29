@@ -115,50 +115,50 @@ Some state exists only to operate a widget:
 - a chart or map SDK handle
 
 This state may update every pointer move or animation frame, and nothing
-outside the widget needs it. Keep it inside a named native component or a
-declared host ([The native tier](10-native-tier.md),
-[Interop](09-interop.md)).
+outside the widget needs it. Keep it inside a React island or a declared host
+([Islands](10-native-tier.md), [Interop](09-interop.md)).
 
 The rule at the edge is: **motion stays inside; meaning leaves as one event.**
 
 ```clojure
 (ns app.board.drag
   (:require ["react" :as react]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.hicasso :as h]))
 
-(n/defcomponent drag-surface
-  [^js props]
+(defn drag-surface [^js props]
   (let [[xy set-xy] (react/useState nil)]
-    (n/$ :div
-         {:class "card"
-          :style (when xy
-                   #js {:translate (str (aget xy 0) "px "
-                                        (aget xy 1) "px")})
-          :on-pointer-move
-          (fn [e]
-            (when (pos? (.-buttons e))
-              (set-xy #js [(.-clientX e) (.-clientY e)])))
+    (react/createElement "div"
+      #js {:className "card"
+           :style (when xy
+                    #js {:translate (str (aget xy 0) "px "
+                                         (aget xy 1) "px")})
+           :onPointerMove
+           (fn [e]
+             (when (pos? (.-buttons e))
+               (set-xy #js [(.-clientX e) (.-clientY e)])))
 
-          :on-pointer-up
-          (fn [_]
-            (when xy
-              ((.-onDrop props)
-               (js/Math.round (/ (aget xy 0) 240))))
-            (set-xy nil))}
-         (.-label props))))
+           :onPointerUp
+           (fn [_]
+             (when xy
+               ((.-onDrop props)
+                (js/Math.round (/ (aget xy 0) 240))))
+             (set-xy nil))}
+      (.-label props))))
+
+(h/defhost drag-card drag-surface
+  {:callbacks {:on-drop :event}})
 
 (h/defview board-card [{:keys [id]}]
   (let [title (h/sub [:card/title id])]
-    (n/$ drag-surface
-         {:label   title
-          :on-drop (h/event [col] [:card/dropped id col])})))
+    [drag-card {:label   title
+                :on-drop (h/event [col] [:card/dropped id col])}]))
 ```
 
 Pointer movement remains local React state. The completed drop is an
-application event, so it enters app-db once.
+application event, so it enters app-db once: the host declares `:on-drop` as an
+event callback, and the island calls it with the column it computed.
 
-Hooks belong in the separately defined native component. A `defview` body may
+Hooks belong in the island. A `defview` body may
 branch and loop dynamically, so putting hooks there makes hook order depend on
 data and moves the body outside Hicasso's headless model.
 

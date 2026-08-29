@@ -64,12 +64,12 @@ that changes what Hiccup means.
 | --- | --- | --- | --- |
 | 1. Ordinary Hicasso | Hiccup, point-of-use reads, data intents | Always start here | [Views and reads](02-views-and-reads.md) |
 | 2. Tune topology | Same language; change boundaries, keys, and read shape | A measured interaction invalidates too much work | [Lists and collections](06-lists-and-collections.md) |
-| 3. Direct React return | A `defview` returns `n/$` while keeping its Hicasso frame, reads, and memo | Hiccup lowering is the measured owner | [The native tier](10-native-tier.md) |
-| 4. Native island | `n/defcomponent` or UIx under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local mechanics dominate | [The native tier](10-native-tier.md) |
-| 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [The native tier](10-native-tier.md) |
+| 3. Direct React return | A `defview` returns a React element while keeping its Hicasso frame, reads, and memo | Hiccup lowering is the measured owner | [Islands](10-native-tier.md) |
+| 4. React island | A raw React or UIx component mounted through `h/defhost` under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local mechanics dominate | [Islands](10-native-tier.md) |
+| 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [Islands](10-native-tier.md) |
 
-This page decides whether a step is justified. The native-tier chapter teaches
-the code.
+This page decides whether a step is justified. [Islands](10-native-tier.md)
+teaches the code.
 
 ## The measurement loop
 
@@ -117,9 +117,8 @@ may find nothing even though the live observer saw the entries.
 stream. Each emits `rf:render:<view-id>`, where the id is the
 `"<namespace>/<name>"` of the declaration — the same string React DevTools shows
 as `displayName`, so a measure name and a DevTools node are one identifier. A
-typical entry reads `rf:render:app.todo/todo-row`. This holds for frame-fed
-boundaries too, and does not vary by adapter: Hicasso is the view substrate
-rather than a layer over one.
+typical entry reads `rf:render:app.todo/todo-row`. This does not vary by
+adapter: Hicasso is the view substrate rather than a layer over one.
 
 The bracket sits on the boundary and nowhere else. A plain function inlined into
 a body is not a boundary and gets no measure of its own; its cost lands inside
