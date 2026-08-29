@@ -14,9 +14,10 @@
   `#js {reads, notify, cells}` and two boundaries reading one set share
   one entry, so a row is one distinct edge set and `:instances` counts
   who holds it. In a dev build the entry also carries the names of the
-  declared views that rendered it, so a row says `:views` — each with the
-  source coordinate `defview` captured — and a harness body with no name
-  leaves `:views` as `evidence/unknown`.
+  declared views holding it — counted at React's commit and released at
+  its cleanup, like the reference itself — so a row says `:views`, each
+  with the source coordinate `defview` captured, and a harness body with
+  no name leaves `:views` as `evidence/unknown`.
 
   Privacy: every query passes `re-frame.elision/elide-wire-value` with
   its own frame and query, boundary keys included, and it fails closed —
@@ -152,12 +153,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- view-rows
-  "`names` — the set `impl.collector` stamps on a read-set entry in a dev
-  build — as a row's `:views`: one `{:view :source}` per declared view,
-  sorted by name, or `evidence/unknown` when no named
-  body rendered the entry. `:source` is the coordinate `defview` handed
-  `impl.error/declaring!`, or `:unknown` for a name minted outside the
-  macro."
+  "`names` — the set of declared views `impl.collector/entry-views` says
+  hold a read-set entry in a dev build — as a row's `:views`: one
+  `{:view :source}` per declared view, sorted by name, or
+  `evidence/unknown` when no named body holds the entry. `:source` is the
+  coordinate `defview` handed `impl.error/declaring!`, or `:unknown` for
+  a name minted outside the macro."
   [names]
   (if (seq names)
     (mapv (fn [n] {:view n :source (or (error/source-of n) evidence/unknown)})
@@ -191,8 +192,9 @@
   folded onto one projected key, are one row, and `:read-orders` says how
   many folded in — the alternative is two rows with one exported
   identity, which gives a panel duplicate DOM ids and a consumer an
-  ambiguous join. `:views` is the union of the names stamped on the
-  folded entries."
+  ambiguous join. `:views` is the union of the views holding the folded
+  entries, which the same subscribe/cleanup pair that moves `refs`
+  keeps."
   []
   (let [live (for [[_ bucket] @collector/!entries
                    ^js entry  bucket

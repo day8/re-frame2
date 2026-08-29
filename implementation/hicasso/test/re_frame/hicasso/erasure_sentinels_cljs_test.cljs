@@ -85,18 +85,25 @@
          from a minted head back to the body its author wrote")))
 
 (deftest the-view-stamp-writes-the-slot-the-scan-names
-  (testing "`hicassoViews` is the own property a dev render writes on the read-set entry"
+  (testing "`hicassoViews` is the own property a dev build keeps on the read-set entry"
     (rf/make-frame {:id ::erasure-views})
     (try
       (collector/render-body ::erasure-views (codec/retained-body probe) {})
       (let [^js entry (collector/last-reads)]
-        (is (= #{"re-frame.hicasso.erasure-sentinels-cljs-test/probe"}
-               (unchecked-get entry (:views-slot sentinels)))
-            "the render stamps the declared view's name under this exact property name")
-        (is (= (unchecked-get entry (:views-slot sentinels))
-               (collector/entry-views entry))
-            "and `entry-views` reads that same slot — the tool tier's only route
-             from an edge set back to a view name"))
+        (is (some? (unchecked-get entry (:views-slot sentinels)))
+            "the render minted the slot under this exact property name — the
+             named `subscribe` React is about to be handed lives there")
+        (is (nil? (collector/entry-views entry))
+            "but a render alone names nothing: the name is counted at the commit")
+        (let [release (collector/commit-boundary! entry (fn []))]
+          (is (= #{"re-frame.hicasso.erasure-sentinels-cljs-test/probe"}
+                 (collector/entry-views entry))
+              "the commit counts the declared view's name, and `entry-views`
+               reads it off that same slot — the tool tier's only route from
+               an edge set back to a view name")
+          (release)
+          (is (nil? (collector/entry-views entry))
+              "and the cleanup uncounts it")))
       (finally
         (rf/destroy-frame! ::erasure-views)))))
 
