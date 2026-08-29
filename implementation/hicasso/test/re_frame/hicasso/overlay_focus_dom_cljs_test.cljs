@@ -141,6 +141,10 @@
 (rf/reg-event ::opened (fn [{:keys [db]} _] {:db (assoc db :open? true)}))
 (rf/reg-event ::closed (fn [{:keys [db]} _] {:db (assoc db :open? false)}))
 (rf/reg-event ::dismissed (fn [{:keys [db]} _] {:db (assoc db :open? false)}))
+;; The claimed-Tab row's observable: the panel control's OWN handling of
+;; the key it claimed. Counted rather than flagged, so a double delivery
+;; would be visible too.
+(rf/reg-event ::tab-claimed (fn [{:keys [db]} _] {:db (update db :tab-claims (fnil inc 0))}))
 
 ;; The two pages differ in the OVERLAY and in nothing else: the same
 ;; three panel controls, the same three page controls, the same flag.
@@ -299,6 +303,32 @@
      ;; notices if it ever stops being a stop.
      [:legend [:button#legend-button {:type "button"} "Legend"]]
      [:button#ghost {:type "button"} "Ghost"]]]
+   [:button#after {:type "button"} "After"]])
+
+(h/defview a-page-with-a-modal-whose-last-control-claims-tab [_]
+  ;; A LAST CONTROL THAT HANDLES Tab ITSELF, which is ordinary panel
+  ;; markup: a grid, a combobox or an embedded editor claims the key for
+  ;; its own internal focus movement and says so with `preventDefault`.
+  ;; The claim is written declaratively — the key-map form, whose lowered
+  ;; handler prevents the default and dispatches — and the promise under
+  ;; test is overlay.cljs's own: *the wrap yields to a press one of them
+  ;; has already claimed with `preventDefault`*.
+  ;;
+  ;; The claimer is LAST on purpose. That puts the claimed press on the
+  ;; edge the wrap fires at, so a wrap that failed to yield would not be
+  ;; merely impolite: it would aim focus at `confirm` while the control's
+  ;; own handling ran — one press moving focus two ways at once.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Claimed Tab"}
+    [:button#confirm {:type "button"} "Delete"]
+    [:input#reason {:type "text" :aria-label "Reason"}]
+    [:button#cancel {:type "button"
+                     :on-key-down {"Tab" [::h/prevent [::tab-claimed]]}}
+     "Cancel"]]
    [:button#after {:type "button"} "After"]])
 
 ;; `:async? true` — the MAP shape — because the trusted-input row below
@@ -961,6 +991,56 @@
             (catch :default e
               (is false (str "the disabled-fieldset row threw: "
                              (.-message e)))
+              (finish))))))))
+
+;; ---------------------------------------------------------------------------
+;; The wrap's yield — a press a panel control has already claimed
+;; ---------------------------------------------------------------------------
+
+(deftest a-real-tab-a-panel-control-has-claimed-does-not-wrap
+  ;; THE YIELD, measured on the flag the module actually reads.
+  ;; `impl.overlay/wrap-tab!` reads the NATIVE event's `defaultPrevented`
+  ;; rather than the synthetic copy React takes at construction — a
+  ;; measured distinction: the child's `preventDefault` runs during the
+  ;; same dispatch the panel's handler is part of, so only the native
+  ;; flag has moved by the time the wrap asks. No other row can see any
+  ;; of this — every wrap row presses keys nothing claims, and the
+  ;; popover rows have no wrap at all.
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the wrap's yield to a claimed press")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-claims-tab {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (.focus ($ m "#cancel"))
+            (is (= "cancel" (label-of (active)))
+                (str "premise: on the edge the wrap fires at. Active: "
+                     (label-of (active))))
+
+            (trusted/press-once!
+              "Tab"
+              (fn []
+                (try
+                  (hm/settle! m)
+                  (is (= 1 (:tab-claims (rf/app-db-value (:frame m))))
+                      "premise: the press reached the control and its claim
+                       dispatched, exactly once — so the reading below is of
+                       a delivered key, not of a bridge that never fired")
+                  (is (= "cancel" (label-of (active)))
+                      (str "THE YIELD. Tab off the panel's last control is "
+                           "the edge every other row measures the wrap "
+                           "firing at, landing on `confirm` — and this "
+                           "press was claimed by the control itself, so "
+                           "the wrap stands down and focus does not move: "
+                           "not to `confirm`, and — the engine's default "
+                           "action being prevented too — not to anything "
+                           "else. Active: " (label-of (active))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the claimed-tab row threw: " (.-message e)))
               (finish))))))))
 
 ;; ---------------------------------------------------------------------------
