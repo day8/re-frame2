@@ -1064,132 +1064,11 @@ jobs:
         run: python scripts/check_workflow_job_timeouts.py --verbose
 
 
-  # THE BUDGET-LEDGER GATE (rf2-hic-089; this routing is rf2-uomk, and it is
-  # the job above's hole in a second place — filed as such by the hic-089
-  # worker, who stopped at the hot zone rather than take the scheduling
-  # decision).
-  #
-  # `implementation/hicasso/scripts/check_budget_ledger.py` reads THREE input
-  # families:
-  #
-  #   implementation/hicasso/spec/budgets.md          the reconciliation ledger
-  #   docs/design/hicasso/product/substrate-decision.md   the disposition
-  #                                                   records L3 resolves
-  #   implementation/hicasso/**                       the witness files
-  #
-  # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
-  # invocation is a step of the `cljs` job under
-  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. THE FIRST
-  # AND LAST FAMILIES ARM THAT OUTPUT — the ledger only since rf2-ps7ia moved
-  # it beside the artefact under `implementation/hicasso/**`, re-probed at the
-  # classifier rather than assumed. The disposition page still measures every
-  # output `false`, so a DISPOSITION-ONLY edit — the shape a LEDGER-ONLY edit
-  # used to be, and the one a ledger-keeping habit produces most often —
-  # skips every check on the pull request. The gate would then next run on
-  # somebody else's source PR, red, over a row they did not write.
-  #
-  # UNCONDITIONAL, rather than a new classifier output, for the reason the job
-  # above gives at length and this one will not restate: the defect being
-  # repaired IS a surface gate that did not cover a checker's inputs, so a new
-  # arm is a fresh chance to make the same mistake and needs re-widening every
-  # time the checker learns to read another file. It is a sub-second pure-Python
-  # static read — no node, no JVM — so there is nothing to gate for.
-  #
-  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO. That chain is the local
-  # spine lane and the artefact's one-command run; this job is the CI
-  # reachability the chain cannot give it.
-  hicasso-budget-ledger:
-    name: Hicasso budget-ledger contract (rf2-hic-089)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: '3.12'
-
-      # Self-test first, then the live read — the order every other pure-Python
-      # contract in this workflow uses. It drives every rule the checker
-      # publishes red in turn, so a green live run below is a verdict rather
-      # than a checker that has quietly stopped firing. HOW MANY rules is not
-      # written here on purpose (rf2-93u6): nothing links a count in this file
-      # to the case list in that one, so the correction is already scheduled.
-      # The self-test names its own cases as it runs.
-      - name: Self-test the budget-ledger rules
-        run: python implementation/hicasso/scripts/check_budget_ledger.py --self-test
-
-      - name: Verify the ledger against its registrations and dispositions
-        run: python implementation/hicasso/scripts/check_budget_ledger.py
-
-  # THE FACADE-INVENTORY GATE (rf2-gz4bq). Its routing is the two jobs above's
-  # third instance, and it is here for their reason rather than a new one.
-  #
-  # `implementation/hicasso/scripts/check_facade_inventory.py` reads TWO input
-  # families:
-  #
-  #   implementation/hicasso/src/re_frame/hicasso.cljc   the public door
-  #   implementation/hicasso/spec/dispositions.md        sections 2.1 and 2.2
-  #
-  # It is chained into `npm run test:hicasso-invariants`, whose only hosted
-  # invocation is a step of the `cljs` job under
-  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. BOTH
-  # FAMILIES ARM THAT OUTPUT — the door always did, and the inventory does
-  # too since rf2-ps7ia moved it out of `docs/design/hicasso/product/` and
-  # beside the artefact, where `implementation/hicasso/*` arms it. Re-probed
-  # at the classifier rather than assumed. The door direction is still the one
-  # that matters most, because THE ESCAPE HAPPENS WHEN THE DOOR GROWS.
-  #
-  # THE JOB STAYS ANYWAY, and not only out of caution: `--self-test` re-asserts
-  # a live premise against `docs/design/hicasso/product/specification.md`,
-  # which measures false at every classifier output and did not move. Before
-  # rf2-ps7ia the document side armed nothing at all, so a PR that deleted a
-  # 2.2 row, renumbered the table or renamed a section heading ran this gate
-  # NOWHERE and next reddened on somebody else's source PR, over a row they
-  # did not write. That is the exact shape `hicasso-budget-ledger` was split
-  # out to repair (and the complaint-catalogue job before it, retired with
-  # its checker under rf2-6c12m.7); the move closes it for this input and
-  # this job keeps it closed.
-  #
-  # UNCONDITIONAL, rather than a new classifier output, for the reason those
-  # two jobs give at length and this one will not restate: the defect being
-  # repaired IS a surface gate that did not cover a checker's inputs, so a new
-  # arm is a fresh chance to make the same mistake. Sub-second pure Python — no
-  # node, no JVM — so there is nothing to gate for.
-  #
-  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO: that chain is the local
-  # spine lane and the artefact's one-command run, and this job is the CI
-  # reachability the chain cannot give it.
-  hicasso-facade-inventory:
-    name: Hicasso facade inventory (rf2-gz4bq)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: '3.12'
-
-      # Self-test first, then the live diff — the order every other pure-Python
-      # contract in this workflow uses. It drives every rule red in turn over
-      # synthetic inputs, so a green live run below is a verdict rather than a
-      # checker that has quietly stopped firing. It also refuses to run at all
-      # under `python -O`, which would strip its own assertions.
-      - name: Self-test the facade-inventory rules
-        run: python implementation/hicasso/scripts/check_facade_inventory.py --self-test
-
-      # The live run PRINTS what it inspected — every public name on the door,
-      # the id that carries it and by which of the two routes, plus any name
-      # HELD with no row at all. A gate that cannot say what it covered is how
-      # this class of hole survives a green badge.
-      - name: Verify every public name on the door against sections 2.1 and 2.2
-        run: python implementation/hicasso/scripts/check_facade_inventory.py
-
-  # rf2-r5iy7 — the guide-sample gate's own unconditional job, the FOURTH
-  # instance of the shape above and the cleanest case of the four.
+  # rf2-r5iy7 — the guide-sample gate's own unconditional job. Three sibling
+  # jobs of the same shape (budget ledger, facade inventory, naming census)
+  # stood beside it until 2026-08-30, when rf2-6c12m.8 retired their checkers
+  # with the ledgers they policed; this is the one that remains.
   #
   # `implementation/hicasso/scripts/check_guide_samples.py` reads TWO input
   # families, named at the script by `GUIDE_DIR` and `SOURCE_ROOTS`:
@@ -1219,9 +1098,10 @@ jobs:
   # against a documentation tree, runs the check NOWHERE. It would then next
   # redden on somebody else's source PR, over a block they did not write.
   #
-  # UNCONDITIONAL, rather than a new classifier output, for the reason the three
-  # jobs above give at length and this one will not restate — with one addition
-  # specific to this checker. Arming the EXISTING output from `docs/core/hicasso/**`
+  # UNCONDITIONAL, rather than a new classifier output: the defect being
+  # repaired IS a surface gate that did not cover a checker's inputs, so a new
+  # arm is a fresh chance to make the same mistake and needs re-widening every
+  # time the checker learns to read another file. Arming the EXISTING output from `docs/core/hicasso/**`
   # was measured and rejected: `cljs_node_test` is consumed by exactly one job,
   # the ~10-minute node build, so it would schedule that build on a prose typo.
   # And a NEW dedicated output would have to widen every time the checker learns
@@ -1261,82 +1141,6 @@ jobs:
       - name: Verify every fenced guide sample against its pin and the sources
         run: python implementation/hicasso/scripts/check_guide_samples.py
 
-  # rf2-st1x5 — the naming-census gate's own unconditional job, the FIFTH
-  # instance of the shape above. `implementation/hicasso/scripts/
-  # check_naming_census.py` landed under rf2-hxbhe as a runnable, self-proving
-  # gate and ran NOWHERE: not in this workflow, not in any npm script.
-  #
-  # It reads TWO input families (measured at the script — `PUBLIC` L186-200 and
-  # `LEDGER_REL` L203, not assumed; the L151/L166 pins this comment carried
-  # were already stale before rf2-ps7ia re-pointed the ledger):
-  #
-  #   implementation/hicasso/src/**, test_kit/src/**   the ten shipped
-  #                                                    namespaces, 105 public names
-  #   implementation/hicasso/spec/naming-ledger.md     the ledger those names owe
-  #                                                    a row to
-  #
-  # BOTH families now arm `cljs_node_test` through `implementation/hicasso/*`,
-  # and the first IS still the direction that matters most — a name escapes
-  # when a NAMESPACE GROWS. The ledger side armed NOTHING until rf2-ps7ia moved
-  # it out of `docs/design/hicasso/product/` and beside the artefact (re-probed
-  # at the classifier rather than assumed): a PR deleting a ledger row out from
-  # under a live name ran this gate nowhere and next reddened on somebody
-  # else's source PR, over a row they did not write.
-  #
-  # UNCONDITIONAL, rather than a new classifier output, for the reason the four
-  # jobs above give at length and this one will not restate. Sub-second pure
-  # Python stdlib — no node, no JVM — so there is nothing to gate for.
-  #
-  # IT IS NOT IN `test:hicasso-invariants`, and that is the ONE place this job
-  # departs from its four siblings, so the reason is here rather than left to be
-  # rediscovered (rf2-st1x5, MEASURED not assumed). This gate REFUSES to derive
-  # its own repository root — a script that derives a root from its invocation
-  # path can walk a sibling worktree and report that as the census — so its live
-  # run takes an ABSOLUTE root as an argument, and a relative one exits 2. npm
-  # runs package scripts through a DIFFERENT SHELL per platform: `sh` on
-  # Linux/macOS, `cmd.exe` on Windows. `$PWD` expands in the first and stays
-  # LITERAL in the second (measured: `npm run` on Windows passed the seven
-  # characters `$PWD/..` through verbatim), and `%CD%` is the mirror image, so
-  # NO single spelling of that argument resolves on both. Every other script in
-  # `implementation/package.json` is shell-agnostic by construction, and the
-  # chain's seven checkers all derive their own roots. So the local lane is
-  # `scripts/test-fast-pr.sh` instead — one POSIX shell on all three platforms,
-  # where `$spine_root` is already an absolute path — and
-  # `scripts/check_fast_pr_gap.py` carries the matching `SPINE_LANES` entry so
-  # these two steps are not over-reported as a local gap.
-  hicasso-naming-census:
-    name: Hicasso naming census (rf2-st1x5)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: '3.12'
-
-      # Self-test first, then the live census — the order every other
-      # pure-Python contract in this workflow uses. Ten checks over synthetic
-      # trees, including a SEEDED POSITIVE CONTROL (an export the census must
-      # catch) and its converse (the same export, once rostered, green), plus
-      # four REFUSALS — because an absence check that inspected nothing reports
-      # the same green as one that inspected everything.
-      - name: Self-test the naming-census rules
-        run: python implementation/hicasso/scripts/check_naming_census.py --self-test
-
-      # `"$PWD"` rather than `"$GITHUB_WORKSPACE"` on purpose: the runner's
-      # default working directory IS the workspace root, so this step's body is
-      # ALSO the exact command a reader can run locally from the repo root —
-      # the same discipline `scripts/check_fast_pr_gap.py` relies on when it
-      # reads reproduce commands out of the step rather than restating them.
-      #
-      # The live run PRINTS the root it resolved as its first line
-      # (`CENSUS_REPO_ROOT=…`), then every public name and the namespace that
-      # carries it. A gate that cannot say which tree it read is how a run about
-      # somebody else's checkout passes for a run about this one.
-      - name: Verify every public hicasso name against the naming ledger
-        run: python implementation/hicasso/scripts/check_naming_census.py "$PWD"
 
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
@@ -4123,8 +3927,8 @@ jobs:
       # compiles the runner's own testbed roster, and it is the live
       # render path that exercises the assertion-strip (rf2-5lw9w).
       # WHICH testbeds, and how many, is deliberately not written here
-      # (rf2-1s53x) — the same call `hicasso-budget-ledger` above
-      # makes about its rule count, for the same reason. `TESTBEDS` in
+      # (rf2-1s53x) — the same call the retired `hicasso-budget-ledger`
+      # job made about its rule count, for the same reason. `TESTBEDS` in
       # examples/scripts/serve-and-run-story-play-scripts.cjs is the
       # roster and nothing links a count in this file to that list, so
       # this sentence read "a single-testbed compile" straight through
@@ -6159,41 +5963,13 @@ jobs:
       - verify-version-lockstep
       - verify-skill-mcp-drift
       - verify-readme-links
-      # rf2-uomk — required, not advisory. Two of the
-      # three file families the budget-ledger gate reads arm no classifier
-      # output, so before this job a ledger-only or disposition-only PR ran the
-      # check nowhere. A job absent from this list is advisory whatever its own
-      # gate says, which would put the contract back one `if:` from the nowhere
-      # it just came from.
-      - hicasso-budget-ledger
-      # rf2-gz4bq — required for the same reason, one gate over. Half of what
-      # the facade-inventory gate reads is `dispositions.md`, which arms no
-      # classifier output, so a document-only PR runs it nowhere; and a job
-      # absent from this list is advisory whatever its own gate says. The
-      # constraint it enforces is `dispositions.md` section 3's own — a
-      # surface reaching the facade with no row makes the Phase 4 exit stop
-      # meaning anything — and an advisory gate over that is a gate nobody's
-      # merge waits on.
-      - hicasso-facade-inventory
-      # rf2-r5iy7 — required for the same reason, one gate over, and on the
-      # starkest version of it: the guide tree this gate reads arms NO
-      # classifier output at all, so before this job every guide-only PR ran
+      # rf2-r5iy7 — required, not advisory: the guide tree this gate reads
+      # arms NO classifier output at all, so before this job every guide-only PR ran
       # the check nowhere. A job absent from this list is advisory whatever its
       # own gate says, which would leave the 188 pinned samples policed only on
       # PRs that happen to touch hicasso source — i.e. on somebody other than
       # the author of the drift.
       - hicasso-guide-samples
-      # rf2-st1x5 — required for the same reason, one gate over. Half of what
-      # the naming census reads is `naming-ledger.md`, which arms no classifier
-      # output, so a ledger-only PR runs it nowhere; and a job absent from this
-      # list is advisory whatever its own gate says. This entry is the whole
-      # point of the bead rather than an afterthought to it: rf2-6ng7's
-      # reusable finding is that an arming excuse which merely NAMES an
-      # unconditional lane needs that lane PINNED, or the excuse outlives the
-      # coverage. The constraint at stake is `dispositions.md` section 3's —
-      # adding a public surface adds an id — over all ten shipped namespaces
-      # rather than the one door `hicasso-facade-inventory` reaches.
-      - hicasso-naming-census
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary

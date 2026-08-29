@@ -79,16 +79,12 @@ on:
       # cannot ship without the gate running. (It builds its fixtures in a
       # throwaway git tree, so there is no fixture directory to arm.)
       - 'scripts/check_allocation_non_claim.py'
-      # rf2-ps7ia — and its OTHER premise moved out from under `docs/**`.
-      # `budgets.md` §9's S7 row is the premise this scan enforces a rule ON;
-      # it lived at `docs/design/hicasso/product/budgets.md` and was armed by
-      # `docs/**` above until the operative contract moved beside the artefact.
-      # Nothing else runs this scan, so without this line an edit clearing the
-      # S7 row would ship with the PREMISE MOVED red — the gate's retirement
-      # signal — never raised. The sibling premise
-      # (`docs/design/hicasso/product/lanes/evidence-baseline.md`) stayed and
-      # is still armed by `docs/**`.
-      - 'implementation/hicasso/spec/budgets.md'
+      # rf2-ps7ia moved the scan's OTHER premise, `budgets.md` §9's S7 row, out
+      # from under `docs/**` to `implementation/hicasso/spec/`, and this list
+      # carried that path so a PREMISE MOVED red could not ship unraised;
+      # rf2-6c12m.8 (2026-08-30) moved the page back to
+      # `docs/design/hicasso/product/budgets.md`, where `docs/**` above arms it
+      # again beside the sibling premise (`lanes/evidence-baseline.md`).
       # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
       # trees too; a drift there must trigger the gate.
       - 'tools/**/spec/**'
@@ -206,7 +202,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|scripts/check_allocation_non_claim.py|implementation/hicasso/spec/budgets.md|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|scripts/check_allocation_non_claim.py|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
