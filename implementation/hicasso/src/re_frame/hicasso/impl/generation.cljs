@@ -1,25 +1,13 @@
 (ns re-frame.hicasso.impl.generation
-  "THE COMMIT BASIS — the three monotone numbers invariant 5 is judged
-  against, and the only doors that advance them.
-
-  Everything here is a counter and a read of a counter. That is the
-  ownership boundary: the collector *consults* the basis on four hot
-  paths and *advances* it on two, and a number whose increment can be
-  written from anywhere is a number nobody can reason about. Both
-  volatiles are private and both bumps are named, so
-  `git grep bump-generation!` is the complete list of writers.
-
-  The basis is deliberately arithmetic over three independent terms
-  rather than one counter, because each term sees a movement the other
-  two are structurally blind to. [[commit-basis]] says which, and why the
-  fourth axis — a same-id frame reincarnation — is not carryable here at
-  all.
-
-  **The HMR contract lands on this file.** A reload
-  re-registers `:sub` handlers, which is exactly what [[registry-epoch]]
-  counts and exactly what the collector's cell-invalidation repair rides;
-  a reload that must promise identity, focus and state across a save has
-  to say what it does to these three numbers."
+  "The commit basis: the three monotone counters Spec 006 invariant 5 is
+  judged against, and the only doors that advance the two this runtime
+  owns (the third, the frame's install epoch, is the substrate's and is
+  read here, never written). The collector consults the basis on four
+  paths and advances it on two; both volatiles are private and both bumps
+  are named, so a grep for the two `bump-` doors is the complete list of
+  writers, because a counter anything can increment is a counter nothing
+  can reason about. Why the basis has three terms and what each one sees
+  is docs/design/hicasso/architecture.md, section The collector."
   (:require [re-frame.frame :as frame]))
 
 (defonce ^:private !generation (volatile! 0))
@@ -33,124 +21,60 @@
 (defn bump-generation!
   "Advance the flush generation. The collector's `flush!` is the only
   caller, and it calls it exactly once per flush that found a dirty cell
-  — which is what makes [[generation]] a count of *commits that moved
+  — which is what makes `generation` a count of *commits that moved
   something* rather than of flush attempts."
   []
   (vswap! !generation inc)
   nil)
 
 (defn registry-epoch
-  "**The runtime's own count of `:sub` registrations** — first-time and
-  replacement alike — and the third term of [[commit-basis]].
-
-  It is the runtime's rather than the substrate's on purpose: the
-  runtime already installs a registration hook for
-  [[re-frame.hicasso.impl.collector/first-registration!]], so the counter
-  is a `vswap!` on a hook that runs anyway rather than a new public
-  reader on a production namespace. Monotone, like both other terms."
+  "The runtime's own count of `:sub` registrations, first-time and
+  replacement alike, and the third term of `commit-basis`. Monotone.
+  Counted here rather than exposed by the substrate because the collector
+  already installs a registration hook, so the counter is a `vswap!` on a
+  hook that runs anyway rather than a new public reader on a production
+  namespace. A hot reload re-registers `:sub` handlers, which is exactly
+  what this counts (`hmr_registry_cljs_test`)."
   []
   @!registry-epoch)
 
 (defn bump-registry-epoch!
   "Advance the registry epoch. Called from the collector's single
-  registration hook, BEFORE that hook scans the cells — a render racing
-  the scan must not see an epoch from before the registration it is about
-  to read against. See
-  [[re-frame.hicasso.impl.collector/sub-registered!]], which is where the
-  ordering is stated and enforced."
+  registration hook (`sub-registered!`), BEFORE that hook scans the cells:
+  the scan drops reaction references, and a render racing it must not see
+  an epoch from before the registration it is about to read against."
   []
   (vswap! !registry-epoch inc)
   nil)
 
 (defn commit-basis
-  "**The number both invariant-5 windows are judged against** — this
-  runtime's flush [[generation]], plus `frame`'s own physical-install
-  epoch (`re-frame.frame/frame-commit-epoch`, the substrate's read-evidence
-  counter, bumped once per frame-state install
-  at both write chokepoints), plus the runtime's [[registry-epoch]].
+  "The number a staged read is judged against: this runtime's flush
+  generation + the frame's install epoch (`re-frame.frame/frame-commit-epoch`)
+  + the registry epoch. Monotone within a frame incarnation, so any sum of
+  bases and cell stamps is too; install-counting rather than `=`-counting,
+  so a value-equal install still advances it (one redundant re-render at
+  worst, never a missed one). Pure read; allocates nothing.
 
-  The generation alone cannot carry it, and the reason is structural
-  rather than a matter of degree: the generation moves only through
-  `mark-dirty!`, whose only caller is the value-change watch
-  [[re-frame.hicasso.impl.collector/acquire-cell!]] installs **at
-  commit**, so a key nothing holds yet can move without moving it. The
-  frame's install epoch has no such dependency — it is a counter read,
-  not a watch — which is exactly why it is the thing to ask whether durable
-  state moved in the render→commit gap. And
-  neither of them is a registry write, so the third term is what carries
-  a `reg-sub` landing in that gap.
-
-  All three terms are monotone within a frame incarnation, so the basis
-  is, and so is any sum of bases and cell epochs. Deliberately
-  install-counting rather than `=`-counting: a value-equal install still
-  advances it, which costs at most one redundant re-render and cannot
-  cost a missed one. Pure read; allocates nothing.
-
-  ## Why the registry term costs the mounted case nothing
-
-  **The term belongs in the basis and nowhere else.** The basis is read
-  live by exactly one branch of
-  [[re-frame.hicasso.impl.collector/make-snapshot]]'s sum: **a key no
-  cell holds yet**. A held key contributes its cell's *frozen* stamp,
-  which no registration touches. Putting a registry term in every key's
-  live contribution instead would move every mounted boundary's number on
-  every `reg-sub` in the application, and buy a re-render that read
-  straight back through a dead cell.
-
-  So the reach of the term is precisely the set of keys inside a
-  render→commit gap, which is the set of keys that have the defect. A
-  mounted boundary holds a reference to every key it reads, so it has no
-  staged term at all and an unrelated `reg-sub` moves its snapshot by
-  zero — `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing`
-  asserts exactly that, and it is what keeps the two placements
-  distinguishable.
-
-  Conservative in the safe direction and only there, exactly as the
-  install term is: a boundary mounting as an *unrelated* module registers
-  its subs re-renders once for nothing. A MISSED move would be the P0,
-  and adding a monotone term to a monotone sum cannot cause one.
-
-  Silent on one axis, and permanently so: a same-id frame reincarnation
-  RESTARTS `frame-commit-epoch` at 0, so the basis TIES across the
-  reincarnation, which is the case Spec 006 invariant 5's `:node-key` axis
-  exists for. That axis is not this number's to carry. The
-  transition leaves the cell holding a reaction that can no longer answer
-  for its key, so a moved number would only buy a re-render that read
-  back through the same dead reference.
-  [[re-frame.hicasso.impl.collector/invalidate-cell!]] carries the
-  *held*-cell half of all three axes; this term carries the *staged* half
-  of the registry one, where there is no dead reference to read back
-  through because the commit acquires against the live registration.
-
-  ## Why the generation term stays (rf2-6c12m.19)
-
-  On every path that reaches `flush!` the frame's install epoch has
-  already moved, so the generation looks like a term the frame epoch
-  covers. It is not, and the counter-example is the reincarnation above
-  read from the STAGED side: a boundary renders a key no cell holds
-  (snapshot = the live basis), the frame is destroyed and remade under
-  the same id before that boundary commits, and the successor's install
-  count happens to equal the predecessor's at render — the frame term
-  ties, and the staged key moved no watch, so nothing it read bumps the
-  generation. What does is the side effect on any OTHER cell the frame
-  holds: its reaction dies with the frame, the microtask rewire marks it
-  dirty, and that flush bumps the generation, which the staged boundary
-  reads through the basis at commit. Measured
-  (`staged_reincarnation_basis_cljs_test`): with the term, `basis@commit`
-  differs from `basis@render` and React's post-subscribe re-read
-  corrects the boundary; with `@!generation` removed from the sum both
-  read 4, React sees no tear, and the boundary keeps the predecessor's
-  value on screen until the next write to its key. A partial cover — a
-  frame holding no other cell has nothing to rewire and ties either
-  way — but the half it covers is the P0 class, so the term is kept."
+  Three terms because each sees a movement the other two cannot: the
+  generation moves only through a committed cell's watch, the install
+  epoch is a plain counter, and only the registry term carries a
+  `reg-sub` landing in the render→commit gap — and it belongs in the
+  basis, which only a staged key reads live, so an unrelated registration
+  moves no mounted boundary (`hmr_registry_cljs_test`). The generation
+  term is load-bearing across a same-id reincarnation, where the frame
+  term restarts and can tie: any other cell the frame holds is rewired by
+  microtask and that flush bumps the generation
+  (`staged_reincarnation_basis_cljs_test`, rf2-6c12m.19); a frame holding
+  no other cell ties either way, which is Spec 006 invariant 5's
+  `:node-key` axis, not this number's. Full argument:
+  docs/design/hicasso/architecture.md, section The collector."
   [frame-kw]
   (+ @!generation (frame/frame-commit-epoch frame-kw) @!registry-epoch))
 
 (defn reset-basis!
-  "Zero both terms this namespace owns. The teardown half, called by
-  [[re-frame.hicasso.impl.collector/reset-runtime!]] and by nothing else
-  — the frame's install epoch is the substrate's and is not this door's
-  to touch."
+  "Zero both terms this namespace owns: the teardown half of the
+  collector's `reset-runtime!`, its only caller. The frame's install
+  epoch is the substrate's and is not this door's to touch."
   []
   (vreset! !generation 0)
   (vreset! !registry-epoch 0)
