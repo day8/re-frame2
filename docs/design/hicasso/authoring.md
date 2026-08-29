@@ -146,7 +146,7 @@ There is **one** callback form, `h/event`, and it is an **ordinary function**:
 | Position | Contract |
 |---|---|
 | a native `:on-*` prop | **event** — a returned vector is dispatched; any other return is ignored |
-| a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`) |
+| a `defhost` `:callbacks` entry | ~~as **declared** (`:event`, `:handler` or `:render`)~~ **[amended 2026-08-29, PR #8755 (`rf2-6c12m.24`)]**: a `defhost` prop is **inferred** exactly as a native tag's is — an `on*` prop is an event position, anything else a render position — and `:callbacks` survives only as an optional `:event` / `:render` override for an `on*`-named render prop; `:handler` is deleted, since a plain function already crosses untouched at every position |
 | any other walked prop position (a native non-event prop, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
 | a `defhost` prop nothing claimed, and one declared a ReactNode position in `:slots` | **none to give** — the mark asks the POSITION for a contract, and neither has one: an unclaimed prop selected nothing, and a slot is claimed for markup. Both refuse with `:rf.error/hicasso-host-unclaimed-callback`, which names which of the two it met. A plain function at the unclaimed prop is untouched and crosses by identity |
 | `:ref` | React's own contract; not lowered |
@@ -163,6 +163,13 @@ handler-identity bail-outs keep working.
 they are accepted at `:event` and refused at `:handler` and `:render` with
 `:rf.error/hicasso-intent-at-a-non-event-contract` — otherwise the value would be
 selecting the contract, which is the thing the row above forbids.
+
+**[Amended 2026-08-29, PR #8755 (`rf2-6c12m.24`).]** That refusal is retired
+with `:handler`: `:rf.error/hicasso-intent-at-a-non-event-contract` is struck in
+Spec 009, and a vector or key-map at a render position — declared or inferred —
+now crosses as data through the shallow conversion, exactly as it does at a
+native tag. The rule that the position, never the value, selects the contract is
+unchanged.
 
 **The vector spelling is event-first.** `::h/prevent`, `::h/value`, `::h/checked`
 and a key-map's key lookup read the DOM event from **argument one** — what a
