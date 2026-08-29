@@ -1754,7 +1754,7 @@
     (fail! :rf.error/no-frame-context
            where
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
-                "tree under a frame boundary — `arm1.mount/root!` installs one.")
+                "tree under a frame boundary — `h/mount!` installs one.")
            :mount-under-a-frame
            {})
     frame-kw))
@@ -1806,8 +1806,7 @@
                 "props. Every boundary element below the root is minted by an "
                 "ancestor body, which carries the frame; the root and any "
                 "outward React bridge mint theirs outside a body and must name "
-                "it (`front.codec/root-element`, which `arm1.mount/render!` "
-                "calls).")
+                "it (`h/mount!`'s `:frame` is how the root does).")
            :mint-the-root-element-with-a-frame
            {})
     frame-kw))
