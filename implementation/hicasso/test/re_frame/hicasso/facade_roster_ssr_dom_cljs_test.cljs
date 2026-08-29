@@ -232,7 +232,7 @@
 
 (deftest a-route-links-click-decision-is-absent-from-the-bytes
   (testing "HS-40's second half, witnessed by ABSENCE beside the href
-            that IS there. The click is carried as a `[::h/navigate {…}]`
+            that IS there. The click is carried as a `[navigate-head {…}]`
             vector so `=` can see it, and none of that vocabulary is
             markup. Narrowing caught: a lowering that serialised the
             decision — which would ship the application's routing

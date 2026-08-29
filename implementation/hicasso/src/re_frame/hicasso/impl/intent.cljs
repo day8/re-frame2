@@ -196,22 +196,24 @@
   ## The navigate head
 
   The SECOND reserved head, and the router-owned counterpart of
-  `::h/prevent`: `[::h/navigate {…}]` at an event position is the click
-  half of [[re-frame.hicasso.impl.route-link/route-link]]. The
-  route-link view puts it on the anchor it builds, carrying the whole
-  click decision AS DATA — the render-captured frame, the routing-owned
-  dispatch payload, the native-attrs verdict, and the caller's veto:
+  `::h/prevent`: `[navigate-head {…}]` at an event position is the click
+  half of `re-frame.hicasso.impl.route-link/route-link`. The head is this
+  namespace's own keyword rather than a public marker — `route-link`
+  mints it and no author writes it — and the route-link view puts it on
+  the anchor it builds, carrying the whole click decision AS DATA: the
+  render-captured frame, the routing-owned dispatch payload, the
+  native-attrs verdict, and the caller's veto:
 
       [:a {:href \"/profile/jane\"
-           :on-click [::h/navigate {:frame    :app/frame
-                                    :payload  [:rf.route/url-requested {…}]
-                                    :native?  false
-                                    :veto     nil}]}]
+           :on-click [navigate-head {:frame    :app/frame
+                                     :payload  [:rf.route/url-requested {…}]
+                                     :native?  false
+                                     :veto     nil}]}]
 
   Same school as the prevent head (HD-026): behaviour in the vector where
   `=` can see it, classified once at lowering. `route-link` mints the
   form and nothing else writes it, so the lowering reads the map
-  ([[unwrap-navigate]]) rather than re-validating it. The click LAW is
+  (`unwrap-navigate`) rather than re-validating it. The click LAW is
   not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
   decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
@@ -672,11 +674,14 @@
   :re-frame.hicasso/prevent)
 
 (def navigate-head
-  "`::h/navigate` — the SECOND reserved intent HEAD, minted by
-  [[re-frame.hicasso.impl.route-link/route-link]] and carrying a
-  route-link's whole click decision as data. See the namespace docstring
-  §The navigate head, and [[unwrap-navigate]] for the closed grammar."
-  :re-frame.hicasso/navigate)
+  "The SECOND reserved intent HEAD: `[navigate-head {:frame :payload
+  :native? :veto}]` at an event position is a route-link's whole click
+  decision as data. An implementation keyword, not a public marker,
+  because `re-frame.hicasso.impl.route-link/route-link` mints the form
+  and no author writes it; a structural test reads it through
+  `navigate-head?`. Design record: docs/design/hicasso/decisions.md
+  HD-027."
+  ::navigate)
 
 (defn- target-value
   "The event target's current value — `.value`, except on the two controls
@@ -850,8 +855,9 @@
   (and (vector? v) (= prevent-head (nth v 0 nil))))
 
 (defn navigate-head?
-  "Is `v` the `::h/navigate` decorator? Same one-compare shape as
-  [[prevent-head?]]."
+  "Is `v` a `[navigate-head {…}]` vector? One `=` against the vector's
+  first element, the same shape as `prevent-head?`. The door a structural
+  test reads a route-link's click decision through."
   [v]
   (and (vector? v) (= navigate-head (nth v 0 nil))))
 
@@ -920,10 +926,10 @@
     :else                veto))
 
 (defn- unwrap-navigate
-  "The map inside `[::h/navigate {…}]` — `:frame`, `:payload`, `:native?`
-  and `:veto` (HD-027). Not validated: `route-link` mints this form and
-  nothing else writes it, so a render pays nothing per link to re-read a
-  map the library constructed. Like [[unwrap-prevent]] it is not a
+  "The map inside `[navigate-head {…}]` — `:frame`, `:payload`, `:native?`
+  and `:veto` (docs/design/hicasso/decisions.md HD-027). Not validated:
+  `route-link` mints this form and nothing else writes it, so a render
+  pays nothing per link to re-read a map the library constructed. Not a
   walker — the payload stays ordinary data all the way to routing."
   [_k v]
   (nth v 1 nil))

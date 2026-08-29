@@ -25,8 +25,8 @@
 
   ## The marker keywords need no export
 
-  `::h/value`, `::h/prevent`, `::h/navigate`, `::h/revision`,
-  `::h/checked` and `::h/clear` read `:re-frame.hicasso/…`. Alias this
+  `::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and
+  `::h/clear` read `:re-frame.hicasso/…`. Alias this
   namespace as `h` and the auto-resolved spelling the guide teaches
   resolves, with no keyword changing value.
 

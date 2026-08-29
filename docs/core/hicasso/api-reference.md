@@ -214,7 +214,6 @@ auto-resolved spelling with no keyword changing value.
 | `::h/prevent` | as an intent head, wrapping another intent | calls `.preventDefault` before dispatching the intent it wraps |
 | `::h/revision` | an attribute on a controlled field | a change re-baselines the field to the model without remounting it |
 | `::h/clear` | as an event head | removes an `h/reg-state` instance, back to the concern's default |
-| `::h/navigate` | as the `:on-click` of the anchor `h/route-link` returns | the click decision, as data. `h/route-link` mints it; read it in a structural test, do not write it yourself |
 
 Substitution is top level only: `[:todo/edit id ::h/value]` reads, and a marker
 nested inside a map or a sub-vector does not.

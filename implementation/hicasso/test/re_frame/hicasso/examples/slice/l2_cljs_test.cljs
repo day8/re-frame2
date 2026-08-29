@@ -31,6 +31,7 @@
             [re-frame.hicasso.examples.slice.routes :as routes]
             [re-frame.hicasso.examples.slice.subs :as subs]
             [re-frame.hicasso.examples.slice.views :as views]
+            [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]))
 
@@ -69,9 +70,10 @@
         "the href is the routing artefact's own synthesis — `views` names
          no URL anywhere, and this is the assertion that says so")
     (is (= "Intents are data" (ht/text a)))
-    (is (= :re-frame.hicasso/navigate (first (:on-click (ht/attrs a))))
-        "the click decision is DATA — a namespaced-keyword-headed vector
-         `=` can see, which is what makes two renders of one link equal")))
+    (is (intent/navigate-head? (:on-click (ht/attrs a)))
+        "the click decision is DATA — a vector headed by the intent
+         namespace's own keyword, which `=` can see and which is what
+         makes two renders of one link equal")))
 
 (deftest a-published-row-carries-no-draft-badge
   (is (nil? (classed (row-tree {}) "draft-badge")))
