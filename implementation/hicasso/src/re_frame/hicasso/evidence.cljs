@@ -22,7 +22,7 @@
   evolved under an unchanged stamp is the one defect a version exists to
   prevent. v3 folds the former scope/basis axes into `:complete?` and
   `:loss`, drops the `:naming`, `:host` and `:origin` sub-projections,
-  and names the declared views that rendered a boundary as `:views`."
+  and names the declared views mounted on a boundary as `:views`."
   :re-frame.hicasso.evidence/v3)
 
 (def producer

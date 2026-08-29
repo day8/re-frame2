@@ -322,6 +322,35 @@
           "a body React never committed must not be named on a row it never held"))
     (b)))
 
+(deftest the-named-subscribe-is-as-stable-as-the-entrys
+  ;; The number that decided the shape of the repair: React re-subscribes
+  ;; whenever the `subscribe` it is handed is a new function, so a name
+  ;; carried to the commit must not move that identity on any render the
+  ;; entry's own would not have moved it on. The wrapper is cached per
+  ;; (entry, view), and a fiber's view never changes — so the identity
+  ;; moves exactly when the entry does: zero additional re-subscribes.
+  (seeded!)
+  (let [body (codec/retained-body named-probe)
+        _    (collector/render-body frame-id body {})
+        e1   (collector/last-reads)
+        s1   (.-subscribe collector/rstate)
+        _    (collector/render-body frame-id body {})
+        s2   (.-subscribe collector/rstate)]
+    (is (fn? s1))
+    (is (identical? e1 (collector/last-reads))
+        "the premise: an unchanged read set hits the same entry")
+    (is (identical? s1 s2)
+        "and the same named `subscribe`, so React does not call it again")
+    (is (not (identical? s1 (.-subscribe e1)))
+        "it is the wrapper that counts the name, not the entry's own closure")
+    (collector/render-body frame-id (fn [_] (h/sub [:tr/left]) nil) {})
+    (is (identical? (.-subscribe e1) (.-subscribe collector/rstate))
+        "a body with no name is handed the entry's own closure, as before")
+    (collector/render-body frame-id (codec/retained-body twin-probe) {})
+    (is (not (identical? s1 (.-subscribe collector/rstate)))
+        "a different view over the same entry has its own wrapper — no fiber
+         ever changes view, so no fiber pays a re-subscribe for it")))
+
 ;; ---------------------------------------------------------------------------
 ;; Read 2 — read attribution
 ;; ---------------------------------------------------------------------------

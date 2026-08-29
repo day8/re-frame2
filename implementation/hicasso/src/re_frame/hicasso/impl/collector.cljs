@@ -431,16 +431,17 @@
   render, which is what makes `(sub …)` outside a boundary a loud error
   rather than a silent read of whichever frame happened to be ambient),
   the entry the last body resolved, the cold-probe box the running body's
-  cold reads share ([[cold-read!]] — nil until a cold read mints it, reset
-  by every [[run-once]] exactly as the scratch is), and the always-on
-  body-run counter — one integer on the object that already exists,
-  bumped by [[run-once]]. One JS object for the whole runtime — not one
-  per render.
+  cold reads share (`cold-read!` — nil until a cold read mints it, reset
+  by every `run-once` exactly as the scratch is), the always-on body-run
+  counter — one integer on the object that already exists, bumped by
+  `run-once` — and, in a dev build only, the `subscribe` the shell hands
+  React for that entry (`render-body`). One JS object for the whole
+  runtime — not one per render.
 
   Public so the test kit's runtime door (`re-frame.hicasso.test.runtime`)
   can read `bodyRuns` off it without this file growing a reader per
   instrument. It is this file's to WRITE, and every writer is here."
-  #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0})
+  #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil})
 
 (def ^:private ^js scratch
   "**The one scratch buffer**, reused by every body and reset by
@@ -1588,12 +1589,21 @@
 (defn commit-boundary!
   "**The seam React occupies.** Hand a boundary's read set and a notifier
   to the same `subscribe` closure `useSyncExternalStore` would call, and
-  get back the same cleanup React would hold. With [[render-body]] and
-  [[last-reads]] it is the whole of a harness's render-then-commit — the
+  get back the same cleanup React would hold. With `render-body` and
+  `last-reads` it is the whole of a harness's render-then-commit — the
   test kit's and Xray's own suites take React's place through these three
-  — and it is answerable without a browser, a root, or a render."
+  — and it is answerable without a browser, a root, or a render.
+
+  For the entry `render-body` just resolved, that closure is the one the
+  shell would hand React — in a dev build `view-subscribe`'s named
+  wrapper when the body was a declared view — so a harness commit names
+  the view exactly as React's does. Any other entry commits through its
+  own `subscribe`: no render is in hand to name it."
   [^js entry notify]
-  ((.-subscribe entry) notify))
+  ((if (and ^boolean js/goog.DEBUG (identical? entry (.-entry rstate)))
+     (.-subscribe rstate)
+     (.-subscribe entry))
+   notify))
 
 ;; ---------------------------------------------------------------------------
 ;; The hook seam — one read, from a React component that is not a boundary
@@ -1709,40 +1719,66 @@
       (set! (.-frame rstate) nil)
       (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
 
-;; The dev-only own property on a read-set entry naming the declared views
-;; that rendered it. Written under `goog.DEBUG` only, so a release bundle
+;; The dev-only own property on a read-set entry: a `js/Map` from each
+;; declared view's name to its committed-reference count and the `subscribe`
+;; that keeps it. Written under `goog.DEBUG` only, so a release bundle
 ;; carries neither the slot name nor a name in it; the literal is pinned on
 ;; this line by `scripts/check_production_erasure.cjs`, like `body-slot`.
 (def ^:private views-slot "hicassoViews")
 
-(defn- note-view!
-  "Dev only: record `body-fn`'s `displayName` — the `\"<ns>/<sym>\"`
-  `mint-view!` stamped — on `entry` under `views-slot`. A body with no
-  name (a harness fn) writes nothing, so an entry no declared view
-  rendered has no slot rather than an empty set."
-  [^js entry body-fn]
-  (when-some [n (unchecked-get body-fn "displayName")]
-    (let [have (unchecked-get entry views-slot)]
-      (when-not (and have (contains? have n))
-        (unchecked-set entry views-slot (conj (or have #{}) n))))))
+(defn- view-subscribe
+  "Dev only: the `subscribe` the shell hands React for `entry` when the
+  body is the declared view named `n` — the entry's own closure, wrapped
+  so `n` is counted where React commits the reference and uncounted where
+  its cleanup releases it. The roster `re-frame.hicasso.tool` exports
+  claims the MOUNTED views, and only the commit knows that: a render React
+  discards and a view that has unmounted name nothing, exactly as they
+  hold nothing (docs/design/hicasso/hd-002-adjudication.md §3). Cached per
+  (entry, name) on the entry under `views-slot`, so its identity moves
+  exactly when the entry's does and React re-subscribes on no render it
+  did not already."
+  [^js entry n]
+  (let [^js views (or (unchecked-get entry views-slot)
+                      (let [m (js/Map.)] (unchecked-set entry views-slot m) m))]
+    (if-some [^js slot (.get views n)]
+      (.-subscribe slot)
+      (let [^js slot  #js {"refs" 0}
+            shared    (.-subscribe entry)
+            subscribe (fn subscribe [on-store-change]
+                        (let [release (shared on-store-change)]
+                          (set! (.-refs slot) (inc (.-refs slot)))
+                          (fn unsubscribe []
+                            (set! (.-refs slot) (dec (.-refs slot)))
+                            (release))))]
+        (unchecked-set slot "subscribe" subscribe)
+        (.set views n slot)
+        subscribe))))
 
 (defn entry-views
-  "The set of declared view names that rendered read-set `entry`, or nil
-  where none did or in a production build, where nothing writes it.
-  Read by `re-frame.hicasso.tool`; the names are what
+  "The set of declared view names holding a committed reference on
+  read-set `entry` — the mounted ones — or nil where none does, or in a
+  production build, where nothing writes the slot. Read by
+  `re-frame.hicasso.tool`; the names are what
   `re-frame.hicasso.impl.error/source-of` resolves to a coordinate."
   [^js entry]
-  (unchecked-get entry views-slot))
+  (when-some [^js views (unchecked-get entry views-slot)]
+    (let [names (volatile! #{})]
+      (.forEach views (fn [^js slot n]
+                        (when (pos? (.-refs slot)) (vswap! names conj n))))
+      (not-empty @names))))
 
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
-  [[last-reads]] carries the read-set entry it resolved.
+  `last-reads` carries the read-set entry it resolved, and in a dev build
+  `rstate` also carries the `subscribe` the shell hands React for it —
+  the entry's own, or `view-subscribe`'s named wrapper when the body is
+  a declared view, so the name is written at the commit and never here.
 
-  The fence is the loop: capture the [[re-frame.hicasso.impl.generation/commit-basis]], run the body, and
-  if a commit landed while it ran, run it again against the newer
-  commit. All of a pass's reads therefore observe one commit —
-  invariant-5 preservation as one comparison per boundary, not one deref
-  per read.
+  The fence is the loop: capture the
+  `re-frame.hicasso.impl.generation/commit-basis`, run the body, and if a
+  commit landed while it ran, run it again against the newer commit. All
+  of a pass's reads therefore observe one commit — invariant-5
+  preservation as one comparison per boundary, not one deref per read.
 
   It compares the basis rather than the generation alone because the
   generation cannot see a mid-body move of a key nothing holds: no cell,
@@ -1758,7 +1794,11 @@
         (= before (generation/commit-basis frame-kw))
         (let [entry (entry-for scratch)]
           (set! (.-entry rstate) entry)
-          (when ^boolean js/goog.DEBUG (note-view! entry body-fn))
+          (when ^boolean js/goog.DEBUG
+            (set! (.-subscribe rstate)
+                  (if-some [n (unchecked-get body-fn "displayName")]
+                    (view-subscribe entry n)
+                    (.-subscribe entry))))
           element)
 
         (< attempt max-fence-retries)
@@ -1819,14 +1859,20 @@
   "The boundary shell. Two hooks, with the body between them — which is
   legal because what React fixes is hook *order and count*, not the
   position of ordinary code around them, and it is what lets the
-  subscription hook close over the reads the body just made."
+  subscription hook close over the reads the body just made. In a dev
+  build the subscription hook takes the `subscribe` `render-body` left on
+  `rstate` — the entry's own, or the named wrapper that counts a declared
+  view at React's commit; in production the branch folds away and the
+  entry's own is all there is."
   [body-fn js-props]
   (let [frame-kw (resolve-frame! (react/useContext adapter-context/frame-context)
                                  're-frame.hicasso.impl.collector/shell)
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
         ^js entry (.-entry rstate)]
-    (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry) (.-snapshot entry))
+    (react/useSyncExternalStore (if ^boolean js/goog.DEBUG (.-subscribe rstate) (.-subscribe entry))
+                                (.-snapshot entry)
+                                (.-snapshot entry))
     element))
 
 (defn mint-view!
@@ -2130,6 +2176,7 @@
   (reset-reapers! entry-reapers)
   (generation/reset-basis!)
   (set! (.-entry rstate) nil)
+  (set! (.-subscribe rstate) nil)
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
