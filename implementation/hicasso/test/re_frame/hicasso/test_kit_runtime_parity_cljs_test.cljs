@@ -219,7 +219,7 @@
    ;;
    ;; `:opaque` is a claim about a form the kit CANNOT read, and it is only
    ;; honest where the runtime can. For a MALFORMED escape the runtime cannot
-   ;; either — it refuses — so a kit that answered `:assert-it-at-l3` sent the
+   ;; either — it refuses — so a kit that answered with a pointer to L3 sent the
    ;; programmer to write a browser test for a hiccup vector that will never
    ;; render anywhere. Same for an empty vector, which the runtime refuses
    ;; before it classifies a head at all. Both are the RUNTIME's refusal,
@@ -247,7 +247,7 @@
               :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — the escape's Component slot is empty. "
                   "Opacity is not the answer: there is nothing for React to "
-                  "interpret, so `:assert-it-at-l3` sends the programmer to "
+                  "interpret, so a pointer to L3 sends the programmer to "
                   "mount a form that cannot mount.")}
 
    {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
@@ -283,25 +283,26 @@
                   "opacity is the kit's claim to make, and the rows above show "
                   "what it looks like when a refusal is the runtime's instead.")}
 
-   {:case    "an unforced `delay` child carries the runtime's id AND its recovery"
+   {:case    "an unforced `delay` child carries the runtime's id AND its reason"
     :form    [:div (delay [:p])]
     :subject (delay [:p])
     :runtime [:deferred]
     :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
               :where       're-frame.hicasso.test}
-    :why     (str "THE ROW THE RECOVERY COLUMN EXISTS FOR (rf2-tsdik, after "
-                  "rf2-llps1). The kit borrows the RUNTIME's id here, and the "
-                  "runtime's recovery has to come with it: opacity is honest "
+    :why     (str "THE ROW rf2-tsdik EXISTS FOR (after rf2-llps1). The kit "
+                  "borrows the RUNTIME's id here, and the runtime's reason has "
+                  "to come with it: opacity is honest "
                   "only where the runtime CAN read a form, and the `:runtime` "
                   "column says it cannot read this one — an unforced `delay` "
                   "crosses a native child position untouched, so the refusal "
                   "waiting for the author is the crossing's, not React's. The "
-                  "kit answered this id with `:assert-it-at-l3` for a release, "
+                  "kit answered this id with a pointer to L3 for a release, "
                   "which pointed at a tier where the identical refusal waits, "
                   "and a document gate (R10) had to be the thing that noticed "
                   "— because the only test over the path asserted the id "
-                  "ALONE. `:where` is the KIT, on the `defhost` row's "
-                  "precedent: what is borrowed is the id and the advice, never "
+                  "ALONE. The advice rides in `:reason`, prose this table does "
+                  "not freeze; `:where` is the KIT, on the `defhost` row's "
+                  "precedent: what is borrowed is the id and the reason, never "
                   "the raising site.")}
 
    {:case    "an unforced `delay` in a BOUNDARY's PROPS — the row both sides refuse"
@@ -315,8 +316,9 @@
                   "crossing and will not force an author's explicit deferral, "
                   "so the props map is where the walk raises. Spec 009's row "
                   "for this id states that trigger in those words. The kit "
-                  "answered its own generic `:rf.error/ui-tree-malformed` with "
-                  "`:hoist-it-to-its-own-site` here for a release — strictly "
+                  "answered its own generic `:rf.error/ui-tree-malformed` here "
+                  "for a release, telling the author to hoist the delay to a "
+                  "site of its own — strictly "
                   "vaguer than the runtime at exactly the crossing the refusal "
                   "exists for, and advice with no exit, because the delay was "
                   "already at its own site. Same class as rf2-llps1, cases "
@@ -339,10 +341,11 @@
                   "refuses — a `Delay` is outside 004B's value grammar however "
                   "forced — but with its OWN id, which is the honest one: "
                   "nothing is waiting for this author at the crossing. Its "
-                  "RECOVERY is pinned too (rf2-6xhxu): this delay is at a prop "
-                  "of its own already, so `:hoist-it-to-its-own-site` pointed "
+                  "REASON matters too (rf2-6xhxu): this delay is at a prop "
+                  "of its own already, so telling the author to hoist it pointed "
                   "back at the form just written — a second advice-with-no-exit "
-                  "one row below the one the row above fixed.")}
+                  "one row below the one the row above fixed. The reason now "
+                  "names the two exits that work: a data value, or L3.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
     :form    [:svg {:view-box "0 0 1 1"}
@@ -373,10 +376,11 @@
     :why     (str "004B §The opaque marker — the marker occupies a SITE, never "
                   "a value inside one; a non-data value nested inside a "
                   "recorded value is rejected. A key is inside the value. The "
-                  "RECOVERY is the point of the row (rf2-6xhxu): a function is "
+                  "REASON is the point of the row (rf2-6xhxu): a function is "
                   "the ONE value with a site of its own to be hoisted to, "
                   "because the marker is waiting for it at a prop, so hoisting "
-                  "is a real exit here and stays the advice. Note what the "
+                  "is a real exit here and stays the advice the reason gives. "
+                  "Note what the "
                   "walk reports as this offender's `:path` — `[:data-x]`, "
                   "because a bad KEY is reported at the value it is a key OF. "
                   "Nested and top-level are indistinguishable by path even "
@@ -391,7 +395,7 @@
                   "`non-data` says so in: a set member has no position worth "
                   "naming, so the walk stops there and this offender's `:path` "
                   "is `[:data-x]`, exactly like a top-level one's. Two arms, "
-                  "two reasons, same consequence — which is why the recovery "
+                  "two causes, same consequence — which is why the reason "
                   "asks `(fn? offender)` and not `(seq path)`. Reading "
                   "NESTEDNESS off the path would deny hoisting to a function "
                   "that can in fact be hoisted.")}
@@ -405,10 +409,10 @@
                   "Clojure data that EDN print/read round-trips; §Attr value "
                   "normalization — a host object is rejected. THE ROW rf2-6xhxu "
                   "EXISTS FOR: this object is already the whole value of "
-                  "`:data-x`, so `:hoist-it-to-its-own-site` named the site it "
+                  "`:data-x`, so the hoist advice named the site it "
                   "was written at and an author following it could only write "
                   "the same form again. The `:runtime` column is what makes the "
-                  "L3 half of the new advice honest — React builds this element, "
+                  "L3 half of the reason's advice honest — React builds this element, "
                   "so a mounted DOM carries the attribute the tree cannot.")}
 
    {:case    "and NESTING a host object does not make it hoistable either"
@@ -421,7 +425,7 @@
                   "go: hoisted to `:data-y` this object meets the identical "
                   "refusal, because 004B's marker is for a FUNCTION and for "
                   "nothing else. The map-KEY row keeps "
-                  "`:hoist-it-to-its-own-site` on this very shape — a non-data "
+                  "the hoist advice on this very shape — a non-data "
                   "value one map deep inside `:data-x` — so the two rows differ "
                   "by the offending value and by nothing else.")}
 

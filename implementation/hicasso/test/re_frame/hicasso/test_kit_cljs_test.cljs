@@ -84,9 +84,10 @@
        (catch :default e {:refused (ex-data e) :message (ex-message e)})))
 
 (defn- refusal
-  "The four keys a refusal's identity is asserted on: the stable id, the
-  raising site, the actionable recovery, and whatever the row names as
-  its subject. `:reason` is prose and deliberately not frozen."
+  "The keys a refusal's identity is asserted on: the stable id, the
+  raising site, and whatever the row names as its subject. `:reason` is
+  prose and deliberately not frozen; `:recovery` is `:no-recovery` on
+  every throw, so it discriminates nothing and is not selected."
   [outcome' extra-keys]
   (some-> (:refused outcome')
           (select-keys (into [:rf.error/id :where] extra-keys))))
@@ -514,12 +515,14 @@
             an author's explicit deferral would change what their program
             means, which is the runtime's own ruling at a crossing.
 
-            THE WHOLE IDENTITY, not the id alone (rf2-tsdik). This assertion
+            THE IDENTITY, not the id alone (rf2-tsdik). This assertion
             read only `:rf.error/id` for a release, so the kit could and did
-            answer the runtime's id with its OWN opacity recovery,
-            `:assert-it-at-l3` — a pointer to a tier where the identical
-            refusal waits — and stayed green throughout (rf2-llps1). A
-            borrowed id brings the advice with it or it is not a borrowing."
+            answer the runtime's id with its OWN opacity reason — a pointer
+            to a tier where the identical refusal waits — and stayed green
+            throughout (rf2-llps1). The advice rides in `:reason`, which is
+            prose and not frozen here; what this pins is the id, borrowed
+            from the runtime, and `:where`, the kit's own — a borrowed id
+            brings the runtime's reason with it or it is not a borrowing."
     (is (= {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
             :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/tree [(fn [_] [:div (delay [:p])]) {}]))

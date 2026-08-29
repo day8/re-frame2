@@ -161,10 +161,10 @@
   `:rf.error/hicasso-empty-vector` and a malformed escape — `[:>]`,
   `[:> nil]`, `[:> :div]` — raises `:rf.error/hicasso-raw-no-component`
   or `:rf.error/hicasso-raw-not-a-component`, each carrying the runtime's
-  recovery rather than one of this namespace's. **Opacity is a claim
+  reason rather than one of this namespace's. **Opacity is a claim
   about a form L2 cannot read, and it is honest only where the runtime
-  CAN read it**: a second audit found `[:> :div]` answered
-  `:assert-it-at-l3`, which tells the programmer to mount, in a browser,
+  CAN read it**: a second audit found `[:> :div]` answered with a
+  pointer to L3, which tells the programmer to mount, in a browser,
   a form that will not mount anywhere.
 
   - A **nested body function** is refused: a plain function in head
@@ -180,25 +180,27 @@
     untouched are **opaque** and refuse with a pointer to L3. An
     unforced `delay` is NOT among them, for the reason a MALFORMED
     escape is not: Hicasso itself refuses it at a boundary crossing, so
-    it carries the runtime's id and the runtime's own recovery,
-    `:hand-a-function-or-deref-it-in-this-body`, rather than a pointer
-    to a tier where the identical refusal is waiting (rf2-llps1).
+    it carries the runtime's id and the runtime's own reason — hand a
+    function, or deref the delay in the body that wrote it — rather
+    than a pointer to a tier where the identical refusal is waiting
+    (rf2-llps1).
   - The same id at the position it is NAMED for: **an unforced `delay`
     reachable from a BOUNDARY's props**, which is the one form
     `codec/realize-deep` genuinely refuses rather than repairs and the
     trigger Spec 009's row states in those words. This walk answered its
-    own generic `:rf.error/ui-tree-malformed` with
-    `:hoist-it-to-its-own-site` there for a release — vaguer than the
+    own generic `:rf.error/ui-tree-malformed` there for a release, telling
+    the author to hoist the value to a site of its own — vaguer than the
     runtime at exactly the crossing the refusal exists for, and advice
     with no exit, since a delay written at a prop site is already at its
     own site (rf2-dr0ad). At a NATIVE attribute the runtime refuses
     nothing, so the generic id stays: see [[opaque-prop]].
-  - **The generic arm's own recovery splits on the same reasoning**
-    (rf2-6xhxu). `:hoist-it-to-its-own-site` is kept for the one value
+  - **The generic arm's own reason splits on the same reasoning**
+    (rf2-6xhxu). \"Give it a prop of its own\" is kept for the one value
     that has a site of its own to be hoisted TO — a **function**, which
     the opaque marker is for. Every other non-data value is refused at a
-    prop of its own exactly as it was where it stood, so the advice is
-    the pair that actually works: `:hand-a-data-value-or-assert-it-at-l3`.
+    prop of its own exactly as it was where it stood, so its reason names
+    the pair that actually works: give the site a data value, or assert
+    the real one at L3.
 
   ### Subs
 
@@ -780,14 +782,14 @@
   site, and a marker written there would claim one that does not exist
   and silently replace a value the author will go looking for.
 
-  **The generic refusal's RECOVERY turns on whether the offending value
+  **The generic refusal's REASON turns on whether the offending value
   has a site of its own anywhere in the tree, and exactly one kind of
   value does: a FUNCTION** (rf2-6xhxu). Hoisting a nested function to a
   prop of its own is a real exit, because the marker is waiting for it
   there. Hoisting a host object, a record, a `Delay`, a queue or `##NaN`
   is not: the tree refuses it at the new site for the same reason it
-  refused it at the old one, so `:hoist-it-to-its-own-site` would send
-  an author round a loop back to the form they just wrote. Those values
+  refused it at the old one, so telling the author to hoist it would send
+  them round a loop back to the form they just wrote. Those values
   are told the two things that DO work — give the site a value an EDN
   reader takes back, or assert the real one at L3, where a mounted DOM
   carries it and no value grammar applies.
@@ -800,7 +802,7 @@
   [[non-data]] reports at the value it is a key of — so `(seq path)`
   would deny hoisting to a function that can in fact be hoisted, at both
   of them. Asking which value it IS answers every position, and is the
-  question the recovery is actually about.
+  question the reason is actually about.
 
   `site` is `:crossing` for a BOUNDARY's props map and `:attr` for a
   native element's attributes and handlers, and the two differ over
@@ -809,7 +811,7 @@
   reachable from them (`:rf.error/hicasso-deferred-read-at-boundary`,
   Spec 009) rather than forcing an author's explicit deferral. A native
   attribute is not walked and the runtime refuses nothing there. So the
-  crossing borrows the runtime's id and the runtime's recovery, and the
+  crossing borrows the runtime's id and the runtime's reason, and the
   attribute keeps this namespace's own — the rule §Children already
   states for a child, applied at the position the id is NAMED for
   (rf2-dr0ad).
@@ -1147,9 +1149,9 @@
     :foreign
     (if (delay? x)
       ;; The RUNTIME refuses this one, so it is refused here with the
-      ;; runtime's id AND the runtime's recovery — not with this
+      ;; runtime's id AND the runtime's reason — not with this
       ;; namespace's opacity. Opacity is honest only where the runtime CAN
-      ;; read the form; `:assert-it-at-l3` would send the programmer to
+      ;; read the form; a pointer to L3 would send the programmer to
       ;; mount, in a browser, a crossing where the same refusal is waiting.
       (refuse! :rf.error/hicasso-deferred-read-at-boundary
                (str "an unforced `delay` reached a boundary crossing. "

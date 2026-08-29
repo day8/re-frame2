@@ -75,8 +75,8 @@ bill.
 
 Two of those rows are refusals rather than conventions. The test kit raises
 `:rf.error/hicasso-test-host-is-opaque` and
-`:rf.error/hicasso-test-react-is-opaque` at L2, both recovering with
-`:assert-it-at-l3`, so the boundary is enforced rather than documented
+`:rf.error/hicasso-test-react-is-opaque` at L2, each pointing at L3 in its
+`:reason`, so the boundary is enforced rather than documented
 ([Testing](15-testing.md#l2-refuses-react-only-behaviour)). Every id on this
 page is indexed in [Troubleshooting](troubleshooting.md#the-complaint-index).
 
