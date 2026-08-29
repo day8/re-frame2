@@ -12,7 +12,7 @@
 
   Two clauses, and each needs a different instrument. *Material problem*
   is a COUNT — how often a memoized foreign child's body runs while its
-  parent re-renders — and section 1 is a grid of nine carriers against
+  parent re-renders — and section 1 is a grid of eight carriers against
   that one number. *Safe across abandonment, reincarnation and teardown*
   is a ROUTING claim, and sections 3–6 drive a callback the vendor
   stashed at mount through all three.
@@ -42,18 +42,17 @@
   answer, which is what makes the grid decidable rather than a matter of
   degree.
 
-  Four of the nine carriers are CONTROLS, and they are why the grid can
+  Three of the eight carriers are CONTROLS, and they are why the grid can
   fail:
 
   - `:absent` — no callback at all. If this were not 1 the memo would not
     be memoizing and every other row would be meaningless.
   - `:plain-fn` — an ordinary unmarked function, hoisted out of every
-    render. `lower-declared-prop` claims no unmarked fn at any contract
-    and `host-prop-value` crosses functions by identity, so this row
-    proves identity stability is REACHABLE at this edge today.
-  - `:handler` — the same hoisted `h/event` at a `defhost` `:handler`
-    declaration, where the contract hands the function through by
-    identity.
+    render. `lower-prop` claims no unmarked fn at any position and
+    `host-prop-value` crosses functions by identity, so this row proves
+    identity stability is REACHABLE at this edge today. (A `:handler` row
+    sat beside it until rf2-6c12m.24 retired that contract: it declared
+    the passthrough this row already measures.)
   - `:native-stable` — `n/use-frame` plus React's own `useCallback`
     inside an `n/defcomponent` island: the one carrier that is BOTH
     identity-stable and dispatching.
@@ -184,16 +183,7 @@
   straight to the foreign component, so it changes what is compared not
   at all — it re-renders with its parent and the memo below it decides
   for itself."
-  sink
-  {:callbacks {:on-ping :event}})
-
-(h/defhost sink-handler
-  "The SAME vendor at the `:handler` contract, which passes an `h/event`
-  through by identity. One declaration apart from the row above, so the
-  grid's `:handler` row differs from its `:event-hoisted` row in the
-  declaration and in nothing else."
-  sink
-  {:callbacks {:on-ping :handler}})
+  sink)
 
 ;; ---------------------------------------------------------------------------
 ;; The carriers that are hoisted out of every render
@@ -218,7 +208,7 @@
   (h/event [& _] (swap! !plain-calls inc) [::ping :hoisted]))
 
 ;; ---------------------------------------------------------------------------
-;; The interpreted parent — one boundary, one read, nine carriers
+;; The interpreted parent — one boundary, one read, eight carriers
 ;; ---------------------------------------------------------------------------
 
 (h/defview host-parent
@@ -233,7 +223,6 @@
      (case arm
        :absent        [sink-event   {:label "s"}]
        :plain-fn      [sink-event   {:label "s" :on-ping plain-ping}]
-       :handler       [sink-handler {:label "s" :on-ping hoisted-event}]
        :intent-vector [sink-event   {:label "s" :on-ping [::ping :vector]}]
        :event-inline  [sink-event   {:label "s" :on-ping (h/event [& _] [::ping :inline])}]
        :event-hoisted [sink-event   {:label "s" :on-ping hoisted-event}]
@@ -370,7 +359,6 @@
   a literal, so the table cannot drift from what [[ticks]] says."
   [[:absent        [host-parent {:arm :absent}]        :bails]
    [:plain-fn      [host-parent {:arm :plain-fn}]      :bails]
-   [:handler       [host-parent {:arm :handler}]       :bails]
    [:native-stable [stable-parent {}]                  :bails]
    [:intent-vector [host-parent {:arm :intent-vector}] :re-renders]
    [:event-inline  [host-parent {:arm :event-inline}]  :re-renders]
@@ -445,7 +433,7 @@
       (testing "the identity-stable carriers hand it the SAME function every
                 render, so the bail-out above is `Object.is` answering true
                 rather than React skipping a render for some other reason"
-        (doseq [arm [:plain-fn :handler]]
+        (doseq [arm [:plain-fn]]
           (fresh!)
           (let [handle (mount/root! (mount/fresh-container!) frame-id
                                     [host-parent {:arm arm}])]

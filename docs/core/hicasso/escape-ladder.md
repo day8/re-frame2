@@ -70,8 +70,8 @@ bill.
 | --- | --- | --- | --- | --- |
 | Performance rung 2 | unchanged | unchanged | unchanged | unchanged |
 | Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame (h/hframe))` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
-| A declared host | the crossing is opaque to L2; assert it at L3 | Xray names and times the crossing, not its interior | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | declared `:event` callbacks carry the frame; a plain function does not |
-| The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | nothing is claimed; an event vector at an `on*` prop is refused rather than passed as data |
+| A declared host | the crossing is opaque to L2; assert it at L3 | Xray names and times the crossing, not its interior | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | an `h/event` or intent vector at an `on*` prop carries the frame; a plain function does not |
+| The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | contracts are inferred from the spelling as on a declared host; there is no override and no slot |
 
 Two of those rows are refusals rather than conventions. The test kit raises
 `:rf.error/hicasso-test-host-is-opaque` and
@@ -145,8 +145,9 @@ Judge it on the questions that do apply:
 
 - Is the crossing **declared**, so it is validated once and named to the tools?
 - Does every value that drives the component arrive on its **own props**?
-- Does each callback carry an explicit **contract** — `:event`, `:handler`, or
-  `:render` — rather than being inferred from an `on*` name?
+- Does each callback's inferred **contract** match the library — in
+  particular, is any on*-named prop really a render prop, which needs a
+  `{:callbacks {… :render}}` override?
 - Does the declaration state a **server policy** you meant, rather than
   inheriting Client-only by omission?
 - If the component acquires anything, does something **release** it?

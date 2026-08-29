@@ -1006,13 +1006,14 @@
                             "Decide whether this handler was ever meant to run."))
                 (entry :intent-needs-a-declaration :refused
                        {:prop ktext :value (str/trim (n/string v))}
-                       (str "MIGRATION BLOCKER, and the one place Hicasso refuses something "
-                            "Reagent accepted. `host-entry` refuses an intent vector or key-map at "
-                            "an event-spelled prop the declaration does not name, and a `[:>]` "
-                            "crossing declares nothing — so this site will THROW at render. Know "
-                            "first that it never fired under Reagent either: it crossed as an "
-                            "inert array. Either declare the crossing with `defhost` and name "
-                            "this prop in `:callbacks`, or hand it a plain function."))))
+                       (str "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an "
+                            "inert array and never fired. Hicasso infers the contract from the "
+                            "spelling at a `[:>]` crossing exactly as at a native tag, so the "
+                            "same form now LOWERS to a dispatching handler. Decide two things: "
+                            "whether this handler was ever meant to run, and whether the prop is "
+                            "an event position at all — a vendor's on*-named RENDER prop (Fluent's "
+                            "`onRenderCell`, Ant's `onRow`) needs a declared host with "
+                            "`{:callbacks {… :render}}`, or a plain function."))))
 
          ;; ---- W4 (§4.4), amended by (A) ---------------------------------------
          (reagent-call? v 'partial ctx)

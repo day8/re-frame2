@@ -1,15 +1,15 @@
 # Interop
 
-Use `h/defhost` to give a foreign React component a named, testable boundary
-with explicit callback, slot, and server contracts.
+Use `h/defhost` to give a foreign React component a named, testable boundary,
+with its slot and server policy declared once and its callbacks inferred
+exactly as on a native tag.
 
 ```clojure
 (ns app.hosts.date-picker
   (:require [re-frame.hicasso :as h]
             ["react-datepicker" :default DatePicker]))
 
-(h/defhost date-picker DatePicker
-  {:callbacks {:on-change :event}})
+(h/defhost date-picker DatePicker)
 ```
 
 ```clojure
@@ -43,7 +43,7 @@ Declare a host at namespace top level, never during rendering.
 | Prop values | pass by identity; nested maps and collections are not deeply converted |
 | HTML-like attribute slots | class/id/role/data/ARIA values use native-attribute coercion; Hicasso class collections are joined |
 | Children | Hiccup is converted where it was authored |
-| Declared callbacks | use the callback contract below |
+| Callbacks | contract inferred from the prop's spelling, as on a native tag — see below |
 | Declared slots | Hiccup becomes React elements under the captured frame |
 | Server | Client-only unless the declaration says `:server :render` |
 
@@ -54,32 +54,33 @@ data model.
 
 The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`.
 `:rf.error/hicasso-host-unknown-option` reports an unknown option. Declaration
-also fails for malformed callback contracts, contracts on `:key` or `:ref`,
-duplicate prop spellings that normalize to one slot, or a component that
-resolved to `nil` — often a mistaken `:default` import. These errors point to
-the declaration rather than a later mount.
+also fails for a `:callbacks` value outside `:event` and `:render`, a malformed
+`:slots` set, or a component that resolved to `nil` — often a mistaken
+`:default` import. These errors point to the declaration rather than a later
+mount.
 
 ## Callback contracts
 
-Declare each callback as `:event`, `:handler`, or `:render`. Hicasso never
-infers a contract from an `on*` name.
+Hicasso infers a callback's contract from the prop's spelling, exactly as it
+does on a native tag. An `on*` prop is an **event** position; any other prop
+that receives `h/event` is a **render** position; a plain function crosses
+untouched anywhere. No declaration is needed for the usual case:
 
 ```clojure
-(h/defhost picker Widget
-  {:callbacks {:on-pick       :event
-               :on-imperative :handler
-               :on-render-row :render}})
+(h/defhost date-picker DatePicker)
+(h/defhost virtual-list VirtualList)
 ```
 
-### `:event`
+### Event positions
 
-An event callback accepts an intent vector or `h/event`. The foreign component
-passes its own arguments in its documented order. Use `h/event` for a
+An `on*` prop accepts an intent vector, a key map, or `h/event`. The foreign
+component passes its own arguments in its documented order. Use `h/event` for a
 value-first callback such as `onChange(date)`:
 
 ```clojure
-(h/event [date _event]
-  [:task/set-due date])
+[date-picker {:selected  due-date
+              :on-change (h/event [date _event]
+                           [:task/set-due date])}]
 ```
 
 A bare intent with no marker is valid even when no DOM event exists because it
@@ -87,16 +88,10 @@ does not inspect callback arguments. A marker-bearing intent remains
 event-first; if argument one is not a DOM event, Hicasso raises
 `:rf.error/hicasso-intent-needs-the-event` and points to `h/event`.
 
-### `:handler`
+### Render positions
 
-A handler function passes through by identity. The foreign component receives
-the exact function and receives its return value. Use this contract for
-imperative callback APIs such as `open`, `scrollTo`, or a predicate.
-
-### `:render`
-
-A render callback runs during the foreign component's React render. It must be
-pure and must return a React element, not raw Hiccup:
+A callback at any other prop runs during the foreign component's React render.
+It must be pure and must return a React element, not raw Hiccup:
 
 ```clojure
 [virtual-list
@@ -113,15 +108,30 @@ view's frame, so event vectors inside that result later dispatch to the correct
 frame. The callback itself is pure: its return is the render output, and
 nothing is dispatched while it runs.
 
-A plain function is legal under any callback contract and passes through
-without a wrapper. It is enough when the callback returns a Hicasso view head
-whose frame is resolved where React renders it. If the callback's raw Hiccup
-contains event vectors, use `h/event`; otherwise conversion has no captured
-frame and raises `:rf.error/hicasso-intent-outside-boundary`.
+A plain function is legal at any position and passes through without a wrapper.
+It is enough when the callback returns a Hicasso view head whose frame is
+resolved where React renders it. If the callback's raw Hiccup contains event
+vectors, use `h/event`; otherwise conversion has no captured frame and raises
+`:rf.error/hicasso-intent-outside-boundary`. There is no separate "handler"
+contract to declare: a plain function is that contract.
 
-The declared contract always wins. Supplying an intent or key map to a
-`:handler` or `:render` position raises
-`:rf.error/hicasso-intent-at-a-non-event-contract`.
+### Overriding the spelling
+
+Some libraries name render props `on*`. Fluent UI's `onRenderItem`,
+`onRenderCell` and `onRenderHeader` return UI; Ant Design's `onRow` and `onCell`
+return props maps, and `onFilter` returns a boolean. The event wrapper returns
+`nil`, so an `h/event` at one of those props would blank the list silently.
+Declare the override once, on the host:
+
+```clojure
+(h/defhost details-list DetailsList
+  {:callbacks {:on-render-item :render}})
+```
+
+`:callbacks` takes `:event` or `:render` and nothing else, and a declared
+contract outranks the spelling. Any other value is refused at the declaration
+with `:rf.error/hicasso-unknown-callback-contract`. Write the override only
+where the spelling is wrong; the usual case needs none.
 
 ## ReactNode slots
 
@@ -129,8 +139,7 @@ Declare props whose values are markup positions:
 
 ```clojure
 (h/defhost modal Modal
-  {:callbacks {:on-close :event}
-   :slots     #{:title :footer}})
+  {:slots #{:title :footer}})
 
 [modal
  {:on-close [:dialog/cancel]
@@ -159,8 +168,7 @@ application uses:
   (.-Provider theme-context)
   {:server :render})
 
-(h/defhost tabs Tabs
-  {:callbacks {:on-value-change :event}})
+(h/defhost tabs Tabs)
 (h/defhost tab-list (.-List Tabs))
 (h/defhost tab-trigger (.-Trigger Tabs))
 ```
@@ -236,16 +244,18 @@ Declare a component once it appears more than once. The raw escape loses:
 | Contract carried by `h/defhost` | Raw `[:>]` |
 | --- | --- |
 | authored name for tools | constant `"[:>]"` |
-| callback contracts | every prop is unclaimed |
+| a `:callbacks` override for an on*-named render prop | none; the spelling decides |
 | ReactNode slot declarations | Hiccup in props remains data |
 | selectable server policy and fallback | fixed Client-only with no direct fallback |
 | one declaration-time validation site | failures occur at each crossing |
 | quarantine of JS require in a host namespace | require remains in the view namespace |
 
-An event vector at an `on*` prop raises
-`:rf.error/hicasso-host-undeclared-callback`; an `h/event` at any raw escape
-prop raises `:rf.error/hicasso-host-unclaimed-callback`. Both direct the author
-to `h/defhost` rather than allowing an inert array or unbound callback.
+Callbacks are inferred from the spelling on a raw escape exactly as on a
+declared host: an intent vector or `h/event` at an `on*` prop dispatches into
+the writing view's frame, and `h/event` at any other prop is a frame-carrying
+render callback. What the escape cannot express is the override for an
+on*-named render prop and a ReactNode slot, where `h/event` is refused with
+`:rf.error/hicasso-host-unclaimed-callback`; both need `h/defhost`.
 
 A plain function still crosses by identity but carries no frame. Ambient
 `rf/dispatch` from that function later raises `:rf.error/no-frame-context`.
@@ -301,9 +311,9 @@ as a component.
 | --- | --- | --- |
 | A library ignores a keyword, CLJS map, or nested kebab key | Values pass by identity and nested values are not deeply converted | Supply the exact documented JS/string shape with `#js`, `clj->js`, or explicit strings |
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
-| React rejects an object returned by a render callback | Raw Hiccup crossed a `:render` contract | Return `h/as-element` |
-| `:rf.error/hicasso-intent-at-a-non-event-contract` | An intent or key map was supplied to a handler/render contract | Declare `:event` or supply the function/value the contract requires |
-| `:rf.error/hicasso-host-undeclared-callback` at `[:>]` | An event vector was placed in an unclaimed callback prop | Declare the host and callback contract |
+| React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
+| A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
+| `:rf.error/hicasso-unknown-callback-contract` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
 | A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Hicasso body or use a declared event callback |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
 | `:rf.error/hicasso-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |

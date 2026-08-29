@@ -112,12 +112,17 @@ a second API:
 
 | Position | Contract for `h/event` (and for an intent at that slot) |
 | --- | --- |
-| Native `:on-*` event prop | **event** — a returned vector is dispatched; other returns are ignored |
-| `defhost` `:callbacks` entry | As **declared** (`:event`, `:handler`, or `:render`) |
-| Other walked prop (for example a foreign render prop) | **render** — pure; return is output; dispatching inside is a loud error naming the position |
-| `defhost` prop with no callback claim, or a declared ReactNode slot | **none** — refused with `:rf.error/hicasso-host-unclaimed-callback` |
+| An `on*` prop — on a native tag, a `defhost` or a `[:>]` crossing alike | **event** — a returned vector is dispatched; other returns are ignored |
+| Any other walked prop (for example a foreign render prop) | **render** — pure; return is output; the wrapper carries the supplying view's frame, so intents inside the returned markup dispatch there |
 | `:ref` | React's own contract; not lowered by Hicasso |
 | Positions Hicasso does not walk | Plain function behaviour |
+
+The contract is inferred from the spelling at a host exactly as at a native
+tag. Two exceptions, both declared on the host: a `:callbacks` override,
+`{:callbacks {:on-render-item :render}}`, for a vendor's on*-named render
+prop; and a declared ReactNode `:slots` position, which is markup and refuses
+`h/event` with `:rf.error/hicasso-host-unclaimed-callback`. See
+[Interop](09-interop.md#callback-contracts).
 
 Rules that follow:
 
@@ -277,7 +282,6 @@ surface rather than a custom click handler.
 | `h/hframe` raises `:rf.error/hicasso-frame-outside-boundary` | No Hicasso render extent | Call it only inside a view body or a render callback that body supplied |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
-| A vector is rejected at a host callback | `:rf.error/hicasso-intent-at-a-non-event-contract` | That host position is not declared as an event contract; supply the value its declaration requires |
 | A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |
 
 ## When not to use an intent

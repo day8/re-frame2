@@ -748,20 +748,100 @@
             declares a contract on `className`; the row exists so the
             precedence is pinned rather than incidental — and a vector is
             the value that tells the two orders apart, because
-            `class-names` would quietly answer it \"a b\" where the
-            declaration refuses it."
+            `class-names` would quietly answer it \"a b\" where a `:render`
+            override leaves it a value that crosses as DATA."
     (let [declared (codec/mint-host! "ClassContractHost" a-foreign-component
-                                     {:callbacks {:class :handler}})]
-      (try
-        (codec/as-element [declared {:class ["a" "b"]}])
-        (is false "should have thrown")
-        (catch :default e
-          (is (= :rf.error/hicasso-intent-at-a-non-event-contract
-                 (:rf.error/id (ex-data e)))
-              "the declaration decided, not the slot")))))
+                                     {:callbacks {:class :render}})]
+      (is (array? (prop (codec/as-element [declared {:class ["a" "b"]}]) "className"))
+          "the declaration decided, not the slot")))
   (testing "and an undeclared host is unaffected — the same value at the
             same slot is an ordinary class collection"
     (is (= "a b" (host-prop :class ["a" "b"] "className")))))
+
+(deftest a-host-infers-the-contract-from-the-spelling-exactly-as-a-native-tag
+  ;; rf2-6c12m.2 — the declaration roster is gone. `host-entry`'s `:else`
+  ;; arm IS `intent/lower-prop`, the native walk's own classifier, so a
+  ;; host prop means what the same prop means on a native tag.
+  (let [!seen (atom [])
+        d     (fn [ev] (swap! !seen conj ev))]
+    (testing "an on*-spelled prop is an EVENT position with no declaration
+              at all: an h/event there dispatches its return"
+      (let [f (intent/with-frame d (fn [] (host-prop :on-pick (intent/callback (fn [x] [:row/pick x])) "onPick")))]
+        (f 1)
+        (is (= [[:row/pick 1]] @!seen))))
+    (testing "and so are the vector and key-map spellings, exactly as at a
+              native tag"
+      (reset! !seen [])
+      (let [f (intent/with-frame d (fn [] (host-prop :on-close [:dialog/cancel] "onClose")))]
+        (f #js {:target #js {}})
+        (is (= [[:dialog/cancel]] @!seen)))
+      (reset! !seen [])
+      (let [f (intent/with-frame d (fn [] (host-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
+        (f #js {:key "Enter" :isComposing false :target #js {}})
+        (is (= [[:go]] @!seen))))
+    (testing "any other prop is a RENDER position: the h/event takes the
+              render wrapper, which rebinds the supplying boundary's frame
+              and dispatch for the call, so a row it returns dispatches
+              into that frame when clicked — after the render extent has
+              unwound"
+      (reset! !seen [])
+      (let [render-row (intent/with-frame d
+                         (fn [] (host-prop :render-row
+                                           (intent/callback
+                                             (fn [i] (codec/as-element [:li {:on-click [:row/pick i]}])))
+                                           "renderRow")))
+            row        (render-row 9)]
+        (is (nil? intent/*dispatch*) "precondition: no ambient dispatch here")
+        (is (= "li" (.-type row)))
+        ((aget (.-props row) "onClick") #js {:target #js {}})
+        (is (= [[:row/pick 9]] @!seen))))
+    (testing "the on*-named RENDER prop is the one case the spelling gets
+              wrong — Fluent's onRenderItem, Ant's onRow — and the
+              `:callbacks` override is its one-line spelling: the render
+              wrapper rather than the event wrapper, so the returned row
+              is the render output (an event wrapper returns nil) and it
+              still dispatches on click"
+      (reset! !seen [])
+      (let [fluent    (codec/mint-host! "FluentList" a-foreign-component
+                                        {:callbacks {:on-render-item :render}})
+            render-fn (intent/with-frame d
+                        (fn [] (prop (codec/as-element
+                                       [fluent {:on-render-item
+                                                (intent/callback
+                                                  (fn [item] (codec/as-element [:li {:on-click [:row/pick item]}])))}])
+                                     "onRenderItem")))
+            row       (render-fn "x")]
+        (is (= "li" (.-type row)) "the render output came back")
+        ((aget (.-props row) "onClick") #js {:target #js {}})
+        (is (= [[:row/pick "x"]] @!seen))))
+    (testing "an override may also say :event where the spelling infers
+              render, and the vector spelling then lowers as at a native
+              event position"
+      (reset! !seen [])
+      (let [h (codec/mint-host! "PickHost" a-foreign-component {:callbacks {:pick :event}})
+            f (intent/with-frame d (fn [] (prop (codec/as-element [h {:pick [:row/pick 2]}]) "pick")))]
+        (f #js {:target #js {}})
+        (is (= [[:row/pick 2]] @!seen))))
+    (testing "a PLAIN function crosses by identity at an event position and
+              at a render position alike — there is no third contract,
+              because this is what :handler named"
+      (let [f (fn [_] :whatever)]
+        (is (identical? f (host-prop :on-pick f "onPick")))
+        (is (identical? f (host-prop :render-row f "renderRow")))))
+    (testing "a vector at an inferred render position crosses as DATA, as
+              at a native tag; so does one at a declared :render override"
+      (is (array? (host-prop :columns ["a" "b"] "columns")))
+      (let [h (codec/mint-host! "ColumnsHost" a-foreign-component {:callbacks {:render-row :render}})]
+        (is (array? (prop (codec/as-element [h {:render-row ["a" "b"]}]) "renderRow")))))
+    (testing "and a contract outside the two is a bad declaration, refused
+              at mint where the author's stack is the declaration"
+      (let [data (try (codec/mint-host! "HandlerHost" a-foreign-component
+                                        {:callbacks {:on-pick :handler}})
+                      nil
+                      (catch :default e (ex-data e)))]
+        (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id data))
+            ":handler is retired; a plain function is what it named")
+        (is (= :declare-event-or-render (:recovery data)))))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
   (testing "functions by identity — `React.memo` and every downstream
@@ -966,34 +1046,39 @@
     (is (not (contains? (set (js/Object.keys (raw-props (codec/as-element [:> a-foreign-component {}]))))
                         "children")))))
 
-(deftest the-escape-takes-the-doors-unclaimed-slot-conduct-exactly
-  (testing "every slot at this crossing is UNCLAIMED — the roster is
-            empty by construction — so the escape inherits `host-entry`'s
+(deftest the-escape-infers-every-contract-exactly-as-the-door-does
+  (testing "the escape's roster is EMPTY by construction, so every slot at
+            this crossing is INFERRED from its spelling — `host-entry`'s
             conduct with no branch of its own. That is what makes
-            `[:> X …]` → `(h/defhost x X {})` behaviour-preserving, which
-            is the whole theorem of the migration codemod"
-    (testing "an intent vector at an event-SPELLED slot refuses loudly"
-      (try
-        (codec/as-element [:> a-foreign-component {:on-pick [:boom]}])
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-host-undeclared-callback (:rf.error/id d)))
-            (is (= :on-pick (:position d)))
-            (is (= "[:>]" (:host d)) "the crossing names the form the author wrote")
-            (is (= #{} (:declared d)) "against an empty roster")))))
+            `[:> X …]` → `(h/defhost x X)` behaviour-preserving, which is
+            the whole theorem of the migration codemod"
+    (testing "an intent vector at an event-SPELLED slot lowers to a
+              dispatching handler, exactly as at a native tag"
+      (let [!seen (atom [])
+            f     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                     (fn [] (raw-prop :on-pick [:row/pick 7] "onPick")))]
+        (is (fn? f))
+        (f #js {:target #js {}})
+        (is (= [[:row/pick 7]] @!seen))))
     (testing "and so does an event-spelled key-map"
-      (is (= :rf.error/hicasso-host-undeclared-callback
-             (error-id #(codec/as-element [:> a-foreign-component {:on-key-down {"Enter" [:boom]}}])))))
-    (testing "a MARKED h/event at any slot refuses — rf2-2rtt6.116's ruling,
-              inherited rather than forked. The mark asks the position for
-              a contract and here no position can ever select one"
-      (let [marked (intent/callback (fn [x] [:row/pick x]))]
-        (is (= :rf.error/hicasso-host-unclaimed-callback
-               (error-id #(codec/as-element [:> a-foreign-component {:on-value-change marked}]))))
-        (is (= :rf.error/hicasso-host-unclaimed-callback
-               (error-id #(codec/as-element [:> a-foreign-component {:row-formatter marked}])))
-            "the mark is the trigger, never the on* spelling")))
+      (let [!seen (atom [])
+            f     (intent/with-frame (fn [ev] (swap! !seen conj ev))
+                                     (fn [] (raw-prop :on-key-down {"Enter" [:go]} "onKeyDown")))]
+        (f #js {:key "Enter" :isComposing false :target #js {}})
+        (is (= [[:go]] @!seen))))
+    (testing "a MARKED h/event at an on* slot takes the event wrapper and
+              dispatches its return; at any other slot it takes the render
+              wrapper, whose return crosses back as the render output —
+              the spelling selects the contract, never a declaration"
+      (let [!seen  (atom [])
+            d      (fn [ev] (swap! !seen conj ev))
+            marked (intent/callback (fn [x] [:row/pick x]))
+            on     (intent/with-frame d (fn [] (raw-prop :on-value-change marked "onValueChange")))
+            row    (intent/with-frame d (fn [] (raw-prop :row-formatter marked "rowFormatter")))]
+        (on 3)
+        (is (= [[:row/pick 3]] @!seen) "the event wrapper dispatched")
+        (is (= [:row/pick 4] (row 4)) "the render wrapper returned the value")
+        (is (= [[:row/pick 3]] @!seen) "and dispatched nothing")))
     (testing "a PLAIN function crosses by identity — the fence, and the
               reason React.memo and every downstream bail-out that
               compares handler identity keep working"
