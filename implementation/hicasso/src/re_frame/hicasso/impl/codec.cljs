@@ -1675,31 +1675,14 @@
 
 (declare realize-deep)
 
-;; The two reducing functions are top-level vars rather than literals
-;; written at the reduce sites, and that is the whole of the walk's
-;; allocation story: a `(fn …)` written inside [[realize-deep]] would
-;; mint a fresh function object on every collection visited, and `run!`
-;; mints one of its own. Named here, the walk allocates nothing at all.
-
-;; A map entry is TWO reachable positions, not one. Skipping keys here on
-;; the argument that hashing a seq realises it, so nothing unrealised can
-;; already be a key, is wrong twice. A `delay` hashes by object identity (cljs.core extends
-;; `IHash` on `default` to `goog/getUid`), so hashing never forces one;
-;; and a small map literal is a `PersistentArrayMap`, which compares keys
-;; with `=` against the entries already accumulated and hashes nothing at
-;; all, so the first key of a one-entry map is never even compared. Both
-;; positions therefore go through the same walk.
-;;
-;; The `keyword?` short-circuit is not a special case, it is the same
-;; allocation-and-predicate accounting as the two named vars above, and
-;; it is worth as much. A `Keyword` is neither a collection nor a
-;; `Delay`, so [[realize-deep]] on one is a provable no-op — but proving
-;; it costs `coll?`, which for anything without the `ICollection` marker
-;; falls through to `native-satisfies?` and is the dearest predicate on
-;; the path. `keyword?` is one `instanceof`. Prop-map keys are keywords
-;; essentially always, and skipping the no-op for them is the difference
-;; between the key half costing +51–67% of the walk and costing almost
-;; nothing (table in [[realize-deep]]).
+;; The two reducing functions are named vars rather than literals at the
+;; reduce sites, so the walk allocates nothing per collection visited.
+;; A map entry is TWO reachable positions: a `delay` hashes by object
+;; identity and an array map compares keys with `=`, so neither hashing
+;; nor construction realises a key — the key half goes through the same
+;; walk. The `keyword?` short-circuit skips a provable no-op (a Keyword is
+;; neither a collection nor a Delay) because proving it costs `coll?`,
+;; the dearest predicate on the path; see `realize-deep`.
 (defn- realize-entry [_ k x]
   (when-not (keyword? k) (realize-deep k))
   (realize-deep x)
@@ -1707,23 +1690,12 @@
 (defn- realize-item  [_ x]   (realize-deep x) nil)
 
 (defn- refuse-deferred!
-  "The one thing the crossing walk **refuses** rather than repairs.
-
-  A `delay` is an author's explicit statement that a computation happens
-  *later*, and the codec may not overrule it: forcing it at the hand-off
-  would be the opposite of what a `delay` is for, and would change the
-  meaning of the author's program to protect a property the author has
-  not been told about. Refusing costs nothing and states the problem.
-
-  The refusal is raised **inside the render of the body that wrote the
-  `delay`**, because [[realize-deep]] runs at the crossing — so the stack
-  lands on the author's own call site rather than on the child that would
-  otherwise have been blamed. That is the attribution a query name would
-  have bought, obtained without forcing anything to learn the name.
-
-  Only an **unforced** delay is refused. One the author already deref'd
-  in their own body carries a computed value, derefs to it without
-  calling anything, and is harmless wherever it goes."
+  "Refuse an unforced `delay` at the boundary crossing
+  (`:rf.error/hicasso-deferred-read-at-boundary`). A `delay` is the
+  author's statement that a computation happens later, so the walk may
+  not force it; and the refusal is raised inside the render of the body
+  that wrote it, because `realize-deep` runs at the crossing, so the
+  stack names the author's call site rather than the child."
   [v]
   (fail! :rf.error/hicasso-deferred-read-at-boundary
          're-frame.hicasso.impl.codec/boundary-element
@@ -1740,130 +1712,26 @@
 
 (defn realize-deep
   "Force every lazy sequence reachable from `v`, refuse any unforced
-  `delay` reachable from it, and return **`v` itself, by identity**.
+  `delay` reachable from it (`refuse-deferred!`), and return `v` itself
+  by identity — realising a `LazySeq` caches into the seq, so nothing is
+  rebuilt or copied. Descends into collections only, both halves of a
+  map entry included; a mutable reference (an atom, a var) is not
+  descended into, which is a declared limit. A seq of unbounded length
+  diverges here rather than in the child, as `clj->js` already makes one
+  do at a native prop position.
 
-  ## Why a boundary needs this and a native tag does not
-
-  The codec is eager everywhere it walks, and that is what makes a `(sub
-  …)` inside a `for` an edge of the body that wrote it rather than a
-  silently missing one: `expand-seq` drives a child seq to exhaustion,
-  [[realize-children]] folds one into a vector, and [[convert-prop-value]]
-  sends any collection at a NATIVE prop position through `clj->js`.
-
-  A boundary prop is the one position where none of that happens.
-  [[boundary-element]] hands `body-props` across as a raw ClojureScript
-  map and the shell reads it back as one — no conversion, and so no
-  realisation. A lazy seq written in one body therefore arrives in
-  another body unrealised, and is forced *there*, inside a render that
-  did not write it. The runtime cannot refuse it — its render frame
-  answers *is any body running*, and one is — so the read is attributed
-  to the wrong boundary; and because a `LazySeq` caches, that boundary
-  re-renders exactly once, reads nothing the second time, and drops the
-  edges. The value is then correct on screen and frozen for the life of
-  the mount.
-
-  One walk at the hand-off closes it, and pays where the escape is: the
-  read is forced by the same pass that turns hiccup into elements, inside
-  the window of the body that wrote it.
-
-  ## What it costs, measured
-
-  Realising a `LazySeq` caches into the seq itself, so this **rebuilds
-  nothing and copies nothing** — every branch returns the argument it was
-  given, and with the two reducing functions named above the walk
-  allocates nothing either. The traversal is the whole of the work, and
-  the seq it forces was going to be walked anyway, one boundary later.
-
-  Clocked rather than asserted (`:none` build, Node 22, best of five
-  runs; the figures are a dev build's and are quoted for their ratios):
-
-  | Boundary props | walk | whole element build | share |
-  |---|---|---|---|
-  | `{:id :title :done?}` — the dogfood row | 69 ns | 1089 ns | **6%** |
-  | the same plus two hiccup children | 233 ns | 1344 ns | 17% |
-  | a 100-row collection prop | 13.5 µs | 15.1 µs | 89% |
-
-  The last row is the honest ceiling and it is the right one to compare
-  outwards rather than inwards: **the same 100-row collection at a
-  NATIVE prop position costs 70.7 µs**, because `clj->js` rebuilds it
-  into JavaScript. The position whose eagerness the structural claim
-  already rested on is 4.7x dearer than the position this walk repairs.
-
-  Maps are reduced with `reduce-kv` rather than over their entries, so
-  the walk allocates no `MapEntry`; **both** halves of an entry are
-  descended into, because a map entry is two reachable positions and the
-  invariant above is about reach, not about position. `coll?` is tested
-  before `map?` so a scalar — the overwhelming case — costs exactly one
-  predicate.
-
-  ### What the key half costs
-
-  Not nothing, and it was measured rather than assumed. Three walks
-  A/B/C'd in one process on an otherwise idle box, rounds interleaved,
-  best of seven per round, four whole repetitions. A is a value-only
-  walk that skips keys, B walks keys unconditionally, C is B with the
-  `keyword?` short-circuit above and is what ships.
-
-  **All three arms are written in the measuring namespace, including the
-  one that ships**, and that is not fussiness. Timing two local arms
-  against `realize-deep` itself compares an inline `(throw (ex-info …))`
-  with a call to [[refuse-deferred!]] as much as it compares anything
-  about keys, and it reported the shipping arm 9–20% *faster* than a
-  walk doing strictly less work — an impossible result, and the only
-  reason the confound was caught.
-
-  | shape | B vs A | C vs A |
-  |---|---|---|
-  | the dogfood row's props | +59%, +57%, +67%, +51% | +4%, +2%, +1%, +18% |
-  | the same plus two hiccup children | +28%, +20%, +20%, +24% | +7%, +3%, +0%, −2% |
-  | a 100-row collection prop | +56%, +40%, +47%, +49% | +7%, +1%, +2%, +3% |
-
-  Against the whole boundary element build, measured in the same process:
-  **B adds 7.6–9.9% of it, C adds 0.2–2.8%.** The unconditional walk is a
-  real cost at the shape that matters most, and one predicate removes it
-  — the dear part was never the traversal, it was proving that a keyword
-  is not a collection.
-
-  Two instruments, one denominator: the element build reads 1.08–1.16 µs
-  here, within a few percent of the 1,089 ns in the table above, while
-  the walk itself reads 148–177 ns against that table's 69 ns. They agree
-  on what an element costs and not on what the walk inside it costs, so
-  the rows above are quoted as ratios and the absolute figures are not
-  carried forward.
-
-  The 100-row collection prop is the honest ceiling, every element of it
-  a map and so every element two positions rather than one; it is still
-  the position whose eagerness costs far less than the NATIVE prop
-  position's `clj->js` beside it.
-
-  A seq of unbounded length at a boundary prop position now diverges here
-  rather than in the child. That is the same thing `clj->js` already does
-  to one at a native prop position, and it must be: a deferred read
-  cannot be both unbounded and attributable.
-
-  ## What it forces, and the one thing it refuses
-
-  A lazy sequence is **structure**, and structure is what a codec walk is
-  entitled to force: forcing it changes nothing an author could observe,
-  because the seq was going to be walked one boundary later regardless.
-  A `delay` is not structure. It is an explicit deferral, and the whole
-  of its meaning is *not now* — so the walk may not force it, and
-  [[refuse-deferred!]] says so instead. That is the entire difference
-  between the two carriers, and the reason one is repaired silently and
-  the other cannot be.
-
-  The check costs one `instanceof` per non-collection node, on the branch
-  that already exists for scalars, and it is never reached for anything
-  the walk descends into. `realized?` narrows it further: a `delay` the
-  author already deref'd in their own body is a computed value and passes
-  through.
-
-  **Its reach is the walk's reach, and no further.** The walk descends
-  into data structures; a *mutable reference* is not one, and is not
-  descended into. A deferral an author parks in an atom — or in a
-  module-level var the codec never sees — is outside what any structural
-  pass can reach, and is a declared limit rather than a repair this
-  function withheld."
+  Run once at the boundary hand-off (`boundary-element`), the one
+  position the eager codec's walk did not reach: a lazy seq that
+  crossed unrealised would be forced inside the child's render,
+  attributed to the child, and — because a `LazySeq` caches — frozen
+  after the child's first re-render. A lazy seq is structure and may be
+  forced; a `delay` is an explicit deferral and may not. Cost: 6% of the
+  dogfood row's element build, 89% at a 100-row collection prop and
+  still 4.7x cheaper than that collection's `clj->js` at a native prop;
+  walking keys unconditionally added 51–67% to the walk, the `keyword?`
+  short-circuit 0.2–2.8% of the element build
+  (docs/design/hicasso/studio/the-boundary-crossing-walk-priced.md).
+  Argument: docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md."
   [v]
   (if-not (coll? v)
     (if (and (delay? v) (not (realized? v)))
@@ -1993,25 +1861,16 @@
     (react/createElement (element-type head) js-props)))
 
 (def ^:private html-attr-slots
-  "The emitted slots at a FOREIGN crossing whose value is bound for an
-  HTML attribute wherever the component passes it on, and which therefore
-  has no representation but a string. `className`, `id` and `role` named
-  as SLOTS rather than as keys — `:class`, `:className` and `\"class\"`
-  are one position ([[canonical-slot]]), and a rule written against the
-  spelling is a rule the other spellings walk past. The `data-*` /
-  `aria-*` families join them by prefix;
-  [[re-frame.hicasso.impl.slot/prop-name]] leaves those two
-  uncamelCased, so the slot still carries the prefix to test.
-
-  The roster is this repo's own, not a guess: the `reagent-slim` adapter
-  narrows exactly this seam to this same set
-  (`adapters/reagent-slim/IMPL-SPEC.md` §7.2, `DESIGN-RATIONALE.md` §5)."
+  "The emitted slots at a foreign crossing whose value is bound for an
+  HTML attribute wherever the component passes it on, so has no
+  representation but a string; `data-*` and `aria-*` join them by prefix.
+  Named as SLOTS, not keys, so `:class`, `:className` and `\"class\"` are
+  one position. The roster is the one reagent-slim narrowed this seam to
+  (implementation/adapters/reagent-slim/IMPL-SPEC.md §7.2)."
   #{"className" "id" "role"})
 
 (defn- ^boolean html-attr-slot?
-  "Is `slot` one of the HTML-attribute positions? A non-string slot — the
-  key was neither keyword, symbol nor string, so [[cached-prop-name]]
-  answered it verbatim — is never one."
+  "Is `slot` an HTML-attribute position? A non-string slot never is."
   [slot]
   (and (string? slot)
        (or (contains? html-attr-slots slot)
@@ -2019,65 +1878,22 @@
            (str/starts-with? slot "aria-"))))
 
 (defn host-prop-value
-  "A host prop value, converted SHALLOWLY — HD-011's default — for the
-  emitted `slot` it is bound for. The top-level KEY is camelCased (that
-  is [[cached-prop-name]], applied by [[host-element]]'s walk); the VALUE
-  crosses with no renaming inside it: functions by identity (so
-  `React.memo` and every downstream bail-out that compares handler
-  identity keep working), collections through `clj->js` — whose nested
-  map keys keep the spelling the author wrote — and **a keyword or symbol
-  by identity, not by name**. A library expecting camelCase inside a
-  nested option map is handed exactly what the author typed, and the
-  guide's answer is to convert that one map yourself: deep conversion
-  guessing at which nested maps are options and which are data is the
-  documented support burden the shallow default deletes.
+  "A host prop value converted SHALLOWLY for the emitted `slot` — HD-011's
+  default. A function crosses by identity, so `React.memo` and every
+  handler-identity bail-out keep working; a collection through `clj->js`,
+  its nested map keys spelled as the author wrote them; a keyword or
+  symbol BY IDENTITY, except at an HTML-attribute slot (`html-attr-slot?`)
+  where it takes `(name v)`, the native walk's answer at the same names;
+  anything else as it stands. The caller (`host-entry`) camelCases the
+  top-level KEY; nothing inside the value is renamed. `className` never
+  arrives — the class slot takes `class-names` ahead of this function —
+  and stays on the roster so the answer is right if asked directly.
 
-  ## The named value crosses whole
-
-  Stock Reagent's rule — `(name v)` for every named value at every host
-  prop — is deliberately NOT taken: it silently deletes half of a
-  namespaced keyword's identity at the one crossing where that identity
-  is most often the point. Under it, `[provider {:value :theme/dark}]`
-  hands the
-  provider `\"dark\"`, `:other/dark` hands it `\"dark\"` too, and every
-  consumer below reads a plausible string that two distinct values
-  share. Nothing throws. A crossing that answers two inputs with one
-  output is not a conversion, it is a collision.
-
-  **The rule is the shallow default's own rule, applied one level up.**
-  The paragraph above already refuses to guess that a nested map was
-  meant as options; `(name v)` is the same guess about a keyword — that
-  the author meant a string — made silently, on the value the author
-  most often meant literally. The honest answer is the one the nested map
-  already gets: hand the library exactly what was typed. An author who
-  wants `\"contained\"` writes `\"contained\"`, or `(name :contained)`,
-  at the call site where the intent is legible.
-
-  **[[html-attr-slots]] is the one exception, and it is not a roster of
-  taste.** At `className`, `id`, `role`, `data-*` and `aria-*` the value
-  is bound for an HTML attribute, whose only representation is a string —
-  there is nothing to preserve it AS. So those keep `(name v)`, which is
-  also the answer the NATIVE walk gives at the same names
-  ([[convert-prop-value]]) and the answer the server serializer gives, so
-  the two crossings agree on every attribute both can carry.
-
-  **`className` never arrives here at all**.
-  [[host-entry]] takes the class slot ahead of this function and hands it
-  to [[class-names]], which is the coercion the native walk takes and the
-  only one that answers a COLLECTION correctly — the case the named-value
-  rule above can never reach, since a collection is not a named value.
-  The slot stays on the roster because the roster states which SLOTS are
-  bound for HTML attributes, which is true of `className` and is
-  what keeps this function's answer right if it is ever asked directly.
-
-  **No dev warning accompanies this**, and the omission is deliberate.
-  `reagent-slim` warns once per non-HTML keyword prop because it narrowed
-  the rule underneath an installed Reagent codebase and the warning is
-  that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
-  for the case we did not audit\"). Hicasso has no such codebase to
-  protect, and a keyword at a host prop is the CORRECT and taught
-  spelling of HD-011's flagship case — warning on the happy path is a
-  nag, not a diagnostic. The guide teaches the rule instead."
+  Stock Reagent's `(name v)` at every host prop is deliberately not
+  taken: it hands `:theme/dark` and `:other/dark` to a provider as one
+  string, silently, at the crossing where a namespaced identity is most
+  often the point. Ruling: docs/design/hicasso/decisions.md HD-011,
+  2026-08-30 addendum."
   [slot v]
   (cond
     (fn? v)                       v
