@@ -260,6 +260,22 @@ Hot-zone files — anything sequential, where two concurrent editors conflict by
 not edit. **A citation is not permission**: briefs routinely cite a specification section as
 context, and a worker can read that as licence to edit it.
 
+**But a gate that reconciles two surfaces couples them into ONE change, and sequencing those
+deadlocks.** The one-toucher rule reasons about files, and it is right about files. Some checkers,
+though, hold one surface against another in both directions — a catalogue against the emitters it
+lists, a schema against the fixtures that exercise it, a manifest against the modules it names — and
+under such a gate neither half is green alone: the change that deletes the emitters reds until the
+rows go, and the change that strikes the rows reds until the emitters go. Fence the two halves to
+two items and each waits on the other's merge. Measured here: one lane sat on exactly that hold for
+an hour, the first change red at three successive heads and the second never dispatched, with every
+fence correctly derived from files. Nothing in a file list shows it. **Ask what each nominated gate
+COMPARES**, and when two items hold the two sides of one comparison, brief both halves to one
+worker — or route the second half into the live change and re-scope the item that held it. Where a
+one-toucher file is held only for a region an item does not need yet, the fence can sit INSIDE the
+brief instead of in front of it: the worker does the unheld part first, takes the held file only on
+a trunk that already carries the holder's merge, and stops and reports if it reaches that point
+first.
+
 **The unit is the block, not the file.** Two items were dispatched into the same paragraph
 of one document because they were nominally different concerns. They conflicted, the second
 change could not merge, and by the time its worker was resumed the hygiene loop had already
@@ -902,6 +918,8 @@ moved most. In the dominant toolchain that is the three-dot form, `<TRUNK>...HEA
 
 - Back-compatibility shims by default → the stance is explicit in every preamble.
 - Same-file races between concurrent workers → in-flight surfaces enumerated.
+- Two halves of one gate-coupled invariant fenced to two items, each red until the other merges → ask what each
+  gate compares; one worker takes both halves, or the second is routed into the live change.
 - Edits leaking into the mayor checkout, especially silent new-file leaks → the boundary block plus a post-write check
   of both trees.
 - Cross-worktree contamination via stashes → the no-stash rule.
