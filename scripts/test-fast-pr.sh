@@ -1550,10 +1550,11 @@ if [ "$run_node" = true ]; then
   # surface — implementation/hicasso/** — which it was
   # copied from — both arm `cljs_node_test`.
   #
-  # FREEZE IS ONE OF THREE (rf2-ibje, hence the name).  The same npm script also
-  # runs the optional-module reachability check and the complaint-catalogue
-  # round trip — sibling static reads of the same artefact, each with its own
-  # `--self-test`, sharing this lane because they share its input surface.
+  # FREEZE IS ONE OF SEVERAL (rf2-ibje, hence the name).  The same npm script
+  # also runs the optional-module reachability check, the budget ledger, the
+  # facade inventory and the guide-samples check — sibling static reads of the
+  # same artefact, each with its own `--self-test`, sharing this lane because
+  # they share its input surface.  Read the roster off package.json.
   run "hicasso invariants gate" "cd implementation && npm run test:hicasso-invariants" \
     bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-invariants"
 

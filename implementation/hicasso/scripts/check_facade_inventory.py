@@ -126,8 +126,8 @@ ran this gate NOWHERE and next reddened on somebody else's source PR.
 rf2-ps7ia moved the inventory beside the artefact and the hole closed: the
 path now arms `cljs_node_test` like any other file under the package.
 `test.yml` keeps its UNCONDITIONAL job anyway -- the same routing, for the
-same reason, as `hicasso-complaint-catalogue` and `hicasso-budget-ledger`
-above it -- because `--self-test` re-asserts a live premise against
+same reason, as `hicasso-budget-ledger` above it -- because `--self-test`
+re-asserts a live premise against
 `docs/design/hicasso/product/specification.md`, which did NOT move and
 still arms nothing.
 

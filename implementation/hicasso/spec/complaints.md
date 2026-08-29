@@ -1,28 +1,28 @@
-# The complaint catalogue — Hicasso's diagnostic ids as public contract
+# The complaint catalogue — Hicasso's diagnostic ids
 
 Every refusal Hicasso raises carries a stable `:rf.error/…` id. That id is
 the thing a test asserts on, a tool branches on, an AI pair looks up and a
-consumer's error monitor groups by — so it is a published surface, and it
-is governed here.
+consumer's error monitor groups by — so it is a published surface.
 
-This file is the **register**: which ids exist, which spellings are claimed
-for refusals whose surface is not built yet, and which are dead forever. It
-deliberately does not restate what a complaint means or what it carries.
+This file is the **index**: one line per id the package raises, with the
+guide chapter that teaches how not to hit it. It deliberately does not
+restate what a complaint means or what it carries.
 
 ## Where each fact lives
 
 | Fact | Owner |
 |---|---|
 | What a complaint means, what it carries, its `:recovery` | `spec/009-Instrumentation.md`, §Hicasso and §Hicasso test kit |
-| Whether an id exists, is reserved, or is dead | this file |
+| Whether an id exists, and whether it is retired | the same Spec 009 rows: a row means the runtime raises it today; a struck-through row is the tombstone |
 | How to write the code so it never fires | the guide chapter each row names |
 | What a spelling should be called | [`naming-ledger.md`](naming-ledger.md), settled by the naming packet |
 
-One owner per fact, bound by id. `implementation/hicasso/scripts/check_complaint_catalogue.py`
-is what keeps the binding true: every live row is emitted by the package
-and rowed in Spec 009, every reservation is genuinely unbuilt, no id is
-live and reserved and retired at once, and every guide chapter a row cites
-names that id. Its header states the eight rules and why each exists.
+One owner per fact, bound by id. The repo-wide
+`scripts/check_keyword_catalogue_drift.py` is what keeps the binding true,
+for every `:rf.error/*` id in the repository and in both directions: an id
+the source emits with no Spec 009 row reds, an active row nothing emits
+reds, and an emitter that reintroduces a struck row reds. The chapter
+column below is hand-maintained.
 
 ## What every complaint carries
 
@@ -57,22 +57,12 @@ one (settled by `rf2-hic-007`; the promise itself is restated under
 
 ## The stability rule
 
-1. **An id never changes meaning.** If the refusal it names becomes a
-   different refusal, that is a new id and the old one retires.
-2. **An id never changes spelling.** A rename is a retirement plus a mint,
-   and both rows are written.
-3. **A retired id is tombstoned, never reused.** Its row stays below with
-   the reason, forever. A consumer's stored errors, a monitor's grouping
-   rule and a page of prose all outlive the code, and a reused spelling
-   makes every one of them silently wrong about which failure it saw.
-4. **A reserved id has no meaning yet beyond the sentence in its row.** It
-   claims a spelling so that the surface's builder does not mint a second
-   one and the guide does not have to be rewritten when it lands. Its
-   payload and its `:recovery` are settled by the bead that builds the
-   emitter, which writes the Spec 009 row in the same PR.
-
-Rules 3 and 4 are mechanised — a reserved or retired id that acquires an
-emitter reds the gate, and so does an id registered under two statuses.
+An id is stable: it names one refusal, and it is never re-spelled or reused.
+When a refusal goes, its id goes with it: the emitter is deleted and the
+Spec 009 row is struck through in place with the reason, the way that
+catalogue retires every other id. The struck row is what the drift gate
+reads, so an emitter that later reintroduces the spelling reds. The
+package's retired ids are listed there, not here.
 
 ## Live complaints
 
@@ -84,8 +74,6 @@ it yet).
 Three ids here are **corpus-owned** — Hicasso reuses a spelling the wider
 framework already defines rather than minting a private twin — and are
 rowed in Spec 009's main catalogue rather than in its Hicasso section.
-
-<!-- rf2-hic-021: status=live -->
 
 | Complaint | Raised when you | Taught in |
 |---|---|---|
@@ -159,59 +147,6 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 | `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
 | `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
 
-## Reserved spellings
-
-Each row names a refusal the design record already teaches by mechanism, on
-a surface that is not built yet. **A refusal with no id is invisible to a
-round trip** — nothing raises it and no catalogue carries it, so a raise-set
-and a catalogue-set agree while the coverage is entirely missing. Reserving
-the spelling is what makes that population countable, keeps two builders
-from minting two names for one refusal, and lets the guide cite an id today.
-
-A reservation is promoted, never drifted into: the bead that builds the
-surface writes the emitter, writes the Spec 009 row, and moves the row up
-into the live table in the same PR.
-
-<!-- rf2-hic-021: status=reserved -->
-
-| Reserved | Will refuse | Owner |
-|---|---|---|
-| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head | `defview` expansion. `re-frame.hicasso/direct-view-call` catches the static case today; this is the runtime half. Freehand's `:rf.error/view-called-directly` belongs to that substrate and is not shared |
-| `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running | the test kit's opacity family |
-| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once its L2 refusal covers native-tier elements as it already covers host and raw-React ones. The native tier landing does **not** promote this row — the emitter is the test kit's to write |
-| `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
-| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** `:rf.error/hicasso-route-link-prefetch-declined`, which is live today and retires under *Retiring later* below |
-
-## Retiring later
-
-An id that is live today and whose refusal the design record has already
-decided to remove. The row exists so the spelling is dead the moment the
-refusal is, rather than being quietly re-minted for the successor.
-
-<!-- rf2-hic-021: status=pending-retirement -->
-
-| Complaint | Retires when | Successor |
-|---|---|---|
-| `:rf.error/hicasso-route-link-prefetch-declined` | route links accept `:prefetch` instead of declining the key outright | `:rf.error/hicasso-route-link-bad-prefetch`, reserved above. The declined spelling is **never** reused for the wrong-value refusal: the two say different things — *this key does nothing here* against *this value is not one of the ones it takes* — and a monitor grouping by id would silently merge them |
-
-## Tombstones
-
-Spellings that are dead.
-
-<!-- rf2-hic-021: status=retired -->
-
-| Retired | Was | Why it is dead |
-|---|---|---|
-| `:rf.error/hicasso-test-residue-after-quiescence` | reserved for a raising clean-state assertion on the mounted test facade. Never minted and never raised, so no stored error, monitor grouping or page of prose carries it | The facade landed (rf2-hic-027) and deliberately reports instead: `assert-clean!` files residue through `cljs.test/do-report`, because residue is a **test failure** rather than a refusal of the instrument — a throw would make the tool that detects a leak indistinguishable from the tool breaking, and would abort the run at the first finding instead of reporting all of them. So the reservation named a refusal its own surface decided not to have. It is tombstoned rather than left standing because a reserved row claims *a surface that is not built yet*, which stopped being true, and no rule above catches a reservation whose surface shipped without it. A later refusal on that surface — a fixture that cannot establish a baseline at all — is a different refusal under rule 1 and mints its own spelling |
-| `:rf.error/hicasso-host-undeclared-callback` | raised when an intent vector or key-map arrived at an `on*`-spelled prop of a `defhost` or `[:>]` crossing that no declaration named | Retired 2026-08-29 (rf2-6c12m.24). A host's callback contract is now inferred from the prop's position exactly as a native tag's is, so the same carrier at the same prop lowers to a dispatching handler; the `:callbacks` map survives only as a two-value override for on*-named render props |
-| `:rf.error/hicasso-intent-at-a-non-event-contract` | raised at lowering by an intent vector or key-map at a position declared `:handler` or `:render` | Retired 2026-08-29 (rf2-6c12m.24) with the `:handler` contract. A vector or map at a render position, declared or inferred, crosses as data through the shallow conversion as it does at a native tag |
-| `:rf.error/hicasso-host-structural-callback` | raised at mint by a `:callbacks` entry declared on `key`/`ref` or on a name the crossing never emits | Retired 2026-08-29 (rf2-6c12m.24) with the declaration roster it validated. `:ref` still takes React's contract ahead of any override, and the reserved skip still sits above every declaration arm |
-| `:rf.error/hicasso-host-callback-slot-collision` | raised at mint when two `:callbacks` entries normalised to one canonical slot | Retired 2026-08-29 (rf2-6c12m.24) with the declaration roster. The override is written for one prop at a time, and the last spelling written wins as in any other map |
-| `:rf.error/hicasso-dispatch-in-render-position` | raised by a render callback that dispatched while it was running — an armed gate minted per invocation of every render prop | Retired 2026-08-29 (rf2-6c12m.20). The gate policed a case a programmer does not plausibly write and one React already warns on, at the price of a volatile, a closure and a three-var binding on every invocation of every render prop. The useful half of the wrapper — rebinding the supplying boundary's frame and dispatch for the call — stays; a handler lowered inside a callback with no owner raises `:rf.error/hicasso-intent-outside-boundary` as it always did. The frozen bench donor `front/intent.cljs` still carries the emitter, which is why the register gate's R3/R4 scan stops at the bench lane |
-| `:rf.error/hicasso-merge-not-a-map` | raised when the reserved `:&` attribute key carried something other than a map | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key itself. Naming-ledger row 2 ruled the key out of the grammar; the guide never taught it and no example, testbed or app used it. Forwarding a caller's attributes is an ordinary `merge` with the owned keys last, so there is no reserved key to carry a non-map. The frozen bench donor `front/codec.cljs` still carries the emitter |
-| `:rf.error/hicasso-revision-from-remainder` | raised when a `:&` remainder introduced `::h/revision` onto an element whose author had not written one | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key. With one map and no remainder there is no provenance to ask of the revision; it is read once off the element's map and never emitted. The frozen bench donor `front/codec.cljs` still carries the emitter |
-| `:rf.error/no-frame-prop` | raised by the frame-as-a-prop shell variant — the one-hook boundary that took its frame as the element prop `rfFrame` — when an element reached it with no frame | Retired 2026-08-29 (rf2-6c12m.16). The variant was a measurement hypothesis shipping in production: not exported, minted by nothing but four test files, and priced across the package (a marker and a prop write per boundary element, an `identical?` every context-fed boundary paid in the memo comparator, a second justification for the fallback refusal). It lives on in the bench tree's own copy of the runtime (`arm1/runtime.cljs`, which still carries this emitter) until it wins a measurement. It was also the one live id without the `hicasso-` prefix, recorded as found rather than corrected; the question is moot |
-
 ## Rulings this catalogue owns
 
 **Complaint text is built by `fail!`, not routed through `re-frame.error`.**
@@ -235,7 +170,7 @@ governs the id and nothing else in the row, and the division is a statement
 about what each slot IS rather than about how often either is read.
 `:rf.error/id` is the **discriminator**: the handle a stored error, a
 monitor's grouping rule and a test's assertion match on, which is the whole
-reason rule 3 keeps a dead one dead. `:recovery` is **concrete advice about
+reason a retired id's row is struck rather than deleted. `:recovery` is **concrete advice about
 a live API** — it names the fix in the words a programmer would type — so it
 tracks whatever API it points at, and is rewritten when that API is renamed.
 
@@ -252,7 +187,7 @@ type a word that no longer exists.
 **`:rf.error/hicasso-host-bad-ssr-policy` keeps its spelling too, and for the
 same reason.** `defhost`'s policy option settles as `:server` with a sibling
 `:fallback` (naming-ledger row 21, applied by rf2-mo4o), so this id names a key
-a caller no longer writes. Rule 1 is not triggered: the refusal means what it
+a caller no longer writes. The meaning has not changed: the refusal means what it
 always meant — *this declaration does not name a server policy the door can
 honour* — and it now covers one more way to fail that question, `:fallback`
 declared beside `:render`, which is the same fault rather than a different one.
@@ -269,10 +204,10 @@ and the roster changed.
 
 **`:rf.error/hicasso-test-bad-reads` keeps its spelling.** The L2 fixture
 option it polices settles as `:subs` (naming-ledger row 23), so the id names
-a key a caller no longer writes. That is not a rule-1 trigger: the refusal
+a key a caller no longer writes. That is not a change of meaning: the refusal
 means exactly what it always meant — *the fixture map was not a map from
-query vector to value* — and an id names the refusal, not the option. Under
-rule 2 the rename would buy one better word for a tombstone kept forever, a
+query vector to value* — and an id names the refusal, not the option. A
+rename would buy one better word at the price of a tombstone kept forever, a
 fresh spelling every consumer must re-learn, and two more Spec 009 rows.
 The current spelling belongs in the Trigger
 column and in the message, which is where a reader meets it. This id's own
@@ -285,8 +220,8 @@ name the key, so it moved with it: `:add-the-query-to-reads` is now
 the option — rf2-k855 established the shape and correctly declined to land
 half of it, and the rewrite arrived one bead later under rf2-6640, across
 the kit's source, its assertion and its Spec 009 row at once. Together,
-because nothing gates them: `check_complaint_catalogue.py` reconciles ids
-and `check_keyword_catalogue_drift.py` reconciles `:rf.error/*` ids, so a
+because nothing gates them: `check_keyword_catalogue_drift.py` reconciles
+`:rf.error/*` ids, so a
 recovery keyword that disagreed with what the runtime raises would be silent
 untracked drift rather than a red build.
 
