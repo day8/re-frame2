@@ -397,7 +397,7 @@
                                                     (some #(= ::price (:sub-id %))
                                                           (:reads r)))
                                                   (:boundaries projection)))]
-                    (is (= :mounted-boundaries (:scope projection)))
+                    (is (= :mounted-boundaries (:read projection)))
                     (is (some? row) "the projection names no read of ::price")
                     (is (= alpha (:frame row)))
                     (is (= alpha (:frame-id (first (:reads row)))))
