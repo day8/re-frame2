@@ -371,37 +371,21 @@
 (declare invalidate-cell!)
 
 (defn- wire-cell!
-  "Give `cell` a live subscription: subscribe, **activate**, establish the
-  baseline, arm the value-change watch, and arm the **disposal** hook. The
-  whole of a cell's attachment to the substrate, in one place, because it is
-  performed twice — once when the cell is born and once when the
-  substrate disposes the reaction out from under it.
+  "Give `cell` a live subscription: subscribe, activate, take the one
+  baseline deref, arm the value-change watch, and arm the disposal hook
+  that routes to `invalidate-cell!`. The whole of a cell's attachment to
+  the substrate in one place, because it is performed twice — at birth,
+  and again when the substrate disposes the reaction out from under it.
 
-  **Activation comes first, and it is not optional** — ACTIVATE, then
-  watch, then observe.
-  A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
-  built deliberately without `:auto-run`, and a Reaction learns its sources
-  only through `deref-capture`: a plain deref taken outside `*ratom-context*`
-  runs the body raw and leaves `watching` nil. The reaction is then not in
-  app-db's watcher set, so the watch below never fires, [[mark-dirty!]] never
-  fires — that watch is its only caller — and no write after the mount ever
-  becomes re-render work. Measured: the runtime painted once and was deaf
-  thereafter. `interop/activate-derived-value!` is the substrate's own op for
-  this and is a routed no-op on the React-hook spine, which wires one watch
-  per source at construction.
-
-  It runs BEFORE the watch so the activating run cannot fan a priming
-  notification, and before the baseline deref so that deref reads a settled
-  node — the activation left it clean, so the baseline recomputes nothing.
-
-  The disposal hook is the runtime's counterpart to the two axes
-  `commit-basis` cannot see, and it is deliberately an
-  *event* rather than a term in the epoch sum: the substrate already
-  tells us, exactly and only when it happens, and a term would have to be
-  read by every key on every snapshot to discover the same thing later.
-  It covers every transition that *disposes* — which is all of them but
-  one, and [[first-registration!]] carries the one it is not: a first
-  registration announces itself by registering, and disposes nothing."
+  Activate FIRST, then watch, then observe: under the ratom family a
+  reaction deref'd outside `*ratom-context*` watches nothing, so the
+  watch would never fire and the runtime would paint once and go deaf
+  (docs/design/hicasso/product/substrate-decision.md, the ratom-only
+  line; a routed no-op on the React-hook spine). The disposal hook is an
+  event rather than a term in the epoch sum because the substrate says
+  exactly when a held reaction dies, and it covers every transition that
+  disposes — `first-registration!` carries the one that does not
+  (docs/design/hicasso/architecture.md, section The collector)."
   [^js cell]
   (let [frame-kw (.-frameKw cell)
         query-v  (.-queryV cell)
@@ -418,69 +402,22 @@
     cell))
 
 (defn- invalidate-cell!
-  "**The repair for a cell whose reaction can no longer answer for its
-  key**. A cell holds its reaction for the life of every
-  boundary that reads the key — that is what makes a warm read a pure
-  deref — and three substrate transitions retire what it is holding:
+  "The repair for a cell whose reaction can no longer answer for its key
+  — after a `:sub` re-registration, a frame destruction (a same-id
+  reincarnation included), or a first registration reaching here through
+  `first-registration!`. Two phases: synchronously the reaction reference
+  is dropped, so `read-key!` takes the cold probe against the live
+  registration and frame from this instant on; at the microtask
+  checkpoint the attachment is rebuilt and the cell re-stamped and
+  notified, or disposed when the frame did not come back.
 
-  1. a `:sub` **re-registration**, which evicts the query's sub-cache
-     entry and disposes the reaction (`subs.cache/invalidate-sub-on-replace!`);
-  2. a **frame destruction**, whose teardown disposes the frame's cached
-     reactions — including across a same-id reincarnation;
-  3. a `:sub` **first registration**, which disposes nothing at all and
-     reaches here through [[first-registration!]] instead.
-
-  The first two leave the cell holding a container whose `-dispose` has
-  already run `(reset! watchers {})`, so the watch this runtime installed is
-  gone and `mark-dirty!` can never fire for that key again. Measured,
-  before this hook existed: the boundary read the RETIRED computation
-  forever and no later write notified it. That is why neither axis was
-  ever closable by adding a term to `getSnapshot` — the extra render a
-  moved number buys reads back through the same dead cell. The third
-  leaves it holding the substrate's nil-recovery, which was never wired
-  to anything, and is deaf for the same reason.
-
-  Two phases, and the split is what keeps this out of both re-entrant
-  windows. **Synchronously** the reaction reference is dropped, which is
-  all a correct read needs: [[read-key!]] treats a cell with no reaction
-  exactly as it treats a key with no cell and goes through
-  [[cold-read!]]'s probe, so every render from this instant on computes
-  against the new registration and the live frame. **At the microtask
-  checkpoint** the durable attachment is rebuilt, so later writes notify
-  again — deferred because this callback runs inside the registrar's
-  replacement hook, inside its registration hook and inside frame
-  teardown, and none of them is a place to subscribe. A frame that did
-  not come back has nothing to rebuild against, and the cell is disposed
-  instead.
-
-  **The deferral is a microtask, and that is a correctness requirement
-  rather than a preference**. Design law React 3 requires a
-  render/commit tear to be corrected *before visible paint*, and the
-  `mark-dirty!` below IS that correction: `commit-basis` ties across a
-  same-id reincarnation — the frame term restarts and neither of the
-  other two is a frame fact — so `getSnapshot` ties, React schedules
-  nothing at the instant the successor seats, and the committed fiber
-  goes on holding the predecessor's value until the rebuild moves the
-  number. A `setTimeout 0` here would hand the correction to a
-  LATER task, and the event loop is free to update the rendering between
-  tasks: the predecessor's value could reach the screen, and on a
-  tenant or account switch that is another tenant's data, briefly, with
-  no trace left by the time anyone looks. The microtask checkpoint
-  cannot be skipped that way. It drains before the same task's
-  update-the-rendering step, and it drains microtasks queued *while*
-  draining — which is how React's own microtask-scheduled sync-lane
-  flush for the `useSyncExternalStore` notification gets in — so the
-  rebuild, the re-stamp, the notification, and React's render and commit
-  all complete ahead of the next paint.
-
-  What it may not become is *no* deferral. Rewiring in-stack re-enters
-  the three hooks named above and was measured red; the unwound stack is
-  the whole of what the deferral buys, and the microtask checkpoint is
-  the earliest moment the stack is unwound. The narrowing that costs is
-  that the rewire window is the current checkpoint rather than a
-  whole task, so a successor seated in a LATER task finds the cell
-  disposed — and recovers, through [[cold-read!]]'s probe on the next
-  render, which is the same recovery a key that never had a cell gets."
+  Deferred because this runs inside the registrar's hooks and inside
+  frame teardown, none of which is a place to subscribe; a microtask and
+  never a macrotask, because the re-stamp is the render/commit tear's
+  correction and design law React 3 requires it before visible paint
+  (ruling rf2-2l17 on docs/design/hicasso/product/invariants.md, the
+  rf2-hic-013 record; the argument in
+  docs/design/hicasso/architecture.md, section The collector)."
   [^js cell]
   (when-not (.-disposed cell)
     (set! (.-reaction cell) nil)
@@ -504,53 +441,19 @@
   nil)
 
 (defn- first-registration!
-  "**The registry transition no disposal announces.**
-  `registrar/add-replacement-hook!` — the hook the
-  sub-cache eviction that [[invalidate-cell!]] rides is built on — fires
-  only when a previous handler existed. A *first* `reg-sub` for a query
-  therefore evicts nothing, disposes nothing, and would reach a runtime that
-  listened for disposals alone by no route whatsoever.
-
-  It has something to reach because a boundary can hold the miss. The
-  substrate is careful that it should not: a subscribe to an unregistered
-  query emits `:rf.error/no-such-sub`, recovers to a nil-yielding
-  reaction, and **deliberately does not cache it**, precisely so that a
-  later registration is observed by the next `subscribe`
-  (`subs/build-and-cache!*`). This runtime has exactly one property that
-  breaks that assumption — a cell holds its reaction for the life of
-  every boundary reading the key, and never subscribes again — so the
-  recovery the substrate declined to cache was cached anyway, in a cell,
-  where nothing evicted it. Measured before this: the boundary painted
-  nil for the life of the mount and no later write notified it, on a
-  query that was by then registered.
-
-  So the repair is to restore the substrate's assumption rather than to
-  keep the recovery honest: the same [[invalidate-cell!]] the disposal
-  path uses, off `registrar/add-registration-hook!` — the public sibling
-  that fires on first-time *and* re-registration. Narrowed to the
-  first-time case (`:was` nil), because the re-registration case already
-  arrives as a disposal and doing it twice would rebuild one attachment
-  twice; and to the cells still holding a reaction, because a cell
-  already mid-rebuild has dropped its reference and is about to subscribe
-  against this very registration.
-
-  **Not the rejected registry term, and the difference is the whole
-  costing.** That term sat in every key's contribution to
-  `getSnapshot`, so every mounted boundary in the application re-rendered
-  on every `reg-sub` — and read back through a dead cell when it did.
-  This reaches the cells that hold the id being registered and nothing
-  else: an unrelated first registration moves no snapshot, notifies no
-  boundary, and rebuilds no attachment.
-
-  The scan is `@!cells`, on first-time `:sub` registrations only. Those
-  are namespace-load and lazy-module-load events — an HMR save
-  re-registers, so its ids take the `:was`-non-nil branch and never get
-  here — and at namespace load there are no cells to scan.
-
-  **It is the held-cell half of the axis, and only that half.** A
-  boundary inside the render→commit gap has no cell for the id, so this
-  scan reaches nothing on its behalf; the [[re-frame.hicasso.impl.generation/registry-epoch]] term of
-  [[re-frame.hicasso.impl.generation/commit-basis]] carries that half instead."
+  "The registry transition no disposal announces. The replacement hook
+  the sub-cache eviction rides fires only when a previous handler
+  existed, so a FIRST `reg-sub` evicts nothing — and a cell that cached
+  the substrate's uncached nil-recovery would hold it for the life of
+  the mount. Off `registrar/add-registration-hook!`, narrowed to
+  first-time `:sub` registrations (a replacement already arrives as a
+  disposal) and to the cells still holding a reaction for the id (a cell
+  mid-rebuild is about to subscribe against this very registration);
+  each is repaired by `invalidate-cell!`. Reaches only the cells holding
+  the id, so an unrelated registration moves no snapshot — the held-cell
+  half of the registry axis; the staged half is `commit-basis`'s
+  registry term (docs/design/hicasso/architecture.md, section The
+  collector)."
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
     ;; `first`, not `(nth … 0)`: a registrar hook's throw is SWALLOWED by
@@ -806,65 +709,21 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- cold-read!
-  "One cold read — a key no committed cell answers for — on the cold-probe
-  discipline.
-
-  Three rungs, cheapest first, all of them mutation-free:
-
-  1. **A live sub-cache reaction is reused by deref alone.** Some other
-     holder (a cell on another boundary mid-anything, a tool, a test)
-     keeps the reaction warm; a `subscribe-once` reaching the same deref
-     would bump a ref-count both ways for nothing. Single-threaded CLJS
-     is what makes the unguarded deref safe: nothing can evict between
-     the `get` and the `@`.
-  2. **A truly cold key computes PURE** — `subs/compute-sub-with-memo`
-     against ONE coherent frame-state snapshot, minted lazily on the
-     run's first cold read ([[run-once]] resets the box, so a fence
-     re-run or a StrictMode double-invoke computes against the state
-     that is current THEN). No cache entry, no ref-count, no watch, no
-     disposal obligation — where `subscribe-once` paid a reaction build,
-     a cache insert, an in-tick evict and a dispose cascade per read,
-     this path pays a registrar lookup and the sub's own body. Each
-     compute threads a FRESH per-read memo seeded with
-     `subs/observation-opts-key`, so an unregistered query emits the
-     always-on `:rf.error/no-such-sub` exactly as the reactive build
-     does and recovers to the same nil; the run-level dedup lives in
-     the box's own value map, where a key already computed this run is
-     a `find`, not a second compute. The read profile
-     (`read_profile_app.cljs`, phase A) is why the memo is per read
-     rather than one threaded across the run: on the acceptance shape's
-     141 distinct layer-1 reads a run-shared memo's own bookkeeping —
-     three `swap!`s per sub against a map grown to 141 entries — cost
-     more than it deduplicated (`probe` 2.75 vs `probe-fresh` 1.42
-     µs/read), and mid-graph parent sharing, the thing only a threaded
-     memo can buy, prices at zero on a page whose subs are all
-     single-source. A layered consumer pays one extra parent compute
-     per cold read of the same run — bounded by the fence to one
-     commit's worth — and the trade is re-openable the day a shape
-     with deep shared chains prices it the other way.
-  3. **A missing or destroyed frame falls back to `subscribe-once`**,
-     which emits `:rf.error/frame-destroyed` and recovers to nil — the
-     predecessor's whole behaviour on that edge, kept rather than
-     re-spelled.
-
-  The compute sits inside `live-frame/call-with-frame-resolution` for
-  the same two reasons `subscribe` itself does: an image-loaded frame's
-  registrar lookups must resolve through that frame's own image, and the
-  wrapper's read-time coalesced flush is what makes a `reg-sub` issued
-  earlier in this same tick visible to this very read — without it, a
-  register-then-render-sync sequence computes against a stale
-  projection and misses the handler (witnessed, and mutation-proven, in
-  `arm1/cold_read_cljs_test`).
-
-  Within one body run all cold reads observe one snapshot, which is the
-  fence's own invariant stated smaller; a commit landing mid-body moves
-  the [[re-frame.hicasso.impl.generation/commit-basis]] and [[render-body]] re-runs the body against the
-  newer one, fresh box included. The values a probe computes are what
-  the sub-cache reaction would have answered against the same committed
-  state — `compute-sub` and the reactive path share the input grammar,
-  the recover-to-nil contracts and the schema validation, which is what
-  makes the equivalence a contract of the seam rather than a
-  coincidence."
+  "Read a key no committed cell answers for. Reuses a live sub-cache
+  reaction by deref alone when one exists; otherwise computes pure
+  (`subs/compute-sub-with-memo`) against one frame-state snapshot per
+  body run — the probe box on `rstate`, reset by `run-once` — memoised
+  per run in the box's value map so a repeated key is a `find` (a
+  memoised nil is a hit, which is what makes an unregistered query's
+  `:rf.error/no-such-sub` one emission per run); falls back to
+  `subscribe-once` when the frame is missing or destroyed. Runs inside
+  `live-frame/call-with-frame-resolution` so an image-loaded frame
+  resolves through its own image and a `reg-sub` from earlier in the
+  tick is visible to this read (`cold-probe-cljs-test`). Creates no
+  cache entry, takes no reference, installs no watch. The memo is per
+  read, not run-shared, because the shared one cost more than it saved
+  on the acceptance shape (2.75 vs 1.42 µs/read;
+  docs/design/hicasso/studio/the-cold-read-mount-term.md)."
   [frame-kw query-v]
   (let [frame-record (frame/frame frame-kw)]
     (if (nil? frame-record)
@@ -950,42 +809,16 @@
   (atom {}))
 
 (defn- bucket-key-of
-  "The bucket a read sequence belongs to: an **order-sensitive hash of
-  the whole sequence**.
-
-  Two callers hand it two arrays and neither is special-cased — the
-  scratch a body just filled ([[entry-for]]), and the one-key array a
-  React hook reads with ([[hook-entry]]). A bucket rule that knew which
-  of the two it was answering for would be two rules.
-
-  It selects a bucket and is never an equality test — [[entry-matches?]]
-  still compares every key pairwise before an entry is reused. That
-  division is the whole safety argument, and it is why this is not the
-  content hash the design record rejected: a hash *instead of* the
-  compare could hand back an entry for a different read set, which is a
-  silently missing edge; a hash *in front of* the compare can only send
-  two different sequences to one bucket, where the compare rejects one of
-  them and the caller mints a second entry. False negatives only, in both
-  directions.
-
-  It costs nothing measurable. Every sub-key on the scratch has already
-  been hashed this render — [[read-key!]] looks it up in `!cells` before
-  it returns — so this is `n` cached-hash reads and `n` integer ops, with
-  no allocation, which is what keeps the steady-state hit path at zero
-  bytes.
-
-  **Why the first sub-key is not enough.** Bucketing on
-  `(aget scratch 0)` makes the scan's cost a function of how an author
-  orders their `let` bindings. A row body reading its per-row key first
-  puts one entry in each bucket; the same body reading a page-wide key
-  first — one line moved — puts every live row's entry in ONE bucket, and
-  every probe then passes the length test and the index-0 test and fails
-  only at the last key. Mounting N such rows costs `sum(i)` probes, and
-  N = 300 is a rung the benchmark suite measures. Same page, same edges,
-  same DOM, ~150x the entry-lookup work. Hashing the whole sequence makes
-  the bucket a function of the read set rather than of its first element,
-  and `the-bucket-scan-does-not-grow-with-the-number-of-boundaries`
-  holds it there."
+  "The bucket a read sequence belongs to: an order-sensitive hash of the
+  whole sequence (`h*31 + hash(k)`, int32), for the scratch a body just
+  filled and for a hook's one-key array alike. It selects a bucket and
+  is never an equality test — `entry-matches?` still compares every key
+  pairwise, so a collision costs a second entry and never a wrong one.
+  Costs `n` cached-hash reads: every sub-key was hashed this render when
+  `read-key!` looked it up. The whole sequence rather than the first
+  sub-key so the scan's cost is a function of the read set and not of
+  how an author ordered their `let` bindings
+  (docs/design/hicasso/architecture.md, section The collector)."
   [^js ks]
   (let [n (alength ks)]
     (loop [i 0 h 1]
@@ -1005,40 +838,17 @@
     nil))
 
 (def entry-reap-horizon-ms
-  "The provisional-entry reaper's delay: **4 ms, not 0**.
+  "The provisional-entry reaper's delay: 4 ms, not 0. An entry is minted
+  during the render and claimed during the commit, and on a root React
+  renders concurrently (`hydrateRoot`) a `setTimeout 0` armed inside the
+  render beats React's passive flush, so the entry is evicted before it
+  is claimed and the next render re-subscribes. 4 ms was the shortest
+  probed delay that read 1.00N
+  (docs/design/hicasso/studio/coldmount-double-build-priced.md).
 
-  ## What the 0 raced
-
-  An entry is minted during the RENDER ([[entry-for]], from
-  [[render-body]]) and claimed during the COMMIT — React calls the
-  entry's `subscribe` from a passive effect, and that is the only place
-  `refs` goes above zero. A `setTimeout 0` armed inside the render
-  therefore has to beat React back to its own passive flush, and on a
-  root React renders CONCURRENTLY it does not: the entry is evicted from
-  the cache before it is claimed, the subscribed boundary holds a
-  detached entry, and the next render of the same read sequence misses,
-  mints a second entry, and hands `useSyncExternalStore` a different
-  `subscribe` — so React tears the subscription down and rebuilds it,
-  releasing and re-acquiring every cell, immediately after adoption.
-
-  `hydrateRoot` is exactly such a root. It is the same class the spine
-  meets, where a `setTimeout 0` escrow reaper beats
-  `createRoot().render()`'s passive flush and costs `bodyRuns` 2.00N on
-  every consumer mount; 4 ms is the SHORTEST delay measured to win there,
-  at N = 1 and N = 300 alike, and this runtime adopts that number rather than
-  inventing one.
-
-  ## A MARGIN, NOT A CONTRACT
-
-  React documents no maximum render-to-subscribe interval, so 4 ms cannot
-  be sized against a guarantee — it is the measured distance on React 19
-  today, and a scheduling change can silently reintroduce the rebuild.
-  **No caller may rely on it.** Correctness does not: a lost race costs
-  a cache miss and a rebuilt subscription, never a wrong value, because
-  the entry object itself survives in the closure that was handed out.
-  What the horizon buys is that the adoption is realised, and what it
-  costs is that an abandoned render's entry sits in the cache 4 ms — the
-  zero-leak property is unchanged, and only its zero-POINT moves."
+  A MARGIN, NOT A CONTRACT: React documents no maximum
+  render-to-subscribe interval, no caller may rely on it, and a lost race
+  costs a cache miss and a rebuilt subscription, never a wrong value."
   4)
 
 (def ^:private entry-reapers
