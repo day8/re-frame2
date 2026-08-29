@@ -1209,9 +1209,13 @@
   `hd8-rows/positive-control!` asks whether EVERY ROUND sits INSIDE it,
   and argues the stricter reading explicitly: a control whose worst round
   is wrong has caught something, and letting a good round vouch for a bad
-  one is how an instrument stops being one. THE STRICTER RULE IS THE
-  RIGHT ONE. This one is the lane's known defect, and a caller must not
-  read `:ok?` as though it were the strict answer — which is why the map
+  one is how an instrument stops being one. rf2-egdaq settled that
+  disagreement on 2026-08-21, and it settled as a SPLIT, one rule per
+  instrument: the HEAP arm's ten published figures were re-adjudicated
+  under the strict rule and all ten pass; the CLOCK arm REFUSED strict
+  under the 2026-07-31 quantum ruling set out below, and THAT REFUSAL
+  STANDS. So a caller must not read `:ok?` as though it were the strict
+  answer — which is why the map
   carries `:rule :overlap`, so a published record says which rule
   adjudicated it rather than leaving a reader to assume the other.
   [[control-verdict-strict]] is that other rule, spelled and callable.
