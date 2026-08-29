@@ -68,7 +68,9 @@ The options have direct responsibilities:
   node, listener, or body subscription.
 - **`:on-dismiss`** is dispatched for native light-dismiss, including outside
   click and Escape. The handler must write the open flag false. App-db remains
-  the source of truth.
+  the source of truth. It is an intent, so an open overlay carrying it needs a
+  frame above it; with none, it refuses at render rather than rendering a panel
+  the platform may close behind app-db's back.
 - **`:anchor`** is the unique DOM id of the trigger. The module positions the
   panel before first paint.
 - **`:placement`** accepts positions such as `:bottom-start`, `:bottom-end`,
@@ -348,6 +350,7 @@ to the next library. The top-layer primitives remove those failure classes.
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
 | `:rf.error/hicasso-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries — a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is not | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
+| An open overlay raises `:rf.error/hicasso-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it — rendered outside `h/mount!`, `frame-provider`, `frame-root` or Story — so the dismissal could never be routed, and the module refuses rather than let the platform close a panel app-db still holds open | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
 | Panel opens beside the wrong trigger, and nothing is raised | Several instances reuse one id. The id resolves, so there is nothing to refuse — it resolves to the first element in the document carrying it | Include the row id in the trigger id, the same way you do for the open flag |
 | Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
 | Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |

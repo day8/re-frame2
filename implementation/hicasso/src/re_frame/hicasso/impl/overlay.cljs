@@ -84,6 +84,16 @@
   dialog, `popover=\"manual\"` on the popover. Both are attributes, so the
   not-dismissable case costs no JavaScript and no listener whatever.
 
+  No frame in scope is not an error for an overlay, as it is not for
+  `impl.presence-react`: without `:on-dismiss` it reads nothing, and the
+  attributes above keep it single-owner. WITH `:on-dismiss` and no frame,
+  an open overlay REFUSES at render with the existing
+  `:rf.error/hicasso-intent-outside-boundary`, naming the intent —
+  `:on-dismiss` is an intent, and the alternative is an element that tells
+  the platform it may dismiss while nothing could route the dismissal,
+  which is exactly the second owner. The precedent is HD-020's frameless
+  ruling in `docs/design/hicasso/decisions.md`.
+
   ## Which event each one routes on, and why they differ
 
   The modal routes on `cancel`, which fires only for a close request —
@@ -631,29 +641,32 @@
     cell))
 
 (defn- dismissal-handler
-  "The function the platform's own dismissal event lands on, or nil when
-  there is nothing to route.
+  "The function the platform's own dismissal event lands on: nil when
+  there is no `:on-dismiss`, and the loud
+  `:rf.error/hicasso-intent-outside-boundary` when there is one and no
+  frame dispatch to route it — because a dismissal the element invites
+  and nothing routes is the open flag's second owner. The precedent is
+  HD-020's frameless ruling in `docs/design/hicasso/decisions.md`.
 
-  `closed-only?` is the popover's, because `beforetoggle` fires on the way
-  IN as well as on the way out — an unfiltered handler dispatches
-  `:on-dismiss` when the overlay OPENS, which is the wrong direction this
-  filter exists to stop.
-
-  **The module's own teardown needs no filter, and that is measured
-  rather than reasoned.** `hidePopover()` in the ref cleanup does fire
-  the identical event, so a per-node closing mark to tell the two apart
-  looks necessary — and is not, because React does not deliver an event
-  from a fiber it is in the middle of deleting. Such a mark would be
-  unreachable code defending a case that does not arise.
-  `re-frame.hicasso.overlay-dom-cljs-test` holds the measurement rather
-  than a mark: the teardown rows red the day it stops being true.
-
-  A fresh closure per render, deliberately: it closes over the intent and
-  the frame dispatch THIS render saw, so an overlay whose `:on-dismiss`
-  changed cannot dispatch the previous one. React swaps a listener for
-  free; a stale intent would cost a wrong event."
+  `closed-only?` is the popover's: `beforetoggle` fires on the way IN as
+  well, and an unfiltered handler would dispatch `:on-dismiss` on OPEN.
+  A fresh closure per render, deliberately, so an overlay whose
+  `:on-dismiss` changed cannot dispatch the previous one. The module's
+  own teardown needs no filter — argued in the namespace docstring and
+  measured by `re-frame.hicasso.overlay-dom-cljs-test`'s teardown rows."
   [dispatch on-dismiss closed-only?]
-  (when (and dispatch on-dismiss)
+  (when on-dismiss
+    (when-not dispatch
+      (fail! :rf.error/hicasso-intent-outside-boundary
+             're-frame.hicasso.impl.overlay/dismissal-handler
+             (str "This overlay carries :on-dismiss " (pr-str on-dismiss)
+                  " but no frame is in scope, so the platform would be told "
+                  "it may dismiss while nothing could route the dismissal. "
+                  "Mount the overlay under a frame — h/mount!, "
+                  "rf/frame-provider or frame-root — or drop :on-dismiss if "
+                  "it should not be dismissable.")
+             :lower-intents-inside-a-boundary-render
+             {:intent on-dismiss}))
     (fn [e]
       (when-not (and closed-only? (not= "closed" (.-newState e)))
         (dispatch on-dismiss)))))
