@@ -481,7 +481,7 @@
   head)
 
 (defn retained-body
-  "The body function [[retain-body!]] recorded, or nil — which is what a
+  "The body function `retain-body!` recorded, or nil — which is what a
   production head answers, because nothing wrote the slot there.
 
   One own-property read; the caller decides what nil means. The test kit
@@ -804,7 +804,7 @@
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
   name a prop at all. Keywords, symbols and strings are the three
-  spellings [[cached-prop-name]] accepts; a number, a vector or a nested
+  spellings `cached-prop-name` accepts; a number, a vector or a nested
   set is not a prop position and is refused rather than normalised into
   some slot nobody wrote."
   [k]
@@ -884,14 +884,14 @@
 (defn mint-host!
   "THE ONE-LINE DECLARATION (HD-011): returns the host HEAD for
   `component` — a marked carrier legal in hiccup head position, rendered
-  by [[vec->element]]'s fourth branch.
+  by `vec->element`'s fourth branch.
 
   `component` is anything React accepts as an element type; `nil` is
   refused here because it is the broken-import symptom (`:default`
   against a library with no default export). `opts` is a map of
   `:callbacks` — an optional override from prop name to `:event` or
   `:render`, for a prop whose spelling infers the wrong contract —
-  `:slots`, the set of ReactNode positions ([[declared-slots]]),
+  `:slots`, the set of ReactNode positions (`declared-slots`),
   `:server` (`:client-only` by default, or `:render`) and `:fallback`,
   Client-only's placeholder markup. Callback and slot names are
   normalised to their canonical slot at mint, so the crossing's per-prop
@@ -907,7 +907,7 @@
 
   The head's `gate` slot is the React TYPE every crossing is created
   from, and the `:server` policy is expressed by choosing it: under
-  `:client-only` it is [[mint-host-gate!]]'s product (one fiber, one
+  `:client-only` it is `mint-host-gate!`'s product (one fiber, one
   hook); under `:render` it is the foreign component itself, so server,
   hydration and fresh mount render one tree and nothing remounts at
   adoption. Argument in docs/design/hicasso/decisions.md, HD-011."
@@ -1000,7 +1000,7 @@
 
 (defn host-head?
   "Is `v` a minted host head? One own-property read behind a nil guard;
-  no registry, no map — the same shape as [[boundary-head?]]."
+  no registry, no map — the same shape as `boundary-head?`."
   [v]
   (and (some? v) (true? (unchecked-get v host-marker))))
 
@@ -1342,7 +1342,7 @@
 
 (defn- refuse-unclaimed-host-callback!
   "An `h/event` at a position the declaration named a ReactNode slot. The
-  slot is claimed for MARKUP — it lowers hiccup ([[as-element]]) — so it
+  slot is claimed for MARKUP — it lowers hiccup (`as-element`) — so it
   has no contract to give a function, and a function crossing as a
   ReactNode renders nothing, silently. A PLAIN function is untouched; the
   marked form asked for a contract, and this refuses the unanswered
@@ -1377,7 +1377,7 @@
   [^js head declared slots o k v]
   (cond
     ;; `:key` is React's, and a presence override belongs to a tray —
-    ;; neither is a prop the component should see ([[convert-entry]]).
+    ;; neither is a prop the component should see (`convert-entry`).
     (or (keyword-identical? :key k) (override-key? k))
     o
 
@@ -1624,7 +1624,7 @@
     kind))
 
 (defn vec->element
-  "Interpret one hiccup vector. [[vector-kind]] is the preflight: it has
+  "Interpret one hiccup vector. `vector-kind` is the preflight: it has
   refused an empty vector and a malformed escape before any arm below
   runs, so every arm here reads a vector it knows is well formed."
   [argv]
@@ -1635,7 +1635,7 @@
     :boundary (boundary-element argv)
     :host     (host-element argv)
     :invalid
-    ;; `:invalid` implies a head, because [[vector-kind]] refused the
+    ;; `:invalid` implies a head, because `vector-kind` refused the
     ;; headless vector — so this reads position 0 without a default, and
     ;; reads it on the cold arm only.
     (let [head (nth argv 0)]
