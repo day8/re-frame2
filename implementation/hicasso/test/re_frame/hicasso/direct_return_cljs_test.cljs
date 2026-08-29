@@ -9,22 +9,27 @@
   ## The accept path is not new, and this file does not re-establish it
 
   `codec/as-element` carries a total `:react-element` arm, asked after
-  `vector?`, so a returned element passes through untouched;
-  `native-fence-cljs-test/the-two-languages-compose-without-either-rewriting-the-other`
-  is the row that says so, and `native-hooks-dom-cljs-test/host` writes
-  the spelling as ordinary source. What was never established is the
-  half a reader actually has to trust before moving a hot boundary onto
-  it: that **nothing else runs**. An escape whose cost is unpriced is a
-  guess, and an escape that quietly still lowers is worse than no escape
-  at all.
+  `vector?`, so a returned element passes through untouched, and
+  `retaining_host_callbacks_dom_cljs_test`'s `stable-parent` writes the
+  spelling as ordinary source.
+  What was never established is the half a reader actually has to trust
+  before moving a hot boundary onto it: that **nothing else runs**. An
+  escape whose cost is unpriced is a guess, and an escape that quietly
+  still lowers is worse than no escape at all.
 
-  ## The pair
+  This is the ONE generic direct-return witness the rf2-6c12m.3 ruling
+  keeps: a `defview` returning a raw React or UIx element skips
+  interpretation and keeps its frame, its reads and its identity.
+
+  ## The pair — and the UIx third
 
   [[hiccup-body]] and [[direct-body]] are the same view written twice —
   the same props, the same two ambient reads, the same data, and DOM
   that is **byte-equal** under React's own server renderer. One writes
-  hiccup; one writes `n/$`. Every row below is a difference between
-  them, so a row can only be about the lowering.
+  hiccup; one writes `react/createElement`. [[uix-body]] is the same
+  page a third time in `uix/$`, because a UIx element is a React
+  element and the escape must not know the difference. Every row below
+  is a difference between them, so a row can only be about the lowering.
 
   Byte equality is the fairness gate and it is checked before anything
   else is claimed, because two arms that render different pages can be
@@ -96,18 +101,11 @@
 
   ## Where the fence itself is established, and why not again here
 
-  *Native semantics begin inside the returned element* is the fence, and
-  the fence's own rows are `native-fence-cljs-test`'s: an intent vector
-  at a native callback slot refuses, hiccup in a native child position
-  refuses, and the two languages compose without either rewriting the
-  other. They are cited rather than restated — a second copy of a
-  refusal is a second thing to drift, and the literal-child half of it
-  refuses at MACROEXPANSION, so a second copy could not even be written
-  in the same shape.
-
-  What this file adds past that fence is the direction the fence cannot
-  see: the fence stops hiccup getting IN, and the rows below establish
-  that the codec does not get OUT.
+  *React semantics begin inside the returned element* is the fence: past
+  it a callback slot holds an ordinary function and a child is a React
+  node, because nothing of Hicasso's runs there. The rows below
+  establish the direction a reader has to trust: the codec does not get
+  OUT.
 
   ## What a direct return still costs — I9
 
@@ -127,8 +125,9 @@
   docstring), so detecting a hook call inside one needs a compiler that
   analyses the body — which
   `lanes/hot-path-architecture.md#explicit-refusals` forbids outright.
-  React's rules of hooks are the enforcement, `n/defcomponent` is the
-  place they are legal, and the law is stated where an author reads it.
+  React's rules of hooks are the enforcement, a React component mounted
+  through `h/defhost` is the place they are legal, and the law is stated
+  where an author reads it.
 
   ## What is NOT here, and must not be read off it
 
@@ -158,9 +157,10 @@
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
+            [uix.core :as uix]
+            ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::direct-return)
@@ -207,19 +207,30 @@
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
-  unchanged — that is the whole of the escape: native semantics begin
-  at the element, not at the frame.
+  unchanged — that is the whole of the escape: React semantics begin at
+  the element, not at the frame.
 
-  Past `n/$` there is no intent lowering, so the callback slot holds an
-  ordinary function; and no controlled repair, so the field's echo is
-  the author's to write. Both are the escape's price and both are
-  visible in this source."
+  Past `react/createElement` there is no intent lowering, so the
+  callback slot holds an ordinary function; and no controlled repair, so
+  the field's echo is the author's to write. Both are the escape's price
+  and both are visible in this source."
   [{:keys [id]}]
   (let [label (h/sub [:dr/label id])
         n     (count (h/sub [:dr/tags id]))]
-    (n/$ :div {:class "row" :on-click (fn [_] nil)}
-         (n/$ :span {:class "label"} (str label " " n))
-         (n/$ :input {:class "field" :value label :on-change (fn [_] nil)}))))
+    (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
+      (react/createElement "span" #js {:className "label"} (str label " " n))
+      (react/createElement "input" #js {:className "field" :value label :onChange (fn [_] nil)}))))
+
+(defn uix-body
+  "The same page a third time, in `uix/$`. A UIx element IS a React
+  element, so the escape sees it exactly as it sees [[direct-body]]'s —
+  which the probes below read rather than assume."
+  [{:keys [id]}]
+  (let [label (h/sub [:dr/label id])
+        n     (count (h/sub [:dr/tags id]))]
+    (uix/$ :div {:class "row" :on-click (fn [_] nil)}
+           (uix/$ :span {:class "label"} (str label " " n))
+           (uix/$ :input {:class "field" :value label :on-change (fn [_] nil)}))))
 
 (defn floor-body
   "The crossing carrying nothing. Every probe below reads its floor here
@@ -230,6 +241,7 @@
 
 (h/defview hiccup-arm [props] (hiccup-body props))
 (h/defview direct-arm [props] (direct-body props))
+(h/defview uix-arm    [props] (uix-body props))
 (h/defview floor-arm  [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
@@ -242,19 +254,16 @@
 ;; the missing key on a plain tag, a host or a `[:>]` child, which it
 ;; declines on a costed ~150 ns/member argument. So a seq of `[:span …]`
 ;; would draw nothing from EITHER arm and the row below would be green
-;; without meaning anything. The members are boundaries, and their Rung 4
-;; counterpart is an `n/defcomponent` rendering the same span.
+;; without meaning anything. The members are boundaries, and their React
+;; counterpart is an ordinary function component rendering the same span.
 
 (h/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
 
-(n/defcomponent native-tag-row
-  "`{:server :render}` because [[render!]] is the server renderer and the
-  native tier's policy is now READ: a Client-only island's
-  body does not run there, so the instrument needs the declaration. The
-  arms compare a key DIAGNOSTIC, not a server policy."
-  {:server :render}
+(defn- react-tag-row
+  "The same span as a raw React component. The arms compare a key
+  DIAGNOSTIC, not a server policy."
   [^js props]
-  (n/$ :span {:class "tag"} (.-label props)))
+  (react/createElement "span" #js {:className "tag"} (.-label props)))
 
 (h/defview key-hiccup-arm
   [{:keys [id]}]
@@ -263,8 +272,9 @@
 
 (h/defview key-direct-arm
   [{:keys [id]}]
-  (n/$ :div {:class "tags"}
-       (map (fn [t] (n/$ native-tag-row {:label t})) (h/sub [:dr/tags id]))))
+  (react/createElement "div" #js {:className "tags"}
+    (into-array (map (fn [t] (react/createElement react-tag-row #js {:label t}))
+                     (h/sub [:dr/tags id])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -297,24 +307,29 @@
     @n))
 
 (defn- probes
-  "The floor, the hiccup arm and the direct arm through one probe."
+  "The floor, the hiccup arm, the direct arm and the UIx arm through one
+  probe."
   [install! restore!]
   {:floor  (probe install! restore! floor-arm)
    :hiccup (probe install! restore! hiccup-arm)
-   :direct (probe install! restore! direct-arm)})
+   :direct (probe install! restore! direct-arm)
+   :uix    (probe install! restore! uix-arm)})
 
 (defn- walks-past
   "The one assertion shape every surface row makes: the hiccup arm
-  reaches the surface past the crossing's floor, and the direct arm
-  reaches exactly the floor and no more."
-  [surface {:keys [floor hiccup direct]}]
+  reaches the surface past the crossing's floor, and the two direct arms
+  reach exactly the floor and no more."
+  [surface {:keys [floor hiccup direct uix]}]
   (is (> hiccup floor)
       (str "CONTROL — the hiccup arm must reach " surface " past the "
            "crossing's floor (" floor "), or the row below is read off a "
            "probe that was never live; got " hiccup))
   (is (= floor direct)
       (str "a direct return must not reach " surface ". The crossing's "
-           "floor is " floor " and the direct arm read " direct)))
+           "floor is " floor " and the direct arm read " direct))
+  (is (= floor uix)
+      (str "a returned UIx element must not reach " surface " either. The "
+           "crossing's floor is " floor " and the UIx arm read " uix)))
 
 (defn- warnings-of
   "Hicasso's warning channel while `view` renders. React's own key
@@ -339,6 +354,11 @@
               DOM, so every row below is about the lowering and nothing
               else"
       (is (= hiccup direct)))
+
+    (testing "and the UIx spelling is the same bytes again, so the UIx arm
+              of every probe below is a third reading of one page rather
+              than a reading of a different one"
+      (is (= hiccup (render! uix-arm))))
 
     (testing "and the page is the page, not an empty string two arms agree
               on: both reads landed and both populations rendered"
@@ -411,7 +431,7 @@
       (is (re-find #"direct-return-cljs-test/key-hiccup-arm" (first hiccup-warned)))
       (is (re-find #"direct-return-cljs-test/tag-row" (first hiccup-warned))))
 
-    (testing "the same members built with `n/$` draw none. React's own key
+    (testing "the same members built with `react/createElement` draw none. React's own key
               warning fires for BOTH arms on its own channel — a
               `console.error` — and that is the point: whether React wants
               a key here is React's affair, and Hicasso has not looked"
@@ -485,5 +505,5 @@
   (testing "and it refuses at the DIRECT-RETURN position specifically —
             the body answered the element itself, with no tree around it
             for the refusal to have come from"
-    (let [{:keys [refused]} (outcome #(ht/tree [(fn [_] (n/$ :b nil "x"))] {}))]
+    (let [{:keys [refused]} (outcome #(ht/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
       (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused))))))

@@ -36,7 +36,7 @@
   - **HS-23, Activity.** This one splits by route, and the split is the
     point. Through `h/defhost` the Client-only refusal is real and fires
     at the declaration source, with both of the policy's arms. Through
-    `n/$` — the route
+    raw React construction — the route
     `docs/design/hicasso/product/lanes/react-compatibility-notes.md`
     tells an author to take — there is no refusal and a VISIBLE
     Activity's subtree reaches the response.
@@ -104,7 +104,6 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.overlay :as overlay]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -275,13 +274,14 @@
     [island {}]]])
 
 (h/defview activity-native-page
-  "HS-23 through `n/$`, which the lane note recommends first and which
-  the client witness uses. Constructed exactly as
-  `native-hooks-dom-cljs-test`'s Activity row constructs it."
+  "HS-23 through raw React construction, which the lane note recommends
+  first and which the client witness uses: a boundary body returning the
+  `<Activity>` element itself, with the hosted subtree crossed through
+  `codec/as-element`."
   [{:keys [mode]}]
   [:div.owner
-   (n/$ Activity #js {:mode mode}
-        (codec/as-element [island {}]))])
+   (react/createElement Activity #js {:mode mode}
+                        (codec/as-element [island {}]))])
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — HS-31, the optional forms module
@@ -575,16 +575,16 @@
       (is (not (re-find #"class=\"inner\"" html))
           (str "nothing of the hidden subtree reaches the bytes: " html)))))
 
-(deftest through-n-dollar-a-visible-activity-subtree-reaches-the-response
+(deftest through-raw-react-a-visible-activity-subtree-reaches-the-response
   (testing "**The finding on this row.**
             `lanes/react-compatibility-notes.md` closes its Activity
             section by telling an author to reach Activity through native
             React construction, and `rf2-9ywe`'s client witness takes that
-            route through `n/$`. On that route there is no declaration and
-            therefore no policy to consult: a VISIBLE Activity's hosted
-            subtree is server-rendered, read and all. So HS-23's
-            Client-only disposition is honest for the `defhost` route and
-            false for the one the product recommends first"
+            route through `react/createElement`. On that route there is no
+            declaration and therefore no policy to consult: a VISIBLE
+            Activity's hosted subtree is server-rendered, read and all. So
+            HS-23's Client-only disposition is honest for the `defhost`
+            route and false for the one the product recommends first"
     (fresh! true)
     (let [html (server-html [activity-native-page {:mode "visible"}])]
       (is (re-find #"class=\"inner\"" html)

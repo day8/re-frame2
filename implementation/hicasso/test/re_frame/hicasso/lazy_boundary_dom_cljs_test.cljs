@@ -2,12 +2,10 @@
   "CODE SPLITTING — WHAT CROSSES A `React.lazy` BOUNDARY, AND WHAT A
   REJECTED ONE NEVER DOES AGAIN.
 
-  The bridge itself is `n/lazy`, one of the ABI helpers: a `react/lazy`
-  record carrying the tier marker, its
-  `:name` filled in on arrival, its `:server` pinned to Client-only.
-  [[re-frame.hicasso.native-abi-cljs-test]] settles the marker and
-  [[re-frame.hicasso.native-abi-dom-cljs-test]] settles the arrival.
-  **This file is about the BOUNDARY** — the five states a split region
+  The bridge itself is a raw `react/lazy` record mounted through
+  `h/defhost`, whose Client-only DEFAULT is what keeps the chunk out of a
+  server response — no helper of Hicasso's stands between the author and
+  React here. **This file is about the BOUNDARY** — the five states a split region
   moves through, what survives each crossing, and one promise the
   documentation was making that React cannot keep.
 
@@ -20,7 +18,7 @@
   | [[a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership]] | the post-commit suspension result, re-measured across a LAZY boundary specifically | a lazy retry that quietly re-subscribed — the screen is right under it |
   | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim, made in this repo until this bead, that changing `:reset-key` retries the chunk |
   | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which DECLARATION actually emits server bytes, at the `defhost` crossing | a region documented as sending a skeleton whose declaration sends nothing |
-  | [[a-bare-lazy-head-under-native-suspense-writes-nothing-and-never-calls-its-loader]] | `n/lazy`'s OWN Client-only policy, with nothing in front of it and a raw `react/lazy` control beside it | a policy that lives on the marker while the head stays an ungated lazy record — and a witness whose zero is really two `defhost` gates |
+  | [[a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader]] | the host's OWN Client-only policy over a lazy head, with one gate and a bare `react/lazy` control beside it | a gate that renders the head anyway, so the server fetches a chunk it cannot use — and a witness whose zero is really two `defhost` gates |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## The instrument is the LOADER CALL COUNT, not the paint
@@ -79,11 +77,12 @@
   They ask different questions and the second is not a widening of the
   first. Row 5 is about a DECLARATION — which `defhost` key puts bytes in
   a server response — and it renders through two Client-only hosts
-  because that is the shape it is describing. Row 7 is about `n/lazy`
-  ITSELF, so it must have nothing in front of it: under row 5's shape the
-  loader would stay uncalled even if the lazy head were server-active, so
-  row 5 alone cannot decide row 7's subject. A witness dominated by
-  unrelated gates measures the gates."
+  because that is the shape it is describing. Row 7 is about the ONE
+  gate over the lazy head itself, so it must have nothing else in front
+  of it: under row 5's shape the loader would stay uncalled even if the
+  lazy head's own host were server-active, so row 5 alone cannot decide
+  row 7's subject. A witness dominated by unrelated gates measures the
+  gates."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
@@ -94,7 +93,6 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.native :as n]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -197,21 +195,27 @@
 ;; question: the parent wrote these before the chunk existed.
 (defonce ^:private !arrived-props (atom nil))
 
-(defn- chart-body
-  "The island in the split chunk. It reads a prop the parent wrote while
-  the module was still in flight, and renders whatever child was written
-  at the crossing."
+(defn- chart-cell
+  "The island in the split chunk, and what the chunk `def`s — an ordinary
+  React function component, which is the VALUE a row resolves a loader's
+  promise with. It reads a prop the parent wrote while the module was
+  still in flight, and renders whatever child was written at the
+  crossing."
   [^js props]
   (reset! !arrived-props props)
-  (n/$ :div {:id "chart"}
-       (n/$ :span {:class "series"} (str (count (.-points props))))
-       (.-children props)))
+  (react/createElement "div" #js {:id "chart"}
+    (react/createElement "span" #js {:className "series"} (str (count (.-points props))))
+    (.-children props)))
 
-(def ^:private chart-cell
-  "What the chunk `def`s. `n/component` rather than `n/defcomponent`
-  because the row needs the mint as a VALUE to resolve a promise with,
-  which is what a module's exported var is at the moment it lands."
-  (n/component "app/heavy-chart" :client-only chart-body))
+(unchecked-set chart-cell "displayName" "app/heavy-chart")
+
+(defn- lazy-head
+  "A raw `react/lazy` over one of this file's counted loaders. React's
+  contract wants a promise of a `#js {:default component}` module record,
+  and every ClojureScript code splitter resolves to the value, so the
+  record is put on here — once, where it is React's business."
+  [loader]
+  (react/lazy (fn [] (.then ((:load loader)) (fn [c] #js {:default c})))))
 
 ;; --- the Suspense hosts ----------------------------------------------------
 
@@ -234,13 +238,13 @@
 ;; --- scenario 2: load, fallback, arrival -----------------------------------
 
 (def ^:private paint-loader (deferred-loader))
-(def ^:private paint-head (n/lazy (:load paint-loader)))
+(def ^:private paint-head (lazy-head paint-loader))
 (h/defhost paint-host paint-head)
 
 ;; --- scenario 3: the post-commit suspension --------------------------------
 
 (def ^:private own-loader (deferred-loader))
-(def ^:private own-head (n/lazy (:load own-loader)))
+(def ^:private own-head (lazy-head own-loader))
 (h/defhost own-host own-head)
 
 ;; --- scenario 4: rejection, and the head that replaces it ------------------
@@ -250,48 +254,59 @@
 ;; reload — allocates, and it reaches the SAME function.
 
 (def ^:private reject-loader (deferred-loader))
-(def ^:private reject-head (n/lazy (:load reject-loader)))
-(def ^:private replacement-head (n/lazy (:load reject-loader)))
+(def ^:private reject-head (lazy-head reject-loader))
+(def ^:private replacement-head (lazy-head reject-loader))
 (h/defhost reject-host reject-head)
 (h/defhost replacement-host replacement-head)
 
 ;; --- scenario 6: the server render -----------------------------------------
 
 (def ^:private ssr-loader (deferred-loader))
-(def ^:private ssr-head (n/lazy (:load ssr-loader)))
+(def ^:private ssr-head (lazy-head ssr-loader))
 (h/defhost ssr-host ssr-head)
 
 ;; --- scenario 7: the UNSHADOWED server render ------------------------------
 ;;
 ;; Scenario 6's row is dominated by two `defhost` declarations, each of
-;; them independently Client-only, so it cannot distinguish `n/lazy`'s own
-;; policy from two unrelated gates in front of it. These two heads sit
-;; under NOTHING but React's own Suspense.
+;; them independently Client-only, so it cannot distinguish the lazy
+;; head's own gate from an unrelated gate in front of it. Here the head's
+;; host is the ONLY declaration, under nothing but React's own Suspense.
 
 (def ^:private bare-loader (deferred-loader))
-(def ^:private bare-head (n/lazy (:load bare-loader)))
+(def ^:private bare-head (lazy-head bare-loader))
+(h/defhost bare-host bare-head)
 
 ;; THE CONTROL, and the row is worthless without it. `renderToString` is
 ;; allowed to be inert — a renderer that never reached the region would
 ;; leave the count at zero for a reason that has nothing to do with the
-;; gate. This head is `react/lazy` with no gate at all, in the same shape
-;; and through the same `n/$`, and its count says what an ungated head
-;; does here.
+;; gate. This head is the same `react/lazy` with no gate at all, in the
+;; same shape, and its count says what an ungated head does here.
 (def ^:private raw-loader (deferred-loader))
-(def ^:private raw-head (react/lazy (fn [] (.then ((:load raw-loader))
-                                                  (fn [c] #js {:default c})))))
+(def ^:private raw-head (lazy-head raw-loader))
 
 (defn- suspense-tree
-  "The shipped shape from the audit's control, written in `n/$`: a
-  Suspense host with a fallback SLOT and one lazy head under it. No
-  `defhost`, no provider, no root element — nothing between
-  `renderToString` and the head but React."
+  "The shipped shape from the audit's control, written in raw React: a
+  Suspense with a fallback and one lazy head under it. No `defhost`, no
+  provider, no root element — nothing between `renderToString` and the
+  head but React."
   [head]
-  (n/$ :div
-       (n/$ :h1 {:id "title"} "metrics")
-       (n/$ (.-Suspense react)
-            {:fallback (n/$ :div {:id "react-fallback"} "loading")}
-            (n/$ head {:points #js [1 2 3]}))))
+  (react/createElement "div" nil
+    (react/createElement "h1" #js {:id "title"} "metrics")
+    (react/createElement (.-Suspense react)
+      #js {:fallback (react/createElement "div" #js {:id "react-fallback"} "loading")}
+      (react/createElement head #js {:points #js [1 2 3]}))))
+
+(defn- gated-suspense-tree
+  "The same shape with the head's OWN host as the one declaration in it:
+  React's Suspense, and under it the crossing, lowered under the frame
+  because a host is hiccup and hiccup needs the codec. Nothing else
+  gates the region."
+  [host]
+  (react/createElement "div" nil
+    (react/createElement "h1" #js {:id "title"} "metrics")
+    (react/createElement (.-Suspense react)
+      #js {:fallback (react/createElement "div" #js {:id "react-fallback"} "loading")}
+      (mount/provider frame-id (codec/root-element frame-id [host {:points [1 2 3]}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Views
@@ -746,8 +761,8 @@
           (str "the island certainly did not render: " html))
       (is (zero? @(:calls ssr-loader))
           "and the loader was never called: the server never sends the chunk,
-           which is why `n/lazy` pins the region to Client-only whatever the
-           component inside it declared")))
+           which is what the host's Client-only default buys whatever the
+           component inside it would have done")))
 
   (testing "the repair is `defhost`'s own `:fallback` — inert markup on the
             declaration, which the Client-only gate renders on the server
@@ -768,20 +783,19 @@
   (exercised! :lazy/server-render))
 
 ;; ---------------------------------------------------------------------------
-;; 7. The UNSHADOWED server render — `n/lazy`'s own policy, alone
+;; 7. The UNSHADOWED server render — the head's own gate, alone
 ;; ---------------------------------------------------------------------------
 
-(deftest a-bare-lazy-head-under-native-suspense-writes-nothing-and-never-calls-its-loader
+(deftest a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader
   (testing "THE CONTROL, first, because the row above it is a zero and a
             zero is what an inert renderer also produces. A raw
             `react/lazy` head — no gate, no `defhost`, the identical
             shape — has its loader called ONCE while `renderToString`
-            runs, and React abandons the boundary to the client. That is
-            what `n/lazy` looked like before this bead: React 19's
-            `lazyInitializer` runs during a server render like any other
-            render, so a chunk the server can do nothing with is fetched
-            anyway and the response carries a switched-to-client template
-            instead of the region"
+            runs, and React abandons the boundary to the client: React
+            19's `lazyInitializer` runs during a server render like any
+            other render, so a chunk the server can do nothing with is
+            fetched anyway and the response carries a switched-to-client
+            template instead of the region"
     (let [html (react-dom-server/renderToString (suspense-tree raw-head))]
       (is (= 1 @(:calls raw-loader))
           (str "an ungated lazy head IS reached by the server renderer: " html))
@@ -790,15 +804,15 @@
       (is (re-find #"Switched to client rendering" html)
           (str "having abandoned the boundary: " html))))
 
-  (testing "and `n/lazy`'s head, in that same shape, with NOTHING in front
-            of it — no `defhost`, no provider, no root element, one
-            Suspense host and the head. The loader is never called: the
-            server does not reach for a chunk it cannot use, and that is
-            the whole of the `:server client-only` the marker advertises.
-            Narrowing caught: the policy living on the marker while the
-            head stayed an ungated `react/lazy` record (audit #7969) —
-            metadata that no renderer reads"
-    (let [html (react-dom-server/renderToString (suspense-tree bare-head))]
+  (testing "and the same head behind its OWN `h/defhost`, under the ruled
+            Client-only default, with nothing else in front of it — one
+            Suspense and the one declaration. The loader is never called:
+            the server does not reach for a chunk it cannot use, and that
+            is the whole of what the default buys a lazy head. Narrowing
+            caught: a gate that rendered the head anyway, or a policy
+            recorded somewhere no renderer reads"
+    (seeded!)
+    (let [html (react-dom-server/renderToString (gated-suspense-tree bare-host))]
       (is (re-find #"metrics" html)
           (str "the premise: the render happened and reached the region's
                 sibling, so a zero below is a gate and not an inert

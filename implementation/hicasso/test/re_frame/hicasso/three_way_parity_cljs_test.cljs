@@ -1,6 +1,6 @@
 (ns re-frame.hicasso.three-way-parity-cljs-test
-  "THREE-WAY PARITY — Hicasso-native against BOTH handwritten React and
-  UIx.
+  "TWO-ARM PARITY — handwritten React against UIx, both through
+  `h/defhost`.
 
   > A native island should be within 5% or 1 ms of the same component
   > mounted directly through its chosen React route, excluding the single
@@ -10,39 +10,42 @@
   >
   > — `docs/design/hicasso/product/specification.md` §6
 
-  The second sentence is why there are three routes and not two. A native
-  tier measured only against UIx would be measured against a floor UIx
-  itself sets: UIx is a convenience layer, it pays a per-render price for
-  that convenience, and matching it proves nothing about whether the
-  native tier costs what React costs. Handwritten `react/createElement`
+  The native authoring tier this file used to measure as a third arm was
+  retired by the rf2-6c12m.3 ruling: an island is now a raw React
+  component or a UIx `defui`, mounted through `h/defhost`, using
+  `n/use-sub` / `n/use-frame` when it needs Hicasso state. What survives
+  here is the FLOOR that ruling kept — handwritten `react/createElement`
   is the only arm with no convenience in it, so it is the arm that
-  decides.
+  decides what a crossing costs, and UIx is measured against it rather
+  than against itself.
+
+  The file keeps its name because `implementation/hicasso/spec/budgets.md`
+  rows D14 and D16 name it as their witness and `check_budget_ledger.py`
+  reds on a witness that does not exist.
 
   ## The corpus, and why the rows are thunks
 
-  Every row of [[corpus]] is ONE subject written three times. The three
+  Every row of [[corpus]] is ONE subject written twice. The two
   spellings are the whole content of a row — the rows below assert
   equalities BETWEEN them and never against a literal, because a literal
-  is a fourth spelling that can drift from all three at once.
+  is a third spelling that can drift from both at once.
 
-  They are thunks rather than values because two of the three are macro
-  forms whose expansion is the thing under test: `n/$` lowers a literal
-  props map at expansion and `uix/$` compiles its attributes at
-  expansion, so a row evaluated once at namespace load would hide which
-  arm did what and when.
+  They are thunks rather than values because `uix/$` compiles its
+  attributes at expansion, so a row evaluated once at namespace load
+  would hide which arm did what and when.
 
   ## What each row proves, and what it deliberately does not
 
   | claim | how |
   |---|---|
-  | same DOM output, same bytes | `react-dom/server` over the three arms — one string compared three ways |
+  | same DOM output, same bytes | `react-dom/server` over the two arms — one string compared both ways |
   | same element shape | `.-type`, `.-key`, and the props object read as a map |
   | keys | a keyed seq, where React's own child reconciliation reads the slot |
   | SVG and custom elements | two heads whose attribute rules are not the ordinary ones |
-  | dynamic props | the marked operand against a hand-built object |
+  | dynamic props | a hand-built object against a runtime map |
   | children shapes | React's three — none, one, many — the shapes the outward bridge carries |
-  | component identity | the element type each route hands React |
-  | same-frame reads | one key read through all three doors in one tree |
+  | component identity | the element type each route hands React, through the crossing |
+  | same-frame reads | one key read through the interpreted door and both foreign doors in one tree |
   | hook count | React's own dispatcher, through `hook-probe` |
 
   **Refs, cleanup and hydration are NOT here.** Each is a property of a
@@ -59,26 +62,23 @@
   terms: the 5% rule has no same-instrument anchor until the ladder is
   re-pinned, no package-resident clock instrument exists, and §7 forbids
   converting a distributional row into a pull-request threshold at all.
-  §9.2 also names *this* bead as one of the three that supply C7's
-  POPULATION — the landed islands the rule is stated over — which is the
-  same statement from the other side.
 
-  So this file lands the population and the DETERMINISTIC half of the
-  band, which is the half a hosted runner is allowed to decide:
-  [[a-declared-render-island-is-the-authors-own-function-and-costs-no-wrapper]]
-  and [[the-convenience-layer-pays-a-per-render-price-the-native-tier-does-not]]
+  So this file lands the DETERMINISTIC half of the band, which is the
+  half a hosted runner is allowed to decide:
+  [[a-declared-render-crossing-is-the-authors-own-function-and-costs-no-wrapper]]
+  and [[the-convenience-layer-pays-a-per-render-price-handwritten-react-does-not]]
   read the two routes' construction cost as a structural fact rather
   than as a clock. That is a stronger reading than a timing, not a weaker
-  one: a `{:server :render}` island and a handwritten React component are
-  the SAME element type with the SAME props object, so there is no
-  interposed work for a stopwatch to find.
+  one: a `{:server :render}` crossing hands React the author's own
+  function as the element type, with the author's own props object, so
+  there is no interposed work for a stopwatch to find.
 
   **The band is stated over the DECLARED arm, and the declaration is what
   makes it comparable.** The `:client-only` default mints a gate rather than
   the author's function, so it costs one fiber and one hook the declared arm
   does not — the ruled price of the conservative default, and not a figure
-  about `n/defcomponent`'s construction. Every native fixture below therefore
-  writes `{:server :render}`, exactly as the UIx crossing declares its own.
+  about the crossing's construction. Every fixture below therefore writes
+  `{:server :render}`.
 
   No number is transcribed into the ledger here; the figures are this
   file's own, and transcribing the ledger row is the ledger's, as it was
@@ -105,8 +105,6 @@
 
 (rf/reg-event ::seed (fn [_ [_ db]] {:db db}))
 
-(rf/reg-event ::typed (fn [{:keys [db]} [_ typed]] {:db (assoc db :price typed)}))
-
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
@@ -116,33 +114,16 @@
                       (collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
-;; The three routes, as components
+;; The two routes, as components
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One subject: a cell that paints a label. Written once per route, with
-;; nothing in any of them that the other two do not have.
-
-(n/defcomponent native-cell
-  "The native route. The ABI is one raw JavaScript props object and the
-  body reads it by name.
-
-  `{:server :render}` for the reason [[uix-host]] states about its own
-  crossing, one tier down: the native tier READS its `:server`
-  declaration, and the default is Client-only — a gate that
-  contributes nothing to a server render and is not the author's own
-  function. Both halves of this file need the declared arm: the markup
-  rows below server-render this cell, and the identity rows assert that
-  the element type IS the author's function, which is true of `:render`
-  and false of the gate. Declaring it is what makes the three routes
-  comparable, exactly as declaring the UIx crossing is."
-  {:server :render}
-  [^js props]
-  (n/$ :span {:class "cell"} (.-label props)))
+;; nothing in either of them that the other does not have.
 
 (defn react-cell
-  "The handwritten route — an ordinary React function component, which is
-  what `n/defcomponent` compiles to and the arm the band is measured
-  against."
+  "The handwritten route — an ordinary React function component, and the
+  arm the band is measured against. The ABI is one raw JavaScript props
+  object and the body reads it by name."
   [^js props]
   (react/createElement "span" #js {:className "cell"} (.-label props)))
 
@@ -152,30 +133,38 @@
   [{:keys [label]}]
   (uix/$ :span {:class "cell"} label))
 
+(defn uix-cell-arm
+  "The plain React shim every crossing into UIx needs: UIx's ABI is a
+  carrier object its own `uix/$` builds, so a `defui` reached through any
+  other door receives props it cannot read. A plain React component is
+  therefore the honest shim, and it is what the crossing looks like in an
+  application too."
+  [^js props]
+  (uix/$ uix-cell {:label (.-label props)}))
+
+(h/defhost react-cell-host react-cell {:server :render})
+(h/defhost uix-cell-host uix-cell-arm {:server :render})
+
 ;; ---------------------------------------------------------------------------
 ;; The corpus
 ;; ---------------------------------------------------------------------------
 
 (def ^:private corpus
-  "Matched triples. Every row is one subject in three spellings, and
+  "Matched pairs. Every row is one subject in two spellings, and
   `:proves` names the equality the row exists to establish rather than
   describing the markup — a row whose only claim is *these render the
-  same* is a row that would survive all three arms being wrong together."
+  same* is a row that would survive both arms being wrong together."
   [{:name   "intrinsic element, literal props, one text child"
     :proves "the ordinary case: a ClojureScript props map lowers to the same
-             React slots on all three routes, so `:class` is `className`
+             React slots as a hand-built object, so `:class` is `className`
              wherever it is written"
-    :native #(n/$ :span {:class "cell" :id "c1"} "42")
     :react  #(react/createElement "span" #js {:className "cell" :id "c1"} "42")
     :uix    #(uix/$ :span {:class "cell" :id "c1"} "42")}
 
    {:name   "a keyed sequence of children"
-    :proves "the `:key` slot is React's own on every route — the one prop React
+    :proves "the `:key` slot is React's own on both routes — the one prop React
              itself reads, and the one a route that invented its own child
              identity would get wrong"
-    :native #(n/$ :ul nil
-                  (n/$ :li {:key "a"} "a")
-                  (n/$ :li {:key "b"} "b"))
     :react  #(react/createElement "ul" nil
                                   (react/createElement "li" #js {:key "a"} "a")
                                   (react/createElement "li" #js {:key "b"} "b"))
@@ -186,28 +175,23 @@
    {:name   "an SVG element with a dashed attribute"
     :proves "SVG's attribute rules are React's, not the substrate's: `stroke-width`
              becomes `strokeWidth` and the element lands in the SVG namespace on
-             all three routes"
-    :native #(n/$ :svg {:viewBox "0 0 8 8"}
-                  (n/$ :circle {:cx 4 :cy 4 :r 3 :stroke-width 2}))
+             both routes"
     :react  #(react/createElement "svg" #js {:viewBox "0 0 8 8"}
                                   (react/createElement "circle" #js {:cx 4 :cy 4 :r 3 :strokeWidth 2}))
     :uix    #(uix/$ :svg {:view-box "0 0 8 8"}
                     (uix/$ :circle {:cx 4 :cy 4 :r 3 :stroke-width 2}))}
 
    {:name   "a custom element, spelled as a string head"
-    :proves "a head with a dash is a custom element on every route and its
+    :proves "a head with a dash is a custom element on both routes and its
              attributes pass through unrenamed — the case where React's own
              rule CHANGES, so a route carrying its own attribute table would
              diverge here and nowhere else"
-    :native #(n/$ "my-widget" #js {:data-size "lg"} "w")
     :react  #(react/createElement "my-widget" #js {:data-size "lg"} "w")
     :uix    #(uix/$ :my-widget {:data-size "lg"} "w")}
 
    {:name   "a dynamic props operand"
-    :proves "a props map built at runtime reaches the same React slots as the
-             literal one — on the native route through the explicit `n/props`
-             marker, which is the whole of what the marker does"
-    :native #(let [m {:class "cell" :id "c1"}] (n/$ :span (n/props m) "42"))
+    :proves "a props map built at runtime reaches the same React slots as a
+             hand-built object"
     :react  #(let [o #js {}]
                (unchecked-set o "className" "cell")
                (unchecked-set o "id" "c1")
@@ -219,14 +203,12 @@
              bridge over exactly these three, because React's `children` slot
              is absent, a bare value and an array in turn — and a route that
              read it as one shape got the other two wrong"
-    :native #(n/$ :span {:class "cell"})
     :react  #(react/createElement "span" #js {:className "cell"})
     :uix    #(uix/$ :span {:class "cell"})}
 
    {:name   "exactly one child"
     :proves "React's second children shape — the slot holds the child itself,
              not a one-element array"
-    :native #(n/$ :span {:class "cell"} (n/$ :b nil "one"))
     :react  #(react/createElement "span" #js {:className "cell"}
                                   (react/createElement "b" nil "one"))
     :uix    #(uix/$ :span {:class "cell"} (uix/$ :b nil "one"))}
@@ -235,7 +217,6 @@
     :proves "React's third children shape, with the mixture that makes it
              interesting: text and elements interleaved, where a route that
              normalised children would show it"
-    :native #(n/$ :p nil "a" (n/$ :b nil "b") "c" (n/$ :i nil "d"))
     :react  #(react/createElement "p" nil "a"
                                   (react/createElement "b" nil "b") "c"
                                   (react/createElement "i" nil "d"))
@@ -243,9 +224,8 @@
 
    {:name   "a component head"
     :proves "the routes agree about a COMPONENT and not only about intrinsic
-             elements — three different element types, three different props
+             elements — two different element types, two different props
              ABIs, one rendering"
-    :native #(n/$ native-cell #js {:label "42"})
     :react  #(react/createElement react-cell #js {:label "42"})
     :uix    #(uix/$ uix-cell {:label "42"})}])
 
@@ -280,23 +260,16 @@
   [el]
   (into {} (remove (fn [[_ v]] (or (fn? v) (object? v)))) (props-map el)))
 
-(defn- refusal
-  "Run `f` and answer the refusal's ex-data — or a marker saying what
-  happened instead, so a failing row reports WHICH of the two ways it
-  failed rather than throwing out of the assertion. The shape
-  `native_grammar_cljs_test` uses, for the same reason."
-  [f]
-  (try
-    (f)
-    {::outcome :returned-without-refusing}
-    (catch :default e
-      (or (ex-data e) {::outcome :threw-without-ex-data ::message (ex-message e)}))))
+(defn- slots
+  "The names on the props object React carries for `el`, in order."
+  [^js el]
+  (vec (js/Object.keys (.-props el))))
 
 ;; ---------------------------------------------------------------------------
 ;; 0. The instrument can tell two markups apart
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every row below is of the form *these three are equal*, and equality is
+;; Every row below is of the form *these two are equal*, and equality is
 ;; trivially satisfied by an instrument that answers the same thing to
 ;; everything. So the first row drives a deliberate MISMATCH and asserts
 ;; the instrument reports it, exactly as `hook_budget_cljs_test` counts to
@@ -321,28 +294,23 @@
                 (scalar-props (react/createElement "span" #js {:className "two"})))))))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The three routes render the same bytes
+;; 1. The two routes render the same bytes
 ;; ---------------------------------------------------------------------------
 
-(deftest the-three-routes-render-the-same-server-bytes
-  (doseq [{:keys [name proves native react uix]} corpus]
+(deftest the-two-routes-render-the-same-server-bytes
+  (doseq [{:keys [name proves react uix]} corpus]
     (testing (str name " — " proves)
       (let [handwritten (markup (react))]
 
         (testing "the premise: the handwritten arm rendered something"
           (is (seq handwritten)))
 
-        (testing "Hicasso-native against handwritten React, which is the
-                  comparison that decides — no convenience layer sets this
-                  floor"
-          (is (= handwritten (markup (native)))))
-
-        (testing "and UIx against the same handwritten arm, so the three are
-                  one subject rather than two agreeing pairs"
+        (testing "UIx against handwritten React, which is the comparison that
+                  decides — no convenience layer sets this floor"
           (is (= handwritten (markup (uix)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. The three routes build the same element
+;; 2. The two routes build the same element
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Markup is the output; this is the CONSTRUCTION. A route could reach the
@@ -350,45 +318,39 @@
 ;; normalised child array, a key moved into props — and the rows above
 ;; would not see it.
 
-(deftest the-three-routes-build-the-same-element-shape
-  (doseq [{:keys [name proves native react uix]} corpus]
+(deftest the-two-routes-build-the-same-element-shape
+  (doseq [{:keys [name proves react uix]} corpus]
     (testing (str name " — " proves)
       (let [^js r (react)
-            ^js n (native)
             ^js u (uix)]
 
         (testing "the element TYPE. For an intrinsic element it is the tag
-                  string, identically on all three routes; for a COMPONENT
-                  head the three types are three different functions — one
-                  per route — which is not a divergence but the subject:
-                  three components rendering one output is what parity means
+                  string, identically on both routes; for a COMPONENT head
+                  the two types are two different functions — one per route
+                  — which is not a divergence but the subject: two
+                  components rendering one output is what parity means
                   here, and a row asserting they were the same object would
                   be asserting the corpus had only one arm"
           (if (string? (.-type r))
-            (do (is (= (.-type r) (.-type n)))
-                (is (= (.-type r) (.-type u))))
+            (is (= (.-type r) (.-type u)))
             (do (is (fn? (.-type r)))
-                (is (fn? (.-type n)))
                 (is (fn? (.-type u)))
-                (is (= 3 (count (distinct [(.-type r) (.-type n) (.-type u)])))
-                    "three arms, not two aliases of one"))))
+                (is (not (identical? (.-type r) (.-type u)))
+                    "two arms, not two aliases of one"))))
 
         (testing "the `key` slot, which React reads itself"
-          (is (= (.-key r) (.-key n)))
           (is (= (.-key r) (.-key u))))
 
-        (testing "and the scalar props, slot by slot — the native route's
-                  lowering is `impl/slot`'s and produces React's names"
-          (is (= (scalar-props r) (scalar-props n)))
+        (testing "and the scalar props, slot by slot, for an intrinsic element,
+                  where both routes carry React's own props object. A
+                  COMPONENT head is the one place the two ABIs differ, and
+                  that difference is its own row rather than an exception
+                  hidden here"
           (when (string? (.-type r))
-            (is (= (scalar-props r) (scalar-props u))
-                "UIx too, for an intrinsic element, where all three carry
-                 React's own props object. A COMPONENT head is the one place
-                 the three ABIs differ, and that difference is its own row
-                 rather than an exception hidden here")))))))
+            (is (= (scalar-props r) (scalar-props u)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Component identity — the declared `:render` arm's zero wrapper
+;; 3. Component identity — the declared `:render` crossing's zero wrapper
 ;; ---------------------------------------------------------------------------
 ;;
 ;; This is the deterministic half of the island band. See the namespace
@@ -396,43 +358,43 @@
 ;; structural fact underneath it is decidable here and is the stronger
 ;; statement — there is no interposed work for a stopwatch to find.
 ;;
-;; The subject is `{:server :render}`, which is what [[native-cell]]
+;; The subject is `{:server :render}`, which is what [[react-cell-host]]
 ;; declares. The `:client-only` default answers a gate instead, and a
-;; gate is a wrapper: one fiber and one hook between
-;; React and the author's function. Naming the arm is the whole of the
-;; qualification — the rows below are unchanged by it.
+;; gate is a wrapper: one fiber and one hook between React and the
+;; author's function. Naming the arm is the whole of the qualification —
+;; the rows below are unchanged by it.
 
-(deftest a-declared-render-island-is-the-authors-own-function-and-costs-no-wrapper
-  (testing "`n/defcomponent` answers a FUNCTION, and under `{:server :render}`
-            it is the element type React reconciles on — not a wrapper
-            holding one"
-    (is (fn? native-cell))
-    (is (identical? native-cell (.-type (n/$ native-cell #js {:label "42"})))))
+(deftest a-declared-render-crossing-is-the-authors-own-function-and-costs-no-wrapper
+  (testing "a handwritten component is a FUNCTION, and it is the element type
+            React reconciles on — not a wrapper holding one"
+    (is (fn? react-cell))
+    (is (identical? react-cell (.-type (react/createElement react-cell #js {:label "42"})))))
 
   (testing "so the props React hands the component carry the author's own
             slot and nothing else. Stated as a KEY SET rather than by
             identity, because `React.createElement` copies its config into
-            a fresh props object on every route and always has — a row
-            asserting identity would be asserting a fact about React that
-            is not true of any of the three arms"
-    (is (= ["label"] (vec (js/Object.keys (.-props (n/$ native-cell #js {:label "42"})))))))
+            a fresh props object and always has — a row asserting identity
+            would be asserting a fact about React that is not true of any
+            arm"
+    (is (= ["label"] (slots (react/createElement react-cell #js {:label "42"})))))
 
   (testing "and the body runs when the function is CALLED — no fiber, no
-            hook, no shell. This is what `a DECLARED native island costs
-            what React costs` means as a structural fact rather than a
-            timing"
-    (let [el (native-cell #js {:label "42"})]
+            hook, no shell. This is what `a DECLARED island costs what React
+            costs` means as a structural fact rather than a timing"
+    (let [el (react-cell #js {:label "42"})]
       (is (= "span" (.-type el)))
       (is (= "42" (.-children (.-props el))))))
 
-  (testing "the handwritten arm is the same three sentences, which is the
-            point: the two routes are not close, they are identical in
-            shape, and the band excludes only the one explicit crossing"
-    (is (fn? react-cell))
-    (is (identical? react-cell (.-type (react/createElement react-cell #js {:label "42"}))))
-    (is (= ["label"] (vec (js/Object.keys (.-props (react/createElement react-cell #js {:label "42"}))))))))
+  (testing "THE CROSSING, which is the arm the band is stated over: through
+            `h/defhost` under `{:server :render}`, the element the codec
+            builds has the author's own function as its type and the
+            author's own slot as its props — zero wrappers, which is
+            budgets.md row D14"
+    (let [^js el (codec/as-element [react-cell-host {:label "42"}])]
+      (is (identical? react-cell (.-type el)))
+      (is (= ["label"] (slots el))))))
 
-(deftest the-convenience-layer-pays-a-per-render-price-the-native-tier-does-not
+(deftest the-convenience-layer-pays-a-per-render-price-handwritten-react-does-not
   (testing "UIx's element carries a CARRIER object rather than the props the
             author wrote — `#js {:argv <the map>}` — so the props a UIx
             component receives are not the props at the call site"
@@ -443,47 +405,55 @@
           "and it holds the ClojureScript map the author wrote")))
 
   (testing "read as a figure, which is what makes it comparable: the props
-            object React carries has ONE slot on every route, and on two of
-            them it is the author's `label` while on UIx it is a carrier the
-            author never wrote. That is one unwrapping hop per render, per
-            component, on the UIx route and ZERO on the other two — the
-            convenience being paid for, and exactly why §6 requires the
-            native tier to be co-instrumented against handwritten React as
-            well: a floor set by UIx would have this hop inside it"
-    (let [slots (fn [^js el] (vec (js/Object.keys (.-props el))))]
-      (is (= ["label"] (slots (n/$ native-cell #js {:label "42"}))))
-      (is (= ["label"] (slots (react/createElement react-cell #js {:label "42"}))))
-      (is (= ["argv"]  (slots (uix/$ uix-cell {:label "42"})))))
+            object React carries has ONE slot on both routes, and on the
+            handwritten route it is the author's `label` while on UIx it is
+            a carrier the author never wrote. That is one unwrapping hop per
+            render, per component, on the UIx route and ZERO on the
+            handwritten one — the convenience being paid for, and exactly
+            why §6 measures against handwritten React: a floor set by UIx
+            would have this hop inside it. budgets.md row D16"
+    (is (= ["label"] (slots (react/createElement react-cell #js {:label "42"}))))
+    (is (= ["argv"]  (slots (uix/$ uix-cell {:label "42"}))))
 
-    (let [^js uix-el    (uix/$ uix-cell {:label "42"})
-          ^js native-el (n/$ native-cell #js {:label "42"})]
+    (let [^js uix-el   (uix/$ uix-cell {:label "42"})
+          ^js react-el (react/createElement react-cell #js {:label "42"})]
       (is (nil? (.-label (.-props uix-el)))
           "UIx's element does not carry the prop at its own name")
-      (is (= "42" (.-label (.-props native-el)))
-          "the native element does — the body reads `.-label` off the props
-           object React built from the very map the call site wrote")))
+      (is (= "42" (.-label (.-props react-el)))
+          "the handwritten element does — the body reads `.-label` off the
+           props object React built from the very object the call site
+           wrote")))
+
+  (testing "and through the crossing the same hop is visible: the UIx arm's
+            host hands React a plain shim as the element type, and it is the
+            shim — not the door — that opens `argv` one level down"
+    (let [^js el (codec/as-element [uix-cell-host {:label "42"}])]
+      (is (identical? uix-cell-arm (.-type el)))
+      (is (= ["label"] (slots el)))))
 
   (testing "and the two routes' element types are different KINDS of thing:
-            the native tier's is the author's own function, UIx's is a
+            handwritten React's is the author's own function, UIx's is a
             generated component around a body the author wrote separately"
-    (is (identical? native-cell (.-type (n/$ native-cell #js {:label "42"}))))
+    (is (identical? react-cell (.-type (react/createElement react-cell #js {:label "42"}))))
     (is (true? (.-uix-component? uix-cell))
         "UIx stamps its own components, which is how it recognises one — and
-         the native tier's function carries no such stamp because it is not
+         the handwritten function carries no such stamp because it is not
          wrapped")))
 
 ;; ---------------------------------------------------------------------------
-;; 4. One frame, read through all three doors
+;; 4. One frame, read through the interpreted door and both foreign doors
 ;; ---------------------------------------------------------------------------
 
-(n/defcomponent island
-  "The native route's read: `n/use-sub`, a real React hook.
-  `{:server :render}` for [[native-cell]]'s reason — the page below is
-  server-rendered and a Client-only island would leave the premise row
-  reading two arms and calling it three."
-  {:server :render}
-  [_props]
-  (n/$ :b {:class "island"} (str (n/use-sub [::price]))))
+(defn island
+  "The raw-React route's read: `n/use-sub`, a real React hook, in an
+  ordinary function component. Mounted through `{:server :render}` for
+  [[uix-reader-host]]'s reason — the page below is server-rendered and a
+  Client-only crossing would leave the premise row reading two arms and
+  calling it three."
+  [^js _props]
+  (react/createElement "b" #js {:className "island"} (str (n/use-sub [::price]))))
+
+(h/defhost island-host island {:server :render})
 
 (defui uix-reader
   "The UIx route's read, through the adapter's own hook, in the EXPLICIT
@@ -499,27 +469,22 @@
   Spec 002's own ladder names the explicit `{:frame <id>}` as the third
   of three ways to establish a scope, so this arm takes it.
 
-  What that costs the row is nothing: the claim is that all three routes
+  What that costs the row is nothing: the claim is that all three doors
   read ONE frame and agree, not that all three discover it by the same
-  mechanism — they demonstrably do not, since the Hicasso arms resolve
+  mechanism — they demonstrably do not, since the Hicasso doors resolve
   through `impl/collector`'s own context read. The ambient UIx form is
   the browser lane's to exercise, and `re-frame.adapter.uix`'s own
   `uix_use_subscribe_dom_cljs_test` is where it already is."
   [_]
   (uix/$ :u {:class "uix"} (str (uix-adapter/use-subscribe frame-id [::price]))))
 
-(defn uix-arm
-  "The crossing into the UIx tree, and it is a PLAIN React component
-  deliberately.
-
-  UIx's ABI is a carrier object its own `uix/$` builds — `#js {:argv m}`
-  — so a `defui` reached through any door but `uix/$` receives props it
-  cannot read. A plain React component is therefore the honest shim, and
-  it is what the crossing looks like in an application too."
+(defn uix-reader-arm
+  "The crossing into the UIx tree — a plain React shim, for
+  [[uix-cell-arm]]'s reason."
   [_props]
   (uix/$ uix-reader))
 
-(h/defhost uix-host
+(h/defhost uix-reader-host
   "The UIx arm's crossing into the tree, through the named door.
 
   `{:server :render}` and not the default, and the reason belongs in the
@@ -529,7 +494,7 @@
   `hook_budget_cljs_test`; here it would delete the arm this row exists
   to compare, and the first draft of this file read two arms agreeing and
   called it three. The premise row below is what caught it."
-  uix-arm
+  uix-reader-arm
   {:server :render})
 
 (h/defview boundary
@@ -538,13 +503,14 @@
   [:i.boundary (str (h/sub [::price]))])
 
 (h/defview page
-  "One tree holding all three, so the reads are of the same frame in the
-  same render rather than three separate renders that happen to agree."
+  "One tree holding all three doors, so the reads are of the same frame
+  in the same render rather than three separate renders that happen to
+  agree."
   [_]
   [:div.page
    [boundary {}]
-   (n/$ island nil)
-   [uix-host {}]])
+   [island-host {}]
+   [uix-reader-host {}]])
 
 (defn- seeded!
   []
@@ -566,7 +532,7 @@
                                              (codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
-(deftest the-three-routes-read-one-frame-and-agree
+(deftest the-three-doors-read-one-frame-and-agree
   (seeded!)
   (is (true? (probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
@@ -589,15 +555,15 @@
               island's `n/use-sub`. THREE readers, TWO hooks each — and the
               island's pair is indistinguishable from a boundary shell's,
               which is the parity statement in its sharpest form: crossing
-              into the native tier does not change what a read costs"
+              into raw React does not change what a read costs"
       (is (= ["useContext" "useSyncExternalStore"
               "useContext" "useSyncExternalStore"
               "useContext" "useSyncExternalStore"]
              (vec (take 6 hooks)))))
 
     (testing "I9 holds at two, read off the ledger the shell declares — the
-              three-route tree above added a native island and a foreign
-              UIx subtree and moved it by nothing"
+              tree above added a raw-React island and a foreign UIx subtree
+              and moved it by nothing"
       (is (= 2 (count runtime/shell-hook-ledger))))
 
     (testing "and neither `useRef` nor `useState` is among them: HD-020(b)'s
@@ -608,74 +574,10 @@
               own roster"
       (is (= [] (filterv #{"useRef" "useState"} (vec (take 6 hooks))))))
 
-    (testing "the crossing itself cost no hook: `{:server :render}` mints no
-              gate, so everything past the sixth is the foreign subtree's
-              own and the door contributed nothing to the count"
+    (testing "the crossings themselves cost no hook: `{:server :render}` mints
+              no gate, so everything past the sixth is the foreign subtree's
+              own and the doors contributed nothing to the count"
       (is (seq (drop 6 hooks))
           "the premise — the UIx arm really ran hooks of its own, so the
            statement above is about a populated tail rather than an empty
            one"))))
-
-;; ---------------------------------------------------------------------------
-;; 5. The leakage matrix — the mix the fence exists for
-;; ---------------------------------------------------------------------------
-;;
-;; The bead names four ambiguous mixes. Three are already witnessed and are
-;; NOT re-asserted here, because a second copy of a row is a second thing to
-;; drift: nested hiccup in a native child and an intent vector at a native
-;; callback are `native_grammar_cljs_test`'s
-;; (`a-hiccup-vector-in-child-position-refuses`,
-;; `an-event-vector-at-a-native-callback-slot-refuses`), and dynamic heads
-;; and props are its `heads-are-classified-syntactically` and
-;; `a-dynamic-element-in-props-position-is-a-child`.
-;;
-;; The fourth has no witness anywhere, and it is the one with the most to
-;; go wrong: a CONTROLLED FIELD written inside a native subtree. Every part
-;; of the interpreted controlled-field law — I15's converge-in-turn, the
-;; caret, the revision marker, the shadow component — is installed by
-;; `impl/controlled` from the CODEC, and the codec never runs past the
-;; fence. So the same source shape means one thing on each side, and the
-;; row below is that pair measured in one breath.
-
-(h/defview interpreted-field
-  "The controlled field as the interpreted tier means it: `:value` is a
-  subscription and `:on-input` is an event vector."
-  [_]
-  [:input#interpreted {:type     "text"
-                       :value    (str (h/sub [::price]))
-                       :on-input [::typed ::h/value]}])
-
-(deftest a-controlled-field-means-one-thing-in-hiccup-and-refuses-past-the-fence
-  (seeded!)
-
-  (testing "in hiccup the field is repaired: the codec routes a convergeable
-            input through `controlled/install!`, so what React receives is
-            the shadow component and not the bare tag"
-    (let [{:keys [html]} (server-render! [interpreted-field {}])]
-      (is (some? (re-find #"id=\"interpreted\"" html)))
-      (is (some? (re-find #"value=\"191\"" html)))))
-
-  (testing "past the fence the SAME source shape refuses, and it refuses on
-            the intent rather than on the value — `:on-input` is a React
-            callback slot, nothing lowers an event vector there, and React
-            would otherwise be handed the vector itself"
-    (let [data (refusal #(n/props {:type "text" :value "191" :on-input [::typed ::h/value]}))]
-      (is (= :rf.error/hicasso-native-intent-in-prop (:rf.error/id data)))
-      (is (= "onInput" (:slot data))
-          "the CONTROLLED-field slot specifically. `native_grammar_cljs_test`
-           drives `onClick`; the field family reaches the same rule by the
-           same route, and this row is what says the two are one rule")
-      (is (= 're-frame.hicasso.native/props (:where data))
-          "and it names the form that refused, which is the recovery the
-           author needs")))
-
-  (testing "so there is no silent third behaviour: the value prop alone is
-            legal past the fence and passes by identity, which is React's
-            own read-only controlled input — the author's to complete with a
-            handler, and never repaired behind their back"
-    (let [^js el (n/$ :input (n/props {:type "text" :value "191"}))]
-      (is (= "input" (.-type el)))
-      (is (= "191" (.-value (.-props el))))
-      (is (nil? (.-onChange (.-props el)))
-          "nothing was installed — past the fence there is no controlled
-           repair, which is the fence's whole content"))))

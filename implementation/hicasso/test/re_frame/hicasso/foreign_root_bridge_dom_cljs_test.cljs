@@ -97,8 +97,8 @@
 (def ^:private memo-bridged (react/memo bridged))
 
 (defui uix-parent
-  "The third parent the bridge's docstring names — *`n/defcomponent`, UIx,
-  or plain JavaScript* — rendering the same minted bridge, so a
+  "The third kind of parent the bridge serves — a raw React component,
+  UIx, or plain JavaScript — rendering the same minted bridge, so a
   difference between rows is a difference between PARENTS rather than
   between three bridges that happened to agree."
   [{:keys [label]}]

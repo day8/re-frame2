@@ -45,8 +45,8 @@
 
   | Piece | Door | Shipped? |
   |---|---|---|
-  | the wrapper component | `n/defcomponent` | yes |
-  | the DOM node it owns | `n/$` with a `:ref` | yes |
+  | the wrapper component | a raw React function component | yes |
+  | the DOM node it owns | `react/createElement` with a `:ref` | yes |
   | the crossing into hiccup | `h/defhost` | yes |
   | the SDK's outward callback | `:callbacks {:on-pick :event}` + `h/event` | yes |
   | the throw/retry region | `h/error-boundary` `:fallback` / `:reset-key` | yes |
@@ -116,7 +116,6 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -251,10 +250,10 @@
 ;; THE RECIPE — the wrapper, and the five hooks it spends
 ;; ---------------------------------------------------------------------------
 
-(n/defcomponent spark-island
+(defn- spark-island
   "**The acquire/release recipe.** An ordinary React component that owns
-  one foreign instance, written on the native tier because that is the
-  tier with fibers, refs and effects — HD-020's ≤2-hook budget is a
+  one foreign instance, written as raw React because that is where
+  fibers, refs and effects live — HD-020's ≤2-hook budget is a
   statement about Hicasso BOUNDARIES, and an island is not one.
 
   Five hooks, and the split between them IS the recipe:
@@ -303,7 +302,7 @@
         (some-> ^js (.-current sdk-ref) (.setData data))
         js/undefined)
       #js [data])
-    (n/$ :div {:ref node-ref :class "spark"})))
+    (react/createElement "div" #js {:ref node-ref :className "spark"})))
 
 ;; ---------------------------------------------------------------------------
 ;; THE CROSSINGS — one declaration each, and hiccup uses them as heads

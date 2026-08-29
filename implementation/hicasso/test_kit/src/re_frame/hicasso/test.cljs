@@ -352,11 +352,12 @@
 
 (defn host-policy
   "The `:server` policy a `defhost` crossing was declared with —
-  `:client-only` or `:render` — read back as data, the same two values
-  `n/marker` records on the sibling native door. Refuses anything that
-  is not a minted crossing rather than answering nil, because a nil here
-  would read as `:client-only`'s neighbour. A declared `:fallback` is
-  markup rather than policy and is not part of this answer."
+  `:client-only` or `:render` — read back as data. Refuses anything that
+  is not a minted crossing with `:rf.error/hicasso-test-not-a-host`
+  rather than answering nil, because a nil here would read as
+  `:client-only`'s neighbour. A declared `:fallback` is markup rather
+  than policy and is not part of this answer. The two policies and the
+  default are HD-011's, in docs/design/hicasso/decisions.md."
   [v]
   (when-not (host? v)
     (refuse! :rf.error/hicasso-test-not-a-host

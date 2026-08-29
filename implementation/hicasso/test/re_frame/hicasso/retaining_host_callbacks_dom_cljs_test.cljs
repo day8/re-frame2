@@ -54,7 +54,7 @@
     sat beside it until rf2-6c12m.24 retired that contract: it declared
     the passthrough this row already measures.)
   - `:native-stable` — `n/use-frame` plus React's own `useCallback`
-    inside an `n/defcomponent` island: the one carrier that is BOTH
+    inside a raw React island: the one carrier that is BOTH
     identity-stable and dispatching.
 
   `:native-churn` is that last one with the `useCallback` taken off, so
@@ -240,14 +240,16 @@
 ;; superseded — so a `useCallback` keyed on it is stable exactly as long
 ;; as it is safe to be, and no longer.
 ;;
-;; Both islands render the vendor through `react/createElement` rather
-;; than through a `defhost`, because inside the native tier that IS the
-;; ordinary spelling. There is therefore no gate above the memo on these
-;; two rows, which is stated rather than hidden: it removes a component
-;; from the path and adds nothing to it, and the `:absent` row already
-;; shows the gate does not disturb a bail-out.
+;; Both islands are raw React components and render the vendor through
+;; `react/createElement` rather than through a `defhost`, because inside
+;; React that IS the ordinary spelling; each parent boundary returns the
+;; island's element directly, the Rung 3 escape. There is therefore no
+;; gate above the memo on these two rows, which is stated rather than
+;; hidden: it removes a component from the path and adds nothing to it,
+;; and the `:absent` row already shows the gate does not disturb a
+;; bail-out.
 
-(n/defcomponent stable-island
+(defn- stable-island
   "The identity-stable DISPATCHING carrier — the whole of the safe
   solution the standing rule asks about, assembled out of surface that
   already ships."
@@ -259,10 +261,10 @@
                   #js [ops])]
     (react/createElement sink #js {:label "s" :onPing on-ping})))
 
-(n/defcomponent churning-island
+(defn- churning-island
   "The same island with the `useCallback` taken off — the negative
   control for the row above. Without it a reader could credit the
-  bail-out to the tier, to the missing gate, or to `use-frame` itself
+  bail-out to the island, to the missing gate, or to `use-frame` itself
   rather than to the memoisation of the closure."
   [^js _props]
   (let [_tick (n/use-sub [::ticks])
@@ -273,8 +275,8 @@
                                         ((:dispatch-sync ops) [::ping :native-churn])
                                         nil)})))
 
-(h/defview stable-parent [_] (n/$ stable-island {}))
-(h/defview churn-parent  [_] (n/$ churning-island {}))
+(h/defview stable-parent [_] (react/createElement stable-island nil))
+(h/defview churn-parent  [_] (react/createElement churning-island nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
