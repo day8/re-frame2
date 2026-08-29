@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.slot-cljs-test
+(ns re-frame.hicasso.slot-cljs-test
   "THE EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y).
 
   This file is `.cljc` on purpose, and that is the whole mechanism. The
@@ -20,10 +20,11 @@
 
   ## What it would catch
 
-  The rule has exactly one definition
-  ([[re-frame.bench.hicasso.front.slot/prop-name]]), so the interesting
-  failure is not \"someone edited one copy\". It is the two ways one
-  definition can still answer two things:
+  The rule has exactly one definition, `re-frame.hicasso.impl.slot/prop-name`
+  — the package's own; the bench tree's copy of it is evidence under
+  bench/hicasso and pins nothing (rf2-6c12m.1) — so the interesting failure
+  is not \"someone edited one copy\". It is the two ways one definition can
+  still answer two things:
 
   1. **A reader conditional.** `#?(:clj … :cljs …)` inside the rule, or
      inside anything it calls, splits it silently — the file still reads
@@ -46,7 +47,7 @@
   are."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.bench.hicasso.front.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as slot]))
 
 (def corpus
   "Authored prop key → the canonical React slot it emits into.

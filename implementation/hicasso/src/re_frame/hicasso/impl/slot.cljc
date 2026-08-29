@@ -1,87 +1,26 @@
 (ns re-frame.hicasso.impl.slot
-  "THE CANONICAL SLOT RULE — one implementation, two hosts (rf2-ani6y).
+  "THE CANONICAL SLOT RULE — one implementation, two hosts.
 
   A hiccup prop key is written in one of four spellings — a keyword, a
   string, a symbol or a namespaced keyword — in kebab or in camel, and
-  every one of them is emitted under ONE React name. [[prop-name]] is
-  the function that decides which. It is the whole of the rule and it is
-  the whole of this namespace.
+  every one of them is emitted under ONE React name. [[prop-name]]
+  decides which: the three React renames (`class`, `for`, `charset`) in
+  every spelling; kebab → camel with an existing hump preserved;
+  `aria-*`, `data-*` and `--custom-property` passed through; a string
+  taken verbatim apart from the renames. It is the whole of this
+  namespace, it holds no state, and it requires nothing but
+  `clojure.string`.
 
-  ## Why it is `.cljc` rather than a `defn` inside the codec
+  `.cljc` rather than a `defn` in the codec because the rule has a second
+  consumer that cannot run in CLJS at all — the Reagent-to-Hicasso codemod,
+  which decides on the JVM which slot each prop it rewrites will land in —
+  and one shared definition is the only thing that pins the tool and the
+  runtime equal: `test/re_frame/hicasso/slot_cljs_test.cljc` asserts one
+  corpus twice, in Node and on the JVM, and the codemod's `shared_rule_test`
+  holds its resolver `identical?` to this one. The caches and the
+  prototype-poisoning guard are emission concerns and stay in the codec.
 
-  [[re-frame.hicasso.impl.codec]] is `.cljs`, because emission is
-  `React.createElement`. The slot rule is not: it is a pure function from
-  a name to a name, and it has a **second consumer that cannot run in
-  CLJS at all** — the `[:>]` migration codemod, which reads a Reagent
-  namespace on the JVM and must decide, statically, which slot each prop
-  it rewrites will land in.
-
-  A tool that reimplements the rule is the exact defect the codemod
-  exists to delete, reproduced inside the tool: a corpus pins the tool, a
-  DOM suite pins the runtime, and **nothing pins them equal**. When they
-  drift the failure is silent — the tool rewrites a prop one way, the
-  runtime reads it another, and the author's source now says something
-  the framework does not do. No comment, checklist or restating test
-  inside the tool's own tree closes that; a convention is not a pin.
-
-  So the rule moved to the one file both hosts can load, and the codec
-  calls it like anybody else. There is no second copy to keep honest.
-
-  ## What pins the two hosts equal
-
-  `re-frame.bench.hicasso.front.slot-cljs-test` is a **`.cljc` suite**,
-  and this repo's lane bijection (`scripts/check_test_lane_bijection.py`
-  rule B2) requires such a file to be selected by a CLJS lane as well as
-  the JVM one. So the same corpus of authored keys, with the same
-  expected slots, is asserted by `npm run test:cljs` AND by
-  `clojure -M:test` in `implementation/freehand`. One table, one
-  implementation, two runtimes — and a divergence has nowhere left to
-  hide, because there is no second implementation to hold a second
-  answer.
-
-  That matters more than it looks, because the primitives below are not
-  host-identical for free. `str/upper-case` is `.toUpperCase()` on both,
-  but the JVM's takes the platform's DEFAULT LOCALE — on a Turkish-locale
-  JVM `\"i\"` upper-cases to `\"İ\"` and `:aria-index` would slot
-  differently from the browser's answer. `str/split`'s trailing-empty
-  handling is a second such seam. Neither is guarded here by a
-  reader conditional, and deliberately: a guard would be a guess about
-  which host is right. The cross-host suite makes the disagreement LOUD
-  instead, on the host that has it.
-
-  ## What is NOT here
-
-  The caches, the [[re-frame.hicasso.impl.codec/PropSlot]]
-  classifications, the prototype-poisoning guard and every walk are
-  emission concerns and stay in the codec. This namespace holds the pure
-  rule and its two vocabularies, and requires nothing but
-  `clojure.string`."
-  ;; rf2-o9yo4 — THE SECTION ABOVE NAMES A DIRECTORY THAT NO LONGER EXISTS,
-  ;; and this note is the repair rather than an edit to it.
-  ;;
-  ;; `implementation/freehand` was removed by rf2-0yp7w. The JVM arm of the
-  ;; cross-host corpus now runs from `implementation/hicasso` — that
-  ;; artefact's `:test` alias, over
-  ;; `test/re_frame/bench/hicasso/front/slot_cljs_test.cljc`, gated on every
-  ;; PR as `test.yml`'s unconditional `jvm-hicasso` job. The CLJS arm is
-  ;; unchanged, and that suite's own docstring states the pair correctly.
-  ;;
-  ;; THE SENTENCE ITSELF IS NOT EDITED BECAUSE IT CANNOT BE. This file is the
-  ;; last row in `frozen-sources.edn`, and the freeze gate reconstructs it
-  ;; from the donor line by line — a docstring is a string and a string is
-  ;; code, so rewriting that line reds MOVED. None of the manifest's three
-  ;; responses is free either: the donor says `implementation/freehand` at
-  ;; the same line, so there is nothing to port; back-porting into the donor
-  ;; would falsify a MEASURED artefact; and retiring the row triggers the
-  ;; manifest's sunset clause, which takes SEALED — the package-wide bar on
-  ;; shipped source importing the bench tree — with it. rf2-o9yo4 holds that
-  ;; decision.
-  ;;
-  ;; An INSERTED COMMENT LINE is the one addition MOVED licenses, which is
-  ;; what makes this note legal where the edit is not. If you arrived here
-  ;; from a grep for `freehand`, this is the answer: read the sentence above
-  ;; as history, because the suite really did run there when the readings the
-  ;; package's budgets are set against were taken.
+  Design record: docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md"
   (:require [clojure.string :as str]))
 
 (def ^:private dont-camel-case
