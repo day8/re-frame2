@@ -63,63 +63,32 @@
 (declare as-element)
 
 ;; ---------------------------------------------------------------------------
-;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s
-;; ---------------------------------------------------------------------------
-;;
-;; One constructor for the whole package: the same id / position / reason
-;; a test can assert on, plus the ambient view and source coordinate no
-;; call site is in a position to supply.
-
-;; ---------------------------------------------------------------------------
 ;; Cache hygiene — the own-property guard both caches share
 ;; ---------------------------------------------------------------------------
 
 (defn- reserved-name?
-  "Is `n` — a tag or prop name, or an emitted prop slot — one of the
-  three names that must never be written to a JS object, or emitted
-  through one? A hiccup literal named `__proto__`, `prototype` or
-  `constructor` would otherwise reach an object's prototype. That roster
-  is the whole predicate.
-
-  Three `===` string compares rather than a set lookup, because a set
-  lookup pays a string hash for a roster of three —
-  36.9 ns against 9.6 on the census page's own literals, measured by
-  `walk_profile_app`'s micro table.
-
-  **It is asked on the cache MISS path only**. The caches
-  below carry no prototype, so a hostile literal cannot make a lookup
-  answer wrongly and the guard has only one job left: keep the three
-  names out of the caches, and out of the emitted props object — which
-  DOES carry `Object.prototype`, and is where [[PropSlot]]'s `reserved?`
-  field answers instead. A miss happens once per distinct literal for
-  the life of the build; a hit happens once per element per mount."
+  "Is `n` — a tag or prop name, or an emitted prop slot — one of the three
+  names that must never be written to a JS object or emitted through
+  one: `__proto__`, `prototype`, `constructor`. Asked on the cache MISS
+  path only — the caches carry no prototype, so a hostile literal cannot
+  make a hit answer wrongly — and of the emitted props object, which does
+  (`PropSlot`'s `reserved?`). Three `===` compares rather than a set
+  lookup: 9.6 ns against 36.9 on the census page's literals
+  (docs/design/hicasso/studio/the-interpreter-walk-profiled-and-cheapened.md)."
   [n]
   (or (identical? "__proto__" n)
       (identical? "prototype" n)
       (identical? "constructor" n)))
 
 (defn- empty-cache
-  "A codec cache: a JS object with **no prototype at all**.
-
-  Both caches are keyed by the author's literal, so both must answer
-  two hostile questions on every lookup: could a literal named
-  `__proto__` poison a write, and could a literal named `toString` or
-  `constructor` hit an INHERITED property and be served a value nobody
-  cached. `Object.create(null)` answers the second one structurally —
-  there is no prototype chain, so a lookup can only ever return an own
-  property or `undefined` — and demotes the first to the miss path,
-  where [[reserved-name?]] still refuses the write.
-
-  What that buys, measured on the census page's own literal roster
-  (`walk_vs_reagent_app`, 1,489 prop occurrences and 1,202 tag
-  occurrences, quiet-ish box, in-page clock): the prop lookup 18.1 ->
-  11.1 ns/op and the tag lookup 16.6 -> 11.2, against the
-  `hasOwnProperty.call` + three-compare shape they replace. The costed
-  alternative — keep `#js {}` in V8's fast mode and validate the hit by
-  TYPE (`instance? PropSlot`), since nothing on `Object.prototype` is
-  one — read 13.8 and 12.1 and is DECLINED on both margin and
-  construction: a cache with no prototype cannot serve an inherited
-  value at all, where a type check is a promise that it will be noticed."
+  "A codec cache: a JS object with no prototype at all. Keyed by the
+  author's literal, a cache must answer two hostile questions on every
+  lookup — can `__proto__` poison a write, can `toString` be served an
+  inherited value — and `Object.create(null)` answers the second
+  structurally and demotes the first to the miss path, where
+  `reserved-name?` refuses the write. Measured against the guarded
+  `#js {}` it replaced, and against a type-checked hit that was declined:
+  docs/design/hicasso/studio/our-walk-against-reagents.md §4(a)."
   []
   (js/Object.create nil))
 
@@ -128,8 +97,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private re-tag
-  "`tag`, optional `#id`, optional `.class.class`. The `#id` must precede
-  the classes, as in `reagent2.impl.template` and in stock Reagent."
+  "`tag`, optional `#id`, optional `.class.class`; the `#id` precedes the
+  classes, as in reagent-slim and stock Reagent."
   #"([^\s\.#]+)(?:#([^\s\.#]+))?(?:\.([^\s#]+))?")
 
 (deftype ParsedTag [tag id className])
@@ -146,13 +115,9 @@
   (if-let [ns' (namespace k)] (str ns' "/" (name k)) (name k)))
 
 (defn cached-parse
-  "[[parse-tag]] behind the codec-work cache (HD-004). One entry per
-  distinct tag literal the build ever renders.
-
-  One property read answers the hit, because [[empty-cache]] has no
-  prototype to serve a wrong one. The three poisoning names never
-  reach the cache — the refusal sits on the miss branch, which is the
-  only branch that writes."
+  "`parse-tag` behind the codec-work cache (HD-004): one entry per
+  distinct tag literal, one property read per hit, the reserved-name
+  refusal on the miss branch, which is the only branch that writes."
   [hiccup-tag]
   (let [k   (cache-key hiccup-tag)
         hit (unchecked-get tag-cache k)]
@@ -167,70 +132,32 @@
 ;; Prop names and their cache
 ;; ---------------------------------------------------------------------------
 
-;; The slot rule itself is NOT here. It is
-;; [[re-frame.hicasso.impl.slot/prop-name]], in `.cljc`, because
-;; the `[:>]` migration codemod has to ask the same question on the JVM
-;; and a tool that reimplemented it would reproduce — inside the tool —
-;; the silent divergence the codemod exists to delete. Only
-;; the CACHING of its answers is codec work, and that is what follows.
-
 (deftype PropSlot [js-name reserved? event? ref? class?]
-  ;; What the prop cache holds for one prop literal: the React
-  ;; name, PLUS the four classifications a per-prop walk would
-  ;; otherwise re-derive per element per render — is the
-  ;; emitted slot reserved, is the position an event position, is it the
-  ;; ref slot, is it the class slot. Each is a pure function of the
-  ;; literal's NAME, so caching them beside the name changes what a lookup
-  ;; ANSWERS and nothing about when it is valid: there is still exactly
-  ;; one entry per distinct literal, minted on first sight, correct for
-  ;; the life of the build.
-  ;;
-  ;; `event?` is the name-string's answer (`intent/event-prop?` on the
-  ;; NAME), and the consumer must gate it on `keyword?` — a symbol
-  ;; spelled `on-click` shares the entry but is NOT an event position
-  ;; (event-prop? answers false for symbols), which is why the flag is
-  ;; stored spelling-neutral and applied spelling-aware. That is the same
-  ;; discipline as the string/keyword split in [[cached-prop-name]]: the
-  ;; cache is keyed by name, so anything the name does not determine must
-  ;; be decided at the call site.
+  ;; What the prop cache holds for one literal: the React name plus the
+  ;; four classifications that are pure functions of the NAME — reserved
+  ;; slot, event position, ref slot, class slot — so one lookup answers
+  ;; everything a per-prop walk would re-derive per element per render.
+  ;; `event?` is the name's answer; the consumer gates it on `keyword?`,
+  ;; because a symbol spelled `on-click` shares the entry and is not an
+  ;; event position.
   )
 
 (defn- mint-slot
-  "The [[PropSlot]] for a keyword or symbol prop literal whose name is
-  `n`. Every field a pure function of the literal, per the deftype note."
+  "The `PropSlot` for a keyword or symbol prop literal whose name is `n`."
   [k n]
   (let [js-name (slot/prop-name k)]
     (->PropSlot js-name
                 (reserved-name? js-name)
-                ;; asked of the NAME, not of `k` — a symbol shares the
-                ;; entry, and `event-prop?` already answers a boolean
                 (intent/event-prop? n)
-                ;; "ref" — [[ref-slot]], spelled literally because the def
-                ;; sits below; `identical?` on primitive strings is value
-                ;; comparison.
                 (identical? "ref" js-name)
-                ;; "className" — [[class-slot]], likewise. The class slot
-                ;; is a position too: its value is coerced by
-                ;; [[class-names]] rather than by [[convert-prop-value]],
-                ;; and two spellings of it COMPOSE instead of one
-                ;; overwriting the other.
                 (identical? "className" js-name))))
 
 (defn- seed-prop-cache!
-  "Pre-warm `cache` with the three React renames, and return it.
-
-  **The seeded entries are the RULE, not memos of one** — so each slot
-  name is ASKED of [[re-frame.hicasso.impl.slot/prop-name]]
-  rather than written out again here. A hand-spelled seed is the one
-  place this file could answer a slot the shared rule would not; and a
-  seed written out twice, here and in [[reset-caches!]], gives a drift
-  two chances, with the suites' `:each` fixture making the second copy
-  the live one. There is ONE copy, and it cannot disagree with the rule
-  because it does not restate it.
-
-  None of the three is reserved, an event position, or the ref slot;
-  `class` IS the class slot, which is the whole reason the rule is
-  stated on the emitted name rather than on the key."
+  "Pre-warm `cache` with the three React renames and return it. Each slot
+  name is ASKED of `re-frame.hicasso.impl.slot/prop-name` rather than
+  spelled here, so the seed cannot disagree with the rule; `reset-caches!`
+  re-seeds through this same function, so a suite's `:each` fixture
+  cannot leave the cache holding a different spelling from a cold build's."
   [cache]
   (doto cache
     (unchecked-set "class" (->PropSlot (slot/prop-name :class) false false false true))
@@ -240,14 +167,10 @@
 (def ^:private prop-cache (seed-prop-cache! (empty-cache)))
 
 (defn- prop-slot
-  "The [[PropSlot]] for keyword/symbol `k` with name `n` — the caller has
-  already checked the spelling.
-
-  One property read answers the hit ([[empty-cache]]). A reserved name
-  is minted on every sight rather than cached: the
-  refusal sits on the miss branch, which is the only branch that writes,
-  and the slot it mints carries `reserved?` so the emitted props object
-  — which DOES have a prototype — never receives the name either."
+  "The `PropSlot` for keyword/symbol `k` with name `n`. One property read
+  per hit; a reserved name is minted on every sight and never cached, and
+  the slot it mints carries `reserved?` so the emitted props object never
+  receives the name either."
   ^PropSlot [k n]
   (let [hit (unchecked-get prop-cache n)]
     (if (undefined? hit)
@@ -258,22 +181,14 @@
       hit)))
 
 (defn cached-prop-name
-  "[[re-frame.hicasso.impl.slot/prop-name]] behind the codec-work
-  cache (HD-004).
-
-  **Only a keyword or a symbol is cached**, which is
-  `reagent2.impl.template`'s shape and
-  is load-bearing here. The cache is keyed by `(name k)` while the rule
-  answers a STRING differently from the keyword of the same
-  name — a string is already a React name, so `\"on-input\"` stays
-  `\"on-input\"` where `:on-input` becomes `\"onInput\"`. Sharing one cache
-  entry between them lets either poison the other: the first
-  `{\"on-input\" f}` rendered anywhere would answer every later
-  `:on-input` with `\"on-input\"` for the life of the build, silently
-  emitting every handler written the taught way into a slot React ignores
-  — and, worse, would make [[canonical-slot]] answer differently
-  depending on what had rendered first, which is exactly the order
-  dependence the owned-literal law exists to remove."
+  "`re-frame.hicasso.impl.slot/prop-name` behind the codec-work cache
+  (HD-004). Only a keyword or symbol is cached; a string is answered by
+  the rule directly and anything else verbatim. The cache is keyed by
+  name while the rule answers a string differently from the keyword of
+  the same name (`\"on-input\"` stays, `:on-input` becomes `\"onInput\"`),
+  so sharing an entry would let whichever rendered first answer for both
+  — an order dependence the owned-literal law exists to remove
+  (docs/design/hicasso/decisions.md HD-023 (c′))."
   [k]
   (if-not (or (keyword? k) (symbol? k))
     (if (string? k) (slot/prop-name k) k)
@@ -285,39 +200,25 @@
 ;; ---------------------------------------------------------------------------
 
 (def canonical-slot
-  "**The one slot resolver.** The React prop slot a hiccup attribute key
-  actually emits into — which is [[cached-prop-name]] itself, and that
-  identity is the whole mechanism: the thing a deny asks is the thing the
-  emitter will do.
-
-  A props map reaches React through exactly one canonicalisation, so a
-  rule written against the RAW map key is a rule that any other spelling
-  of the same slot walks straight past. `\"key\"`, `:x/key` and `'key` are
-  all React's key; `:on-input` and `:onInput` are one handler; `:class`,
-  `:className` and `\"class\"` are one `className`. Every deny, every
-  dissoc and every check in this codec and in
-  [[re-frame.hicasso.impl.presence]] asks THIS, and never the key
-  it was written as."
+  "The one slot resolver: the React prop slot a hiccup attribute key
+  emits into, which is `cached-prop-name` itself — the thing a deny asks
+  is the thing the emitter will do. Every deny, dissoc and check in this
+  codec and in `re-frame.hicasso.impl.presence` asks this, never the key
+  as written (docs/design/hicasso/decisions.md HD-023 (c′))."
   cached-prop-name)
 
 (def structural-slots
   "The two React slots that address the ELEMENT rather than its
-  attributes. `key` is React's own identity contract and `ref` is
-  HD-016's node handle; neither is an attribute, and neither is ever
-  taken from a map that is *about* attributes — a presence phase override
-  ([[re-frame.hicasso.impl.presence/with-phase]]).
-
-  Held as canonical SLOTS rather than as keys, because the spelling is
-  exactly what a hostile or careless map would vary."
+  attributes — `key`, React's identity contract, and `ref`, HD-016's node
+  handle. Held as canonical slots, not keys, because the spelling is what
+  a careless map varies; never taken from a presence phase override
+  (`re-frame.hicasso.impl.presence/with-phase`)."
   #{"key" "ref"})
 
 (def ^:private ref-slot "ref")
 
-;; The two slots the TAG can write into, named because the shorthand fold
-;; asks the emitted object for them rather than asking the props map for a
-;; key ([[convert-props]]). `#tag` is the weakest source of an id there is
-;; — it loses to any explicit one, in any spelling — and `.foo` composes
-;; with whatever the map emitted into `className`, in any spelling.
+;; The two slots the TAG can write into; the shorthand fold asks the
+;; emitted object for them rather than the props map for a key.
 (def ^:private id-slot "id")
 (def ^:private class-slot "className")
 
@@ -327,9 +228,8 @@
   (contains? structural-slots (canonical-slot k)))
 
 (defn- without-slots
-  "`m` minus every key whose canonical slot is in `denied`. Returns `m`
-  itself, by identity, when nothing is denied — which is the ordinary
-  case, so the filter allocates nothing on a map that was already legal."
+  "`m` minus every key whose canonical slot is in `denied`; `m` itself, by
+  identity, when nothing is denied, so a legal map allocates nothing."
   [m denied]
   (reduce-kv (fn [acc k _] (if (denied (canonical-slot k)) (dissoc acc k) acc)) m m))
 
@@ -361,30 +261,15 @@
 
 (defn- fold-shorthand!
   "Fold the tag's `#id`/`.class` shorthand into the object the walk just
-  emitted, and return it.
-
-  **On the emitted object, and that placement carries the rule.** The
-  rule is *an explicit id wins over the shorthand, and the shorthand
-  class is prepended to a declared one*; stated over the props MAP it
-  reads `:id`, `:class` and `:className` and sees exactly three of the
-  spellings this codec accepts. `[:div#tag.foo {\"id\" \"caller\"
-  \"className\" \"bar\"}]` walks straight past that form of it: neither
-  key is seen, the shorthand is added as a second entry landing on the
-  same React slot, and which one survives is decided by the order the
-  props map happens to iterate in — the explicit id can lose to `#tag`,
-  and the caller's class can replace `.foo` instead of composing with it.
-
-  Asked of the emitted object there is nothing left to resolve. Every
-  spelling has already been through [[canonical-slot]] on its way into
-  this object, so `id` present means *the author or their caller wrote an
-  id*, however they spelled it, and `className` holds the composed class
-  ([[convert-entry]]) whatever it was written as. One `undefined?` test
-  and one `class-names` answer both halves for every spelling at once.
-
-  It also avoids the map surgery a map-level fold needs — the
-  `dissoc`/`assoc` pair rebuilding the attribute map of every element
-  carrying a shorthand, which the walk profile prices at most of
-  [[convert-props]]'s cost — and with it any fast lane to dodge it."
+  emitted, and return it: an explicit id in any spelling wins over `#tag`,
+  and `.foo` is prepended to whatever the map emitted into `className`,
+  however it was spelled. On the EMITTED object because every spelling
+  has already been through `canonical-slot` on its way in, so `id`
+  present means an id was written; stated over the props map the rule
+  sees three spellings of the keys this codec accepts and lets iteration
+  order decide the rest — and it needs the `dissoc`/`assoc` surgery the
+  walk profile priced at most of `convert-props`'s cost
+  (docs/design/hicasso/decisions.md HD-023 (c″))."
   [^js o ^ParsedTag parsed]
   (when-some [id (.-id parsed)]
     (when (undefined? (unchecked-get o id-slot))
@@ -411,17 +296,14 @@
              m))
 
 (defn convert-prop-value
-  "A prop value in the shape React wants. Functions pass through **by
-  identity**, deliberately: rewrapping them would defeat `React.memo` and
-  every downstream bail-out that compares handler identity.
-
-  `string?` is asked first: a string is the overwhelming prop
-  value on a census page — `href`, `class`, `data-testid`, `src`, `type`
-  — and asked any later it would prove itself *not* a fn, map, keyword,
-  symbol or collection on its way to `:else`, two of those being the dear
-  native-satisfies? protocol checks. One `typeof` answers it; every other
-  branch pays that one `typeof` and keeps its order, so the answer is
-  the same for every input."
+  "A prop value in the shape React wants: a string as itself, a function
+  BY IDENTITY (rewrapping would defeat `React.memo` and every
+  handler-identity bail-out), a map as a camelCased JS object, a keyword
+  or symbol as its `name`, any other collection through `clj->js`.
+  `string?` is asked first because a string is the overwhelming prop
+  value on a census page, and asked later it would pay the protocol
+  checks on its way to `:else`
+  (docs/design/hicasso/studio/the-interpreter-walk-profiled-and-cheapened.md)."
   [v]
   (cond
     (string? v)              v
@@ -590,33 +472,14 @@
 (def ^:private body-slot "hicassoBody")
 
 (defn retain-body!
-  "**Dev only.** Record the body function a minted head runs, ON the head,
-  and return the head.
-
-  ## What it is for, and what it deliberately is not
-
-  A boundary head is a React component: it runs its body inside
-  [[re-frame.hicasso.impl.collector/shell]], under two React hooks, and
-  the body is otherwise reachable only through that shell. Without this,
-  the L0–L2 test kit — which mounts nothing and runs no hook — would take
-  a minted `h/defview` head and have no route back to the function the
-  author wrote.
-
-  The kit renders a minted head, so the head carries its body. **One own
-  property, no registry and no map** — the same shape as
-  [[mark-boundary!]] beside it, and the reason
-  the memo contract is untouched: the head is still the function, still
-  what a `defview` hands back, and no new object escapes.
-
-  ## It is not there in production, and that is the point
-
-  The one call site ([[re-frame.hicasso.impl.collector/mint-view!]]) sits
-  inside `(when ^boolean js/goog.DEBUG …)`, so under `:advanced` +
-  `goog.DEBUG=false` the Closure compiler removes the call and this fn
-  with it, and a production head carries nothing. That erasure is
-  asserted rather than asserted-about:
-  `re-frame.hicasso.view-body-retention-elision-prod-test` reads
-  [[retained-body]] off a head minted in the real advanced bundle and
+  "Dev only. Record the body function a minted head runs ON the head, and
+  return the head — one own property, no registry, so the memo contract
+  is untouched. The L0–L2 test kit (`re-frame.hicasso.test`) mounts
+  nothing and runs no hook, and without this it would have no route from
+  a minted head back to the function the author wrote. The one call site
+  sits inside `(when ^boolean js/goog.DEBUG …)`, so a production head
+  carries nothing; `re-frame.hicasso.view-body-retention-elision-prod-test`
+  reads `retained-body` off a head minted in the advanced bundle and
   requires nil."
   [head body-fn]
   (unchecked-set head body-slot body-fn)
@@ -1001,33 +864,16 @@
 
 (defn- mint-host-gate!
   "The one component a GATED declaration mints: the foreign component
-  behind its `:server` policy. `:client-only` mints one of these, with
-  or without a declared `:fallback`; `:server :render` mints none, and
-  the head's `gate` slot carries the foreign component itself.
-
-  `fallback` is walked into an element HERE, at the declaration —
-  which is where every other host refusal fires, so a fallback that is
-  not hiccup fails with the author's own stack rather than one render
-  into a server response. It is walked ONCE and the element is reused
-  at every site of the host: React elements are immutable values, and a
-  placeholder that differs per site is not a placeholder.
-
-  ## And that is ENFORCED rather than merely stated
-
-  The corollary the guide teaches — *\"a fallback is inert markup\"* —
-  holds only halfway if the walk refuses just what it can EVALUATE (an
-  intent vector, a `sub` call in the form, hiccup that is not hiccup) and
-  never looks inside a head whose body runs later.
-  [[refuse-deferring-heads-in-fallback!]] closes that, structurally and
-  ahead of the walk, so the sentence is true as written. Its docstring
-  carries the two measurements that decided it;
-  `re-frame.hicasso.fallback-contents-cljs-test` is the contract.
-
-  The gate hands its own props straight through to the foreign
-  component, so the crossing's props object is exactly the one
-  [[host-element]] built — `ref` included, which React 19 carries as an
-  ordinary prop — and `:key` never reaches here, because
-  `createElement` took it off the gate's own element."
+  behind its `:server :client-only` policy, with or without a declared
+  `:fallback`. The fallback is walked into an element HERE, at the
+  declaration — where every other host refusal fires, so a fallback that
+  is not hiccup fails with the author's own stack — once, and reused at
+  every site, because a placeholder that differs per site is not a
+  placeholder; `refuse-deferring-heads-in-fallback!` enforces that
+  structurally first. The gate hands its own props straight through, so
+  the crossing's props object is exactly the one `host-element` built
+  (`ref` included, an ordinary prop in React 19); `:key` never reaches
+  here."
   [host-name component fallback]
   (when (some? fallback)
     (refuse-deferring-heads-in-fallback! host-name [] fallback))
@@ -1043,13 +889,11 @@
     gate))
 
 (defn- refuse-server-policy!
-  "The one server-policy refusal — for a `:server` value outside the two
-  and for a `:fallback` that cannot belong to the policy beside it.
-  `why` completes the sentence *\"defhost NAME …\"*.
-
-  ONE id for both, because they are one fault: *this declaration does not
-  name a server policy the door can honour*. It is the shape
-  [[refuse-bad-slots!]] has, for the same reason."
+  "The one server-policy refusal (`:rf.error/hicasso-host-bad-ssr-policy`)
+  for a `:server` value outside the two and for a `:fallback` that cannot
+  belong to the policy beside it — one id because they are one fault: the
+  declaration names no policy the door can honour. `why` completes the
+  sentence *\"defhost NAME …\"*."
   [host-name why data]
   (fail! :rf.error/hicasso-host-bad-ssr-policy
          're-frame.hicasso.impl.codec/mint-host!
@@ -1065,19 +909,11 @@
          (assoc data :host host-name)))
 
 (defn- declared-server
-  "The `:server` policy this declaration carries, validated — one of the
-  TWO the SSR matrix admits. Absent
-  means `:client-only` — the ruled default, so an author who writes
-  nothing gets the conservative answer and an author who writes the
-  default explicitly gets the same one.
-
-  `:render` is an ASSERTION: *this component is safe to render on the
-  server*. The spellings an
-  author reaches for instead — `:children`, `:transparent`,
-  `:passthrough` — stay refused. They assert a structural property nobody
-  can check and deliver the subtree under the WRONG context value;
-  `:render` names both the conduct (the component renders) and the claim
-  (it is safe to)."
+  "The `:server` policy this declaration carries, validated: `:client-only`
+  (the default when absent) or `:render`, the author's assertion that the
+  component is safe to render on the server. Spellings that assert a
+  structural property nobody can check — `:children`, `:transparent` —
+  stay refused."
   [host-name opts]
   (let [policy (get opts :server :client-only)]
     (if (or (keyword-identical? :client-only policy)
@@ -1088,17 +924,11 @@
         {:server policy}))))
 
 (defn- declared-fallback
-  "The hiccup this declaration carries at `:fallback`, or nil when it
-  carries none. A sibling option rather than a policy VALUE:
-  `:server` answers which arm applies and `:fallback` is the Client-only
-  arm's payload. That is the split the guide teaches, and it is what
-  makes the policy displayable — an enum, rather than an enum sometimes
-  replaced by a nested map.
-
-  `contains?` and not `if-some`, exactly as [[declared-slots]] draws it:
-  an explicit `nil` is a VALUE and the default belongs to an ABSENT key,
-  so `{:fallback nil}` is a placeholder that renders nothing written by
-  an author who believes they wrote one."
+  "The hiccup at `:fallback`, or nil when the key is absent. A sibling
+  option, not a policy value, so the policy stays a displayable enum.
+  `contains?` and not `if-some`: an explicit nil is a VALUE and the
+  default belongs to an absent key, so `{:fallback nil}` is refused rather
+  than read as a placeholder that renders nothing."
   [host-name opts server]
   (when (contains? opts :fallback)
     (let [fallback (:fallback opts)]
@@ -1332,14 +1162,10 @@
 
 (defn host-server
   "The `:server` policy `head` was declared with — `:client-only` or
-  `:render`. The
-  declaration read back as data, for a server walk that wants to state
-  the policy it is honouring and for the witnesses that
-  assert on it. Nothing on the render path reads it: the policy is
-  enforced by WHICH TYPE the declaration mints — a gate for Client-only,
-  the foreign component itself for `:render`. A declared `:fallback` is
-  not read back: it is markup the gate already closed over, and the
-  policy is the two-value fact this answers."
+  `:render` — read back as data for a server walk and the witnesses.
+  Nothing on the render path reads it: the policy is enforced by which
+  type the declaration minted. The fallback is not read back; it is
+  markup the gate already closed over."
   [^js head]
   (unchecked-get head "server"))
 
@@ -1491,15 +1317,11 @@
 (defn realize-children
   "The trailing forms of `argv` from `first-child`, realized once into a
   vector and flattened exactly one level — a nested seq splices, a nested
-  *vector* does not, because a vector is hiccup. Returns nil when there
-  are none, so `(:children props)` is absent rather than empty.
-
-  The dev-only [[check-seq-keys!]] call in the `seq?` branch is the one
-  place the CROSSING shape is visible. `[a-view {…} (for …)]` hands a
-  dynamic list to a view that will splice it, and the flatten below turns
-  those members into direct arguments — which React marks validated and
-  therefore never warns about. This branch, where the seq is still in
-  hand, is the only chance anything has to say so."
+  vector is hiccup and does not. Nil when there are none, so
+  `(:children props)` is absent rather than empty. The dev-only
+  `check-seq-keys!` in the `seq?` branch is the one place the crossing
+  shape is visible: the flatten turns a seq's members into direct
+  arguments, which React marks validated and never warns about."
   [argv first-child]
   (when (< first-child (count argv))
     (let [flat (reduce (fn [acc c]
@@ -1585,25 +1407,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- expand-seq
-  "A seq of children as a JS array of elements. One pass, driven by the
-  seq's own exhaustion rather than by each child's truthiness, so an
-  interior `nil` — the `(for [x xs] (when pred [:li …]))` shape — does not
-  truncate the list.
-
-  The dev-only [[check-member-key!]] call RIDES this loop rather than
-  pre-scanning the seq, which costs the predicates and no second spine
-  traversal (the fn's docstring carries the numbers).
-
-  **The index it reports is `(.-length a)`, not a loop variable**, and
-  that is the reason the loop still has exactly the shape it had: one
-  element is pushed per member, so the array's length IS the index of the
-  member about to be pushed. Threading an `i` would have put an increment
-  per child on the production path for a dev message's benefit. As
-  written, `goog.DEBUG` folds to `false` under `:advanced`, the whole line
-  goes, and what is left is character for character the loop with no
-  check in it. `(first items)` is read twice in a dev build
-  and once in production for the same reason — it is a field read on a seq
-  the loop has already forced, while `next` is the step that allocates."
+  "A seq of children as a JS array of elements, one pass driven by the
+  seq's exhaustion rather than each child's truthiness, so an interior
+  `nil` does not truncate the list. The dev-only `check-member-key!`
+  rides this loop and reports `(.-length a)` as the index rather than a
+  threaded counter: one element is pushed per member, so the length IS
+  the index, and under `:advanced` the whole line folds away leaving the
+  loop character for character as it was — an increment per child on the
+  production path for a dev message's benefit is the edit this shape
+  refuses."
   [s]
   (let [a #js []]
     (loop [items (seq s)]
@@ -1631,41 +1443,22 @@
         (.apply (.-createElement react) nil args)))))
 
 (defn- native-element
-  "One native tag as a React element.
-
-  [[re-frame.hicasso.impl.controlled/install!]] is the only thing
-  here that is not a translation of what the author wrote. It runs on
-  the converted props, because the condition it tests is about the
-  EMITTED element — a controlled `value`, a change handler, a type with
-  a caret — and those are canonical slots rather than spellings. It is
-  one JS `switch` on the tag for every element that is not an `:input`
-  or a `:textarea`, which is nearly all of them.
-
-  It also **answers what to render the props as**, which is the tag for
-  everything except a controlled `input`/`textarea` —
-  those get the composition shadow's component, and the tag it renders
-  is the tag parsed here. The codec asks one question and takes one
-  answer; which of the two it is belongs entirely to that namespace.
-
-  ## The revision is read here
-
-  [[revision-key]] is taken off `props` — the author's attribute map —
-  with the same expression shape the `:key` read below uses, and for the
-  same reason: `key` and the revision are triggers rather than
-  attributes, read once at the element and never emitted.
-
-  What lands on the emitted object is a marker under a private slot, and
-  [[re-frame.hicasso.impl.controlled/install!]] deletes it as it
-  reads it — so nothing named `revision` survives to React, to the DOM,
-  or to the server bytes, by construction rather than by a special case
-  at each of the three."
+  "One native tag as a React element. `controlled/install!` runs on the
+  converted props — the condition it tests (a controlled `value`, a
+  change handler, a type with a caret) is about the EMITTED element, so
+  canonical slots rather than spellings — and answers what to render the
+  props as: the tag, or for a controlled `input`/`textarea` the
+  composition shadow's component. The revision key is read off the
+  author's map with the same shape as the `:key` read, both triggers
+  rather than attributes; what lands on the emitted object is a marker
+  under a private slot that `install!` deletes as it reads it, so nothing
+  named `revision` reaches React, the DOM or the server bytes."
   [argv]
   (let [parsed      (cached-parse (nth argv 0))
         has-props?  (props-map? argv 1)
         props       (if has-props? (nth argv 1) nil)
-        ;; nil, not `(or props {})` — the absent attribute map is
-        ;; [[convert-props]]'s first lane, and wrapping it in an empty
-        ;; map was the whole cost of telling it so.
+        ;; nil, not `(or props {})`: the absent map is `convert-props`'s
+        ;; direct lane.
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
                       (unchecked-set js-props controlled/revision-slot r))
@@ -1677,20 +1470,10 @@
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) {})
         children   (realize-children argv (if has-props? 2 1))
-        ;; THE HAND-OFF, and the one position the eager codec did not
-        ;; reach. Everywhere else a lazy read is forced by the pass that
-        ;; turns hiccup into elements; here the map crosses untouched, so
-        ;; a seq written in THIS body would be realised inside the
-        ;; child's render and attributed to it — silently, and then
-        ;; frozen, because a realised `LazySeq` is never walked a second
-        ;; time. [[realize-deep]] returns the map by identity and covers
-        ;; `:children` in the same pass, which is where the one-level
-        ;; flatten leaves a nested seq.
-        ;;
-        ;; The same pass refuses the one carrier it may not repair — an
-        ;; unforced `delay`, whose meaning is precisely that it is not
-        ;; forced here. The refusal fires inside THIS body's render, so
-        ;; the author who wrote the crossing is the one who sees it.
+        ;; THE HAND-OFF: the map crosses as a CLJS value, so this is the
+        ;; one position the eager walk did not reach; `realize-deep`
+        ;; forces every lazy seq (`:children` included) and refuses an
+        ;; unforced `delay`, inside THIS body's render.
         body-props (realize-deep (cond-> (dissoc props :key)
                                    children (assoc :children children)))
         head       (nth argv 0)
@@ -1760,27 +1543,19 @@
           :slots    (unchecked-get head "slots")}))
 
 (defn- host-entry
-  "ONE host prop into the emitted object — [[host-element]]'s reducing
-  function, [[convert-entry]]'s sibling at the second prop door. Same
-  lookups as the native walk: `:key` skipped in-loop, a keyword or symbol
-  key answered by its cached [[prop-slot]], a reserved emitted slot never
-  written because the props object handed to React has a prototype.
-
-  The arms, in precedence order: `:ref` is React's and crosses untouched; a
+  "One host prop into the emitted object — `host-element`'s reducing
+  function, `convert-entry`'s sibling at the second prop door: `:key` and
+  the presence overrides skipped in-loop, a keyword or symbol key
+  answered by its cached `prop-slot`, a reserved emitted slot never
+  written. Arms in precedence order: `:ref` crosses untouched; a
   `:callbacks` override applies its declared contract
-  ([[re-frame.hicasso.impl.intent/lower-declared-prop]]); a declared
-  `:slots` position lowers markup through [[as-element]] and refuses the
-  marked form; the class slot takes [[class-names]], the slot's own
-  coercion, so the two crossings agree at `className` for every value
-  shape; everything else is INFERRED from the spelling by the native
-  walk's own classifier ([[re-frame.hicasso.impl.intent/lower-prop]]) and
-  then converted shallowly by [[host-prop-value]] — so an intent vector,
-  key-map or `h/event` at an `on*` prop lowers exactly as at a native
-  tag, an `h/event` at any other prop takes the render wrapper, and a
-  vector at a render position crosses as data. The invariant worth
-  knowing: the reserved skip sits ABOVE every declaration arm, so no
-  declaration can talk the codec into poisoning the prototype. Argument
-  in docs/design/hicasso/decisions.md, HD-011's 2026-08-29 addendum."
+  (`intent/lower-declared-prop`); a declared `:slots` position lowers
+  markup through `as-element` and refuses the marked form; the class slot
+  takes `class-names`; everything else is inferred from the spelling by
+  `intent/lower-prop` and converted shallowly by `host-prop-value`. The
+  reserved skip sits ABOVE every declaration arm, so no declaration can
+  talk the codec into poisoning the prototype.
+  docs/design/hicasso/decisions.md HD-011, 2026-08-29 addendum."
   [^js head declared slots o k v]
   (cond
     ;; `:key` is React's, and a presence override belongs to a tray —
@@ -1826,15 +1601,13 @@
 
 (defn- host-element
   "One declared foreign component as a React element — THE CROSSING
-  (HD-011). One pass over the attr map through [[host-entry]], `:key`
-  extracted onto the element, children lowered hiccup→element in the
-  same render window as the props — so a callback lowered at any prop, an
-  intent inside a declared slot and an intent inside a child all close
+  (HD-011): one pass over the attr map through `host-entry`, `:key`
+  extracted onto the element, children lowered hiccup→element in the same
+  render window as the props, so every callback, slot and child closes
   over the frame of the boundary that wrote the crossing. The element's
-  TYPE is the head's `gate` slot, which is where the `:server` policy
-  lives ([[mint-host!]]): a gate is not a boundary — no frame, no
-  subscription, no body — so HD-020's hook budget is untouched by it.
-  Argument in docs/design/hicasso/decisions.md, HD-011."
+  TYPE is the head's `gate` slot, where the `:server` policy lives
+  (`mint-host!`); a gate is not a boundary, so HD-020's hook budget is
+  untouched. docs/design/hicasso/decisions.md HD-011."
   [argv]
   (let [^js head   (nth argv 0)
         declared   (unchecked-get head "callbacks")
@@ -1992,29 +1765,16 @@
     c))
 
 (defn- raw-element
-  "One `[:> Component props & children]` vector as a React element.
-
-  The indices are the door's, shifted by one: the component is at 1, the
-  attribute map at 2 when there is one, children from 3 or from 2.
-  `[:> Component]` with neither is legal.
-
-  Everything after the component is [[host-element]]'s own body:
-  extract `:key` onto the crossing's outer element, and walk every prop
-  through [[host-entry]] against an EMPTY declared roster. Children lower
-  eagerly, here, inside the render window of the boundary that wrote the
-  crossing — so an intent closure in a `[:>]` child captures that
-  boundary's frame-locked dispatch and fires into the right frame however
-  much later the foreign component renders it.
-
-  The element's TYPE is always [[raw-gate]]; the component rides in the
-  carrier's `c` slot.
-
-  **The Component slot is already validated.** [[vector-kind]] runs
-  [[raw-component]] as part of answering `:raw`, and [[vec->element]] —
-  this fn's only caller, which is why it is private — dispatches on that
-  answer. So position 1 is read here rather than re-derived, and the
-  escape's grammar is enforced in exactly one place for the runtime and
-  for `re-frame.hicasso.test` alike."
+  "One `[:> Component props & children]` vector as a React element: the
+  door's indices shifted by one (component at 1, attr map at 2 when there
+  is one, children from 3 or 2; `[:> Component]` is legal), `:key` onto
+  the crossing's outer element, every prop through `host-entry` against
+  an empty declared roster, children lowered here inside the writing
+  boundary's render window so a child intent fires into the right frame
+  however much later the foreign component renders it. The TYPE is always
+  `raw-gate`; the component rides in the carrier's `c` slot. The
+  Component slot is validated once, in `vector-kind`, and read here
+  without re-derivation."
   [argv]
   (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
@@ -2032,34 +1792,25 @@
     (make-element (.-Fragment react) js-props argv (if has-props? 2 1))))
 
 (defn- fragment-head?
-  "Is this the fragment spelling? Compared with `=`, never `identical?`:
-  ClojureScript keyword literals are shared constants only when the build
-  interns them, so an identity comparison here works under `:advanced`
-  and silently routes every fragment into the native-tag path everywhere
-  else."
+  "Is this the fragment spelling? `=`, never `identical?`: keyword
+  literals are shared constants only when the build interns them, so an
+  identity test works under `:advanced` and silently routes every
+  fragment into the native-tag path everywhere else."
   [head]
   (= :<> head))
 
 (defn- raw-head?
-  "Is this the raw-escape spelling? Compared with `=` for
-  [[fragment-head?]]'s own reason, and it is sharper here: a
-  [[hiccup-tag?]] accepting any keyword that is not `:<>` would let
-  `[:> Foo {}]` ask React for an element literally named `<>`. An
-  `identical?` test would work under
-  `:advanced`, where the build interns keyword literals, and silently
-  route every escape back into that native path everywhere else."
+  "Is this the raw-escape spelling? `=` for `fragment-head?`'s reason,
+  sharper here: routed into the native path, `[:> Foo {}]` would ask
+  React for an element literally named `>`."
   [head]
   (= :> head))
 
 (defn- hiccup-tag?
   "Is this head a native tag? Asked AFTER the fragment and raw arms in
-  [[head-kind]]'s `cond`, which is its only caller — so the
-  `(not (fragment-head? head))` this body could re-ask is provably dead,
-  and asking it would make every native tag on every page pay the
-  fragment `=` twice. Its absence is what pays for [[raw-head?]] exactly:
-  a keyword tag pays two `=` and one type predicate either way. This codec has costed a `keyword?`
-  short-circuit at ±51–67% of a walk, so a new head test is not free by
-  assertion on this surface — it is free by accounting."
+  `head-kind`, its only caller, so the `(not (fragment-head? head))` this
+  body could re-ask is dead — and asking it would make every native tag
+  on every page pay the fragment `=` twice."
   [head]
   (or (keyword? head) (symbol? head) (string? head)))
 
@@ -2169,14 +1920,9 @@
              {:head head}))))
 
 (defn child-kind
-  "WHICH KIND OF THING a hiccup value in child position is — `:nothing`,
-  `:text`, `:markup`, `:splice`, `:true-child`, `:react-element`,
-  `:named` or `:foreign`.
-
-  The child discrimination, named once. [[as-element]] dispatches on it
-  to build React's child; the test kit dispatches on it to build a Spec
-  004B child. Asked separately, the two drift apart over keywords,
-  symbols and `true`.
+  "WHICH KIND OF THING a hiccup value in child position is. Named once:
+  `as-element` dispatches on it to build React's child, the test kit to
+  build a Spec 004B child.
 
       :nothing        renders nothing — `nil`, `false`
       :text           renders as itself — a string or a number
@@ -2187,10 +1933,7 @@
       :named          a keyword or symbol, which renders as its `name`
       :foreign        anything else, which React is handed as it stands
 
-  **The arm order is [[as-element]]'s costed order and not a taxonomy.**
-  `vector?` is `IVector` satisfaction, which for anything without the
-  marker falls through to `native-satisfies?`, so the cheap populations
-  are asked first — the accounting is in [[as-element]]'s docstring."
+  The arm order is `as-element`'s costed order and not a taxonomy."
   [x]
   (cond
     (nil? x)                 :nothing
@@ -2233,22 +1976,13 @@
     :foreign        x))
 
 (defn root-element
-  "[[as-element]] for a hiccup form written OUTSIDE any boundary body —
-  the root, or an outward React bridge that mounts Hicasso from foreign
-  code.
-
-  Every other element in the tree is created by an ancestor body, which
-  is already running inside
-  [[re-frame.hicasso.impl.intent/with-frame]]. This is the one
-  creator that is not, so it is the one creator that has to NAME the
-  frame — which an outward bridge takes explicitly anyway. Binding it
-  here rather than in the package's mount keeps the reason next to the
-  mechanism.
-
-  `*dispatch*` is deliberately NOT bound: the frame is an identity the
-  root genuinely has, while a frame-locked dispatch is what makes an
-  intent vector legal, and an intent written outside a boundary stays the
-  loud `:rf.error/hicasso-intent-outside-boundary` it was."
+  "`as-element` for a hiccup form written OUTSIDE any boundary body — the
+  root, or an outward React bridge. Every other element is created by an
+  ancestor body already inside `intent/with-frame`; this is the one
+  creator that has to NAME the frame. `*dispatch*` is deliberately not
+  bound: the frame is an identity the root has, while a frame-locked
+  dispatch is what makes an intent vector legal, and an intent outside a
+  boundary stays the loud `:rf.error/hicasso-intent-outside-boundary`."
   [frame-kw hiccup]
   (binding [intent/*frame* frame-kw]
     (as-element hiccup)))
@@ -2306,47 +2040,26 @@
         (keyword (str/replace s #"[A-Z]" #(str "-" (str/lower-case %)))))))
 
 (defn- outward-children
-  "React's `children` slot, in the CONTAINER [[realize-children]] hands a
-  hiccup body: a vector, or nil when there are none.
-
-  React's slot is not one shape but three — absent for no children, the
-  child ITSELF for one, a JavaScript array for several — and that shape
-  is React's calling convention rather than a value an author asked for.
-  Copied through unchanged it would make `:children` mean something
-  different depending on how many the parent wrote, so
-  `(into [:ul] (:children props))` would work at two children and throw
-  at one. One spelling has to mean one thing, and the thing it already
-  means on the hiccup side is a vector.
-
-  The members are not touched: each child crosses by identity, exactly
-  as every other prop value does, and nothing here walks INTO one. So a
-  nested array — JSX's `<ul>{head}{rows}</ul>` — stays a single member
-  rather than splicing, which is the boundary this normalisation stops
-  at on purpose: React flattens it at render, so it renders correctly as
-  a member, and flattening it here would be the second level of walk
-  that [[outward-props]] refuses everywhere else.
-
-  An EMPTY array answers nil, so a parent whose dynamic list came back
-  empty leaves `:children` absent rather than present-and-empty —
-  [[realize-children]]'s own answer for `(for [x []] …)`, and the
-  difference a body sees as `(when-some [cs (:children props)] …)`."
+  "React's `children` slot in the container `realize-children` hands a
+  hiccup body: a vector, or nil when there are none. React's slot is
+  three shapes — absent, the child itself, an array — and copied through
+  it would make `:children` mean different things by count; one spelling
+  means one thing. Members cross by identity and are not walked into: a
+  nested array (JSX's `{head}{rows}`) stays one member, which React
+  flattens at render. An empty array answers nil, so `:children` is
+  absent rather than present-and-empty, as `realize-children` answers
+  for `(for [x []] …)`."
   [c]
   (if (array? c)
     (when (pos? (alength c)) (vec c))
     [c]))
 
 (defn- outward-props
-  "A React props object, decoded into the ordinary ClojureScript props map
-  a boundary body destructures. Shallow, by identity, own properties
-  only — the mirror of what [[boundary-element]] does on the way out,
-  and no deeper for the same reason: the values are the parent's, and
-  converting them would be the deep conversion HD-011 refuses in the
-  other direction.
-
-  React's children arrive at the `children` slot and therefore land at
-  `:children`, which is where [[boundary-element]] puts a hiccup body's
-  children too — one spelling, whichever side of the bridge filled it,
-  and by [[outward-children]] one SHAPE as well."
+  "A React props object decoded into the ordinary props map a boundary
+  body destructures: shallow, by identity, own properties only — the
+  mirror of `boundary-element`'s hand-off, and no deeper for the reason
+  HD-011 refuses deep conversion the other way. `children` lands at
+  `:children`, one spelling and one shape whichever side filled it."
   [^js js-props]
   (if (nil? js-props)
     {}
@@ -2397,11 +2110,9 @@
    :props (count (js/Object.keys prop-cache))})
 
 (defn reset-caches!
-  "Empty both codec caches. The prop cache keeps its three seeded entries,
-  because those are the rule and not a memo of one — and it re-seeds
-  through [[seed-prop-cache!]], the same one the `def` uses, so a
-  suite's `:each` fixture cannot leave the cache holding a different
-  spelling from a cold build's."
+  "Empty both codec caches, re-seeding the prop cache through
+  `seed-prop-cache!` so a suite's `:each` fixture cannot leave it holding
+  a different spelling from a cold build's."
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))
