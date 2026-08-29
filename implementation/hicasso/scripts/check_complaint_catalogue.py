@@ -279,17 +279,10 @@ EMIT_ROOTS = [
     os.path.join(PACKAGE_ROOT, "test_kit", "src"),
 ]
 
-# …with ONE exception to "at all": the bench lane.  Its `front/` and `arm1/`
-# files are the FROZEN donors the package was copied out of — `check_freeze.py`
-# pins them by digest, so they cannot follow a retirement — and the lane is a
-# measurement harness rather than a surface a consumer reaches.  A refusal
-# retired from src therefore stays emitted by its frozen donor forever, and
-# an R3/R4 scan that read the donors would make the register's own tombstone
-# convention unusable for exactly the ids the donors carry (rf2-6c12m.20 met
-# this on the first such retirement).  So R3/R4 read the package MINUS the
-# lane.  The keyword-drift gate draws the same line, by excluding `test/`
-# trees from its CHECK A/C scan.
-FROZEN_LANE = os.path.join(PACKAGE_ROOT, "test", "re_frame", "bench")
+# The bench lane — whose frozen donors carry every refusal ever retired from
+# src, and which R3/R4 therefore had to read the package MINUS — is off the
+# package altogether since rf2-6c12m.1 (bench/hicasso/, its own project), so
+# a scan of the package reaches no donor and needs no prune.
 
 SOURCE_EXTS = (".clj", ".cljc", ".cljs")
 
@@ -1137,7 +1130,7 @@ def report(failures):
 def read_all():
     register = read_register(REGISTER)
     emitted = read_ids(EMIT_ROOTS)
-    package_ids = read_ids([PACKAGE_ROOT], prune=(FROZEN_LANE,))
+    package_ids = read_ids([PACKAGE_ROOT])
     spec_active, spec_retired = read_spec_ids(SPEC_009)
     cited = set()
     for status in STATUSES:
@@ -1222,16 +1215,12 @@ def self_test():
     package_ids = inputs["package_ids"]
     spec_active = inputs["spec_active"]
 
-    # The R3/R4 scan stops at the frozen bench lane, and the prune is proved
-    # on the real tree rather than assumed: the lane carries retired emitters
-    # by construction, so one path from it in `package_ids` is R4 reading the
-    # donors again.
-    bench_rel = os.path.relpath(FROZEN_LANE, REPO_ROOT).replace(os.sep, "/") + "/"
+    # The bench lane carries retired emitters by construction, so one path
+    # from it in `package_ids` would be R4 reading the donors again. It is off
+    # the package since rf2-6c12m.1; this proves the scan still sees none of it.
     assert not [path for paths in package_ids.values() for path in paths
-                if path.startswith(bench_rel)], \
-        "R3/R4 must not read the frozen bench lane"
-    assert os.path.isdir(FROZEN_LANE), \
-        "the prune names a directory that exists — otherwise it prunes nothing"
+                if "/re_frame/bench/" in path], \
+        "R3/R4 must not read the bench lane"
     chapters = inputs["chapter_text"]
     index_entries = inputs["index_entries"]
     index_recoveries = inputs["index_recoveries"]
