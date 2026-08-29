@@ -60,20 +60,16 @@
 ;; boundary, which is exactly the collector's helper-donated read.
 
 (def ^js rstate
-  "The render slots: the frame the running body resolved (nil outside a
-  render, which is what makes `(sub …)` outside a boundary a loud error
-  rather than a silent read of whichever frame happened to be ambient),
-  the entry the last body resolved, the cold-probe box the running body's
-  cold reads share (`cold-read!` — nil until a cold read mints it, reset
-  by every `run-once` exactly as the scratch is), the always-on body-run
-  counter — one integer on the object that already exists, bumped by
-  `run-once` — and, in a dev build only, the `subscribe` the shell hands
-  React for that entry (`render-body`). One JS object for the whole
-  runtime — not one per render.
-
-  Public so the test kit's runtime door (`re-frame.hicasso.test.runtime`)
-  can read `bodyRuns` off it without this file growing a reader per
-  instrument. It is this file's to WRITE, and every writer is here."
+  "The render slots, one JS object for the whole runtime: the frame the
+  running body resolved (nil outside a render, which is what makes
+  `(sub …)` outside a boundary a loud error), the entry the last body
+  resolved, the cold-probe box the running body's cold reads share
+  (`cold-read!`; reset by `run-once`), the always-on body-run counter
+  (`bodyRuns`, bumped by `run-once`) and, in a dev build, the
+  `subscribe` the shell hands React for that entry (`render-body`).
+  Public so the test kit's runtime door reads `bodyRuns` off it; every
+  writer is in this file. Module-level because boundary bodies do not
+  nest (docs/design/hicasso/product/globals.md)."
   #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil})
 
 (def ^:private ^js scratch
@@ -100,18 +96,12 @@
 
 (defn- mint-frame-dispatch
   "Mint the ambient dispatch closure for ONE frame incarnation, over the
-  `capture-frame` bundle that incarnation was pinned with.
-
-  It closes over `ops` and never over the frame keyword, and that is
-  load-bearing. A callback lowered under incarnation A calls A's own
-  `:dispatch-sync`, so once A is destroyed core's `capture-frame` fence
-  refuses it (recover-but-emit `:rf.error/frame-destroyed`) instead of
-  resolving the address a second time and finding whoever occupies it now.
-  A closure that re-resolved the keyword at fire time would silently
-  write the successor whenever the memo was cold.
-
-  `:dispatch-sync` is destructured once, at mint, rather than on every
-  event: the row is per incarnation, so there is nothing left to look up."
+  `capture-frame` bundle it was pinned with. Closes over `ops` and never
+  over the frame keyword: a callback lowered under incarnation A calls
+  A's own `:dispatch-sync`, so once A is destroyed core's `capture-frame`
+  fence refuses it (`:rf.error/frame-destroyed`) instead of resolving the
+  address again and writing whoever occupies it now (rf2-x874,
+  docs/design/hicasso/product/invariants.md, the rf2-hic-013 record)."
   [ops]
   (let [dispatch-sync (:dispatch-sync ops)]
     (fn dispatch-for-frame [event]
@@ -119,37 +109,23 @@
       nil)))
 
 (defn frame-row
-  "The runtime's one memo row for `frame-kw` — `{:incarnation :ops :dispatch}`,
-  pinned to the incarnation live right now.
-
-  [[re-frame.hicasso.impl.frames/frame-row]] owns the table and the
-  incarnation discipline; this is the door that supplies the closure factory,
-  so every caller in the runtime reads the SAME row and the bundle can never
-  describe a different incarnation than the closure that calls it."
+  "The runtime's one memo row for `frame-kw` — `{:incarnation :ops
+  :dispatch}`, pinned to the incarnation live right now. `impl.frames`
+  owns the table and the incarnation discipline; this door supplies the
+  closure factory, so every caller reads the same row and the bundle can
+  never describe a different incarnation than the closure that calls it."
   [frame-kw]
   (frames/frame-row frame-kw mint-frame-dispatch))
 
 (defn frame-dispatch
   "The ambient dispatch a boundary binds for its render's dynamic extent
   (HD-020(a)), memoised per frame INCARNATION so binding it allocates
-  nothing.
-
-  **Public because a boundary shell is not the only thing that lowers
-  hiccup**. `impl.presence-react` renders retained
-  children inside its OWN React render, after the parent body's dynamic
-  extent has unwound, so it must re-bind the ambient frame before it
-  hands them to the codec — and the dispatch it binds has to be *this*
-  one. Handing it a private route of its own (a fresh closure per render)
-  would allocate a closure per presence render and would make \"a presence
-  child lowers exactly as it would in the parent's body\" an approximation
-  rather than an identity. Nothing new is exported: the memo, the
-  `capture-frame` pin and the [[with-commit]] batching are the ones
-  `run-once` already binds.
-
-  The identity it hands back is stable across repeated renders of one
-  incarnation and CHANGES when the same public id names a new one — which
-  is the point, because that identity is what every lowered callback
-  retains."
+  nothing; its identity is stable across renders of one incarnation and
+  changes when the same id names a new one, which is what every lowered
+  callback retains. Public because the shell is not the only thing that
+  lowers hiccup: `impl.presence-react` re-binds the frame inside its own
+  React render, after the parent body's extent has unwound, and the
+  dispatch it binds has to be this one."
   [frame-kw]
   (:dispatch (frame-row frame-kw)))
 
@@ -225,24 +201,13 @@
 (defonce ^:private !deferred (volatile! #{}))
 
 (def ^:private cell-watch-key
-  "**One constant keyword for every cell's value-change watch** — not a
-  minted-per-cell identity.
-
-  A watch key has to be unique *within the watched reference*, and it is:
-  there is at most one cell per `(frame, query)`, `subs/subscribe` hands
-  back that pair's own cached reaction, and no two cells ever hold the
-  same reaction — so one namespaced constant collides with nothing this
-  arm installs, and its namespace keeps it clear of any other watcher keyed
-  per observer on the same reactions.
-
-  A `(keyword \"rf-hicasso\" (str \"w\" (vswap! counter inc)))` would buy
-  that same uniqueness by allocating a `Keyword`, its name string and its
-  fully-qualified string per cell and retaining all three in the cell and
-  in the reaction's watch map — per *unique key*, which is per *read* on
-  the distinct-query rung the per-read heap ladder is taken on. The
-  uniqueness is already structural; only the identity would be
-  paid for. The counter goes with it: a global that numbered something
-  that never needed a number."
+  "One constant keyword for every cell's value-change watch. A watch key
+  need only be unique within the watched reference, and it is: at most
+  one cell per `(frame, query)`, and no two cells hold the same
+  reaction. A keyword minted per cell bought that same uniqueness at a
+  `Keyword`, its name and its qualified string retained per unique key
+  (docs/design/hicasso/studio/the-cold-read-mount-term.md, the mint's
+  retirement)."
   ::cell-watch)
 
 (declare flush!)
@@ -469,22 +434,15 @@
   nil)
 
 (defn- sub-registered!
-  "The runtime's whole listening post on the registry, and the two halves of
-  the registry axis in one place because they are one event.
-
-  **Bump then scan.** [[re-frame.hicasso.impl.generation/registry-epoch]] counts every `:sub` registration,
-  first-time or replacement, because both are the same defect in the
-  render→commit gap: the body read one computation and the commit
-  acquires against another, and neither the flush generation nor the
-  frame's install epoch moves for either. [[first-registration!]] then
-  repairs the cells that already hold the id, which is the half a
-  replacement reaches by its own disposal and a first registration
-  reaches by no route at all.
-
-  The bump is before the scan deliberately. [[invalidate-cell!]]'s
-  synchronous phase drops a reaction reference, and a render that races
-  it must not see an epoch from before the registration it is about to
-  read against."
+  "The runtime's one listening post on the registry: bump the registry
+  epoch, then repair the cells that already hold the id
+  (`first-registration!`). Both halves of the registry axis in one place
+  because they are one event — first-time or replacement, a body may
+  have read one computation while the commit acquires another, and
+  neither the flush generation nor the frame's install epoch moves for
+  it. Bump BEFORE scan: `invalidate-cell!`'s synchronous phase drops a
+  reaction reference, and a render racing it must not see an epoch from
+  before the registration it is about to read against."
   [{:keys [kind] :as registration}]
   (when (= :sub kind)
     (generation/bump-registry-epoch!)
@@ -502,17 +460,14 @@
   (do (registrar/add-registration-hook! sub-registered!) true))
 
 (defn- acquire-cell!
-  "**Commit-phase only.** Take (building if necessary) the durable
-  reference for `sub-key` on `reg`'s behalf, and attach the one watch
-  that turns the sub layer's equality cutoff into this runtime's dirty set.
-  Acquire without deref: the render already knows the value.
-
-  Taking the reference and recording the edge are **one act**: `reg` is
-  pushed onto the cell's reader list, which is both the key's reverse
-  edge and its reference count. A registration acquires each
-  key of its read SET exactly once, so a slot per reader is the whole
-  invariant and `.indexOf` in [[release-cell!]] cannot find the wrong
-  one."
+  "Commit-phase only. Take (building if necessary) the durable reference
+  for `sub-key` on `reg`'s behalf and attach the one watch that turns the
+  sub layer's equality cutoff into this runtime's dirty set. Taking the
+  reference and recording the edge are one act: `reg` is pushed onto the
+  cell's reader list, which is both the key's reverse edge and its
+  reference count, and a registration acquires each key of its read SET
+  exactly once, so `release-cell!`'s `.indexOf` cannot find the wrong
+  slot."
   [sub-key ^js reg]
   (let [^js cell (or (get @!cells sub-key)
                  (let [frame-kw (nth sub-key 0)
@@ -615,13 +570,11 @@
     (when-some [n (.-notify r)] (n))))
 
 (defn- dirty-readers
-  "The boundaries a commit must re-run: the union of the dirty cells' own
-  reader lists.
-
-  Laws 5 and 6 in one expression. It is a union, so a boundary reading two
-  dirty keys is notified once; and a key nothing holds has no cell, so it
-  is not in `dirty` at all and contributes no phantom reader — a dirty set
-  made entirely of unread keys is empty rather than everything."
+  "The boundaries a commit must re-run: the union of the dirty cells'
+  reader lists. Laws 5 and 6 in one expression — a boundary reading two
+  dirty keys is notified once, and a key nothing holds has no cell, so a
+  dirty set made entirely of unread keys is empty rather than everything
+  (`index-laws-cljs-test`)."
   [dirty]
   (reduce (fn [acc ^js c] (into acc (.-readers c))) #{} dirty))
 
@@ -690,16 +643,12 @@
                       (flush!))))))
 
 (defn dispatch!
-  "The runtime's frame-locked dispatch — HD-019's synchronous door. The event
-  drains synchronously inside the caller's turn (the discrete browser
-  event, for an intent) and the store notification runs before that turn
-  ends, so React commits the echo in the same turn.
-
-  It is [[frame-dispatch]] applied, not a second route to the same place:
-  resolving the keyword and dispatching are ONE act, taken now, against the
-  incarnation live now. A caller handing it a bare keyword is asking for the
-  frame at that ADDRESS, and that is what it gets — whereas a callback
-  lowered into markup holds the closure itself and stays pinned to the
+  "The runtime's frame-locked dispatch — HD-019's synchronous door. The
+  event drains synchronously inside the caller's turn and the store
+  notification runs before the turn ends, so React commits the echo in
+  the same turn. `frame-dispatch` applied: resolving the keyword and
+  dispatching are one act against the incarnation live NOW, where a
+  callback lowered into markup holds the closure and stays pinned to the
   incarnation it was lowered under."
   [frame-kw event]
   ((frame-dispatch frame-kw) event))
@@ -757,21 +706,14 @@
                     v))))))))))
 
 (defn- read-key!
-  "One read: append the sub-key to the scratch, and return the value.
-
-  Warm — a committed cell holds the key — is a pure deref: no acquire,
-  no release, nothing global touched. Cold is [[cold-read!]]'s probe,
-  which reuses a live sub-cache reaction by deref alone or computes pure
-  against the run's one frame-state snapshot, retains nothing, and so
-  leaves an abandoned render's world as it found it.
-
-  A cell whose reaction [[invalidate-cell!]] has dropped takes the cold
-  path too, and that is the whole of what an invalidated read needs to be
-  correct: the probe computes against the registration and the frame
-  incarnation that are live NOW, so a render in the window between
-  the invalidation and its rebuild reads the new computation rather than
-  the retired one — or, for a key registered for the FIRST time while the
-  boundary was mounted, the real handler rather than the nil-recovery."
+  "One read: append the sub-key to the scratch and return the value. Warm
+  — a committed cell holds a reaction — is a pure deref, nothing global
+  touched. Cold, or a cell whose reaction `invalidate-cell!` has dropped,
+  is `cold-read!`'s probe, which computes against the registration and
+  frame incarnation live NOW and retains nothing, so an abandoned render
+  leaves the world as it found it. Outside a render it fails loudly,
+  naming the query: an escaped read would otherwise be a silent missing
+  edge (`read-extent-cljs-test`)."
   [query-v]
   (when (nil? (.-frame rstate))
     (fail! :rf.error/hicasso-sub-outside-render
@@ -789,11 +731,10 @@
       (cold-read! frame-kw query-v))))
 
 (defn sub
-  "**The ambient collector** — the only acceptable read surface on
-  ergonomics. A plain function call, legal anywhere in a
-  body: inside a `when`, inside a `for`, inside an inlined helper. The
-  edge is *recorded* where the read happens, and the recorded set is what
-  the commit installs — so a branch not taken contributes no edge."
+  "The ambient collector — a plain function call, legal anywhere in a
+  body: inside a `when`, a `for`, an inlined helper. The edge is recorded
+  where the read happens, so a branch not taken contributes no edge
+  (docs/design/hicasso/decisions.md HD-002)."
   [query-v]
   (read-key! query-v))
 
@@ -852,14 +793,9 @@
   4)
 
 (def ^:private entry-reapers
-  "An entry with no committed boundary is dropped at the reap horizon.
-  Two callers, one rule: an entry a discarded render minted was never
-  claimed, and an entry whose last boundary unmounted is no longer
-  anybody's. Both are cache eviction and neither is a record of something
-  to undo.
-
-  The horizon is [[entry-reap-horizon-ms]] — deliberately past a bare
-  `setTimeout 0`, and deliberately not a promise to anyone."
+  "An entry with no committed boundary is dropped at the reap horizon —
+  minted by a discarded render and never claimed, or released by its
+  last boundary. Cache eviction, never a record of something to undo."
   (reap-queue entry-reap-horizon-ms
               (fn [^js entry]
                 (when (zero? (.-refs entry)) (drop-entry! entry)))))
@@ -895,22 +831,12 @@
 
 (defn- entry-for
   "The read-set entry for the read sequence `ks` — the cached
-  `subscribe` / `getSnapshot` pair React sees. A hit allocates nothing and
-  keeps `subscribe`'s identity, so React does not re-subscribe and the
-  commit does no work; a miss materialises the key array, the key set and
-  the two closures **once**, for every boundary that will ever read that
-  set.
-
-  The bucket is [[bucket-key-of]]'s hash of the whole read sequence,
-  so what a lookup scans is the set of read sequences that COLLIDE —
-  never the set of live boundaries that happen to share a first
-  key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
-  reason.
-
-  `ks` is the scratch when a boundary body resolves its reads, and a
-  one-key array when a React hook does ([[hook-entry]]). The array is
-  never retained: a miss `.slice`s it, and a hit reads nothing off it
-  after the compare."
+  `subscribe` / `getSnapshot` pair React sees. A hit allocates nothing
+  and keeps `subscribe`'s identity, so React does not re-subscribe and
+  the commit does no work; a miss materialises the key array, the key
+  set and the two closures once, for every boundary that will ever read
+  that set. `ks` is the scratch, or a hook's one-key array
+  (`hook-entry`), and is never retained: a miss `.slice`s it."
   [^js ks]
   (let [bucket-key (bucket-key-of ks)
         bucket     (get @!entries bucket-key)]
@@ -927,30 +853,16 @@
           entry))))
 
 (defn- make-snapshot
-  "React's `getSnapshot`: the sum of the set's epochs, where a key **no
-  cell holds yet** contributes its frame's current [[re-frame.hicasso.impl.generation/commit-basis]]
-  instead of nothing. Monotone, so `Object.is` on it is a correct change
-  test; cached on the entry, so a render allocates no closure for it.
-
-  That one term is what reaches the render→commit gap. A staged key
-  contributes `basis@render` while the boundary renders and, once the
-  commit has created its cell, `basis@commit` — the same number when
-  nothing moved in between and a different one when something did. It is
-  a *live* [[re-frame.hicasso.impl.generation/commit-basis]] read, which is why the basis's registry term
-  reaches a `reg-sub` in the gap and why a held key —
-  whose contribution is the cell's frozen stamp — is untouched by one.
-  React re-reads this closure immediately after `subscribe` returns
-  (`updateStoreInstance` is the next passive effect) and compares
-  against the value **that fiber** captured at render, so the tear check
-  is per boundary, is one number, and holds no record of what any read
-  returned. Returning 0 for a key with no epoch would make a staged key
-  answer the same number before and after the commit however far its
-  value had moved, so React would see no tear, schedule no re-render, and
-  never correct the boundary.
-
-  Steady state pays nothing for it: a mounted boundary holds a reference
-  to every key it reads, so every term is a cell epoch and the staged
-  branch is never taken."
+  "React's `getSnapshot`: the sum of the set's epochs, where a key no
+  cell holds yet contributes its frame's live `commit-basis` instead of
+  nothing. Monotone, so `Object.is` on it is a correct change test;
+  cached on the entry. The staged term is what reaches the render→commit
+  gap: `basis@render` while the boundary renders, `basis@commit` once
+  the commit has created the cell, and React's post-subscribe re-read
+  compares the two per fiber — a 0 there would answer the same number
+  before and after however far the value moved. A mounted boundary has
+  no staged term (docs/design/hicasso/architecture.md, section The
+  collector)."
   [^js entry]
   (fn snapshot []
     (let [cells @!cells
@@ -966,34 +878,17 @@
                      (+ acc (generation/commit-basis (nth k 0)))))))))))
 
 (defn- make-subscribe
-  "React's `subscribe`, as a pure function of the read set.
-
-  **The only global mutation in the state machine.** The boundary's
-  registration is minted from React's own `onStoreChange` and installs
-  itself in each read key's cell as a reader — which is that key's
-  reverse edge and the boundary's reference to it, one slot rather than
-  two records. The returned cleanup is the exact inverse and is the only
+  "React's `subscribe`, a pure function of the read set — the only
+  global mutation in the state machine. The registration minted from
+  React's `onStoreChange` installs itself in each read key's cell as a
+  reader, and the returned cleanup is the exact inverse and the only
   place memberships are released, so teardown is symmetric with mount
-  whatever React did with the renders in between.
-
-  The registration holds exactly the cells it acquired, so its cleanup
-  cannot release a successor's after a reap and rebuild.
-
-  **The forward edge needs no home**: `.-reads` on the registration IS
-  it — the entry's own key set, shared by reference and never copied, so
-  the fused table stores the reverse edge and nothing else.
-
-  **The registration is also the boundary id, and that is what makes the
-  replacement wholesale here** — a fresh id every time, so a read-set
-  change is this cleanup followed by a fresh call to a different entry's
-  `subscribe`: the edge-set replacement in full, done by the pair. See
-  the ns docstring, clause (b).
-
-  **Abandoned renders are safe structurally rather than by a guard.** A
-  design that wrote edges during the render would need a liveness check
-  so a stale body run could not resurrect an unmounted boundary's edges;
-  here there is no render-phase write to guard, because the only write is
-  inside this closure and React calls it at commit and nowhere else."
+  whatever React did in between. The registration is also the boundary
+  id, which is what makes an edge-set change wholesale: a new read set
+  is this cleanup followed by a fresh call to a different entry's
+  `subscribe`. `.-reads` on the registration IS the forward edge, the
+  entry's own key set by reference
+  (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §2)."
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
@@ -1047,48 +942,23 @@
 
 (defn hook-entry
   "The read-set entry for the SINGLE key `sub-key` — what a hook hands
-  `useSyncExternalStore`.
-
-  **Identity is the whole point.** React re-subscribes whenever the
-  `subscribe` it is given is a new function, so a hook that built its
-  closure per render would tear the subscription down and rebuild it on
-  every re-render — releasing and re-acquiring the cell, and doing it
-  invisibly, because the value on screen would be right the whole time.
-  The entry cache already answers that: the same key hits the same
-  entry, so `subscribe` is identical across re-renders and React does
-  not call it again. A hook therefore needs no `useMemo` and no
-  `useRef`, and holds to the shell's own hook budget.
-
-  A one-key read set is an ordinary read set. Nothing below this line
-  knows the difference, and a boundary whose body reads exactly this one
-  key shares this very entry."
+  `useSyncExternalStore`. A one-key read set is an ordinary read set, so
+  the same key hits the same entry, `subscribe` is identical across
+  re-renders and React does not call it again: a hook needs no `useMemo`
+  and no `useRef`, and a boundary reading exactly this key shares this
+  very entry."
   [sub-key]
   (entry-for #js [sub-key]))
 
 (defn hook-read
   "The value of `sub-key`, read from OUTSIDE every boundary body —
-  [[read-key!]]'s two tiers with the scratch and the ambient frame taken
-  away.
-
-  Warm is the same pure deref: once the hook's `subscribe` has run, the
-  cell exists and holds the reaction, so every render after the first is
-  a `get` and an `@`. Cold is [[cold-read!]]'s probe, unchanged and
-  still retaining nothing — which is what the render→commit gap needs,
-  because a hook's first render happens before React has called
-  `subscribe` and therefore before any cell exists.
-
-  **The probe box is scoped to this call, and that is not tidiness.**
-  `cold-read!` shares one frame-state snapshot across a body run and
-  [[run-once]] is what resets it; a hook read that left the box behind
-  would hand the NEXT hook read, arbitrarily later, a snapshot of a
-  world that has since moved. Saving and restoring costs one local and
-  makes the question unaskable. The saved value is nil in every path
-  that exists today — React renders a component after its parent body
-  has returned, never inside one — so what the restore protects is the
-  invariant rather than a caller.
-
-  It takes the SUB-KEY rather than the pair, so a hook builds the one
-  vector the cell table is keyed by and hands it to both doors."
+  `read-key!`'s two tiers with the scratch and the ambient frame taken
+  away. Warm is the same deref; cold is `cold-read!`'s probe, which is
+  what a hook's first render needs, before React has called `subscribe`
+  and any cell exists. The probe box is saved and restored around the
+  call because `run-once` is what resets it for a body, and a hook read
+  that left it behind would hand the next hook read a snapshot of a
+  world that has since moved."
   [sub-key]
   (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
     @r
@@ -1178,24 +1048,16 @@
       (not-empty @names))))
 
 (defn render-body
-  "Run a boundary body under the generation fence and return its element;
-  `last-reads` carries the read-set entry it resolved, and in a dev build
-  `rstate` also carries the `subscribe` the shell hands React for it —
-  the entry's own, or `view-subscribe`'s named wrapper when the body is
-  a declared view, so the name is written at the commit and never here.
-
-  The fence is the loop: capture the
-  `re-frame.hicasso.impl.generation/commit-basis`, run the body, and if a
-  commit landed while it ran, run it again against the newer commit. All
-  of a pass's reads therefore observe one commit — invariant-5
-  preservation as one comparison per boundary, not one deref per read.
-
-  It compares the basis rather than the generation alone because the
-  generation cannot see a mid-body move of a key nothing holds: no cell,
-  so no watch, so no `mark-dirty!`, so no bump. A body that read a
-  staged key, dispatched, and read again could straddle two commits with
-  the generation sitting perfectly still. The frame's install epoch
-  moves for that write, so the basis does."
+  "Run a boundary body under the generation fence and return its
+  element; `last-reads` carries the entry it resolved, and in a dev
+  build `rstate` also carries the `subscribe` the shell hands React —
+  the entry's own, or `view-subscribe`'s named wrapper for a declared
+  view. The fence: capture `commit-basis`, run the body, and if a commit
+  landed while it ran, run again against the newer one — invariant-5
+  preservation as one comparison per boundary rather than one deref per
+  read. The basis rather than the generation alone, because a mid-body
+  move of a key nothing holds moves no watch and so no generation
+  (docs/design/hicasso/architecture.md, section The collector)."
   [frame-kw body-fn props]
   (loop [attempt 0]
     (let [before  (generation/commit-basis frame-kw)
@@ -1238,24 +1100,15 @@
 ;; the calls React's own dispatcher received against it.
 
 (defn resolve-frame!
-  "The frame a React component is IN, taken from the one context every
+  "The frame a React component is IN, from the one context every
   React-shaped substrate in this repo writes — or the refusal, when
-  nothing above it wrote one.
-
-  Public, and `where`-taking, because the boundary shell is no longer
-  its only caller: the native tier's hooks resolve their
-  frame HERE rather than through a second chain of their own. That is
-  the property `frames are isolated contexts` reduces to in code — an
-  island and the boundary beside it ask one question of one context and
-  cannot be told different answers, so `n/use-sub` has no door onto a
-  frame the surrounding tree is not already in.
-
-  Deliberately NOT `frame/require-current-frame!`'s dynamic-var →
-  context chain, which is what the UIx-adapter hooks use. A body's
-  dynamic extent has unwound by the time React renders the component it
-  returned, so the var tier can only ever answer for a *different*
-  render than the one asking — and answering from it would let an
-  island read a frame its own subtree is not under."
+  nothing above it wrote one. Public and `where`-taking because the
+  native tier's hooks resolve their frame here too, so an island and the
+  boundary beside it ask one question of one context. Deliberately not
+  `frame/require-current-frame!`'s dynamic-var chain: a body's extent has
+  unwound by the time React renders the component it returned, so the var
+  tier can only answer for a different render than the one asking
+  (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §3.2)."
   [frame-kw where]
   (if (or (nil? frame-kw) (= adapter-context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
@@ -1377,29 +1230,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn reset-runtime!
-  "Drop every cell, every edge, every cached entry and every frame bundle.
-  Disposing each cell releases its sub-cache reference, so this is the
-  leak check's reset rather than a way to hide one.
-
-  **The PAGE-WIDE fixture door, and not part of root teardown.**
-  Every table it empties is one-per-page and keyed by frame,
-  so calling it to tear a root down empties the runtime under every other
-  root on the page too. `impl.mount/unmount!` is root teardown and
-  reaches none of this; `impl.mount/release!` is the fixture pairing that
-  ends with a page holding nothing.
-
-  It lives here because the collector holds most of what it drops, and it
-  calls each sibling's own door for the rest — a module that owns state
-  owns the act of emptying it, so this fn cannot silently miss a slot
-  somebody adds elsewhere.
-
-  **It does NOT touch the hydration adoption window**. A window
-  belongs to the root that minted it and is reachable only from that
-  root's handle, so there is nothing page-wide to rescue: a root whose
-  construction threw left an unreachable object, and a root that is torn
-  down is closed by `impl.mount/unmount!`. Reaching in from here would be
-  cross-root interference — a reset in one root shutting a sibling root's
-  window while it is still adopting."
+  "Drop every cell, every edge, every cached entry and every frame
+  bundle; disposing each cell releases its sub-cache reference, so this
+  is the leak check's reset rather than a way to hide one. The PAGE-WIDE
+  fixture door, not root teardown: every table here is one-per-page and
+  keyed by frame, so it empties the runtime under every root —
+  `impl.mount/unmount!` is root teardown and reaches none of this. It
+  calls each sibling's own door for what it does not hold, and it does
+  not touch a root's hydration adoption window, which only that root's
+  handle reaches (docs/design/hicasso/product/globals.md)."
   []
   (doseq [[_ cell] @!cells] (dispose-cell! cell))
   (reset! !cells {})
