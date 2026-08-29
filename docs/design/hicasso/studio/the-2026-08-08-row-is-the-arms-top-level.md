@@ -11,7 +11,7 @@ writing and therefore an anchor a fresh clone resolves.
 **NO BENCH WINDOW WAS TAKEN.** No browser was launched, no rig file was touched, and no
 new allocation figure is published. Every number below is re-derived from datasets
 already committed, by
-[`alloc_ladder_placement.cjs`](../../../../implementation/hicasso/test/re_frame/bench/hicasso/alloc_ladder_placement.cjs),
+[`alloc_ladder_placement.cjs`](../../../../bench/hicasso/src/re_frame/bench/hicasso/alloc_ladder_placement.cjs),
 which reads the corpus and prints this page's tables:
 
 ```sh

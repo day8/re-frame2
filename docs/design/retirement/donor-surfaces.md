@@ -20,7 +20,7 @@ Measured on `origin/main` at `83029f9a63`, 2026-08-16 15:31 AUSEST.
 |---|---|---|---|
 | `implementation/ui/` (`re-frame.ui`, the compiled-view substrate) | **REMOVE** — executed | Operator ruling, Mike 2026-08-14 (`rf2-0yp7w`); plan at [`freehand-and-ui.md`](freehand-and-ui.md) | Gone. `git ls-files implementation/ui` returns **0** |
 | `implementation/freehand/` (`re-frame.freehand`) | **REMOVE** — executed | Same ruling and plan | Gone. `git ls-files implementation/freehand` returns **0** |
-| `implementation/hicasso/test/re_frame/bench/hicasso/` (the frozen Hicasso bench tree) | **KEEP AS EVIDENCE** | `implementation/hicasso/frozen-sources.edn` and `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) | Present — 221 tracked files at the stamped commit, before this change adds its marker — and actively worked |
+| `bench/hicasso/src/re_frame/bench/hicasso/` (the frozen Hicasso bench tree; moved out of `implementation/hicasso/test/re_frame/bench/hicasso/` on 2026-08-29 under rf2-6c12m.1) | **KEEP AS EVIDENCE** | `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../bench/hicasso/README.md) | Present — 221 tracked files at the stamped commit, before this change adds its marker — and actively worked |
 
 ### `re-frame.ui` and Freehand — removed, not archived
 
@@ -69,7 +69,7 @@ would invalidate the readings the package's own budgets are set against.
 
 Deleting or archiving it would delete the evidence base. It is kept, and the tree now
 carries the marker `rf2-hic-062` owed it: a
-[`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) at
+[`README.md`](../../../bench/hicasso/README.md) at
 its root that names the twelve frozen donors, states the four rules a reader can act on,
 and separates them from the live harness around them. That distinction is the point of a
 tree-level marker: *keep as evidence* bounds what the tree may be used for, and does not
