@@ -178,12 +178,14 @@ that can: a `[:>]` refusal at runtime prints the constant `"[:>]"` beside an
 empty declared set, because the escape has no name of its own. The report read
 the head.
 
-The suggestions block is labelled as guesses, and its header carries the
-Fluent/Ant counter-example. The tool never synthesizes a `:callbacks` map and
-there is no flag to make it. The `defhost` sketch it prints is therefore a
-SCAFFOLD — the positions listed inside an empty `:callbacks` map as comments,
-with `:event`, `:handler` and `:render` named above them — which is acceptable
-to the door verbatim. Paste it, uncomment a row, type a contract.
+The suggestions block says what the door does by default — infer the contract
+from the spelling, exactly as on a native tag — and its header carries the
+Fluent/Ant counter-example, the on*-named render prop the spelling gets wrong.
+The tool never synthesizes a `:callbacks` map and there is no flag to make it.
+The `defhost` sketch it prints is therefore a SCAFFOLD — the positions listed
+inside an empty `:callbacks` map as comments, with `:event` and `:render` named
+above them — which is acceptable to the door verbatim. Paste it; uncomment a
+row only to override the spelling.
 `sketch_test.clj` round-trips every sketch the corpus emits and keeps it that
 way.
 

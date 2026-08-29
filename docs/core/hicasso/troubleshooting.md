@@ -223,17 +223,6 @@ Recovery: `:lower-intents-inside-a-boundary-render`.
 
 Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md).
 
-<a id="hicasso-intent-at-a-non-event-contract"></a>
-#### `:rf.error/hicasso-intent-at-a-non-event-contract`
-
-You put an intent at a position declared `:handler` or `:render`.
-
-Recovery: `:declare-the-position-event-or-write-an-h-event` — declare the position
-`:event` if what happens there is an event, or write an `h/event` that does the
-declared work.
-
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
-
 <a id="hicasso-intent-needs-the-event"></a>
 #### `:rf.error/hicasso-intent-needs-the-event`
 
@@ -247,9 +236,11 @@ Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 <a id="hicasso-unknown-callback-contract"></a>
 #### `:rf.error/hicasso-unknown-callback-contract`
 
-You named a callback contract outside `:event` / `:handler` / `:render`.
+You named a contract outside `:event` / `:render` in a `defhost` `:callbacks`
+override. Contracts are inferred from the prop's spelling; the override is only
+for a prop whose spelling infers the wrong one, such as an on*-named render prop.
 
-Recovery: `:declare-event-handler-or-render`.
+Recovery: `:declare-event-or-render`.
 
 <a id="hicasso-malformed-prevent"></a>
 #### `:rf.error/hicasso-malformed-prevent`
@@ -400,41 +391,14 @@ fallback, or `:server :render` to render the real subtree on the server.
 
 Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
 
-<a id="hicasso-host-structural-callback"></a>
-#### `:rf.error/hicasso-host-structural-callback`
-
-You declared a `defhost` callback contract at a position no contract can reach —
-`key`/`ref`, which carry no contract, or a name the crossing can never emit
-(`__proto__`, `prototype`, `constructor`).
-
-Recovery: `:declare-contracts-on-ordinary-props-only`.
-
-<a id="hicasso-host-callback-slot-collision"></a>
-#### `:rf.error/hicasso-host-callback-slot-collision`
-
-You declared two spellings of one callback slot on a `defhost`.
-
-Recovery: `:declare-each-slot-once`.
-
-<a id="hicasso-host-undeclared-callback"></a>
-#### `:rf.error/hicasso-host-undeclared-callback`
-
-You sent an intent to a `defhost` prop the declaration does not name.
-
-Recovery: `:declare-the-callback-contract` — name the prop in `:callbacks`, or
-hand a plain function.
-
-Named in [Interop](09-interop.md), [Migrating from
-Reagent](20-migration-from-reagent.md).
-
 <a id="hicasso-host-unclaimed-callback"></a>
 #### `:rf.error/hicasso-host-unclaimed-callback`
 
-You wrote the one callback form at a `defhost` position no callback contract
-claims — one nothing claims at all, or one declared a ReactNode slot, where
-markup lowers and there is no contract to give a function.
+You wrote the one callback form at a `defhost` position declared a ReactNode
+slot, where markup lowers and there is no contract to give a function.
 
-Recovery: `:declare-the-slot-or-hand-a-plain-function`.
+Recovery: `:write-markup-at-a-declared-slot` — write the markup there, or take
+the position out of `:slots`.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
 [Diagnostics](16-diagnostics.md).

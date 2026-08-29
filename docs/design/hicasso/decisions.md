@@ -436,6 +436,49 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-29 — a callback contract is INFERRED from the prop's
+> position, and `:callbacks` survives only as a two-value override
+> (`rf2-6c12m.2`, executed by `rf2-6c12m.24`).** This amends the 2026-08-06
+> addendum below and the ruling's "finite `:callbacks` map, never inferred from
+> an `on*` spelling" clause, which stand as the dated records they are.
+>
+> **The rule.** `host-entry`'s undeclared arm is now `intent/lower-prop` — the
+> native walk's own classifier — followed by the shallow conversion. So an
+> `on*`-spelled prop of a `defhost` or a `[:>]` crossing is an event position
+> (an intent vector, a key-map or `h/event` dispatches into the writing
+> boundary's frame), any other walked prop is a render position (`h/event`
+> takes the frame-carrying render wrapper; a vector or map crosses as data),
+> `:ref` is React's, and a declared `:slots` position is markup. `:callbacks`
+> is written only where the spelling infers the wrong contract — the on*-named
+> render props Fluent (`onRenderItem`, `onRenderCell`) and Ant (`onRow`,
+> `onFilter`) ship, where the event wrapper's nil return would blank the UI —
+> and takes `:event` or `:render`; a declared contract outranks the spelling.
+> `:handler` is deleted: a plain function already crossed untouched at every
+> position, so that contract named a behaviour the runtime had by default.
+>
+> **Why.** The runtime already inferred for every native tag, and every
+> declaration in the repo and the guide inferred identically; the only two that
+> did not were the two the guide invented to illustrate the roster. The stated
+> reason for "never infer" — a value-first foreign callback such as
+> `onChange(date)`, where a vector would read `date.target` — was always caught
+> at runtime by `:rf.error/hicasso-intent-needs-the-event`, which names the
+> position; the declaration never prevented that mistake. Four refusal ids, one
+> half-id and some five hundred lines of validation and commentary policed a
+> grammar with no consumer.
+>
+> **Ids.** Retired: `:rf.error/hicasso-host-undeclared-callback`,
+> `:rf.error/hicasso-intent-at-a-non-event-contract`,
+> `:rf.error/hicasso-host-structural-callback`,
+> `:rf.error/hicasso-host-callback-slot-collision`. Narrowed:
+> `:rf.error/hicasso-host-unclaimed-callback` keeps only the declared-slot arm
+> of HD-024's 2026-08-11 addendum. Kept, two-valued:
+> `:rf.error/hicasso-unknown-callback-contract`. The 2026-08-06 addendum's
+> nothing-claimed refusal is therefore gone — inference claims every position,
+> so the marked form at a formerly unclaimed slot takes a wrapper rather than
+> a refusal — while its fence holds: a plain function is untouched, the reserved
+> skip sits above every declaration arm, and `[:>]` flows through the same
+> branch with an empty roster.
+
 > **Addendum, 2026-08-12 — the policy option is `:server` with TWO values, and
 > `:fallback` is its SIBLING (`rf2-mo4o`).** This amends the 2026-08-05 and
 > 2026-08-04 addenda below, which stand as the dated records they are. Nothing
@@ -1914,6 +1957,27 @@ below, with the full window in
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
 ## HD-024 — One callback form; the position selects the contract
+
+> **Addendum, 2026-08-29 — row 2 is struck: a `defhost` position takes row 1 or
+> row 3 by its spelling, and `:callbacks` is an override rather than a roster
+> (`rf2-6c12m.2`, executed by `rf2-6c12m.24`).** The position table below reads
+> "as declared (`:event`, `:handler` or `:render`), never inferred from an `on*`
+> name" for a `defhost` `:callbacks` entry. That row restated at a host what the
+> table already decides everywhere else, and what replaces it is this ruling's
+> own law applied to the crossing: an `on*`-spelled prop is row 1 (event) and
+> any other walked prop is row 3 (render), on a native tag, a `defhost` and a
+> `[:>]` crossing alike. `:handler` is deleted — a plain function crosses
+> untouched at every position, which is what it named — and `:callbacks`
+> survives as `{prop :event|:render}`, written only where a vendor's spelling
+> infers the wrong contract (an on*-named render prop), with the declared
+> contract outranking the spelling. The value-first law below is unchanged and
+> was always the runtime's guard rather than the roster's:
+> `:rf.error/hicasso-intent-needs-the-event` names a marker-bearing intent at a
+> value-first invoker regardless of any declaration. The "declaration governs
+> every carrier" paragraph is superseded in one half: at `:render` a vector or
+> key-map is no longer refused — `:rf.error/hicasso-intent-at-a-non-event-contract`
+> is retired — and crosses as data through the shallow conversion, as it does
+> at a native tag. HD-011's same-date addendum carries the ids and the mechanism.
 
 > **Addendum, 2026-08-11 — a DECLARED ReactNode slot is a position row 3 does not
 > cover either, and it refuses the marked form (`rf2-hic-035`).** `defhost` now

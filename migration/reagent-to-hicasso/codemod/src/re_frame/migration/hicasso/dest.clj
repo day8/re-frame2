@@ -110,21 +110,24 @@
                 (re-find re-event-prop (name k)))))
 
 (def callback-contracts
-  "MIRRORS `front.codec/callback-contracts` — the three contracts a
-  `defhost` declaration may name at a slot, and the whole of what the door
-  will accept there.
+  "MIRRORS `codec/callback-contracts` — the two contracts a `defhost`
+  `:callbacks` OVERRIDE may name at a slot, and the whole of what the door
+  will accept there. The door infers the contract from the prop's
+  spelling (an `on*` prop is an event position, anything else a render
+  position), so a declaration is only needed where the spelling is wrong.
 
   A VECTOR where the door holds a set, because this is the one piece of
   destination vocabulary the report PRINTS rather than merely consults,
   and printed prose needs an order. The order is the door's own literal
-  and the guide's: `:event`, `:handler`, `:render`.
+  and the guide's: `:event`, `:render`.
 
   The tool never chooses one. It cannot: `onRenderCell` is
   [[event-prop?]]-true and is a RENDER prop, so a contract read off a name
-  is a guess that fails silently. The roster is carried here so the report
-  can tell a migrator what the three answers ARE, which is the part of the
-  decision the tool genuinely knows."
-  [:event :handler :render])
+  is a guess that fails silently — which is exactly the case the override
+  exists for. The roster is carried here so the report can tell a migrator
+  what the two answers ARE, which is the part of the decision the tool
+  genuinely knows."
+  [:event :render])
 
 (defn nested-key-name
   "What `clj->js` emits for a key inside a NESTED map — which is the

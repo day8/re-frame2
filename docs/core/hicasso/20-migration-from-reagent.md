@@ -134,7 +134,7 @@ Common translations:
 | `^{:key k}` metadata | `:key` in the props map |
 | `[:> Component ...]` | remains legal; repair its prop dialect and declare repeated crossings with `h/defhost` |
 | `r/adapt-react-class` | direct `[:>]` or a declared host |
-| `r/as-element` inside a render prop | `h/as-element` under a declared `:render` callback contract |
+| `r/as-element` inside a render prop | `h/as-element` inside an `h/event` at the render prop |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
 Two common mistakes fail loudly:
@@ -142,10 +142,12 @@ Two common mistakes fail loudly:
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
   browser invokes it later, so ambient dispatch raises
   `:rf.error/no-frame-context`. Use an intent vector or `h/event`.
-- An event vector at an undeclared `[:>]` prop raises instead of crossing as an
-  inert JavaScript array. Under Reagent that inert value did not produce a
-  working handler either; the migration forces you to decide the callback's
-  contract.
+- An event vector at an `on*` prop of a `[:>]` crossing now dispatches. Under
+  Reagent it crossed as an inert JavaScript array and never produced a working
+  handler, so the migration turns a dead handler live; decide whether it was
+  ever meant to run, and whether the prop is an event position at all rather
+  than a vendor's on*-named render prop, which needs a `:callbacks` override on
+  a declared host.
 
 ## 3. Prove the port with shadow comparison
 
@@ -241,8 +243,8 @@ contract safely. Review and approve every `h/defhost` declaration.
 
 Examples:
 
-- `:intent-needs-a-declaration`: decide what the undeclared event-shaped prop
-  means;
+- `:intent-needs-a-declaration`: decide whether the event-shaped prop is an
+  event position, or a render prop the vendor named `on*`;
 - `:dangerous-html`: Reagent may have discarded the prop while Hicasso will
   pass it through, turning dead behaviour live;
 - `:r>-site` and `:f>-site`: Hicasso can interpret these as unknown tag
@@ -268,7 +270,7 @@ tool. The reporter records the site rather than guessing.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Hicasso passes values by identity | Run the reporter and apply the safe codemod rewrites |
-| Render raises `:rf.error/hicasso-host-undeclared-callback` at a former Reagent crossing | An intent vector reached an undeclared prop; under Reagent it crossed as inert data | Declare the host and callback contract, or supply the actual plain function the library expects |
+| A former Reagent crossing starts dispatching at an `on*` prop | An intent vector that crossed as inert data under Reagent is lowered by Hicasso, exactly as on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
 | Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/event` |
 | A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |

@@ -187,7 +187,7 @@
 (deftest the-sketch-reads-the-way-it-is-meant-to
   (testing "an ordinary symbol head"
     (is (= (str "(h/defhost bar js/Foo.Bar\n"
-                "  {:callbacks {;; each position takes :event, :handler or :render — see :caution\n"
+                "  {:callbacks {;; each position takes :event or :render — see :caution\n"
                 "               ;; :on-change\n"
                 "               ;; :on-render-row\n"
                 "               }})")
@@ -196,7 +196,7 @@
   (testing "an expression head takes the placeholder name, and the
             component position is the head verbatim"
     (is (= (str "(h/defhost your-host (.-Provider ctx)\n"
-                "  {:callbacks {;; each position takes :event, :handler or :render — see :caution\n"
+                "  {:callbacks {;; each position takes :event or :render — see :caution\n"
                 "               ;; :on-close\n"
                 "               }})")
            (sketch-for "(.-Provider ctx)")))))

@@ -65,14 +65,16 @@
                 entries)))
 
 (def ^:private suggestion-caution
-  (str "GUESSES, NOT A CONTRACT — CHECK EVERY ROW AGAINST THE LIBRARY'S OWN DOCUMENTATION. "
-       "These slots are listed because their NAMES look like event positions or because they "
-       "carry a function, and a name is not a meaning. Fluent's `onRenderCell` and Ant's `onRow` "
-       "are event-SPELLED RENDER PROPS: the caller reads their RETURN VALUE. Declaring one as an "
-       "`:event` contract would hand it a nil-returning wrapper and blank your cell renderer with "
-       "nothing thrown. That failure is why this tool never synthesizes a `:callbacks` map, why "
-       "there is no flag to make it, and why every position in the sketch below is left blank for "
-       "you to fill."))
+  (str "THE USUAL CASE NEEDS NO :callbacks AT ALL — Hicasso infers the contract from the "
+       "spelling, exactly as on a native tag: an on* prop is an event position, anything else a "
+       "render position, and a plain function crosses untouched. These slots are listed because "
+       "their NAMES look like event positions or because they carry a function, and a name is "
+       "not a meaning. Fluent's `onRenderCell` and Ant's `onRow` are event-SPELLED RENDER PROPS: "
+       "the caller reads their RETURN VALUE, and the inferred `:event` contract would hand one a "
+       "nil-returning wrapper and blank your cell renderer with nothing thrown. CHECK EVERY on* "
+       "ROW AGAINST THE LIBRARY'S OWN DOCUMENTATION, and uncomment a row only to OVERRIDE the "
+       "spelling — `:render` for an on*-named render prop. That is why this tool never "
+       "synthesizes a `:callbacks` map and why every position in the sketch below is left blank."))
 
 (def ^:private sketch-indent
   "The column `:callbacks`' entries start at, which is where the `{` after
@@ -102,7 +104,7 @@
     (if (and seg (re-matches simple-name seg)) seg "your-host")))
 
 (defn- contract-roster
-  "`\":event, :handler or :render\"` — generated from [[dest/callback-contracts]]
+  "`\":event or :render\"` — generated from [[dest/callback-contracts]]
   rather than transcribed beside it, so the sentence the report prints and
   the roster the door enforces cannot drift apart in prose."
   []
@@ -115,20 +117,23 @@
   never mechanical, and the hoist that would mint these is demand-gated
   and out of scope.
 
-  **The sketch names no contract, because the tool does not know one.**
-  It used to print `:fn` at every position, which is not one of the three
-  the door accepts, so a migrator who pasted what the tool suggested was
-  refused at mint by `:rf.error/hicasso-unknown-callback-contract`
-  (rf2-vi11). A diagnostic that tells you what to write and is wrong is
-  worse than one that says nothing.
+  **The sketch names no contract, because the tool does not know one —
+  and the door usually needs none.** Hicasso infers the contract from the
+  spelling, so `:callbacks` is an override for the on*-named render prop
+  the spelling gets wrong. The sketch used to print `:fn` at every
+  position, which is not a contract the door accepts, so a migrator who
+  pasted what the tool suggested was refused at mint by
+  `:rf.error/hicasso-unknown-callback-contract` (rf2-vi11). A diagnostic
+  that tells you what to write and is wrong is worse than one that says
+  nothing.
 
   What is emitted instead is a SCAFFOLD, and it is acceptable to the door
   verbatim: `:callbacks` is optional and an empty map is a legal
   declaration, so the positions are listed inside it as comments with the
-  three contracts named above them. Paste it, uncomment a row, type a
-  contract. Uncommenting a row and typing NOTHING leaves the map with an
-  odd number of forms, which the reader refuses on the spot — the one
-  failure mode this shape can have is loud and immediate."
+  two contracts named above them. Paste it; uncomment a row only to
+  override the spelling. Uncommenting a row and typing NOTHING leaves the
+  map with an odd number of forms, which the reader refuses on the spot —
+  the one failure mode this shape can have is loud and immediate."
   [{:keys [head event-slots fn-slots]}]
   (let [slots (distinct (concat event-slots fn-slots))]
     (str "(h/defhost " (host-name-for head) " " (or head "Component") "\n"

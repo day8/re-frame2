@@ -11,16 +11,17 @@
 
   ## The whole crossing
 
-      (h/defhost rows vendor/virtual-rows
-        {:callbacks {:render-row :render
-                     :on-window  :event}})
+      (h/defhost rows vendor/virtual-rows)
 
-  Two declared positions, two different contracts, and neither is
-  inferred from the prop's spelling. `:render-row` is where the library
-  asks the consumer for markup, DURING its own render; `:on-window` is
-  where it tells the consumer something afterwards. Every other prop —
-  `:count`, `:row-height`, `:pinned-index` — is ordinary data and needs
-  no declaration at all.
+  Two callback positions, two different contracts, and both are inferred
+  from the prop's spelling exactly as they would be on a native tag.
+  `:render-row` is where the library asks the consumer for markup, DURING
+  its own render — a render position, because it is not spelled `on*`;
+  `:on-window` is where it tells the consumer something afterwards — an
+  event position. Every other prop — `:count`, `:row-height`,
+  `:pinned-index` — is ordinary data. Nothing here needs a declaration
+  beyond the crossing itself, which is what makes this file the
+  inference witness.
 
   ## Rule 1 — the key is the row's place in the MODEL
 
@@ -133,9 +134,7 @@
   offset)`, `onWindow(from, to)` — so there is no event at argument one
   and nothing for a vector's markers to read. The one callback form
   receives the library's own arguments, in order (HD-024)."
-  vendor/virtual-rows
-  {:callbacks {:render-row :render
-               :on-window  :event}})
+  vendor/virtual-rows)
 
 ;; ---------------------------------------------------------------------------
 ;; The screen

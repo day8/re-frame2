@@ -243,39 +243,51 @@ foreign React component never forces a whole view onto Reagent. The decision is
 *which door*, and it turns on one question: **does this crossing repeat?**
 
 - **A one-off crossing → keep `[:> Component …]`.** It is `defhost` with the
-  declaration erased: no `:slots`, no callback contracts, no server policy.
-  Hiccup written at one of its props is **data**, not markup — cross a single
-  element with `(h/as-element [:h2 "Tasks"])` when you need one.
+  declaration erased: no `:slots`, no `:callbacks` override, no server policy.
+  Callbacks are inferred from the spelling on both, so an intent or `h/event`
+  at an `on*` prop of the escape dispatches. Hiccup written at one of its props
+  is **data**, not markup — cross a single element with
+  `(h/as-element [:h2 "Tasks"])` when you need one.
 - **A repeated crossing → declare it once with `h/defhost`**, and the var is a
   legal hiccup head indistinguishable from a view:
 
   ```clojure
-  (h/defhost date-picker DatePicker
-    {:callbacks {:on-change :event}})
+  (h/defhost date-picker DatePicker)
 
   [date-picker {:selected due-date :on-change (h/event [date & _] [:task/set-due date])}]
   ```
 
-  `:callbacks` is a **finite map from exact prop names** to `:event`, `:handler`
-  or `:render` — **never inferred from an `on*` spelling**, which is the whole
-  design. `:slots` names the ReactNode positions, so hiccup written there is
-  lowered under the writing boundary's frame. `:server` is `:client-only`
-  (default) or `:render`, and `:fallback` is Client-only's placeholder.
+  **Callback contracts are inferred from the prop's spelling, exactly as on a
+  native tag**: an `on*` prop is an event position, any other prop that takes
+  `h/event` is a render position, and a plain function crosses untouched
+  anywhere. `:callbacks` is an **override** — `{prop :event|:render}` — written
+  only where the spelling is wrong. `:slots` names the ReactNode positions, so
+  hiccup written there is lowered under the writing boundary's frame. `:server`
+  is `:client-only` (default) or `:render`, and `:fallback` is Client-only's
+  placeholder.
 
-**The decision you must not get wrong is the callback contract**, and it is the
-one the source cannot answer. An event-*spelled* prop can be a render prop whose
-return value the library consumes — Fluent's `onRender*` family, Ant's `onRow` —
-and declaring one as `:event` replaces its return with a dispatch path and
-blanks the UI with no useful error. **Read the library's documentation for every
-contract**, and treat the codemod's suggestions as the labelled guesses they
-are.
+**The decision you must not get wrong is the on*-named render prop**, and it is
+the one the source cannot answer. Some vendors name render props `on*` —
+Fluent's `onRender*` family, Ant's `onRow`, `onCell` and `onFilter` — and the
+inferred `:event` wrapper replaces such a callback's return with `nil`, which
+blanks the UI with no useful error. **Read the library's documentation for
+every `on*` prop's return value**, and where the library consumes it, declare
+the override once on the host:
 
-Two migration failures fire loudly and are worth pre-empting:
+```clojure
+(h/defhost details-list DetailsList {:callbacks {:on-render-item :render}})
+```
 
-- **An intent vector at an undeclared event-spelled `defhost` prop** raises
-  `:rf.error/hicasso-host-undeclared-callback`. Under Reagent that vector
-  crossed as an inert JavaScript array — it never produced a working handler
-  either. The migration is forcing the decision, not breaking the code.
+Infer the usual case; override the vendor exception. There is no `:handler`
+contract to declare — a plain function is that contract.
+
+Two migration behaviours are worth pre-empting:
+
+- **An intent vector at an `on*` prop of a former Reagent crossing now
+  dispatches.** Under Reagent that vector crossed as an inert JavaScript array
+  and never produced a working handler; the migration turns a dead handler
+  live. Decide whether it was ever meant to run, and whether the prop is an
+  event position at all.
 - **EVENT-FIRST vs VALUE-FIRST.** The vector's markers and `::h/prevent` read
   the DOM event from argument one. A library that calls `onChange(date, event)`
   is value-first, so `[:task/set-due ::h/value]` raises

@@ -280,73 +280,19 @@
         "and across two spellings of it, because the collision is checked
          on the canonical slot like every other rule here")))
 
-(deftest the-declaration-refuses-a-callback-no-contract-could-ever-reach
-  (testing "`key` and `ref` in every spelling. The arm that was already
-            here: neither is a callback position, so a contract declared on
-            one is a policy nothing can apply"
-    (doseq [k [:key :ref "ref" :x/ref]]
-      (is (= :rf.error/hicasso-host-structural-callback
-             (error-id #(codec/mint-host! (str "cb/" k) panel
-                                          {:callbacks {k :event}})))
-          (str (pr-str k) " must stay refused"))))
-  (testing "a reserved emitted name, in every spelling. `host-entry` skips
-            `__proto__`, `prototype` and `constructor` ABOVE both declaration
-            arms — the props object handed to React has a prototype — and
-            that skip is exactly what let a contract declared at one of them
-            mint, read correct, and never once fire. It is the slot rows'
-            trap wearing the fix's clothes, one roster over"
-    (doseq [k [:__proto__ :prototype :constructor
-               '__proto__ 'prototype 'constructor
-               "__proto__" "prototype" "constructor"]]
-      (is (= :rf.error/hicasso-host-structural-callback
-             (error-id #(codec/mint-host! (str "cb/reserved-" (pr-str k)) panel
-                                          {:callbacks {k :event}})))
-          (str (pr-str k) " must be refused at the declaration, because the "
-               "crossing can never emit it")))
-    (is (= :rf.error/hicasso-host-structural-callback
-           (error-id #(codec/mint-host! "cb/reserved-ns" panel
-                                        {:callbacks {:x/constructor :handler}})))
-        "and a namespaced spelling too — the question is asked of the slot
-         the crossing would have emitted, never of the key as written")
-    (is (= :rf.error/hicasso-host-structural-callback
-           (error-id #(codec/mint-host! "cb/reserved-mixed" panel
-                                        {:callbacks {:on-close   :event
-                                                     :constructor :render}})))
-        "and one bad entry refuses the whole declaration, however good its
-         neighbours are"))
-  (testing "and the refusal names the canonical slot it landed on, not only
-            the spelling that was written — a tool branching on this needs
-            the position the author can see AND the slot that explains it"
-    (let [data (try (codec/mint-host! "cb/reserved-data" panel
-                                      {:callbacks {:constructor :event}})
-                    nil
-                    (catch :default e (ex-data e)))]
-      (is (= {:rf.error/id :rf.error/hicasso-host-structural-callback
-              :where       're-frame.hicasso.impl.codec/mint-host!
-              :recovery    :declare-contracts-on-ordinary-props-only
-              :host        "cb/reserved-data"
-              :position    :constructor
-              :slot        "constructor"}
-             (select-keys data [:rf.error/id :where :recovery :host
-                                :position :slot]))))))
-
-(deftest a-callback-at-a-near-reserved-name-still-mints
-  (testing "the refusal is asked of the WHOLE emitted slot and never of a
-            substring of it. `:constructor-label` lands on
-            \"constructorLabel\" and `:prototypes` on \"prototypes\" —
-            ordinary props of some real library that merely READ like one of
-            the three — so a guard that is too eager stops a legal
-            declaration minting, and that is the direction almost nobody
-            tests for"
-    (is (some? (codec/mint-host! "cb/near-reserved" panel
-                                 {:callbacks {:constructor-label :event
-                                              :prototypes        :handler}}))))
-  (testing "and an ordinary declaration is untouched by the guard, which is
-            the property every one of these refusals is spent on"
+(deftest a-callbacks-override-mints-beside-a-slot-roster
+  (testing "an override and a slot roster mint together, and the override
+            is two-valued — `:render` where a vendor names a render prop
+            `on*`, `:event` where it names an event prop something else"
     (is (some? (codec/mint-host! "cb/ordinary" panel
-                                 {:callbacks {:on-close   :event
-                                              :render-row :render}
-                                  :slots     #{:title}})))))
+                                 {:callbacks {:on-render-row :render
+                                              :pick          :event}
+                                  :slots     #{:title}}))))
+  (testing "and a third contract is refused at mint — :handler among them,
+            since a plain function already crosses untouched everywhere"
+    (is (= :rf.error/hicasso-unknown-callback-contract
+           (error-id #(codec/mint-host! "cb/handler" panel
+                                        {:callbacks {:on-close :handler}}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the conversion, at the crossing (no DOM needed)

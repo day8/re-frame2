@@ -25,16 +25,14 @@
   4. **StrictMode's double-invoke is not additive** (W6) — the same value
      on both runs, and no second edge, entry or registration.
   5. **The `[:>]` value-first door dispatches through a plain closure
-     over the capture** (W7). The escape carries no
-     declaration, so its callback roster is EMPTY by construction and
-     both spellings that would otherwise carry the frame for the author
-     refuse at the prop — an intent vector is
-     `:rf.error/hicasso-host-undeclared-callback` and an `h/event` is
-     `:rf.error/hicasso-host-unclaimed-callback`. What crosses is an
-     ordinary function, by identity, and an ordinary function carries no
-     frame. This is the edge `h/frame` names in its own docstring as the
-     one it exists for: *\"a value-first callback on a foreign
-     component\"*.
+     over the capture** (W7). An intent vector or an `h/event` at an
+     `on*` prop of the escape now carries the frame for the author — the
+     contract is inferred from the spelling, as at a native tag — so the
+     plain closure is one door of three rather than the only one. It is
+     still the one this row measures: an ordinary function crosses by
+     identity and carries no frame of its own, which is the edge
+     `h/frame` names in its own docstring as the one it exists for:
+     *\"a value-first callback on a foreign component\"*.
 
   ## The mutation witness for W7
 
@@ -371,24 +369,21 @@
       (reset! !built {})
       (reset! !handed {})
 
-      (testing "THE PREMISE, asserted rather than cited. `[:>]` is a
-                value-first door: its roster is empty by construction, so
-                the two spellings that would carry the frame for the
-                author both refuse at this very prop. That is what leaves
-                the plain closure as the only door rather than one option
-                of two — and if the escape ever grew a contract here, this
-                row goes red before the mount and the rest of W7 stops
-                being the answer to a real question"
-        (is (= :rf.error/hicasso-host-undeclared-callback
+      (testing "THE PREMISE, asserted rather than cited. `[:>]` infers the
+                contract from the spelling exactly as a native tag does,
+                so the two spellings that carry the frame for the author
+                both LOWER at this prop — the plain closure is one door of
+                three, and W7 measures that one on purpose, because it is
+                the door that carries no frame of its own"
+        (is (= ::did-not-throw
                (refusal-id #(codec/as-element
                               [:> foreign-picker {:on-pick [:hicasso.todo/toggle 0]}])))
-            "an intent vector at an event-spelled slot")
-        (is (= :rf.error/hicasso-host-unclaimed-callback
+            "an intent vector at an event-spelled slot lowers rather than refusing")
+        (is (= ::did-not-throw
                (refusal-id #(codec/as-element
                               [:> foreign-picker
                                {:on-pick (intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))
-            "and a marked h/event, which asks the position for a contract no
-             position here can ever select"))
+            "and so does a marked h/event, which takes the event wrapper"))
 
       (let [a (mount/root! (mount/fresh-container!) frame-a [escape-picker {:id 0}])
             b (mount/root! (mount/fresh-container!) frame-b [escape-picker {:id 0}])]

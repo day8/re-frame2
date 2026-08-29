@@ -207,9 +207,9 @@ Related: [Events as data](03-events-as-data.md).
 ### `h/event`
 
 The one marked callback form (HD-024). Expands to an ordinary function. The
-contract comes from the **position** where it is written: event positions
-dispatch a returned vector; render positions must stay pure; unclaimed host
-props refuse the mark.
+contract comes from the **position** where it is written: `on*` positions
+dispatch a returned vector; render positions must stay pure; a declared
+ReactNode slot refuses the mark.
 
 ```clojure
 [:input {:type "file"
@@ -352,18 +352,19 @@ Related: [Events as data](03-events-as-data.md).
 <a id="defhost"></a>
 ### `defhost`
 
-`h/defhost` declares a foreign React component once. The declaration can define:
+`h/defhost` declares a foreign React component once. Callback contracts are
+inferred from each prop's spelling, as on a native tag; the declaration can
+also define:
 
-- callback contracts: `:event`, `:handler`, or `:render`;
+- a `:callbacks` override, `:event` or `:render`, for an on*-named render prop;
 - ReactNode [slots](#reactnode-slot);
 - a [server policy](#server-policy);
 - a Client-only fallback.
 
 ```clojure
 (h/defhost date-picker DatePicker
-  {:callbacks {:on-change :event}
-   :slots     #{:calendar}
-   :server    :client-only})
+  {:slots  #{:calendar}
+   :server :client-only})
 ```
 
 Keep the JavaScript require in a `.cljs` host namespace.

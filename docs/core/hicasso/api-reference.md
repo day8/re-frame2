@@ -95,7 +95,7 @@ for one carries none of it.
 
 | Key | Value | Meaning |
 | --- | --- | --- |
-| `:callbacks` | a finite map from exact prop names to `:event`, `:handler` or `:render` | which contract applies at a callback position. Never inferred from an `on*` spelling |
+| `:callbacks` | an optional map from prop name to `:event` or `:render` | an override for a prop whose spelling infers the wrong contract — a vendor's on*-named render prop. Contracts are otherwise inferred from the spelling, exactly as on a native tag |
 | `:slots` | a set of prop names | the ReactNode positions. Hiccup written at one is lowered under the writing boundary's frame; at an undeclared prop, hiccup stays data |
 | `:server` | `:client-only` (the default) or `:render` | whether the crossing contributes to a server response. `:render` is an assertion that the component is safe to run on the server, and mints no gate at all |
 | `:fallback` | inert Hiccup | what renders in the host region while a `:client-only` crossing is absent. Refused beside `:server :render`, and refused if it contains a boundary head |

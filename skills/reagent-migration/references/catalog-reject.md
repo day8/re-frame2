@@ -108,8 +108,10 @@ These were holds under the previous substrate and are not holds now. Do not
 carry the old refusal across:
 
 - **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
-  is legal, `h/defhost` declares a repeated crossing with named callback
-  contracts, `h/as-element` crosses one element through a prop, and
+  is legal, `h/defhost` declares a repeated crossing once (its callbacks
+  inferred from the spelling as on a native tag, with a `:callbacks` override
+  for a vendor's on*-named render prop), `h/as-element` crosses one element
+  through a prop, and
   `h/as-component` bridges outward to a React/UIx/Reagent parent. → D-tier.
 - **Callback refs** (MIG-29). A function at `:ref` is React's own contract and
   Hicasso honours it, with the return value as the detach cleanup. Only the

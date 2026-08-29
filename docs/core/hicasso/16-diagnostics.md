@@ -159,7 +159,7 @@ Examples from the guide:
 | `:rf.error/hicasso-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
 | `:rf.error/hicasso-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
 | `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
-| `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop with no callback contract | Declare the prop in `:callbacks` |
+| `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
 | `:rf.error/hicasso-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
 | `:rf.warning/hicasso-missing-key` | A sequence child has no `:key` | Put a stable key in each member's props map |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
