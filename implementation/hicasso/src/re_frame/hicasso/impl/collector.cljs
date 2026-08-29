@@ -1710,6 +1710,31 @@
       (set! (.-frame rstate) nil)
       (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
 
+;; The dev-only own property on a read-set entry naming the declared views
+;; that rendered it. Written under `goog.DEBUG` only, so a release bundle
+;; carries neither the slot name nor a name in it; the literal is pinned on
+;; this line by `scripts/check_production_erasure.cjs`, like `body-slot`.
+(def ^:private views-slot "hicassoViews")
+
+(defn- note-view!
+  "Dev only: record `body-fn`'s `displayName` — the `\"<ns>/<sym>\"`
+  `mint-view!` stamped — on `entry` under [[views-slot]]. A body with no
+  name (a harness fn) writes nothing, so an entry no declared view
+  rendered has no slot rather than an empty set."
+  [^js entry body-fn]
+  (when-some [n (unchecked-get body-fn "displayName")]
+    (let [have (unchecked-get entry views-slot)]
+      (when-not (and have (contains? have n))
+        (unchecked-set entry views-slot (conj (or have #{}) n))))))
+
+(defn entry-views
+  "The set of declared view names that rendered read-set `entry`, or nil
+  where none did or in a production build, where nothing writes it.
+  Read by `re-frame.hicasso.tool`; the names are what
+  `re-frame.hicasso.impl.error/source-of` resolves to a coordinate."
+  [^js entry]
+  (unchecked-get entry views-slot))
+
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
   [[last-reads]] carries the read-set entry it resolved.
@@ -1732,7 +1757,10 @@
           element (run-once frame-kw body-fn props)]
       (cond
         (= before (generation/commit-basis frame-kw))
-        (do (set! (.-entry rstate) (entry-for scratch)) element)
+        (let [entry (entry-for scratch)]
+          (set! (.-entry rstate) entry)
+          (when ^boolean js/goog.DEBUG (note-view! entry body-fn))
+          element)
 
         (< attempt max-fence-retries)
         (recur (inc attempt))

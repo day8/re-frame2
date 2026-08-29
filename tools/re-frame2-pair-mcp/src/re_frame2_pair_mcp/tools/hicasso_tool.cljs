@@ -8,9 +8,9 @@
   which reads moved, WITHOUT reaching a private React / cell / scheduler
   object. Each tool ships ONE self-describing CLJS form that calls a
   `re-frame.hicasso.tool` read and forwards the bounded, serializable,
-  VERSIONED result verbatim; every read answers inside the four-axis evidence
-  projection (`:scope`, `:basis`, `:complete?`, `:loss`) stamped with `:schema`
-  and `:read`, and egresses only plain data.
+  VERSIONED result verbatim; every read answers inside the evidence envelope
+  (`:schema`, `:producer`, `:read`, `:complete?`, `:loss`) and egresses only
+  plain data.
 
     | MCP wire tool             | `re-frame.hicasso.tool` read | arg |
     |---------------------------|------------------------------|-----|
@@ -36,16 +36,18 @@
   `read-view-event-sites` — static questions about a view named by its
   declared id, answerable BEFORE mount. **Hicasso mints no boundary identity
   and keeps no registry.** A registration is its read set, React's notifier
-  and the acquired cells; `:view` and `:source` are stated as
-  `re-frame.hicasso.evidence/unknown` under an `:opaque` naming projection,
-  permanently and by design. There is no id to ask about and no manifest to
-  read, so those three questions have no counterpart on this door and are not
-  shipped as tools that would answer them with a fabricated emptiness.
+  and the acquired cells, so a boundary is keyed by its EDGE SET and there is
+  no id to ask about and no manifest to read: those three questions have no
+  counterpart on this door and are not shipped as tools that would answer
+  them with a fabricated emptiness. What a dev build DOES carry is `:views`
+  on every mounted row, reader and explanation — the declared views that
+  rendered that edge set, each with the source coordinate `defview` captured
+  — so a row reads `app.views/todo-row` beside its key. A body minted
+  without a name states `:views :unknown`.
 
-  What replaces them is a different way in. A boundary is keyed by its
-  EDGE SET, so `read-read-attribution` — *which boundaries read this
-  subscription* — is how an agent gets from a subscription it can name to a
-  boundary it cannot, and `:reads` on every mounted row is the forward
+  The way in is still the edge: `read-read-attribution` — *which boundaries
+  read this subscription* — is how an agent gets from a subscription it can
+  name to a boundary, and `:reads` on every mounted row is the forward
   direction of the same edge. That is the honest analogue of *what feeds this
   view*, asked of a runtime that keeps edges rather than declarations.
 
@@ -87,10 +89,11 @@
                                         support: an unrecognized schema is a
                                         typed mismatch, never forwarded as
                                         success. `re-frame.hicasso.evidence`
-                                        states there is no v1 acceptance path
-                                        and no compatibility adapter, so this
-                                        gate is the consumer half of a boundary
-                                        the producer means literally;
+                                        states there is no acceptance path for
+                                        a superseded version and no
+                                        compatibility adapter, so this gate is
+                                        the consumer half of a boundary the
+                                        producer means literally;
     - `{:ok? false :reason :evidence-tier-unavailable}` — `re-frame.hicasso.tool`
                                         is not loaded (a non-Hicasso app, or a
                                         Hicasso app nothing has loaded the door
@@ -160,10 +163,10 @@
   producer's own `:schema` stamp to define support: a projection stamped a
   schema this build does not understand is reported as a typed `:ok? false`
   mismatch, never forwarded as a successful read of a shape it cannot parse.
-  Currently `:re-frame.hicasso.evidence/v2`, matching
+  Currently `:re-frame.hicasso.evidence/v3`, matching
   `re-frame.hicasso.evidence/schema`; bump ONLY when Pair is taught the new
   shape."
-  :re-frame.hicasso.evidence/v2)
+  :re-frame.hicasso.evidence/v3)
 
 (defn versioned-envelope-result
   "The `on-value` projection for the door reads: `probe/map-envelope-result`
@@ -272,15 +275,16 @@
 
 (defn read-mounted-boundaries-tool
   "MCP `read-mounted-boundaries` — every Hicasso boundary MOUNTED RIGHT NOW: its
-  key, the number of `:instances` holding that key, the frame, and the read
-  edges it holds (each with its `:sub-id`, its projected `:query` and the cell's
-  `:epoch` — never the value the read returned). No arg, deliberately: the
-  question is *what is mounted*.
+  key, the `:views` that rendered it, the number of `:instances` holding that
+  key, the frame, and the read edges it holds (each with its `:sub-id`, its
+  projected `:query` and the cell's `:epoch` — never the value the read
+  returned). No arg, deliberately: the question is *what is mounted*.
 
   A boundary's KEY is its read set, because that is the only identity the
   runtime retains — two boundaries reading the same set are indistinguishable to
-  it, and `:instances` is how many hold the key. `:view` and `:source` are
-  `:unknown` under the `:naming` projection, permanently.
+  it, and `:instances` is how many hold the key. `:views` names the declared
+  views that rendered the set, each with its `:source` coordinate, or is
+  `:unknown` for a body minted without a name.
 
   `:complete? true` is a claim about UNDER-reporting and it is exact: a boundary
   whose body read nothing still claims an entry, so it is counted. An empty
@@ -288,7 +292,7 @@
   nothing is retained above, because an Activity-hidden subtree that released
   its reads leaves the same empty census as an unmounted one. Read the other
   way, a row is not proof the boundary is on SCREEN: a Suspense-fallback-hidden
-  subtree stays subscribed. The `:host` projection states both."
+  subtree stays subscribed. The census is about subscription, not visibility."
   [conn raw-args]
   (door-read-tool conn raw-args "read-mounted-boundaries" :read-mounted-boundaries-failed))
 
@@ -296,14 +300,15 @@
   "MCP `read-read-attribution` — which boundaries read each subscription: the
   reverse edge, exactly. Per subscription its `:sub-id`, projected `:query`,
   `:frame-id`, the cell's `:epoch`, the `:fan-out` (one slot per reading
-  boundary) and the distinct `:readers` holding them. No arg.
+  boundary) and the distinct `:readers` holding them, each with its key and
+  its `:views`. No arg.
 
   THIS IS THE READ THAT IS EXACT WITHOUT QUALIFICATION — it prints a table
   rather than folding a window or naming what it cannot see. It is also the way
-  IN: a boundary here is keyed by an edge set and carries no name, so an agent
-  that can name a subscription uses this read to reach the boundary it cannot
-  name. `:readers` are the same keys `read-mounted-boundaries` states, derived
-  by the same total order, so the two rosters join without a correlation step.
+  IN: an agent that can name a subscription uses this read to reach the
+  boundaries holding it. `:readers` are the same keys `read-mounted-boundaries`
+  states, derived by the same total order, so the two rosters join without a
+  correlation step.
 
   A key nothing holds is absent rather than present with zero readers —
   correctly: it is not a subscription with no readers, it is a subscription this
@@ -318,15 +323,15 @@
 
   Two halves, never blended. PROVEN: `:latest-reads` names the boundary's reads
   standing at its own maximum `:peak-epoch`, read off the cells' own stamps, and
-  `:snapshot` is the exact sum React compares. UNCORRELATED: Hicasso's commit
-  seam records no cascade id, so `:cause` is `:unknown` STRUCTURALLY — not
-  occasionally, and not fixable with a bigger ring — and `:candidates` are the
-  retained runs that recomputed a subscription this boundary reads, offered as
-  LEADS. The two loss reasons are drivable: `{:reason :uncorrelated}` means the
-  lead search really ran and `:candidates []` is an honest survey result, while
-  `{:reason :cap}` means the window was empty so `:candidates` is `:unknown`.
+  `:snapshot` is the exact sum React compares. LEADS: Hicasso's commit seam
+  records no cascade id, so no run can be joined to a re-run — the row's own
+  `:loss` says so — and `:candidates` are the retained runs that recomputed a
+  subscription this boundary reads, offered as leads. The two loss reasons are
+  drivable: `{:reason :uncorrelated}` means the lead search really ran and
+  `:candidates []` is an honest survey result, while `{:reason :cap}` means the
+  window was empty so `:candidates` is `:unknown`.
 
-  Whether the boundary then RAN is `:host-opaque` — a notification delivered is
+  Whether the boundary then RAN is React's to know — a notification delivered is
   not a render performed, and React's memo comparator and scheduler sit above
   this runtime."
   [conn raw-args]

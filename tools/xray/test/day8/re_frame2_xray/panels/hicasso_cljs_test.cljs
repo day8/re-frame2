@@ -46,6 +46,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.evidence :as evidence]
+            [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.tool :as tool]
             [re-frame.trace.tooling :as trace-tooling]))
@@ -56,6 +57,13 @@
 (rf/reg-sub :htab/right (fn [db _] (:right db)))
 (rf/reg-event :htab/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :htab/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
+
+;; A DECLARED view, for the naming rows: `defview` stamps its `<ns>/<sym>`
+;; on the body and `codec/retained-body` hands that body back, so the
+;; harness renders it through the same seam as an anonymous fn.
+(h/defview named-probe [_] (h/sub [:htab/left]) nil)
+
+(def ^:private named-probe-name "day8.re-frame2-xray.panels.hicasso-cljs-test/named-probe")
 
 ;; The UIx adapter, not the Xray suite's plain-atom default — and RESTORED
 ;; at the end of the namespace.
@@ -246,7 +254,7 @@
                  "empty ring is a knob setting, not a finding"))))
 
     (testing "and the cap's own loss note is rendered even with no rows at all"
-      (is (contains? (testids (get by-view :intents)) "rf-xray-hicasso-intents-origin")
+      (is (contains? (testids (get by-view :intents)) "rf-xray-hicasso-intents-cap")
           (str "a view that showed its qualifications only when it had rows would "
                "drop them exactly where the reader has least else to go on")))))
 
@@ -280,14 +288,13 @@
   ;; expected one is worse than no rows at all.
   ;;
   ;; BOTH DIRECTIONS, because the pin is exact rather than a floor. `/v99` is
-  ;; a producer that evolved ahead of this build. `/v1` is the SUPERSEDED
-  ;; stamp, and it is the one that matters: the #7789 repair moved the wire
-  ;; shape and left the stamp behind, so for one increment a v1 envelope
-  ;; carrying a v2 shape parsed as exact (audit #7802). There is no v1
-  ;; acceptance path — the predecessor mismatches on the page, like anything
-  ;; else this build was not taught.
+  ;; a producer that evolved ahead of this build. `/v2` is the SUPERSEDED
+  ;; stamp, and it is the one that matters: the shape has moved under a
+  ;; stale stamp before (audit #7802), so the predecessor must mismatch on
+  ;; the page like anything else this build was not taught. There is no
+  ;; acceptance path for it.
   (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
-    (doseq [stamp [:re-frame.hicasso.evidence/v1
+    (doseq [stamp [:re-frame.hicasso.evidence/v2
                    :re-frame.hicasso.evidence/v99]]
       (let [other (assoc (tool/read-mounted-boundaries) :schema stamp)]
         (is (seq (:boundaries other))
@@ -321,12 +328,36 @@
         "the two boundaries with one edge set report as one row of two")
     (is (string/includes? txt "[:htab/left]"))
     (is (string/includes? txt "[:htab/left] + [:htab/right]"))
-    (testing "the view name is opaque, and the row SHOWS that rather than blanking"
-      (is (some #(string/ends-with? % "-view-loss-opaque") ids)))
-    (testing "React's half is spelled out once, in full, beneath the roster"
-      (is (contains? ids "rf-xray-hicasso-mounted-host"))
+    (testing "a harness body has no name, and the row SHOWS that rather than blanking"
+      (is (some #(string/ends-with? % "-view-loss-unknown") ids))
+      (is (not-any? #(string/ends-with? % "-views") ids)))
+    (testing "React's half is spelled out beneath the roster"
+      (is (contains? ids "rf-xray-hicasso-mounted-visibility"))
       (is (string/includes? txt "React DevTools")))
     (a) (b) (c)))
+
+(deftest a-declared-view-is-named-on-the-page-with-its-source
+  (setup!)
+  (let [release (mount! (codec/retained-body named-probe))
+        tree    (show! :mounted)
+        txt     (text-of tree)
+        ids     (testids tree)]
+    (testing "the Mounted row leads with the view's `<ns>/<sym>`"
+      (is (string/includes? txt named-probe-name))
+      (is (some #(string/ends-with? % "-views") ids))
+      (is (not-any? #(string/ends-with? % "-view-loss-unknown") ids)
+          "a named row carries no unknown chip in the view position"))
+    (testing "the Reads row names the reader by its view, with the edge set beside it"
+      (let [reads-txt (text-of (show! :attribution))]
+        (is (string/includes? reads-txt (str "read by " named-probe-name " ([:htab/left])")))))
+    (testing "and the Why row is named too"
+      (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
+      (let [why (show! :explain)]
+        (is (string/includes? (text-of why) named-probe-name))
+        (is (some #(and (string/starts-with? % "rf-xray-hicasso-explain-")
+                        (string/ends-with? % "-views"))
+                  (testids why)))))
+    (release)))
 
 (deftest the-reads-view-answers-which-boundaries-read-each-subscription
   (setup!)
@@ -371,8 +402,8 @@
            not read the absence as a bug")
       (testing "the summary states the window's cap on every render, good or bad"
         (is (string/includes? txt "capped")))
-      (testing "whether a run began at markup is opaque, and the note says so"
-        (is (contains? ids "rf-xray-hicasso-intents-origin"))))
+      (testing "and the cap's own note is on the page beneath the rows"
+        (is (contains? ids "rf-xray-hicasso-intents-cap"))))
     (release)))
 
 (deftest the-why-view-answers-which-reads-changed-and-refuses-to-answer-why

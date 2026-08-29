@@ -123,6 +123,6 @@
   (soft
     (fn []
       (let [frames (or (get-in envelopes [:explain-render :window :frames])
-                       (get-in envelopes [:intents :scope :frames])
+                       (get-in envelopes [:intents :frames])
                        [])]
         (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frames)))))

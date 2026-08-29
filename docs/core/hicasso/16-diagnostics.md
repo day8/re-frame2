@@ -260,20 +260,25 @@ diagnosis, and every read on that door answers `nil` in a release build. A
 representative occurrence:
 
 ```clojure
-{:view         todo.views/todo-row
+{:boundary     {:parent nil :key [[:app/main :todo/by-id [:todo/by-id 7]]]}
+ :views        [{:view   "todo.views/todo-row"
+                 :source {:ns todo.views :file "src/todo/views.cljs" :line 41 :column 1}}]
  :frame        :app/main
- :cause        {:kind          :reads
-                :changed-reads [[:todo/by-id 7]]}
- :attempt      :committed
- :reads        [[:todo/by-id 7]]
- :fan-out      1
- :completeness :complete
- :loss         nil}
+ :instances    1
+ :window       {:frames [:app/main] :retained-runs 12}
+ :snapshot     9
+ :peak-epoch   5
+ :latest-reads [{:sub-id :todo/by-id :query [:todo/by-id 7] :frame-id :app/main}]
+ :loss         {:reason :uncorrelated :dropped :unknown}
+ :candidates   [{:dispatch-id 41 :event-id :todo/toggle :frame-id :app/main :sub-id :todo/by-id}]}
 ```
 
-The full envelope also identifies its schema, producer, operation, scope, and
-basis. Most developers do not need the raw map; it matters for scripted
-diagnosis and assertions.
+`:latest-reads` is the proven half — the reads whose values moved most
+recently, off the cells' own epoch stamps. `:candidates` are leads, never a
+cause: the commit seam records no cascade identity, which is what the row's
+`:loss` says. The enclosing envelope identifies its schema, producer and read,
+and states its own completeness and loss. Most developers do not need the raw
+map; it matters for scripted diagnosis and assertions.
 
 ### Privacy projection
 

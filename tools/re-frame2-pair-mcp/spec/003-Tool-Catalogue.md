@@ -2552,11 +2552,10 @@ door** (`re-frame.hicasso.tool`) — the same evidence Xray's Hicasso tab
 reads, exposed from a **running** re-frame2 app so a pairing agent
 inspects what is mounted, who reads what, and which reads moved WITHOUT
 reaching a private React / cell / scheduler handle. Every read answers
-inside the four-axis evidence projection (`:scope`, `:basis`,
-`:complete?`, `:loss`), **versioned** (stamps `:schema`, and `:read`
-naming which read answered), **deterministic**, **serializable**, and
-egresses only bounded plain data — no cell or React object crosses the
-wire, and **no read value at all**.
+inside the evidence envelope (`:schema`, `:producer`, `:read`,
+`:complete?`, `:loss`), **versioned**, **deterministic**,
+**serializable**, and egresses only bounded plain data — no cell or React
+object crosses the wire, and **no read value at all**.
 
 | MCP wire tool             | `re-frame.hicasso.tool` read | arg |
 |---------------------------|------------------------------|-----|
@@ -2578,21 +2577,22 @@ registry and a compiler manifest, so it could answer
 declared id, answerable *before* mount.
 
 **Hicasso mints no boundary identity and keeps no registry.** A
-registration is its read set, React's notifier and the acquired cells;
-`:view` and `:source` are stated as `:unknown` under an `:opaque` naming
-projection, permanently and by design, because naming every live
-boundary would need a registry or a field on the priced registration —
-a standing memory cost the producer will not levy for a panel's benefit.
-So there is no id to ask about and no manifest to read. **Those three
-questions are unanswerable from this door**, which is a fact about the
-provider rather than a shortfall here, and they are not shipped as tools
-that would answer them with a fabricated emptiness.
+registration is its read set, React's notifier and the acquired cells,
+so a boundary is keyed by its **edge set**: there is no id to ask about
+and no manifest to read. **Those three questions are unanswerable from
+this door**, which is a fact about the provider rather than a shortfall
+here, and they are not shipped as tools that would answer them with a
+fabricated emptiness.
 
-What replaces them is a different way in. A boundary is keyed by its
-**edge set**, so `read-read-attribution` — *which boundaries read this
+What a development build does carry is `:views` on every mounted row,
+reader and explanation — the declared views that rendered that edge set,
+each `{:view "<ns>/<sym>" :source {:ns :file :line :column}}` as `defview`
+captured it, or `:unknown` for a body minted without a name. So a row
+reads `app.views/todo-row` beside its key, and the way in is still the
+edge: `read-read-attribution` — *which boundaries read this
 subscription* — is how an agent gets from a subscription it can name to
-a boundary it cannot, and `:reads` on every mounted row is the forward
-direction of the same edge.
+the boundaries holding it, and `:reads` on every mounted row is the
+forward direction of the same edge.
 
 `re-frame.hicasso.tool/read-intents` is deliberately **not** shipped as a
 fourth tool: it folds Spec 009's retained event ring, which is the
@@ -2648,7 +2648,7 @@ no provider publishes matches a stub just as happily as a real one.
 
 The eval form resolves to an `{:ok? …}` envelope, which the shared
 `versioned-envelope-result` gates against `consumed-evidence-schema` —
-currently `:re-frame.hicasso.evidence/v2` — before it reaches the wire:
+currently `:re-frame.hicasso.evidence/v3` — before it reaches the wire:
 
 - `{:ok? true …projection…}` — the projection, `:schema` **matching**,
   forwarded verbatim;
@@ -2656,8 +2656,9 @@ currently `:re-frame.hicasso.evidence/v2` — before it reaches the wire:
   :actual …}` — stamped a schema this build was not written against.
   Pair connects to an arbitrary running app, so the producer's stamp
   cannot define support. `re-frame.hicasso.evidence` states there is no
-  v1 acceptance path and no compatibility adapter, so this gate is the
-  consumer half of a boundary the producer means literally;
+  acceptance path for a superseded version and no compatibility adapter,
+  so this gate is the consumer half of a boundary the producer means
+  literally;
 - `{:ok? false :reason :evidence-tier-unavailable}` —
   `re-frame.hicasso.tool` is not loaded;
 - `{:ok? false :reason :evidence-tier-inactive}` — every read answers
@@ -2693,23 +2694,22 @@ says exactly one thing: no boundary holds a live read edge right now. It
 does not say nothing is retained above (an Activity-hidden subtree that
 released its reads leaves the same empty census as an unmounted one),
 and a row is **not** proof the boundary is on screen (a
-Suspense-fallback-hidden subtree stays subscribed). The `:host`
-projection states both.
+Suspense-fallback-hidden subtree stays subscribed). The census is about
+subscription, not visibility.
 
 ```clojure
 ;; read-mounted-boundaries {}
-{:ok? true :schema :re-frame.hicasso.evidence/v2
+{:ok? true :schema :re-frame.hicasso.evidence/v3
  :producer :re-frame/hicasso :read :mounted-boundaries
- :scope :mounted-boundaries :basis :observation :complete? true :loss nil
+ :complete? true :loss nil
  :boundaries [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
-               :view :unknown :source :unknown
+               :views [{:view   "app.views/todo-row"
+                        :source {:ns app.views :file "/src/app/views.cljs"
+                                 :line 12 :column 1}}]
                :instances 3 :read-orders 1 :frame :app/main
                :reads [{:sub-id :todo :query [:todo 7]
                         :frame-id :app/main :epoch 4}]}]
- :generation 12
- :naming {:basis :opaque :complete? false :view :unknown :source :unknown}
- :host   {:basis :host-opaque :complete? false
-          :commit :unknown :paint :unknown}}
+ :generation 12}
 ```
 
 ### read-read-attribution
@@ -2723,23 +2723,24 @@ cell's reader array *is* the reverse edge, maintained by the same commit
 and cleanup that acquire and release the reference, so there is no
 derivation to be stale.
 
-It is also **the way in**. Boundaries carry no name here, so an agent
-that can name a subscription uses this read to reach the boundary it
-cannot name, then takes the `:key` onward to `explain-render`.
-`:readers` are the same keys `read-mounted-boundaries` states, derived
-by the same total order, so the two rosters join with no correlation
-step. A key nothing holds is **absent** rather than present with zero
-readers — it is not a subscription with no readers, it is one this
-runtime is not holding.
+It is also **the way in**. An agent that can name a subscription uses
+this read to reach the boundaries holding it — each reader carries its
+`:key` and its `:views` — then takes the `:key` onward to
+`explain-render`. `:readers` are the same keys `read-mounted-boundaries`
+states, derived by the same total order, so the two rosters join with no
+correlation step. A key nothing holds is **absent** rather than present
+with zero readers — it is not a subscription with no readers, it is one
+this runtime is not holding.
 
 ```clojure
 ;; read-read-attribution {}
-{:ok? true :schema :re-frame.hicasso.evidence/v2 :read :read-attribution
- :scope :read-edges :basis :observation :complete? true :loss nil
+{:ok? true :schema :re-frame.hicasso.evidence/v3
+ :producer :re-frame/hicasso :read :read-attribution
+ :complete? true :loss nil
  :edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
           :epoch 4 :fan-out 3
-          :readers [{:parent nil :key [[:app/main :todo [:todo 7]]]}]}]
- :host  {:basis :host-opaque :complete? false}}
+          :readers [{:parent nil :key [[:app/main :todo [:todo 7]]]
+                     :views [{:view "app.views/todo-row" :source {…}}]}]}]}
 ```
 
 ### explain-render
@@ -2750,42 +2751,43 @@ Which of a boundary's reads moved most recently, and which retained runs
 **Two halves, never blended.** *Proven*: `:latest-reads` names the reads
 standing at the boundary's own `:peak-epoch`, read off the cells' epoch
 stamps, and `:snapshot` is the exact sum React compares — so *which of
-my reads moved* has an answer. *Uncorrelated*: the commit seam records no
-cascade id, so `:cause` is `:unknown` **structurally** — not
-occasionally, not when the ring is short, and not fixable with a bigger
-ring — and `:candidates` are the retained runs that recomputed a
-subscription this boundary reads, offered as **leads**. Presenting a lead
-as a cause is exactly the fabrication `:uncorrelated` exists to refuse.
+my reads moved* has an answer. *Leads*: the commit seam records no
+cascade id, so no retained run can be joined to a re-run —
+**structurally**, not occasionally, not when the ring is short, and not
+fixable with a bigger ring; the row's own `:loss` says so — and
+`:candidates` are the retained runs that recomputed a subscription this
+boundary reads, offered as **leads**. Presenting a lead as a cause is
+exactly the fabrication `:uncorrelated` exists to refuse.
 
 **The two loss reasons are drivable.** `{:reason :uncorrelated}` means
 the lead search really ran, so `:candidates []` is an honest survey
 result. `{:reason :cap}` means the boundary's own frames had an empty
 window, so no search happened and `:candidates` is `:unknown` — an `[]`
 in that state would be the fail-open shape the schema refuses. Both
-halves are scoped to the boundary's **own** frames, and a candidate must
-match a read on `[frame-id sub-id]`, never on the sub-id alone.
+halves are scoped to the boundary's **own** frames (the row's
+`:window`), and a candidate must match a read on `[frame-id sub-id]`,
+never on the sub-id alone.
 
-Whether the boundary then **ran** is `:host-opaque` — a notification
+Whether the boundary then **ran** is React's to know — a notification
 delivered is not a render performed, and React's memo comparator and
 scheduler sit above this runtime.
 
 ```clojure
 ;; explain-render {}
-{:ok? true :schema :re-frame.hicasso.evidence/v2 :read :explain-render
- :scope :mounted-boundaries :basis :observation
+{:ok? true :schema :re-frame.hicasso.evidence/v3
+ :producer :re-frame/hicasso :read :explain-render
  :complete? false :loss {:reason :uncorrelated :dropped :unknown}
  :explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
+                 :views [{:view "app.views/todo-row" :source {…}}]
                  :frame :app/main :instances 1
+                 :window {:frames [:app/main] :retained-runs 12}
                  :snapshot 9 :peak-epoch 5
                  :latest-reads [{:sub-id :todo :query [:todo 7]
                                  :frame-id :app/main}]
-                 :cause :unknown
+                 :loss {:reason :uncorrelated :dropped :unknown}
                  :candidates [{:dispatch-id 41 :event-id :todo/toggle
-                               :frame-id :app/main :sub-id :todo}]
-                 :basis :observation :complete? false
-                 :loss {:reason :uncorrelated :dropped :unknown}}]
- :window {:frames [:app/main] :retained-runs 12}
- :host   {:basis :host-opaque :complete? false}}
+                               :frame-id :app/main :sub-id :todo}]}]
+ :window {:frames [:app/main] :retained-runs 12}}
 ```
 
 ## record

@@ -1266,18 +1266,20 @@
 ;; that RESOLVES the door at runtime rather than referencing its vars — a
 ;; namespace the build never loaded is rejected by shadow's analyzer before the
 ;; form runs, which is what used to hide :evidence-tier-unavailable (rf2-t2ec);
-;; every read answers inside the four-axis evidence
-;; projection (:scope / :basis / :complete? / :loss) stamped with :schema and
-;; :read, and egresses only bounded serializable data (no cell / React handle,
-;; and no read VALUE at all). Absence is honest: :evidence-tier-unavailable (the
-;; door is not loaded — a non-Hicasso app, or a Hicasso app nothing pulled it
-;; into), :evidence-tier-inactive (a production build; the door is dev-only).
+;; every read answers inside the evidence envelope (:schema / :producer /
+;; :read / :complete? / :loss) and egresses only bounded serializable data (no
+;; cell / React handle, and no read VALUE at all). Absence is honest:
+;; :evidence-tier-unavailable (the door is not loaded — a non-Hicasso app, or a
+;; Hicasso app nothing pulled it into), :evidence-tier-inactive (a production
+;; build; the door is dev-only).
 ;;
 ;; THREE, not the five view reads this family replaced (rf2-n3mb). Hicasso mints
 ;; no boundary identity and keeps no view registry, so read-view-manifest /
 ;; read-view-dependencies / read-view-event-sites — static questions about a
 ;; view named by its declared id — have no counterpart here and are not shipped
-;; as tools that would answer them with a fabricated emptiness.
+;; as tools that would answer them with a fabricated emptiness. A dev build does
+;; name the declared views that rendered each edge set (:views, with source
+;; coordinates), so a row reads as app.views/todo-row beside its key.
 ;; ---------------------------------------------------------------------------
 
 (def hicasso-door-input
@@ -1288,29 +1290,30 @@
 (def read-mounted-boundaries
   {:name "read-mounted-boundaries"
    :description (str "Every Hicasso boundary MOUNTED RIGHT NOW. Reads "
-                     "re-frame.hicasso.tool/read-mounted-boundaries: per boundary its :key, the number of "
-                     ":instances holding that key, the :frame, :read-orders, and the :reads it holds — each "
-                     "with a :sub-id, a projected :query and the cell's :epoch, and NEVER the value the read "
-                     "returned. No arg, deliberately: the question is what is mounted. "
+                     "re-frame.hicasso.tool/read-mounted-boundaries: per boundary its :key, the :views that "
+                     "rendered it, the number of :instances holding that key, the :frame, :read-orders, and "
+                     "the :reads it holds — each with a :sub-id, a projected :query and the cell's :epoch, and "
+                     "NEVER the value the read returned. No arg, deliberately: the question is what is mounted. "
                      "A BOUNDARY IS KEYED BY ITS READ SET, because that is the only identity this runtime "
                      "retains — it mints no boundary id and keeps no view registry, so two boundaries reading "
                      "the same set are indistinguishable to it and :instances says how many hold the key. "
-                     ":view and :source are :unknown under the :naming projection, permanently and by design: "
-                     "do not ask this tool for a view name, and do not read :unknown as a gap waiting to be "
-                     "closed. :complete? true is exact about UNDER-reporting — a boundary whose body read "
-                     "nothing still claims an entry and is counted. An EMPTY roster says exactly one thing: no "
-                     "boundary holds a live read edge right now. It does NOT say nothing is retained above (an "
-                     "Activity-hidden subtree that released its reads leaves the same empty census as an "
-                     "unmounted one), and a row is NOT proof the boundary is on screen (a Suspense-fallback-"
-                     "hidden subtree stays subscribed). The :host projection states both. READ-ONLY, versioned "
-                     "(:schema) — validate the schema first. "
+                     ":views names the declared views that rendered that set, each {:view \"<ns>/<sym>\" "
+                     ":source {:ns :file :line :column}} as defview captured it, or is :unknown for a body "
+                     "minted without a name — read :unknown as unnamed, not as a gap. :complete? true is exact "
+                     "about UNDER-reporting — a boundary whose body read nothing still claims an entry and is "
+                     "counted. An EMPTY roster says exactly one thing: no boundary holds a live read edge "
+                     "right now. It does NOT say nothing is retained above (an Activity-hidden subtree that "
+                     "released its reads leaves the same empty census as an unmounted one), and a row is NOT "
+                     "proof the boundary is on screen (a Suspense-fallback-hidden subtree stays subscribed): "
+                     "the census is about subscription, not visibility. READ-ONLY, versioned (:schema) — "
+                     "validate the schema first. "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :producer :re-frame/hicasso "
-                     ":read :mounted-boundaries :scope :mounted-boundaries :basis :observation :complete? true "
-                     ":loss nil :boundaries [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]} :view "
-                     ":unknown :source :unknown :instances 3 :read-orders 1 :frame :app/main :reads [{:sub-id "
-                     ":todo :query [:todo 7] :frame-id :app/main :epoch 4}]}] :generation 12 :naming {...} "
-                     ":host {...}}. "
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     ":read :mounted-boundaries :complete? true :loss nil :boundaries [{:boundary {:parent nil "
+                     ":key [[:app/main :todo [:todo 7]]]} :views [{:view \"app.views/todo-row\" :source {:ns "
+                     "\"app.views\" :file \"/src/app/views.cljs\" :line 12 :column 1}}] :instances 3 "
+                     ":read-orders 1 :frame :app/main :reads [{:sub-id :todo :query [:todo 7] :frame-id "
+                     ":app/main :epoch 4}]}] :generation 12}. "
                      "2. Nothing mounted: {} -> the same envelope with :boundaries []. "
                      "3. Door not loaded (a Reagent/UIx app, or a Hicasso app nothing loaded it into): {} -> "
                      "{:ok? false :reason :evidence-tier-unavailable}. "
@@ -1325,21 +1328,21 @@
    :description (str "Which boundaries read each subscription — the reverse edge, exactly. Reads "
                      "re-frame.hicasso.tool/read-read-attribution: per subscription its :sub-id, projected "
                      ":query, :frame-id, the cell's :epoch, the :fan-out (one slot per reading boundary) and "
-                     "the distinct :readers holding them, keyed identically to read-mounted-boundaries so the "
-                     "two rosters JOIN with no correlation step. No arg. "
+                     "the distinct :readers holding them — each with its :key, identical to "
+                     "read-mounted-boundaries so the two rosters JOIN with no correlation step, and its "
+                     ":views. No arg. "
                      "THIS IS THE ONE READ THAT IS EXACT WITHOUT QUALIFICATION — it prints a table rather than "
                      "folding a window or naming what it cannot see; every cell's reader array IS the reverse "
                      "edge, maintained by the same commit and cleanup that acquire and release the reference. "
-                     "IT IS ALSO THE WAY IN: boundaries here carry no name, so when you can name a "
-                     "subscription and want the boundary, start here and take the :key onward to "
-                     "explain-render. A key nothing holds is ABSENT rather than present with zero readers — it "
-                     "is not a subscription with no readers, it is one this runtime is not holding. READ-ONLY, "
-                     "versioned (:schema). "
+                     "IT IS ALSO THE WAY IN: when you can name a subscription and want the boundaries holding "
+                     "it, start here and take the :key onward to explain-render. A key nothing holds is ABSENT "
+                     "rather than present with zero readers — it is not a subscription with no readers, it is "
+                     "one this runtime is not holding. READ-ONLY, versioned (:schema). "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :read :read-attribution :scope "
-                     ":read-edges :basis :observation :complete? true :loss nil :edges [{:sub-id :todo :query "
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     ":read :read-attribution :complete? true :loss nil :edges [{:sub-id :todo :query "
                      "[:todo 7] :frame-id :app/main :epoch 4 :fan-out 3 :readers [{:parent nil :key [[:app/main "
-                     ":todo [:todo 7]]]}]}] :host {...}}. "
+                     ":todo [:todo 7]]] :views [{:view \"app.views/todo-row\" :source {...}}]}]}]}. "
                      "2. Nothing subscribed: {} -> the same envelope with :edges []. "
                      "3. Door not loaded / production: {} -> {:ok? false :reason :evidence-tier-unavailable | "
                      ":evidence-tier-inactive}.")
@@ -1357,26 +1360,27 @@
                      "boundary. "
                      "TWO HALVES, NEVER BLENDED. PROVEN: :latest-reads names the reads standing at the "
                      "boundary's own :peak-epoch, read off the cells' epoch stamps, and :snapshot is the exact "
-                     "sum React compares — so 'which of my reads moved' has an answer. UNCORRELATED: the commit "
-                     "seam records no cascade id, so :cause is :unknown STRUCTURALLY — not occasionally, not "
-                     "when the ring is short, and not fixable with a bigger ring — and :candidates are the "
-                     "retained runs that recomputed a subscription this boundary reads, offered as LEADS. Do "
-                     "not present a candidate as the cause. THE TWO LOSS REASONS ARE DRIVABLE: {:reason "
-                     ":uncorrelated} means the lead search really ran, so :candidates [] is an honest survey "
-                     "result; {:reason :cap} means the boundary's own frames had an empty window, so no search "
-                     "happened and :candidates is :unknown. Both halves are scoped to the boundary's OWN "
-                     "frames, and a candidate must match a read on [frame-id sub-id]. Whether the boundary then "
-                     "RAN is :host-opaque — a notification delivered is not a render performed. READ-ONLY, "
+                     "sum React compares — so 'which of my reads moved' has an answer. LEADS: the commit "
+                     "seam records no cascade id, so no retained run can be joined to a re-run — not "
+                     "occasionally, not when the ring is short, and not fixable with a bigger ring — and "
+                     ":candidates are the retained runs that recomputed a subscription this boundary reads, "
+                     "offered as LEADS. Do not present a candidate as the cause. THE TWO LOSS REASONS ARE "
+                     "DRIVABLE: {:reason :uncorrelated} means the lead search really ran, so :candidates [] is "
+                     "an honest survey result; {:reason :cap} means the boundary's own frames had an empty "
+                     "window, so no search happened and :candidates is :unknown. Both halves are scoped to the "
+                     "boundary's OWN frames (the row's :window), and a candidate must match a read on "
+                     "[frame-id sub-id]. Each row carries the boundary's :views. Whether the boundary then RAN "
+                     "is React's to know — a notification delivered is not a render performed. READ-ONLY, "
                      "versioned (:schema). "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v2 :read :explain-render :scope "
-                     ":mounted-boundaries :basis :observation :complete? false :loss {:reason :uncorrelated "
-                     ":dropped :unknown} :explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo "
-                     "7]]]} :frame :app/main :instances 1 :snapshot 9 :peak-epoch 5 :latest-reads [{:sub-id "
-                     ":todo :query [:todo 7] :frame-id :app/main}] :cause :unknown :candidates [{:dispatch-id "
-                     "41 :event-id :todo/toggle :frame-id :app/main :sub-id :todo}] :basis :observation "
-                     ":complete? false :loss {:reason :uncorrelated :dropped :unknown}}] :window {:frames "
-                     "[:app/main] :retained-runs 12} :host {...}}. "
+                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     ":read :explain-render :complete? false :loss {:reason :uncorrelated :dropped :unknown} "
+                     ":explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]} :views "
+                     "[{:view \"app.views/todo-row\" :source {...}}] :frame :app/main :instances 1 :window "
+                     "{:frames [:app/main] :retained-runs 12} :snapshot 9 :peak-epoch 5 :latest-reads "
+                     "[{:sub-id :todo :query [:todo 7] :frame-id :app/main}] :loss {:reason :uncorrelated "
+                     ":dropped :unknown} :candidates [{:dispatch-id 41 :event-id :todo/toggle :frame-id "
+                     ":app/main :sub-id :todo}]}] :window {:frames [:app/main] :retained-runs 12}}. "
                      "2. Retention off or window empty: the explanation carries :loss {:reason :cap} and "
                      ":candidates :unknown — unknown, not an empty survey. "
                      "3. Door not loaded / production: {} -> {:ok? false :reason :evidence-tier-unavailable | "

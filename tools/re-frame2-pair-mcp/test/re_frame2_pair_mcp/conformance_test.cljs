@@ -1792,46 +1792,43 @@
    ;; door-absent rung is only witnessed live (test/live-hicasso-wire.cjs) —
    ;; a stub cannot reject a form the way shadow's analyzer can.
    {:fixture/id    :read-mounted-boundaries/happy
-    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form resolves re-frame.hicasso.tool at runtime and calls read-mounted-boundaries off it. A boundary is keyed by its READ SET — the runtime mints no boundary identity — so :view and :source ride as :unknown under the :naming projection rather than being omitted."
+    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form resolves re-frame.hicasso.tool at runtime and calls read-mounted-boundaries off it. A boundary is keyed by its READ SET — the runtime mints no boundary identity — and :views names the declared views that rendered that set, with the source coordinate defview captured."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v3
                                                           :producer :re-frame/hicasso
                                                           :read :mounted-boundaries
-                                                          :scope :mounted-boundaries
-                                                          :basis :observation
                                                           :complete? true :loss nil
                                                           :boundaries [{:boundary {:parent nil
                                                                                    :key [[:app/main :todo [:todo 7]]]}
-                                                                        :view :unknown :source :unknown
+                                                                        :views [{:view "app.views/todo-row"
+                                                                                 :source {:ns 'app.views
+                                                                                          :file "/src/app/views.cljs"
+                                                                                          :line 12 :column 1}}]
                                                                         :instances 3 :read-orders 1
                                                                         :frame :app/main
                                                                         :reads [{:sub-id :todo :query [:todo 7]
                                                                                  :frame-id :app/main :epoch 4}]}]
-                                                          :generation 12
-                                                          :naming {:basis :opaque :complete? false
-                                                                   :view :unknown :source :unknown}
-                                                          :host {:basis :host-opaque :complete? false
-                                                                 :commit :unknown :paint :unknown}}]
+                                                          :generation 12}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
     ["(cljs.core/munge \"read-mounted-boundaries\")"
      "(cljs.core/find-ns-obj \"re-frame.hicasso.tool\")"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :schema :re-frame.hicasso.evidence/v2
-                  :basis :observation :complete? true}
-     :edn-contains-keys #{:boundaries :naming :host}}}
+     :edn-submap {:ok? true :schema :re-frame.hicasso.evidence/v3
+                  :producer :re-frame/hicasso :complete? true}
+     :edn-contains-keys #{:boundaries :generation}}}
 
    {:fixture/id    :read-mounted-boundaries/empty-but-versioned
-    :fixture/doc   "with nothing mounted, read-mounted-boundaries forwards {:ok? true :boundaries []} - an empty-but-versioned envelope, NOT an isError. The entry cache is authoritative about what holds a live read edge, so the empty IS complete for that scope; what it does not establish is that nothing is retained above, which is why the :host projection rides even on an empty roster."
+    :fixture/doc   "with nothing mounted, read-mounted-boundaries forwards {:ok? true :boundaries []} - an empty-but-versioned envelope, NOT an isError. The entry cache is authoritative about what holds a live read edge, so the empty IS complete; what it does not establish is that nothing is retained above, which the census cannot see."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v3
                                                           :read :mounted-boundaries
                                                           :complete? true :loss nil
                                                           :boundaries []}]
@@ -1854,41 +1851,44 @@
      :edn-submap {:ok? false :reason :evidence-tier-unavailable}}}
 
    {:fixture/id    :read-mounted-boundaries/schema-mismatch-iserror
-    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :evidence-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The superseded v1 is the honest fixture: re-frame.hicasso.evidence states there is no v1 acceptance path and no compatibility adapter, because a v1 parser handed a v2 envelope mis-reads a boundary key element rather than failing."
+    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :evidence-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The superseded v2 is the honest fixture: re-frame.hicasso.evidence states there is no acceptance path for a superseded version and no compatibility adapter, because a v2 parser handed a v3 envelope reads :views as absent and the scope axis as missing rather than failing."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v1
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :boundaries []}]
      [:default                                           nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :evidence-tier-version-mismatch
-                  :expected :re-frame.hicasso.evidence/v2
-                  :actual :re-frame.hicasso.evidence/v1}}}
+                  :expected :re-frame.hicasso.evidence/v3
+                  :actual :re-frame.hicasso.evidence/v2}}}
 
    {:fixture/id    :read-read-attribution/happy
-    :fixture/doc   "read-read-attribution forwards the reverse edge exactly: per subscription its :sub-id, projected :query, :frame-id, :epoch, :fan-out (one slot per reading boundary) and the distinct :readers holding them - keyed identically to read-mounted-boundaries so the two rosters join with no correlation step."
+    :fixture/doc   "read-read-attribution forwards the reverse edge exactly: per subscription its :sub-id, projected :query, :frame-id, :epoch, :fan-out (one slot per reading boundary) and the distinct :readers holding them - each keyed identically to read-mounted-boundaries so the two rosters join with no correlation step, and each carrying its :views."
     :fixture/tool  "read-read-attribution"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? true :schema :re-frame.hicasso.evidence/v3
+                                                          :producer :re-frame/hicasso
                                                           :read :read-attribution
-                                                          :scope :read-edges :basis :observation
                                                           :complete? true :loss nil
                                                           :edges [{:sub-id :todo :query [:todo 7]
                                                                    :frame-id :app/main :epoch 4 :fan-out 3
                                                                    :readers [{:parent nil
-                                                                              :key [[:app/main :todo [:todo 7]]]}]}]
-                                                          :host {:basis :host-opaque :complete? false}}]
+                                                                              :key [[:app/main :todo [:todo 7]]]
+                                                                              :views [{:view "app.views/todo-row"
+                                                                                       :source {:ns 'app.views
+                                                                                                :file "/src/app/views.cljs"
+                                                                                                :line 12 :column 1}}]}]}]}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
     ["(cljs.core/munge \"read-read-attribution\")"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :complete? true :basis :observation}
+     :edn-submap {:ok? true :complete? true :read :read-attribution}
      :edn-contains-keys #{:edges}}}
 
    {:fixture/id    :read-read-attribution/tier-inactive-iserror
@@ -1905,34 +1905,35 @@
      :edn-submap {:ok? false :reason :evidence-tier-inactive}}}
 
    {:fixture/id    :explain-render/happy
-    :fixture/doc   "explain-render forwards the two halves unblended - PROVEN (:latest-reads at the boundary's :peak-epoch, and the :snapshot React itself compares) beside UNCORRELATED (:cause :unknown structurally, because the commit seam records no cascade id, with :candidates offered as LEADS). It is a successful read whose OUTER :complete? is false on purpose."
+    :fixture/doc   "explain-render forwards the two halves unblended - PROVEN (:latest-reads at the boundary's :peak-epoch, and the :snapshot React itself compares) beside the LEADS (:candidates, with the row's own :loss saying the join is missing structurally, because the commit seam records no cascade id). It is a successful read whose OUTER :complete? is false on purpose."
     :fixture/tool  "explain-render"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v3
+                                                          :producer :re-frame/hicasso
                                                           :read :explain-render
-                                                          :scope :mounted-boundaries
-                                                          :basis :observation
                                                           :complete? false
                                                           :loss {:reason :uncorrelated :dropped :unknown}
                                                           :explanations [{:boundary {:parent nil
                                                                                      :key [[:app/main :todo [:todo 7]]]}
+                                                                          :views [{:view "app.views/todo-row"
+                                                                                   :source {:ns 'app.views
+                                                                                            :file "/src/app/views.cljs"
+                                                                                            :line 12 :column 1}}]
                                                                           :frame :app/main :instances 1
+                                                                          :window {:frames [:app/main] :retained-runs 12}
                                                                           :snapshot 9 :peak-epoch 5
                                                                           :latest-reads [{:sub-id :todo
                                                                                           :query [:todo 7]
                                                                                           :frame-id :app/main}]
-                                                                          :cause :unknown
+                                                                          :loss {:reason :uncorrelated
+                                                                                 :dropped :unknown}
                                                                           :candidates [{:dispatch-id 41
                                                                                         :event-id :todo/toggle
                                                                                         :frame-id :app/main
-                                                                                        :sub-id :todo}]
-                                                                          :basis :observation :complete? false
-                                                                          :loss {:reason :uncorrelated
-                                                                                 :dropped :unknown}}]
-                                                          :window {:frames [:app/main] :retained-runs 12}
-                                                          :host {:basis :host-opaque :complete? false}}]
+                                                                                        :sub-id :todo}]}]
+                                                          :window {:frames [:app/main] :retained-runs 12}}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
     ["(cljs.core/munge \"explain-render\")"]
@@ -1948,22 +1949,21 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v3
+                                                          :producer :re-frame/hicasso
                                                           :read :explain-render
-                                                          :scope :mounted-boundaries
-                                                          :basis :observation
                                                           :complete? false
                                                           :loss {:reason :uncorrelated :dropped :unknown}
                                                           :explanations [{:boundary {:parent nil :key []}
-                                                                          :frame :app/main :instances 1
+                                                                          :views :unknown
+                                                                          :frame :unknown :instances 1
+                                                                          :window {:frames [] :retained-runs 0}
                                                                           :snapshot :unknown
                                                                           :peak-epoch :unknown
                                                                           :latest-reads :unknown
-                                                                          :cause :unknown
-                                                                          :candidates :unknown
-                                                                          :basis :observation :complete? false
                                                                           :loss {:reason :cap
-                                                                                 :dropped :unknown}}]
+                                                                                 :dropped :unknown}
+                                                                          :candidates :unknown}]
                                                           :window {:frames [:app/main] :retained-runs 0}}]
      [:default                                           nil]]
     :fixture/expect

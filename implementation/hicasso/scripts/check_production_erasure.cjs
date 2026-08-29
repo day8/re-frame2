@@ -148,6 +148,21 @@ const SENTINELS = [
       'must carry no body.',
   },
   {
+    surface: 'evidence — the dev-only view-name stamp on a read-set entry (rf2-6c12m.21)',
+    sentinel: 'hicassoViews',
+    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    premise: '(def ^:private views-slot "hicassoViews")',
+    why:
+      'The own property `collector/note-view!` writes on a read-set entry — the ' +
+      'declared view names that rendered it, which `re-frame.hicasso.tool` ' +
+      'resolves to a source coordinate. Written from `render-body` inside ' +
+      '`(when ^boolean js/goog.DEBUG …)`, so a release entry carries neither ' +
+      'the slot nor a name.',
+    remedy:
+      'Check that gate at impl/collector.cljs `render-body`; a production entry ' +
+      'must carry no view names.',
+  },
+  {
     surface: 'test kit — the kit itself (rf2-hic-020)',
     sentinel: 'rf.error/hicasso-test-',
     source: 'test_kit/src/re_frame/hicasso/test.cljs',
@@ -180,10 +195,10 @@ const SENTINELS = [
     surface: 'evidence projection — the versioned envelope (rf2-hic-023)',
     sentinel: 're-frame.hicasso.evidence',
     source: 'src/re_frame/hicasso/evidence.cljs',
-    premise: ':re-frame.hicasso.evidence/v2',
+    premise: ':re-frame.hicasso.evidence/v3',
     why:
       'The schema pin every envelope carries, and the namespace half of ' +
-      'every defect keyword the projection raises. `re-frame.hicasso.evidence` ' +
+      'the defect keyword the envelope door raises. `re-frame.hicasso.evidence` ' +
       'and its consumer `re-frame.hicasso.tool` are dev-only by ' +
       'REACHABILITY: no namespace under src/ requires them, so a consumer ' +
       'who never asks for the projection never ships it.',

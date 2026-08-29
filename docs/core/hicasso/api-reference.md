@@ -421,67 +421,40 @@ build.
 | `tool/read-intents` | what was dispatched inside Spec 009's retained window, oldest first |
 | `tool/explain-render` | which reads changed, and which boundaries hold them |
 
-Each answers an envelope carrying `:schema`, `:producer`, `:read`, `:scope`,
-`:basis`, `:complete?` and `:loss`. Read the envelope before the roster:
-`tool/explain-render` is structurally incomplete and says so, because the commit
-seam carries no cascade identity, so it reports `:cause :unknown` with
-`{:reason :uncorrelated}` and offers `:candidates` as leads. Taught in
-[Diagnostics](16-diagnostics.md).
+Each answers an envelope carrying `:schema`, `:producer`, `:read`, `:complete?`
+and `:loss`. Read the envelope before the roster: `tool/explain-render` is
+structurally incomplete and says so, because the commit seam carries no cascade
+identity, so it reports `{:reason :uncorrelated}` and offers `:candidates` as
+leads. In a development build every mounted row, reader and explanation also
+carries `:views` — the declared views that rendered that boundary, each with
+the source coordinate `defview` captured — or `:unknown` for a body minted
+without a name. Taught in [Diagnostics](16-diagnostics.md).
 
 ## `re-frame.hicasso.evidence`
 
-The evidence vocabulary and the two validating doors every envelope goes through.
-A consumer reads this namespace; a producer calls it.
+The evidence vocabulary and the one door every envelope goes through. A
+consumer reads this namespace; a producer calls it.
 
 ```clojure
 (ns my.tooling
   (:require [re-frame.hicasso.evidence :as evidence]))
 
-;; identity
-evidence/schema      evidence/producer      evidence/reads
+;; identity and vocabulary
+evidence/schema  evidence/producer  evidence/reads
+evidence/unknown evidence/loss-reasons
 
-;; the closed vocabularies
-evidence/basis-kinds evidence/scopes        evidence/loss-reasons
-evidence/unknown     evidence/unseeing-bases evidence/axis-keys
-evidence/retention
-
-;; the ledger, as data
-evidence/projection-fields evidence/projection-invariants evidence/envelope-fields
-
-;; predicates
-(evidence/scope? s)
-(evidence/loss? l)
-
-;; the doors
-(evidence/projection p)
-(evidence/envelope e)
-(evidence/capped p k limit)
-(evidence/defects p)
-(evidence/defects-message ds)
+;; the door
+(evidence/envelope read complete? loss body)
 ```
 
 | Name | What it is |
 | --- | --- |
-| `evidence/schema` | the schema version every envelope carries. A consumer validates it first and refuses what it does not recognise. There is no compatibility adapter and no acceptance path for the superseded shape |
+| `evidence/schema` | the schema version every envelope carries. A consumer validates it first and refuses what it does not recognise. There is no compatibility adapter and no acceptance path for a superseded shape |
 | `evidence/producer` | which substrate produced the envelope. The schema is adapter-neutral, so this is carried rather than inferred |
-| `evidence/reads` | the four read operations and their questions, stamped on every envelope as `:read` |
-| `evidence/basis-kinds` | how a projection knows what it says: `:observation`, `:declaration`, `:opaque`, `:host-opaque`. Four, and no fifth |
-| `evidence/scopes` | the named scopes, beside the map-shaped ones `evidence/scope?` also accepts |
-| `evidence/loss-reasons` | why a projection could not carry something: `:cap`, `:opaque`, `:host-opaque`, `:uncorrelated`. Each names a different remedy |
-| `evidence/unknown` | the explicit value for a fact a projection does not hold, and the `:dropped` count for a loss it cannot size |
-| `evidence/unseeing-bases` | the bases on which a roster cannot be a survey, so an empty collection under one is refused |
-| `evidence/axis-keys` | the envelope's own keys — everything a projection says about itself |
-| `evidence/retention` | where evidence history lives: Spec 009's per-frame retained-event ring, and nowhere else |
-| `evidence/projection-fields` | the four claim axes, as data |
-| `evidence/projection-invariants` | the cross-field rules, each a predicate |
-| `evidence/envelope-fields` | the three identity axes an envelope names on top of the four |
-| `evidence/scope?` | true when `s` is a legal scope. An empty map is refused |
-| `evidence/loss?` | true when `l` is a legal loss. `nil` is legal, and is not the same as incomplete |
-| `evidence/projection` | answers `p` when it states all four axes coherently, otherwise throws naming everything that does not hold. The only door — there is no lenient variant and no `:strict?` flag |
-| `evidence/envelope` | the same for an envelope, which is a projection with three more axes |
-| `evidence/capped` | answers `p` with `k`'s collection truncated to `limit` and the loss stated, so the truncation and the loss account are one expression |
-| `evidence/defects` | the vector of defects in `p`, empty when it may be emitted |
-| `evidence/defects-message` | the one-line sentence a refused projection throws with |
+| `evidence/reads` | the four read operations, stamped on every envelope as `:read` |
+| `evidence/unknown` | the explicit value for a fact a read does not hold, and the `:dropped` count for a loss it cannot size. Unknown is never encoded as an empty collection |
+| `evidence/loss-reasons` | why a read could not carry something: `:cap`, `:opaque`, `:host-opaque`, `:uncorrelated`. Each names a different remedy |
+| `evidence/envelope` | answers `body` stamped with the five envelope fields for `read`, or throws naming every problem: a read outside the vocabulary, a loss with a foreign reason or no sizeable `:dropped`, or `:complete? true` beside a loss. The only door — there is no lenient variant |
 
 ## `re-frame.hicasso.test` — the L0/L1 test kit
 

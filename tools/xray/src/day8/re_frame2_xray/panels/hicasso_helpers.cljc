@@ -54,16 +54,14 @@
   DETECTABLE mismatch until this build is taught the new shape and this
   pin is bumped in lockstep.
 
-  **v2 is that lockstep bump, and it is the point of the mechanism.** The
-  #7789 audit repair evolved the wire shape — projected key elements,
-  plural intent frames, `:latest-reads` as maps, new host fields — while
-  leaving the stamp at v1, so for one increment this pin was accepting a
-  shape it had NOT been taught and parsing it as exact (audit #7802). A
-  version that lies is worse than no version: it converts a loud failure
-  into a silent misread. There is no v1 acceptance path here — pre-alpha
+  v3 is the shape this build parses: five stamp fields (`:schema`,
+  `:producer`, `:read`, `:complete?`, `:loss`) with no scope or basis
+  axis, no `:naming` / `:host` / `:origin` sub-projections, and `:views`
+  on every mounted row, reader and explanation naming the declared views
+  that rendered it. There is no acceptance path for v2 or v1 — pre-alpha
   needs no compatibility adapter, and a shim would restore the very
   mis-parse the pin exists to refuse."
-  :re-frame.hicasso.evidence/v2)
+  :re-frame.hicasso.evidence/v3)
 
 (def consumed-producer
   "The producing substrate this tab renders.
@@ -525,6 +523,33 @@
     (string/join " + " (map read-label key))
     "(reads nothing)"))
 
+(defn view-label
+  "The declared view names on a row, as one line — or nil when the
+  producer states them [[unknown]], so the caller renders the chip
+  instead of a word.
+
+  `views` is the producer's `:views`: a vector of `{:view :source}`, one
+  per declared view that rendered the edge set, or `:unknown` for a body
+  minted without a name."
+  [views]
+  (when (and (vector? views) (seq views))
+    (string/join ", " (map :view views))))
+
+(defn source-label
+  "One view's coordinate as `<view> — <file>:<line>`, or nil where the
+  producer states no source (a name minted outside `defview`)."
+  [{:keys [view source]}]
+  (when (map? source)
+    (str view " — " (:file source) ":" (:line source))))
+
+(defn views-title
+  "The hover text for a row's views: one [[source-label]] per line, or
+  nil when none carries a coordinate."
+  [views]
+  (when (vector? views)
+    (let [lines (keep source-label views)]
+      (when (seq lines) (string/join "\n" lines)))))
+
 (defn boundary-slug
   "A stable testid slug for a boundary key — the WHOLE projected key, one
   [[read-key-str]] per element.
@@ -609,7 +634,12 @@
              :instances  (:instances row)
              :frame      (:frame row)
              :frame-chip (loss-chip nil (:frame row))
-             :view-chip  (loss-chip (:loss (:naming envelope)) (:view row))
+             ;; The declared views that rendered this edge set, or the
+             ;; `unknown` chip for a body minted without a name — never a
+             ;; blank, which would read as "no view".
+             :views      (:views row)
+             :view-label (view-label (:views row))
+             :view-chip  (loss-chip nil (:views row))
              :reads      (mapv (fn [r] {:sub-id (:sub-id r)
                                         :query  (:query r)
                                         :epoch  (:epoch r)}) (:reads row))})
@@ -639,8 +669,11 @@
                :frame-chip (loss-chip nil (:frame-id edge))
                :epoch      (:epoch edge)
                :fan-out    (:fan-out edge)
-               :readers    (mapv (fn [b] {:label (boundary-label b)
-                                          :slug  (boundary-slug b)}) (:readers edge))}))
+               :readers    (mapv (fn [b] {:label      (boundary-label b)
+                                          :slug       (boundary-slug b)
+                                          :views      (:views b)
+                                          :view-label (view-label (:views b))})
+                                 (:readers edge))}))
           (:edges envelope))))
 
 (defn intent-rows
@@ -679,6 +712,9 @@
               {:boundary     (:boundary ex)
                :label        (boundary-label (:boundary ex))
                :slug         (boundary-slug (:boundary ex))
+               :views        (:views ex)
+               :view-label   (view-label (:views ex))
+               :view-chip    (loss-chip nil (:views ex))
                :frame        (:frame ex)
                ;; The frame is rendered, not merely carried. Two boundaries
                ;; reading the same query in two frames have the same label,
@@ -695,7 +731,10 @@
                                (:latest-reads ex)
                                (mapv latest-read-label (:latest-reads ex)))
                :proven?      (not (unknown? (:latest-reads ex)))
-               :cause-chip   (loss-chip (:loss ex) (:cause ex))
+               ;; The row's own loss names which of two things happened —
+               ;; a search that found no join (`:uncorrelated`) or no
+               ;; search at all (`:cap`) — and the chip is that loss.
+               :cause-chip   (loss-chip (:loss ex))
                :leads        (if (unknown? leads) [] leads)
                :leads-known? (not (unknown? leads))}))
           (:explanations envelope))))
@@ -711,11 +750,8 @@
     (let [chip (loss-chip (:loss envelope))]
       (string/join " · "
                    (remove nil?
-                           [(str "scope " (format-id (:scope envelope)))
-                            (str "basis " (format-id (:basis envelope)))
-                            (if (:complete? envelope)
-                              "complete for this scope"
-                              "INCOMPLETE for this scope")
+                           [(str "read " (format-id (:read envelope)))
+                            (if (:complete? envelope) "complete" "INCOMPLETE")
                             (when chip
                               (str (:short chip) " — "
                                    (dropped-label (:dropped chip))))])))))

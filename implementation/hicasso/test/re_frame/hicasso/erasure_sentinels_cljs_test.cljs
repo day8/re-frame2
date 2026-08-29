@@ -2,7 +2,7 @@
   "THE LIVE HALF OF THE PRODUCTION-ERASURE PROOF.
 
   `implementation/hicasso/scripts/check_production_erasure.cjs` scans the
-  `:advanced` / `goog.DEBUG=false` bundle and requires five strings to be
+  `:advanced` / `goog.DEBUG=false` bundle and requires six strings to be
   ABSENT. An absence is only evidence about erasure if the string is
   something a live surface really emits — a sentinel that quietly stopped
   being produced is absent from every bundle for a reason that has nothing
@@ -24,7 +24,7 @@
 
   ## What is asserted, and what is not
 
-  Five sentinels and two of the scan's three positive controls. The third
+  Six sentinels and two of the scan's three positive controls. The third
   control — the release entry's own view name — is not asserted here
   because this namespace is not that entry; what it depends on is the
   MECHANISM, that `mint-view!` stamps `\"<ns>/<sym>\"` unconditionally, and
@@ -40,16 +40,19 @@
   `:browser-test-prod-elision` bundle, where the sentinel discriminates."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
+            [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.evidence :as evidence]
             [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.test :as ht]))
 
 (def sentinels
-  "The five strings the release-bundle scan requires to be ABSENT, spelled
+  "The six strings the release-bundle scan requires to be ABSENT, spelled
   exactly as `check_production_erasure.cjs` spells them."
   {:body-slot        "hicassoBody"
+   :views-slot       "hicassoViews"
    :test-kit-refusal "rf.error/hicasso-test-"
    :complaint-guard  "hicasso-refusal-incomplete"
    :evidence-schema  "re-frame.hicasso.evidence"
@@ -83,6 +86,22 @@
         "and `retained-body` reads that same slot — the kit's only route
          from a minted head back to the body its author wrote")))
 
+(deftest the-view-stamp-writes-the-slot-the-scan-names
+  (testing "`hicassoViews` is the own property a dev render writes on the read-set entry"
+    (rf/make-frame {:id ::erasure-views})
+    (try
+      (collector/render-body ::erasure-views (codec/retained-body probe) {})
+      (let [^js entry (collector/last-reads)]
+        (is (= #{"re-frame.hicasso.erasure-sentinels-cljs-test/probe"}
+               (unchecked-get entry (:views-slot sentinels)))
+            "the render stamps the declared view's name under this exact property name")
+        (is (= (unchecked-get entry (:views-slot sentinels))
+               (collector/entry-views entry))
+            "and `entry-views` reads that same slot — the tool tier's only route
+             from an edge set back to a view name"))
+      (finally
+        (rf/destroy-frame! ::erasure-views)))))
+
 (deftest the-test-kits-refusal-ids-carry-the-family-the-scan-names
   (testing "`rf.error/hicasso-test-` prefixes the ids the kit mints"
     (let [id (:rf.error/id (refusal #(ht/tree [42 {}])))]
@@ -101,7 +120,7 @@
 
 (deftest the-evidence-schema-pin-is-the-slug-the-scan-names
   (testing "`re-frame.hicasso.evidence` is the projection's identity slug"
-    (is (= :re-frame.hicasso.evidence/v2 evidence/schema))
+    (is (= :re-frame.hicasso.evidence/v3 evidence/schema))
     (is (= (:evidence-schema sentinels) (namespace evidence/schema))
         "every envelope carries it, so a projection in a consumer bundle
          cannot hide")))

@@ -165,7 +165,7 @@ const THE_SECRET = 'RF2-HIC-059-WIRE-SECRET-4d2a1f';
 // The consumer-owned schema literal `versioned-envelope-result` gates on.
 // Asserted as a STRING because this is the wire, which is where the two
 // sides have to agree.
-const EXPECTED_SCHEMA = ':re-frame.hicasso.evidence/v2';
+const EXPECTED_SCHEMA = ':re-frame.hicasso.evidence/v3';
 
 const DOOR_READS = ['read-mounted-boundaries', 'read-read-attribution', 'explain-render'];
 

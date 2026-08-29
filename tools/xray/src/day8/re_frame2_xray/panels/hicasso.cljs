@@ -46,6 +46,12 @@
      puts what the epoch stamps PROVE beside the reason the causal link
      cannot be made. Showing only the first would be a guess; showing only
      the second would waste the half that is real.
+  4. **A boundary is named where the producer names it.** In a dev build
+     the producer says which declared views rendered an edge set, with
+     each view's source coordinate, so a Mounted, Reads or Why row leads
+     with `app.views/todo-row` and keeps the edge set beside it as the
+     identity the runtime actually keys on. A body minted without a name
+     renders the `unknown` chip in that position rather than a blank.
 
   ## Pure hiccup + helpers
 
@@ -175,24 +181,35 @@
   "Mounted means SUBSCRIBED, and this view says so rather than letting a
   reader supply the other word.
 
-  The real-React lifecycle witness (audit #7792) established that this
-  census cannot distinguish three states React owns: an Activity-hidden
-  subtree that released its reads leaves the same census as an unmounted
-  one, and a Suspense-fallback-hidden subtree stays subscribed and so
-  stays in this table while absent from the screen. The producer states
-  both as `:host-opaque`; the panel's job is to make sure the reader is
-  told before they infer otherwise, which is why it renders with the rows
-  and not only when the roster is empty."
+  The census cannot distinguish three states React owns: an
+  Activity-hidden subtree that released its reads leaves the same census
+  as an unmounted one, and a Suspense-fallback-hidden subtree stays
+  subscribed and so stays in this table while absent from the screen
+  (audit #7792). That is a fact about the producer rather than a field on
+  the envelope, so the panel states it beside the rows — and not only
+  when the roster is empty, which is where a reader has least else to go
+  on."
   [envelope]
   (when (hh/supported? envelope)
-    (let [chip (hh/loss-chip (:loss (:host envelope)) (:visibility (:host envelope)))]
-      [:div {:data-testid (str "rf-xray-" panel-id "-mounted-visibility")
-             :style       (assoc detail-style :margin-top "6px")}
-       (str (:short chip) " — these rows are about SUBSCRIPTION, not about the "
-            "screen. A hidden-but-retained subtree that released its reads is "
-            "indistinguishable here from an unmounted one, and a "
-            "Suspense-fallback-hidden subtree stays subscribed and stays "
-            "listed. React DevTools is the authority on what is visible.")])))
+    [:div {:data-testid (str "rf-xray-" panel-id "-mounted-visibility")
+           :style       (assoc detail-style :margin-top "6px")}
+     (str (:short (hh/loss-chip :host-opaque))
+          " — these rows are about SUBSCRIPTION, not about the "
+          "screen. A hidden-but-retained subtree that released its reads is "
+          "indistinguishable here from an unmounted one, and a "
+          "Suspense-fallback-hidden subtree stays subscribed and stays "
+          "listed. React DevTools is the authority on what is visible.")]))
+
+(defn- view-name
+  "The declared view names on a row, in the row's own testid — or nothing,
+  in which case the caller renders the `unknown` chip beside the label.
+  The hover text carries each view's source coordinate."
+  [testid row]
+  (when-some [vl (:view-label row)]
+    [:span {:data-testid testid
+            :title       (hh/views-title (:views row))
+            :style       {:font-family mono-stack :margin-right "8px"}}
+     vl]))
 
 (defn- mounted-view
   [{:keys [envelope rows]}]
@@ -207,7 +224,13 @@
                     [:li {:data-testid (str "rf-xray-" panel-id "-boundary-" (:slug row))
                           :style       row-style}
                      [:div
-                      [:span {:style {:font-family mono-stack}} (:label row)]
+                      ;; The VIEW leads when the producer names it — that is
+                      ;; the line a developer reads a roster by — and the
+                      ;; edge set follows as the identity the runtime keeps.
+                      (view-name (str "rf-xray-" panel-id "-boundary-" (:slug row) "-views") row)
+                      [:span {:style {:font-family mono-stack
+                                      :color (when (:view-label row) (:text-secondary tokens))}}
+                       (:label row)]
                       (loss-chip (str "rf-xray-" panel-id "-boundary-" (:slug row) "-view")
                                  (:view-chip row))
                       (loss-chip (str "rf-xray-" panel-id "-boundary-" (:slug row) "-frame")
@@ -222,17 +245,11 @@
                                             (str (count (:reads row)) " read"
                                                  (when (not= 1 (count (:reads row))) "s"))]))]])
                   [(overflow/overflow-row {:panel-id panel-id :over-cap? over? :hidden-count hidden})]))])
-     ;; The qualifications are stated whether or not there are rows. A view
-     ;; that showed them only when it had something to qualify would drop
-     ;; them exactly where the reader has least else to go on — which is the
+     ;; Stated whether or not there are rows. A view that showed its
+     ;; qualification only when it had something to qualify would drop it
+     ;; exactly where the reader has least else to go on — which is the
      ;; empty roster the audit found reading as a clean bill of health.
-     (when (hh/supported? envelope)
-       [:<>
-        (absence-note (str "rf-xray-" panel-id "-mounted-naming")
-                      (hh/loss-chip (:loss (:naming envelope)) hh/unknown))
-        (absence-note (str "rf-xray-" panel-id "-mounted-host")
-                      (hh/loss-chip (:loss (:host envelope)) hh/unknown))
-        (visibility-note envelope)])]))
+     (visibility-note envelope)]))
 
 ;; ---- view 2 — read attribution -------------------------------------------
 
@@ -260,9 +277,19 @@
                                            [(when-not (hh/unknown? (:frame-id row))
                                               (str "frame " (hh/format-id (:frame-id row))))
                                             (str "fan-out " (:fan-out row))]))]]
+                    ;; A reader is named by its VIEW where the producer knows
+                    ;; it, with the edge set in brackets so the join to the
+                    ;; Mounted roster is still visible; an unnamed reader is
+                    ;; its edge set alone.
                     [:div {:data-testid (str "rf-xray-" panel-id "-edge-" (:slug row) "-readers")
                            :style       detail-style}
-                     (str "read by " (string/join ", " (map :label (:readers row))))]])
+                     (str "read by "
+                          (string/join ", "
+                                       (map (fn [b]
+                                              (if-some [vl (:view-label b)]
+                                                (str vl " (" (:label b) ")")
+                                                (:label b)))
+                                            (:readers row))))]])
                  [(overflow/overflow-row {:panel-id (str panel-id "-attribution") :over-cap? over? :hidden-count hidden})])))]))
 
 ;; ---- view 3 — the intent stream ------------------------------------------
@@ -295,12 +322,12 @@
                                              (str "recomputed "
                                                   (string/join ", " (map hh/format-id (:sub-ids row)))))]))]])
                  [(overflow/overflow-row {:panel-id (str panel-id "-intents") :over-cap? over? :hidden-count hidden})])))
-     ;; The window is ALWAYS a cap, so the cap and the opaque origin are
-     ;; stated even when the stream is empty — an empty window with its
-     ;; loss hidden is the shape that reads as "nothing was dispatched".
+     ;; The window is ALWAYS a cap, so the cap is stated even when the
+     ;; stream is empty — an empty window with its loss hidden is the shape
+     ;; that reads as "nothing was dispatched".
      (when (hh/supported? envelope)
-       (absence-note (str "rf-xray-" panel-id "-intents-origin")
-                     (hh/loss-chip (:loss (:origin envelope)) hh/unknown)))]))
+       (absence-note (str "rf-xray-" panel-id "-intents-cap")
+                     (hh/loss-chip (:loss envelope))))]))
 
 ;; ---- view 4 — explain render ---------------------------------------------
 
@@ -318,7 +345,13 @@
                     ;; The frame rides beside the label. Frames are isolated
                     ;; contexts, so one query read in two of them is two facts
                     ;; — and their labels are identical (audit #7802).
-                    [:div [:span {:style {:font-family mono-stack}} (:label row)]
+                    [:div
+                     (view-name (str "rf-xray-" panel-id "-explain-" (:slug row) "-views") row)
+                     [:span {:style {:font-family mono-stack
+                                     :color (when (:view-label row) (:text-secondary tokens))}}
+                      (:label row)]
+                     (loss-chip (str "rf-xray-" panel-id "-explain-" (:slug row) "-view")
+                                (:view-chip row))
                      (loss-chip (str "rf-xray-" panel-id "-explain-" (:slug row) "-frame")
                                 (:frame-chip row))
                      (when-not (hh/unknown? (:frame row))
@@ -390,7 +423,11 @@
         stem (str "rf-xray-" panel-id "-advice-" (:slug row))]
     [:li {:data-testid stem :style row-style}
      [:div
-      [:span {:style {:font-family mono-stack}} (str "#" (:rank row) "  " (:label row))]
+      [:span {:style {:font-family mono-stack}} (str "#" (:rank row) "  ")]
+      (view-name (str stem "-views") row)
+      [:span {:style {:font-family mono-stack
+                      :color (when (:view-label row) (:text-secondary tokens))}}
+       (:label row)]
       (loss-chip (str stem "-frame") (hh/loss-chip nil (:frame row)))]
      [:div {:style detail-style} (axis-line (:axes row))]
      ;; WHAT OWNS IT — with the loss for the half that was not measured.
