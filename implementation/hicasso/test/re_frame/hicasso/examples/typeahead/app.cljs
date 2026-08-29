@@ -17,12 +17,13 @@
 
   Nothing under `re-frame.hicasso.impl.*`, nothing under
   `re-frame.bench.*`, nothing under `tools/`, and no test-kit namespace.
-  `…typeahead.surface-cljs-test` asserts that off the ClojureScript
-  ANALYZER's dependency graph rather than off a reading of this list.
+  `examples.fence-cljs-test` asserts that for every application under
+  `examples/`, read off each `ns` form at run time rather than off this
+  list.
 
   ## It registers no route
 
-  Deliberately, and the surface suite asserts the absent edge. Route paths
+  Deliberately, and nothing enforces the absence. Route paths
   are plain strings in a process-global registrar and the shared node
   bundle loads every application in the tree into one process. Nothing
   about a resource witness needs a URL."

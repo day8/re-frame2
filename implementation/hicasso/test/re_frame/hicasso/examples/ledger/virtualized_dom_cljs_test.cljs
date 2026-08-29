@@ -542,8 +542,7 @@
   ;; kit can hold: one root, one frame, and a residue reading against this
   ;; mount's own baseline. The vendor's scroll offset is React state and
   ;; dies with the fiber; the application holds no reactive cell of its
-  ;; own anywhere, which `ledger.surface-cljs-test`'s roster is the
-  ;; structural half of.
+  ;; own anywhere.
   (if-not (browser?)
     (skip! "the teardown claim")
     (async done

@@ -6,14 +6,13 @@
   foreign to be a recipe ABOUT. This namespace is that something: a real
   windowing component, written in **raw React and nothing else**.
 
-  ## It is FOREIGN, and that is mechanical rather than claimed
+  ## It is FOREIGN, and the `ns` form is the evidence
 
   Its only dependency is `[\"react\" :as react]`. It knows nothing of
-  `re-frame.hicasso`, `re-frame.core`, the native tier or the test kit,
-  and `ledger.surface-cljs-test` reads that off the analyzer's own
-  dependency graph rather than off this sentence. So everything the
-  ledger does with it, it does through the declared door — which is the
-  whole point of the screen.
+  `re-frame.hicasso`, `re-frame.core`, the native tier or the test kit —
+  read that off the `:require` below rather than off this sentence. So
+  everything the ledger does with it, it does through the declared door
+  — which is the whole point of the screen.
 
   It is a **stand-in for the npm package** for the reason
   `imperative-sdk-dom-cljs-test` states about its own vendor: the

@@ -8,10 +8,10 @@
   component deciding which few.
 
   Nothing in this namespace knows that. It is `re-frame.core` and pure
-  functions — `ledger.surface-cljs-test` holds the absence of a view
-  substrate here mechanically — and that is the first claim the screen
-  makes: **virtualization is a rendering strategy, and it does not reach
-  the model.** The same handlers, the same addresses and the same `l0`
+  functions — the `ns` form names no view substrate — and that is the
+  first claim the screen makes: **virtualization is a rendering strategy,
+  and it does not reach the model.** The same handlers, the same
+  addresses and the same `l0`
   suite would serve a screen that mounted all ten thousand rows.
 
   ## One address per record, for the same reason the grid has one per cell

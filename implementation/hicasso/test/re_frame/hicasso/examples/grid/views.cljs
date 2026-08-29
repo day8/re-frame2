@@ -37,7 +37,7 @@
   hundred controlled fields required — no `::h/revision` (the grid has no
   reset), no `h/event` (every intent is a vector, including the
   three-argument one), and nothing at all from the optional modules or
-  the native tier. `examples.witness-surface-cljs-test` pins it."
+  the native tier — the `:require` below is the whole of it."
   (:require [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.grid.events :as events]
             [re-frame.hicasso.examples.grid.subs :as subs]))

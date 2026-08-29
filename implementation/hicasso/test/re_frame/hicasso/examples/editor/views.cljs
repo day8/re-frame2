@@ -29,8 +29,7 @@
   markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
   `h/event` — every intent said what it meant as a vector — and no `use-subs`,
   `boundary`, `portal`, `as-element`, `as-component`, `defhost`, `hframe`,
-  `route-link` or `reg-state`. **Six names and three keywords**, and
-  `examples.witness-surface-cljs-test` pins the namespace roster mechanically.
+  `route-link` or `reg-state`. **Six names and three keywords.**
 
   ## The one place the public door reads awkwardly
 

@@ -15,11 +15,10 @@
   and broke twelve RealWorld assertions with nothing warning.
 
   A four-field editor needs no routing to be evidence about controlled
-  fields, so it registers none — and `examples.witness-surface-cljs-test`
-  makes that mechanical rather than remembered: `re-frame.routing` is
-  absent from this application's dependency roster, read off the
-  ClojureScript analyzer, so a route registered here in future reds that
-  suite before it can reach the global registry.
+  fields, so it registers none. Nothing enforces that absence — the
+  `ns` form below is the only record of it — so a route added here in
+  future reaches the global registry, and must take a path no other
+  application in the tree claims.
 
   Every other id this application mints IS namespaced and therefore safe
   by construction — the frame keyword below, every event id, every
