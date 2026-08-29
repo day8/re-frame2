@@ -187,6 +187,7 @@
             [clojure.walk :as walk]
             [cljs.test :as t]
             [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
@@ -1406,13 +1407,13 @@
   "Refuse a malformed shadow option, reusing the kit's own
   `:rf.error/hicasso-test-bad-option`. See the namespace docstring §Refusals
   on why this door refuses at all and why it mints no id to do it."
-  [reason recovery extra]
-  (throw (ex-info (str reason " [:rf.error/hicasso-test-bad-option]")
-                  (merge extra
-                         {:rf.error/id :rf.error/hicasso-test-bad-option
-                          :where       're-frame.hicasso.test.mounted
-                          :reason      reason
-                          :recovery    recovery}))))
+  [reason extra]
+  (throw (error/ex-info-from-data
+           (merge extra
+                  {:rf.error/id :rf.error/hicasso-test-bad-option
+                   :where       're-frame.hicasso.test.mounted
+                   :reason      reason
+                   :recovery    :no-recovery}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The intent stream
@@ -1756,20 +1757,17 @@
                       " and nothing else. It was " (pr-str step)
                       ". A step nothing recognises would drive neither side, and the "
                       "checkpoint after it would go green for a step that never happened.")
-                 :remove-the-unknown-option
                  {:step step :unknown (vec (sort-by str (remove step-verbs (keys (if (map? step) step {})))))}))
   (let [[verb arg] (first step)]
     (case verb
       :click (when-not (string? arg)
                (bad-option! (str ":click takes ONE selector string; it was given "
                                  (pr-str arg) ".")
-                            :pass-a-map-of-options
                             {:step step}))
       :type  (when-not (and (vector? arg) (= 2 (count arg))
                             (string? (nth arg 0)) (string? (nth arg 1)))
                (bad-option! (str ":type takes [selector text]; it was given "
                                  (pr-str arg) ".")
-                            :pass-a-map-of-options
                             {:step step}))))
   step)
 
@@ -2021,7 +2019,6 @@
   [opts]
   (when-not (map? opts)
     (bad-option! (str "shadow!'s options are a map; they were " (pr-str opts) ".")
-                 :pass-a-map-of-options
                  {:value opts}))
   (when-let [unknown (seq (remove shadow-options (keys opts)))]
     (bad-option! (str "shadow! accepts "
@@ -2032,7 +2029,6 @@
                       "author believes is in force — `:seed` was this surface's "
                       "own earlier spelling for `:initial-events`, and accepting "
                       "it in silence would compare two UNSEEDED views.")
-                 :remove-the-unknown-option
                  {:unknown (vec (sort-by str unknown))}))
   (let [{:keys [reference candidate initial-events script]} opts
         scripted? (contains? opts :script)
@@ -2040,7 +2036,6 @@
                     (when-not (sequential? script)
                       (bad-option! (str ":script is a sequence of steps; it was "
                                         (pr-str script) ".")
-                                   :pass-a-map-of-options
                                    {:value script}))
                     (run! check-step! script))
         log       (open-log!)

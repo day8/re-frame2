@@ -201,7 +201,6 @@
     (let [row  [:span "hiccup"]
           data (refusal #(n/$ :div row))]
       (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))
-      (is (= :nest-n-dollar-or-convert-with-h-as-element (:recovery data)))
       (is (= row (:child data))))))
 
 ;; ---------------------------------------------------------------------------
@@ -254,7 +253,6 @@
             to be set and never applied*"
     (let [d (refusal #(n/declared-server "app/x" {:ssr :render}))]
       (is (= :rf.error/hicasso-native-unknown-option (:rf.error/id d)))
-      (is (= :declare-the-server-policy (:recovery d)))
       (is (= :ssr (:option d)))
       (is (= #{:server} (:options d))
           "and the message hands back the roster rather than describing it")))
@@ -273,7 +271,6 @@
             no reader could ever match, recorded with no complaint"
     (let [d (refusal #(n/declared-server "app/x" {:server :rendr}))]
       (is (= :rf.error/hicasso-native-bad-server-policy (:rf.error/id d)))
-      (is (= :declare-client-only-or-render (:recovery d)))
       (is (= :rendr (:server d)))))
 
   (testing "an explicit nil is a VALUE and not an absence — the roster

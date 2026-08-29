@@ -141,7 +141,6 @@
                 "instance of this widget shares one value, which is a "
                 "wrong screen that never complains — so it is refused "
                 "here instead.")
-           :key-the-widget-by-a-domain-id
            {:concern concern :instance-key ikey :op op}))
   ikey)
 
@@ -261,14 +260,12 @@
                  "was " (pr-str concern) ". The concern is a sub id, an event "
                  "id and an app-db key at once, so an unqualified one collides "
                  "with every other feature on the page in three registries.")
-            :namespace-qualify-the-concern
             {:concern concern}))
    (when-not (or (nil? opts) (map? opts))
      (fail! :rf.error/hicasso-state-bad-option
             're-frame.hicasso.impl.state/reg-state
             (str "reg-state options must be a map; for " (pr-str concern)
                  " they were " (pr-str opts) ".")
-            :pass-a-map-of-options
             {:concern concern :options opts}))
    (let [unknown (seq (disj (set (keys opts)) :default))]
      (when unknown
@@ -278,7 +275,6 @@
                    (pr-str concern) " was given " (pr-str (vec (sort-by str unknown)))
                    ". An option that is quietly ignored is a setting its author "
                    "believes is in force.")
-              :remove-the-unknown-option
               {:concern concern :unknown (vec (sort-by str unknown))})))
    (let [default (:default opts)]
      (when (and (contains? @!defaults concern)
@@ -290,7 +286,6 @@
                    "re-registered with " (pr-str default) ". Every instance that "
                    "has not been written to would start reading a different value "
                    "with nothing on screen to say why.")
-              :register-each-concern-once
               {:concern concern
                :registered-default (get @!defaults concern)
                :offered-default default}))

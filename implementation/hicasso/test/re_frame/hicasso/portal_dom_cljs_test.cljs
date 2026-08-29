@@ -441,8 +441,6 @@
               (is (= :rf.error/hicasso-portal-no-target (:rf.error/id data)))
               (is (contains? data :target) "the offending value is carried")
               (is (nil? (:target data)) "and it is the one that was written")
-              (is (= :give-the-portal-a-dom-container-that-exists (:recovery data))
-                  "with a concrete recovery")
               (is (some? (:where data)) "the fn that refused (hic-007's shape)")
               (is (string? (:reason data)) "and a human sentence")
               (is (some? (q (:container h) ".escaped"))

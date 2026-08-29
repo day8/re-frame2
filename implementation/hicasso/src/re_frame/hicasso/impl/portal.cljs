@@ -97,7 +97,6 @@
                 "differently in the two places. Render the portal only once "
                 "the container is there, or point :target at a node that "
                 "outlives the page, such as js/document.body.")
-           :give-the-portal-a-dom-container-that-exists
            {:target t})))
 
 (defn- portal-body

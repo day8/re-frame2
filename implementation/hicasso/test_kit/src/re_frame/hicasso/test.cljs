@@ -223,6 +223,7 @@
   (:refer-clojure :exclude [find])
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.controlled :as controlled]
@@ -238,29 +239,21 @@
   're-frame.hicasso.test)
 
 (defn- refuse!
-  "Raise a structured, source-located refusal.
+  "Raise a structured refusal in the runtime's own shape: ex-data is
+  `{:rf.error/id id :where where :reason reason :recovery :no-recovery}`
+  merged OVER `extra`, built through `re-frame.error/ex-info-from-data`
+  exactly as `impl.error/fail!` builds every Hicasso throw.
 
-  The ex-data is the ASSERTABLE identity — `:rf.error/id`, `:where`,
-  `:reason`, `:recovery` and whatever the site adds — because
-  `(is (thrown? …))` is not a witness: it is green for a throw from any
-  layer with any id. A test of a refusal asserts the map.
-
-  **`extra` merges UNDER the identity, never over it**, exactly as the
-  package's own `impl.error/fail!` does (rf2-hic-007). `extra` carries
-  the refusal CLASS's own slots — the offending value, the key, the
-  path — and a spelling of an identity field in it loses. It used to
-  merge last, so a payload could hand a catch site a different
-  `:rf.error/id` from the one in the message beside it, and this kit's
-  whole reason to exist is that its refusal is the runtime's refusal:
-  an id a payload can rewrite is a parity claim nobody can rely on."
-  [id reason recovery extra]
-  ;; rf2:builder-bypass-ok - `id` is a PARAMETER, so the message carries the
-  ;; `[:rf.error/...]` token the source cannot show. Same shape as
-  ;; `re-frame.hicasso.impl.collector/fail!`.
-  (throw (ex-info (str reason " [" id "]")
-                  (merge extra
-                         {:rf.error/id id :where where
-                          :reason reason :recovery recovery}))))
+  The ex-data is the ASSERTABLE identity, because `(is (thrown? …))` is
+  green for a throw from any layer with any id. `extra` carries the
+  refusal CLASS's own slots and merges UNDER the identity, so a payload
+  cannot hand a catch site a different `:rf.error/id` from the one in the
+  message beside it — this kit's refusal is the runtime's refusal."
+  [id reason extra]
+  (throw (error/ex-info-from-data
+           (merge extra
+                  {:rf.error/id id :where where
+                   :reason reason :recovery :no-recovery}))))
 
 ;; ---------------------------------------------------------------------------
 ;; L0 — the ladder, as data
@@ -363,7 +356,6 @@
     (refuse! :rf.error/hicasso-test-not-a-host
              (str "host-policy reads the `:server` policy off a minted `h/defhost` "
                   "crossing; it was given " (pr-str (type v)) ".")
-             :pass-the-defhost-var
              {:value v}))
   (codec/host-server v))
 
@@ -390,7 +382,6 @@
              (str "A handler lowered by an L1 projection was invoked. "
                   "L1 reads the codec's emission as data; firing a handler is "
                   "behaviour. " (tier-pointer :l3))
-             :assert-the-intent-as-data
              {:event event-v})))
 
 (def ^:private l1-frame
@@ -435,7 +426,6 @@
     (refuse! :rf.error/hicasso-test-not-a-native-form
              (str "element-props projects ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
-             :pass-a-native-hiccup-form
              {:value form}))
   (let [parsed (codec/cached-parse (nth form 0))
         props  (form-props form)
@@ -465,7 +455,6 @@
     (refuse! :rf.error/hicasso-test-not-an-intent
              (str "materialize takes an intent VECTOR; it was given "
                   (pr-str intent-v) ".")
-             :pass-an-intent-vector
              {:value intent-v}))
   (intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
 
@@ -483,7 +472,6 @@
     (refuse! :rf.error/hicasso-test-not-a-native-form
              (str "controlled? asks about ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
-             :pass-a-native-hiccup-form
              {:value form}))
   (let [parsed   (codec/cached-parse (nth form 0))
         props    (form-props form)
@@ -539,7 +527,6 @@
              (str "canonical-dom serialises a DOM node's subtree; it was given "
                   (pr-str node) ". " (tier-pointer :l2)
                   " A semantic tree is compared with ordinary `=`.")
-             :pass-a-dom-node
              {:value node}))
   (let [out (array)]
     (letfn [(walk [n]
@@ -660,7 +647,6 @@
     (refuse! :rf.error/hicasso-test-not-a-native-form
              (str "fire! drives ONE native hiccup form — a vector whose head "
                   "is a tag keyword. It was given " (pr-str form) ".")
-             :pass-a-native-hiccup-form
              {:value form}))
   (let [props (form-props form)]
     (when-not (contains? props prop)
@@ -669,7 +655,6 @@
                     ". A handler position that is silently absent is exactly "
                     "the fault this door exists to make loud; the positions "
                     "written are " (pr-str (vec (keys props))) ".")
-               :name-a-position-the-form-writes
                {:position prop :written (vec (keys props))}))
     (let [handler (intent/with-frame frame-kw (collector/frame-dispatch frame-kw)
                     (fn [] (intent/lower-prop prop (get props prop))))]
@@ -678,7 +663,6 @@
                  (str (pr-str prop) " lowered to " (pr-str handler)
                       " rather than to a function — it is not a handler "
                       "position, so there is nothing to fire.")
-                 :name-an-event-position
                  {:position prop}))
       (let [!prevented (volatile! false)
             captured   (capture-intents
@@ -856,7 +840,6 @@
                           "child calls it on every render, so its reads are "
                           "the child's edges and are kept — or deref the delay "
                           "in the body that wrote it.")
-                     :hand-a-function-or-deref-it-in-this-body
                      {:key k :path (into [k] path) :value bad})
             ;; `at` and not a second `site`: the parameter of that name is
             ;; the CROSSING/ATTR discrimination above, and shadowing it here
@@ -871,7 +854,6 @@
                               "prop of its own records as {:rf.ui/opaque :fn} and "
                               "one buried inside a recorded value is rejected. "
                               "Give it a prop of its own.")
-                         :hoist-it-to-its-own-site
                          extra)
                 (refuse! :rf.error/ui-tree-malformed
                          (str at " is " (offender-name bad) ", which this tree "
@@ -882,13 +864,12 @@
                               "same way. Give the site a value an EDN reader takes "
                               "back, or assert the real one where it survives. "
                               (tier-pointer :l3))
-                         :hand-a-data-value-or-assert-it-at-l3
                          extra)))))
         v)))
 
 (defn- refuse-opaque!
   [id reason extra]
-  (refuse! id (str reason " " (tier-pointer :l3)) :assert-it-at-l3 extra))
+  (refuse! id (str reason " " (tier-pointer :l3)) extra))
 
 (defn- walk-props
   "The props map a boundary call site passed, recorded verbatim with
@@ -1122,13 +1103,11 @@
                       "silently, so this kit refuses it too. Mint the boundary "
                       "with `h/defview`, or — to run this body at L2 — pass it "
                       "as the ROOT form of `tree`.")
-                 :mint-the-boundary-or-render-it-as-the-root
                  {:value form})
         (refuse! :rf.error/ui-tree-malformed
                  (str "a hiccup vector's head must be a tag keyword, `:<>`, "
                       "`:>`, a `h/defview` boundary or a `h/defhost` crossing; "
                       "got " (pr-str head) ".")
-                 :fix-the-head
                  {:value form})))))
 
 (defn- walk
@@ -1156,7 +1135,6 @@
              (str "a `true` child reached the semantic tree. `nil` and `false` "
                   "render nothing; `true` is an error (HD-016), and the runtime "
                   "raises this same id for it rather than dropping it.")
-             :use-nil-or-false
              {:value x})
 
     :react-element
@@ -1181,14 +1159,12 @@
                     "instead — the child calls it on every render, so its "
                     "reads are the child's edges and are kept — or deref "
                     "the delay in the body that wrote it.")
-               :hand-a-function-or-deref-it-in-this-body
                {:value x})
       (refuse! :rf.error/ui-tree-malformed
                (str "a child outside the tree's value grammar. The runtime "
                     "hands this to React as it stands, which has no semantic "
                     "form here; content is a string, a number, a keyword or a "
                     "symbol. Got " (pr-str x) ".")
-               :fix-the-child
                {:value x}))))
 
 ;; ---------------------------------------------------------------------------
@@ -1247,7 +1223,6 @@
                     "because a nil would make a body that reads the wrong key "
                     "look exactly like one that reads the right key and finds "
                     "nothing.")
-               :add-the-query-to-subs
                {:missing   (mapv second missing)
                 :supplied  (mapv first fixtures)
                 :phase     :after-body-run}))))
@@ -1327,7 +1302,6 @@
      (refuse! :rf.error/hicasso-test-not-a-render-form
               (str "tree takes a hiccup form `[body-fn props & children]`; "
                    "it was given " (pr-str form) ".")
-              :pass-a-hiccup-form
               {:value form}))
    ;; THE CLOSED ROSTER (rf2-0ckh). The destructuring above reads `:subs`
    ;; off anything and ignores everything else, so without these two an
@@ -1338,7 +1312,6 @@
    (when-not (map? opts)
      (refuse! :rf.error/hicasso-test-bad-option
               (str "tree's options are a map; they were " (pr-str opts) ".")
-              :pass-a-map-of-options
               {:value opts}))
    (when-let [unknown (seq (disj (set (keys opts)) :subs))]
      (refuse! :rf.error/hicasso-test-bad-option
@@ -1346,7 +1319,6 @@
                    (pr-str (vec (sort-by str unknown)))
                    ". An option that is quietly ignored is a setting its "
                    "author believes is in force.")
-              :remove-the-unknown-option
               {:unknown (vec (sort-by str unknown))}))
    (let [minted (nth form 0)
          ;; A minted head runs its body inside the shell and nowhere else,
@@ -1370,7 +1342,6 @@
                                     "it as a named fn and mint the view from it, "
                                     "or assert this boundary mounted. "
                                     (tier-pointer :l3))
-                               :render-the-body-fn-or-mount-at-l3
                                {:view (view-name minted)}))
                   minted)]
      (when (codec/host-head? head)
@@ -1384,13 +1355,11 @@
                 (str "tree's head is the BODY FUNCTION a `h/defview` is "
                      "minted from — `(fn [props] …)`. It was given "
                      (pr-str head) ".")
-                :pass-the-body-fn
                 {:value head}))
      (when-not (map? fixtures)
        (refuse! :rf.error/hicasso-test-bad-reads
                 (str ":subs is the fixture map from query vector to value; it "
                      "was given " (pr-str fixtures) ".")
-                :pass-a-map-of-query-to-value
                 {:value fixtures}))
      (let [frame-kw (keyword "re-frame.hicasso.test"
                              (str "probe-" (swap! !probe-seq inc)))
@@ -1451,7 +1420,6 @@
                (str "a tree node may carry only ONE of :tag / :view-id (the "
                     "closed node set); got "
                     (pr-str (select-keys m [:tag :view-id])))
-               :no-recovery
                {:value m}))
     (cond
       (contains? m :tag)      :element
@@ -1461,7 +1429,6 @@
       (refuse! :rf.error/ui-tree-malformed
                (str "a map node needs a discriminating field (:tag / :view-id "
                     "/ :children); got " (pr-str m))
-               :no-recovery
                {:value m}))))
 
 (defn- not-a-node!
@@ -1470,7 +1437,6 @@
            (str "not a structural tree node — a projection takes a node (the "
                 "value ht/tree returns, or any node reached by traversing it "
                 "with (tree-seq map? :children tree)); got " (pr-str got) ".")
-           :no-recovery
            {:value got}))
 
 (defn find-all
@@ -1512,7 +1478,6 @@
                             (str "text content is not a node — attrs projects "
                                  "map nodes; read text with ht/text on the "
                                  "PARENT node.")
-                            :no-recovery
                             {:value node})
     (map? node)    (case (node-kind node)
                      :element       (merge {} (:attrs node) (:events node))
@@ -1531,7 +1496,6 @@
                                  (str "a :children entry must be a node map or "
                                       "text content (a string); got "
                                       (pr-str c) ".")
-                                 :no-recovery
                                  {:value c})))
               (:children n))))
 
@@ -1549,7 +1513,6 @@
     (string? node) (refuse! :rf.error/ui-tree-malformed
                             (str "text content is not a node — it IS the text; "
                                  "call ht/text on the node that contains it.")
-                            :no-recovery
                             {:value node})
     (map? node)    (do (node-kind node) (text* node))
     :else          (not-a-node! node)))
@@ -1729,7 +1692,6 @@
     (string? node) (refuse! :rf.error/ui-tree-malformed
                             (str "text content is not a node — role projects "
                                  "map nodes; text carries no role.")
-                            :no-recovery
                             {:value node})
     (map? node)
     (case (node-kind node)
@@ -1834,7 +1796,6 @@
                             (str "text content is not a node — accessible-name "
                                  "projects map nodes; read text with ht/text on "
                                  "the node that contains it.")
-                            :no-recovery
                             {:value node})
     (not (map? node)) (not-a-node! node)
 
@@ -1848,7 +1809,6 @@
                       "and from the `<label>`s that surround the node, so a "
                       "node from somewhere else would be reported UNNAMED "
                       "however well labelled it is.")
-                 :pass-the-tree-the-node-came-from
                  {:value node}))
       (let [labelled-by (when-some [ids (flat (attr node :aria-labelledby))]
                           (joined (keep (fn [id]

@@ -328,9 +328,6 @@
       (is (some? e) "the render refused rather than emitting the anchor")
       (is (= :rf.error/hicasso-route-link-prefetch-declined (:rf.error/id d))
           (str "with the id that names the mistake: " (pr-str d)))
-      (is (= :spell-prefetch-as-an-on-mouse-enter-intent (:recovery d))
-          "carrying the recovery, which is what makes it a refusal rather
-           than a crash")
       (is (= 're-frame.hicasso.facade-roster-ssr-dom-cljs-test/bad-link
              (symbol (:view d)))
           (str "attributed to the AUTHOR'S boundary — not to the routing

@@ -1262,9 +1262,6 @@
               (is (= 're-frame.hicasso.impl.overlay/claim-anchor!
                      (:where data))
                   "tagged with the site that refused")
-              (is (= :give-the-trigger-the-dom-id-the-anchor-names
-                     (:recovery data))
-                  "carrying the recovery Spec 009's row states")
               (is (= "no-such-element" (:anchor data))
                   "and the payload names the id that resolved to nothing"))
 

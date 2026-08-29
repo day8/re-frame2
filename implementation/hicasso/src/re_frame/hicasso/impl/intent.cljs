@@ -399,7 +399,6 @@
                   "claims the slot and nothing forwards to the owner. Declare the "
                   "crossing instead — defhost with :callbacks {<the prop> :render} "
                   "— and the position owns the frame.")
-             :lower-intents-inside-a-boundary-render
              {:intent intent})))
 
 ;; ---------------------------------------------------------------------------
@@ -503,7 +502,6 @@
                   "there rather than read it here. And code that already knows "
                   "which frame it means should say so: (rf/capture-frame <frame-id>) "
                   "needs no scope at all.")
-             :read-the-frame-inside-a-boundary-render
              {})))
 
 ;; ---------------------------------------------------------------------------
@@ -582,7 +580,6 @@
                         (pr-str result) " with no frame-locked dispatch in scope. "
                         "Callbacks that dispatch are only legal at a position "
                         "lowered inside a boundary's render.")
-                   :lower-intents-inside-a-boundary-render
                    {:position k :intent result})))
         nil))))
 
@@ -654,7 +651,6 @@
                 "event) — has no event there, and nothing can guess which of "
                 "its arguments is one. Write an h/event instead: the one form "
                 "receives every argument the invoker passed, in order.")
-           :write-an-h-event-at-a-value-first-position
            {:position k :form form :argument e :needed slot})))
 
 ;; ---------------------------------------------------------------------------
@@ -768,7 +764,6 @@
                 "Write an h/event at the handler and read `.files` off the event "
                 "target: [:input {:type :file :on-change (h/event [e] [:app/upload "
                 "(js/Array.from (.. e -target -files))])}].")
-           :read-the-file-list-with-an-h-event
            {:value (.-value target)}))
   (if (.-multiple target)
     (if-some [options (.-selectedOptions target)]
@@ -903,7 +898,6 @@
                                                 ", which is not an intent vector")
                     :else                  "wraps the empty vector, which names no event")
                   ". Write [" (pr-str prevent-head) " [:my-event …]].")
-             :wrap-exactly-one-intent-vector
              {:position k :form v}))
     inner))
 
@@ -942,7 +936,6 @@
                 "already produces the one routing intent; wrap the vector in "
                 (pr-str prevent-head) " to veto the navigation, or move the "
                 "reaction behind the routing event.")
-           :veto-with-prevent-a-callback-or-nothing
            {:position k :veto veto})))
 
 (def ^:private navigate-keys
@@ -1020,7 +1013,6 @@
                           :else               "answers no boolean at :native?")
                         ". route-link mints this form; hand-written ones must carry all "
                         "four slots and nothing else.")
-                   :carry-frame-payload-native-and-veto
                    {:position k :form v})))))
     m))
 
@@ -1172,7 +1164,6 @@
            're-frame.hicasso.impl.intent/lower-declared-prop
            (str "A declaration gave " (pr-str k) " the callback contract "
                 (pr-str contract) ". The contracts are :event and :render.")
-           :declare-event-or-render
            {:position k :contract contract})))
 
 (defn lower-props

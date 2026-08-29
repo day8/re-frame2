@@ -318,9 +318,8 @@
                        (catch :default e (ex-data e)))]
       (is (= {:rf.error/id :rf.error/hicasso-test-no-handler-at-position
               :where       're-frame.hicasso.test
-              :recovery    :name-a-position-the-form-writes
               :position    :on-double-click}
-             (select-keys refused [:rf.error/id :where :recovery :position]))))))
+             (select-keys refused [:rf.error/id :where :position]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — what the rendered screen OFFERS to dispatch

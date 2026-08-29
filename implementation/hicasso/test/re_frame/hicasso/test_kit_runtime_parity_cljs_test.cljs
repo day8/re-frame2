@@ -31,7 +31,7 @@
   **Refusals are asserted as identity, never as `thrown?`.** A bare
   `(is (thrown? …))` is green for a throw from any layer carrying any id,
   and several rows here are specifically about WHICH refusal is raised.
-  The rows compare the ex-data map — id, `:where` and `:recovery`.
+  The rows compare the ex-data map — id and `:where`.
 
   **Where a row's refusal is the RUNTIME's, the table says so in
   `:where`.** A corpus holding only a VALID raw escape, for which opacity
@@ -96,24 +96,18 @@
       [:fragment]     is a fragment
       [:opaque]       is an element only React can interpret
       [:deferred]     is an unforced `delay`, handed onward untouched
-      [:refused id r] is a loud error, with its id and its recovery
+      [:refused id]   is a loud error, with its id
 
   `[:deferred]` is a token rather than `[:foreign (pr-str v)]` because
   the print of a `Delay` carries its `:status` and `:val` — a pin on
   ClojureScript's internals that would red on a print change and say
   nothing about Hicasso. What the row is about is that the value crosses
-  UNFORCED, and the token says exactly that.
-
-  The refusal token carries the RECOVERY as well as the id, because the
-  advice is half of what a refusal is: the audit that reopened this bead
-  found the kit answering a malformed raw escape with a pointer to L3,
-  which is not merely a different id but the wrong instruction. A column
-  that named only the id would have called that a near miss."
+  UNFORCED, and the token says exactly that."
   [x]
   (let [o (outcome #(intent/with-frame frame-id (collector/frame-dispatch frame-id)
                       (fn [] (codec/as-element x))))]
     (if-some [d (:refused o)]
-      [:refused (:rf.error/id d) (:recovery d)]
+      [:refused (:rf.error/id d)]
       (let [v (:returned o)]
         (cond
           (nil? v)    [:nothing]
@@ -139,7 +133,7 @@
   [form]
   (let [o (outcome #(ht/tree [(fn [_] form)]))]
     (if-some [d (:refused o)]
-      {:refused (select-keys d [:rf.error/id :where :recovery])}
+      {:refused (select-keys d [:rf.error/id :where])}
       {:tree (:returned o)})))
 
 ;; ---------------------------------------------------------------------------
@@ -194,9 +188,8 @@
 
    {:case    "a `true` child RAISES, and raises the runtime's own id"
     :form    [:div true]
-    :runtime [:refused :rf.error/hicasso-true-child :use-nil-or-false]
-    :refuses {:rf.error/id :rf.error/hicasso-true-child
-              :recovery    :use-nil-or-false}
+    :runtime [:refused :rf.error/hicasso-true-child]
+    :refuses {:rf.error/id :rf.error/hicasso-true-child}
     :why     (str "codec/as-element — nil and false render nothing; true is an "
                   "error (HD-016). Dropping it silently teaches a spelling the "
                   "runtime rejects. 004B §Child normalization drops a `true` "
@@ -214,8 +207,7 @@
     :form    [:div [:> raw-component]]
     :subject [:> raw-component]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque
-              :recovery    :assert-it-at-l3}
+    :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque}
     :why     (str "codec/raw-head? — `[:> C]` hands C to React untouched "
                   "(HD-011). The namespace docstring promises anything the "
                   "codec hands to React untouched refuses with a pointer to "
@@ -238,10 +230,9 @@
    {:case    "an EMPTY VECTOR raises the runtime's own empty-vector refusal"
     :form    [:div []]
     :subject []
-    :runtime [:refused :rf.error/hicasso-empty-vector :supply-a-hiccup-head]
+    :runtime [:refused :rf.error/hicasso-empty-vector]
     :refuses {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       're-frame.hicasso.impl.codec/vec->element
-              :recovery    :supply-a-hiccup-head}
+              :where       're-frame.hicasso.impl.codec/vec->element}
     :why     (str "codec/vec->element refuses an empty vector AHEAD of any "
                   "head classification, because every branch below reads "
                   "position 0. A kit that asks `head-kind` about the nil it "
@@ -251,11 +242,9 @@
    {:case    "`[:>]` with NO component raises the runtime's own refusal"
     :form    [:div [:>]]
     :subject [:>]
-    :runtime [:refused :rf.error/hicasso-raw-no-component
-              :hand-the-escape-a-real-component]
+    :runtime [:refused :rf.error/hicasso-raw-no-component]
     :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
-              :where       're-frame.hicasso.impl.codec/raw-element
-              :recovery    :hand-the-escape-a-real-component}
+              :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — the escape's Component slot is empty. "
                   "Opacity is not the answer: there is nothing for React to "
                   "interpret, so `:assert-it-at-l3` sends the programmer to "
@@ -264,11 +253,9 @@
    {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
     :form    [:div [:> nil]]
     :subject [:> nil]
-    :runtime [:refused :rf.error/hicasso-raw-no-component
-              :hand-the-escape-a-real-component]
+    :runtime [:refused :rf.error/hicasso-raw-no-component]
     :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
-              :where       're-frame.hicasso.impl.codec/raw-element
-              :recovery    :hand-the-escape-a-real-component}
+              :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — a `:default` import that resolved "
                   "nothing is the usual cause, and it is the case a test kit "
                   "is most likely to meet first. Distinct SPELLING from `[:>]` "
@@ -277,11 +264,9 @@
    {:case    "`[:> :div]` — a keyword in the Component slot — raises the runtime's own refusal"
     :form    [:div [:> :div]]
     :subject [:> :div]
-    :runtime [:refused :rf.error/hicasso-raw-not-a-component
-              :hand-the-escape-a-component-react-accepts]
+    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
     :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
-              :where       're-frame.hicasso.impl.codec/raw-element
-              :recovery    :hand-the-escape-a-component-react-accepts}
+              :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — the GRAMMAR owns tags, so a keyword "
                   "is one of the escape's three deliberate narrowings. The "
                   "second refusal id on this arm, which is why the arm needs "
@@ -292,8 +277,7 @@
     :subject [a-host]
     :runtime [:opaque]
     :refuses {:rf.error/id :rf.error/hicasso-test-host-is-opaque
-              :where       're-frame.hicasso.test
-              :recovery    :assert-it-at-l3}
+              :where       're-frame.hicasso.test}
     :why     (str "The kit's stated opacity, and the row that keeps it "
                   "distinct. `:where` is the KIT here, deliberately: L2's own "
                   "opacity is the kit's claim to make, and the rows above show "
@@ -304,8 +288,7 @@
     :subject (delay [:p])
     :runtime [:deferred]
     :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-              :where       're-frame.hicasso.test
-              :recovery    :hand-a-function-or-deref-it-in-this-body}
+              :where       're-frame.hicasso.test}
     :why     (str "THE ROW THE RECOVERY COLUMN EXISTS FOR (rf2-tsdik, after "
                   "rf2-llps1). The kit borrows the RUNTIME's id here, and the "
                   "runtime's recovery has to come with it: opacity is honest "
@@ -323,11 +306,9 @@
 
    {:case    "an unforced `delay` in a BOUNDARY's PROPS — the row both sides refuse"
     :form    [a-boundary {:x (delay 1)}]
-    :runtime [:refused :rf.error/hicasso-deferred-read-at-boundary
-              :hand-a-function-or-deref-it-in-this-body]
+    :runtime [:refused :rf.error/hicasso-deferred-read-at-boundary]
     :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-              :where       're-frame.hicasso.test
-              :recovery    :hand-a-function-or-deref-it-in-this-body}
+              :where       're-frame.hicasso.test}
     :why     (str "THE POSITION THE ID IS NAMED FOR (rf2-dr0ad). The row above "
                   "is a delay the runtime hands ONWARD; this is the one form "
                   "it genuinely REFUSES — `codec/realize-deep` runs at the "
@@ -346,8 +327,7 @@
     :form    [a-boundary {:x (doto (delay 1) deref)}]
     :runtime [:opaque]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :hand-a-data-value-or-assert-it-at-l3}
+              :where       're-frame.hicasso.test}
     :why     (str "`realize-deep` refuses only an UNFORCED delay: one the "
                   "author already deref'd in their own body carries a computed "
                   "value, derefs to it without calling anything, and is "
@@ -389,8 +369,7 @@
     :form    [:div {:data-x {(fn [] 1) :v}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :hoist-it-to-its-own-site}
+              :where       're-frame.hicasso.test}
     :why     (str "004B §The opaque marker — the marker occupies a SITE, never "
                   "a value inside one; a non-data value nested inside a "
                   "recorded value is rejected. A key is inside the value. The "
@@ -407,8 +386,7 @@
     :form    [:div {:data-x #{(fn [] 1)}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :hoist-it-to-its-own-site}
+              :where       're-frame.hicasso.test}
     :why     (str "The SECOND arm that drops the path (rf2-6xhxu), and the one "
                   "`non-data` says so in: a set member has no position worth "
                   "naming, so the walk stops there and this offender's `:path` "
@@ -422,8 +400,7 @@
     :form    [:div {:data-x #js {"a" 1}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :hand-a-data-value-or-assert-it-at-l3}
+              :where       're-frame.hicasso.test}
     :why     (str "004B §The node schema — the tree is plain, serialisable "
                   "Clojure data that EDN print/read round-trips; §Attr value "
                   "normalization — a host object is rejected. THE ROW rf2-6xhxu "
@@ -438,8 +415,7 @@
     :form    [:div {:data-x {:k #js {"a" 1}}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :hand-a-data-value-or-assert-it-at-l3}
+              :where       're-frame.hicasso.test}
     :why     (str "The other half of the same predicate (rf2-6xhxu). A non-empty "
                   "path says the value is nested, not that it has somewhere to "
                   "go: hoisted to `:data-y` this object meets the identical "
@@ -487,12 +463,11 @@
 
 (deftest the-table-covers-forms-BOTH-sides-refuse
   (testing "the corpus holds rows where the RUNTIME refuses too, and the kit
-            answers with the runtime's own id, recovery and raising site —
+            answers with the runtime's own id and raising site —
             the coverage PR #7796's audit found missing"
     (let [shared (filter (fn [{:keys [runtime refuses]}]
                            (and (= :refused (first runtime))
-                                (= (second runtime) (:rf.error/id refuses))
-                                (= (nth runtime 2) (:recovery refuses))))
+                                (= (second runtime) (:rf.error/id refuses))))
                          rows)]
       (is (seq shared))
       ;; The RAISING SITE is what makes a shared row shared. The kit stamps

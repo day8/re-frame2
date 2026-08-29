@@ -603,7 +603,6 @@
           (when (instance? ExceptionInfo outcome)
             (let [data (ex-data outcome)]
               (is (= :rf.error/hicasso-bad-head (:rf.error/id data)))
-              (is (= :call-it-or-make-it-a-view (:recovery data)))
               (is (identical? plain-child (:head data))
                   "the offending head is the one the body wrote"))))
 

@@ -2,7 +2,7 @@
   "THE LIVE HALF OF THE PRODUCTION-ERASURE PROOF.
 
   `implementation/hicasso/scripts/check_production_erasure.cjs` scans the
-  `:advanced` / `goog.DEBUG=false` bundle and requires six strings to be
+  `:advanced` / `goog.DEBUG=false` bundle and requires five strings to be
   ABSENT. An absence is only evidence about erasure if the string is
   something a live surface really emits — a sentinel that quietly stopped
   being produced is absent from every bundle for a reason that has nothing
@@ -24,7 +24,7 @@
 
   ## What is asserted, and what is not
 
-  Six sentinels and two of the scan's three positive controls. The third
+  Five sentinels and two of the scan's three positive controls. The third
   control — the release entry's own view name — is not asserted here
   because this namespace is not that entry; what it depends on is the
   MECHANISM, that `mint-view!` stamps `\"<ns>/<sym>\"` unconditionally, and
@@ -45,16 +45,14 @@
             [re-frame.hicasso.evidence :as evidence]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.test :as ht]))
 
 (def sentinels
-  "The six strings the release-bundle scan requires to be ABSENT, spelled
+  "The five strings the release-bundle scan requires to be ABSENT, spelled
   exactly as `check_production_erasure.cjs` spells them."
   {:body-slot        "hicassoBody"
    :views-slot       "hicassoViews"
    :test-kit-refusal "rf.error/hicasso-test-"
-   :complaint-guard  "hicasso-refusal-incomplete"
    :evidence-schema  "re-frame.hicasso.evidence"
    :console-prefix   "[hicasso]"})
 
@@ -107,16 +105,6 @@
     (let [id (:rf.error/id (refusal #(ht/tree [42 {}])))]
       (is (= :rf.error/hicasso-test-not-a-body id))
       (is (str/includes? (str id) (:test-kit-refusal sentinels))))))
-
-(deftest the-completeness-guard-mints-the-id-the-scan-names
-  (testing "`hicasso-refusal-incomplete` is what `fail!`'s dev guard raises"
-    (let [data (refusal #(error/fail! :rf.error/erasure-probe
-                                      're-frame.hicasso.erasure-sentinels-cljs-test/probe
-                                      "A refusal with no recovery."
-                                      nil
-                                      {}))]
-      (is (= :rf.error/hicasso-refusal-incomplete (:rf.error/id data)))
-      (is (str/includes? (str (:rf.error/id data)) (:complaint-guard sentinels))))))
 
 (deftest the-evidence-schema-pin-is-the-slug-the-scan-names
   (testing "`re-frame.hicasso.evidence` is the projection's identity slug"

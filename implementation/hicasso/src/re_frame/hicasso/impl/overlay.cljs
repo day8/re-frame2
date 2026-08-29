@@ -230,7 +230,6 @@
              (str "An overlay's :anchor is " (pr-str anchor-id) ", and no "
                   "element in the document carries that id, so there is "
                   "nothing to position the panel against.")
-             :give-the-trigger-the-dom-id-the-anchor-names
              {:anchor anchor-id}))))
 
 (defn- anchor-panel!
@@ -665,7 +664,6 @@
                   "Mount the overlay under a frame — h/mount!, "
                   "rf/frame-provider or frame-root — or drop :on-dismiss if "
                   "it should not be dismissable.")
-             :lower-intents-inside-a-boundary-render
              {:intent on-dismiss}))
     (fn [e]
       (when-not (and closed-only? (not= "closed" (.-newState e)))

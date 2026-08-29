@@ -148,7 +148,6 @@
            're-frame.hicasso.impl.presence/child-key
            (str "A presence child must be a keyed hiccup vector; it was "
                 (pr-str child) ".")
-           :give-every-presence-child-a-keyed-hiccup-vector
            {:child child}))
   (let [k (:key (props-of child))]
     (when (nil? k)
@@ -157,7 +156,6 @@
              (str "A presence child has no :key. Presence retains children by "
                   "key, so an unkeyed child cannot be recognised across a "
                   "render and cannot be animated out.")
-             :put-a-key-in-the-child-props-map
              {:child child}))
     k))
 
@@ -216,7 +214,6 @@
                       "Presence merges overrides into nodes it can see; a view is "
                       "opaque to it. The view receives " (pr-str phase-prop)
                       " as an ordinary prop — branch or style on that instead.")
-                 :read-the-phase-prop-inside-the-view
                  {:child child :phase phase}))
         (with-props child (assoc props phase-prop phase)))
       (let [override (override-for props phase)
@@ -365,6 +362,5 @@
                 (pr-str timeout-ms) ". It is the retention length and the hard "
                 "terminal bound — presence does not wait on transitionend, so "
                 "without it a child could be retained forever.")
-           :give-presence-a-positive-timeout-ms
            {:timeout-ms timeout-ms}))
   timeout-ms)

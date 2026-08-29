@@ -193,8 +193,8 @@
   "The exact stable shape every escape past the render frame must carry.
 
   The four keys are the contract: the stable id, the source coordinate as the
-  runtime can state one today, the actionable recovery, and the query that was
-  refused. `:reason` is deliberately NOT frozen here — it is prose, and
+  runtime can state one today, core's `:no-recovery` disposition, and the
+  query that was refused. `:reason` is deliberately NOT frozen here — it is prose, and
   re-routing the complaint text through `re-frame.error` is the complaint
   catalogue's to rule on, as the file/line/column coordinate this `:where`
   symbol stands in for is the source-coordinate arm's. The rows assert that
@@ -203,7 +203,7 @@
   [query-v]
   {:rf.error/id :rf.error/hicasso-sub-outside-render
    :where       're-frame.hicasso.impl.collector/read-key!
-   :recovery    :read-inside-a-boundary-body
+   :recovery    :no-recovery
    :query-v     query-v})
 
 (defn- refusal-shape
@@ -212,9 +212,8 @@
   (dissoc (:refused o) :reason))
 
 (defn- names-the-recovery?
-  "I7 requires source AND recovery. The recovery keyword is asserted by
-  [[escaped-extent-refusal]]; this is the developer-facing half of it —
-  the message has to say where the read is legal and what to use instead."
+  "I7 requires source AND recovery, and the recovery lives in the message:
+  it has to say where the read is legal and what to use instead."
   [o]
   (let [m (str (:message o))]
     (and (some? (re-find #"outside a boundary render" m))
@@ -577,9 +576,7 @@
               a second refusal shape, because it is a second law"
       (is (= :rf.error/hicasso-deferred-read-at-boundary
              (:rf.error/id (:refused o))))
-      (is (= 're-frame.hicasso.impl.codec/boundary-element (:where (:refused o))))
-      (is (= :hand-a-function-or-deref-it-in-this-body
-             (:recovery (:refused o)))))
+      (is (= 're-frame.hicasso.impl.codec/boundary-element (:where (:refused o)))))
 
     (testing "the offending value is carried, and it is the unforced delay
               itself — the refusal did not force it to find out"

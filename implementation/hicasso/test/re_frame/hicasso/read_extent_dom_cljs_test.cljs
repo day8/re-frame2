@@ -101,9 +101,8 @@
   of those would re-point. Copying that assertion into a second file
   would double the surface they have to move for no new information
   about the browser lane, so `:reason` is projected out of every
-  comparison below and the message is never matched. The `:recovery`
-  keyword in the exact map is the machine-readable half, and it is the
-  half this file needs.
+  comparison below and the message is never matched. The id in the exact
+  map is the machine-readable half, and it is the half this file needs.
 
   ## Self-contained harness, on purpose
 
@@ -228,7 +227,7 @@
   [query-v]
   {:rf.error/id :rf.error/hicasso-sub-outside-render
    :where       're-frame.hicasso.impl.collector/read-key!
-   :recovery    :read-inside-a-boundary-body
+   :recovery    :no-recovery
    :query-v     query-v})
 
 (defn- refusal-shape

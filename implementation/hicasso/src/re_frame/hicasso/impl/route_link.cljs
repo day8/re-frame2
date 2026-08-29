@@ -138,7 +138,6 @@
                 "ordinary intent position instead — :on-mouse-enter "
                 "[:rf.route/prefetch {…}] — which needs nothing this link does "
                 "not already give you.")
-           :spell-prefetch-as-an-on-mouse-enter-intent
            {:to to :prefetch (:prefetch props)}))
   props)
 
@@ -165,7 +164,6 @@
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "
                 (pr-str intent/prevent-head) " if it replaces the navigation.")
-           :veto-with-prevent-a-callback-or-nothing
            {:on-click on-click}))
   on-click)
 
@@ -176,7 +174,6 @@
              (str "route-link {:to " (pr-str to) "} was rendered with no ambient "
                   "frame; a link is only legal inside a boundary's render, because "
                   "the navigation must be pinned to the frame that rendered it.")
-             :render-route-links-inside-a-boundary
              {:to to})))
 
 (defn route-link

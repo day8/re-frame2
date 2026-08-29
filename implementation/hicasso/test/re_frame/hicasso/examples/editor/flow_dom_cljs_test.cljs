@@ -310,9 +310,8 @@
     (skip! "an element is only created on a real root")
     (let [data (try (hm/mount! [bad-revision-box {}] {}) nil
                     (catch :default e (ex-data e)))]
-      (is (= {:rf.error/id :rf.error/hicasso-revision-not-controlled
-              :recovery    :put-the-revision-on-a-controlled-input-or-textarea}
-             (select-keys data [:rf.error/id :recovery]))
+      (is (= {:rf.error/id :rf.error/hicasso-revision-not-controlled}
+             (select-keys data [:rf.error/id]))
           "asserted as an identity and not as `thrown?`: in a layered
            runtime there is nearly always a second defence, and a bare
            throw assertion buys its silence rather than the first one's

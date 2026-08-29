@@ -483,10 +483,6 @@
       (is (some? e) "the render refused rather than emitting the field")
       (is (= :rf.error/hicasso-revision-not-controlled (:rf.error/id d))
           (str "with the id that names the mistake: " (pr-str d)))
-      (is (= :put-the-revision-on-a-controlled-input-or-textarea
-             (:recovery d))
-          "carrying the recovery, which is what makes it a refusal rather
-           than a crash")
       (is (= 're-frame.hicasso.core-view-ssr-dom-cljs-test/bad-revision
              (symbol (:view d)))
           (str "attributed to the AUTHOR'S boundary — not to the codec

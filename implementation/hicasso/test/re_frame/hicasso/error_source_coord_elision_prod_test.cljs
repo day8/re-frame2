@@ -104,7 +104,6 @@
                (error/fail! :rf.error/hicasso-empty-vector
                             're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
-                            :supply-a-hiccup-head
                             {})
                (catch :default e (ex-data e)))]
 
@@ -113,7 +112,7 @@
       (is (= {:rf.error/id :rf.error/hicasso-empty-vector
               :where       're-frame.hicasso.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
-              :recovery    :supply-a-hiccup-head}
+              :recovery    :no-recovery}
              data)))
 
     (testing "and the ambient pair is ABSENT rather than nil — the whole
@@ -139,7 +138,6 @@
                (error/fail! :rf.error/hicasso-empty-vector
                             're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
-                            :supply-a-hiccup-head
                             {:view   "app.impostor/not-a-view"
                              :source {:ns 'app.impostor :file "app/impostor.cljs"
                                       :line 1 :column 1}
@@ -152,7 +150,7 @@
       (is (= {:rf.error/id :rf.error/hicasso-empty-vector
               :where       're-frame.hicasso.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
-              :recovery    :supply-a-hiccup-head
+              :recovery    :no-recovery
               :head        :the-class-s-own-slot}
              data)))
 

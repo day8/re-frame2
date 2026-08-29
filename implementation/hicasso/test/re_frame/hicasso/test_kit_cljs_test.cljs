@@ -39,7 +39,6 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -90,7 +89,7 @@
   its subject. `:reason` is prose and deliberately not frozen."
   [outcome' extra-keys]
   (some-> (:refused outcome')
-          (select-keys (into [:rf.error/id :where :recovery] extra-keys))))
+          (select-keys (into [:rf.error/id :where] extra-keys))))
 
 (deftest the-refusal-witness-answers-both-ways
   (testing "the discriminator reports :returned for a render that is legal,
@@ -101,8 +100,7 @@
 
   (testing "and :refused, with the id, for one that is not"
     (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
-            :where       're-frame.hicasso.test
-            :recovery    :pass-the-body-fn}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/tree [:not-a-body-fn 1])) [])))))
 
 (deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
@@ -113,7 +111,6 @@
   ;; payload that would pass under either merge order.
   (let [o (outcome #(#'ht/refuse! :rf.error/hicasso-test-not-a-body
                                   "render's head is the BODY FUNCTION."
-                                  :pass-the-body-fn
                                   {:rf.error/id :rf.error/hicasso-true-child
                                    :where       'app.impostor/elsewhere
                                    :reason      "replaced"
@@ -127,7 +124,7 @@
       (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
               :where       're-frame.hicasso.test
               :reason      "render's head is the BODY FUNCTION."
-              :recovery    :pass-the-body-fn
+              :recovery    :no-recovery
               :value       :the-class-s-own-slot}
              (:refused o))
           "the whole ex-data, so an overwritten field cannot hide behind a
@@ -138,12 +135,7 @@
               and a map and a message disagreeing about which refusal occurred
               defeats that before a reader gets to the id"
       (is (= "render's head is the BODY FUNCTION. [:rf.error/hicasso-test-not-a-body]"
-             (:message o))))
-
-    (testing "and the emitted map satisfies the PACKAGE's completeness rule,
-              read from `impl.error` rather than copied — the kit's shape and
-              the runtime's are one shape or the parity is a coincidence"
-      (is (= [] (error/missing-fields (:refused o)))))))
+             (:message o))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the boundary ABI
@@ -214,8 +206,7 @@
             answering nil — a nil here would read as :client-only's
             neighbour"
     (is (= {:rf.error/id :rf.error/hicasso-test-not-a-host
-            :where       're-frame.hicasso.test
-            :recovery    :pass-the-defhost-var}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/host-policy greeting)) [])))))
 
 ;; ---------------------------------------------------------------------------
@@ -253,8 +244,7 @@
 
   (testing "and a non-native form is refused rather than projected"
     (is (= {:rf.error/id :rf.error/hicasso-test-not-a-native-form
-            :where       're-frame.hicasso.test
-            :recovery    :pass-a-native-hiccup-form}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/element-props [greeting {}])) [])))))
 
 (deftest materialize-is-the-runtime-marker-law
@@ -276,8 +266,7 @@
 
   (testing "and a non-vector refuses"
     (is (= {:rf.error/id :rf.error/hicasso-test-not-an-intent
-            :where       're-frame.hicasso.test
-            :recovery    :pass-an-intent-vector}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/materialize {:not "an intent"} {})) [])))))
 
 (deftest the-controlled-and-revision-laws-read-as-data
@@ -463,7 +452,6 @@
     (let [o (outcome #(ht/tree [unretained-head {:who "ada"}]))]
       (is (= {:rf.error/id :rf.error/hicasso-test-boundary-body-not-retained
               :where       're-frame.hicasso.test
-              :recovery    :render-the-body-fn-or-mount-at-l3
               :view        "re-frame.hicasso.test-kit-cljs-test/unretained-head"}
              (refusal o [:view])))
       (is (re-find #"L3 owns React lifecycle" (:message o))
@@ -496,7 +484,6 @@
   (testing "at the root"
     (is (= {:rf.error/id :rf.error/hicasso-test-host-is-opaque
             :where       're-frame.hicasso.test
-            :recovery    :assert-it-at-l3
             :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
            (refusal (outcome #(ht/tree [badge {:label "x"}])) [:host]))))
 
@@ -504,7 +491,6 @@
             actually appears"
     (is (= {:rf.error/id :rf.error/hicasso-test-host-is-opaque
             :where       're-frame.hicasso.test
-            :recovery    :assert-it-at-l3
             :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
            (refusal (outcome #(ht/tree [(fn [_] [:div [badge {:label "x"}]]) {}]))
                     [:host]))))
@@ -517,8 +503,7 @@
 (deftest raw-react-is-opaque-at-l2
   (testing "an element only React can interpret has no semantic form here"
     (is (= {:rf.error/id :rf.error/hicasso-test-react-is-opaque
-            :where       're-frame.hicasso.test
-            :recovery    :assert-it-at-l3}
+            :where       're-frame.hicasso.test}
            (refusal (outcome
                       #(ht/tree [(fn [_]
                                      [:div (react/createElement "b" nil "raw")])
@@ -536,8 +521,7 @@
             refusal waits — and stayed green throughout (rf2-llps1). A
             borrowed id brings the advice with it or it is not a borrowing."
     (is (= {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-            :where       're-frame.hicasso.test
-            :recovery    :hand-a-function-or-deref-it-in-this-body}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/tree [(fn [_] [:div (delay [:p])]) {}]))
                     [])))))
 
@@ -545,8 +529,7 @@
   (testing "HD-016 makes it a loud error in Hicasso, so the kit refuses it
             too rather than teaching a spelling the runtime rejects"
     (is (= {:rf.error/id :rf.error/hicasso-test-plain-fn-head
-            :where       're-frame.hicasso.test
-            :recovery    :mint-the-boundary-or-render-it-as-the-root}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/tree [(fn [_] [:div [greeting-body {:who "x"}]])
                                           {}]))
                     []))))
@@ -564,7 +547,6 @@
     (let [o (outcome #(ht/tree [todo-row-body {:id 3}] {:subs {}}))]
       (is (= {:rf.error/id :rf.error/hicasso-test-missing-read-fixture
               :where       're-frame.hicasso.test
-              :recovery    :add-the-query-to-subs
               :phase       :after-body-run
               :missing     [[:tk/todo 3]]}
              (refusal o [:missing :phase])))))
@@ -585,8 +567,7 @@
 
   (testing "and :subs itself is checked"
     (is (= {:rf.error/id :rf.error/hicasso-test-bad-reads
-            :where       're-frame.hicasso.test
-            :recovery    :pass-a-map-of-query-to-value}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/tree [greeting-body {}] {:subs [:not :a :map]}))
                     [])))))
 
@@ -602,7 +583,6 @@
             outright and the author's fixture map was never read by anything"
     (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
             :where       're-frame.hicasso.test
-            :recovery    :remove-the-unknown-option
             :unknown     [:reads]}
            (refusal (outcome #(ht/tree [greeting-body {:who "ada"}]
                                        {:reads {[:tk/todo 1] {:text "milk"}}}))
@@ -626,7 +606,6 @@
   (testing "options that are not a map at all"
     (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
             :where       're-frame.hicasso.test
-            :recovery    :pass-a-map-of-options
             :value       [:subs {}]}
            (refusal (outcome #(ht/tree [greeting-body {:who "ada"}] [:subs {}]))
                     [:value]))))
@@ -678,8 +657,7 @@
                            {}]))]
       (is (map? (:returned o)) "the body itself is legal")
       (is (= {:rf.error/id :rf.error/hicasso-sub-outside-render
-              :where       're-frame.hicasso.impl.collector/read-key!
-              :recovery    :read-inside-a-boundary-body}
+              :where       're-frame.hicasso.impl.collector/read-key!}
              (refusal (outcome @escaped) [])))))
 
   (testing "and the body-run counter moved, so the row above is not green

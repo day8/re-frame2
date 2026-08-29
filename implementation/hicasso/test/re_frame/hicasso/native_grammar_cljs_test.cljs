@@ -366,7 +366,6 @@
     (let [cell {:class "px"}
           data (refusal #(n/$ :td cell "5"))]
       (is (= :rf.error/hicasso-native-map-as-child (:rf.error/id data)))
-      (is (= :mark-the-props-operand-with-n-props (:recovery data)))
       (is (= cell (:child data)))))
 
   (testing "NON-MEMBER: the same map MARKED is props and refuses
@@ -380,8 +379,7 @@
   (testing "brackets have no meaning past the fence. Member"
     (let [row  [:span "not markup here"]
           data (refusal #(n/$ :div row))]
-      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))
-      (is (= :nest-n-dollar-or-convert-with-h-as-element (:recovery data)))))
+      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))))
 
   (testing "NON-MEMBER 1: a ClojureScript SEQ of elements is ES6-iterable
             and is therefore already a React child. Narrowing caught:
@@ -411,7 +409,6 @@
       (is (= 're-frame.hicasso.native/props (:where data)))
       (is (string? (:reason data)))
       (is (seq (:reason data)))
-      (is (= :pass-children-after-the-props-operand (:recovery data)))
       (is (= :children (:prop data)))))
 
   (testing "and a refusal raised from the element path names THAT door,
@@ -455,17 +452,14 @@
                 (re-frame.hicasso.native/$ :div [:span "not markup here"]))]
       (is (= :refused (:outcome out)))
       (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id (:data out))))
-      (is (= 're-frame.hicasso.native/$ (:where (:data out))))
-      (is (= :nest-n-dollar-or-convert-with-h-as-element
-             (:recovery (:data out))))))
+      (is (= 're-frame.hicasso.native/$ (:where (:data out))))))
 
   (testing "and a literal MAP in child position, which is the unmarked
             props operand, refuses on the same reading of the same form"
     (let [out (probe/expansion
                 (re-frame.hicasso.native/$ :td "5" {:class "px"}))]
       (is (= :refused (:outcome out)))
-      (is (= :rf.error/hicasso-native-map-as-child (:rf.error/id (:data out))))
-      (is (= :mark-the-props-operand-with-n-props (:recovery (:data out)))))))
+      (is (= :rf.error/hicasso-native-map-as-child (:rf.error/id (:data out)))))))
 
 (deftest a-literal-props-map-is-lowered-at-expansion-and-refuses-there
   (testing "a canonical-slot collision written literally. `literal-props`
