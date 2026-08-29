@@ -802,13 +802,11 @@
     (let [r (react/createRef)]
       (is (identical? r (prop (codec/as-element [:div {"ref" r}]) "ref")))
       (is (identical? r (host-prop :x/ref r "ref")))))
-  (testing "the reserved VECTOR is still refused at both, which is the rule
-            that IS enforced — so the two questions stay separable"
-    (let [reserved [::autosize {:max-rows 8}]]
-      (is (thrown-with-msg? js/Error #"RESERVED"
-                            (codec/as-element [:div {:ref reserved}])))
-      (is (thrown-with-msg? js/Error #"RESERVED"
-                            (codec/as-element [a-host {:ref reserved}]))))))
+  (testing "and a VECTOR crosses at both as the author wrote it — nothing
+            about the slot's value-space is reserved"
+    (let [v [::autosize {:max-rows 8}]]
+      (is (some? (prop (codec/as-element [:div {:ref v}]) "ref")))
+      (is (= v (host-prop :ref v "ref"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The `[:>]` raw escape (HD-011)
