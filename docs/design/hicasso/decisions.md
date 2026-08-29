@@ -2008,6 +2008,23 @@ below, with the full window in
 
 ## HD-024 — One callback form; the position selects the contract
 
+> **Addendum, 2026-08-30 — the render-position gate is deleted; a dispatch
+> from inside a render callback is not policed (`rf2-6c12m.20`, PR #8746).**
+> The 2026-08-03 addendum's mechanism — a gate minted per invocation of
+> every render prop, poisoning the ambient dispatch while the call ran and
+> raising `:rf.error/hicasso-dispatch-in-render-position` — is gone, and the
+> id is retired (Spec 009's row is struck in place). It spent a volatile, a
+> closure and a three-var binding per invocation of every render prop to
+> refuse a case a programmer does not plausibly write and one React's own
+> render-phase warnings already report. What stays is the half that was
+> doing the work: `render-callback` captures the supplying boundary's frame
+> and dispatch at lowering time and rebinds both per invocation, so a row
+> built inside a foreign render prop belongs to the boundary that supplied
+> it; a callback lowered with no owner rebinds nil, and a handler lowered
+> inside it raises the ordinary `:rf.error/hicasso-intent-outside-boundary`.
+> Row 3's purity law below is now a statement of the contract rather than a
+> refusal the runtime enforces.
+
 > **Addendum, 2026-08-29 — row 2 is struck: a `defhost` position takes row 1 or
 > row 3 by its spelling, and `:callbacks` is an override rather than a roster
 > (`rf2-6c12m.2`, executed by `rf2-6c12m.24`).** The position table below reads

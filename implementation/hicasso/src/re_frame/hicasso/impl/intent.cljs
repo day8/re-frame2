@@ -56,38 +56,25 @@
 
 (def ^:dynamic *frame*
   "The frame KEYWORD for the boundary currently rendering, bound for the
-  render's dynamic extent alongside [[*dispatch*]]. `nil` outside a
-  render. [[re-frame.hicasso.impl.route-link/route-link]] reads it
-  to capture the render frame into its navigate vector — a browser click
-  fires long after the render's dynamic extent has unwound, so the frame
-  must travel as data."
+  render's dynamic extent beside `*dispatch*`; `nil` outside a render.
+  `hframe` and `re-frame.hicasso.impl.route-link/route-link` read it at
+  render time, because a browser click fires after the extent has unwound
+  and the frame must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
-  "The detail this package hands core's refusal tier. One
-  module-level constant, so the prose — which is nearly all of it — is
-  built once at load and never per body. [[with-frame]] stamps the
-  rendering boundary's own frame onto a copy of it; that
-  `assoc` is the whole per-extent cost, and it buys the one property a
-  shared constant cannot express: which frame THIS body has.
+  "The detail this substrate hands core's refusal tier
+  (`re-frame.frame/*ambient-frame-refusal*`). One module-level constant,
+  built once at load; `with-frame` stamps the rendering boundary's frame
+  onto a copy as `:extent-frame`, and that `assoc` is the whole
+  per-extent cost.
 
-  The sentence has to be the one an author can act on, because the whole
-  point of the tier is that the generic `:rf.error/no-frame-context` advice
-  — establish a scope — is WRONG here: a body always sits under a frame
-  boundary, so following it would change nothing and the boundary would go
-  on quietly not re-rendering.
-
-  IT HAS TO ADDRESS THREE DOORS, NOT TWO. The ambient scope is
-  one door with three consumers — a read, a dispatch, and a CARRY — and
-  the reason's opening advice speaks to the first two. An author who
-  trips the refusal through `rf/capture-frame` is doing neither:
-  `capture-frame` is Spec
-  002's *one public carry primitive*, and the reason its 0-arity resolves
-  ambiently is to CAPTURE, not to read and not to dispatch. Advice that
-  says \"read through the collector, dispatch through an intent\" names
-  nothing they can write. So the carry gets its own sentence, and it is a
-  different sentence — not the collector and not an intent, but the
-  1-arity, which never consults the resolver at all."
+  The reason names THREE recoveries, and the third must stay: a read goes
+  through the collector and a dispatch through an intent, but an author
+  who trips the refusal through zero-arity `rf/capture-frame` is
+  CARRYING, and the only advice they can act on is the 1-arity, which
+  never consults the resolver (docs/design/hicasso/studio/hframe-design.md
+  §9(4))."
   {:substrate :hicasso
    :extent    'hicasso/boundary-render
    :recovery  :read-through-the-boundary-collector
@@ -111,48 +98,27 @@
                    "composition is refusal-immune by construction.")})
 
 (defn with-frame
-  "Run `body-fn` with the boundary's render context bound ambiently. Two
-  doors: the RUNTIME binds both the frame keyword and its frame-locked
-  `dispatch` (the 3-arity — the one [[route-link]] and the navigate head
-  need); a lowering test that only drives closures may bind the dispatch
-  alone (the 2-arity), and anything frame-keyword-dependent it lowers
-  stays a loud error rather than a silent guess.
+  "Run `body-fn` with the boundary's render context bound ambiently. The
+  3-arity binds the frame keyword and its frame-locked `dispatch` — the
+  runtime's door; the 2-arity binds the dispatch alone, for a lowering
+  test that only drives closures, and anything frame-dependent it lowers
+  stays a loud error rather than a silent guess. Both bind core's refusal
+  tier as well, so ambient `rf/subscribe`, `rf/dispatch` and zero-arity
+  `rf/capture-frame` refuse for the extent (HD-002 clause (a)), while an
+  explicitly carried frame — `{:frame <id>}`, an `rf/with-frame` naming
+  THIS frame — still answers: the refusal deletes the ambient FIND, not
+  the carrying. The 3-arity also declares its frame as `:extent-frame`,
+  so a carried stamp naming a DIFFERENT frame is refused too, because one
+  body would otherwise read against `:b` while its lowered intents target
+  `:a`; the 2-arity declares none and refuses no carry.
 
-  THE THIRD VAR IS CORE'S REFUSAL TIER. This extent is
-  exactly the render extent HD-002 clause (a) governs, so it is exactly
-  where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
-  bound HERE, fused into the binding this function already performs, rather
-  than through `frame/call-with-ambient-frame-refused` around the call:
-  `binding` pushes and pops its whole set once, so the fence costs the runtime
-  no additional frame — the general seam exists for substrates that are not
-  already binding something.
-
-  It covers all three doors deliberately. A body is the obvious one, but
-  the error boundary's fallback and the presence tray's retained children
-  are author-written render-phase code walked under this same binding, and
-  an ambient read is exactly as invisible to the collector there.
-
-  An explicitly carried frame is untouched, in this extent as everywhere:
-  `{:frame <id>}` never consults the ambient resolver, and `rf/with-frame`
-  naming THIS boundary's frame still answers inside a body. The refusal
-  deletes the ambient FIND, not the carrying.
-
-  A BODY HAS ONE FRAME, BY CONSTRUCTION. The one case the
-  sentence above does not cover: an `rf/with-frame :b` ENCLOSING a
-  boundary that renders `:a`. Left to carrying alone, core behaves
-  exactly as EP-0002 says — `:b` is carried, so `:b` answers — but the
-  boundary is rendering `:a`,
-  and the collector's reads, the lowered intents and the presence tray all
-  target `:a`. One body, two frames, chosen by which spelling the author
-  reached for, and silent. It is reachable from any host that renders a
-  Hicasso tree inside a scope: a `flushSync` mount under a `with-frame`, an
-  SSR host wrapping `renderToString`, a test fixture that root-binds an
-  ambient frame. So this extent tells core WHICH frame it is rendering
-  (`:extent-frame`) and core refuses a carried stamp that names another —
-  the only carry that stops working is the one that was already wrong.
-  The 2-arity names no frame, so it declares none and nothing is refused
-  there: an extent with no frame of its own has nothing to be mismatched
-  against."
+  The tier is fused into this `binding` rather than wrapped around the
+  call because `binding` pushes its whole set once, so the fence costs no
+  extra frame. Every author-written render-phase walk comes through here
+  — a body, the error boundary's fallback, the presence tray's retained
+  children — since an ambient read is exactly as invisible to the
+  collector in each. Contract: spec/002-Frames.md §The refusal tier;
+  docs/design/hicasso/decisions.md HD-020(a)."
   ([dispatch body-fn] (with-frame nil dispatch body-fn))
   ([frame-kw dispatch body-fn]
    (binding [*frame*                       frame-kw
@@ -165,27 +131,16 @@
 ;; package, and the ambient view and source coordinate come with it.
 
 (defn- require-dispatch
-  "The frame-locked dispatch this lowering needs, or the loud refusal.
-
-  **The message offers TWO readings, because the runtime cannot tell
-  them apart**. `*dispatch*` being `nil` says only that
-  no render window is binding one; it does not say why, and the two
-  whys want opposite repairs:
-
-  1. The form really was lowered outside any boundary — a declaration,
-     a `defhost` fallback, a module-level `def`. Lower it in a body.
-  2. The form was lowered inside a function some foreign component
-     invokes LATER, after the render window that bound the dispatch has
-     unwound. **A function prop on a `[:>]` crossing is exactly this**:
-     the escape carries no declaration, so no position claims the slot
-     and nothing installs the render wrapper that captures the owner's
-     dispatch and forwards to it. From where the author sits they ARE
-     inside a boundary's render — they wrote the crossing in a body — so
-     a message offering only reading 1 reads as a framework bug.
-
-  Naming `defhost`'s `:callbacks {… :render}` is what makes reading 2
-  actionable: a declared `:render` slot is the position that owns the
-  frame, and declaring it is the whole of the repair."
+  "The frame-locked dispatch this lowering needs, or
+  `:rf.error/hicasso-intent-outside-boundary`. The message offers TWO
+  readings because a nil `*dispatch*` cannot tell them apart and they
+  want opposite repairs: the form was lowered outside any boundary (lower
+  it in a body), or inside a function a foreign component invokes after
+  the render unwound — a function prop on a `[:>]` crossing is exactly
+  this, and the repair is to declare it (`defhost` `:callbacks {<prop>
+  :render}`) so the position owns the frame. Drop the second reading and
+  that author, who did write the crossing in a body, reads the error as a
+  framework bug."
   [intent]
   (or *dispatch*
       (fail! :rf.error/hicasso-intent-outside-boundary
@@ -252,22 +207,13 @@
 (def ^:private callback-marker "hicassoFn")
 
 (defn callback
-  "**The one callback form.** Marks `f` so the position it is written at
-  can impose a contract on it — and returns `f` ITSELF, an ordinary
-  function, which is the whole of the deletion.
-
-  A roster design's carriers are marker OBJECTS, so handing one to
-  a position the library does not walk produces the engine's own
-  `TypeError` naming nothing the author wrote. There is nothing here that
-  can fail to be callable: outside every walked position this value is a
-  plain function whose return is ignored, which is a defensible contract
-  rather than a crash.
-
-  `h/event` in the authoring surface; see
-  [[re-frame.hicasso/event]]. Marking mutates the function
-  object, which is safe because a callback written in a body is minted
-  fresh per render — and it is one own-property read to test, with no
-  registry and no map."
+  "The one callback form, `h/event`: marks `f` so the position it is
+  written at can impose a contract, and returns `f` ITSELF — an ordinary
+  function, so outside every walked position it simply runs and nothing
+  can fail to be callable, which is HD-024's deletion of the roster.
+  Marking mutates the function object, which is safe because a callback
+  written in a body is minted fresh per render, and costs one own-property
+  read to test. Design record: docs/design/hicasso/decisions.md HD-024."
   [f]
   (unchecked-set f callback-marker true)
   f)
@@ -279,35 +225,17 @@
   (and (fn? v) (true? (unchecked-get v callback-marker))))
 
 (defn- event-callback
-  "**Event position.** A returned VECTOR is dispatched; anything else is
-  ignored, so the same form serves the live-event case (files, geometry,
-  filters) and the imperative one without the author choosing between two
-  spellings.
-
-  The ambient dispatch is captured at LOWERING time, as everywhere else
-  in this namespace — the browser invokes the callback long after the
-  render's dynamic extent has unwound. It is captured rather than
-  *required*, so a callback that never returns an intent is legal with no
-  frame in scope; returning one there is the loud error, and it names the
-  position.
-
-  **The census-weighted policy defaults do NOT apply here, deliberately.**
-  `:on-submit`'s auto-prevent is a property of the *data* spelling: an
-  intent vector never sees the event, so the runtime must decide for it.
-  A callback is handed the event, so the event is the callback's — it
-  calls `.preventDefault` itself, and the runtime does not reach in after
-  the body has run to second-guess it. One rule: whoever holds the event
-  owns it.
-
-  **Every argument the invoker passes reaches the body**, the same way
-  [[render-callback]] forwards them. A native DOM event position calls
-  with one argument and that is the overwhelming case, but this is also
-  the wrapper a `defhost` `:callbacks` entry declared `:event` gets, and
-  a foreign component's live invoker calls with whatever its own contract
-  says — `(on-change value event)`, `(on-select item index)`. Accepting
-  exactly `[e]` would silently drop everything after the first, or raise
-  an arity error naming nothing the author wrote, against a form whose
-  parameter vector is arbitrary by construction."
+  "Event position: a returned VECTOR is dispatched, anything else is
+  ignored, and every argument the invoker passes reaches the body — a
+  `defhost` `:event` entry or a foreign live invoker may pass several,
+  and a wrapper fixed at `[e]` would drop them or raise an arity error
+  naming nothing the author wrote. The dispatch is captured at lowering
+  time, and captured rather than required: a callback that never returns
+  an intent is legal with no frame in scope, and returning one there is
+  the loud error naming the position. The data spelling's policy defaults
+  do not apply, because a callback holds the event and so owns
+  `.preventDefault` (HD-026, Scope). Design record:
+  docs/design/hicasso/decisions.md HD-024."
   [k f]
   (let [dispatch *dispatch*]
     (fn hicasso-event-callback [& args]
@@ -325,35 +253,24 @@
         nil))))
 
 (defn- render-callback
-  "**Render position.** The callback is invoked by whatever holds it —
-  a slot, a foreign component's render prop — DURING a render, so its
-  return is the render output and is not an intent: it crosses back
-  UNCONVERTED, and a row written as hiccup is turned into an element by
-  the author, with [[re-frame.hicasso.impl.codec/as-element]] (exported
-  as `h/as-element`):
+  "Render position: invoked by whatever holds it DURING a render, so the
+  return is render output, is not dispatched, and crosses back
+  UNCONVERTED — the author makes the element with
+  `re-frame.hicasso.impl.codec/as-element` (`h/as-element`):
 
       (h/event [i]
         (h/as-element
           [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
 
-  The wrapper captures the ambient frame AND dispatch at LOWERING time —
-  the supplying boundary's, because it is minted during that boundary's
-  eager `with-frame` + `as-element` walk — and rebinds both for each
-  invocation. That is what makes the row above belong to the boundary
-  that SUPPLIED the callback: its `:on-click` lowers under the owner's
-  frame-locked dispatch and a
-  [[re-frame.hicasso.impl.route-link/route-link]] in it pins its
-  navigation to the owner's frame. Nothing else could own it — the
-  foreign component has no frame of its own, and frames are isolated
-  contexts.
-
-  Dispatching from INSIDE the call is not policed. It is a render, and a
-  programmer does not plausibly write a render prop that dispatches
-  while it runs; where one does, React's own render-phase warnings are
-  the report. A callback lowered with no owner in scope at all rebinds
-  `nil`, so a handler lowered inside it raises the ordinary
-  `:rf.error/hicasso-intent-outside-boundary` — loud, never a silently
-  inert handler. `.preventDefault`-style side effects are untouched."
+  The wrapper captures `*frame*` and `*dispatch*` at lowering time — the
+  SUPPLYING boundary's, the only frame that can own the row — and rebinds
+  both per invocation, so an intent lowered inside fires into that frame.
+  Lowered with no owner in scope it rebinds nil, and a handler lowered
+  inside raises the ordinary `:rf.error/hicasso-intent-outside-boundary`.
+  A dispatch from INSIDE the call is not policed; React's render-phase
+  warnings are the report (rf2-6c12m.20). Design record:
+  docs/design/hicasso/decisions.md HD-024, its 2026-08-03 and 2026-08-30
+  addenda."
   [_k f]
   (let [owner-dispatch *dispatch*
         owner-frame    *frame*]
@@ -366,18 +283,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- event-arg!
-  "Answer `e` when it is the DOM event this closure needs, and raise a
-  diagnostic naming the POSITION when it is not. `slot` is the one
-  property the closure is about to read off it — `preventDefault`,
-  `target`, `key` — so the check is the read that was going to happen
-  anyway, and the message can say which capability was missing rather
-  than asserting a type.
-
-  See the namespace docstring §The argument law. The whole point is that
-  a value-first foreign invoker produces THIS error, naming the position
-  and pointing at `h/event`, instead of the engine's
-  `value.preventDefault is not a function` — which names nothing the
-  author wrote and is the failure class HD-024 exists to delete."
+  "Answer `e` when it carries `slot` — the one property the closure is
+  about to read (`preventDefault`, `target`, `key`) — and raise
+  `:rf.error/hicasso-intent-needs-the-event`, naming the position, the
+  intent and what arrived, when it does not. The check is the read that
+  was going to happen anyway; what it buys is that a value-first invoker
+  produces THIS error, pointing at `h/event`, instead of the engine's
+  `value.preventDefault is not a function` (HD-024, the argument law)."
   [k form e slot]
   (if (and (some? e) (some? (unchecked-get e slot)))
     e
@@ -408,9 +320,9 @@
 
 (def prevent-head
   "`::h/prevent` — the FIRST reserved intent HEAD. `[::h/prevent [:app/go]]`
-  at an event position dispatches `[:app/go]` and calls `.preventDefault`
-  first. See [[unwrap-prevent]] for the closed grammar, and the policy
-  defaults above for why it is a head rather than metadata."
+  at an event position calls `.preventDefault` and dispatches `[:app/go]`;
+  `unwrap-prevent` holds the closed grammar. A head rather than metadata
+  because metadata does not participate in `=` (HD-026)."
   :re-frame.hicasso/prevent)
 
 (def navigate-head
@@ -482,9 +394,11 @@
   (boolean (some marker-readers intent)))
 
 (defn materialize
-  "THE ONE PURE MATERIALIZER. Substitute the markers in `intent` with
-  values pulled from the DOM event's target. Top level only — see the
-  namespace docstring."
+  "Substitute the markers in `intent` with values read off the DOM event's
+  target. Pure, and top level only: the corpus writes
+  `[:todo.ui/edit id ::h/value]`, and a deep walk per event to serve a
+  shape nobody writes would be paid on every keystroke of every controlled
+  field."
   [intent e]
   (let [target (.-target e)]
     (mapv (fn [x] (if-some [read-value (marker-readers x)] (read-value target) x))
@@ -496,23 +410,12 @@
 
 (defn composing?
   "Is this key event part of an in-flight IME composition? `isComposing`
-  where the browser sets it, and the legacy keyCode-229 signal where it
-  is all the browser sends.
-
-  **Both signals are read off the NATIVE event**, and that is not
-  defensive tidiness — it is the difference between a live fence and a
-  dead one. React does not hand a handler the browser's event: it hands
-  it a synthetic one built by copying an enumerated interface, and
-  `KeyboardEventInterface` lists key, code, location, the modifier flags,
-  repeat, locale, `charCode`, `keyCode` and `which`. **`isComposing` is
-  not on that list**, so on React it reads `undefined` however plainly the
-  browser set it, and the modern half of this gate would never fire —
-  leaving only the legacy signal, on browsers that happen to send it.
-  Measured at
-  `re-frame.bench.hicasso.arm1.controlled-grid-dom-cljs-test/reacts-synthetic-keyboard-event-drops-is-composing`.
-
-  A raw DOM event has no `nativeEvent`, so it falls back to itself and
-  the node-side unit tests read exactly as they did."
+  where the browser sets it, and the legacy keyCode-229 signal where that
+  is all it sends. Both are read off the NATIVE event: React's synthetic
+  keyboard event copies an enumerated interface that omits `isComposing`,
+  so a gate reading the synthetic event is dead on its modern half
+  (docs/design/hicasso/studio/the-dogfood-preference-case.md). A raw DOM
+  event has no `nativeEvent` and falls back to itself."
   [e]
   (let [native (or (.-nativeEvent e) e)]
     (or (true? (.-isComposing native))
@@ -558,23 +461,14 @@
   (or (prevent-head? v) (navigate-head? v)))
 
 (defn- unwrap-prevent
-  "CLASSIFY AND UNWRAP. `v` is the decorator; answer the intent inside it,
-  refusing anything that is not exactly one inner intent vector.
-
-  **The grammar is closed, and this is the whole of it.** `[::h/prevent
-  INTENT]` — two forms, the second a non-empty vector that is not itself a
-  decorator. Everything else is
-  `:rf.error/hicasso-malformed-prevent`, named at the position it was
-  written at. There is no options map, no second decorator, no modifier
-  language: one reserved head in the same tiny roster as `::h/value`, so
-  the thing that keeps it closed is that the roster is a list rather than
-  a convention.
-
-  It is deliberately NOT a walker. The decorator is recognised at ONE
-  known position — a vector at an event position, which lowering already
-  had in its hand — and the answer is a classification taken once per
-  render. Nothing descends into the intent, and the inner vector stays
-  ordinary data all the way to `dispatch`."
+  "Answer the intent inside the `::h/prevent` decorator `v`, refusing
+  anything that is not exactly `[::h/prevent INTENT]` with a non-empty
+  inner vector that is not itself a decorator
+  (`:rf.error/hicasso-malformed-prevent`, naming the position). The
+  grammar is closed and this is all of it. Not a walker: the
+  classification is taken once per render at the one position lowering
+  already holds, and the inner vector stays ordinary data all the way to
+  `dispatch`. Design record: docs/design/hicasso/decisions.md HD-026."
   [k v]
   (let [inner (nth v 1 nil)]
     (when-not (and (= 2 (count v))
@@ -626,18 +520,15 @@
 
 (defn- navigate-handler
   "Lower one navigate vector into the closure the browser will call. The
-  veto is lowered HERE, at lowering time — a prevent veto needs the
-  ambient dispatch, which is gone by click time — and the click decision
-  itself stays routing's: the closure hands the event to the
-  `:routing/activate-link!` late-bound seam (caller veto first, modifier
-  and native deferral, `preventDefault` + dispatch to the captured frame).
-  When the hook is unbound at click time — the routing artefact
-  hot-reloaded away between render and click — the closure runs the veto
-  and otherwise stands aside, so the browser follows the anchor's real
-  `href`: native navigation, never a throw at a detached click.
-  ([[re-frame.hicasso.impl.route-link/route-link]] already proved
-  routing present at RENDER, so absence here is transient by
-  construction.)"
+  veto is lowered HERE, at lowering time, because a prevent veto needs the
+  ambient dispatch, which is gone by click time; the click decision stays
+  routing's — the closure hands the event to the `:routing/activate-link!`
+  late-bound seam. When that hook is unbound at click time (the routing
+  artefact hot-reloaded away between render and click) the closure runs
+  the veto and otherwise stands aside, so the browser follows the anchor's
+  real `href` rather than throwing at a detached click; `route-link`
+  proved routing present at RENDER, so absence here is transient. Design
+  record: docs/design/hicasso/decisions.md HD-027."
   [k v]
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
         veto-fn (lower-veto k veto)]
@@ -649,21 +540,13 @@
 
 (defn- intent-handler
   "Lower one intent vector into the closure the browser will call. The
-  three axes — prevent, markers, dispatch — are all resolved here, so the
-  event path is the shortest one this intent can have.
-
-  Classification comes FIRST, so the markers compose inside a prevented
-  intent: `[::h/prevent [:filter/set ::h/value]]` is unwrapped before
-  [[markers?]] is ever asked, and the materializer then sees the ordinary
-  intent it has always seen. The navigate head is classified here too —
-  the same one-compare, once per render — and its whole lowering lives in
-  [[navigate-handler]].
-
-  **Only the branches that read the event carry the argument law**
-  ([[event-arg!]], and the namespace docstring's §The argument law): each
-  checks the one property its own first read needs, and the `:else`
-  branch — an intent with no marker and no prevent, which is the
-  overwhelming case — never touches its argument at all, so it costs
+  navigate head is classified first and `navigate-handler` owns it;
+  otherwise prevent, markers and dispatch are all resolved HERE, once per
+  render, so the event path is the shortest this intent can have.
+  Classification precedes marker analysis so the markers compose inside a
+  prevented intent (HD-026). Only the branches that read the event carry
+  the argument law (`event-arg!`); the `:else` branch — no marker, no
+  prevent, the overwhelming case — never touches its argument, so it costs
   nothing and is correct under any invoker contract."
   [k v]
   (if (navigate-head? v)
@@ -686,14 +569,10 @@
 
 (defn- key-map-handler
   "Lower a data key-map into one closure over a plain map of key-string →
-  handler. The map is built once per render; an event costs one
-  composition test and one lookup.
-
-  The argument law applies here too, and the property it needs is `key`:
-  without the check a key-map handed a value-first invoker's first
-  argument would find no `.key`, look nothing up, and do NOTHING — the
-  silently dead handler every loud error in this namespace exists to
-  delete."
+  handler, built once per render; an event costs one composition test and
+  one lookup. The argument law applies through `key`: without it a
+  value-first invoker's first argument would find no `.key`, and the
+  handler would silently do nothing."
   [k key-map]
   (let [lowered (reduce-kv (fn [m key-name v]
                              (assoc m key-name (cond
@@ -709,13 +588,12 @@
           (h e))))))
 
 (defn ref-position?
-  "`:ref` is the one prop position whose contract is neither Hicasso's to
-  select nor the same for both phases: React invokes it in the COMMIT
-  phase with the node, and whatever it returns is the detach cleanup. So
-  it is excluded from callback lowering entirely and keeps its own
-  declared contract (HD-016 callback refs, HD-022's reserved vector) —
-  wrapping it would forbid a dispatch that is legitimate there and would
-  change the identity React uses to decide whether to re-attach."
+  "`:ref` is the one prop position whose contract is not Hicasso's to
+  select: React invokes it in the COMMIT phase with the node, and its
+  return is the detach cleanup. Excluded from callback lowering entirely
+  (HD-016 callback refs, HD-022's reserved vector) — wrapping it would
+  forbid a dispatch that is legitimate there and change the identity React
+  uses to decide whether to re-attach."
   [k]
   (or (= :ref k) (= "ref" k)))
 
@@ -724,7 +602,7 @@
   event position is the only one the attribute grammar can name by
   itself; everything else Hicasso walks is a render position, and a
   `defhost` declaration overrides this by saying so
-  ([[lower-declared-prop]])."
+  (`lower-declared-prop`)."
   [k]
   (cond
     (ref-position? k) :ref
@@ -751,7 +629,7 @@
 
 (defn lower-declared-prop
   "Lower one prop whose contract a `defhost` `:callbacks` entry OVERRIDES:
-  `:event` or `:render`, the two wrappers [[lower-prop]] selects by
+  `:event` or `:render`, the two wrappers `lower-prop` selects by
   spelling, applied where a vendor's spelling is wrong. At `:event` the
   marked form takes the event wrapper and an intent vector or key-map
   lowers as at a native event position; at `:render` the marked form
