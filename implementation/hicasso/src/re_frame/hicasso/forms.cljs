@@ -16,8 +16,9 @@
 
   Nothing new underneath: the draft is an `h/reg-state` concern
   (`drafts`), the reset is `::h/revision`, the protocol is three ordinary
-  events (`edit-id`, `commit-id`, `cancel-id`) and the field is one
-  `h/defview` boundary. So it costs no hook beyond the shell's two and the
+  events (`::edit`, `::commit`, `::cancel` — named for tests by
+  `re-frame.hicasso.test.forms`) and the field is one `h/defview`
+  boundary. So it costs no hook beyond the shell's two and the
   controlled `<input>`'s own; it mints no refusal id — a bad `:control` is
   `reg-state`'s `:rf.error/hicasso-state-bad-argument` at the field's first
   render, and `::h/revision` on a non-text field is
@@ -101,25 +102,15 @@
       db)))
 
 ;; ---------------------------------------------------------------------------
-;; The protocol — three events, and every one of them idempotent
+;; The protocol — three events, and every one of them idempotent. The ids
+;; are this namespace's own keywords, written into the field's intents
+;; below; `re-frame.hicasso.test.forms` names them for a test that drives
+;; the field by hand.
 ;; ---------------------------------------------------------------------------
 
-(def edit-id
-  "The keystroke event, `[edit-id control revision text]`, written into
-  the field's `:on-input` intent."
-  ::edit)
-
-(def commit-id
-  "The commit event, `[commit-id control revision on-commit]` — Enter and
-  blur alike, since D016 makes them one operation."
-  ::commit)
-
-(def cancel-id
-  "The cancel event, `[cancel-id control revision on-cancel]` — Escape."
-  ::cancel)
-
-(events/reg-event edit-id
-  {:doc "Write `{:revision revision :draft text}` at `control`, replacing
+(events/reg-event ::edit
+  {:doc "`[::edit control revision text]` — the keystroke event, on
+         `:on-input`. Write `{:revision revision :draft text}` at `control`, replacing
          whole whatever was there: a record a reset made ineligible is
          replaced by the first edit after it, never updated. The revision
          is the one the render that produced this intent was showing,
@@ -127,8 +118,10 @@
   (fn [{:keys [db]} [_ control revision text]]
     {:db (assoc-in db (draft-path control) {:revision revision :draft text})}))
 
-(events/reg-event commit-id
-  {:doc "End the session at `control` and hand the caller its candidate:
+(events/reg-event ::commit
+  {:doc "`[::commit control revision on-commit]` — Enter and blur alike,
+         since D016 makes them one operation.
+         End the session at `control` and hand the caller its candidate:
          when the record is live under `revision`, remove it and dispatch
          `(conj on-commit draft)` in the same turn; otherwise do nothing.
          The draft is read from `app-db`, not off the DOM event, which is
@@ -152,8 +145,9 @@
           (seq on-commit)
           (assoc :fx [[:dispatch (conj (vec on-commit) (:draft record))]]))))))
 
-(events/reg-event cancel-id
-  {:doc "Abandon the session at `control`: when the record is live under
+(events/reg-event ::cancel
+  {:doc "`[::cancel control revision on-cancel]` — Escape.
+         Abandon the session at `control`: when the record is live under
          `revision`, remove it and dispatch `on-cancel` if one was given;
          otherwise do nothing. The same idempotence answers *cancel beats
          the late blur* — the queued blur finds no record — so neither
@@ -229,10 +223,10 @@
             (apply dissoc props module-props)
             {:value       (if (live? record revision) (:draft record) value)
              ::h/revision revision
-             :on-input    [edit-id control revision ::h/value]
-             :on-blur     [commit-id control revision on-commit]
+             :on-input    [::edit control revision ::h/value]
+             :on-blur     [::commit control revision on-commit]
              ;; The key MAP rather than a callback reading `.key`: the
              ;; substrate's composition gate answers a key event there, so
              ;; Enter cannot commit a partial IME composition.
-             :on-key-down {"Enter"  [commit-id control revision on-commit]
-                           "Escape" [cancel-id control revision on-cancel]}})]))
+             :on-key-down {"Enter"  [::commit control revision on-commit]
+                           "Escape" [::cancel control revision on-cancel]}})]))

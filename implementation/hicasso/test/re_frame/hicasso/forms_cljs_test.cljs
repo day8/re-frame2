@@ -52,6 +52,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.forms :as tf]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -162,15 +163,15 @@
 (defn- cancelled-log [frame] (vec (:cancelled (db-of frame))))
 
 (defn- type! [frame revision text]
-  (send! frame [forms/edit-id control revision text]))
+  (send! frame [tf/edit-id control revision text]))
 
 (defn- commit! [frame revision]
-  (send! frame [forms/commit-id control revision [::title-committed 7]]))
+  (send! frame [tf/commit-id control revision [::title-committed 7]]))
 
 (defn- cancel!
   ([frame revision] (cancel! frame revision nil))
   ([frame revision on-cancel]
-   (send! frame [forms/cancel-id control revision on-cancel])))
+   (send! frame [tf/cancel-id control revision on-cancel])))
 
 (defn- field-tree
   "One `buffered-field` body, under its EXACT read set. `ht/tree` refuses
@@ -429,7 +430,7 @@
   (with-app
     (fn [frame]
       (type! frame 0 "Buy oat milk")
-      (send! frame [forms/commit-id control 0 nil])
+      (send! frame [tf/commit-id control 0 nil])
       (is (nil? (record-of frame)))
       (is (= [] (committed-log frame))
           "`:on-commit` is required by the chapter, and this module cannot
@@ -467,12 +468,12 @@
   ;; shares, and two rows open together with nothing on screen to say so.
   (with-app
     (fn [frame]
-      (send! frame [forms/edit-id [:todo 7 :title] 0 "seven"])
-      (send! frame [forms/edit-id [:todo 8 :title] 0 "eight"])
+      (send! frame [tf/edit-id [:todo 7 :title] 0 "seven"])
+      (send! frame [tf/edit-id [:todo 8 :title] 0 "eight"])
       (is (= "seven" (:draft (draft-at frame [:todo 7 :title]))))
       (is (= "eight" (:draft (draft-at frame [:todo 8 :title]))))
       (testing "and one field's commit does not end the other's session"
-        (send! frame [forms/commit-id [:todo 7 :title] 0 [::title-committed 7]])
+        (send! frame [tf/commit-id [:todo 7 :title] 0 [::title-committed 7]])
         (is (nil? (draft-at frame [:todo 7 :title])))
         (is (some? (draft-at frame [:todo 8 :title])))))))
 
@@ -532,13 +533,13 @@
     (is (= 4 (::h/revision attrs))
         "the caller's revision reaches the element — this module adds no
          reset vocabulary of its own and forwards the controlled law's")
-    (is (= [forms/edit-id control 4 ::h/value] (:on-input attrs))
+    (is (= [tf/edit-id control 4 ::h/value] (:on-input attrs))
         "the keystroke carries the address and the generation it was typed
          under — POSITIONAL, because a marker inside a payload map is
          substituted nowhere and would arrive as the keyword itself")
-    (is (= [forms/commit-id control 4 [::title-committed 7]] (:on-blur attrs)))
-    (is (= {"Enter"  [forms/commit-id control 4 [::title-committed 7]]
-            "Escape" [forms/cancel-id control 4 nil]}
+    (is (= [tf/commit-id control 4 [::title-committed 7]] (:on-blur attrs)))
+    (is (= {"Enter"  [tf/commit-id control 4 [::title-committed 7]]
+            "Escape" [tf/cancel-id control 4 nil]}
            (:on-key-down attrs))
         "the key MAP, not a callback reading `.key` — which is what keeps
          the substrate's own composition gate, and why this file finds no
@@ -558,7 +559,7 @@
   ;; the codec installs and what it read pre-merge, so this is the
   ;; substrate's own answer rather than a re-reading of what was written.
   (let [form [:input {:type "text" :value committed ::h/revision 4
-                      :on-input [forms/edit-id control 4 ::h/value]}]]
+                      :on-input [tf/edit-id control 4 ::h/value]}]]
     (is (true? (ht/controlled? form)))
     (is (= 4 (ht/revision form)))))
 
@@ -587,7 +588,7 @@
           "`:control` on a DOM node is a React warning at best and a
            serialized vector in the markup at worst"))
     (testing "`:on-cancel` reached the Escape branch instead"
-      (is (= [forms/cancel-id control 0 [::title-cancelled 7]]
+      (is (= [tf/cancel-id control 0 [::title-cancelled 7]]
              (get (:on-key-down attrs) "Escape"))))))
 
 (deftest the-owned-slots-win-a-collision
@@ -602,8 +603,8 @@
                                         :on-key-down {"Enter" [:app/entered]}}
                                        {:revision 0 :draft "half typed"}))]
     (is (= "half typed" (:value attrs)))
-    (is (= [forms/edit-id control 0 ::h/value] (:on-input attrs)))
-    (is (= [forms/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
+    (is (= [tf/edit-id control 0 ::h/value] (:on-input attrs)))
+    (is (= [tf/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
     (is (= #{"Enter" "Escape"} (set (keys (:on-key-down attrs)))))))
 
 (deftest trap-arity-sniffed-done-fn-every-handler-site-is-data
