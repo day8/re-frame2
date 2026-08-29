@@ -110,7 +110,7 @@
   merging attribute overrides into a node.
 
   **That prop is why this row has an observable at all.** A NATIVE
-  presence child wears its phase as `::h/mounting` attributes, which React
+  presence child wears its phase as `::motion/mounting` attributes, which React
   patches in place and which are gone a macrotask later when the enter
   flip lands — so a row that waited for a commit and then read the DOM
   could not tell a child that was BORN present from one that entered and
