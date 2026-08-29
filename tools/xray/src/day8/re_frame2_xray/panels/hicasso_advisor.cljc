@@ -31,9 +31,10 @@
   ranking built on it orders noise* — and two clock reads per attempt
   inflate a boundary in proportion to its attempt COUNT rather than its
   true cost, so two boundaries close in true self time and far apart in
-  attempt count invert. Commit, paint and attempt outcome are React's
-  (`re-frame.hicasso.tool`'s `:host` projection, `:host-opaque` every
-  time). Hicasso emits no `:rf.view/render` trace, and its User-Timing
+  attempt count invert. Commit, paint and attempt outcome are React's —
+  `re-frame.hicasso.tool` carries no field for them, and this advisor
+  states them `:host-opaque` every time. Hicasso emits no
+  `:rf.view/render` trace, and its User-Timing
   `:render` measures ride an independently-gated channel that is off by
   default and observer-first.
 
@@ -751,6 +752,8 @@
     {:boundary   (:boundary row)
      :label      (hh/boundary-label (:boundary row))
      :slug       (hh/boundary-slug (:boundary row))
+     :views      (:views row)
+     :view-label (hh/view-label (:views row))
      :key-str    (pr-str (:key (:boundary row)))
      :frame      (:frame row)
      :instances  (:instances row)

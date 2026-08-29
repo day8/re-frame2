@@ -40,27 +40,24 @@
   (merge {:schema    hh/consumed-evidence-schema
           :producer  hh/consumed-producer
           :read      read
-          :scope     :mounted-boundaries
-          :basis     :observation
           :complete? true
           :loss      nil}
          m))
 
+(def ^:private todo-row-views
+  [{:view "app.views/todo-row"
+    :source {:ns 'app.views :file "/src/app/views.cljs" :line 12 :column 1}}])
+
 (def ^:private mounted
   (envelope :mounted-boundaries
-            {:boundaries [{:boundary boundary-a :view :unknown :source :unknown
+            {:boundaries [{:boundary boundary-a :views todo-row-views
                            :instances 3 :read-orders 1 :frame :app/main
                            :reads [{:sub-id :todo :query [:todo 7]
                                     :frame-id :app/main :epoch 4}]}
-                          {:boundary {:parent nil :key []} :view :unknown
-                           :source :unknown :instances 1 :read-orders 1
+                          {:boundary {:parent nil :key []} :views :unknown
+                           :instances 1 :read-orders 1
                            :frame :unknown :reads []}]
-             :naming {:basis :opaque :complete? false
-                      :loss {:reason :opaque :dropped :unknown}
-                      :view :unknown :source :unknown}
-             :host   {:basis :host-opaque :complete? false
-                      :loss {:reason :host-opaque :dropped :unknown}
-                      :commit :unknown :paint :unknown}}))
+             :generation 12}))
 
 ;; ---------------------------------------------------------------------------
 ;; THE PROPERTY THIS TAB EXISTS FOR
@@ -189,21 +186,18 @@
       (is (= [] (f (assoc mounted :schema :re-frame.hicasso.evidence/v99))))
       (is (= [] (f nil))))))
 
-(deftest the-superseded-v1-shape-is-refused-rather-than-mis-parsed
-  ;; MERGED-PR AUDIT #7802, RESIDUAL 1. The #7789 repair evolved the wire
-  ;; shape — key elements from `[frame-id query]` to
-  ;; `[frame-id sub-id projected-query]`, intent rows from a singular
-  ;; `:frame-id` to a plural `:frames`, `:latest-reads` from bare sub-ids to
-  ;; `{:sub-id :query :frame-id}` maps, plus new host fields — and left the
-  ;; stamp at v1. So for one increment this pin accepted, as EXACT, a shape
-  ;; it had never been taught: a version that lies, which is worse than no
-  ;; version because it turns a loud refusal into a silent misread.
-  ;;
-  ;; The pin only earns its keep if the predecessor now MISMATCHES. There is
-  ;; no v1 acceptance path and no compatibility adapter to route around this.
-  (let [v1 (assoc mounted :schema :re-frame.hicasso.evidence/v1)]
+(deftest the-superseded-v2-shape-is-refused-rather-than-mis-parsed
+  ;; The wire shape has moved under a stale stamp before (merged-PR audit
+  ;; #7802), so for one increment a pin accepted, as EXACT, a shape it had
+  ;; never been taught — a version that lies, which is worse than no version
+  ;; because it turns a loud refusal into a silent misread. v3 moved the
+  ;; shape again: the scope and basis axes are gone, the sub-projections are
+  ;; gone, and `:views` replaced `:view` / `:source`. The pin only earns its
+  ;; keep if the predecessor now MISMATCHES; there is no acceptance path and
+  ;; no compatibility adapter to route around this.
+  (let [v2 (assoc mounted :schema :re-frame.hicasso.evidence/v2)]
     (testing "the pin names the version whose shape this build actually parses"
-      (is (= :re-frame.hicasso.evidence/v2 hh/consumed-evidence-schema)
+      (is (= :re-frame.hicasso.evidence/v3 hh/consumed-evidence-schema)
           (str "the wire shape and the stamp move together or the pin is "
                "nominal — change one and this row says so")))
 
@@ -214,31 +208,44 @@
                "envelope that would have yielded nothing anyway")))
 
     (testing "the superseded stamp is a MISMATCH, not an older dialect"
-      (is (false? (hh/supported? v1)))
-      (is (= :mismatch (hh/presence v1 false))
+      (is (false? (hh/supported? v2)))
+      (is (= :mismatch (hh/presence v2 false))
           "and it renders the mismatch banner, not an empty roster"))
 
     (testing "and every view suppresses its rows rather than half-parsing them"
       (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
-        (is (= [] (f v1)))))))
+        (is (= [] (f v2)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The row projections
 ;; ---------------------------------------------------------------------------
 
-(deftest mounted-rows-carry-the-instance-count-and-both-chips
+(deftest mounted-rows-carry-the-instance-count-the-view-and-the-chips
   (let [[row read-free] (hh/mounted-rows mounted)]
     (is (= 3 (:instances row)))
     (is (= ":app/main" (hh/format-id :app/main)))
     (is (= "[:todo 7]" (:label row)))
-    (is (= :opaque (:kind (:view-chip row)))
-        "the view name is opaque, and the row says so on the row")
+    (testing "a named row leads with its view and carries no view chip"
+      (is (= "app.views/todo-row" (:view-label row)))
+      (is (nil? (:view-chip row)))
+      (is (= "app.views/todo-row — /src/app/views.cljs:12" (hh/views-title (:views row)))
+          "the hover text is the coordinate defview captured"))
     (is (nil? (:frame-chip row)) "the frame IS known here, so no chip")
     (testing "a read-free boundary is labelled, not blanked"
       (is (= "(reads nothing)" (:label read-free)))
       (is (= "reads-nothing" (:slug read-free)))
       (is (= :unknown (:kind (:frame-chip read-free)))
-          "with no reads there is no frame, and the chip says unknown"))))
+          "with no reads there is no frame, and the chip says unknown"))
+    (testing "an unnamed row renders the unknown chip in the view position, never a blank"
+      (is (nil? (:view-label read-free)))
+      (is (= :unknown (:kind (:view-chip read-free)))))
+    (testing "two views over one edge set are both named, and a name without a source has no title"
+      (let [views [{:view "a/one" :source :unknown} {:view "b/two" :source {:file "f" :line 3}}]]
+        (is (= "a/one, b/two" (hh/view-label views)))
+        (is (= "b/two — f:3" (hh/views-title views)))
+        (is (nil? (hh/views-title [{:view "a/one" :source :unknown}])))
+        (is (nil? (hh/view-label :unknown)))
+        (is (nil? (hh/view-label [])) "an empty vector is not a name either")))))
 
 (deftest a-label-and-a-testid-are-built-from-the-PROJECTED-key
   ;; AUDIT #7789, CORRECTNESS 1, consumer half. The helpers printed the raw
@@ -255,8 +262,8 @@
   (testing "a wholly redacted boundary is still labelled and still selectable"
     (let [row (first (hh/mounted-rows
                        (assoc mounted :boundaries
-                              [{:boundary boundary-redacted :view :unknown
-                                :source :unknown :instances 1 :read-orders 1
+                              [{:boundary boundary-redacted :views :unknown
+                                :instances 1 :read-orders 1
                                 :frame :app/main :reads []}])))]
       (is (= ":todo :rf/redacted + :user :rf/redacted" (:label row)))
       (is (not (string/includes? (:slug row) "hunter"))
@@ -268,16 +275,18 @@
 
 (deftest attribution-rows-carry-fan-out-and-readers
   (let [e (envelope :read-attribution
-                    {:scope :read-edges
-                     :edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
+                    {:edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
                               :epoch 4 :fan-out 3
-                              :readers [boundary-a boundary-b]}]})
+                              :readers [(assoc boundary-a :views todo-row-views)
+                                        (assoc boundary-b :views :unknown)]}]})
         [row] (hh/attribution-rows e)]
     (is (= 3 (:fan-out row)))
     (is (= "[:todo 7]" (:label row))
         "the row names the projected QUERY, which is what a reader tells cells apart by")
     (is (nil? (:frame-chip row)) "the frame IS known here, so no chip")
-    (is (= ["[:todo 7]" "[:todo 7] + [:user 1]"] (mapv :label (:readers row))))))
+    (is (= ["[:todo 7]" "[:todo 7] + [:user 1]"] (mapv :label (:readers row))))
+    (is (= ["app.views/todo-row" nil] (mapv :view-label (:readers row)))
+        "a reader is named where the producer names it, and unnamed where it does not")))
 
 (deftest a-row-key-carries-the-WHOLE-projected-identity
   ;; MERGED-PR AUDIT #7802, RESIDUAL 2. `boundary-slug` ignored the frame and
@@ -308,8 +317,7 @@
 
   (testing "the Reads rows differ in frame AND in query, and say so on the row"
     (let [e (envelope :read-attribution
-                      {:scope :read-edges
-                       :edges [{:sub-id :row :query [:row 1] :frame-id :frame/a
+                      {:edges [{:sub-id :row :query [:row 1] :frame-id :frame/a
                                 :epoch 1 :fan-out 1 :readers []}
                                {:sub-id :row :query [:row 2] :frame-id :frame/b
                                 :epoch 1 :fan-out 1 :readers []}]})
@@ -323,10 +331,9 @@
 
   (testing "the Why rows carry the frame, because two frames' labels are equal"
     (let [ex (fn [frame q]
-               {:boundary {:parent nil :key [[frame :row q]]} :frame frame
+               {:boundary {:parent nil :key [[frame :row q]]} :views :unknown :frame frame
                 :instances 1 :snapshot 9 :peak-epoch 5
                 :latest-reads [{:sub-id :row :query q :frame-id frame}]
-                :cause :unknown
                 :loss {:reason :uncorrelated :dropped :unknown}
                 :candidates []})
           [a b] (hh/explain-rows (envelope :explain-render
@@ -344,8 +351,7 @@
   (testing "NOTHING RAW returns through the slug — only projected fields"
     (let [row (first (hh/attribution-rows
                        (envelope :read-attribution
-                                 {:scope :read-edges
-                                  :edges [{:sub-id :todo :query :rf/redacted
+                                 {:edges [{:sub-id :todo :query :rf/redacted
                                            :frame-id :app/main :epoch 1
                                            :fan-out 1 :readers []}]})))]
       (is (= ":todo :rf/redacted" (:label row))
@@ -466,7 +472,9 @@
                      dispatch  legal-components]
                  {:event-id event-id :dispatch-id dispatch})
           slug (fn [r] (:slug (first (hh/intent-rows
-                                       (envelope :intents {:scope {:frames [] :retained-runs 0}
+                                       (envelope :intents {:complete? false
+                                                           :loss {:reason :cap :dropped :unknown}
+                                                           :frames []
                                                            :intents [r]})))))]
       (is (= (count rows) (count (distinct (map slug rows))))
           (str "intent slug collisions: " (pr-str (collisions slug rows))))))
@@ -495,7 +503,7 @@
 
 (deftest intent-rows-carry-an-id-and-an-arity-and-no-arguments
   (let [e (envelope :intents
-                    {:scope {:frames [:app/main] :retained-runs 2}
+                    {:frames [:app/main]
                      :complete? false
                      :loss {:reason :cap :dropped :unknown}
                      :intents [{:frames [:app/main] :dispatch-id 41
@@ -521,11 +529,10 @@
         (envelope :explain-render
                   {:complete? false
                    :loss {:reason :uncorrelated :dropped :unknown}
-                   :explanations [{:boundary boundary-a :frame :app/main
+                   :explanations [{:boundary boundary-a :views todo-row-views :frame :app/main
                                    :instances 1 :snapshot 9 :peak-epoch 5
                                    :latest-reads [{:sub-id :todo :query [:todo 7]
                                                    :frame-id :app/main}]
-                                   :cause :unknown
                                    :loss {:reason :uncorrelated :dropped :unknown}
                                    :candidates [{:dispatch-id 41 :event-id :todo/toggle
                                                  :frame-id :app/main :sub-id :todo}]}]})
@@ -533,10 +540,9 @@
         (envelope :explain-render
                   {:complete? false
                    :loss {:reason :uncorrelated :dropped :unknown}
-                   :explanations [{:boundary boundary-a :frame :app/main
+                   :explanations [{:boundary boundary-a :views :unknown :frame :app/main
                                    :instances 1 :snapshot :unknown
                                    :peak-epoch :unknown :latest-reads :unknown
-                                   :cause :unknown
                                    :loss {:reason :cap :dropped :unknown}
                                    :candidates :unknown}]})]
     (testing "with a live window the row is proven AND uncorrelated at once"
@@ -546,7 +552,8 @@
             "the READ, not the bare sub-id — see the two-variants row below")
         (is (= :uncorrelated (:kind (:cause-chip row))))
         (is (true? (:leads-known? row)))
-        (is (= 1 (count (:leads row))))))
+        (is (= 1 (count (:leads row))))
+        (is (= "app.views/todo-row" (:view-label row)) "the Why row is named too")))
     (testing "with an empty window the leads are UNKNOWN, and the row says which"
       (let [[row] (hh/explain-rows blind)]
         (is (false? (:proven? row)))
@@ -564,13 +571,12 @@
   (let [e (envelope :explain-render
                     {:complete? false
                      :loss {:reason :uncorrelated :dropped :unknown}
-                     :explanations [{:boundary boundary-a :frame :app/main
+                     :explanations [{:boundary boundary-a :views :unknown :frame :app/main
                                      :instances 1 :snapshot 9 :peak-epoch 5
                                      :latest-reads [{:sub-id :row :query [:row 1]
                                                      :frame-id :app/main}
                                                     {:sub-id :row :query [:row 2]
                                                      :frame-id :app/main}]
-                                     :cause :unknown
                                      :loss {:reason :uncorrelated :dropped :unknown}
                                      :candidates []}]})
         [row] (hh/explain-rows e)]
@@ -579,11 +585,13 @@
 
 (deftest the-summary-line-states-the-claim-even-when-it-is-good
   (testing "a complete envelope still says so — an absence of bad news is not news"
-    (is (string/includes? (hh/read-summary mounted) "complete for this scope")))
+    (is (string/includes? (hh/read-summary mounted) "complete"))
+    (is (not (string/includes? (hh/read-summary mounted) "INCOMPLETE"))))
   (testing "an incomplete one names its loss and how much"
     (let [s (hh/read-summary (envelope :intents
                                        {:complete? false
                                         :loss {:reason :cap :dropped :unknown}
+                                        :frames []
                                         :intents []}))]
       (is (string/includes? s "INCOMPLETE"))
       (is (string/includes? s "capped"))

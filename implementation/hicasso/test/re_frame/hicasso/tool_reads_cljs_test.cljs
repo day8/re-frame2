@@ -40,6 +40,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.evidence :as evidence]
+            [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.tool :as tool]
@@ -61,6 +62,14 @@
 
 (rf/reg-event :tr/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :tr/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
+
+;; Two DECLARED views, for the naming rows: `defview` stamps the
+;; `"<ns>/<sym>"` name on the body and hands its coordinate to the error
+;; ledger, and `codec/retained-body` is the kit's route from the minted
+;; head back to that body, so the harness can render it through the same
+;; seam as an anonymous fn.
+(h/defview named-probe [_] (h/sub [:tr/left]) nil)
+(h/defview twin-probe  [_] (h/sub [:tr/left]) nil)
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -134,7 +143,6 @@
       (is (= evidence/schema (:schema e)))
       (is (= evidence/producer (:producer e)))
       (is (= :mounted-boundaries (:read e)))
-      (is (= :observation (:basis e)))
       (is (true? (:complete? e)))
       (is (nil? (:loss e)))
       (is (= [] (:boundaries e)))))
@@ -201,31 +209,70 @@
              rendering of a collapse the identity demanded"))
       (a) (b))))
 
-(deftest the-mounted-roster-names-what-it-cannot-know
+(def ^:private named-probe-name "re-frame.hicasso.tool-reads-cljs-test/named-probe")
+(def ^:private twin-probe-name  "re-frame.hicasso.tool-reads-cljs-test/twin-probe")
+
+(deftest a-body-with-no-name-leaves-the-views-unknown
   (seeded!)
   (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))
+        row     (first (:boundaries (tool/read-mounted-boundaries)))]
+    (testing "a harness fn carries no displayName, so the row states the explicit unknown — never [] and never an absent key"
+      (is (contains? row :views))
+      (is (= evidence/unknown (:views row))))
+    (release)))
+
+(deftest the-mounted-roster-names-the-declared-view-that-rendered-it
+  (seeded!)
+  (let [release (mount! (codec/retained-body named-probe))
         e       (tool/read-mounted-boundaries)
-        row     (first (:boundaries e))]
-    (testing "a row states :view and :source as the explicit unknown, never omits them"
-      (is (= evidence/unknown (:view row)))
-      (is (= evidence/unknown (:source row))))
-    (testing ":naming is a projection of its own, incomplete on an :opaque basis"
-      (let [n (:naming e)]
-        (is (= :opaque (:basis n)))
-        (is (false? (:complete? n)))
-        (is (= {:reason :opaque :dropped evidence/unknown} (:loss n)))
-        (is (string? (:why n)) "the absence explains itself to the reader")))
-    (testing ":host is a SECOND projection — commit and paint are React's"
-      (let [hp (:host e)]
-        (is (= :host-opaque (:basis hp)))
-        (is (false? (:complete? hp)))
-        (is (= evidence/unknown (:commit hp)))
-        (is (= evidence/unknown (:paint hp)))
-        (is (= evidence/unknown (:attempt-outcome hp)))))
-    (testing "the roster's OWN completeness is untouched by either — two claims, not one"
+        row     (first (:boundaries e))
+        [v]     (:views row)]
+    (testing "the row names the view by the `<ns>/<sym>` defview stamped"
+      (is (= 1 (count (:views row))))
+      (is (= named-probe-name (:view v))))
+    (testing "and its source is the coordinate defview handed the error ledger"
+      (is (map? (:source v)))
+      (is (= 're-frame.hicasso.tool-reads-cljs-test (:ns (:source v)))
+          "the macro captures `:ns` as the namespace SYMBOL, as `reg-view` does")
+      (is (pos? (:line (:source v))))
+      (is (string? (:file (:source v)))))
+    (testing "the attribution readers carry the same name, so the way IN is named too"
+      (let [edge (first (filter #(= :tr/left (:sub-id %)) (:edges (tool/read-read-attribution))))]
+        (is (= [{:view named-probe-name :source (:source v)}]
+               (:views (first (:readers edge)))))))
+    (testing "and so does the explanation row"
+      (is (= (:views row) (:views (first (:explanations (tool/explain-render)))))))
+    (testing "the roster's own claim is untouched by naming — it is still a complete census"
       (is (true? (:complete? e)))
       (is (nil? (:loss e))))
     (release)))
+
+(deftest two-declared-views-over-one-edge-set-are-one-row-naming-both
+  (seeded!)
+  (let [a   (mount! (codec/retained-body named-probe))
+        b   (mount! (codec/retained-body twin-probe))
+        e   (tool/read-mounted-boundaries)
+        row (first (:boundaries e))]
+    (is (= 1 (count (:boundaries e)))
+        "the identity is still the edge set — two views reading one set share one entry")
+    (is (= 2 (:instances row)))
+    (is (= [named-probe-name twin-probe-name] (mapv :view (:views row)))
+        "both names ride on the one row, sorted, so neither view is hidden behind the other")
+    (a) (b)))
+
+(deftest a-name-minted-outside-defview-has-no-source
+  (seeded!)
+  (let [body (fn [_] (h/sub [:tr/left]) nil)]
+    ;; `mint-view!` is what stamps the name; a harness stamping it by hand
+    ;; stands in for a boundary minted outside the macro — a tool's, or an
+    ;; HMR re-registration — which the error ledger never heard about.
+    (unchecked-set body "displayName" "erasure.harness/by-hand")
+    (let [release (mount! body)
+          [v]     (:views (first (:boundaries (tool/read-mounted-boundaries))))]
+      (is (= "erasure.harness/by-hand" (:view v)))
+      (is (= evidence/unknown (:source v))
+          "no coordinate was declared, and the row says so rather than guessing")
+      (release))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 2 — read attribution
@@ -240,7 +287,6 @@
         by-sub (into {} (map (juxt :sub-id identity)) (:edges e))]
     (testing "the envelope is exact — this read prints a table"
       (is (= :read-attribution (:read e)))
-      (is (= :read-edges (:scope e)))
       (is (true? (:complete? e)))
       (is (nil? (:loss e))))
     (testing ":fan-out is the cell's own reader-slot count"
@@ -272,17 +318,12 @@
         (is (= :intents (:read e)))
         (is (false? (:complete? e)))
         (is (= {:reason :cap :dropped evidence/unknown} (:loss e)))
-        (is (= [frame-id] (:frames (:scope e)))))
+        (is (= [frame-id] (:frames e))))
       (testing "the dispatched events are there, oldest first"
         (is (pos? (count (:intents e))))
         (is (some #(= :tr/bump (:event-id %)) (:intents e)))
         (is (not-any? #(contains? % :event) (:intents e))
-            "no row carries an event VECTOR — an id and an arity, and nothing else"))
-      (testing "whether a run BEGAN at markup is opaque, and stated as its own projection"
-        (let [o (:origin e)]
-          (is (= :opaque (:basis o)))
-          (is (false? (:complete? o)))
-          (is (= evidence/unknown (:intent-origin o))))))
+            "no row carries an event VECTOR — an id and an arity, and nothing else")))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -305,13 +346,13 @@
             "only :tr/left was written, so only its cell was re-stamped")
         (is (number? (:peak-epoch ex)))
         (is (number? (:snapshot ex))))
-      (testing "UNCORRELATED: the cause is unknown, and candidates are labelled leads"
-        (is (= evidence/unknown (:cause ex)))
+      (testing "UNCORRELATED: the row's own loss says the join is missing, and candidates are leads"
         (is (= {:reason :uncorrelated :dropped evidence/unknown} (:loss ex)))
+        (is (= {:frames [frame-id] :retained-runs (count (trace-tooling/trace-buffer frame-id))}
+               (:window ex))
+            "the row names the window it searched")
         (is (some #(= :tr/bump (:event-id %)) (:candidates ex))
-            "the run that recomputed :tr/left is offered as a lead"))
-      (testing "whether the boundary then RAN is React's — the host projection says so"
-        (is (= :host-opaque (:basis (:host e))))))
+            "the run that recomputed :tr/left is offered as a lead")))
     (release)))
 
 (deftest an-empty-window-is-cap-and-a-live-window-is-uncorrelated
@@ -430,23 +471,6 @@
           "two reads of one registered sub are two entries, never one")
       (is (= #{[:tr/row 1] [:tr/row 2]} (into #{} (map :query) latest))
           "and each names its own projected query, which is what tells them apart"))
-    (release)))
-
-(deftest the-census-is-about-subscription-not-visibility
-  ;; AUDIT #7792, the real-React lifecycle supplement. Activity-hidden and
-  ;; unmounted leave the same census; a Suspense-fallback-hidden subtree
-  ;; stays subscribed and stays listed. No observable here can tell them
-  ;; apart, so the door states the distinction as host-opaque rather than
-  ;; letting a reader infer it. This pins that it is STATED — an absent
-  ;; field would read as "not applicable".
-  (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))
-        hp      (:host (tool/read-mounted-boundaries))]
-    (is (= :host-opaque (:basis hp)))
-    (is (= evidence/unknown (:visibility hp))
-        "whether a listed boundary is on SCREEN is React's, and is named")
-    (is (= evidence/unknown (:hidden-retained hp))
-        "and so is whether an absent one is hidden-but-retained")
     (release)))
 
 ;; ---------------------------------------------------------------------------

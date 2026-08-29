@@ -49,40 +49,39 @@ census and the edges.
 
 ## The evidence contract
 
-Every envelope carries seven axes. Three identify it; four state how far to
+Every envelope carries five fields. Three identify it; two state how far to
 trust it.
 
 ```clojure
-{:schema     :re-frame.hicasso.evidence/v2   ; validated FIRST
+{:schema     :re-frame.hicasso.evidence/v3   ; validated FIRST
  :producer   :re-frame/hicasso               ; the schema is adapter-neutral
  :read       :mounted-boundaries             ; which question this answers
- :scope      :mounted-boundaries             ; what it covers
- :basis      :observation                    ; how it knows
- :complete?  true                            ; ONLY ever relative to :scope
+ :complete?  true                            ; a claim about under-reporting
  :loss       nil}                            ; or {:reason … :dropped …}
 ```
 
-`:complete?` means nothing on its own — it is completeness FOR the stated
-scope. `:loss` is the honest half: `nil` says nothing was dropped; a loss map
-names a reason from the closed vocabulary and a `:dropped` that is a count or
-the explicit `:unknown`.
+`:loss` is the honest half: `nil` says nothing was dropped; a loss map names a
+reason from the closed vocabulary and a `:dropped` that is a count or the
+explicit `:unknown`. The producer's one door, `evidence/envelope`, refuses a
+loss beside a completeness claim, a foreign reason, and an absent `:dropped`.
 
 ### The five states, and the one rule that matters
 
 | State | Where it lives | Means |
 |---|---|---|
 | `:unknown` | a field's VALUE, and a loss's `:dropped` | the fact is not held; not empty, not zero |
-| `:opaque` | a basis AND a loss reason | the substrate keeps no such fact, deliberately and permanently |
-| `:host-opaque` | a basis AND a loss reason | React owns it and does not publish it |
+| `:opaque` | a loss reason | the substrate keeps no such fact, deliberately and permanently |
+| `:host-opaque` | a loss reason | React owns it and does not publish it |
 | `:cap` | a loss reason | a retention window bounded what could be carried |
 | `:uncorrelated` | a loss reason | the fact is real but joins to nothing |
 
-**Unknown is never encoded as an empty collection.** The producer's
-`evidence/projection` door refuses a projection that answers `[]` under an
-`:opaque` or `:host-opaque` basis and requires the roster to state `:unknown`
-instead — the one refusal the sibling schemas do not have, and the reason
-this tab can render an absence without a reader having to guess whether it
-found nothing or looked at nothing.
+**Unknown is never encoded as an empty collection.** A roster the producer
+did not survey states `:unknown` where the vector would be — `:candidates`
+under an empty window, `:views` on a body minted without a name — and the
+Advisor and Causal derivations state `:opaque` and `:host-opaque` losses of
+their own for what this tab does not measure. That is the reason this tab can
+render an absence without a reader having to guess whether it found nothing
+or looked at nothing.
 
 ### Xray and Pair consume the same bytes
 
@@ -110,34 +109,34 @@ mis-parsed as exact and the version boundary would be nominal. A projection
 stamped a schema (or a producer) this build was not taught suppresses rows
 and renders the mismatch banner.
 
-### v1 → v2: the version tells the truth or it is worse than nothing
+### v2 → v3: the version tells the truth or it is worse than nothing
 
-The #7789 audit repair changed the wire shape and left the stamp at `v1`, so
-for one increment the pin accepted — as exact — a shape it had never been
-taught. The merged-PR audit of #7802 called that the one defect a version
-exists to prevent, and producer and consumer now stamp `v2` in lockstep.
+The wire shape has moved under a stale stamp before — the #7789 repair left
+`v1` on a `v2` shape, and the merged-PR audit of #7802 called that the one
+defect a version exists to prevent. v3 (rf2-6c12m.21) moved the shape again,
+and producer and consumer stamp it in lockstep.
 
-| Field | v1 | v2 |
+| Field | v2 | v3 |
 |---|---|---|
-| a boundary key element | `[frame-id query]` | `[frame-id sub-id projected-query]` |
-| an intent row's frame | `:frame-id`, singular | `:frames`, a vector |
-| `:latest-reads` | bare sub-ids | `{:sub-id :query :frame-id}` maps |
-| the `:host` projection | commit / paint / attempt-outcome | `:visibility` and `:hidden-retained` besides |
+| the envelope's claim axes | `:scope`, `:basis`, `:complete?`, `:loss` | `:complete?`, `:loss` |
+| the `:naming`, `:host` and `:origin` sub-projections | present, every field `:unknown` | gone — what React owns is stated by the panel, not shipped as fields |
+| a mounted row, reader or explanation | `:view :unknown :source :unknown` | `:views [{:view "<ns>/<sym>" :source {:ns :file :line :column}} …]`, or `:unknown` |
+| an explanation's `:cause` | `:unknown`, constant | gone — the row's `:loss` says the join is missing |
+| the intents envelope's frames | `:scope {:frames …}` | `:frames` |
 
-Each row is a silent misread waiting to happen: a v1 parser takes the sub-id
-in a key element for the query, iterates a map where it expected a keyword,
-and reads an absent `:frame-id` as a frameless intent. That is why a version
-that lies is worse than no version — it converts a loud failure into a quiet
-wrong answer.
+Each row is a silent misread waiting to happen: a v2 parser reads an absent
+`:scope` as a missing axis and an absent `:view` as a boundary the producer
+did not name. That is why a version that lies is worse than no version — it
+converts a loud failure into a quiet wrong answer.
 
-**There is no v1 acceptance path and no compatibility adapter.** This is
-pre-alpha; a shim would restore exactly the mis-parse the pin refuses. A
-v1-stamped envelope is a mismatch at the data layer
-(`hicasso_helpers_cljs_test/the-superseded-v1-shape-is-refused-rather-than-mis-parsed`,
+**There is no acceptance path for a superseded version and no compatibility
+adapter.** This is pre-alpha; a shim would restore exactly the mis-parse the
+pin refuses. A v2-stamped envelope is a mismatch at the data layer
+(`hicasso_helpers_cljs_test/the-superseded-v2-shape-is-refused-rather-than-mis-parsed`,
 with a non-vacuity row proving the same envelope parses under the current
 stamp) and on the page
 (`hicasso_cljs_test/an-unparseable-schema-is-MISMATCH-and-suppresses-rows`,
-which drives both the superseded `v1` and an unknown future `v99`, because the
+which drives both the superseded `v2` and an unknown future `v99`, because the
 pin is exact rather than a floor).
 
 ---
@@ -150,22 +149,37 @@ Spec 009's per-frame retained-event ring folded at READ time. **There is no
 accumulator, no occurrence index, no history store and no second knob** — the
 one retention mechanism is Spec 009's, under `:rf.trace/events-retained`.
 
-### A boundary's identity is its READ SET
+### A boundary's identity is its READ SET, and its name rides beside it
 
 The runtime mints no boundary identity. A registration is
 `#js {reads, notify, cells}` — the object the heap ladder prices — and it
-carries no view name, no source coordinate and no id; `codec/mark-boundary!`
-is *no registry, no map* by design. Two boundaries reading the same set are
-not merely similar to this runtime, they are indistinguishable: they share one
-read-set entry, one `subscribe` closure and one `getSnapshot`.
+carries no id; `codec/mark-boundary!` is *no registry, no map* by design. Two
+boundaries reading the same set are not merely similar to this runtime, they
+are indistinguishable: they share one read-set entry, one `subscribe` closure
+and one `getSnapshot`.
 
 So a boundary is keyed by its edge set and `:instances` counts how many hold
 it. That is the exact granularity the runtime retains, and it is what makes
-the Mounted and Reads rosters join without a correlation step. `:view` and
-`:source` are `:unknown` under an `:opaque` naming projection, because naming
-every live boundary would need a registry or a field on the priced
-registration — a standing memory cost this producer will not levy for a
-panel's benefit.
+the Mounted and Reads rosters join without a correlation step.
+
+**In a dev build the entry also names the views that rendered it.** `defview`
+stamps `"<ns>/<sym>"` on the body as `displayName` and hands its source
+coordinate to `impl.error`'s dev-only ledger; `collector/render-body` records
+that name on the read-set entry it resolved, under the `hicassoViews` own
+property, inside `goog.DEBUG`. The producer resolves each name back to its
+coordinate, so every mounted row, every attribution reader and every
+explanation carries `:views` — one `{:view :source}` per declared view that
+rendered the edge set, sorted by name — or `:unknown` for a body minted
+without a name (a harness fn; a name minted outside the macro carries
+`:source :unknown`). Two declared views over one edge set are still one row,
+naming both. The stamp costs a production build nothing: the slot is written
+only under `goog.DEBUG`, and `check_production_erasure.cjs` scans the release
+bundle for the slot name (rf2-6c12m.21).
+
+The tab spends the name where a reader looks: a Mounted, Reads, Why or
+Advisor row leads with the view (testid `…-views`, hover text the
+`file:line`), keeps the edge set beside it as the identity the runtime keys
+on, and renders the `unknown` chip in the view position for an unnamed body.
 
 **The EXPORTED key is projected, element by element.** Each element is
 `[frame-id sub-id projected-query]` — never a raw sub-key. A key built from
@@ -216,13 +230,14 @@ fields on the row and separate lines on the screen.
   a Why view that answered ":row moved" to a developer looking at eight rows
   would be collapsing an identity the door already held (audit #7789).
 - **Uncorrelated.** Hicasso's commit seam records no cascade id, so nothing in
-  the retained window can be JOINED to a boundary's re-run. `:cause` is
-  `:unknown` every time — structurally, not circumstantially: a bigger ring
-  does not fix it. `:candidates` are the retained runs that recomputed a
+  the retained window can be JOINED to a boundary's re-run — structurally,
+  not circumstantially: a bigger ring does not fix it, and the row's own
+  `:loss` says so. `:candidates` are the retained runs that recomputed a
   subscription the boundary reads, offered as LEADS.
 - **Host-opaque.** Whether the boundary then ran, retried, was abandoned, was
   bailed out by its memo comparator, or committed and painted is React's to
-  know. React DevTools and the browser performance tools are the authority.
+  know. React DevTools and the browser performance tools are the authority;
+  the producer ships no field for it and the panel states it beside the rows.
 
 An empty window flips the row's loss from `:uncorrelated` to `:cap` and its
 `:candidates` from `[]` to `:unknown`, because no search happened — a
@@ -329,13 +344,14 @@ supply them:
 - a **Suspense-fallback-hidden** subtree stays SUBSCRIBED, so it is listed
   here while absent from the screen.
 
-The producer names `:visibility` and `:hidden-retained` on the `:host`
-projection as `:unknown` on a `:host-opaque` basis, and the Mounted view
-renders the distinction beside the rows under
-`rf-xray-hicasso-mounted-visibility`. No observable is invented for it: the
-governing promise is amended instead, which is the honest half of the choice
-the audit offered. Hidden-retained is never inferred from an empty census, and
-a subscribed row is never labelled visible.
+The producer ships no field for either — they are facts about what the census
+cannot see, not values it holds — and the Mounted view states the distinction
+beside the rows under `rf-xray-hicasso-mounted-visibility`, rows or none. No
+observable is invented for it: the governing promise is amended instead, which
+is the honest half of the choice the audit offered. Hidden-retained is never
+inferred from an empty census, and a subscribed row is never labelled visible.
+The Intents view likewise states the window's cap beneath its rows under
+`rf-xray-hicasso-intents-cap`.
 
 ### A row's key and testid carry the WHOLE projected identity
 
@@ -513,10 +529,11 @@ Adding it moved six governance pins, each of which fails the build on drift:
 
 | Suite | Tier | Proves |
 |---|---|---|
-| `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
-| `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)); `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
+| `re-frame.hicasso.evidence-schema-cljs-test` | node | the envelope door stamps a coherent read and refuses a foreign read, a foreign or unsized loss and a loss beside a completeness claim, each refusal asserting the problem it named, with a positive control |
+| `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; a declared view is named on the mounted row, the attribution reader and the explanation with the coordinate `defview` captured, two declared views over one edge set are one row naming both, an unnamed body states `:unknown`, and a name minted outside the macro carries no source; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
+| `re-frame.hicasso.erasure-sentinels-cljs-test` | node | the live half of the erasure proof — a dev render writes the `hicassoViews` slot the release scan requires absent |
+| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a named row leads with its view and an unnamed one carries the `unknown` chip; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v2 stamp is refused rather than mis-parsed; the schema pin; row projections |
+| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)); a declared view is named on the Mounted, Reads and Why pages with a `…-views` testid, and a harness body renders the `unknown` chip instead; `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
 | `…panels.hicasso-live-panel-dom-cljs-test` | browser (real React DOM) | the RUNNING panel is live: one `Panel` mounted into a real `reagent.dom.client` root, inside the shell's own `[frame-provider {:frame :rf/xray}]`, picks up a newly-mounted boundary on a trace tick and commits the row to the DOM. Nothing calls `Panel` a second time; a drained render queue proves the panel stale across the mount first; the `<section>` node afterwards is the one it started with, so the roster arrived by reconciliation and not by a remount |
 | `frame_singleton_guard_test` | JVM (source text) | the sub-strip dispatches through the `reg-view`-injected frame-bound `dispatch`, never a bare global one |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |

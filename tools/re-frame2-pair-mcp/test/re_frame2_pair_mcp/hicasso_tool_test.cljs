@@ -252,11 +252,12 @@
   ;; this build was NOT written against is a typed
   ;; `:ok? false :evidence-tier-version-mismatch` (isError), never forwarded as
   ;; success. `re-frame.hicasso.evidence/schema` says in as many words that
-  ;; there is no v1 acceptance path and no compatibility adapter — so the
-  ;; superseded v1 stamp is the honest fixture for this, not an invented v99.
+  ;; there is no acceptance path for a superseded version and no compatibility
+  ;; adapter — so the superseded v2 stamp is the honest fixture for this, not
+  ;; an invented v99.
   (async done
     (let [seen        (atom nil)
-          superseded  :re-frame.hicasso.evidence/v1]
+          superseded  :re-frame.hicasso.evidence/v2]
       (-> (with-captured-form! seen {:ok? true :schema superseded :boundaries []}
             (fn []
               (hicasso-tool/read-mounted-boundaries-tool (fresh-conn) #js {})))

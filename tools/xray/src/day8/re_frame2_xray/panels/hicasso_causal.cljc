@@ -56,13 +56,12 @@
   Stated here because a reader arriving at three `:host-opaque` rows will
   otherwise supply the missing half themselves. `slice` is a pure
   function of four evidence envelopes and a trace window, and **not one
-  of them carries a node, a child, an element or a component**. The
-  producer says so in its own words: `re-frame.hicasso.tool`'s naming
-  projection is `:basis :opaque`, `:complete? false`, because *the
-  runtime mints no boundary identity and keeps no view registry* — a
-  boundary IS the edge set it holds. So opacity here is total and
-  structural rather than a label attached to particular subtrees, and
-  there is nothing for a *foreign subtree* marker to attach to.
+  of them carries a node, a child, an element or a component**. A
+  boundary IS the edge set it holds — the producer names the declared
+  views that rendered that set, and nothing more: no tree, no children,
+  no host crossing. So opacity here is total and structural rather than
+  a label attached to particular subtrees, and there is nothing for a
+  *foreign subtree* marker to attach to.
 
   The consequence is worth naming, because a checklist could otherwise
   decide on it. Links 5, 6 and 7 come from [[host-opaque-links]], which
