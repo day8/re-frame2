@@ -79,7 +79,6 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
             [re-frame.ssr :as ssr]
@@ -111,20 +110,18 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `useId` is a React hook, so it is written where React hooks are
-;; written: a native island, declared `{:server :render}` under a
-;; `{:server :render}` host — the only spelling that puts a native body
-;; into a server response. The island is the vehicle and never the
-;; subject: what is under test is the TREE the entry renders, and the
-;; island is the smallest legal thing that makes React's answer to it
-;; visible.
+;; written: a raw React component, mounted through a `{:server :render}`
+;; host — the only policy that puts a foreign body into a server
+;; response. The island is the vehicle and never the subject: what is
+;; under test is the TREE the entry renders, and the island is the
+;; smallest legal thing that makes React's answer to it visible.
 
-(n/defcomponent id-probe
+(defn- id-probe
   "One `useId`, rendered as text, beside a prop that changes."
-  {:server :render}
   [^js props]
-  (n/$ :span #js {"className" "island"}
-       (n/$ :b #js {"className" "probe"} (react/useId))
-       (n/$ :i #js {"className" "label"} (.-label props))))
+  (react/createElement "span" #js {:className "island"}
+    (react/createElement "b" #js {:className "probe"} (react/useId))
+    (react/createElement "i" #js {:className "label"} (.-label props))))
 
 (h/defhost id-host id-probe {:server :render})
 

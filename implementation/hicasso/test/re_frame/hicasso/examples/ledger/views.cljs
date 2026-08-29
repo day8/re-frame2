@@ -84,8 +84,8 @@
 
   ## What was NOT needed
 
-  No `n/defcomponent`, no ref, no effect, no imperative handle, no memo
-  hint and no second root. The application's whole native-tier surface is
+  No island component, no ref, no effect, no imperative handle, no memo
+  hint and no second root. The application's whole interop surface is
   `h/defhost` and `h/event`; the island the imperative-SDK row needs
   is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the

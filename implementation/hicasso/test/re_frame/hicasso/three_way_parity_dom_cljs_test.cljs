@@ -1,11 +1,11 @@
 (ns re-frame.hicasso.three-way-parity-dom-cljs-test
-  "THREE-WAY PARITY UNDER A REAL REACT.
+  "TWO-ARM PARITY UNDER A REAL REACT.
 
   `three_way_parity_cljs_test` settles what a server render can settle:
   bytes, element shape, props, and the construction figures underneath
-  the island band. Three of the bead's parity axes cannot be settled
-  there at all, because each is a property of a FIBER and a real
-  document, and the node lane has neither:
+  the island band. Three of the parity axes cannot be settled there at
+  all, because each is a property of a FIBER and a real document, and
+  the node lane has neither:
 
   | axis | why it needs a fiber |
   |---|---|
@@ -18,27 +18,30 @@
   a false green — `impl.mount/browser?` is the guard, and the sentence it
   prints names what was not measured.
 
+  The native authoring tier this file used to measure as a third arm was
+  retired by the rf2-6c12m.3 ruling; the two arms that remain —
+  handwritten React and UIx — are the floor that ruling kept. The file
+  keeps its name for the node-lane sibling's reason.
+
   ## Hydration is deliberately NOT here
 
   It belongs to the *per-surface SSR/hydration witnesses*, which this
-  file unblocks. Writing a three-route hydration row here would put a
+  file unblocks. Writing a two-route hydration row here would put a
   second authority on the same claim ahead of the one that owns it, and
   the two would drift on the first policy change.
   The server bytes each route produces ARE measured, in the node-lane
   sibling; what happens when React meets those bytes on a client is the
   next bead's subject.
 
-  ## One door for all three routes, and why that is the honest shape
+  ## One door for both routes, and why that is the honest shape
 
   Every arm crosses into the tree through `h/defhost` under
   `{:server :render}`. It is uniform — the same door, the same policy,
-  the same props conversion for all three — so a difference the rows find
-  is a difference between the ROUTES rather than between three ways of
-  reaching them. It is also what an application does: a native island, a
-  handwritten React component and a UIx subtree are all foreign React
-  components to the interpreted tier, and `native.cljc`'s docstring says
-  in terms that this is what keeps native-boundary clause 6 true — the
-  door never names the tier.
+  the same props conversion for both — so a difference the rows find
+  is a difference between the ROUTES rather than between two ways of
+  reaching them. It is also what an application does: a handwritten
+  React component and a UIx subtree are both foreign React components
+  to the interpreted tier, and the door never names the tier.
 
   ## One frame, and why a second would measure nothing HERE
 
@@ -47,35 +50,29 @@
   `::parity-dom`. That is deliberate, and the reason is a property of
   this file's subject rather than a budget.
 
-  A frame is a property of what a body READS. None of the three routes
-  here reads anything: [[page]] calls `h/sub` once per arm and hands
-  each route the answer as an ordinary `label` prop, because the axes
-  this file exists to settle — painted DOM, refs, cleanup, element
-  identity across a re-render — are all properties of a route's own
-  rendering, and a subscription inside each route would be three more
-  things that could differ for reasons that are not the ones under
-  test. Mount that tree under two frames and what differs between the
-  two pages is the number React carried down a props chain. That is
-  prop plumbing, and the single-frame run above already settles it for
-  all three routes in one commit.
+  A frame is a property of what a body READS. Neither route here reads
+  anything: [[page]] calls `h/sub` once per arm and hands each route the
+  answer as an ordinary `label` prop, because the axes this file exists
+  to settle — painted DOM, refs, cleanup, element identity across a
+  re-render — are all properties of a route's own rendering, and a
+  subscription inside each route would be two more things that could
+  differ for reasons that are not the ones under test. Mount that tree
+  under two frames and what differs between the two pages is the number
+  React carried down a props chain. That is prop plumbing, and the
+  single-frame run above already settles it for both routes in one
+  commit.
 
-  So the claim is real but it does not live here, and it is NOT simply
-  covered by the outward bridge's `two-frames-are-two-cells-across-the-
-  bridge` either — that row exercises the minted component's own
-  wrapper, which is the other direction and a different read. The
-  inward two-frame claim belongs where an inward route actually
-  subscribes, and that is
-  `native-abi-dom-cljs-test/two-frames-are-two-cells-through-the-inward-
-  door-as-well`: one hosting body under two roots, four islands reading
-  through `n/use-sub` on the far side of the crossing, two keys, two
-  readers each, and a write that moves one page.
+  The inward two-frame claim belongs where an inward route actually
+  subscribes, and that is `hooks_island_dom_cljs_test`'s isolation row:
+  one island source under two roots, reading through `n/use-sub` on the
+  far side of the crossing, two keys, one reader each, and a write that
+  moves one page.
 
-  The raw-React route is why the claim cannot be made three-wide at
-  all. A handwritten React component subscribes through no re-frame2
-  hook by construction — that is what makes it the control it is here —
-  so a three-route reading tree would have to hand it one, and the row
-  would then be measuring a component this file went to some trouble to
-  keep foreign."
+  The raw-React route is why the claim cannot be made here at all. A
+  handwritten React component subscribes through no re-frame2 hook by
+  construction — that is what makes it the control it is here — so a
+  reading tree would have to hand it one, and the row would then be
+  measuring a component this file went to some trouble to keep foreign."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
@@ -84,13 +81,14 @@
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as roots-support]
             [re-frame.test-support :as test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]))
 
 (def ^:private frame-id ::parity-dom)
+
+(def ^:private routes [:react :uix])
 
 (rf/reg-sub ::price (fn [db _] (:price db)))
 
@@ -127,9 +125,8 @@
 ;; times across one update — and the re-render row below, whose whole
 ;; instrument is the call count, would read a remount that never
 ;; happened.
-(def ^:private native-ref (fn [node] (record-ref! :native node)))
-(def ^:private react-ref  (fn [node] (record-ref! :react node)))
-(def ^:private uix-ref    (fn [node] (record-ref! :uix node)))
+(def ^:private react-ref (fn [node] (record-ref! :react node)))
+(def ^:private uix-ref   (fn [node] (record-ref! :uix node)))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -142,19 +139,13 @@
                       (collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
-;; The three routes, as components
+;; The two routes, as components
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One subject: a cell painting a label, holding a ref on its own span.
 ;; The ref arrives as an ORDINARY prop named `innerRef` rather than at
-;; React's `ref` slot, so all three routes are handed it the same way and
-;; the row measures the route rather than React's own ref forwarding —
-;; which `native_abi_dom_cljs_test` already covers for the native tier.
-
-(n/defcomponent native-cell
-  [^js props]
-  (ran! :native)
-  (n/$ :span {:class "cell native" :ref (.-innerRef props)} (.-label props)))
+;; React's `ref` slot, so both routes are handed it the same way and the
+;; row measures the route rather than React's own ref forwarding.
 
 (defn react-cell
   [^js props]
@@ -175,19 +166,17 @@
   [^js props]
   (uix/$ uix-cell {:label (.-label props) :inner-ref (.-innerRef props)}))
 
-(h/defhost native-host native-cell {:server :render})
-(h/defhost react-host  react-cell  {:server :render})
-(h/defhost uix-host    uix-arm     {:server :render})
+(h/defhost react-host react-cell {:server :render})
+(h/defhost uix-host   uix-arm    {:server :render})
 
 (h/defview page
-  "All three arms in one tree, under one frame, in one commit — so a row
-  comparing them is comparing one render and not three that happened to
+  "Both arms in one tree, under one frame, in one commit — so a row
+  comparing them is comparing one render and not two that happened to
   agree."
   [_]
   [:div.page
-   [native-host {:label (str (h/sub [::price])) :inner-ref native-ref}]
-   [react-host  {:label (str (h/sub [::price])) :inner-ref react-ref}]
-   [uix-host    {:label (str (h/sub [::price])) :inner-ref uix-ref}]])
+   [react-host {:label (str (h/sub [::price])) :inner-ref react-ref}]
+   [uix-host   {:label (str (h/sub [::price])) :inner-ref uix-ref}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -195,7 +184,7 @@
 
 (defn- skip!
   [why]
-  (is true (str "a three-route DOM claim needs a real React DOM — " why)))
+  (is true (str "a two-route DOM claim needs a real React DOM — " why)))
 
 (defn- seeded!
   []
@@ -210,30 +199,30 @@
     handle))
 
 (defn- cells
-  "The three painted cells, by route, read out of `handle`'s container."
+  "The two painted cells, by route, read out of `handle`'s container."
   [handle]
   (into {}
         (map (fn [route]
                [route (.querySelector ^js (:container handle) (str "span.cell." (name route)))]))
-        [:native :react :uix]))
+        routes))
 
 (defn- normalised
   "`el`'s outer HTML with the route's own class removed.
 
   The class is how the row FINDS each cell and is therefore the one
-  attribute that must differ between the three. Comparing the raw markup
+  attribute that must differ between the two. Comparing the raw markup
   would compare that difference and nothing else; removing it leaves the
   part the routes are supposed to agree about, and the row below asserts
   the removal still left something."
   [^js el]
   (when el
-    (str/replace (.-outerHTML el) #"\s*(native|react|uix)\b" "")))
+    (str/replace (.-outerHTML el) #"\s*(react|uix)\b" "")))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The painted DOM
 ;; ---------------------------------------------------------------------------
 
-(deftest the-three-routes-paint-the-same-dom
+(deftest the-two-routes-paint-the-same-dom
   (if-not (mount/browser?)
     (skip! ":node-test has no React DOM")
     (do
@@ -241,26 +230,25 @@
       (let [handle (mounted!)
             found  (cells handle)]
         (try
-          (testing "the premise: all three arms mounted. Two arms agreeing
-                    while a third rendered nothing is the failure this row is
-                    most exposed to, and it is the one the node-lane sibling
-                    was actually bitten by"
+          (testing "the premise: both arms mounted. One arm agreeing with
+                    itself while the other rendered nothing is the failure
+                    this row is most exposed to, and it is the one the
+                    node-lane sibling was actually bitten by"
             (is (every? some? (vals found)) (pr-str (keys found))))
 
-          (testing "and each painted the value it read — one frame, three
+          (testing "and each painted the value it read — one frame, two
                     routes, one commit"
-            (is (= ["191" "191" "191"]
-                   (mapv #(.-textContent ^js (get found %)) [:native :react :uix]))))
+            (is (= ["191" "191"]
+                   (mapv #(.-textContent ^js (get found %)) routes))))
 
-          (testing "the painted markup is the same on all three routes once
-                    the class that distinguishes them is removed — which is
-                    the DOM claim the server-bytes row cannot make, because
-                    a route could emit correct bytes and still hand React a
+          (testing "the painted markup is the same on both routes once the
+                    class that distinguishes them is removed — which is the
+                    DOM claim the server-bytes row cannot make, because a
+                    route could emit correct bytes and still hand React a
                     tree it reconciles differently"
             (let [handwritten (normalised (:react found))]
               (is (seq handwritten) "the premise: normalising left markup")
               (is (some? (re-find #"<span" handwritten)))
-              (is (= handwritten (normalised (:native found))))
               (is (= handwritten (normalised (:uix found))))))
           (finally (mount/release! handle)))))))
 
@@ -278,16 +266,16 @@
 
         (testing "each route's own ref function was called, and with the very
                   node that route painted — not merely with A node"
-          (doseq [route [:native :react :uix]]
+          (doseq [route routes]
             (let [calls (get @!refs route)]
               (is (= 1 (count calls)) (str route " ref called exactly once at mount"))
               (is (identical? (get found route) (first calls))
                   (str route " ref holds the node it painted")))))
 
         (testing "and every one of them is a real element with a real tag —
-                  the three routes reach React's ref slot by three different
+                  the two routes reach React's ref slot by two different
                   spellings and land in the same place"
-          (doseq [route [:native :react :uix]]
+          (doseq [route routes]
             (is (= "SPAN" (.-tagName ^js (first (get @!refs route)))))))
 
         (roots-support/teardown-census! handle)
@@ -296,7 +284,7 @@
                   React's own contract and the half a mounted-only row cannot
                   see: a route that held the node past unmount would keep a
                   detached tree alive"
-          (doseq [route [:native :react :uix]]
+          (doseq [route routes]
             (let [calls (get @!refs route)]
               (is (= 2 (count calls)) (str route " ref called at mount and at unmount"))
               (is (nil? (second calls)) (str route " ref released")))))))))
@@ -305,7 +293,7 @@
 ;; 3. Cleanup
 ;; ---------------------------------------------------------------------------
 
-(deftest teardown-releases-everything-the-three-route-tree-acquired
+(deftest teardown-releases-everything-the-two-route-tree-acquired
   (if-not (mount/browser?)
     (skip! ":node-test acquires nothing, so it can release nothing")
     (do
@@ -318,21 +306,22 @@
                   never held anything"
           ;; `.-length`, not `count`: a `NodeList` is array-LIKE and
           ;; ES6-iterable but implements no ClojureScript protocol, so
-          ;; `count` throws `ICounted` rather than answering three.
-          (is (= 3 (.-length (.querySelectorAll ^js container "span.cell")))))
+          ;; `count` throws `ICounted` rather than answering two.
+          (is (= 2 (.-length (.querySelectorAll ^js container "span.cell")))))
 
         (let [census (roots-support/teardown-census! handle)]
 
           (testing "the container is empty — React unmounted the whole tree,
-                    the two foreign subtrees included"
+                    both foreign subtrees included"
             (is (= "" (.-innerHTML ^js container))))
 
           (testing "and the runtime's own census is exact at the instant
                     unmount returned: no cell reference, no boundary, no
-                    edge survived a tree holding a native island and a
-                    foreign UIx subtree. Read BEFORE the release finishes,
-                    because `mount/release!` empties every table by fiat and
-                    a census taken after it reads zeros either way"
+                    edge survived a tree holding a handwritten React
+                    component and a foreign UIx subtree. Read BEFORE the
+                    release finishes, because `mount/release!` empties every
+                    table by fiat and a census taken after it reads zeros
+                    either way"
             (is (= {:cell-refs 0 :boundaries 0 :edges 0} census))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -341,10 +330,10 @@
 ;;
 ;; The parity axis the DOM cannot show. A route whose element type is a
 ;; fresh object per render renders perfectly and remounts every time:
-;; same pixels, new nodes, lost state, dropped refs. `n/defcomponent`'s
-;; contract is that the element type is the author's own function, so a
-;; re-render UPDATES — and the observable is the ref, which React fills
-;; once per mount and would fill again on a remount.
+;; same pixels, new nodes, lost state, dropped refs. A `{:server :render}`
+;; crossing's contract is that the element type is the author's own
+;; function, so a re-render UPDATES — and the observable is the ref, which
+;; React fills once per mount and would fill again on a remount.
 
 (deftest a-re-render-updates-every-route-rather-than-remounting-it
   (if-not (mount/browser?)
@@ -357,7 +346,7 @@
           (testing "the premise: the first commit filled every ref exactly
                     once, which is what a second fill would be measured
                     against"
-            (is (= [1 1 1] (mapv #(count (get @!refs %)) [:native :react :uix]))))
+            (is (= [1 1] (mapv #(count (get @!refs %)) routes))))
 
           (rf/with-frame frame-id (rf/dispatch-sync [::seed {:price 192}]))
           (mount/settle!)
@@ -367,21 +356,20 @@
                     The body count is the half the node identity below
                     cannot supply, since a tree that never re-rendered at
                     all also keeps its nodes"
-            (is (= {:native 2 :react 2 :uix 2} @!renders))
-            (is (= ["192" "192" "192"]
-                   (mapv #(.-textContent ^js (get (cells handle) %))
-                         [:native :react :uix]))))
+            (is (= {:react 2 :uix 2} @!renders))
+            (is (= ["192" "192"]
+                   (mapv #(.-textContent ^js (get (cells handle) %)) routes))))
 
           (testing "and every route kept its NODE across the update. React
-                    reconciled rather than replaced, on all three, which is
-                    what an unchanged element type buys and what a
-                    per-render mint would have cost"
-            (doseq [route [:native :react :uix]]
+                    reconciled rather than replaced, on both, which is what
+                    an unchanged element type buys and what a per-render
+                    mint would have cost"
+            (doseq [route routes]
               (is (identical? (get before route) (get (cells handle) route))
                   (str route " kept its node"))))
 
           (testing "so no ref was refilled: still one call each, where a
                     remount would read two — the observable the DOM cannot
                     provide, since the pixels are identical either way"
-            (is (= [1 1 1] (mapv #(count (get @!refs %)) [:native :react :uix]))))
+            (is (= [1 1] (mapv #(count (get @!refs %)) routes))))
           (finally (mount/release! handle)))))))

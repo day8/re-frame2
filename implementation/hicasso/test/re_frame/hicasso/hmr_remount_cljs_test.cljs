@@ -261,8 +261,8 @@
   ;; The model's own guard. `load-namespace!` claims to be what re-evaluating
   ;; the `defview` form does; that claim is only true while the macro expands
   ;; to this call under this name. If `mint-view!` ever gains an HMR-stable
-  ;; proxy keyed on the view name — `n/defcomponent` promises
-  ;; "source/HMR metadata", so it is a live possibility — this test goes red
+  ;; proxy keyed on the view name — a live possibility, since the ledger
+  ;; already carries source coordinates per name — this test goes red
   ;; and the recorded contract must be rewritten before the suite can pass.
   ;; That is the intended behaviour: the freeze is falsifiable.
   (let [reloaded (load-namespace! panel-body)]

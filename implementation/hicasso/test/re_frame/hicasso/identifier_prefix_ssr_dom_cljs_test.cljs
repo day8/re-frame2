@@ -116,7 +116,6 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -150,17 +149,17 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `useId` is a React hook, so it is written where React hooks are
-;; written: a native island. And it is declared `{:server :render}` under
-;; a `{:server :render}` host, because that pair is the ONLY spelling
-;; that puts a native body into a server response — the innermost
-;; Client-only wins, and a Client-only island contributes nothing to the
-;; bytes for the prefix to be read out of (`native-ssr-dom-cljs-test`).
+;; written: a raw React component. And it is mounted through a
+;; `{:server :render}` host, because that is the ONLY policy that puts a
+;; foreign body into a server response — under the Client-only default
+;; the host region contributes nothing to the bytes for the prefix to be
+;; read out of.
 ;;
 ;; The island is the vehicle and never the subject. What is under test is
 ;; the ROOT's option; the island is the smallest legal thing that makes
 ;; React's answer to it visible.
 
-(n/defcomponent id-probe
+(defn- id-probe
   "One `useId`, rendered as text, beside a prop that changes.
 
   The prop is not decoration: it is what makes the post-adoption
@@ -168,11 +167,10 @@
   host whose props are identical, React would have every right to bail
   out, and the rows that re-read the id after a dispatch would be
   re-reading a body that never ran."
-  {:server :render}
   [^js props]
-  (n/$ :span #js {"className" "island"}
-       (n/$ :b #js {"className" "probe"} (react/useId))
-       (n/$ :i #js {"className" "label"} (.-label props))))
+  (react/createElement "span" #js {:className "island"}
+    (react/createElement "b" #js {:className "probe"} (react/useId))
+    (react/createElement "i" #js {:className "label"} (.-label props))))
 
 (h/defhost id-host id-probe {:server :render})
 
