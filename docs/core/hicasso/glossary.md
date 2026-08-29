@@ -226,19 +226,17 @@ Related: [Events as data](03-events-as-data.md),
 [Interop](09-interop.md).
 
 <a id="hframe"></a>
-### `h/frame`
+### `h/hframe`
 
 Returns the frame **id keyword** of the Hicasso boundary currently rendering.
 Legal only during a boundary body or a render callback that boundary supplied.
-Not a tracked subscription.
+Not a tracked subscription. The spelling is provisional — a bare `frame` would
+shadow on a `:refer` — and it is what ships today.
 
-Exported today as `h/hframe`; substitute that spelling to run the sample below.
-The difference is deliberate and is recorded under [Status](index.md#status).
-
-The taught carry spelling is composition with core:
+The carry spelling is composition with core:
 
 ```clojure
-(let [{:keys [dispatch]} (rf/capture-frame (h/frame))]
+(let [{:keys [dispatch]} (rf/capture-frame (h/hframe))]
   …)
 ```
 

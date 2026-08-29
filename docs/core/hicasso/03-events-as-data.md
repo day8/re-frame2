@@ -205,7 +205,7 @@ composition, so neither should dispatch the application's commit or cancel
 intent. The runtime performs this check centrally, including legacy browser
 signals described under [Advanced](#advanced).
 
-## Frame-safe callbacks and `h/frame`
+## Frame-safe callbacks and `h/hframe`
 
 Generated intent callbacks and `h/event` callbacks retain their view's frame.
 Application-owned async work should normally move to the event/effect layer,
@@ -214,23 +214,13 @@ where an fx handler already receives the frame id in its context and
 
 A Hicasso view body does **not** have ambient frame lookup. Zero-arity
 `(rf/capture-frame)` refuses under Hicasso's render discipline. The author-
-facing frame **read** is [`h/frame`](glossary.md#hframe): a plain function,
+facing frame **read** is [`h/hframe`](glossary.md#hframe): a plain function,
 legal only during a boundary body (or a render callback that boundary
 supplied), that returns the current frame **id keyword**. It is not a tracked
-subscription.
-
-!!! warning "`h/frame` is exported today as `h/hframe`"
-
-    This is the one door this guide spells differently from the code, and the
-    difference is deliberate rather than a slip — [Status](index.md#status)
-    records the whole of it. The samples below teach `h/frame`; to run them
-    today, substitute `h/hframe` at each call site. Nothing else changes: same
-    arity, same return, same legality rule.
-
-    The recommendation on record is to retire the verb rather than respell it,
-    leaving `rf/current-frame-id` and `rf/capture-frame` as the frame doors
-    they already are. That is why the guide has not simply been rewritten to
-    `h/hframe`.
+subscription. The spelling is provisional — a bare `frame` would shadow on a
+`:refer`, and the recommendation on record is to retire the verb once core's
+own frame doors are legal inside a body — but `h/hframe` is what ships, and it
+is what the samples below call.
 
 The carry spelling is composition with core's capture primitive:
 
@@ -241,7 +231,7 @@ The carry spelling is composition with core's capture primitive:
             [app.sdk :as sdk]))
 
 (h/defview map-panel [{:keys [id]}]
-  (let [{:keys [dispatch]} (rf/capture-frame (h/frame))]
+  (let [{:keys [dispatch]} (rf/capture-frame (h/hframe))]
     [:div.map
      {:ref (fn [node]
              (when node
@@ -250,7 +240,7 @@ The carry spelling is composition with core's capture primitive:
                  #(dispatch [:map/marker-selected id %]))))}]))
 ```
 
-`(rf/capture-frame (h/frame))` returns
+`(rf/capture-frame (h/hframe))` returns
 `{:frame :dispatch :dispatch-sync :subscribe}` bound to that frame. Prefer this
 at a foreign edge you do not control — an SDK attach ref, a value-first
 callback, a host slot that retains a closure.
@@ -262,14 +252,14 @@ Capture during the live render rather than keeping a global stash. Do not put
 the frame id into markup: on the server it is process-local identity and would
 break deterministic render-twice checks.
 
-Calling `h/frame` outside a Hicasso render extent raises
+Calling `h/hframe` outside a Hicasso render extent raises
 `:rf.error/hicasso-frame-outside-boundary`.
 
 The practical rule is:
 
 - use an intent for an ordinary dispatching event
 - use an effect for application-owned async work
-- use `(rf/capture-frame (h/frame))` for a closure retained by foreign code
+- use `(rf/capture-frame (h/hframe))` for a closure retained by foreign code
 
 A link whose job is navigation belongs to the routing module's route-link
 surface rather than a custom click handler.
@@ -282,8 +272,8 @@ surface rather than a custom click handler.
 | Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
 | A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
 | A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
-| Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame (h/frame))` during rendering |
-| `h/frame` raises `:rf.error/hicasso-frame-outside-boundary` | No Hicasso render extent | Call it only inside a view body or a render callback that body supplied |
+| Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame (h/hframe))` during rendering |
+| `h/hframe` raises `:rf.error/hicasso-frame-outside-boundary` | No Hicasso render extent | Call it only inside a view body or a render callback that body supplied |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
 | A vector is rejected at a host callback | `:rf.error/hicasso-intent-at-a-non-event-contract` | That host position is not declared as an event contract; supply the value its declaration requires |

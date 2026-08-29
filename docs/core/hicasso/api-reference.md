@@ -107,7 +107,7 @@ for one carries none of it.
 | --- | --- | --- |
 | `h/sub` | `(h/sub query-v)` | The ambient collector. A plain function call, legal anywhere in a body — inside a `when`, a `for`, or an inlined helper — because the edge is recorded where the read happens. A branch not taken contributes no edge. |
 | `h/use-subs` | `(h/use-subs query-map)` | The grouped control. One fixed site takes the whole query collection and answers the snapshot the body destructures, so the boundary's edge set follows its declaration rather than its control flow — and a branch not taken still costs its edge. |
-| `h/hframe` | `(h/hframe)` | The frame id keyword of the boundary currently rendering, for the core doors that take one. A loud error outside a render extent. It is spelled `hframe` and not `frame` because a bare `frame` would shadow on a `:refer`; the guide teaches the intended spelling and the index's Status block records the gap. |
+| `h/hframe` | `(h/hframe)` | The frame id keyword of the boundary currently rendering, for the core doors that take one. A loud error outside a render extent. Spelled `hframe` rather than `frame` because a bare `frame` would shadow on a `:refer`; the spelling is provisional, and it is what ships today. |
 
 ### Roots
 
@@ -652,7 +652,7 @@ error rather than a warning. This is what to type instead.
 | `:ssr`, on a `defhost` or `n/defcomponent` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-host-unknown-option` |
 | `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script`, `server/document` and `server/render-twice` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
 
-Two rules explain most of what looks inconsistent above.
+One rule explains most of what looks inconsistent above.
 
 **A refusal id is not a spelling, and never follows one.** An id is frozen for
 the life of the refusal and is never reused after retirement, because a
@@ -664,15 +664,6 @@ named the retired option were rewritten with it, so the test kit's
 missing-fixture refusal now recovers with `:add-the-query-to-subs` rather than
 `:add-the-query-to-reads`. A `:recovery` is concrete advice about a live API and
 is not frozen the way an id is.
-
-**One taught spelling still differs from the code, and it is not waiting for a
-sweep.** This guide writes `h/frame`; the door exports `h/hframe`. The
-recommendation on record is to retire the verb rather than respell it — a bare
-`frame` shadows on a `:refer`, and `rf/current-frame-id` and `rf/capture-frame`
-are already the frame doors — but retiring it needs the ambient-read seam to
-admit those two core doors inside a Hicasso body, which is a behaviour change
-rather than a rename. The Status block on [the guide index](index.md) is the
-live record of that one divergence.
 
 Naming questions are consolidated and settled by the project operator in a
 working design record that is not published, so the table above is the published
@@ -689,7 +680,7 @@ opinion.
 | --- | --- | --- |
 | `implementation/hicasso/scripts/check_facade_inventory.py` | the `re-frame.hicasso` door against its inventory | 16 names on the door, 43 inventory rows |
 | `implementation/hicasso/scripts/check_naming_census.py` | every public name in the package against the naming ledger | 103 public names across ten namespaces, 0 unrostered |
-| `implementation/hicasso/scripts/check_guide_samples.py` | every fenced block on this page, by digest, and every `alias/verb` it names against the source that defines it | all blocks pinned, all verbs resolved |
+| `implementation/hicasso/scripts/check_guide_samples.py` | every `alias/verb` a fenced block in the guide names against the source that defines it | all verbs resolved |
 
 The census's 103 and this page's roster differ by exactly one name, and the
 difference is the census's. `forms/buffered-field` is minted by `h/defview`
