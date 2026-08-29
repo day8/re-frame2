@@ -52,8 +52,8 @@
 
   - **The override applies to a node the boundary can SEE.** An override
     written inside an opaque child view is invisible to it; shape (2) is
-    what that case is for, and an override written on a boundary child is
-    a loud error naming `:rf/phase` rather than a silently dropped map.
+    what that case is for. An override written on a boundary child is
+    stripped, and the child receives `:rf/phase` to branch on instead.
   - **ENTER is the weak half**: driving enter purely as a `:mounting` →
     `:present` class flip can race paint. `::motion/mounting` ships, and
     the guide teaches the CSS answer — an animation on insertion, or
@@ -81,14 +81,11 @@
 ;; The reserved keys
 ;; ---------------------------------------------------------------------------
 
-;; The two override keys are DEFINED in
-;; [[re-frame.hicasso.impl.codec]] and read from there. They
-;; are this module's vocabulary, but the codec's prop walk has to
-;; recognise them — it is where an override written OUT OF THIS
-;; MODULE'S REACH is refused — and this namespace requires the codec
-;; rather than the other way round. One home, which is what let
-;; naming-ledger row 31's ruled respelling to `::motion/…` land on both
-;; of them at once (rf2-hg3q).
+;; The two override keys are DEFINED in `re-frame.hicasso.impl.codec` and
+;; read from there: they are this module's vocabulary, but the codec's
+;; prop walks have to recognise them — an override no tray reached is
+;; skipped there rather than emitted as an attribute — and this namespace
+;; requires the codec rather than the other way round.
 
 (def mounting-key
   "`::motion/mounting` — the attribute overrides applied while a child is
@@ -141,21 +138,18 @@
 (defn child-key
   "A child's `:key`, from the props map where HD-016 puts it. Required on
   every dynamic child, because the key IS the identity the state machine
-  runs on — an unkeyed child has no way to be the same child next render."
+  runs on — a child with no key, a non-vector included, has no way to be
+  the same child next render, so it is refused rather than retained under
+  an identity nothing wrote."
   [child]
-  (when-not (vector? child)
-    (fail! :rf.error/hicasso-presence-child-not-hiccup
-           're-frame.hicasso.impl.presence/child-key
-           (str "A presence child must be a keyed hiccup vector; it was "
-                (pr-str child) ".")
-           {:child child}))
-  (let [k (:key (props-of child))]
+  (let [k (when (vector? child) (:key (props-of child)))]
     (when (nil? k)
       (fail! :rf.error/hicasso-presence-child-unkeyed
              're-frame.hicasso.impl.presence/child-key
-             (str "A presence child has no :key. Presence retains children by "
-                  "key, so an unkeyed child cannot be recognised across a "
-                  "render and cannot be animated out.")
+             (str "A presence child must be a hiccup vector with a :key; it was "
+                  (pr-str child) ". Presence retains children by key, so a "
+                  "child without one cannot be recognised across a render "
+                  "and cannot be animated out.")
              {:child child}))
     k))
 
@@ -175,47 +169,23 @@
   A **native node** takes the phase's attribute-override map merged over
   its own attributes — the override WINS, because that is what an
   override is — with the two structural slots never taken from it
-  (HD-023). The two override keys are always
-  removed HERE, on a tray's direct children; anywhere else they are
-  REFUSED, by the codec's own prop walk
-  ([[re-frame.hicasso.impl.codec/refuse-misplaced-override!]]). Between
-  the two there is no route by which an override reaches the DOM as an
-  attribute.
+  (HD-023). The two override keys are removed here, on a tray's direct
+  children; anywhere else the codec's prop walks skip them, so no
+  override reaches the DOM as an attribute.
 
-  **The exclusion is on the canonical SLOT, through the filter
-  [[re-frame.hicasso.impl.codec/without-structural]].** It has to be:
-  an override carrying `\"key\"` or `:x/key`
-  survives a raw `#{:key :ref}` dissoc and canonicalises straight onto
-  React's key, which would remount the very node presence exists to
-  retain — the child would restart its exit, or vanish and come back,
-  precisely while it is being animated out. A `\"ref\"` or `:x/ref`
-  likewise reaches the retained node. Retained key identity is therefore
-  pinned by construction: the only `:key` in the merged map is the one
-  the child was retained under, because nothing else can reach that slot
-  in any spelling.
+  The structural exclusion is on the canonical SLOT, through
+  `re-frame.hicasso.impl.codec/without-structural`: an override carrying
+  `\"key\"` or `:x/key` would otherwise canonicalise onto React's key and
+  remount the very node presence exists to retain, mid-exit. So the only
+  `:key` in the merged map is the one the child was retained under.
 
-  A **boundary child** takes `:rf/phase` as an ordinary prop instead, and
-  an override written there is a loud error: the boundary cannot see
-  inside an opaque view, and silently dropping the map is the class of
-  failure the design exists to delete.
-
-  **The refusal has two doors.** This one refuses the override the tray
-  CAN see and cannot apply; the codec's prop walk refuses the one the
-  tray never sees at all — written on a grandchild, inside a view's body,
-  or under no tray whatsoever."
+  A **boundary child** is opaque to the tray, so it takes `:rf/phase` as
+  an ordinary prop instead, and any override written on it is dropped.
+  Design record: docs/design/hicasso/decisions.md, HD-025."
   [child phase]
   (let [props (props-of child)]
     (if (codec/boundary-head? (nth child 0))
-      (do
-        (when (some #(contains? props %) override-keys)
-          (fail! :rf.error/hicasso-presence-override-on-a-view
-                 're-frame.hicasso.impl.presence/with-phase
-                 (str "A presence attribute override was written on a VIEW head. "
-                      "Presence merges overrides into nodes it can see; a view is "
-                      "opaque to it. The view receives " (pr-str phase-prop)
-                      " as an ordinary prop — branch or style on that instead.")
-                 {:child child :phase phase}))
-        (with-props child (assoc props phase-prop phase)))
+      (with-props child (assoc (apply dissoc props override-keys) phase-prop phase))
       (let [override (override-for props phase)
             base     (when props (apply dissoc props override-keys))]
         (cond

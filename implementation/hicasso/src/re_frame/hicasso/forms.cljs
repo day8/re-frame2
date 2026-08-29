@@ -60,7 +60,7 @@
     common failures are behavioural rather than separately named runtime
     errors* — and the two refusals this surface can raise are minted by
     the substrate and catalogued there: a bad `:control` is
-    `:rf.error/hicasso-state-bad-key` (from `reg-state`, at the READ, on
+    `:rf.error/hicasso-state-bad-argument` (from `reg-state`, at the READ, on
     the field's first render), and `::h/revision` on something that is
     not a controlled text field is
     `:rf.error/hicasso-revision-not-controlled`.

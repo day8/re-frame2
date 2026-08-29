@@ -346,8 +346,7 @@
     `Suspense` fallback). Hiccup there lowers under this boundary's
     frame; at an undeclared prop a vector is DATA, because a vector is a
     legal value and nothing can infer a markup position. A slot may not
-    be `:key`/`:ref`, a name the crossing never emits, a declared
-    callback, or spelled twice (`:rf.error/hicasso-host-bad-slots`).
+    be `:key`/`:ref`, a declared callback, or spelled twice.
   - `:server` — `:client-only` (the DEFAULT: the region renders nothing
     on the server and on hydration's first pass, and the component mounts
     once the markup is adopted; a fresh mount never flashes) or `:render`,
@@ -363,11 +362,13 @@
       (defhost chart Chart {:fallback [:div.chart-skeleton]})
       (defhost themed (.-Provider theme-context) {:server :render})
 
-  Refused at the declaration: a `nil` component, non-map options, an
-  option outside the four, a contract outside the two, and any form after
-  `opts` (`:rf.error/hicasso-host-extra-form`) — a second options map is
-  not merged, it is dropped, and a policy set and never applied is the
-  defect every one of these refusals exists to delete. The date-picker
+  Refused at the declaration: a `nil` component
+  (`:rf.error/hicasso-host-no-component`), and — as
+  `:rf.error/hicasso-bad-host-declaration`, the fault named in the
+  reason — non-map options, an option outside the four, a contract
+  outside the two, a malformed `:slots` set, and any form after `opts`,
+  which is dropped rather than merged. A policy set and never applied is
+  the defect every one of these refusals exists to delete. The date-picker
   callback above is an [[event]] rather than a vector because
   react-datepicker calls `onChange(date, event)`, VALUE-first; the vector
   spelling is EVENT-first and would raise
@@ -382,40 +383,23 @@
   options map into the discarded tail, so it is refused at whichever of
   the two guards it reaches first rather than accommodated.
 
-  ## The declaration extent earns its keep here
-
-  `defview` opens one so that a refusal from a body can name the boundary
-  it came from. `defhost` opens one for a nearer reason: the refusals
-  above — an unknown option, a third `:server` value, a boundary head in a
-  declared fallback — are raised by `mint-host!` DURING the expansion's
-  own `def`, at namespace load, with no render anywhere on the stack. The
-  extent is what puts the offending declaration's file and line on them.
-  It is `debug-enabled?`-gated and elides whole under `:advanced` +
-  `goog.DEBUG=false`.
-
-  Those same refusals are why the extent closes in a `finally` here
-  rather than being abandoned with the aborted `def`: a bad `defhost` is
-  the ordinary way a declaration throws, and an HMR runtime catches it
-  and keeps the mounted page rendering. Without the `finally` every
-  refusal raised afterwards — from an event handler, a timer, anywhere —
-  inherited this declaration's `:view` and `:source`. The refusal on its
-  way out is unaffected: [[re-frame.hicasso.impl.error/fail!]] builds the
-  whole ex-data before it throws."
+  The declaration extent (`declaring!` … `declared!`) is what puts the
+  offending declaration's file and line on a refusal `mint-host!` raises
+  at namespace load, where no render is on the stack; it is
+  `debug-enabled?`-gated. It closes in a `finally` because a refusing
+  `defhost` is the ordinary way a declaration throws under HMR, and
+  without the `finally` every later refusal would inherit this
+  declaration's `:view` and `:source`. The refusal on its way out is
+  unaffected: `fail!` builds the whole ex-data before it throws."
      [sym & more]
      (let [doc         (when (string? (first more)) (first more))
            forms       (if doc (rest more) more)
            [component opts] forms
-           ;; THE TAIL, refused rather than dropped. The
-           ;; destructure above is fixed-width over a seq of arbitrary
-           ;; length, so everything past `opts` would vanish silently
-           ;; — `defview`'s `[argv & body]` has no such tail to lose,
-           ;; and this is the one door in the family that could swallow
-           ;; one. Detected HERE, in the form, so the extra forms are
-           ;; quoted rather than evaluated; raised at load, inside the
-           ;; declaration extent, so the refusal carries the same
-           ;; coordinate every other `defhost` refusal carries. See
-           ;; `impl.codec/refuse-host-extra-forms!` for both halves of
-           ;; that argument.
+           ;; THE TAIL, refused rather than dropped: the destructure
+           ;; above is fixed-width, so everything past `opts` would
+           ;; vanish silently. Detected here so the extra forms are quoted
+           ;; rather than evaluated; raised at load, inside the extent, so
+           ;; the refusal carries the declaration's coordinate.
            extra       (seq (drop 2 forms))
            host-name   (str (ns-name *ns*) "/" sym)
            coord       (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
@@ -492,9 +476,9 @@
   portalled subtree is absent from the response and `:fallback` is what a
   caller puts at the tree position instead.
 
-  A `:target` that is not a DOM node — overwhelmingly a lookup that
-  answered nothing — is refused with
-  `:rf.error/hicasso-portal-no-target`, naming the value.
+  A `:target` that is not a DOM container — overwhelmingly a lookup that
+  answered nothing — is React's own *Target container is not a DOM
+  element* at the client render.
 
   The raw mechanism, for containers the application does not own.
   Anchoring, dismissal and focus conduct are the overlay module's.

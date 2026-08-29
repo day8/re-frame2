@@ -209,11 +209,10 @@
                                     :veto     nil}]}]
 
   Same school as the prevent head (HD-026): behaviour in the vector where
-  `=` can see it, a closed grammar — [[unwrap-navigate]] is the whole of
-  it, and it asserts the map's EXACT key set ([[navigate-keys]]) rather
-  than the presence of the keys it happens to know — classified once at
-  lowering, loud on every malformed form in a dev build. The
-  click LAW is not restated here: the lowered closure hands the event to
+  `=` can see it, classified once at lowering. `route-link` mints the
+  form and nothing else writes it, so the lowering reads the map
+  ([[unwrap-navigate]]) rather than re-validating it. The click LAW is
+  not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
   decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
   deferral and `preventDefault`-then-dispatch stay routing's law, stated
@@ -905,116 +904,29 @@
 
 (defn- lower-veto
   "Lower the `:veto` slot of a navigate vector into the pre-navigation
-  callback routing runs first — a plain one-argument fn, or nil — or
-  refuse it loudly. The roster is CLOSED, and it is the route-click law
-  that closes it: nil, the `::h/prevent` decorator (the DECLARATIVE veto —
-  its lowered closure calls `.preventDefault` and dispatches the wrapped
-  intent, and `activate-link!` stands down on `defaultPrevented`, so the
-  navigation is cancelled and the app intent takes its place), the one
-  callback form, or a plain fn (both the IMPERATIVE veto — whoever holds
-  the event owns it, HD-024). A BARE intent vector is refused: the click
-  already produces the one routing intent, and an un-prevented second
-  intent on the same click is one user action yielding two semantic
-  events. [[re-frame.hicasso.impl.route-link/route-link]] refuses
-  the same forms at RENDER, where the author's stack is live; this refusal
-  is the lowering's own, because a navigate vector is in-band data anyone
-  can write."
+  callback routing runs first — a plain one-argument fn, or nil. The
+  `::h/prevent` decorator is the DECLARATIVE veto: its lowered closure
+  calls `.preventDefault` and dispatches the wrapped intent, and
+  `activate-link!` stands down on `defaultPrevented`, so the app intent
+  takes the navigation's place. A callback or plain fn is the IMPERATIVE
+  veto — whoever holds the event owns it (HD-024). The roster is closed
+  at RENDER by `route-link`'s `on-click-roster!`, which mints the only
+  navigate vector there is, so nothing is re-checked here. Design record:
+  docs/design/hicasso/decisions.md, HD-027."
   [k veto]
   (cond
-    (nil? veto)            nil
-    (prevent-head? veto)   (intent-handler k veto)
-    (callback? veto)       veto
-    (fn? veto)             veto
-    :else
-    (fail! :rf.error/hicasso-malformed-navigate
-           're-frame.hicasso.impl.intent/lower-prop
-           (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
-                " carries the veto " (pr-str veto) ", which is outside the "
-                "closed roster: nil, [" (pr-str prevent-head) " [:my-event …]] "
-                "(cancel the navigation and dispatch this instead), h/event, or a "
-                "plain function. A bare intent vector is refused — the click "
-                "already produces the one routing intent; wrap the vector in "
-                (pr-str prevent-head) " to veto the navigation, or move the "
-                "reaction behind the routing event.")
-           {:position k :veto veto})))
-
-(def ^:private navigate-keys
-  "The navigate map's key set, and it is CLOSED: `:frame`, `:payload`,
-  `:native?`, `:veto` — those four, no fewer and no more (HD-027).
-
-  CLOSED means a COUNT and not just presence. A grammar that checks only
-  the keys it knows is fail-open by construction: under four bare
-  presence tests a map missing `:veto` passes — and `:veto` is the slot
-  that decides whether the click can be cancelled, so its absence is the
-  difference between an uncancelable navigation and a promised one — and
-  so does a map carrying a fifth key, which the lowering then silently
-  drops: the author wrote something and nothing happened, which is the
-  failure class every loud error in this namespace exists to delete.
-
-  `(== 4 (count m))` AND four `contains?` admit exactly the maps
-  `(= navigate-keys (set (keys m)))` admits, and allocate nothing to do
-  it, so that is what [[unwrap-navigate]] asks on the hot path. This set
-  is read by the REFUSAL, which runs once, at the error: building it per
-  call was ~156 ns/element of the census page's walk, one
-  `PersistentHashSet` per link per render (costed on
-  `walk_vs_reagent_app`)."
-  #{:frame :payload :native? :veto})
+    (nil? veto)          nil
+    (prevent-head? veto) (intent-handler k veto)
+    :else                veto))
 
 (defn- unwrap-navigate
-  "UNWRAP the navigate decorator — `[::h/navigate {…}]`, exactly two
-  forms, the second a map whose keys are EXACTLY [[navigate-keys]]:
-  `:frame` (a keyword), `:payload` (a non-empty vector), `:native?` (a
-  boolean), and `:veto` (the [[lower-veto]] roster, `nil` included —
-  which is why its presence is asked and its value never is). Answers
-  the map; like [[unwrap-prevent]] it is not a walker — the payload
-  stays ordinary data all the way to routing.
-
-  **The grammar is checked under `goog.DEBUG` only.** `route-link`
-  mints this form, so a production render pays nothing per link to
-  re-validate a map the library itself constructed; a hand-written one
-  outside the grammar is `:rf.error/hicasso-malformed-navigate` in a dev
-  build, named at the position. The count closes the roster that the
-  four `contains?` open, admitting exactly what [[navigate-keys]] as a
-  set admits; the set itself is built only in the failure branch, where
-  it names what the author actually wrote."
-  [k v]
-  (let [m (nth v 1 nil)]
-    (when ^boolean js/goog.DEBUG
-      (let [{:keys [frame payload native?]} m]
-        (when-not (and (= 2 (count v))
-                       (map? m)
-                       (== 4 (count m))
-                       (contains? m :frame)
-                       (contains? m :payload)
-                       (contains? m :native?)
-                       (contains? m :veto)
-                       (keyword? frame)
-                       (vector? payload)
-                       (seq payload)
-                       (boolean? native?))
-          (let [ks (when (map? m) (set (keys m)))]
-            (fail! :rf.error/hicasso-malformed-navigate
-                   're-frame.hicasso.impl.intent/lower-prop
-                   (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
-                        " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
-                        "(a non-empty event vector), :native? (a boolean) and :veto — "
-                        "those four keys and no others; this one "
-                        (cond
-                          (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
-                          (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
-                          (not= navigate-keys ks)
-                          (str "carries " (pr-str (vec (sort ks)))
-                               (when-some [missing (seq (sort (remove ks navigate-keys)))]
-                                 (str ", so it is missing " (pr-str (vec missing))))
-                               (when-some [extra (seq (sort (remove navigate-keys ks)))]
-                                 (str ", and nothing reads " (pr-str (vec extra)))))
-                          (not (keyword? frame))  "names no :frame keyword"
-                          (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
-                          :else               "answers no boolean at :native?")
-                        ". route-link mints this form; hand-written ones must carry all "
-                        "four slots and nothing else.")
-                   {:position k :form v})))))
-    m))
+  "The map inside `[::h/navigate {…}]` — `:frame`, `:payload`, `:native?`
+  and `:veto` (HD-027). Not validated: `route-link` mints this form and
+  nothing else writes it, so a render pays nothing per link to re-read a
+  map the library constructed. Like [[unwrap-prevent]] it is not a
+  walker — the payload stays ordinary data all the way to routing."
+  [_k v]
+  (nth v 1 nil))
 
 (defn- navigate-handler
   "Lower one navigate vector into the closure the browser will call. The
@@ -1148,23 +1060,19 @@
   marked form takes the event wrapper and an intent vector or key-map
   lowers as at a native event position; at `:render` the marked form
   takes the render wrapper. Every other value comes back untouched and
-  crosses as data. Any third contract is a bad declaration. The override
-  exists because an event wrapper returns nil, which blanks an on*-named
-  render prop silently; docs/design/hicasso/decisions.md, HD-024's
-  2026-08-29 addendum."
+  crosses as data. The contract is one of the two by construction:
+  `mint-host!` refuses any other at the declaration. The override exists
+  because an event wrapper returns nil, which blanks an on*-named render
+  prop silently; docs/design/hicasso/decisions.md, HD-024's 2026-08-29
+  addendum."
   [k v contract]
-  (case contract
-    :event  (cond
-              (callback? v) (event-callback k v)
-              (vector? v)   (intent-handler k v)
-              (map? v)      (key-map-handler k v)
-              :else         v)
-    :render (if (callback? v) (render-callback k v) v)
-    (fail! :rf.error/hicasso-unknown-callback-contract
-           're-frame.hicasso.impl.intent/lower-declared-prop
-           (str "A declaration gave " (pr-str k) " the callback contract "
-                (pr-str contract) ". The contracts are :event and :render.")
-           {:position k :contract contract})))
+  (if (keyword-identical? :event contract)
+    (cond
+      (callback? v) (event-callback k v)
+      (vector? v)   (intent-handler k v)
+      (map? v)      (key-map-handler k v)
+      :else         v)
+    (if (callback? v) (render-callback k v) v)))
 
 (defn lower-props
   "Walk a props map once, lowering every position that carries something
