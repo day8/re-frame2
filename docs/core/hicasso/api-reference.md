@@ -48,7 +48,7 @@ changed](#names-that-changed).
 
 ## `re-frame.hicasso` — the door
 
-The one namespace an ordinary application requires. Sixteen names, and every
+The one namespace an ordinary application requires. Fifteen names, and every
 optional module is reached separately so that an application which never asks
 for one carries none of it.
 
@@ -63,7 +63,6 @@ for one carries none of it.
 
 ;; reads — called inside a body
 (h/sub query-v)
-(h/use-subs query-map)
 (h/hframe)
 
 ;; roots
@@ -105,7 +104,6 @@ for one carries none of it.
 | Name | Signature | What it is |
 | --- | --- | --- |
 | `h/sub` | `(h/sub query-v)` | The ambient collector. A plain function call, legal anywhere in a body — inside a `when`, a `for`, or an inlined helper — because the edge is recorded where the read happens. A branch not taken contributes no edge. |
-| `h/use-subs` | `(h/use-subs query-map)` | The grouped control. One fixed site takes the whole query collection and answers the snapshot the body destructures, so the boundary's edge set follows its declaration rather than its control flow — and a branch not taken still costs its edge. |
 | `h/hframe` | `(h/hframe)` | The frame id keyword of the boundary currently rendering, for the core doors that take one. A loud error outside a render extent. Spelled `hframe` rather than `frame` because a bare `frame` would shadow on a `:refer`; the spelling is provisional, and it is what ships today. |
 
 ### Roots

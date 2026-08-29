@@ -110,7 +110,7 @@ than the view, or switch the check off.
 
 ### `:re-frame.hicasso/deferred-read` — warning
 
-`h/sub` or `h/use-subs` read where nothing is going to call the surrounding
+`h/sub` read where nothing is going to call the surrounding
 function during this body. There are 2 shapes:
 
 * inside an `event` body. `event` is the callback form: its whole contract is

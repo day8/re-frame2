@@ -299,8 +299,8 @@
       (ht/tree [views/article-row (assoc row-props :published? false)]
                {:subs (merge {[::subs/tags-open? "intents"] false}
                              (t* locale [:feed/tags]))})]
-     ;; `use-subs` is the GROUPED read: both queries run whether or not
-     ;; the row has tags, so a tagless row owes both fixtures too.
+     ;; Both reads sit at the top of the row's `let`, so they run whether
+     ;; or not the row has tags, and a tagless row owes both fixtures too.
      ["a feed row with no tags"
       (ht/tree [views/article-row (assoc row-props :tags [])]
                {:subs (merge {[::subs/tags-open? "intents"] false}

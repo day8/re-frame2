@@ -4,7 +4,7 @@
   Thirteen boundaries — the slice's original six, and seven more for
   pagination, runtime-selected content and a nested error region: a pager, a
   digest region, its body, and four block renderers. Everything they reach for
-  is `h/…`: `defview`, `sub`, `use-subs`, `boundary`, `route-link`, and the
+  is `h/…`: `defview`, `sub`, `boundary`, `route-link`, and the
   `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
   in the `:require` list above, and no `re-frame.core` either — a view neither
   dispatches nor subscribes directly, because an intent is a vector and a read
@@ -31,16 +31,15 @@
   in this application where two things that do the same job are spelled
   in two grammars.
 
-  ## Where the ambient read is used, and where the grouped one is
+  ## One read door
 
-  [[article-row]] uses `h/use-subs`, the grouped control: two reads, both
-  unconditional, and the alias map is shorter than the reads. Every other
-  body uses `h/sub`, the ambient collector, because their reads are
-  conditional — `[[editor]]`'s problem string is read only when there is
-  a problem, and an edge for a branch not taken is an edge that
-  re-renders the editor when nothing on screen could change. That is the
-  difference the two doors are actually for, and this file is the
-  smallest honest demonstration of it."
+  Every body reads through `h/sub`, the ambient collector, and an edge is
+  recorded where the read happens — `[[editor]]`'s problem string is read
+  only when there is a problem, so a branch not taken costs no edge and
+  the editor does not re-render when nothing on screen could change.
+  [[article-row]] and [[pager]] used to read through the grouped
+  `h/use-subs` as the control; that door was removed (rf2-6c12m.15) and
+  both bodies now read the same way as the rest."
   (:require [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.slice.events :as events]
             [re-frame.hicasso.examples.slice.i18n :as i18n]
@@ -103,9 +102,8 @@
   :tags-open?]` path is the bug the sugar deletes: every row on the page
   would share one flag and they would all open together, silently."
   [{:keys [slug title published? tags]}]
-  (let [{:keys [open? tags-label]}
-        (h/use-subs {:open?      [::subs/tags-open? slug]
-                     :tags-label [::subs/t :feed/tags]})]
+  (let [open?      (h/sub [::subs/tags-open? slug])
+        tags-label (h/sub [::subs/t :feed/tags])]
     [:li.article-row
      ;; CALLED, not a head — see the namespace docstring. The href and the
      ;; click decision come whole from the routing artefact; this body
@@ -157,8 +155,8 @@
   shrinking with the branch, and `l2-cljs-test` asserts exactly that by
   handing this body a fixture map with no strings in it."
   [_]
-  (let [{:keys [page pages]} (h/use-subs {:page  [::subs/current-page]
-                                          :pages [::subs/page-count]})]
+  (let [page  (h/sub [::subs/current-page])
+        pages (h/sub [::subs/page-count])]
     (when (< 1 pages)
       ;; Both labels are read OUTSIDE the branches that place them, so the
       ;; page a user is on never changes which strings this body reads.

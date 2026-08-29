@@ -67,6 +67,5 @@ HS-11 and HS-14 are held Client-only under an open operator question (`rf2-lau0u
 | HS-38 | clj-kondo exports and optional dev schemas | Development-only; no production cost |
 | HS-39 | Bounded Node/React SSR service | A deployable service, not a view surface; its contract is separate from every row above |
 | HS-40 | `h/route-link` | Render — the declined-`:prefetch` refusal fires during the server render |
-| HS-41 | `h/use-subs` — the grouped read door | Render — an untaken branch still costs its declared edge, which is the axis it differs from HS-02 on |
-| HS-42 | `h/reg-state` | No policy — a load-time registration; its reads are HS-02's and HS-41's |
+| HS-42 | `h/reg-state` | No policy — a load-time registration; its reads are HS-02's |
 | HS-43 | `h/hframe` | No policy — an ambient frame-id read; rendering the id into markup makes the document non-deterministic |
