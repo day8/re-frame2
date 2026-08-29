@@ -175,8 +175,8 @@
 
 (h/defview toast-card
   "A BOUNDARY child of presence. It resolves its own frame in its own
-  shell and receives `:rf/phase` as an ordinary prop, so it is the
-  control: presence's new binding must leave this path exactly as it was."
+  shell and takes any override as ordinary props, so it is the control:
+  presence's new binding must leave this path exactly as it was."
   [{:keys [id]}]
   [:div.card {:data-id id}
    [:button.card-dismiss {:on-click [:hicasso.presence-intent/dismissed id]} "dismiss"]])

@@ -2239,6 +2239,12 @@ express — in which case it is a new row, not a new form.
 
 ## HD-025 — Presence: phase as a prop, and `::h/mounting` / `::h/unmounting` as data
 
+**Amended 2026-08-30 (rf2-6c12m.15).** Change (2) is withdrawn by
+[HD-030](#hd-030--one-phase-spelling-the-override-map-on-elements-and-views-alike):
+a boundary child now takes the same `::motion/mounting` / `::motion/unmounting`
+override maps an element does, merged into its props while it is in that phase,
+and `:rf/phase` is retired. The rest of this entry stands as written.
+
 **Amended 2026-08-29 (rf2-6c12m.11).** An override written on a boundary child,
 or anywhere no tray reaches, is dropped rather than refused — a boundary child
 receives `:rf/phase` and the codec's prop walks skip the two private keys, so no
@@ -2445,12 +2451,6 @@ shapes. **Reopens** on the dogfooding condition named under Scope.
 
 ## HD-027 — `route-link`: a plain function over routing's link seam, and a second reserved head
 
-**Amended 2026-08-29 (rf2-6c12m.11).** The navigate map is no longer re-validated
-at lowering — `route-link` mints it and nothing else writes it — so
-`:rf.error/hicasso-malformed-navigate` is struck. The v0 `:prefetch` decline
-(`:rf.error/hicasso-route-link-prefetch-declined`) is struck with it: `:prefetch`
-is a key the link owns and does not read, kept off the anchor.
-
 **Amended 2026-08-30 (rf2-6c12m.15).** The navigate head is demoted to the
 implementation: it reads `:re-frame.hicasso.impl.intent/navigate`, is minted
 by `route-link` and named in source only as `impl.intent/navigate-head`, and
@@ -2458,6 +2458,12 @@ is no longer in the door's marker table. It was never author-written — the
 `::h/…` spelling below is the shape as ruled, not a spelling an application
 uses — and with `hicasso-malformed-navigate` struck nothing polices it as a
 public marker. The grammar and the click law are unchanged.
+
+**Amended 2026-08-29 (rf2-6c12m.11).** The navigate map is no longer re-validated
+at lowering — `route-link` mints it and nothing else writes it — so
+`:rf.error/hicasso-malformed-navigate` is struck. The v0 `:prefetch` decline
+(`:rf.error/hicasso-route-link-prefetch-declined`) is struck with it: `:prefetch`
+is a key the link owns and does not read, kept off the anchor.
 
 **Ruling.** The fifth tier-1 shape's Hicasso spelling is **`route-link`, a plain
 function** (`front/route_link.cljs` in the bench arm): the author writes
@@ -2834,6 +2840,71 @@ tracker note. The direction itself was argued in the
 **Reopens** by operator ruling, like every ruling in this repo — and the price
 half carries its own reopen and revert conditions, which are unchanged and live,
 in [`product/k1-price-acceptance.md` §7](product/k1-price-acceptance.md#7-reopen-and-revert).
+
+## HD-030 — One phase spelling: the override map, on elements and views alike
+
+**Ruling (2026-08-30, rf2-6c12m.15).** Presence has one phase spelling. A child
+declares what it wears in a phase as an override map under
+`::motion/mounting` / `::motion/unmounting`, and the tray merges that map into
+the child while it is in that phase — into an element's attributes, exactly as
+[HD-025](#hd-025--presence-phase-as-a-prop-and-hmounting--hunmounting-as-data)(1)
+ruled, and now equally into a **view's props**. `:rf/phase` is retired: a
+boundary child no longer receives its phase as a value, it receives the props
+its author declared for that phase, and branches on those.
+
+```clojure
+;; an element wears attributes
+[:div.toast {:key id ::motion/unmounting {:class "toast--exit" :inert true}} msg]
+
+;; a view wears props — the same map, the same merge
+[toast-card {:key id :toast t ::motion/unmounting {:exiting? true}}]
+
+(h/defview toast-card [{:keys [toast exiting?]}]
+  [:div.toast {:class (when exiting? "toast--exit") :inert exiting?} (:message toast)])
+```
+
+**The number that decided it.** The bead asked for one spelling and named no
+lean, so the count was taken at the consumer-facing sites — `docs/core/hicasso`
+and `implementation/hicasso/test`, the two trees that show what an author
+writes — before any edit:
+
+| Spelling | docs/core | test | consumer-shaped total | src |
+| --- | ---: | ---: | ---: | ---: |
+| `::motion/mounting` / `::motion/unmounting` | 14 | 26 | **40** | 20 |
+| `:rf/phase` | 8 | 8 | **16** | 6 |
+
+The override map is the spelling at two and a half times as many sites, and
+the shape it leaves in hiccup is the better one on three counts that do not
+depend on the count. One grammar covers both child kinds, so the chapter no
+longer teaches a rule for elements and a different rule for views, and the
+"override on a view head does nothing" special case disappears rather than
+being documented. A view is handed ordinary props under names its author
+chose, so a headless test supplies the exiting shape as a plain map with no
+reserved key to know about. And Hicasso stops minting a key in core's reserved
+`:rf/` root for a concept that is the motion module's own — the module's
+vocabulary now lives entirely in the module's namespace, which is what
+naming-ledger row 31's respelling was for.
+
+**What it costs.** A view can no longer read the phase VALUE. Nothing in the
+tree needed it: every boundary child in the guide and the suites tested
+`(= :unmounting phase)` and nothing else, which is one declared prop. A view
+that wanted `:present` distinct from "no override" infers it from the absence
+of its own flags, as an element already does.
+
+**Mechanism.** `impl.presence/with-phase` is one branch shorter: it no longer
+asks whether the head is a boundary. The phase's override map is merged over
+the child's own props with the structural slots excluded through the codec's
+canonical-slot filter — HD-025's law, now applied to a view's `:key` as it
+was to an element's — and a child carrying no override comes back untouched
+by identity. `impl.presence/phase-prop` is deleted.
+
+**Amends** HD-025(2), which is withdrawn. Its trap — an ambient phase read
+resolving against the parent's render — stays closed, and by the same
+construction: a merged prop cannot be read from the wrong render scope any
+more than `:rf/phase` could.
+
+**Reopens** if a real application needs the phase as a value inside a view
+for something a declared prop cannot express. None has.
 
 ## Measurement record — the four quiet-box windows of 2026-08-22
 

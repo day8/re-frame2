@@ -14,11 +14,11 @@
   var resolves against the right child, and the a11y obligation would
   then cost three separate `(when exiting? …)` attributes on that child.
 
-  ## The two shapes
+  ## The one shape
 
-  **(1) `::motion/mounting` and `::motion/unmounting` are attribute
-  OVERRIDE MAPS on a native node.** The boundary merges them into that
-  node's attrs while the child is in that phase:
+  **`::motion/mounting` and `::motion/unmounting` are OVERRIDE MAPS on
+  the child**, merged into it while the child is in that phase — into an
+  element's attributes, and equally into a view's props (HD-030):
 
       (motion/presence {:timeout-ms 300}
         (for [t (sub [:toasts/visible])]
@@ -27,15 +27,14 @@
                                             :inert true :aria-hidden true}}
            (:message t)]))
 
-  The child view has disappeared and the three `(when exiting? …)`
-  attributes are one map.
+      [toast-card {:key id :toast t ::motion/unmounting {:exiting? true}}]
 
-  **(2) When the child IS a boundary, the phase arrives as an ORDINARY
-  PROP** — `[toast-card {:key id :toast t :rf/phase :unmounting}]`. That
-  closes the trap by construction: a prop cannot be read from the wrong
-  render scope, it appears in a structural test's props map, and a
-  headless test can supply it with no clock. There is consequently no
-  `presence-phase` surface at all — one fewer public concept.
+  A view is handed ordinary props under names its author chose and
+  branches on those; it never sees the phase as a value. That closes the
+  trap above by construction: a merged prop cannot be read from the
+  wrong render scope, it appears in a structural test's props map, and a
+  headless test supplies it with no clock. There is no `presence-phase`
+  surface and no `:rf/phase` prop — one grammar for both child kinds.
 
   ## Why the boundary may apply an override at all
 
@@ -50,10 +49,10 @@
 
   ## Honest limits
 
-  - **The override applies to a node the boundary can SEE.** An override
-    written inside an opaque child view is invisible to it; shape (2) is
-    what that case is for. An override written on a boundary child is
-    stripped, and the child receives `:rf/phase` to branch on instead.
+  - **The override applies to the child the tray can SEE.** An override
+    written INSIDE an opaque child view is invisible to it, and the
+    codec's prop walks skip it rather than emit it; the override goes on
+    the child's own head, where the tray merges it.
   - **ENTER is the weak half**: driving enter purely as a `:mounting` →
     `:present` class flip can race paint. `::motion/mounting` ships, and
     the guide teaches the CSS answer — an animation on insertion, or
@@ -98,13 +97,6 @@
   codec/unmounting-key)
 
 (def override-keys #{mounting-key unmounting-key})
-
-(def phase-prop
-  "`:rf/phase` — how a BOUNDARY child receives its phase. An ordinary
-  prop, so it cannot be read from the wrong render scope, it appears in a
-  structural test's props map, and a headless test supplies it with no
-  clock."
-  :rf/phase)
 
 (def initial {:order [] :entries {}})
 
@@ -164,41 +156,33 @@
     nil))
 
 (defn with-phase
-  "Apply `phase` to one child, as data.
+  "Apply `phase` to one child, as data: the phase's override map merged
+  over the child's own props — an element's attributes or a view's props
+  alike — with the override WINNING, because that is what an override
+  is, and the two override keys removed. A child carrying no override
+  comes back untouched, by identity.
 
-  A **native node** takes the phase's attribute-override map merged over
-  its own attributes — the override WINS, because that is what an
-  override is — with the two structural slots never taken from it
-  (HD-023). The two override keys are removed here, on a tray's direct
-  children; anywhere else the codec's prop walks skip them, so no
-  override reaches the DOM as an attribute.
-
-  The structural exclusion is on the canonical SLOT, through
+  The structural slots are never taken from the override, and the
+  exclusion is on the canonical SLOT through
   `re-frame.hicasso.impl.codec/without-structural`: an override carrying
   `\"key\"` or `:x/key` would otherwise canonicalise onto React's key and
-  remount the very node presence exists to retain, mid-exit. So the only
-  `:key` in the merged map is the one the child was retained under.
-
-  A **boundary child** is opaque to the tray, so it takes `:rf/phase` as
-  an ordinary prop instead, and any override written on it is dropped.
-  Design record: docs/design/hicasso/decisions.md, HD-025."
+  remount the very child presence exists to retain, mid-exit. Design
+  record: docs/design/hicasso/decisions.md, HD-025 and HD-030."
   [child phase]
-  (let [props (props-of child)]
-    (if (codec/boundary-head? (nth child 0))
-      (with-props child (assoc (apply dissoc props override-keys) phase-prop phase))
-      (let [override (override-for props phase)
-            base     (when props (apply dissoc props override-keys))]
-        (cond
-          (map? override)
-          (with-props child (merge base (codec/without-structural override)))
+  (let [props    (props-of child)
+        override (override-for props phase)
+        base     (when props (apply dissoc props override-keys))]
+    (cond
+      (map? override)
+      (with-props child (merge base (codec/without-structural override)))
 
-          ;; Nothing to strip and nothing to merge: the child is already
-          ;; exactly what it should render as, so it comes back untouched
-          ;; and this phase costs no allocation at all.
-          (= base props) child
+      ;; Nothing to strip and nothing to merge: the child is already
+      ;; exactly what it should render as, so it comes back untouched
+      ;; and this phase costs no allocation at all.
+      (= base props) child
 
-          (some? base) (with-props child base)
-          :else        child)))))
+      (some? base) (with-props child base)
+      :else        child)))
 
 ;; ---------------------------------------------------------------------------
 ;; The machine

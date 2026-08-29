@@ -306,11 +306,10 @@ about an animation: retention.
 [motion/presence {:timeout-ms 300} keyed-child …]
 ```
 
-`motion/presence` retains exiting keyed children for `:timeout-ms`, applying each
-child's own `::motion/mounting` / `::motion/unmounting` attribute overrides while it is in
-that phase, and handing a child that is itself a boundary the ordinary
-`:rf/phase` prop instead — `:mounting`, `:present` or `:unmounting`. It inserts
-no wrapper node and stamps no `data-*`.
+`motion/presence` retains exiting keyed children for `:timeout-ms`, merging each
+child's own `::motion/mounting` / `::motion/unmounting` override map into it while
+it is in that phase — into an element's attributes, or into a view's props, the
+same map either way. It inserts no wrapper node and stamps no `data-*`.
 `:timeout-ms` is mandatory: it is the retention length and the hard terminal
 bound at once, so a child leaves on time whether or not any CSS ran.
 
