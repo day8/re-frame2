@@ -57,9 +57,15 @@
 // resolved by the analyser before optimisation, and `:infer-warning` is bound
 // in both modes (mutation-proved on the overlay fault above).
 //
-// CONTROL, re-run whenever this gate is touched: drop the `^js` hint on
-// `claim-anchor!`'s `el` in `impl/overlay.cljs` -> exit 1 naming
-// `:infer-warning`; restore -> exit 0.
+// CONTROL, re-run whenever this gate is touched: read a property no extern
+// declares on an UNTAGGED parameter. In `impl/overlay.cljs`, rewrite
+// `claim-anchor!`'s `(when anchor-id` as `(when (.-anchorNameBogus anchor-id)`
+// -> exit 1, `WARNING #1 - :infer-warning`, `Cannot infer target type in
+// expression (. anchor-id -anchorNameBogus)`; restore -> exit 0. Dropping the
+// `^js` on `claim-anchor!`'s `el` is NOT a control: that `el` is bound from
+// `(.getElementById js/document ...)`, which the analyser already types `js`,
+// so the hint is redundant and the mutation reads 0 warnings (measured on
+// PR #8752 and again on the PR that replaced this instruction).
 //
 // ## Limits
 //
