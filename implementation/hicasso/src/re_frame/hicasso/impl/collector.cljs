@@ -1718,7 +1718,7 @@
 
 (defn- note-view!
   "Dev only: record `body-fn`'s `displayName` — the `\"<ns>/<sym>\"`
-  `mint-view!` stamped — on `entry` under [[views-slot]]. A body with no
+  `mint-view!` stamped — on `entry` under `views-slot`. A body with no
   name (a harness fn) writes nothing, so an entry no declared view
   rendered has no slot rather than an empty set."
   [^js entry body-fn]

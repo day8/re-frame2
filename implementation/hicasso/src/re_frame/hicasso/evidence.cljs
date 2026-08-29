@@ -6,7 +6,7 @@
   whether it is complete, and what it dropped. Two rules hold every read
   to one standard of honesty: a loss is never stated beside a
   completeness claim, and an unknown is never spelled as an empty
-  collection — a roster the producer did not survey states [[unknown]]
+  collection — a roster the producer did not survey states `unknown`
   where the vector would be, so a reader can tell *found nothing* from
   *looked at nothing*.
 
@@ -73,8 +73,8 @@
 (defn envelope
   "Answer `body` stamped as the envelope for `read`, or throw.
 
-  `read` is one of [[reads]]; `complete?` is a boolean; `loss` is nil or
-  `{:reason <one of [[loss-reasons]]> :dropped <count or [[unknown]]>}`.
+  `read` is one of `reads`; `complete?` is a boolean; `loss` is nil or
+  `{:reason <one of `loss-reasons`> :dropped <count or `unknown`>}`.
   The stamp is `:schema`, `:producer`, `:read`, `:complete?` and `:loss`,
   merged over `body`. Refused, with an `ex-info` whose data carries
   `:re-frame.hicasso.evidence/defect` and the `:problems`: a read outside
