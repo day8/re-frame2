@@ -337,17 +337,12 @@
   :re-frame.hicasso/revision)
 
 ;; ---------------------------------------------------------------------------
-;; The presence override keys (HD-025), and why they live HERE
+;; The presence override keys (HD-025)
 ;; ---------------------------------------------------------------------------
 ;;
-;; They are `re-frame.hicasso.impl.presence`'s vocabulary and they are
-;; DEFINED here, for [[revision-key]]'s own reason one section up: this
-;; walk has to recognise them, and `presence` requires this namespace
-;; rather than the other way round. Writing the two literals a second
-;; time in the walk would leave a keyword with two homes — which is why
-;; `naming-ledger.md` row 31's respelling to `::motion/…` (ruled, and
-;; executed under rf2-hg3q) could land whole: one home, and `presence`
-;; reads them from it.
+;; `re-frame.hicasso.impl.presence`'s vocabulary, DEFINED here because this
+;; walk has to recognise them and `presence` requires this namespace, not
+;; the other way round — one home for each keyword.
 
 (def mounting-key
   "`::motion/mounting` — the attribute overrides applied while a presence
@@ -549,168 +544,58 @@
 ;; Host heads (HD-011) — the declared door for a foreign React component
 ;; ---------------------------------------------------------------------------
 ;;
-;; `defhost` is the door, and the only form taught. The declaration is a
-;; VALUE — the foreign component, its options, and a name for the
-;; crossing — minted once and legal as a hiccup head anywhere. The `[:>]`
-;; raw escape below is HD-011's explicitly secondary form, for the cases
-;; a static declaration cannot express; it is the SAME crossing with the
-;; declaration erased, and what erasing the declaration costs is exactly
-;; what the declaration carried.
-;;
-;; A callback contract is INFERRED from the prop's position, exactly as
-;; the native walk infers it ([[re-frame.hicasso.impl.intent/lower-prop]]):
-;; an `on*`-spelled prop is an event position, any other walked prop a
-;; render position, `:ref` React's. `:callbacks` is an optional OVERRIDE
-;; — `{:on-render-item :render}` — for the on*-named render props some
-;; vendors ship; it takes `:event` or `:render`, is keyed on the
-;; CANONICAL slot like every other rule in this codec, and outranks the
-;; spelling. `:slots` stays declared, because a vector is legal data and
-;; nothing can infer a markup position.
-;;
-;; ## The `:server` policy — HD-011's placeholder, activated
-;;
-;; HD-011 lists "SSR placeholder" among `defhost`'s strong defaults, and
-;; SSR is required scope, so the placeholder is real. TWO POLICIES, and a
-;; sibling option that belongs to one of them:
-;;
-;;     :server :client-only     ; THE DEFAULT — omit :server and this is it
-;;     :server :render          ; "this component is safe on the server"
-;;     :fallback <hiccup>       ; Client-only's placeholder, and only its
-;;
-;; `:client-only` renders NOTHING where the host sits until the client
-;; has adopted the markup, or the declared `:fallback` hiccup if there is
-;; one; `:render` runs the component itself, server-side, with its real
-;; props and its real children. Anything else is refused at the
-;; declaration, `:fallback` under `:render` included. The DEFAULT is the
-;; conservative one because a foreign React component is exactly the node
-;; whose render may reach for `window` — the door cannot know, so it does
-;; not guess. `:render` is the AUTHOR saying, which is a different thing
-;; from the door guessing.
-;;
-;; **The key is `:server` and the values are the two sides that render**
-;; (naming-ledger row 21). `:ssr` would name the TECHNIQUE
-;; and admit the fallback as a third value shape — an enum sometimes
-;; replaced by a nested map. One policy concept, one spelling; and a
-;; fallback reads as what it is, markup at the crossing rather than a
-;; policy value.
-;;
-;; **`:render` exists for the context PROVIDER case**: a transparent
-;; wrapper that contributes no markup of its own and exists solely to
-;; carry a subtree. Under Client-only the unadopted arm returns something that
-;; is not the component, so the crossing's
-;; CHILDREN are dropped and the provider deletes the whole application
-;; from the server response — silently, because the server snapshot and
-;; hydration's first client pass agree by construction. `:render` is the
-;; one policy under which the children reach the server at all.
-;;
-;; ## Two shapes, and which one a declaration mints
-;;
-;; For `:client-only`, with or without a fallback, **ONE mechanism
-;; serves the server, the hydration pass and the fresh mount**, and it is
-;; [[mint-host-gate!]]: a one-hook component whose `useSyncExternalStore`
-;; answers `false` from its SERVER snapshot and `true` from its client
-;; one. React reads the server snapshot under `renderToString` and again
-;; on hydration's first client pass, then re-renders with the client
-;; snapshot once adoption completes — so the server HTML and the first
-;; client pass agree BY CONSTRUCTION (no mismatch to reconcile), and a
-;; `createRoot` mount, which never consults a server snapshot at all,
-;; renders the foreign component on its very first pass with no
-;; placeholder flash. A server walk therefore does not have to consult
-;; the policy separately; it consults it by rendering.
-;;
-;; For `:render` there is NO GATE — the head's `gate` slot carries the
-;; foreign component itself, which is HD-011's original zero-wrapper,
-;; zero-fiber, zero-hook shape restored for the hosts that can take it.
-;; One tree everywhere: the server render, hydration's first pass and a
-;; fresh `createRoot` mount all render the SAME element type with the
-;; same props, the same context and the same children. So there is zero
-;; mismatch by identity, no snapshot pair, no adoption event to wait
-;; for, and — the fact that separates this policy from every rejected
-;; candidate — NO REMOUNT.
-;;
-;; **Why a remount is the law and not a detail.** React reconciles a
-;; position by element TYPE, and under a gate the gate IS the type. Any
-;; policy whose unadopted branch returns something other than the
-;; component therefore pays a full subtree destroy-and-rebuild the moment
-;; adoption swaps the type. That is free when the thing torn down is an
-;; inert skeleton; it is not free when it is the application, and it is
-;; why `:server :children` — "render `props.children` in place of the
-;; component" — is refused rather than adopted: it restores the markup
-;; without the provider above it, so every consumer below reads the
-;; context DEFAULT server-side (silent-absent becomes silent-wrong), and
-;; then remounts the whole just-hydrated subtree at adoption.
-;;
-;; **The price, stated so nobody assumes it is zero**: a gated
-;; declaration mints ONE gate, so a
-;; Client-only crossing costs one fiber and one hook; a `:render`
-;; crossing costs neither — there the foreign component is the
-;; element's own type, the zero-wrapper, zero-fiber, zero-hook shape.
-;; HD-020(b)'s ≤2 budget is a statement
-;; about Hicasso's BOUNDARY shells and is untouched either way: the gate
-;; is not a boundary, holds no subscription, and reads no frame.
+;; `defhost` is the door and the only form taught: a VALUE — the foreign
+;; component, its options, a name for the crossing — minted once and legal
+;; as a hiccup head anywhere. Its `:server` policy is expressed by WHICH
+;; TYPE the declaration mints: `:client-only` (the default) mints one gate
+;; (`mint-host-gate!`), `:render` mints none and the foreign component is
+;; the element's own type, so nothing remounts at adoption. The two
+;; policies, why `:fallback` is a sibling option and why a remount is the
+;; law: docs/design/hicasso/decisions.md HD-011 (the 2026-08-04, 08-05 and
+;; 08-12 addenda) and docs/design/hicasso/defhost-ssr-provider-costing.md.
 
 (def ^:private host-marker "hicassoHost")
 
-;; [[host-head?]] is the predicate over that marker and reads naturally
-;; beside [[host-server]], at the end of this section. The fallback walk
-;; below needs it three definitions earlier.
 (declare host-head?)
 
 (def ^:private callback-contracts
   "The two contracts a `:callbacks` override may name — the two
-  [[re-frame.hicasso.impl.intent/lower-prop]] infers by spelling. The
+  `re-frame.hicasso.impl.intent/lower-prop` infers by spelling. The
   migration codemod's `shared_rule_test` reads this set out of the source
-  text and prints it to migrators, so it stays a literal."
+  text, so it stays a literal."
   #{:event :render})
 
 (def ^:private host-options
-  "Every key a declaration may carry. A door that read `:callbacks` and
-  SILENTLY IGNORED everything else would make a misspelled `:server`, or
-  a policy invented by an author reading the wrong docstring, a no-op
-  that looked like a setting. That is the same defect class as an intent
-  crossing as inert data, and it gets the same treatment: refused, at the
-  declaration.
-
-  `:ssr` is not in the roster and is not aliased to `:server`: this is
-  pre-alpha and a rename is a rename, so the retired spelling
-  lands on [[mint-host!]]'s unknown-option refusal, which names the four
-  keys that exist."
+  "Every key a declaration may carry; anything else is refused at the
+  declaration, because a door that silently ignored a misspelled
+  `:server` would make a policy that was never applied look like a
+  setting. `:ssr` is not aliased: pre-alpha, a rename is a rename."
   #{:callbacks :slots :server :fallback})
 
 ;; --- The gate -------------------------------------------------------------
 ;;
-;; Three module-level functions rather than literals written at the call
-;; site: `useSyncExternalStore` compares the subscribe function by
-;; identity and re-subscribes when it changes, and a fresh closure per
-;; render would make every host re-subscribe on every render for no
-;; reason at all. There is nothing to subscribe TO — adoption happens
-;; once and never un-happens — so the subscribe function's whole body is
-;; the unsubscribe it must return.
+;; Module-level functions, not literals at the call site:
+;; `useSyncExternalStore` compares the subscribe function by identity and
+;; re-subscribes when it changes, and a fresh closure per render would
+;; re-subscribe every host on every render. Nothing is subscribed TO —
+;; adoption happens once — so the subscribe function's body is the
+;; unsubscribe it must return.
 
 (def ^:private gate-no-subscribe (fn [_] (fn [] nil)))
 (def ^:private gate-adopted (fn [] true))
 (def ^:private gate-unadopted (fn [] false))
 
 (defn ^boolean adopted?
-  "**THE ADOPTION READ** — `false` while React is producing server bytes
-  and again on hydration's FIRST client pass, `true` on every render
-  after the client has adopted that markup, and `true` on the very first
-  pass of a fresh `createRoot` mount, which consults no server snapshot
-  at all.
-
-  One React hook, and the whole of the client-only mechanism above: the
-  server snapshot and hydration's first pass answer the same thing BY
-  CONSTRUCTION, so there is no mismatch for React to reconcile, and a
-  fresh mount never shows a placeholder it would immediately replace.
-
-  A hook, so it is legal only from inside a component's own render.
-  [[mint-host-gate!]] is one caller; the portal helper
-  ([[re-frame.hicasso.impl.portal]]) is the other, and the second caller
-  is why the triple above is read through a name rather than written
-  inline. Three module-level functions compared by identity are exactly
-  the kind of thing a second copy gets subtly wrong — a fresh closure
-  per render re-subscribes every host on every render — and one name
-  makes that unrepresentable rather than merely unlikely."
+  "THE ADOPTION READ: `false` while React produces server bytes and on
+  hydration's first client pass, `true` on every render after the client
+  has adopted the markup and on the very first pass of a fresh
+  `createRoot` mount, which consults no server snapshot. One hook, legal
+  only inside a component's render. The server snapshot and hydration's
+  first pass agree BY CONSTRUCTION, so there is no mismatch to reconcile
+  and a fresh mount never shows a placeholder it would replace. Read
+  through a name because `re-frame.hicasso.impl.portal` is a second
+  caller, and the identity-compared triple is what a second copy gets
+  subtly wrong."
   []
   (react/useSyncExternalStore gate-no-subscribe gate-adopted gate-unadopted))
 
@@ -718,76 +603,39 @@
 ;; The adoption crossing, observed once — `:rf.ssr/host-adopted`
 ;; ---------------------------------------------------------------------------
 ;;
-;; [[adopted?]] above is the whole client-only mechanism, and it is
-;; INVISIBLE: React swaps the placeholder for the foreign component on its
-;; own post-hydration pass, and nothing in the instrumentation stream says
-;; it happened. So the debugging question a reader actually asks of a
-;; hydrated page — *is this region showing its fallback or its live
-;; subtree?* — had no answer at all.
-;;
-;; The three vars below give it one, and the shape is chosen to say what
-;; HICASSO itself does:
-;;
-;;   - **Per DECLARATION, not per root and not per site.** The crossing
-;;     state is closed over by [[mint-host-gate!]]'s gate, and `mint-host!`
-;;     mints exactly one gate per `defhost`. A page with twenty sites of one
-;;     host therefore emits ONE trace, not twenty. There is no root-scoped
-;;     phase value here and no re-frame-level flip to report — React owns
-;;     the swap, and this only witnesses it.
-;;
-;;   - **Only a real CROSSING, never a fresh mount.** `adopted?` answers
-;;     `true` on the very first pass of a `createRoot` mount, which consults
-;;     no server snapshot and shows no placeholder to replace. Emitting
-;;     there would report a transition that did not occur, so the announce
-;;     is armed only once the gate has actually rendered its placeholder.
-;;
-;;   - **At most once.** `announce-adoption!` disarms the crossing before it
-;;     emits, so React's re-renders (and a Strict-Mode double render) cannot
-;;     produce a second event.
-;;
-;; A render-phase emit is legal HERE for a reason particular to this hook,
-;; and it is not a licence to emit from renders generally: `adopted?` reads
-;; a store whose client snapshot is the constant `true`, so a render that
-;; observes adoption cannot be observing a fact that a discarded concurrent
-;; render would falsify. There is no false positive available.
-;;
-;; `interop/debug-enabled?` gates the allocation as well as the emit, so
-;; `:advanced` + `goog.DEBUG=false` folds the whole crossing away and a
-;; production gate is the two-branch `if` it always was.
+;; `adopted?` is invisible: React swaps the placeholder for the component
+;; on its own post-hydration pass and nothing in the instrumentation
+;; stream says so. The three vars below emit Spec 009's
+;; `:rf.ssr/host-adopted` once per DECLARATION, only for a real crossing
+;; (never a fresh mount) and at most once; the row in
+;; spec/009-Instrumentation.md is the contract. A render-phase emit is
+;; legal HERE and is not a licence generally: the client snapshot is the
+;; constant `true`, so a render observing adoption cannot be observing a
+;; fact a discarded concurrent render would falsify.
 
 (defn- mint-adoption-crossing
-  "The per-declaration crossing cell [[mint-host-gate!]] closes over, or
-  `nil` in a production build where nothing observes it.
-
-  TWO BOOLEANS AND NOT A THREE-STATE KEYWORD, which is not a style
-  preference — a keyword cell with transitions guarded by `identical?`
-  silently never fires. `identical?`
-  is reference equality: keyword literals are only the same OBJECT when
-  the build emits them through a shared constants table, and a dev build
-  does not, so `(identical? :fresh @cell)` compares two distinct
-  `Keyword` instances and answers `false` at every site. The cell stays
-  on its initial value for the whole run, the announce never arms, and
-  nothing is emitted — silently, because the failure of a trace to fire
-  looks exactly like a page with no crossing on it. Booleans have no
-  identity to get wrong."
+  "The per-declaration crossing cell `mint-host-gate!` closes over, or
+  `nil` in a production build, where `interop/debug-enabled?` folds the
+  whole crossing away. TWO BOOLEANS, not a keyword cell guarded by
+  `identical?`: keyword literals are the same object only when the build
+  emits them through a shared constants table, which a dev build does
+  not, so such a cell would never transition and the trace would never
+  fire — silently, since a trace that does not fire looks like a page with
+  no crossing on it."
   []
   (when interop/debug-enabled? #js {:armed false :announced false}))
 
 (defn- note-unadopted!
-  "ARM the crossing — this gate has now rendered its placeholder, so the
-  next adopted render is a genuine transition rather than a fresh mount."
+  "Arm the crossing: this gate has rendered its placeholder, so the next
+  adopted render is a genuine transition rather than a fresh mount."
   [crossing]
   (when crossing
     (unchecked-set crossing "armed" true)))
 
 (defn- announce-adoption!
-  "Spec 009's `:rf.ssr/host-adopted` — ONE `:info` trace, the first time an
-  ARMED gate renders adopted. Disarms before emitting, so it fires at most
-  once per declaration.
-
-  `:info` and not `:warning`: nothing is wrong. This is the normal, correct
-  behaviour of `:server :client-only` reporting that it completed, and it
-  rides the instrumentation channel rather than the console."
+  "One `:info` trace the first time an ARMED gate renders adopted; disarms
+  before emitting, so at most once per declaration. `:info` because
+  nothing is wrong — this is Client-only reporting that it completed."
   [host-name crossing]
   (when (and crossing
              (unchecked-get crossing "armed")
@@ -945,17 +793,13 @@
 
 ;; --- The declared ReactNode positions ------------------------
 ;;
-;; A foreign component's props are DATA and a host prop is converted
-;; shallowly ([[host-prop-value]]); but a modal's `title` or `Suspense`'s
-;; `fallback` is a MARKUP position, and hiccup written there would cross
-;; as a nested JS array and render as nothing. `:slots` is the
-;; declaration that names those positions — `(h/defhost modal Modal
-;; {:slots #{:title :footer}})` — and hiccup at a declared slot is lowered
-;; by [[as-element]] under the render window of the boundary that wrote
-;; the crossing, so an intent inside it fires into that boundary's frame.
-;; Everything undeclared stays data: which prop is markup is a fact about
-;; the foreign ABI, and only the author knows it. Argument in
-;; docs/design/hicasso/decisions.md, HD-011.
+;; A host prop is DATA and converts shallowly; a modal's `title` or
+;; `Suspense`'s `fallback` is a MARKUP position, and hiccup there would
+;; cross as a nested array and render nothing. `:slots` names those
+;; positions, and hiccup at one is lowered by `as-element` under the
+;; writing boundary's render window. Only the author knows which props
+;; are markup, so nothing is inferred. docs/design/hicasso/decisions.md
+;; HD-024, 2026-08-11 addendum.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -1183,64 +1027,46 @@
 ;; The entity-key warning — DEVELOPMENT ONLY
 ;; ---------------------------------------------------------------------------
 ;;
-;; React already warns about an unkeyed list and this runtime adds nothing
-;; to that. What React is silent on is a CONTENT-DERIVED key — a map, a
-;; date, a JS object — which coerces to a string per member, collides with
-;; nothing, and remounts the row the moment the author edits the entity.
+;; React warns about an unkeyed list; it is silent on a CONTENT-DERIVED
+;; key — a map, a date, a JS object — which coerces to a string per
+;; member and remounts the row the moment the author edits the entity.
+;; Why this warning rather than `for`-lowering sugar:
+;; docs/design/hicasso/decisions.md HD-016.
 
 (def ^:private keywarn
-  "The sites that have already spoken: a `Map` of member head -> the kinds
-  reported for it. `nil` in production — every reader sits behind
-  `goog.DEBUG`, so under `:advanced` the object and every message string
-  fold away with the branches that reach them. Plain `def`, so a page
-  reload resets it, which is React's own semantics for the same dedupe.
-  Keyed on the head object rather than a joined site string because an
-  already-warned site is re-encountered on every render of the list the
-  author has not fixed yet, and a string built per member per render is
-  what that lookup would cost."
+  "The sites that have already warned: a `Map` of member head -> the kinds
+  reported for it; `nil` in production, where every reader sits behind
+  `goog.DEBUG` and the whole thing folds away. A plain `def`, so a page
+  reload resets it — React's own semantics for the same dedupe. Keyed on
+  the head object rather than a joined site string, because an unfixed
+  site is re-encountered on every render and a string per member per
+  render is what the lookup would cost."
   (when ^boolean js/goog.DEBUG (js/Map.)))
 
 (defn- ^boolean plain-key?
-  "Is this `:key` value one React can coerce to a stable string without
-  reading anything the author will edit? Asked FIRST of every member of
-  every seq in a dev build, so it is three `typeof`-class tests and
-  nothing dearer — deliberately not `coll?`, which for anything without
-  the `ICollection` marker falls through to `native-satisfies?` and is
-  the dearest predicate on this path (the same accounting as
-  [[realize-entry]]'s `keyword?` short-circuit)."
+  "Is this `:key` value one React coerces to a stable string without
+  reading anything the author will edit? Asked first of every member of
+  every seq in a dev build, so three `typeof`-class tests and nothing
+  dearer — not `coll?`, the dearest predicate on the path."
   [k]
   (or (string? k) (number? k) (keyword? k)))
 
 (defn- ^boolean stable-object-key?
-  "The two non-primitive `:key` values deliberately classified SAFE.
-
-  A `uuid` and a `symbol` are objects, so [[plain-key?]] rejects both —
-  but each string-coerces to its own NAME, which is the identity the
-  author means rather than the content of anything they will edit. A
-  `uuid` in particular is the canonical entity identifier: warning on
-  `{:key (:id entity)}` because that id happens to be a UUID would be
-  the false positive that teaches authors to ignore the warning, and a
-  guard everyone routes around is worse than the silence this check
-  closes. A `symbol` coerces exactly as the `keyword` [[plain-key?]]
-  already admits does.
-
-  Asked only inside [[check-member-key!]]'s classification, never on the
-  keyed walk — see that docstring's ordering note."
+  "The two non-primitive `:key` values classified SAFE: a `uuid` and a
+  `symbol` are objects, but each string-coerces to its own name, which is
+  the identity the author means. A `uuid` is the canonical entity id, and
+  warning on `{:key (:id entity)}` would be the false positive that
+  teaches authors to ignore the warning. Asked only on detection, never
+  on the keyed walk."
   [k]
   (or (uuid? k) (symbol? k)))
 
 (defn- key-shape
-  "What the author put at `:key`, named rather than printed. The VALUE
-  never reaches the console: a foreign or cyclic value would blow
-  `pr-str` inside a diagnostic, and the author already knows what they
-  wrote — what they need is the view, the child and the hazard.
-
-  TOTAL over everything [[check-member-key!]] rejects. The strings below are the ONLY text
-  this diagnostic can produce, so the totality and the never-print
-  guarantee are one property: no arm falls through to the value.
-  `coll?` sits here rather than at the call site because it is the
-  dearest predicate on the path and this function runs on detection
-  rather than on the walk."
+  "What the author put at `:key`, named rather than printed — the VALUE
+  never reaches the console, because a foreign or cyclic value would blow
+  `pr-str` inside a diagnostic. Total over everything `check-member-key!`
+  rejects, so no arm falls through to the value; `coll?` sits here
+  because this runs on detection, not on the walk."
   [k]
   (cond (map? k)     "a map"
         (vector? k)  "a vector"
@@ -1276,20 +1102,14 @@
   nil)
 
 (defn- check-member-key!
-  "One member of a lowered child seq, at index `i`. Warns when it is a
-  boundary-headed vector whose `:key` is a value React cannot coerce to
-  a stable identity; an absent key is React's own warning and is left to
-  it. The classification is TOTAL: every non-nil value [[plain-key?]]
-  rejects is either classified safe by [[stable-object-key?]] or named by
-  [[key-shape]], so a foreign entity object — which `createElement`
-  coerces to `[object Object]` for every member — cannot fall out of the
-  check in silence. Predicate order is the whole cost: `vector?`, the
-  `:key` read, then [[plain-key?]], where a keyed member leaves on a
-  `typeof`; [[boundary-head?]] and the classification run only past
-  that, so the keyed steady state executes no classification
-  instruction, and `coll?` — the dearest predicate on the path — lives in
-  [[key-shape]], on detection. Nested seqs need no code: a seq member is
-  not a vector, and its own expansion checks its own members."
+  "One member of a lowered child seq, at index `i`: warn when it is a
+  boundary-headed vector whose `:key` React cannot coerce to a stable
+  identity (an absent key is React's own warning). The classification is
+  TOTAL — every non-nil value `plain-key?` rejects is either safe by
+  `stable-object-key?` or named by `key-shape`. Predicate order is the
+  cost: `vector?`, the `:key` read, then `plain-key?`, where a keyed
+  member leaves on a `typeof`; the classification runs only past that. A
+  seq member is not a vector, and its own expansion checks its members."
   [m i]
   (when (vector? m)
     (let [p (nth m 1 nil)
@@ -1301,11 +1121,9 @@
   nil)
 
 (defn- check-seq-keys!
-  "[[check-member-key!]] over a whole seq, for the one caller that has no
-  loop of its own to ride: [[realize-children]]'s one-level flatten, the
-  crossing INTO a boundary. `into` walks the seq there rather than
-  stepping it, so a traversal is unavoidable — and it is the rare path,
-  taken only by a seq-valued trailing form of a boundary element."
+  "`check-member-key!` over a whole seq, for `realize-children`'s
+  one-level flatten — the crossing INTO a boundary, where `into` walks the
+  seq and there is no loop of its own to ride. The rare path."
   [s]
   (loop [items (seq s)
          i     0]
@@ -1622,81 +1440,23 @@
 ;; The `[:>]` raw escape (HD-011) — the door with the declaration erased
 ;; ---------------------------------------------------------------------------
 ;;
-;; `[:> Component props & children]` is HD-011's explicitly SECONDARY
-;; form, for the cases a static declaration cannot express: a component
-;; selected at runtime, a `memo`/`lazy` value, a component a render prop
-;; handed you, a provider an ecosystem library handed you, a one-off
-;; migration site. The guide's rule is unchanged — *declare what you use
-;; twice* — and bare-head auto-hosting stays rejected.
-;;
-;; **The model, in one sentence: `[:>]` is `defhost` with the
-;; declaration erased, and what erasing the declaration costs you is
-;; exactly what the declaration carried.** No author-chosen crossing
-;; name; no `:callbacks` contracts, so every prop here is UNCLAIMED; no
-;; `:server` policy, so the crossing is hard `:client-only` and that is
-;; unspellable; refusals at render time rather than once at a
-;; declaration; one generic marker for every crossing instead of a
-;; minted identity; and the JS require lands in the view namespace
-;; rather than in a `.cljc`-quarantined host one. Every remedy for every
-;; one of those is `defhost`. That is the design, not a coincidence.
-;;
-;; Three things follow, and they are the whole of the mechanism:
-;;
-;; 1. **The props walk is [[host-entry]], unchanged, with an EMPTY
-;;    declared roster.** Not a branch of its own — the same function,
-;;    reading a [[raw-crossing]] stand-in for the declaration it does not
-;;    have. That is what makes `[:> X …]` → `(defhost x X {})` a
-;;    behaviour-preserving rewrite, which is the whole theorem of the
-;;    migration codemod. A refusal that is right in
-;;    isolation and wrong in composition is wrong: whatever is ruled at
-;;    the door, the escape does the same thing.
-;;
-;; 2. **SSR is hard `:client-only`, through ONE shared module-level
-;;    gate** ([[raw-gate]]), reusing the snapshot triple `mint-host-gate!`
-;;    uses with the placeholder fixed at `nil`. There is no declaration
-;;    to carry a policy and no inline spelling for one — a fallback is
-;;    POLICY, and policy lives on declarations. The server emits nothing,
-;;    hydration's first client pass emits nothing, and adoption swaps the
-;;    component in: server-absent and first-pass-absent are not two facts
-;;    kept in step, they are ONE fact and React chooses it. A per-site
-;;    placeholder is still reachable with no new escape surface, by
-;;    wrapping the escape in a declared host that has one.
-;;
-;; 3. **The Component value is refused AT THE CROSSING**, in the owner's
-;;    render ([[raw-component]]). React's own "Element type is invalid"
-;;    is minted at fiber creation, which behind the gate is
-;;    post-adoption and client-only, and for any ClojureScript value it
-;;    reads *"got: object"* because it names `typeof` — naming nothing
-;;    the author wrote.
-;;
-;; What is NOT reduced: the canonical DOM. The gate contributes no node
-;; of its own and `lane/canonical` serialises element and text nodes, so
-;; a `[:>]` and a `defhost` on the same component produce the same DOM in
-;; every phase. The hiccup data lane is reduced at exactly ONE slot —
-;; slot 1 holds a JS value compared by identity — and that is the whole
-;; of HD-011's "reduced structural identity". The fiber lane carries one
-;; shared gate type named by the constant `"[:>]"`; no name is derived
-;; from the component, because React resolves `displayName || name ||
-;; null`, Closure renames `.name` under `:advanced`, and foreign
-;; production bundles routinely ship without `displayName` — a derived
-;; identity would be build-dependent. `defhost` has no such problem
-;; because its name is authored DATA. The component's own fiber sits
-;; directly beneath the gate and React names it there, so a tree reads
-;; `<[:>]>` → `<DatePicker>`: one greppable frame naming the form the
-;; author wrote, and the component naming itself one level down.
+;; `[:> Component props & children]` is `defhost` with the declaration
+;; erased, and what erasing it costs is exactly what the declaration
+;; carried: no crossing name, no `:callbacks`, no `:server` policy (hard
+;; `:client-only` through one shared gate), refusals at render time, one
+;; generic marker. The props walk is `host-entry` against an empty
+;; declared roster, which is what makes `[:> X …]` -> `(defhost x X {})`
+;; a behaviour-preserving rewrite. Design record:
+;; docs/design/hicasso/decisions.md HD-011 (2026-08-07 addendum) and
+;; docs/design/hicasso/studio/raw-escape-spec.md.
 
 (def ^:private raw-crossing
-  "What [[host-entry]] reads at a `[:>]` prop in place of a declaration:
-  a `displayName` for its refusal messages and EMPTY rosters. The escape
-  has no `mint-host!` and mints nothing per site — this is one
-  module-level value, and `callbacks` is a ClojureScript map because
-  that is what the refusals project into their `:declared` ex-data.
-
-  `slots` is empty for the reason every other erasure is empty: a
-  ReactNode position is DECLARED, and the escape is the door with the
-  declaration erased. Hiccup at a `[:>]` prop is therefore data, and
-  `h/as-element` is the per-site spelling that crosses one element
-  through it."
+  "What `host-entry` reads at a `[:>]` prop in place of a declaration: a
+  `displayName` for its refusal messages and EMPTY rosters — one
+  module-level value, nothing minted per site. `callbacks` is a CLJS map
+  because the refusals project it into their ex-data; `slots` is empty
+  because a ReactNode position is DECLARED, so hiccup at a `[:>]` prop is
+  data and `h/as-element` is the per-site spelling that crosses one."
   #js {"displayName" "[:>]"
        "callbacks"   {}
        "slots"       #{}})
@@ -1818,44 +1578,18 @@
 ;; The discriminations, each named once
 ;; ---------------------------------------------------------------------------
 ;;
-;; [[vec->element]] and [[as-element]] each answer a question before they do
-;; anything: WHAT KIND of thing is this. Both questions have a second asker.
-;; `re-frame.hicasso.test`'s L2 walk records what the runtime WOULD render,
-;; as data, and it cannot inspect a React element to find out — so it has to
-;; discriminate the author's hiccup itself.
-;;
-;; A classifier duplicated in a `cond` of its own drifts: `:<>` recorded as
-;; an element named `:<>`, a keyword child refused where the runtime renders
-;; it as text, a `true` child dropped where the runtime raises — each one a
-;; branch that exists twice and agrees once.
-;;
-;; So each question is asked in exactly one place — here — and its answer is
-;; a keyword both callers dispatch on. The arms below keep the COSTED ORDER
-;; the walk is tuned to (see [[as-element]]'s accounting); moving a test
-;; here moves it for the runtime and the kit together, which is the whole
-;; point.
-;;
-;; Sharing the ANSWERS is not enough on its own, because [[vec->element]]
-;; does not only classify: it REFUSES two shapes before and around the
-;; classification — an empty vector, which has no head to classify, and a
-;; raw escape whose Component slot holds something React will not mint a
-;; fiber for. Left to the runtime alone, the kit meets the same two forms
-;; and answers with ids of its own: a generic malformed head for `[]`, and
-;; an L3 opacity pointer for `[:> :div]` — telling the programmer to go
-;; mount, at L3, a form that cannot mount anywhere. Wrong advice, not merely
-;; a different id.
-;;
-;; [[vector-kind]] is where that stops. It is the discrimination WITH the
-;; guards that have to pass before there is anything to discriminate, so a
-;; malformed vector raises ONE refusal, from one guard, whichever side asked.
+;; `vec->element` and `as-element` each ask WHAT KIND of thing this is
+;; before they act, and each question has a second asker: the test kit's
+;; L2 walk (`re-frame.hicasso.test`) records what the runtime would render
+;; as data and cannot inspect a React element to find out. A classifier
+;; duplicated in a `cond` of its own drifts, so each question is asked in
+;; exactly one place — here — in the costed order the walk is tuned to,
+;; and both callers dispatch on the answer.
 
 (defn head-kind
   "WHICH KIND OF HEAD a hiccup vector has — `:fragment`, `:raw`, `:tag`,
-  `:boundary`, `:host` or `:invalid`.
-
-  The head discrimination, named once. [[vec->element]] dispatches on it
-  to build a React element; the test kit dispatches on it to build a Spec
-  004B node. A head kind that exists here exists for both."
+  `:boundary`, `:host` or `:invalid`. Named once: `vec->element` dispatches
+  on it to build a React element, the test kit to build a Spec 004B node."
   [head]
   (cond
     (fragment-head? head) :fragment
@@ -1991,32 +1725,17 @@
 ;; THE OUTWARD BRIDGE — the codec's other half
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every other function in this file ENCODES: a hiccup form goes in and a
-;; React element comes out. The bridge is the one place the traffic runs
-;; the other way — a React parent holds a props OBJECT and wants a
-;; Hicasso element — so the decode belongs here, beside the vocabulary it
-;; is the inverse of, and nowhere else.
-;;
-;; **The bridge mints no crossing of its own.** It converts the props and
-;; then calls [[vec->element]], which is the same entry every hiccup
-;; vector in every body already goes through. That is what makes "one
-;; props/children ABI" (native-boundary law, clause 5) true by
-;; construction rather than by inspection: there is no second element
-;; builder to keep in step, `rfProps` is written in exactly one place
-;; ([[boundary-element]]), and the bridge inherits every refusal the codec
-;; already raises at the coordinates the complaint register already
-;; records — a head outside the closed set refuses as
-;; `:rf.error/hicasso-bad-head` from [[vec->element]], from out here as
-;; from a body.
+;; Everything else here encodes hiccup into React elements; the bridge
+;; decodes a React parent's props object into a hiccup body's props and
+;; then calls `vec->element`, the same entry every hiccup vector goes
+;; through. No second element builder: `rfProps` is written in exactly
+;; one place (`boundary-element`) and the bridge inherits every refusal
+;; the codec already raises.
 
 (def ^:private slot-keys
-  "The three React spellings read back to the hiccup key they came from.
-
-  [[re-frame.hicasso.impl.slot/prop-name]] is deliberately NOT injective
-  — `:class`, `:className`, `\"class\"` and `:x/class` are one slot — so
-  an inverse has to CHOOSE, and it chooses the spelling the guide
-  teaches. `className` therefore arrives at a body as `:class`, which is
-  the key that body's author would have written."
+  "The three React renames read back to the hiccup key they came from.
+  `prop-name` is not injective — `:class`, `:className` and `\"class\"`
+  are one slot — so the inverse chooses the spelling the guide teaches."
   {"className" :class "htmlFor" :for "charSet" :charset})
 
 (defn prop-key
