@@ -857,6 +857,13 @@ and both readings went wrong in a single day here, in opposite directions.
    and then ended its turn**, waiting for a completion event nothing sends. Seven such incidents in one
    day; every one recovered intact the moment somebody asked for a status.
 
+   **Where the harness itself delivers an agent-stopped event, that event outranks every clock in this
+   section for that agent.** An event defined to fire only when nothing of the agent's remains alive is
+   not one more signal to weigh: arriving from a worker whose last message says it is WAITING for
+   something, it is the diagnosis itself — the awaited wake no longer exists, whatever the worker
+   believed it had armed. Resume without further discrimination; the clocks above are for workers whose
+   harness reports nothing.
+
    **But whether that question has an answer depends on your messaging tool, and it may not.**
    Measured twice here, a send to an agent stopped mid-turn was ACCEPTED — success returned and
    delivery promised at the agent's *next tool round*, which for a stopped agent never comes.
