@@ -1067,7 +1067,11 @@ strength is that it has one.**
 **If your project links or junctions shared dependencies into worker worktrees, never remove a
 worktree with the plain command.** It follows the link and deletes *through* it, emptying the shared
 tree it points at — silently, exiting successfully, breaking every local build until the
-dependencies are reinstalled. It has happened more than once in this project.
+dependencies are reinstalled. It has happened more than once in this project. **And removal is not
+the only write that follows a link**: an installer a gate runs inside the worktree rewrites the shared
+target the same way, so a tree can be emptied while its worker is still alive and no cleanup has run.
+The brief-side rule is under *Quality gates — which gate* in `dispatch-prompt-template.md`; here, count
+every shared tree a worker's gates could have reinstalled, not only the ones a removal touches.
 
 Put the safe sequence in a **script**, not in prose. Prose was tried and the class recurred anyway.
 The script should: snapshot every real shared-dependency tree; unlink each *link* under the worktree
