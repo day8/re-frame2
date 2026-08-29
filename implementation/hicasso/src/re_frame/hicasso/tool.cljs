@@ -16,7 +16,7 @@
   who holds it. In a dev build the entry also carries the names of the
   declared views that rendered it, so a row says `:views` — each with the
   source coordinate `defview` captured — and a harness body with no name
-  leaves `:views` as [[re-frame.hicasso.evidence/unknown]].
+  leaves `:views` as `evidence/unknown`.
 
   Privacy: every query passes `re-frame.elision/elide-wire-value` with
   its own frame and query, boundary keys included, and it fails closed —
@@ -154,7 +154,7 @@
 (defn- view-rows
   "`names` — the set `impl.collector` stamps on a read-set entry in a dev
   build — as a row's `:views`: one `{:view :source}` per declared view,
-  sorted by name, or [[re-frame.hicasso.evidence/unknown]] when no named
+  sorted by name, or `evidence/unknown` when no named
   body rendered the entry. `:source` is the coordinate `defview` handed
   `impl.error/declaring!`, or `:unknown` for a name minted outside the
   macro."
@@ -182,7 +182,7 @@
 
 (defn- entry-rows
   "One row per DISTINCT projected edge set among the committed read-set
-  entries, in [[ordered]] order.
+  entries, in `ordered` order.
 
   `refs > 0` is *mounted*: the entry's `subscribe` incremented it at
   commit and its cleanup decrements it at teardown, so a boundary whose
@@ -260,7 +260,7 @@
   The reader list on the cell IS the reverse edge — one slot per reading
   boundary — so `:fan-out` is the slot count and `:readers` the distinct
   edge sets holding them, each named through `views` (see
-  [[views-by-read-set]])."
+  `views-by-read-set`)."
   [views sub-key ^js cell]
   (let [readers (.-readers cell)
         query-v (nth sub-key 1)]
@@ -292,7 +292,7 @@
   Exact without qualification: every cell's `readers` array is the key's
   reverse edge, maintained by the same commit and cleanup that acquire
   and release the reference. `:readers` carry the same keys
-  [[read-mounted-boundaries]] states, so the two rosters join. A key
+  `read-mounted-boundaries` states, so the two rosters join. A key
   nothing holds has no cell and is absent — it is not a subscription with
   zero readers, it is one this runtime is not holding."
   []
@@ -423,7 +423,7 @@
 
   Order is reconstructed, not assumed: the rings are per frame and the
   stream is one, ordered by the process-monotonic `:dispatch-id` with
-  the fragments of one dispatch merged (see [[intent-rows]]). Nothing is
+  the fragments of one dispatch merged (see `intent-rows`). Nothing is
   retained to answer this — the ring is Spec 009's, under its one knob
   `:rf.trace/events-retained`, so the window is always a cap and this
   read is never complete: an empty `:intents` under that loss means the
@@ -458,7 +458,7 @@
   which of two things happened. With runs retained the search ran and
   only the join is missing — `:uncorrelated`, and `:candidates` may
   honestly be `[]`. With the window empty no search happened — `:cap`,
-  and `:candidates` states [[re-frame.hicasso.evidence/unknown]]. Scoping
+  and `:candidates` states `evidence/unknown`. Scoping
   to the boundary's own frames is what keeps activity in frame B from
   turning frame A's `:cap` into a false `:uncorrelated`, or B's runs into
   A's leads because two frames registered one sub id."
@@ -518,7 +518,7 @@
   Incomplete by construction rather than by circumstance: the commit seam
   carries no cascade identity, so there is no id to join a retained run
   to a re-run, and a bigger ring does not change that. What is proven
-  rides beside it — see [[explanation]] — and whether the boundary then
+  rides beside it — see `explanation` — and whether the boundary then
   RAN is React's to know: a notification delivered is not a render
   performed."
   []
