@@ -608,19 +608,18 @@ in the shipped package, not when it is proposed.
 
 ## How this page is kept honest
 
-Three gates read the shipped source rather than this page, which is what makes a
-mismatch between them and an entry here a real finding rather than a matter of
-opinion.
+One gate reads the shipped source rather than this page, which is what makes a
+mismatch between it and an entry here a real finding rather than a matter of
+opinion: `implementation/hicasso/scripts/check_guide_samples.py` resolves every
+`alias/verb` a fenced block in the guide names against the source that defines
+it, and pins each block's text to a digest, on every pull request.
 
-| Gate | What it measures | Measured 2026-08-15 |
-| --- | --- | --- |
-| `implementation/hicasso/scripts/check_facade_inventory.py` | the `re-frame.hicasso` door against its inventory | 16 names on the door, 43 inventory rows |
-| `implementation/hicasso/scripts/check_naming_census.py` | every public name in the package against the naming ledger | 103 public names across ten namespaces, 0 unrostered |
-| `implementation/hicasso/scripts/check_guide_samples.py` | every `alias/verb` a fenced block in the guide names against the source that defines it | all verbs resolved |
-
-The census's 103 and this page's roster differ by exactly one name, and the
-difference is the census's. `forms/buffered-field` is minted by `h/defview`
-rather than by a bare `def`, and the census reads only unqualified `def*` heads,
-so it does not see it. The name ships, the naming ledger rosters it, and
-[Forms](05-forms.md) teaches it — so the shipped public surface is **104 names**,
-and it is documented above.
+Two more gates stood beside it until 2026-08-30 — a facade-inventory diff and a
+public-name census, each policing a programme ledger — and were retired with
+those ledgers (`rf2-6c12m.8`). What the census last measured, on 2026-08-15, was
+103 public names across ten namespaces with none unrostered; that figure and
+this page's roster differed by exactly one name, `forms/buffered-field`, which is
+minted by `h/defview` rather than a bare `def` and so was invisible to a reader of
+`def*` heads. The name ships and [Forms](05-forms.md) teaches it, so the shipped
+public surface was **104 names** on that day, and what this page documents is
+the source as it stands.

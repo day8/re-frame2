@@ -254,6 +254,8 @@ gaps were filed rather than left to be discovered:
 
 ### Method
 
+**[Amended 2026-08-30, `rf2-6c12m.8`.]** The two `check_budget_ledger.py` lines below no longer run — PR #8775 deleted the script with `budgets.md`'s demotion to design history — and the block is kept as the record of what this scan ran on the day it was taken.
+
 ```sh
 cd implementation
 python hicasso/scripts/check_optional_module_reachability.py --self-test   # exit 0

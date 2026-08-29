@@ -329,6 +329,8 @@ python3 implementation/hicasso/scripts/check_naming_census.py <ABSOLUTE repo roo
 python3 implementation/hicasso/scripts/check_naming_census.py --self-test
 ```
 
+**[Amended 2026-08-30, `rf2-6c12m.8`.]** The gate is deleted — PR #8775 retired `check_naming_census.py`, its CI job and its spine lane together with the ledger it rostered against, which is design history at [`naming-ledger.md`](naming-ledger.md) beside this page. The two commands above no longer resolve; what this section preserves is the census's method and its positive control, which a future re-run would rebuild from.
+
 It exits 0 when every public name is rostered, 1 naming each name that is not, and 2 when it
 REFUSES — a namespace source that has moved, a roster that came back empty, a missing
 ledger, or a ledger it could not read a single code span from. A refusal is distinct from a
