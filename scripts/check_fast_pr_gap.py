@@ -322,20 +322,6 @@ SPINE_LANES = (
         r"^npm run test:hicasso-invariants$",
         "spine node tier: 'hicasso invariants gate'",
     ),
-    # The complaint-catalogue contract has TWO homes in CI (rf2-hic-021 audit
-    # repair): the npm chain above, and its own unconditional job -- three of
-    # the four file families it reads arm no classifier output, so the chain
-    # alone left a register-only / Spec-009-only / guide-only PR running it
-    # nowhere.  The spine covers both through the chain, so the dedicated job's
-    # two steps are NOT a local gap; without this lane they would be reported as
-    # one, which is the same lie in the opposite direction.
-    Lane(
-        "hicasso-complaint-catalogue",
-        r"^python implementation/hicasso/scripts/check_complaint_catalogue\.py"
-        r"(?: --self-test)?$",
-        "spine node tier: 'hicasso invariants gate' chains this checker "
-        "(`npm run test:hicasso-invariants`), both modes",
-    ),
     # rf2-x1mz — the lint gate itself, which had NO local lane at all until
     # `scripts/lint_kondo.py` landed.  The signature is deliberately anchored
     # on the flags rather than the `--lint` roots: the roots are read out of
@@ -362,8 +348,7 @@ SPINE_LANES = (
         "spine node tier: 'hicasso lint export gate', at lint.yml's pin",
         working_dir="implementation",
     ),
-    # rf2-uomk — the budget ledger's own unconditional job, the same shape and
-    # for the same reason as `hicasso-complaint-catalogue` above: the checker's
+    # rf2-uomk — the budget ledger's own unconditional job: the checker's
     # other input families (the ledger page, the disposition records) arm no
     # classifier output, so the npm chain alone left a ledger-only PR running
     # it nowhere.  The spine covers both homes through the chain, so the job's

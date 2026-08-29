@@ -23,11 +23,12 @@ edits a table verifies its column count by hand and says so.
   carries, so no surface can be added, shipped or forgotten without a row.
   Sections 2.1 and 2.2 are the gated inventory; §3 is the append protocol that
   keeps concurrent beads out of each other's way.
-- [`complaints.md`](complaints.md) — the register of Hicasso's diagnostic ids:
-  which exist, which spellings are claimed for refusals whose surface is not
-  built yet, and which are dead forever. It does not restate what a complaint
-  MEANS — that is [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)'s
-  Hicasso section, and the two are gated against each other in both directions.
+- [`complaints.md`](complaints.md) — the index of Hicasso's diagnostic ids: one
+  line per id the package raises, with the guide chapter that teaches how not
+  to hit it. It does not restate what a complaint MEANS — that is
+  [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)'s
+  Hicasso section, which is also the single record of which ids exist and
+  which are retired (a struck-through row is the tombstone).
 - [`invariants.md`](invariants.md) — one page to check a change against: every
   invariant the product commits to, every capability and the rent it pays, and
   the provisional `h` and `n` facades. Wholly transcribed from the governing
@@ -52,7 +53,7 @@ live run is a verdict rather than a checker that has quietly stopped firing.
 | Document | Checker | Where it runs |
 |---|---|---|
 | `dispositions.md` §§2.1, 2.2 | `check_facade_inventory.py` | `npm run test:hicasso-invariants`, and the unconditional `hicasso-facade-inventory` job in `.github/workflows/test.yml` |
-| `complaints.md` | `check_complaint_catalogue.py` | `npm run test:hicasso-invariants`, and the unconditional `hicasso-complaint-catalogue` job |
+| `complaints.md` | none of its own since rf2-6c12m.7 retired `check_complaint_catalogue.py`; the ids its rows name are the ones `../../../scripts/check_keyword_catalogue_drift.py` reconciles against Spec 009 and the emitters, in both directions | the repo-wide keyword-drift gate in `.github/workflows/test.yml`, and `scripts/test-fast-pr.sh` |
 | `invariants.md` §1 | `check_optional_module_reachability.py` | `npm run test:hicasso-invariants` |
 | `naming-ledger.md` | `check_naming_census.py` | the unconditional `hicasso-naming-census` job, and `scripts/test-fast-pr.sh`'s always-on block |
 | `budgets.md` §9 | `check_budget_ledger.py` | `npm run test:hicasso-invariants`, and the unconditional `hicasso-budget-ledger` job |

@@ -1071,8 +1071,8 @@ else
         #   - the INVARIANTS GATE, `npm run test:hicasso-invariants`, a step
         #     of that same job — the optional-module reachability check (which
         #     since rf2-6c12m.1 also carries the no-bench-import row the
-        #     retired freeze gate used to seal) and the complaint-catalogue
-        #     round trip;
+        #     retired freeze gate used to seal), the budget ledger, the facade
+        #     inventory and the guide-samples check;
         #   - the modules compile (`test:hicasso-compile`), already an
         #     unconditional step there.
         #

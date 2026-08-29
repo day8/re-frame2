@@ -4769,131 +4769,14 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
     block,
     /run: npm run test:hicasso-invariants$/m,
     'the cljs job must run the hicasso invariants gate (optional-module '
-      + 'reachability with its no-bench-import row, the complaint-catalogue '
-      + 'round trip and the other static reads chained there); it runs nowhere else',
+      + 'reachability with its no-bench-import row and the other static reads '
+      + 'chained there); it runs nowhere else',
   );
   assert.match(
     block,
     /run: npm run test:hicasso-compile$/m,
     'the cljs job must keep running the hicasso modules compile (rf2-2rtt6.73, '
       + 're-homed into the package by rf2-6c12m.1)',
-  );
-});
-
-// ---------------------------------------------------------------------------
-// rf2-hic-021's complaint-catalogue contract, and the reverse edges that made a
-// classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje;
-// re-measured after the register moved, rf2-xomo).
-//
-// `implementation/hicasso/scripts/check_complaint_catalogue.py` reads FOUR file
-// families. TWO of them arm cljs_node_test, the output guarding the only job
-// that ever hosted the checker: the emit roots (hicasso/src + hicasso/test_kit/
-// src), and — since rf2-ps7ia moved the REGISTER out of docs/design/hicasso/
-// product/ and in beside the artefact — implementation/hicasso/spec/
-// complaints.md itself. Both ride the one `implementation/hicasso/*` arm, which
-// does not discriminate `.md`.
-//
-// So the hole is TWO families wide now, not three, and this test previously
-// asserted about an address the move had emptied — an assertion that went on
-// PASSING, because the classifier is a lexical path function that does not care
-// whether a path exists (rf2-xomo). The rows below are still the MEASUREMENT,
-// pinned rather than asserted: each is a file the checker reads and a tier that
-// does not fire for it, so each is a PR shape that could have broken the
-// contract in silence. The register's row is kept and INVERTED rather than
-// deleted, because a test that only ever asserts `false` passes just as well
-// against a classifier that has stopped arming anything at all.
-//
-// These rows must NOT be "fixed" by widening cljs_node_test. Arming a ~10-minute
-// CLJS compile for a Markdown edit is the trade TESTING.md's placement table
-// exists to refuse — and the register now pays exactly that toll, plus three
-// Chromium lanes (cljs_browser, hicasso_controlled, hicasso_hmr), for a prose
-// edit. Whether to narrow the arm to `implementation/hicasso/spec/*.md` is an
-// open operator call (rf2-xomo finding 2), not something this test may settle
-// quietly. For the two families still in the hole the repair is unchanged: the
-// unconditional job asserted underneath.
-//
-// The name below says the CLJS NODE-TEST TIER and not "no expensive tier",
-// which is what it used to claim: `spec/009-Instrumentation.md` does arm
-// `implementation_jvm`, and roughly twenty JVM jobs stand behind that output.
-// Only ONE tier is in the hole here, the one that could host this checker, and
-// the wider claim was an overstatement a green suite concealed (rf2-xomo, audit
-// of PR #8664). Keep the name at the property the rows actually measure.
-// ---------------------------------------------------------------------------
-
-test('the complaint catalogue reads two families that do NOT arm the CLJS node-test tier (rf2-hic-021)', () => {
-  for (const file of [
-    'spec/009-Instrumentation.md',
-    // The guide family the checker actually reads: its GUIDE_DIR followed the
-    // corpus to docs/core/hicasso/ under rf2-0yp7w, and only REWRITE-NOTES.md
-    // is still tracked under draft-guide/, so the pre-move spelling asserted
-    // about an address no guide edit could ever produce (rf2-2ein1).
-    'docs/core/hicasso/02-views-and-reads.md',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.cljs_node_test,
-      'false',
-      `${file} must not arm the CLJS node-test tier — it is a docs/spec edit, `
-        + 'and the complaint-catalogue contract it can break is covered by the '
-        + 'unconditional hicasso-complaint-catalogue job instead',
-    );
-  }
-  // The register's own row, re-pointed and INVERTED (rf2-xomo). It left
-  // docs/design/hicasso/product/ under rf2-ps7ia and now rides
-  // `implementation/hicasso/*`, so it arms. This is also the control the two
-  // rows above need: without it a classifier that had stopped arming
-  // cljs_node_test for anything would satisfy them both and read as a pass.
-  assert.equal(
-    classify('implementation/hicasso/spec/complaints.md').cljs_node_test,
-    'true',
-    'the register moved beside the artefact and now arms the CLJS node-test '
-      + 'tier — if this reads false, the tier the two rows above are measured '
-      + 'against has stopped firing and their `false` means nothing',
-  );
-});
-
-test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-021)', () => {
-  // The repair, and the reason it is shaped this way: a surface gate that did
-  // not cover a checker's inputs is the defect. A new classifier output would
-  // be a new chance to make the same mistake and would need re-widening every
-  // time the checker learns to read another file, so this job carries no gate
-  // at all — no `needs: detect_changed_surfaces`, no `if:`.
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'hicasso-complaint-catalogue');
-  // Job-level keys sit at exactly four spaces; anchoring there keeps a prose
-  // comment mentioning `needs:` from reading as the key itself.
-  assert.doesNotMatch(
-    block,
-    /^ {4}needs:/m,
-    'hicasso-complaint-catalogue must not depend on detect_changed_surfaces — '
-      + 'two of the four file families its checker reads still arm no tier '
-      + 'that could host it (rf2-xomo re-measured the count after the '
-      + 'register moved beside the artefact)',
-  );
-  assert.doesNotMatch(
-    block,
-    /^ {4}if:/m,
-    'hicasso-complaint-catalogue must carry no surface gate; it is a sub-second '
-      + 'pure-Python static read and there is nothing to gate for',
-  );
-  assert.match(
-    block,
-    /run: python implementation\/hicasso\/scripts\/check_complaint_catalogue\.py --self-test$/m,
-    'the job must drive the checker\'s eight rules red before trusting a green '
-      + 'live run',
-  );
-  assert.match(
-    block,
-    /run: python implementation\/hicasso\/scripts\/check_complaint_catalogue\.py$/m,
-    'the job must run the live round trip',
-  );
-  // Required, not advisory: a job absent from the aggregator's `needs:` is
-  // advisory whatever its own gate says, which is the nowhere it came from.
-  const aggregator = jobBlock(workflow, 'all-required-passed');
-  assert.match(
-    aggregator,
-    /^ {6}- hicasso-complaint-catalogue$/m,
-    'hicasso-complaint-catalogue must be in all-required-passed\'s needs',
   );
 });
 
@@ -5657,10 +5540,10 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // rf2-r5iy7 already measured and REJECTED arming it, because the only output
   // that would reach its checker is cljs_node_test — the ~10-minute node
   // build, scheduled on a prose typo. Every gate named below was re-read at
-  // its source and holds — including the count: the live hicasso-guide-samples
-  // run reports 188 pinned blocks across 25 pages.
+  // its source and holds. The guide-samples gate pins nothing any more: since
+  // rf2-6c12m.9 it checks only that every hicasso verb a sample names resolves.
   'docs/core': {
-    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
+    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's fenced samples are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7; since rf2-6c12m.9 it checks only that every hicasso verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [
       '.github/workflows/docs.yml',
       'scripts/check_doc_slugs.py',
