@@ -127,9 +127,6 @@
                                              frame-kw (assoc :extent-frame frame-kw))]
      (body-fn))))
 
-;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
-;; package, and the ambient view and source coordinate come with it.
-
 (defn- require-dispatch
   "The frame-locked dispatch this lowering needs, or
   `:rf.error/hicasso-intent-outside-boundary`. The message offers TWO
@@ -158,7 +155,7 @@
              {:intent intent})))
 
 ;; ---------------------------------------------------------------------------
-;; The author-facing frame read — `h/frame`
+;; The author-facing frame read — `hframe`
 ;; ---------------------------------------------------------------------------
 
 (defn hframe
