@@ -29,9 +29,11 @@ particular prop changed" — none of them has a door.
 Two honest routes before you hold:
 
 - If the update work is genuinely **the DOM's** and can be expressed as *"React
-  ran an effect with these dependencies"*, it belongs in an
-  `re-frame.hicasso.native/defcomponent` island, where `react/useEffect` and its
-  dependency array are legal because you own the source and its call order.
+  ran an effect with these dependencies"*, it belongs in a React island — a UIx
+  `defui` or a raw React function component mounted through `h/defhost` — where
+  `react/useEffect` and its dependency array are legal because you own the
+  source and its call order. `n/use-sub` and `n/use-frame` give the island a
+  frame-joined read and a frame-pinned dispatch when it needs Hicasso state.
 - If the "previous value" is really **domain history**, it is app-db: the event
   that changed the value knows both sides, and the consequence belongs to the
   handler, not to the view.

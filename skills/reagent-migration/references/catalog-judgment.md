@@ -54,7 +54,7 @@ this value belong to* — three answers, in order of how often they are right:
   DOM-local. Require it explicitly (`[re-frame.hicasso.forms :as forms]`); it is
   an optional module and absent when unused.
 
-- **State that is genuinely the DOM's → a callback ref, or a native component.**
+- **State that is genuinely the DOM's → a callback ref, or a React island.**
   Scroll offset a library owns, a chart instance, an editor's internal buffer.
   See MIG-17.
 
@@ -103,9 +103,12 @@ Three things are load-bearing:
   and nothing checks it. Put the ref on the element you actually want.
 
 If the work is more than "touch this node" — a chart, an editor, anything with
-its own hook-shaped lifecycle — that is `re-frame.hicasso.native/defcomponent`,
-where ordinary React hooks are legal because you control the source and its call
-order. `n/use-sub` and `n/use-frame` are the two Hicasso adds.
+its own hook-shaped lifecycle — that is a React island: a UIx `defui` or a raw
+React function component, mounted through `h/defhost`, where ordinary React
+hooks are legal because you control the source and its call order. `n/use-sub`
+(a read joined to the island's frame) and `n/use-frame` (a dispatch pinned to
+that frame's incarnation) are the two Hicasso adds, for when the island needs
+Hicasso state.
 
 ### Domain work on MOUNT → an ordinary event
 

@@ -149,9 +149,9 @@ than spelling:
 | `component-did-mount` DOM work | a **callback ref** — React's own contract, a function at `:ref`, node as the argument |
 | `component-will-unmount` DOM cleanup | the **return value** of that same callback ref |
 | `component-did-mount` "load the thing" | an ordinary event — the frame's `:initial-events`, or a route |
-| `component-did-update` | no mechanism; re-render *is* the update, or a native component with `react/useEffect` |
+| `component-did-update` | no mechanism; re-render *is* the update, or a React island with `react/useEffect` |
 | `component-did-catch` | `h/error-boundary` |
-| genuine widget mechanics needing hooks | `re-frame.hicasso.native/defcomponent`, where ordinary React hooks are legal |
+| genuine widget mechanics needing hooks | a React island — a UIx `defui` or a raw React function component mounted through `h/defhost` — where ordinary React hooks are legal; `n/use-sub` / `n/use-frame` when it needs Hicasso state |
 
 The judgment this forces — *is this value product state, or is it the DOM's?* —
 is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
@@ -159,9 +159,15 @@ is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
 **Hooks do not belong in a `defview` body.** A body is dynamically composed —
 its branches and its `for`s follow the data it reads — and React's rules of
 hooks are about call *sequence*, so a hook there would make its own order depend
-on a subscription's answer. Hook-intensive behaviour goes to `n/defcomponent`,
-where React's rules apply to source the author controls. Nothing enforces this
-at runtime; React is the enforcement.
+on a subscription's answer. Hook-intensive behaviour goes to a React island: a
+UIx `defui` or a raw React function component, mounted through `h/defhost` (or
+`[:> …]` for a one-off), where React's rules of hooks apply to source the author
+controls. When the island needs Hicasso state it uses the two hooks
+`re-frame.hicasso.native` keeps for exactly that — `n/use-sub`, a read joined to
+the island's frame, and `n/use-frame`, a dispatch pinned to that frame's
+incarnation — so the read builds the same cell and the dispatch reaches the same
+frame a `defview` would. Nothing enforces the no-hooks rule at runtime; React is
+the enforcement.
 
 ## Why this shapes the tiers
 
@@ -170,7 +176,7 @@ at runtime; React is the enforcement.
   key-meta move, plain-hiccup pass-through, the root.
 - **D-tier** is where a shift meets a *decision the source can't answer*: is
   this `r/atom` product state (→ app-db), a draft protocol (→ the forms module),
-  or genuinely the DOM's (→ a ref or a native component)? The code can't tell
+  or genuinely the DOM's (→ a ref or a React island)? The code can't tell
   you; the domain can.
 - **R-tier** is where a shift meets a surface Hicasso **does not have** — a
   frame-pinned reactive read, the prev-props update protocol, and Reagent's own
