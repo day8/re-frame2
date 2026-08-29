@@ -307,6 +307,13 @@ one-worker-per-item, and do not reflexively bundle everything.
   out routinely where single-item workers succeed.
 * **A measurement window → SOLO, Shape 6**, picked by kind rather than size and never folded
   into a cluster.
+* **One item too large for one worker → SPLIT by disjoint file, one worker each, and NOBODY
+  CLAIMS IT.** The reverse of a cluster, for an item whose slices are each a full session.
+  A claim marks the item one worker's, and the ready list, the stranded sweep and every
+  other slice's worker then read it that way; so each worker appends a claim note and a
+  result note instead, and the mayor closes the item when the last slice has landed, citing
+  every change. Measured: four slices of one item in one session, each its own change,
+  none colliding, closed once with four cross-references.
 
 **One agent owns a surface; surfaces run in parallel.** That is how you avoid serial handling:
 same-surface items ride one agent, which never collides with itself, while genuinely separable
