@@ -232,6 +232,18 @@ working copy too, and read a change that is clean by both as *not started yet* r
 as owning nothing: what it will touch is recorded on the item it was dispatched under, not
 in version control.
 
+**And an item's own scope claim is a name too, wearing a reviewer's authority.** A review
+that files a dozen items will call them *src-only* or *parallel-safe* at the altitude it
+worked at, and every collision such a wave produces is invisible from there: four items
+editing one file in four regions; a *test-only* cut that keeps a file a sibling was told
+would be deleted; a *src-only* lane that must cross into a held tree by one line. Measured
+on one wave: ten items dispatched under that claim, three same-file collisions, every one
+caught by routing after the fact and none by the fence. So before you paste a fence, read
+each item's cited files against its siblings' — the citations are usually there, and the
+claim was made without doing that — and when two items share a file, sequence them or
+brief both with the overlap named. **A fence built from the claim is the guess the
+claim's author skipped, not a fence.**
+
 **A fence is derived, never remembered — and the worker derives it again at start-up.**
 Step 3 above settles how you establish it; a list assembled from memory of who you dispatched
 is stale inside the dispatch's own lifetime and on a busy fleet can be wrong before the brief
