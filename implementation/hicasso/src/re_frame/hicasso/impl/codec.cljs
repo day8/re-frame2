@@ -1,189 +1,56 @@
 (ns re-frame.hicasso.impl.codec
-  "THE HICCUP CODEC — the package's hiccup interpreter.
-  Runtime interpretation of arbitrary hiccup into React elements, over
-  reagent-slim's *measured* tag/prop/child plumbing.
+  "The hiccup codec: arbitrary hiccup in, React elements out, over
+  reagent-slim's measured tag/prop/child plumbing and nothing else of
+  reagent-slim's — no component protocol, no ratoms, no scheduler, and
+  no runtime require of it. The outward bridge at the end of the file
+  (`as-component`) runs the other way: a React parent's props object
+  into a hiccup body's props map.
 
-  ## The plumbing's provenance, and what is deliberately absent
-
-  The plumbing is reagent-slim's `reagent2.impl.template` — the plumbing
-  the P0 and HD-008 instruments actually clocked: the `#id.class` tag
-  regex and its parse; the kebab→camel prop-name rule with its
-  `aria`/`data` exemptions, its `--custom-property` passthrough and its
-  three seeded entries; the `:style` map→JS-object conversion; the class
-  coercion and the shorthand merge; the single-pass sequence expansion
-  that does not truncate on an interior `nil`; and the 0/1/N
-  `createElement` arms with the `.apply` path for long child lists.
-
-  **Absent, by ruling and on purpose**: the component protocol, the
-  ratoms, and the scheduler. None of them is here, none of them is
-  reachable from here, and the codec requires nothing from reagent-slim
-  at runtime.
-
-  The argv-equality memoization is NOT absent. HD-006 as amended
-  makes a value-equality bail-out the boundary **default**, because
-  without one a page-chrome write re-runs the page and all 300 card
-  boundaries beneath it with every card's inputs value-equal. It is one
-  stable internal memo wrapper per head
-  ([[memoize-boundary!]]). It is a comparison of a boundary's props map
-  and nothing else — the element and prop-object caches HD-004 refuses
-  are still refused, and still absent below.
-
-  Also absent, and worth naming so their absence reads as a decision
-  rather than an omission: the `:r>` raw-props path, the class-component
-  `__rfArgv` crossing, and the adapters' reserved-head and keyword-prop
-  diagnostics (public-boundary policy for a shipped adapter; this codec
-  has no public boundary, and the pre-alpha stance is to trust the
-  programmer). `defhost` — HD-011's taught door — is NOT among the
-  absences: [[mint-host!]] is the declaration and the host head is the
-  fourth element class, §Host heads below. Neither is the
-  `[:>]` raw escape, which HD-011 keeps explicitly secondary and which
-  is built as [[raw-element]] — the same crossing with the
-  declaration erased.
-  Neither is HD-011's SSR placeholder: `:server` is a declaration option
-  with two values, and `:fallback` is its sibling. Under `:client-only` [[mint-host-gate!]] is the
-  one mechanism that serves the server render, hydration's first client
-  pass and a fresh `createRoot` mount alike; `:server :render` mints no
-  gate and renders the component itself server-side, which is the only
-  policy under which a crossing's CHILDREN reach the server response at
-  all.
-
-  ## Codec-work caching only (HD-004)
-
-  Two caches, both keyed by the author's literal and both JS objects
-  with **no prototype** ([[empty-cache]]), so a hiccup tag or prop
-  literally named `toString` cannot be served an inherited value and one
-  named `__proto__` cannot poison a write — the first structurally, the
-  second by a refusal on the miss branch:
-
-    tag-cache    \"div#main.wide\" -> ParsedTag
-    prop-cache   \"on-click\"      -> PropSlot
-
-  A [[PropSlot]] is the React name plus the four
-  classifications that are pure functions of the same literal — reserved
-  slot, event position, ref slot, class slot.
-  Same keys, same lifetime, same guard; one lookup answers everything a
-  per-prop walk would otherwise re-derive per element per render.
-
-  That is the whole of the accelerant HD-004 permits here.
-  There is **no template extraction, no hole plan, no node reference, and
-  no direct DOM write** — any of those *is* a template/PATCH rendering
-  strategy, the road `architecture.md` records as not taken, and has to
-  say so. There is no memoization of converted props objects and no
-  memoization of elements: `convert-props` mints a fresh object per
-  element per render, exactly as the measured `reagent2.impl.template`
-  does, so the clock this codec is compared on is the clock that was
-  measured.
-
-  **The third cache HD-004 names — cached stable component heads — costs
-  nothing here, and that is the interesting part.** reagent-slim needs
-  one because `:f>` takes a *plain* function and must not mint a fresh
-  React type per render. Hicasso's `defview` mints the function component
-  once, at definition, and [[mark-boundary!]] records that on the fn
-  itself; the head is then identity-stable by construction and the cache
-  has nothing to do. This is also why HD-016 makes a plain function in
-  head position a loud error rather than auto-wrapping it: auto-wrapping
-  is precisely the thing that would need the cache back.
-
-  ## The analysis/emission boundary
-
-  Analysis — tag parse, prop names, class merge, child realization, head
-  classification — is emitter-neutral. **Emission is not**, and this file
-  emits React elements: the package's element representation, in
-  architecture.md's sense. A different emitter could take the analysis
-  wholesale and bring its own emission — that separability is the reason
-  the two are kept visibly apart below rather than interleaved.
-
-  ## The one behaviour emission adds
-
-  Everything else here translates what the author wrote. A controlled
-  `<input>` or `<textarea>` gets one thing more: its change handler is
-  wrapped so the field converges against the model **inside the discrete
-  event, with the caret where the edit left it** — the half neither
-  React nor UIx's port gives on its own.
-
-  It belongs at emission rather than in a boundary because that is what
-  makes it free at the authoring surface: the view writes an ordinary
-  `:value` / `:on-input` pair, nothing is added to the boundary shell,
-  and HD-020's ≤2-hook budget is untouched. See
-  [[re-frame.hicasso.impl.controlled]], which owns the mechanism,
-  its guards and its one dependency.
-
-  ## The component ABI (HD-016)
+  The component ABI (HD-016, HD-011):
 
   | Head | Props | Children | `:key` |
   |---|---|---|---|
-  | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
-  | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag, an `h/event` at any slot none of those claimed REFUSED, everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
-  | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
+  | Native tag | attr map, each key emitted under one canonical slot, the tag's `#id.class` shorthand folded onto the emitted object | trailing forms; a seq realized once and spliced; `nil`/`false` render nothing, `true` is an error | literal `:key` in the attr map |
+  | Boundary (a marked `defview` head) | one props map crossing as a CLJS value, every lazy seq in it forced and an unforced `delay` refused (`realize-deep`) | trailing forms as `(:children props)`, a realized vector | literal `:key`, taken off before the body sees props |
+  | Host (a `defhost` head), or `[:> Component …]` | attr map converted shallowly (`host-entry`): declared `:callbacks` contracts applied, declared `:slots` lowered to elements, `:ref` untouched, the class slot coerced and composed, the rest inferred by position | trailing forms lowered to elements in the writing boundary's render window, handed on as React children | literal `:key` |
+  | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment |
 
-  A React element is a legal child anywhere. No metadata keys, no second
-  calling convention, and a plain function in head position is a loud
-  error.
+  A React element is a legal child anywhere; a plain function in head
+  position is a loud error. Five keys are never emitted as attributes:
+  `:key` and `:ref` are React's (the structural slots, denied in every
+  spelling); `:re-frame.hicasso/revision` is a controlled element's
+  reset trigger, read off the map by `native-element`; the two presence
+  override keys belong to a tray and are skipped by every walk.
 
-  ## Two reserved attribute keys, and nothing else
+  Every rule about WHICH attribute a value is — the structural deny,
+  the ref position's exclusion from intent lowering, the class slot's
+  coercion, the shorthand fold — is asked of `canonical-slot`, the
+  React name the value is emitted under, never of the key it was
+  written as: a rule written against the spelling is one that `\"key\"`,
+  `:x/ref` and `:onInput` walk past. The rule itself is
+  `re-frame.hicasso.impl.slot/prop-name`, in `.cljc`, because the
+  migration codemod decides the same slots on the JVM; only the caching
+  of its answers lives here. `:key` and the revision key are the two
+  exact-keyword exceptions, because they are triggers rather than
+  attributes, and claiming the slot `revision` would make bare
+  `:revision` mean *reset* in some positions and an attribute in others.
 
-  | Key | Meaning |
-  |---|---|
-  | `:ref` | a callback ref, forwarded to React untouched (HD-016) |
-  | `:re-frame.hicasso/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's map in [[native-element]], never emitted as an attribute ([[revision-key]]) |
+  Two caches, both keyed by the author's literal and both prototype-free
+  JS objects, are the whole of the accelerant HD-004 permits: no
+  template, no hole plan, no element or props-object memo. Analysis
+  (tag parse, prop names, class merge, child realization, head
+  classification) is emitter-neutral and kept apart from emission,
+  which is React's. The one behaviour emission adds beyond translation
+  is the controlled-input converge (`re-frame.hicasso.impl.controlled`),
+  installed at the element so the boundary shell spends no hook on it.
 
-  *Two columns; two body rows; hand-counted.*
-
-  Both are attribute *keys*, not forms — so they survive into a
-  structural test and into tooling, and neither adds a public concept in
-  the K5 sense. A caller's attributes are forwarded with an ordinary
-  `merge`, owned keys last; there is no reserved merge key.
-
-  ## One canonical slot, and every rule asks it
-
-  This codec accepts a prop key written as a keyword, a string, a symbol
-  or a namespaced keyword, in kebab or in camel, and emits them all under
-  **one** React name. So every rule about *which* attribute a value is —
-  the owned-literal deny, the two structural exclusions, the `:ref`
-  reservation, and the ref position's exclusion from intent lowering —
-  is asked of [[canonical-slot]], the slot the value will actually be
-  emitted into, and never of the key it happened to be written as. A rule
-  written against the raw key is a rule that `\"key\"`, `:x/ref` and
-  `:onInput` walk straight past.
-
-  **The rule itself is not in this file**. It is
-  [[re-frame.hicasso.impl.slot/prop-name]], in `.cljc`, because
-  the `[:>]` migration codemod decides the same slots on the JVM and a
-  reimplementation there would be the codemod's own defect class turned
-  inward: a divergence nothing pins, failing silently. What stays here is
-  the CACHING of its answers — [[cached-prop-name]] and [[PropSlot]] —
-  which is emission work and has no JVM consumer.
-
-  The tag's `#id`/`.class` shorthand answers the same question one step
-  further on: it is folded onto the **emitted object**, where the slot is
-  not resolved at all because it already *is* the slot. An explicit id
-  therefore beats `#tag` in every spelling, and a declared class composes
-  with `.foo` in every spelling — including one a caller forwarded, which
-  the author of the element never sees.
-
-  ### The two exceptions, argued rather than assumed
-
-  `:key` and [[revision-key]] are matched as the EXACT keyword and are
-  never slot-claimed, which is the doctrine's own inverse. Both take the
-  exception for the same reason and it is not convenience: they are
-  **triggers rather than attributes**. Claiming the slot `key` for
-  React's identity contract would be harmless, but claiming the slot
-  `revision` for a reset would make bare `:revision`, `\"revision\"` and
-  `:x/revision` all mean *reset this field* in some positions and an
-  ordinary DOM attribute in others — a worse outcome than the exception,
-  and the reason the collision argument settles the spelling.
-
-  The reasoning is recorded here because the doctrine is stated twice
-  elsewhere — \"a rule written against the spelling is a rule the other
-  spellings walk past\", and the class slot being a position at the
-  crossing too — so a reader arrives with that fresh and should find the
-  exception argued. Note also
-  that `:key` has BOTH halves, an exact match in the walk *and* a
-  canonical-slot denial in [[structural-slots]]; the revision takes only
-  the first. **If a third exception ever arrives, restate the doctrine
-  with its exceptions enumerated rather than accumulating them one commit
-  at a time.**"
+  Design record: docs/design/hicasso/architecture.md (the codec's place
+  in the arm, the controlled door, memoization);
+  docs/design/hicasso/decisions.md HD-004 (caching), HD-011 (the host
+  door and `[:>]`), HD-016 (the ABI), HD-023 (the canonical slot),
+  HD-025 (the presence keys), HD-028 (the boundary memo); measured in
+  docs/design/hicasso/studio/our-walk-against-reagents.md and
+  docs/design/hicasso/studio/the-interpreter-walk-profiled-and-cheapened.md."
   (:require [clojure.string :as str]
             [re-frame.hicasso.impl.controlled :as controlled]
             [re-frame.hicasso.impl.error :refer [fail!]]
