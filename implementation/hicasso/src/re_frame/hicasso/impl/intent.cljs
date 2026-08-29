@@ -43,9 +43,8 @@
 
   | Position | How it is recognised | Contract |
   |---|---|---|
-  | a native `:on-*` prop | [[event-prop?]] — the same two-shape rule as an intent vector | **event**: a returned VECTOR is dispatched; any other return is ignored |
-  | a `defhost` `:callbacks` entry | the declaration already says `:event`, `:handler` or `:render` — never inferred from an `on*` name | as declared; `:handler` is the return-ignored contract |
-  | any other prop position (a slot, a render prop) | not an event position | **render**: pure. The return is the render output and is NOT dispatched; dispatching *from inside the call* is a loud error naming the position |
+  | an `on*`-spelled prop — on a native tag, a `defhost` or a `[:>]` crossing alike | [[event-prop?]] — the same two-shape rule as an intent vector | **event**: a returned VECTOR is dispatched; any other return is ignored |
+  | any other walked prop (a foreign render prop) | not an event position | **render**: pure. The return is the render output and is NOT dispatched; the wrapper rebinds the frame that supplied it, so an intent inside the returned markup fires into that frame |
   | `:ref` | [[ref-position?]] | React's own: commit phase, the node as the argument, the return as the detach cleanup. Excluded from lowering entirely |
   | anywhere Hicasso does not walk — a raw `#js` prop, a value handed to a foreign API | it is not a position | it is a plain function and it simply runs; the return is ignored |
 
@@ -53,20 +52,16 @@
   nothing that can fail to be callable, so the fifth rule has nothing to
   govern.
 
-  **THE DECLARATION GOVERNS EVERY CARRIER AT ITS POSITION, not just the
-  callback.** A declared position accepts four carriers — the one callback
-  form, an intent vector, a key-map, and an ordinary value — and the row
-  above is a law about the POSITION, so the contract has to be the outer
-  question and the carrier the inner one.
-  [[lower-declared-prop]] is written that way on purpose: dispatch on the
-  contract, then on the value. Reading the value first is how a
-  declaration that says `:handler` ends up silently dispatching a bare
-  intent, and how a `:render` position dispatches during the foreign
-  component's render — the value quietly selecting the contract, which is
-  the exact defect the ruling deletes. A dispatching carrier at
-  `:handler` or at `:render` is therefore
-  `:rf.error/hicasso-intent-at-a-non-event-contract`, named at the
-  position, rather than a contract silently overridden.
+  **A `defhost` declaration may override the spelling for one prop**,
+  `{:callbacks {:on-render-item :render}}`, for the on*-named render
+  props some vendors ship (Fluent's `onRenderItem`, Ant's `onRow`), where
+  the event wrapper's nil return would blank the UI. The override takes
+  `:event` or `:render` and nothing else, and [[lower-declared-prop]]
+  applies it with the same two wrappers. A declared `:slots` position is
+  markup rather than a callback position and refuses the marked form
+  ([[re-frame.hicasso.impl.codec/host-entry]]). Inference by position at a
+  host is HD-024's own law applied to the crossing; the argument is in
+  docs/design/hicasso/decisions.md, HD-024's 2026-08-29 addendum.
 
   **A Hicasso view's own props map is not a position — it is data in
   transit.** An intent vector handed to a view is not lowered there
@@ -98,7 +93,7 @@
   picker's `(on-change date)` — has no event at argument one, and there is
   nothing to guess: the vector cannot know which of the library's
   arguments is the event, and a runtime that went looking for one would be
-  reintroducing inference at the exact seam HD-011 forbids it. **`h/event` is
+  guessing at a foreign ABI's argument order. **`h/event` is
   that spelling**, and it needs no rule of its own, because the one form
   receives every argument the invoker passed, in order.
 
@@ -1154,78 +1149,30 @@
       (render-callback k v)
       v)))
 
-(defn- refuse-dispatching-carrier!
-  "An intent vector or a key-map at a position the declaration gave the
-  `:handler` or `:render` contract. Both carriers ARE a dispatch and
-  nothing else, and neither contract dispatches, so there is no reading
-  of the value that could satisfy the declaration — which is why this is
-  a refusal at lowering rather than a wrapper that does less."
-  [k v contract]
-  (fail! :rf.error/hicasso-intent-at-a-non-event-contract
-         're-frame.hicasso.impl.intent/lower-declared-prop
-         (str "The declaration gives " (pr-str k) " the " (pr-str contract)
-              " contract, and it was handed " (pr-str v) ". "
-              (if (keyword-identical? :handler contract)
-                (str "A :handler's return is ignored and Hicasso dispatches "
-                     "nothing from it, so a carrier whose entire content is a "
-                     "dispatch has no meaning at that contract. ")
-                (str ":render is a PURE position — it is invoked during the "
-                     "foreign component's own render, and its return is the "
-                     "render output, so nothing there is dispatched. "))
-              "Declare " (pr-str k) " :event if what happens there is an "
-              "event, or write an h/event that does the " (pr-str contract)
-              " work. The contract comes from the position, so the value "
-              "never gets to overrule it.")
-         :declare-the-position-event-or-write-an-h-event
-         {:position k :contract contract :value v}))
-
 (defn lower-declared-prop
-  "Lower one prop whose contract a `defhost` declaration named — the
-  position table's second row. Kept separate from [[lower-prop]] so the
-  declaration is what decides, rather than the prop's spelling: a
-  host's callback contract is a finite map from EXACT prop names to
-  `:event` or `:handler`, never inferred from an `on*` name — the
-  position, not the value, carries the contract.
-
-  **The contract is the OUTER dispatch and the carrier the inner one**,
-  which is the whole law made structural. Dispatching on the value first
-  is how a declared `:handler` ends up silently dispatching a bare
-  intent, and how a declared `:render` dispatches during the foreign
-  component's render: the value selecting the contract, which is the
-  defect HD-024 exists to delete. So each contract states what it accepts
-  and refuses the rest:
-
-  | Contract | `h/event` | intent vector / key-map | anything else |
-  |---|---|---|---|
-  | `:event`   | the event wrapper — a returned vector dispatches | lowered exactly as at a native event position | crosses untouched |
-  | `:handler` | the function itself, by identity | **refused** ([[refuse-dispatching-carrier!]]) | crosses untouched |
-  | `:render`  | the render wrapper — dispatching inside is loud | **refused** | crosses untouched |
-
-  `:event` keeps the vector and key-map conveniences because dispatching
-  is exactly what that contract means; the vector's own argument law
-  applies there unchanged ([[event-arg!]]). An ordinary unmarked function
-  crosses untouched at every contract — `raw-fn`'s passthrough is the
-  default here, and a plain fn is claimed by no position."
+  "Lower one prop whose contract a `defhost` `:callbacks` entry OVERRIDES:
+  `:event` or `:render`, the two wrappers [[lower-prop]] selects by
+  spelling, applied where a vendor's spelling is wrong. At `:event` the
+  marked form takes the event wrapper and an intent vector or key-map
+  lowers as at a native event position; at `:render` the marked form
+  takes the render wrapper. Every other value comes back untouched and
+  crosses as data. Any third contract is a bad declaration. The override
+  exists because an event wrapper returns nil, which blanks an on*-named
+  render prop silently; docs/design/hicasso/decisions.md, HD-024's
+  2026-08-29 addendum."
   [k v contract]
   (case contract
-    :event   (cond
-               (callback? v) (event-callback k v)
-               (vector? v)   (intent-handler k v)
-               (map? v)      (key-map-handler k v)
-               :else         v)
-    :handler (cond
-               (callback? v)             v
-               (or (vector? v) (map? v)) (refuse-dispatching-carrier! k v contract)
-               :else                     v)
-    :render  (cond
-               (callback? v)             (render-callback k v)
-               (or (vector? v) (map? v)) (refuse-dispatching-carrier! k v contract)
-               :else                     v)
+    :event  (cond
+              (callback? v) (event-callback k v)
+              (vector? v)   (intent-handler k v)
+              (map? v)      (key-map-handler k v)
+              :else         v)
+    :render (if (callback? v) (render-callback k v) v)
     (fail! :rf.error/hicasso-unknown-callback-contract
            're-frame.hicasso.impl.intent/lower-declared-prop
            (str "A declaration gave " (pr-str k) " the callback contract "
-                (pr-str contract) ". The contracts are :event, :handler and :render.")
-           :declare-event-handler-or-render
+                (pr-str contract) ". The contracts are :event and :render.")
+           :declare-event-or-render
            {:position k :contract contract})))
 
 (defn lower-props

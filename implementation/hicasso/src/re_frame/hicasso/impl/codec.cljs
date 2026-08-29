@@ -1045,20 +1045,22 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `defhost` is the door, and the only form taught. The declaration is a
-;; VALUE — the foreign component, the finite `:callbacks` contract map,
-;; and a name for the crossing — minted once and legal as a hiccup head
-;; anywhere. The `[:>]` raw escape below is HD-011's explicitly
-;; secondary form, for the cases a static declaration cannot express;
-;; it is the SAME crossing with the declaration erased, and what erasing
-;; the declaration costs is exactly what the declaration carried.
+;; VALUE — the foreign component, its options, and a name for the
+;; crossing — minted once and legal as a hiccup head anywhere. The `[:>]`
+;; raw escape below is HD-011's explicitly secondary form, for the cases
+;; a static declaration cannot express; it is the SAME crossing with the
+;; declaration erased, and what erasing the declaration costs is exactly
+;; what the declaration carried.
 ;;
-;; The declaration's `:callbacks` is a finite map from EXACT prop names
-;; to `:event`, `:handler` or `:render` — NEVER inferred from an `on*`
-;; spelling. "Exact" is enforced on the CANONICAL SLOT, like every other
-;; rule in this codec: `{:on-pick :event}` and a call site writing
-;; `:onPick` name the same slot, so the declaration binds however the
-;; author spells the prop — while an undeclared `onFoo` never becomes an
-;; event position no matter how event-shaped its name is.
+;; A callback contract is INFERRED from the prop's position, exactly as
+;; the native walk infers it ([[re-frame.hicasso.impl.intent/lower-prop]]):
+;; an `on*`-spelled prop is an event position, any other walked prop a
+;; render position, `:ref` React's. `:callbacks` is an optional OVERRIDE
+;; — `{:on-render-item :render}` — for the on*-named render props some
+;; vendors ship; it takes `:event` or `:render`, is keyed on the
+;; CANONICAL slot like every other rule in this codec, and outranks the
+;; spelling. `:slots` stays declared, because a vector is legal data and
+;; nothing can infer a markup position.
 ;;
 ;; ## The `:server` policy — HD-011's placeholder, activated
 ;;
@@ -1153,9 +1155,11 @@
 (declare host-head?)
 
 (def ^:private callback-contracts
-  "The three contracts a declaration may name —
-  [[re-frame.hicasso.impl.intent]]'s position-table roster, verbatim."
-  #{:event :handler :render})
+  "The two contracts a `:callbacks` override may name — the two
+  [[re-frame.hicasso.impl.intent/lower-prop]] infers by spelling. The
+  migration codemod's `shared_rule_test` reads this set out of the source
+  text and prints it to migrators, so it stays a literal."
+  #{:event :render})
 
 (def ^:private host-options
   "Every key a declaration may carry. A door that read `:callbacks` and
@@ -1545,14 +1549,6 @@
 ;; nothing throws. That is the SAME silent-declaration failure `:slots`
 ;; exists to delete, so it is refused at the declaration beside the other
 ;; five, on the same id.
-;;
-;; **The trap has a second door, and `:slots` is not it.** A declaration
-;; carries TWO rosters, and `host-entry`'s reserved skip sits above both
-;; of them, so `{:callbacks {:constructor :event}}` is the identical
-;; silent mint through the other roster. [[refuse-callback-position!]] is
-;; the callback half, asked of the same canonical name by the same
-;; predicate, and it rides the id that arm already had. Two rosters, two
-;; arms, one question.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -1645,73 +1641,32 @@
         slots))
     #{}))
 
-(defn- refuse-callback-position!
-  "The one `:callbacks` refusal for a contract declared where no contract
-  can ever be applied. `why` completes the sentence *\"defhost NAME
-  declares a callback contract on K, and …\"*.
-
-  TWO conditions, one id and one recovery, because they are one fault —
-  *this is not an ordinary prop, so the contract is a policy that can
-  never run*. `key` and `ref` are React's own, an identity contract and
-  HD-016's node handle, and neither is a callback position. `__proto__`,
-  `prototype` and `constructor` are the names [[host-entry]] skips
-  BEFORE it reads any declaration, because the props object handed to
-  React has a prototype even though the caches carry none — so a
-  contract declared at one of them would mint, read correct, and never
-  once be applied. That is the same silent declaration `:slots` refuses
-  at [[declared-slots]], one roster over, and one recovery
-  — *declare contracts on ordinary props only* —
-  answers both conditions."
-  [host-name k why data]
-  (fail! :rf.error/hicasso-host-structural-callback
-         're-frame.hicasso.impl.codec/mint-host!
-         (str "defhost " host-name " declares a callback contract on "
-              (pr-str k) ", and " why)
-         :declare-contracts-on-ordinary-props-only
-         (assoc data :host host-name :position k)))
-
 (defn mint-host!
-  "THE ONE-LINE DECLARATION (HD-011). Give the crossing to `component` a
-  name, a policy, and a place: returns the host HEAD — a marked carrier
-  legal in hiccup head position, rendered by [[vec->element]]'s fourth
-  branch.
+  "THE ONE-LINE DECLARATION (HD-011): returns the host HEAD for
+  `component` — a marked carrier legal in hiccup head position, rendered
+  by [[vec->element]]'s fourth branch.
 
-  `component` is anything React accepts as an element type — a function
-  component, a class, a `memo`/`lazy` product, a context provider. `nil`
-  is refused HERE, at the declaration, because it is the classic broken
-  interop symptom (`:default` against a library that has no default
-  export) and the render-time alternative is React's own error naming
-  nothing the author wrote.
-
-  `opts` carries `:callbacks` — the finite contract map above —
+  `component` is anything React accepts as an element type; `nil` is
+  refused here because it is the broken-import symptom (`:default`
+  against a library with no default export). `opts` is a map of
+  `:callbacks` — an optional override from prop name to `:event` or
+  `:render`, for a prop whose spelling infers the wrong contract —
   `:slots`, the set of ReactNode positions ([[declared-slots]]),
-  `:server`, the policy (`:client-only` by default, or `:render`), and
-  `:fallback`, Client-only's placeholder markup. Callback keys and slot
-  names are both normalized to their canonical slot at MINT time, so the
-  lookup the crossing performs per prop is one `get` and one
-  `contains?`; a contract outside the roster, a declaration on a
-  structural slot (`key`/`ref` are React's, not positions), a CONTRACT
-  or a SLOT at a name the crossing can never emit ([[reserved-name?]] —
-  both rosters, because the crossing skips the name whichever one
-  declared it), two spellings landing on one slot, a malformed `:slots`
-  set, a position declared both a callback and a slot, a `:server` value
-  outside the two, a `:fallback` beside `:render`, a `defview` or
-  `defhost` head written into a fallback, and an option key outside
-  `#{:callbacks :slots :server :fallback}` are all refused at the
-  declaration, where the author's stack is the declaration site.
+  `:server` (`:client-only` by default, or `:render`) and `:fallback`,
+  Client-only's placeholder markup. Callback and slot names are
+  normalised to their canonical slot at mint, so the crossing's per-prop
+  lookup is one `get` and one `contains?`. Refused at the declaration: a
+  non-map `opts`, an option outside the four, a contract outside the two,
+  a malformed `:slots` set, a position that is both a slot and a callback,
+  a `:server` value outside the two, a `:fallback` beside `:render`, and a
+  boundary head inside a fallback.
 
-  ## What the `gate` slot holds, and why it is not always a gate
-
-  The head's `gate` slot is the React TYPE [[host-element]] creates
-  every crossing from, and the `:server` policy is expressed by choosing
-  it. Under `:client-only`, fallback or no fallback, it is
-  [[mint-host-gate!]]'s product — one fiber, one hook, and the foreign
-  component behind it. Under `:render` it is the foreign component
-  ITSELF: HD-011's original zero-wrapper, zero-fiber, zero-hook shape,
-  and the reason that policy has no adoption event, no snapshot pair and
-  no remount. `displayName` is not stamped onto the foreign object in
-  that case — it belongs to somebody else's component, and the head map
-  already carries the crossing's name."
+  The head's `gate` slot is the React TYPE every crossing is created
+  from, and the `:server` policy is expressed by choosing it: under
+  `:client-only` it is [[mint-host-gate!]]'s product (one fiber, one
+  hook); under `:render` it is the foreign component itself, so server,
+  hydration and fresh mount render one tree and nothing remounts at
+  adoption. Argument in docs/design/hicasso/decisions.md, HD-011."
   ([host-name component] (mint-host! host-name component {}))
   ([host-name component opts]
    (when (nil? component)
@@ -1760,45 +1715,17 @@
          declared
          (reduce-kv
            (fn [m k contract]
-             (let [slot (cached-prop-name k)]
-               (when-not (contains? callback-contracts contract)
-                 (fail! :rf.error/hicasso-unknown-callback-contract
-                        're-frame.hicasso.impl.codec/mint-host!
-                        (str "defhost " host-name " declares " (pr-str k) " with "
-                             "the callback contract " (pr-str contract)
-                             ". The contracts are :event, :handler and :render.")
-                        :declare-event-handler-or-render
-                        {:host host-name :position k :contract contract}))
-               (when (structural-slot? k)
-                 (refuse-callback-position! host-name k
-                   (str "its canonical slot is structural. `key` is React's "
-                        "identity contract and `ref` is HD-016's node handle; "
-                        "neither is a callback position.")
-                   {}))
-               ;; Asked of the CANONICAL slot, exactly as [[declared-slots]]
-               ;; asks it and exactly as [[host-entry]] asks it of the
-               ;; emitted name — so all nine spellings of the three land on
-               ;; the one answer, and the declaration is refused where the
-               ;; crossing would silently have skipped it.
-               (when (reserved-name? slot)
-                 (refuse-callback-position! host-name k
-                   (str "it lands on " (pr-str slot) ", which the crossing "
-                        "never writes: the props object handed to React has a "
-                        "prototype, so that name is skipped before any "
-                        "declaration is read and the contract could never be "
-                        "applied. A contract that mints and can never fire is "
-                        "the silent declaration :callbacks exists to delete.")
-                   {:slot slot}))
-               (when (contains? m slot)
-                 (fail! :rf.error/hicasso-host-callback-slot-collision
-                        're-frame.hicasso.impl.codec/mint-host!
-                        (str "defhost " host-name " declares " (pr-str k) ", but the "
-                             "slot " (pr-str slot) " already carries a contract from "
-                             "another spelling. Two spellings of one prop are one "
-                             "position; declare it once.")
-                        :declare-each-slot-once
-                        {:host host-name :position k :slot slot}))
-               (assoc m slot contract)))
+             (when-not (contains? callback-contracts contract)
+               (fail! :rf.error/hicasso-unknown-callback-contract
+                      're-frame.hicasso.impl.codec/mint-host!
+                      (str "defhost " host-name " declares " (pr-str k) " with "
+                           "the callback contract " (pr-str contract)
+                           ". The contracts are :event and :render, and a "
+                           "declaration only needs one where the prop's spelling "
+                           "infers the wrong one — an on*-named render prop.")
+                      :declare-event-or-render
+                      {:host host-name :position k :contract contract}))
+             (assoc m (cached-prop-name k) contract))
            {}
            (or (:callbacks opts) {}))
          ;; After `declared`, because a slot that is also a declared
@@ -2656,176 +2583,49 @@
     (coll? v)                     (clj->js v)
     :else                         v))
 
-(defn- refuse-undeclared-host-event!
-  "An intent vector or key-map at an event-SPELLED prop the declaration
-  does not name. The contract rule is 'never inferred from an `on*`
-  name', and this refusal is the loud half of it: no contract is guessed
-  — but the alternative to refusing is `clj->js` shipping the author's
-  intent to the library as an inert array, which is the silently dead
-  handler class every loud error in this codec exists to delete. An
-  ORDINARY function at an undeclared prop is different and legal: it is
-  a value handed to a foreign API — not a position — so it crosses by
-  identity and simply runs (the position table's deletion row). The
-  MARKED form is not:
-  [[refuse-unclaimed-host-callback!]] takes an `h/event` at the same
-  position, because that one asked for a contract."
-  [^js head k v]
-  (fail! :rf.error/hicasso-host-undeclared-callback
-         're-frame.hicasso.impl.codec/host-element
-         (str "The host " (unchecked-get head "displayName") " was handed "
-              (pr-str v) " at " (pr-str k) ", which its declaration does not "
-              "name. A host's callback contracts are a finite map from exact "
-              "prop names to :event, :handler or :render — never inferred "
-              "from an on* spelling — so an undeclared intent would cross as "
-              "inert data. Declare " (pr-str k) " in :callbacks, or hand a "
-              "plain function.")
-         :declare-the-callback-contract
-         {:host     (unchecked-get head "displayName")
-          :position k
-          :value    v
-          :declared (into #{} (keys (unchecked-get head "callbacks")))}))
-
 (defn- refuse-unclaimed-host-callback!
-  "An `h/event` at a host prop slot NOTHING CLAIMED — not the `:ref` slot,
-  not a slot the declaration named, not the class slot. The marked form
-  is a REQUEST that the position impose a contract, and at an unclaimed
-  slot no position selected one, so the mark reads nothing and the
-  function crosses to the foreign library as an ordinary function. It is
-  callable, so nothing throws.
-
-  **The trap is the `:event` contract's convenience.**
-  `[my-host {:on-pick (h/event [x] [:row/pick x])}]`, with `:on-pick` absent
-  from `:callbacks`, crosses; the library calls it; it returns an intent
-  vector; the library discards the return; nothing dispatches. The user's
-  click does nothing, in production, with no diagnostic anywhere — the
-  silently dead handler class the sibling refusal above names as the one
-  every loud error in this codec exists to delete. An `h/event` returning
-  that same vector is that defect one level of indirection down.
-
-  **This is derived, not new policy.** `mint-host!`
-  already refuses an option it does not know, on the reasoning HD-011's
-  addendum records: a policy could be written and never applied, and a
-  silent ignore is its own defect. An `h/event` whose contract is never
-  selected IS a policy written and never applied.
-
-  **A PLAIN function at the same slot stays legal and untouched.** It is
-  a value handed to a foreign API rather than a position, and it never
-  asked for anything, so there is nothing to leave unanswered. This
-  refuses the unanswered REQUEST — never functions at the crossing, and
-  never the form itself, which is legal at every slot a declaration
-  claims.
-
-  **A declared ReactNode slot is one of the positions that leaves it
-  unanswered**, and the message says so rather than
-  claiming nothing claims the prop. A slot claims the position for
-  MARKUP: it lowers hiccup ([[as-element]]) and has no callback contract
-  to select, so an `h/event` there is the same policy written and never
-  applied. `node-slot?` is what the message branches on; the fault, the
-  id and the recovery are one."
-  [^js head k node-slot?]
+  "An `h/event` at a position the declaration named a ReactNode slot. The
+  slot is claimed for MARKUP — it lowers hiccup ([[as-element]]) — so it
+  has no contract to give a function, and a function crossing as a
+  ReactNode renders nothing, silently. A PLAIN function is untouched; the
+  marked form asked for a contract, and this refuses the unanswered
+  request. Argument in docs/design/hicasso/decisions.md, HD-024's
+  2026-08-11 addendum."
+  [^js head k]
   (fail! :rf.error/hicasso-host-unclaimed-callback
          're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
-              "h/event at " (pr-str k) ", which no CALLBACK contract claims — its "
-              "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
-              (if node-slot?
-                (str " and declares " (pr-str k) " a ReactNode slot, which is "
-                     "a markup position: it lowers hiccup, and it has no "
-                     "contract to give a function. ")
-                (str ". An h/event asks the POSITION for a contract, and an "
-                     "unclaimed slot has none to give: it would cross as an "
-                     "ordinary function whose return the library discards, so "
-                     "an intent it returned would never dispatch. "))
-              "Declare " (pr-str k) " in :callbacks, or hand a plain function.")
-         :declare-the-slot-or-hand-a-plain-function
+              "h/event at " (pr-str k) ", which its declaration names a "
+              "ReactNode slot — a markup position that lowers hiccup and has "
+              "no callback contract to give a function. Write the markup "
+              "there, or take " (pr-str k) " out of :slots.")
+         :write-markup-at-a-declared-slot
          {:host     (unchecked-get head "displayName")
           :position k
-          :declared (into #{} (keys (unchecked-get head "callbacks")))}))
+          :slots    (unchecked-get head "slots")}))
 
 (defn- host-entry
   "ONE host prop into the emitted object — [[host-element]]'s reducing
-  function, and the position table's second row where
-  [[convert-entry]] is its first.
+  function, [[convert-entry]]'s sibling at the second prop door. Same
+  lookups as the native walk: `:key` skipped in-loop, a keyword or symbol
+  key answered by its cached [[prop-slot]], a reserved emitted slot never
+  written because the props object handed to React has a prototype.
 
-  Same discipline as its native sibling, and deliberately the same
-  lookups: the literal `:key` is skipped in-loop (React's contract, not
-  an attribute), a keyword or symbol key is answered by its cached
-  [[prop-slot]] — React name plus `reserved?`/`event?`/`ref?` in one
-  read — and a reserved emitted slot is never written, because the props
-  object handed to React does have a prototype even though the caches
-  carry none.
-
-  The one difference from [[convert-entry]] is the whole of HD-011: what
-  a position MEANS here comes from the DECLARATION rather than from the
-  key's spelling. A declared slot takes its declared contract; an
-  event-spelled slot the declaration does not name is refused rather
-  than inferred; an `h/event` at any slot nothing claimed is refused too,
-  because the mark is a request for a contract and no position selected
-  one ([[refuse-unclaimed-host-callback!]]); everything
-  else crosses shallowly. `event?` is gated on
-  `keyword?` for the same reason the native walk gates it — a symbol
-  spelled `on-click` shares the cache entry and is not an event
-  position.
-
-  ## The class slot is a POSITION here too
-
-  `className` is the one slot whose value has a coercion of its own —
-  [[class-names]] — rather than the position's ordinary conversion, and
-  that coercion belongs to the SLOT rather than to either walk. Taken
-  at the native position only, the two crossings answer the
-  same authored shape differently: `{:class [\"a\" nil :b]}` reaches a
-  native tag as `\"a b\"` and reaches a declared foreign component as the
-  JS array `[\"a\", null, \"b\"]` — `clj->js`'s answer, and not a class
-  string at all. React writes that array to the DOM as `\"a,,b\"`
-  wherever the component passes it on, so nothing throws and the styling
-  is simply wrong.
-
-  The principle is already settled at
-  `className`, `id`, `role` and the `data-*`/`aria-*` families: the value
-  is bound for an HTML attribute, so a named value keeps `(name v)` there
-  — *\"which is also the answer the NATIVE walk gives at the same
-  names\"* ([[host-prop-value]]). That sentence is the law, and the
-  collection arm is the half of it a collection would otherwise miss,
-  never reaching the named-value branch. Asking `class?` here — the flag
-  the [[PropSlot]] already carries, so a declared-slot lookup pays one
-  property read and a string key one compare — makes the two crossings
-  agree at the class slot for **every** value shape.
-
-  It composes, for the reason [[convert-entry]] composes: two spellings
-  of one element's class are two map keys and one React slot, and letting
-  the last write win drops a class silently.
-
-  ## The declared ReactNode slot
-
-  `slots` is the declaration's other roster, and its arm sits BESIDE the
-  callback one for the same reason: a declared position means what the
-  declaration says it means. A slot's value goes through [[as-element]]
-  — the same conversion the crossing's CHILDREN take, in the same render
-  window — so hiccup at a declared slot lowers under the frame that
-  wrote the crossing, a string or a ready React element passes as-is,
-  and a seq splices. An `h/event` there is refused
-  ([[refuse-unclaimed-host-callback!]]): markup is not a contract.
-
-  The `reserved?` skip sits ABOVE both declaration arms and stays there
-  — the props object has a prototype, and no declaration may talk the
-  codec into poisoning it. What that costs is paid at the DECLARATION
-  instead, and it is paid on BOTH rosters: [[declared-slots]] refuses a
-  slot at a reserved emitted name and [[refuse-callback-position!]]
-  refuses a contract at one, so the only shape either arm can be
-  unreachable for is one that never minted.
-
-  **That sentence is exact only because BOTH rosters are guarded.**
-  Guarded on the slot roster alone it would claim a correspondence the
-  code does not provide:
-  `{:callbacks {:constructor :event}}` would mint, read correct, and
-  never reach the component. A claim about what CANNOT happen has to name
-  every declaration that could make it happen; if a third roster is ever
-  added, this paragraph is the one that has to grow with it.
-
-  An UNDECLARED prop is untouched by all of this, which is the property
-  the whole mechanism exists to preserve. Nothing asks whether a vector
-  looks like hiccup, because that is a fact about the foreign ABI and
-  only the author holds it."
+  The arms, in precedence order: `:ref` is React's ([[check-ref!]]); a
+  `:callbacks` override applies its declared contract
+  ([[re-frame.hicasso.impl.intent/lower-declared-prop]]); a declared
+  `:slots` position lowers markup through [[as-element]] and refuses the
+  marked form; the class slot takes [[class-names]], the slot's own
+  coercion, so the two crossings agree at `className` for every value
+  shape; everything else is INFERRED from the spelling by the native
+  walk's own classifier ([[re-frame.hicasso.impl.intent/lower-prop]]) and
+  then converted shallowly by [[host-prop-value]] — so an intent vector,
+  key-map or `h/event` at an `on*` prop lowers exactly as at a native
+  tag, an `h/event` at any other prop takes the render wrapper, and a
+  vector at a render position crosses as data. The invariant worth
+  knowing: the reserved skip sits ABOVE every declaration arm, so no
+  declaration can talk the codec into poisoning the prototype. Argument
+  in docs/design/hicasso/decisions.md, HD-011's 2026-08-29 addendum."
   [^js head declared slots o k v]
   (cond
     (keyword-identical? :key k)
@@ -2845,100 +2645,47 @@
           slot         (if keyword-ish? (.-js-name s) (cached-prop-name k))
           reserved?    (if keyword-ish? (.-reserved? s) (reserved-name? slot))
           ref?         (if keyword-ish? (.-ref? s) (= ref-slot slot))
-          class?       (if keyword-ish? (.-class? s) (identical? class-slot slot))
-          event?       (if keyword-ish?
-                         (and (.-event? s) (keyword? k))
-                         (intent/event-prop? k))]
+          class?       (if keyword-ish? (.-class? s) (identical? class-slot slot))]
       (when-not reserved?
         (unchecked-set o slot
           (cond
             ref?
             (check-ref! k v)
 
+            ;; The override outranks the spelling. Through
+            ;; `host-prop-value` afterwards, so a value the contract did
+            ;; not claim — a vector at `:render` — crosses as data
+            ;; exactly as it would at an inferred position.
             (contains? declared slot)
-            (intent/lower-declared-prop k v (get declared slot))
+            (host-prop-value slot (intent/lower-declared-prop k v (get declared slot)))
 
-            ;; A ReactNode position: hiccup lowers, everything React
-            ;; already accepts as a child passes. Above the class arm
-            ;; because a declared position outranks a slot's own
-            ;; coercion, and below the callback one because the two
-            ;; rosters are disjoint by construction (`declared-slots`
-            ;; refuses the overlap at the declaration).
             (contains? slots slot)
             (do (when (intent/callback? v)
-                  (refuse-unclaimed-host-callback! head k true))
+                  (refuse-unclaimed-host-callback! head k))
                 (as-element v))
 
-            ;; The slot's own coercion, and the slot's own composition —
-            ;; the same law [[convert-entry]] takes at the native
-            ;; position, taken here so the two crossings agree.
-            ;; Below the declaration, because HD-011's
-            ;; whole point is that a DECLARED position means what the
-            ;; declaration says it means.
             class?
             (class-names (unchecked-get o class-slot) v)
 
+            ;; The SLOT, never the key, for the conversion: `:class` and
+            ;; `:className` are one position, and the named-value rule is
+            ;; written against where the value lands. The KEY for the
+            ;; classifier, because the spelling is what it reads.
             :else
-            (do (when (and event? (or (vector? v) (map? v)))
-                  (refuse-undeclared-host-event! head k v))
-                ;; Beside its sibling, and for the sibling's own stated
-                ;; reason one indirection down. It is
-                ;; last of the two because `event?` is a flag already
-                ;; read, so that test costs a boolean, while this one
-                ;; costs a `fn?` — and it is ahead of
-                ;; [[host-prop-value]] because that function is where
-                ;; the marked form would silently become an ordinary
-                ;; one. Both live in the `:else` arm only: no claimed
-                ;; slot pays either, and the NATIVE walk
-                ;; ([[convert-entry]]) is not on this path at all.
-                (when (intent/callback? v)
-                  (refuse-unclaimed-host-callback! head k false))
-                ;; The SLOT, never the key: `:class` and `:className` are
-                ;; one position, and the named-value rule is written
-                ;; against where the value lands.
-                (host-prop-value slot v)))))
+            (host-prop-value slot (intent/lower-prop k v)))))
       o)))
 
 (defn- host-element
   "One declared foreign component as a React element — THE CROSSING
-  (HD-011). Runs inside the render window of the boundary that wrote it,
-  like every other lowering in this walk, so a declared `:event`
-  contract closes over that boundary's frame-locked dispatch and a
-  crossing written outside any boundary is the same loud
-  `:rf.error/hicasso-intent-outside-boundary` an intent vector raises.
-
-  One pass over the attr map, mirroring [[convert-props]] with the
-  position table's second row swapped in for the first: extract `:key`
-  (React's contract, not an attribute), refuse
-  a reserved `:ref` vector and pass a callback ref through untouched,
-  lower every DECLARED slot by its declared contract
-  ([[re-frame.hicasso.impl.intent/lower-declared-prop]] — an
-  `h/event` takes the contract's wrapper, an intent vector or key-map
-  lowers as at a native position), lower every declared `:slots`
-  position hiccup→ReactNode ([[as-element]]), refuse an
-  event-spelled intent at an UNDECLARED slot and an `h/event` at any
-  UNCLAIMED one, and convert everything else shallowly
-  ([[host-prop-value]]) under its camelCased name.
-
-  Children are trailing forms converted hiccup→element and handed to the
-  foreign component as ordinary React children — HD-011's third default,
-  and the conversion a declared `:slots` position takes too, in the same
-  render window, which is why an intent inside a slot and an intent
-  inside a child fire into the one frame.
-
-  The element's TYPE is whatever the declaration put in its `gate`
-  slot, and that is where the `:server` policy lives: under
-  `:client-only` it is the gate ([[mint-host-gate!]]), one fiber
-  and one hook, with the foreign component behind it once the markup is
-  adopted; under `:server :render` it is the foreign component itself and
-  the crossing costs neither. Everything else is unchanged by that
-  choice: the props object built here is the object the foreign
-  component receives either way, `:key` is React's on the crossing's
-  element where it always was, and the component's hooks, state and
-  refs stay React's affair under React's rules — which is the whole
-  point of the door, and what keeps HD-020's ≤2-hook budget a statement
-  about Hicasso's BOUNDARIES. A gate is not one: no frame, no
-  subscription, no body."
+  (HD-011). One pass over the attr map through [[host-entry]], `:key`
+  extracted onto the element, children lowered hiccup→element in the
+  same render window as the props — so a callback lowered at any prop, an
+  intent inside a declared slot and an intent inside a child all close
+  over the frame of the boundary that wrote the crossing. The element's
+  TYPE is the head's `gate` slot, which is where the `:server` policy
+  lives ([[mint-host!]]): a gate is not a boundary — no frame, no
+  subscription, no body — so HD-020's hook budget is untouched by it.
+  Argument in docs/design/hicasso/decisions.md, HD-011."
   [argv]
   (let [^js head   (nth argv 0)
         declared   (unchecked-get head "callbacks")
