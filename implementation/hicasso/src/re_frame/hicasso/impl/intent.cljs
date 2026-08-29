@@ -26,8 +26,9 @@
 
   ## ONE callback form, and the position selects the contract (HD-024)
 
-  When a vector is not enough, the predecessor asks the author to pick
-  from a roster of FOUR forms, each with a different contract — one
+  When a vector is not enough, a roster design (the one this ruling
+  rejects) asks the author to pick from FOUR forms, each with a
+  different contract — one
   returning an event vector, one whose return is ignored, one that is
   pure and runs during a foreign render, one that passes a function
   through by identity — and then adds a FIFTH rule about *where the
@@ -80,7 +81,7 @@
   omit**: [[re-frame.hicasso.impl.codec/convert-prop-value]]
   already passes functions to React by identity, deliberately, so that
   `React.memo` and every downstream bail-out that compares handler
-  identity keep working. The behaviour the predecessor spells as a fourth
+  identity keep working. The behaviour a roster design spells as a fourth
   roster form is the default here. The census agrees with the omission —
   zero foreign components across 85 idiomatic files.
 
@@ -226,8 +227,7 @@
   deferral and `preventDefault`-then-dispatch stay routing's law, stated
   once. A hook that vanished between render and click (dev hot-reload of
   the routing artefact) degrades to native navigation — the browser
-  follows the real `href` — after running the veto, exactly as the
-  prototype's seam degraded.
+  follows the real `href` — after running the veto.
 
   The `:veto` slot is where the two heads compose, and the composition is
   the existing grammar: `[::h/prevent [:app/event]]` there lowers to the
@@ -271,7 +271,7 @@
   nil)
 
 (def ^:private ambient-frame-refusal
-  "The detail this arm hands core's refusal tier. One
+  "The detail this package hands core's refusal tier. One
   module-level constant, so the prose — which is nearly all of it — is
   built once at load and never per body. [[with-frame]] stamps the
   rendering boundary's own frame onto a copy of it; that
@@ -286,8 +286,9 @@
 
   IT HAS TO ADDRESS THREE DOORS, NOT TWO. The ambient scope is
   one door with three consumers — a read, a dispatch, and a CARRY — and
-  this text was written for the first two. An author who trips the refusal
-  through `rf/capture-frame` is doing neither: `capture-frame` is Spec
+  the reason's opening advice speaks to the first two. An author who
+  trips the refusal through `rf/capture-frame` is doing neither:
+  `capture-frame` is Spec
   002's *one public carry primitive*, and the reason its 0-arity resolves
   ambiently is to CAPTURE, not to read and not to dispatch. Advice that
   says \"read through the collector, dispatch through an intent\" names
@@ -318,7 +319,7 @@
 
 (defn with-frame
   "Run `body-fn` with the boundary's render context bound ambiently. Two
-  doors: an ARM binds both the frame keyword and its frame-locked
+  doors: the RUNTIME binds both the frame keyword and its frame-locked
   `dispatch` (the 3-arity — the one [[route-link]] and the navigate head
   need); a lowering test that only drives closures may bind the dispatch
   alone (the 2-arity), and anything frame-keyword-dependent it lowers
@@ -329,7 +330,7 @@
   where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
   bound HERE, fused into the binding this function already performs, rather
   than through `frame/call-with-ambient-frame-refused` around the call:
-  `binding` pushes and pops its whole set once, so the fence costs the arm
+  `binding` pushes and pops its whole set once, so the fence costs the runtime
   no additional frame — the general seam exists for substrates that are not
   already binding something.
 
@@ -343,10 +344,11 @@
   naming THIS boundary's frame still answers inside a body. The refusal
   deletes the ambient FIND, not the carrying.
 
-  A BODY HAS ONE FRAME, AND NOW BY CONSTRUCTION. The one thing
-  the sentence above did not cover: an `rf/with-frame :b` ENCLOSING a
-  boundary that renders `:a`. Core was behaving exactly as EP-0002 says —
-  `:b` was carried, so `:b` answered — but the boundary is rendering `:a`,
+  A BODY HAS ONE FRAME, BY CONSTRUCTION. The one case the
+  sentence above does not cover: an `rf/with-frame :b` ENCLOSING a
+  boundary that renders `:a`. Left to carrying alone, core behaves
+  exactly as EP-0002 says — `:b` is carried, so `:b` answers — but the
+  boundary is rendering `:a`,
   and the collector's reads, the lowered intents and the presence tray all
   target `:a`. One body, two frames, chosen by which spelling the author
   reached for, and silent. It is reachable from any host that renders a
@@ -421,7 +423,7 @@
   [[re-frame.hicasso/event]] is spelled `event`: the product
   name is qualified (`h/frame`), and a bare `frame` would shadow the
   `re-frame.frame` alias that this namespace — and every other namespace
-  in the arm — already carries.
+  in the package — already carries.
 
   ## What it is FOR, and the honest layering (design §6)
 
@@ -467,7 +469,7 @@
   [[*frame*]] is rebound to the
   **supplying** boundary while a foreign component invokes a render
   callback ([[render-callback]]), where the runtime's own `rstate.frame`
-  is nil — the foreign render runs outside the arm's render pass. So
+  is nil — the foreign render runs outside Hicasso's render pass. So
   reading the binding answers the OWNER's frame inside a render callback
   for free, and answers it immune to tree position, adapter, renderer and
   timing. [[re-frame.hicasso.impl.route-link/route-link]] is the
@@ -524,7 +526,7 @@
   can impose a contract on it — and returns `f` ITSELF, an ordinary
   function, which is the whole of the deletion.
 
-  The predecessor's roster carriers are marker OBJECTS, so handing one to
+  A roster design's carriers are marker OBJECTS, so handing one to
   a position the library does not walk produces the engine's own
   `TypeError` naming nothing the author wrote. There is nothing here that
   can fail to be callable: outside every walked position this value is a
@@ -763,9 +765,8 @@
 
 (defn- target-value
   "The event target's current value — `.value`, except on the two controls
-  where `.value` is not it. One is corrected, one is refused
- , and the difference between those two answers is the whole
-  of this docstring.
+  where `.value` is not it. One is corrected, one is refused, and the
+  difference between those two answers is the whole of this docstring.
 
   ## The file input, refused
 
@@ -815,7 +816,7 @@
 
   A selection is a LIST, and `[]` when nothing is picked. That is not
   invented here: `spec/004B-UI-Tree-and-Conversion.md` rules it for the
-  same DOM control on the sibling substrate — \"a `<select multiple>`'s
+  same DOM control in its conversion contract — \"a `<select multiple>`'s
   value is not a scalar — what is selected is the *list* of chosen option
   values\", with the empty selection the empty collection rather than
   `\"\"`. Fed straight back as `:value` it round-trips, because
@@ -899,7 +900,7 @@
   browser set it, and the modern half of this gate would never fire —
   leaving only the legacy signal, on browsers that happen to send it.
   Measured at
-  `arm1_controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`.
+  `re-frame.bench.hicasso.arm1.controlled-grid-dom-cljs-test/reacts-synthetic-keyboard-event-drops-is-composing`.
 
   A raw DOM event has no `nativeEvent`, so it falls back to itself and
   the node-side unit tests read exactly as they did."
@@ -1254,11 +1255,10 @@
 (defn lower-declared-prop
   "Lower one prop whose contract a `defhost` declaration named — the
   position table's second row. Kept separate from [[lower-prop]] so the
-  declaration is what decides, rather than the prop's spelling: the
-  predecessor's own rule is that a host's callback contract is 'a finite
-  map from EXACT prop names to `:event` or `:handler`; never inferred
-  from an `on*` name', and that rule survives here because the position,
-  not the value, carries the contract.
+  declaration is what decides, rather than the prop's spelling: a
+  host's callback contract is a finite map from EXACT prop names to
+  `:event` or `:handler`, never inferred from an `on*` name — the
+  position, not the value, carries the contract.
 
   **The contract is the OUTER dispatch and the carrier the inner one**,
   which is the whole law made structural. Dispatching on the value first

@@ -98,8 +98,9 @@
   because the classification model is fail-open — an event that declared
   nothing ships its arguments raw through the egress chokepoint — and a
   door that promised *no application data* while routing an undeclared
-  payload through would be making the promise falsely. The suite's
-  seeded-value row caught exactly that before this door shipped.
+  payload through would be making the promise falsely.
+  `re-frame.hicasso.tool-reads-cljs-test/no-read-carries-a-value` seeds
+  a secret and pins exactly that.
 
   **No read VALUE is carried by any read here, at all.** What a boundary
   read is a fact about the boundary; what it read AS is arbitrary
@@ -498,16 +499,15 @@
   "One retained run, as an intent row: WHICH event, and how many arguments
   it carried — never the arguments themselves.
 
-  **This is the one place the door was measurably wrong before its own
-  witness ran, and the correction is worth stating.** Carrying the
-  dispatched VECTOR through
+  **The dispatched VECTOR is deliberately not carried through
   `classification/redact-event-by-registration` — the single event-vector
-  egress chokepoint, and the obvious thing to reach for — leaks. The
-  chokepoint applies the classification the event's REGISTRATION declared,
-  and EP-0025's model is fail-open: an event that declared nothing ships
-  its arguments raw. So a seeded secret dispatched under an unclassified
-  event id reached this envelope verbatim, and the suite's seeded-value
-  row caught it.
+  egress chokepoint, and the obvious thing to reach for — because that
+  path leaks.** The chokepoint applies the classification the event's
+  REGISTRATION declared, and EP-0025's model is fail-open: an event that
+  declared nothing ships its arguments raw. A seeded secret dispatched
+  under an unclassified event id would reach this envelope verbatim, and
+  `re-frame.hicasso.tool-reads-cljs-test/no-read-carries-a-value` pins
+  that it does not.
 
   An id and an arity are enough for the question this read answers —
   *what was dispatched, in what order* — and they make the door's promise
@@ -558,10 +558,10 @@
 
   The id is allocated process-monotonically at queue time
   (`re-frame.router`), so it IS the dispatch order across every frame —
-  which is what lets this read promise order and mean it. The previous
-  shape concatenated whole per-frame rings in frame-id ORDER, so with two
-  frames live the stream claimed a sequence that never happened; frame-id
-  order is alphabetical, not temporal.
+  which is what lets this read promise order and mean it. Concatenating
+  whole per-frame rings would not: with two frames live the stream would
+  claim a sequence that never happened, because frame-id order is
+  alphabetical, not temporal.
 
   A row whose bundle carries no id cannot be joined or placed, so it
   keeps its own identity and sorts last rather than merging with every

@@ -3,8 +3,9 @@
 
   HD-020(c) rules that \"the runtime ships one internal class-based
   boundary exposed as `h/boundary` (`:fallback`/`:reset-key`/`:on-error`);
-  it is the P1 witness's *real error boundary*\". validation.md's
-  `:foreign/host-and-error-boundary` row names it by that description.
+  it is the P1 witness's *real error boundary*\". The P1 witness roster
+  (`re-frame.bench.hicasso.front.witnesses`) names it by that
+  description, in its `:foreign/host-and-error-boundary` row.
   This is it, and it is deliberately the smallest thing that satisfies
   the three keys. The decision's words are quoted as it wrote them; the
   export is spelled `h/error-boundary`, which is what the naming ledger
@@ -29,8 +30,8 @@
 
   **A class component calls no hooks, so this costs the ≤2-hook shell
   budget exactly nothing** — the boundary is not a boundary *shell*, it
-  reads no subscription, mints no registration and takes no cell. That
-  stayed true when the frame binding below arrived: `contextType` is a
+  reads no subscription, mints no registration and takes no cell. The
+  frame binding below keeps that true: `contextType` is a
   property of the component, not a hook call, so it is invisible at
   React's dispatcher. `arm1_lifecycle_dom_cljs_test` counts a healthy
   page there and `boundary_intent_dom_cljs_test` counts one in its
@@ -164,7 +165,7 @@
   from an event handler, from a `setTimeout`, or from anything the
   browser calls outside React's own work loop — an intent handler that
   throws lands in the browser's error channel, not here. That is React's
-  boundary, not this arm's, and the arm inherits it exactly."
+  boundary, not this runtime's, and the runtime inherits it exactly."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
@@ -198,9 +199,9 @@
   the two shapes that can fire. Returns `props`, so the one call site
   reads as the read it already was.
 
-  The doseq is `mint-host!`'s, deliberately — this is the same refusal
-  class one surface over, and the comparator whose absence here was the
-  defect. Cost is one `contains?` per key of a map that legally holds
+  The doseq is `mint-host!`'s, deliberately — the same refusal class one
+  surface over, kept in the same shape so the two surfaces refuse
+  identically. Cost is one `contains?` per key of a map that legally holds
   four, on a component that renders when its own props or its caught
   error change; the walk of `:children` in the same render is orders of
   magnitude more work."

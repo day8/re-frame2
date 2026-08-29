@@ -40,12 +40,11 @@
   nil)
 
 (defn registry-epoch
-  "**The arm's own count of `:sub` registrations** — first-time and
+  "**The runtime's own count of `:sub` registrations** — first-time and
   replacement alike — and the third term of [[commit-basis]].
 
-  It is the arm's rather than the substrate's on purpose.
-  `observation/registry-epoch*` counts exactly this and is `^:private`;
-  the arm already installs a registration hook for
+  It is the runtime's rather than the substrate's on purpose: the
+  runtime already installs a registration hook for
   [[re-frame.hicasso.impl.collector/first-registration!]], so the counter
   is a `vswap!` on a hook that runs anyway rather than a new public
   reader on a production namespace. Monotone, like both other terms."
@@ -68,7 +67,7 @@
   runtime's flush [[generation]], plus `frame`'s own physical-install
   epoch (`re-frame.frame/frame-commit-epoch`, the substrate's read-evidence
   counter, bumped once per frame-state install
-  at both write chokepoints), plus the arm's [[registry-epoch]].
+  at both write chokepoints), plus the runtime's [[registry-epoch]].
 
   The generation alone cannot carry it, and the reason is structural
   rather than a matter of degree: the generation moves only through

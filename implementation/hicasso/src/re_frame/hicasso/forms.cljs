@@ -22,24 +22,23 @@
 
   ## The scope this module ships under
 
-  **The forms module is V0 scope**, and
-  `docs/design/hicasso/draft-guide/05-forms.md` stands as its draft spec —
-  the code catches up to the chapter rather than the chapter being
-  rewritten onto the doors. For this feature only, that overrides the
-  second-caller extraction gate `specification.md` §7 states and the
-  post-v0 positioning in `decisions.md`; the extraction gate stands
-  everywhere else. A single caller would otherwise refuse the extraction,
-  `h/reg-state` being already the addressed-draft door, but the governing
-  ground is different: a guide teaching a namespace the code lacks is the
-  defect.
+  **The forms module is V0 scope**, and the chapter at
+  `docs/core/hicasso/05-forms.md` stands as its spec — the chapter
+  governs, and the code is written to it. For this feature only, that
+  overrides the second-caller extraction gate `specification.md` §7
+  states and the post-v0 positioning in `decisions.md`; the extraction
+  gate stands everywhere else. A single caller would otherwise refuse
+  the extraction, `h/reg-state` being already the addressed-draft door,
+  but the governing ground is different: a guide teaching a namespace
+  the code lacks is the defect.
 
   The buffered/draft/baseline/revision LAW is D016
   (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`),
   and it governs semantics wherever the chapter is silent. The three
-  landed recipes at
-  `implementation/hicasso/test/re_frame/hicasso/examples/forms/` are the
-  substrate this view was extracted FROM; they stay, because they teach
-  the underlying doors and this module is written on exactly those doors.
+  recipes at
+  `implementation/hicasso/test/re_frame/hicasso/examples/forms/` teach
+  the underlying doors directly, and this module is written on exactly
+  those doors — the recipes are its substrate, not superseded by it.
 
   ## Nothing new underneath — the module is an ARRANGEMENT
 
@@ -59,8 +58,8 @@
     React's own dispatcher in `re-frame.hicasso.forms-cljs-test` §hooks.
   - **No refusal id.** The chapter says so in terms — *the module's
     common failures are behavioural rather than separately named runtime
-    errors* — and the two refusals this surface can raise are already
-    shipped and catalogued: a bad `:control` is
+    errors* — and the two refusals this surface can raise are minted by
+    the substrate and catalogued there: a bad `:control` is
     `:rf.error/hicasso-state-bad-key` (from `reg-state`, at the READ, on
     the field's first render), and `::h/revision` on something that is
     not a controlled text field is

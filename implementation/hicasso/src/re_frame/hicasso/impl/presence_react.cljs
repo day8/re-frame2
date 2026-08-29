@@ -13,7 +13,7 @@
   `collector/shell` is untouched and the dispatcher-level ledger still
   counts exactly two there. The second `useContext` is the root-scoped
   adoption window; it is paid HERE, by the optional component that reads
-  it, and nowhere else in the arm.
+  it, and nowhere else in the package.
 
   The two lifecycle hooks are legitimate under HD-003's placement rule
   rather than in spite of it: presence is animation lifecycle, which is
@@ -29,23 +29,23 @@
   body — but it is **lowered in THIS component's render**, one React
   render later, after that body's dynamic extent has unwound. So
   `intent/*dispatch*` is unbound at the moment the codec walks it, and
-  before this hook existed an intent at an event position on ANY presence
-  child raised `:rf.error/hicasso-intent-outside-boundary` at render, and
-  an `h/event` at one raised it at invocation. Loud, never silent — and it
-  meant the tray this whole ruling is sold on,
+  without this hook an intent at an event position on ANY presence
+  child would raise `:rf.error/hicasso-intent-outside-boundary` at
+  render, and an `h/event` at one would raise it at invocation. Loud,
+  never silent — but it would mean the tray this whole ruling is sold on,
 
       [:div.toast {:key id :on-click [:toasts/dismiss id]} …]
 
-  could not be written. The retained half is where it bit hardest: a
-  child the author has already removed from app-db is still on screen and
-  still clickable for `:timeout-ms`, and its dismiss button is exactly
-  the control an exiting toast wants.
+  could not be written. The retained half is where it would bite
+  hardest: a child the author has already removed from app-db is still
+  on screen and still clickable for `:timeout-ms`, and its dismiss
+  button is exactly the control an exiting toast wants.
 
   The frame is therefore resolved once, from the substrate's single
   internal context — the same object `collector/shell` reads and
-  `arm1.boundary` takes through `contextType` — and re-bound around the
-  one `as-element` call below, with `collector/frame-dispatch`'s memoised
-  frame-locked dispatch. That is HD-020(a)'s rule applied where the
+  `impl.boundary`'s class takes through `contextType` — and re-bound
+  around the one `as-element` call below, with
+  `collector/frame-dispatch`'s memoised frame-locked dispatch. That is HD-020(a)'s rule applied where the
   lowering actually happens rather than where the hiccup was written.
 
   **No frame in scope is not an error here.** Presence reads nothing, so
@@ -61,8 +61,9 @@
   every pass and the terminal bound stops being terminal. But a value
   derived from props does not need an effect to store it: React's own
   guidance is to adjust state *while rendering* when a prop changes, and
-  that is what happens here — [[front.presence/step]] is idempotent, so
-  the comparison converges after one extra pass and never loops. An
+  that is what happens here — [[re-frame.hicasso.impl.presence/step]] is
+  idempotent, so the comparison converges after one extra pass and never
+  loops. An
   effect would cost a paint with the wrong tree in it.
 
   The effect that remains does the two things only a clock can: it flips
@@ -118,7 +119,8 @@
         ;; client pass render each child's `::h/mounting` overrides
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
-        ;; The fix is the machine's own [[front.presence/settle]], the
+        ;; The fix is the machine's own
+        ;; [[re-frame.hicasso.impl.presence/settle]], the
         ;; function the enter flip already uses, applied one render
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second

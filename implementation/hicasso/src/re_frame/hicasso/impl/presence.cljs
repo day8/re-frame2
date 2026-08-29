@@ -86,8 +86,8 @@
 ;; are this module's vocabulary, but the codec's prop walk has to
 ;; recognise them — it is where an override written OUT OF THIS
 ;; MODULE'S REACH is refused — and this namespace requires the codec
-;; rather than the other way round. One home, so the respelling
-;; `naming-ledger.md` row 31 holds open cannot land on half of them.
+;; rather than the other way round. One home, so a respelling of the
+;; pair — naming-ledger row 31's to settle — cannot land on half of them.
 
 (def mounting-key
   "`::h/mounting` — the attribute overrides applied while a child is

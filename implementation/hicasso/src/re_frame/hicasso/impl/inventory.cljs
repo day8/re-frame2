@@ -3,7 +3,7 @@
   in one file so they can be read against each other.
 
   [[retained-inventory]] is the DECLARATION: every boundary-exclusive
-  token this arm holds, enumerated rather than asserted, plus the tokens
+  token this runtime holds, enumerated rather than asserted, plus the tokens
   that are emphatically shared and the ones that are absent. [[stats]],
   [[entry-buckets]] and [[residue]] are the MEASUREMENT, read off the
   live tables. A heap ladder is only as honest as the agreement between
@@ -37,7 +37,7 @@
             [re-frame.hicasso.impl.generation :as generation]))
 
 (defn retained-inventory
-  "Every boundary-exclusive token this arm retains, enumerated rather than
+  "Every boundary-exclusive token this runtime retains, enumerated rather than
   asserted (architecture.md, Arm 1). `:shared` names what is emphatically
   *not* per boundary, because that is the half a heap ladder reads wrong
   if nobody writes it down.
@@ -50,15 +50,15 @@
   every row a read sequence of its own and an entry of its own. Filed as
   `:shared` it would under-count per-boundary retention by one entry per
   boundary, on exactly the rung being measured, in the direction that
-  flatters this arm. Filed here it over-counts in the coincident-sequence
-  case, which is the direction a candidate's own instrument should err
+  flatters this runtime. Filed here it over-counts in the coincident-sequence
+  case, which is the direction the runtime's own instrument should err
   in.
 
   **The `:what` strings are DATA, held byte-for-byte against the measured
   table.** Thirteen of the fourteen are identical to
   `re-frame.bench.hicasso.arm1.runtime/retained-inventory`'s, and the
-  fourteenth — `:react/use-context` — differs only by the namespace the
-  copy renamed. That tree is the artefact the heap ladders were read off,
+  fourteenth — `:react/use-context` — differs only in the namespace it
+  names. That tree is the artefact the heap ladders were read off,
   so a ladder is compared against these rows on the assumption they still
   say what the measurement said. Rewriting one for its prose silently
   moves the baseline a published row was taken against; whoever needs one
@@ -180,7 +180,7 @@
 (defn residue
   "What must be zero after a clean teardown. `:cell-refs` is the standing
   zero-leaked-subscription-ref-counts assertion; `:boundaries` and
-  `:edges` are the dependency edges' half of it — now read off the same
+  `:edges` are the dependency edges' half of it — read off the same
   memberships, which is why a leak cannot show in one and hide in the
   other."
   []
@@ -196,7 +196,7 @@
   macrotask after an unclaimed render still counts entries the runtime
   is about to drop. A baseline taken there is a state the runtime never
   returns to, and an instrument gating on residue EQUALITY against it
-  throws on the first arm whose row outlives the horizon.
+  throws the first time an entry outlives the horizon.
 
   Exported so a caller settles against the runtime's own horizon rather
   than against a copy of it, because a copy drifts. Nothing here becomes

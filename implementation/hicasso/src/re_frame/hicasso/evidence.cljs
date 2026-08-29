@@ -241,8 +241,8 @@
 
 (defn scope?
   "True when `s` is a scope a projection may claim: one of [[scopes]], or
-  a NON-EMPTY map naming the slice it covers — `{:frame :app/main}`,
-  `{:retained-runs 12}`.
+  a NON-EMPTY plain map (a record is refused) naming the slice it covers
+  — `{:frame :app/main}`, `{:retained-runs 12}`.
 
   An empty map is refused. `{}` is a scope that says nothing, and a
   completeness claim relative to nothing is a completeness claim about

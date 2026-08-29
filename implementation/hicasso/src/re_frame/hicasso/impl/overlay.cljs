@@ -10,8 +10,8 @@
   these components.** The ≤2-hook budget I9 polices is the *boundary
   shell's*, and neither of these is a boundary shell: they read no
   subscription, mount no registration and take no cell.
-  `collector/shell` is untouched and its dispatcher-level ledger still
-  counts exactly two there, which
+  `collector/shell`'s dispatcher-level ledger counts exactly two there
+  regardless, which
   `re-frame.hicasso.overlay-dom-cljs-test` asserts rather than assumes.
   `impl.presence-react` is the precedent and spends four; the ceiling's
   own words are that an optional capability may not add a hook *to every
@@ -95,13 +95,13 @@
   handler takes only `newState == \"closed\"` — the one filter in the file,
   and the sabotage that widens it dispatches `:on-dismiss` on OPEN.
 
-  A first draft carried a second guard, a per-node mark set before the
-  module's own `hidePopover()` so a teardown could not be read as a
-  dismissal. **No sabotage could redden it**: React does not deliver an
-  event from a fiber it is in the middle of deleting, so the case never
-  arises. The mark is gone and the measurement replaced it — the teardown
-  rows of `re-frame.hicasso.overlay-dom-cljs-test` red the day that stops
-  being true."
+  There is deliberately no second guard — no per-node mark set before
+  the module's own `hidePopover()` to keep a teardown from being read as
+  a dismissal. **No sabotage could redden one**: React does not deliver
+  an event from a fiber it is in the middle of deleting, so the case
+  never arises. The measurement stands where the mark would — the
+  teardown rows of `re-frame.hicasso.overlay-dom-cljs-test` red the day
+  that stops being true."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
@@ -195,11 +195,12 @@
   name.
 
   **No `:anchor` is nil; an `:anchor` that names no element REFUSES.**
-  The two are not one absence, and answering nil to both is
-  what made the second invisible: an author who wrote no anchor asked for
-  the UA's default position and got it, while an author who wrote one
-  asked to be positioned against a trigger and got that same default in
-  silence. A typo in a DOM id read exactly like a design choice.
+  The two are not one absence, and answering nil to both would make
+  the second invisible: an author who writes no anchor asks for the
+  UA's default position and gets it, while an author who writes one
+  asks to be positioned against a trigger and would get that same
+  default in silence. A typo in a DOM id would read exactly like a
+  design choice.
 
   It refuses from the REF CALLBACK, which is the only place the question
   can be asked: the id resolves against a document React has already
@@ -518,14 +519,14 @@
   a Tab that does nothing.
 
   **That confirmation is a floor, and reading it as a licence to feed
-  this a loose candidate set is the mistake this handler made twice.**
+  this a loose candidate set is the standing trap here.**
   It saves a wrap aimed at nothing. It cannot save one aimed at the
   wrong CONTROL — and it cannot save the case where a surplus candidate
-  is never aimed at at all, because the surplus DISPLACED THE EDGE and
-  the press off the real edge matches nothing. The second is the subtler
-  one and cost two beads: the failure happens one step before the
-  landing this confirmation guards, so no amount of care here reaches
-  it. [[sequential-tab-stops]] carries that account.
+  is never aimed at at all, because the surplus DISPLACES THE EDGE and
+  the press off the real edge matches nothing. The second is the
+  subtler failure: it happens one step before the landing this
+  confirmation guards, so no amount of care here reaches it.
+  [[sequential-tab-stops]] carries that account.
 
   A press a control inside the panel has already claimed is left alone:
   the native event's `defaultPrevented` is read rather than the synthetic
@@ -534,9 +535,9 @@
 
   **First and last are read off SEQUENTIAL order, not document order.**
   They are different lists — a radio group is three elements and one
-  stop — and taking the second for the first is how this handler came to
-  send Tab from a modal's last control onto an unchecked radio, and
-  Shift+Tab from its checked one onto `<body>`."
+  stop — and taking document order for sequential sends Tab from a
+  modal's last control onto an unchecked radio, and Shift+Tab from its
+  checked one onto `<body>`."
   [^js e]
   (when (and (= "Tab" (.-key e))
              (not (.. e -nativeEvent -defaultPrevented)))
@@ -611,7 +612,7 @@
                 claimed (claim-anchor! (unchecked-get cell "anchorId") ident)]
             (unchecked-set cell "claimed" claimed)
             ;; BOTH HALVES OF ONE CLAIM, OR NEITHER. `claim-anchor!`
-            ;; answers nil for exactly one case now — no `:anchor` at
+            ;; answers nil for exactly one case — no `:anchor` at
             ;; all — because an `:anchor` that names no element raises
             ;; `:rf.error/hicasso-overlay-anchor-missing` rather than
             ;; returning. Writing the panel's half alone
@@ -638,15 +639,14 @@
   `:on-dismiss` when the overlay OPENS, which is the wrong direction this
   filter exists to stop.
 
-  **The module's own teardown needs no filter, and that was measured
-  rather than reasoned.** `hidePopover()` in the ref cleanup does fire the
-  identical event, so a first draft carried a per-node closing mark to
-  tell the two apart — and no sabotage could redden that mark, because
-  React does not deliver an event from a fiber it is in the middle of
-  deleting. It was unreachable code defending a case that does not arise,
-  and it is gone. `re-frame.hicasso.overlay-dom-cljs-test` holds the
-  measurement rather than the mark: the teardown rows red the day it stops
-  being true.
+  **The module's own teardown needs no filter, and that is measured
+  rather than reasoned.** `hidePopover()` in the ref cleanup does fire
+  the identical event, so a per-node closing mark to tell the two apart
+  looks necessary — and is not, because React does not deliver an event
+  from a fiber it is in the middle of deleting. Such a mark would be
+  unreachable code defending a case that does not arise.
+  `re-frame.hicasso.overlay-dom-cljs-test` holds the measurement rather
+  than a mark: the teardown rows red the day it stops being true.
 
   A fresh closure per render, deliberately: it closes over the intent and
   the frame dispatch THIS render saw, so an overlay whose `:on-dismiss`

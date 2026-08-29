@@ -73,9 +73,8 @@
   it carries the package's one refusal shape whole — id, the fn that
   refused, the reason, an actionable recovery, and the ambient view and
   coordinate
-  when a declaration extent is open. Seven ids — five reserved for this
-  tier by the complaint register before it existed, plus the two the
-  declaration door minted when it gained its rosters:
+  when a declaration extent is open. Seven ids, every one registered in
+  the package's complaint register:
 
   | Id | Raised when |
   |---|---|
@@ -185,9 +184,9 @@
   | [[declared-server]] | [[defcomponent]] emits a call to it, likewise — and deliberately at LOAD rather than at expansion, so the refusal carries the declaration's coordinate |
   | [[prop-slots]] | named by NO expansion — both callers are in this file — and public for a different reason: the three-way parity row drives the shared rule as its own arm, and a fixture reaching it only through one of its two callers would be pinning that caller |
 
-  Everything else in this namespace is private, and [[check-child!]]
-  joined them here: it is named by no expansion, reached by nothing
-  outside this file, and its publicity bought nothing."
+  Everything else in this namespace is private, [[check-child!]]
+  included: it is named by no expansion and reached by nothing outside
+  this file, so publicity would buy it nothing."
   (:require [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.impl.slot :as slot])
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
@@ -293,10 +292,10 @@
   ClojureScript seqs, which are ES6-iterable and are therefore React
   children already.
 
-  **Private, and that is a classification rather than a narrowing.**
-  Its two callers are both in this file — [[$]] on child
-  FORMS at expansion, [[checked]] on values at render — so no expansion
-  names it in a consumer's namespace and nothing outside reaches it."
+  **Private, and that is a classification.** Its two callers are both
+  in this file — [[$]] on child FORMS at expansion, [[checked]] on
+  values at render — so no expansion names it in a consumer's namespace
+  and nothing outside reaches it."
   [c where]
   (cond
     (map? c)
@@ -348,7 +347,7 @@
        "`React.createElement`, reached from an [[$]] expansion.
 
   The macro knows the child count statically, so the common shapes are
-  fixed arities and only six-or-more children pay for an array. Not a
+  fixed arities and only four-or-more children pay for an array. Not a
   consumer surface: write [[$]], which is the form the fence is defined
   on."
        ([type props] (react/createElement type props))
@@ -402,9 +401,8 @@
        #{:client-only :render})
 
      (defn declared-server
-       "The `:server` policy `decl` carries, VALIDATED — the two rosters
-  `mint-host!` has, at the one declaration door in the package that had
-  neither.
+       "The `:server` policy `decl` carries, VALIDATED — the same two
+  rosters `mint-host!` holds the `defhost` door to.
 
   Absent means `:client-only`: the conservative answer, so an author who
   writes nothing and an author who writes the default explicitly get the
@@ -420,7 +418,7 @@
   at all, so a compile-time refusal would be witnessed by nothing this
   repo runs.
 
-  ## And it is now READ
+  ## And it is READ
 
   The value is stamped on the tier marker, where a tool reads it, and
   [[component]] branches on it: `:render` answers the author's own
@@ -735,11 +733,11 @@
   the first pass of a fresh mount. The chunk is a client artefact and the
   server never reaches for one.
 
-  **That gate is the mechanism and the marker merely describes it.** The
-  marker alone was the defect: React's `lazyInitializer` runs during
+  **That gate is the mechanism and the marker merely describes it.** A
+  marker alone enforces nothing: React's `lazyInitializer` runs during
   `renderToString` like any other render, so an ungated head reached from
   a native parent — `(n/$ heavy-chart …)` under a `:render` island —
-  fetched the chunk on the server and wrote React's switched-to-client
+  fetches the chunk on the server and writes React's switched-to-client
   template into the response. Measured in
   [[re-frame.hicasso.lazy-boundary-dom-cljs-test]], whose control renders
   a raw `react/lazy` in the same shape and counts the call this one does
