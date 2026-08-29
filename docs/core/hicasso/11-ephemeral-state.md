@@ -170,7 +170,7 @@ ephemeral application state — it is paint retention.
 
 Use the optional [`re-frame.hicasso.motion`](12-motion-and-presence.md) module
 and `motion/presence`. That chapter owns the API, phase markers
-(`::h/mounting` / `::h/unmounting`), the view `:rf/phase` prop, SSR behaviour,
+(`::motion/mounting` / `::motion/unmounting`), the view `:rf/phase` prop, SSR behaviour,
 and accessibility attributes for exiting nodes.
 
 ## Common state and its owner

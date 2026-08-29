@@ -116,7 +116,7 @@
         ;; already on the screen: under hydration every child is already
         ;; painted, so entering them replays an enter animation the user
         ;; watched the server deliver, and — worse — makes the first
-        ;; client pass render each child's `::h/mounting` overrides
+        ;; client pass render each child's `::motion/mounting` overrides
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
         ;; The fix is the machine's own
@@ -131,7 +131,7 @@
         ;;
         ;; Read here in the RENDER rather than in the effect below
         ;; because the first client pass must ALREADY be `:present`: an
-        ;; effect runs after that pass has painted `::h/mounting` over
+        ;; effect runs after that pass has painted `::motion/mounting` over
         ;; DOM the server already delivered, which is the flash this
         ;; branch exists to avoid.
         ;;
@@ -183,14 +183,14 @@
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for
-  `:timeout-ms`, and applies each child's own `::h/mounting` /
-  `::h/unmounting` attribute overrides while it is in that phase.
+  `:timeout-ms`, and applies each child's own `::motion/mounting` /
+  `::motion/unmounting` attribute overrides while it is in that phase.
 
       [presence {:timeout-ms 300}
        (for [t (collector/sub [:toasts/visible])]
          [:div.toast {:key (:id t)
-                      ::h/unmounting {:class \"toast toast--exit\"
-                                      :inert true :aria-hidden true}}
+                      ::motion/unmounting {:class \"toast toast--exit\"
+                                           :inert true :aria-hidden true}}
           (:message t)])]
 
   A legal hiccup head, marked the same way a `defview` product is —
