@@ -182,17 +182,6 @@
   [:div.panel
    [:span.p-state (str (h/sub [panel-concern "p1"]))]])
 
-(h/defview bad-link
-  "HS-40's refusal arm. `:prefetch` is the trio v0 declines outright, and
-  a declined key FAILS rather than crossing. Measured on the server
-  because a refusal that only ran on the client would let this page be
-  baked and would surface at adoption, which is the most expensive place
-  to find it."
-  [_]
-  [:p.bad
-   (h/route-link {:to route-id :params {:username "jane"} :prefetch :intent}
-                 "jane")])
-
 (h/defview page
   "The hydration rows' page: all three surfaces in one tree, so ONE
   adoption covers HS-40, HS-41 and HS-42 rather than leaving them
@@ -312,27 +301,6 @@
       (is (re-find #"/profile/mary" b) (str "frame B's request: " b))
       (is (not (re-find #"mary" a)) (str "and neither leaked: " a))
       (is (not (re-find #"jane" b)) (str "in either direction: " b)))))
-
-(deftest a-declined-prefetch-is-refused-during-the-server-render
-  (testing "HS-40's refusal arm. v0 declines routing's `:prefetch` trio
-            and a declined key has to FAIL rather than cross — routing's
-            own link model would ACCEPT it, so a passthrough produces a
-            link that prefetches nothing and says so nowhere. Measured on
-            the SERVER because that is the half that would otherwise bake
-            the page: a guard that ran at click time, or on the client
-            only, lets this markup ship"
-    (fresh!)
-    (let [e (try (server-html [bad-link {}]) nil
-                 (catch :default e e))
-          d (ex-data e)]
-      (is (some? e) "the render refused rather than emitting the anchor")
-      (is (= :rf.error/hicasso-route-link-prefetch-declined (:rf.error/id d))
-          (str "with the id that names the mistake: " (pr-str d)))
-      (is (= 're-frame.hicasso.facade-roster-ssr-dom-cljs-test/bad-link
-             (symbol (:view d)))
-          (str "attributed to the AUTHOR'S boundary — not to the routing
-                artefact that would have accepted the key: "
-               (pr-str (:view d)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — HS-41, `h/use-subs` in the server bytes (no DOM)

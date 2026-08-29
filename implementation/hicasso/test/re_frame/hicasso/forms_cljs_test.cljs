@@ -485,7 +485,7 @@
     (fn [frame]
       (let [d (refusal #(draft-at frame nil))]
         (is (some? d) "a nil control refuses rather than sharing a draft")
-        (is (= :rf.error/hicasso-state-bad-key (:rf.error/id d))
+        (is (= :rf.error/hicasso-state-bad-argument (:rf.error/id d))
             "by an id that is already shipped and already catalogued")
         (is (= ::forms/drafts (:concern d))
             "and it names THIS module's concern, so the message points at

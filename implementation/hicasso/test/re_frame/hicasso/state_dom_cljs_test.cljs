@@ -251,7 +251,7 @@
             (let [refusals (->> @records
                                 (mapcat (juxt (comp ex-data :exception)
                                               (comp ex-data ex-cause :exception)))
-                                (filter #(= :rf.error/hicasso-state-bad-key
+                                (filter #(= :rf.error/hicasso-state-bad-argument
                                             (:rf.error/id %))))]
               (is (seq refusals)
                   "a nil instance key refused — this is the guide's silent

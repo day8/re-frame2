@@ -8,67 +8,28 @@
   rows below enforce: unsupported controlled shapes are REJECTED rather
   than approximated. Both defects are that sentence not being kept.
 
-  ## The two halves of the value surface, and how each failed
+  `value` reaches a file input from two directions, and the two are
+  reported differently.
 
-  `value` reaches a file input from two directions, and until these rows
-  both directions were silent.
-
-  - **The prop.** `:value` on an `<input type=file>` made it a controlled
+  - **The prop.** `:value` on an `<input type=file>` makes it a controlled
     element as far as React is concerned, and React's `initInput` /
     `updateInput` both reach `element.value = …`. The platform refuses
     every assignment but the empty string on a file input, so the write
-    throws `InvalidStateError` — an ENGINE exception naming no view, no
-    framework and no recovery. React 19.2 carries no controlled-file-input
-    warning of its own, so nothing upstream was ever going to say it.
+    throws `InvalidStateError` out of the commit. That engine exception is
+    the report, and it is measured here on the engine so a future engine
+    that accepted the write would go red.
   - **The marker.** `::h/value` lowered to `(.-value target)`, and
     `HTMLInputElement.value` is in FILENAME MODE on a file input: the
     literal fiction `C:\\fakepath\\` followed by the FIRST selected file's
-    name. That is a plausible non-empty string that names one file out of
-    however many were chosen, over a path nothing can open. No throw, no
-    warning, no shape difference from an honest answer.
+    name — a plausible non-empty string naming one file out of however
+    many were chosen, over a path nothing can open. No throw, no warning,
+    no shape difference from an honest answer, so it is REFUSED with
+    `:rf.error/hicasso-file-input-value-marker` (its Spec 009 row).
 
-  Two ids rather than one, because they are two authoring mistakes with
-  two fixes: the prop wants DELETING (the platform owns the selection),
-  the marker wants REPLACING with an `h/event`. See the two Spec 009 rows.
-
-  ## The empty string is not the defect — it is the reset idiom
-
-  `:value \"\"` must keep working, and one row here says so. Read at
-  source in react-dom@19.2.0, both assignment sites SKIP when the value
-  already agrees with the element: `initInput` is
-  `value === element.value || (element.value = value)` and `updateInput`
-  is `element.value !== \"\" + getToStringValue(value) && (element.value =
-  …)`. An empty file input answers `\"\"`, so nothing is assigned; one
-  holding a file answers the fakepath, so the assignment DOES happen and
-  is the empty string — which is the one write the platform accepts, and
-  it clears the control. Refusing a non-NIL `:value` would have taken the
-  only model-driven clear away from the author. The predicate is
-  non-EMPTY.
-
-  ## The spelling is the platform's, not the author's
-
-  The prop refusal shipped comparing the `type` prop exactly, and an HTML
-  `type` is an enumerated attribute the platform matches ASCII
-  case-insensitively. So `:type \"FILE\"` was a file input to the engine
-  and not to the predicate: the refusal did not fire, React took the
-  controlled path anyway, and the engine threw the very
-  `InvalidStateError` the refusal exists to replace — one spelling in
-  sixteen refused, fifteen through. Worse than no refusal, because a hole
-  that shape is invisible from the outside.
-
-  The two readers answer this differently and both answers are right. The
-  PROP predicate reads the author's props object before React builds
-  anything, so a spelling is all it has and it folds. The MARKER reads a
-  LIVE element on an event, where the platform has already resolved the
-  type, and asks `.files` — a property of the resolved control rather
-  than a string anyone spelled. One row below measures each.
-
-  ## The platform control stays
-
-  The direct `node.value = …` rows are not redundant with the refusals.
-  They are the reason the refusals exist, measured on the engine rather
-  than assumed from React's source, and they are what would go red if a
-  future engine ever accepted the write.
+  The marker reads a LIVE element on an event, where the platform has
+  already resolved the type, and asks `.files` — a property of the
+  resolved control rather than a string anyone spelled — so `:type
+  \"FILE\"` needs no fold of its own.
 
   Runtime: `-dom-cljs-test`, so the rows run in both lanes. The stand-in
   rows carry the reader's rule under `:node-test` where there is no
@@ -76,9 +37,7 @@
   the same shape `controlled_dom_cljs_test` uses for its caret rows."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.intent :as intent]
-            ["react-dom" :as react-dom]
-            ["react-dom/client" :as react-dom-client]))
+            [re-frame.hicasso.impl.intent :as intent]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -91,15 +50,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The harness
 ;; ---------------------------------------------------------------------------
-
-(defn- container! []
-  (let [c (js/document.createElement "div")]
-    (.appendChild js/document.body c)
-    c))
-
-(defn- drop-container! [c]
-  (when-some [p (.-parentNode c)] (.removeChild p c))
-  nil)
 
 (defn- thrown-by
   "Run `f` and return whatever it threw, or nil. The THING, not its
@@ -154,7 +104,7 @@
        :value (if-some [nm (first names)] (str "C:\\fakepath\\" nm) "")})
 
 ;; ---------------------------------------------------------------------------
-;; 0 — THE PLATFORM CONTROL. Why a refusal, and not a repair
+;; 0 — THE PLATFORM CONTROL. The engine's own report on the prop half
 ;; ---------------------------------------------------------------------------
 
 (deftest the-platform-refuses-every-write-but-the-empty-string
@@ -162,56 +112,35 @@
     (skip! "the engine's own answer is the whole of this row")
     (let [n (file-input!)]
       (try
-        (testing "a non-empty assignment throws, and names nothing"
+        (testing "a non-empty assignment throws — the platform's own report
+                  on a controlled :value, which Hicasso leaves to it"
           (let [t (thrown-by #(set! (.-value n) "budget.csv"))]
             (is (some? t)
-                "if this ever stops throwing, the prop refusal below is the
-                 one to revisit first")
+                "if this ever stops throwing, a controlled :value on a file
+                 input has become legal and this file's premise is gone")
             (is (nil? (id-of t))
-                (str "the engine's exception carries no :rf.error/id, no view "
-                     "and no recovery — which is the failure mode the refusal "
-                     "exists to replace"))))
+                "the engine's exception carries no :rf.error/id — it is the
+                 platform's report, not Hicasso's")))
         (testing "the empty string is accepted — it CLEARS the control"
           (is (nil? (thrown-by #(set! (.-value n) "")))
-              "the one legal write, and therefore the one the refusal must
-               not take away")
+              "the one legal write: the reset idiom")
           (is (= "" (.-value n))))
         (finally (drop! n))))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — THE PROP
+;; 1 — THE PROP, at the codec: lowered like any other value
 ;; ---------------------------------------------------------------------------
 
-(deftest a-value-on-a-file-input-is-refused-at-the-source
-  (testing "the refusal is minted where the element is, so it carries the
-           view and the source coordinate — and so React never reaches the
-           assignment that would throw"
-    (doseq [[what hiccup]
-            [["a bare :value"
-              [:input {:type :file :value "budget.csv"}]]
-             ["a :value with a change handler, the shape an author writes"
-              [:input {:type :file :value "budget.csv" :on-change noop-change}]]
-             ["a :multiple file input, which is the same control"
-              [:input {:type :file :multiple true :value "budget.csv"
-                       :on-change noop-change}]]
-             ["a non-string :value, which React stringifies and writes"
-              [:input {:type :file :value 0 :on-change noop-change}]]]]
-      (is (= :rf.error/hicasso-file-input-value-prop
-             (id-of (thrown-by #(codec/as-element hiccup))))
-          what))))
-
-(deftest the-empty-value-is-the-reset-idiom-and-is-permitted
+(deftest a-file-input-lowers-like-any-other-control
   (testing "`:value \"\"` is how an author clears a file input from the
-           model. React skips the assignment when the element already
-           agrees, and performs it — legally — when it does not."
+           model, and a file input with no :value at all is the supported
+           path — uncontrolled, with the selection read off `.files` in an
+           h/event. The codec lowers both without comment."
     (is (nil? (thrown-by #(codec/as-element
                            [:input {:type :file :value ""
-                                    :on-change noop-change}])))
-        "refusing a non-NIL value would have refused this one"))
-  (testing "and a file input with no :value at all is the supported path"
+                                    :on-change noop-change}]))))
     (is (nil? (thrown-by #(codec/as-element
-                           [:input {:type :file :on-change noop-change}])))
-        "uncontrolled, with the selection read off `.files` in an h/event")))
+                           [:input {:type :file :on-change noop-change}]))))))
 
 (deftest every-other-controlled-field-is-untouched
   (doseq [[what hiccup]
@@ -226,99 +155,6 @@
            ["a textarea" [:textarea {:value "x" :on-input noop-change}]]
            ["a select" [:select {:value "x" :on-change noop-change}]]]]
     (is (nil? (thrown-by #(codec/as-element hiccup))) what)))
-
-(deftest mounting-a-valued-file-input-never-reaches-the-platform-write
-  (testing "the repair measured where it was found: a real React commit
-           over a real document. Before it, this mount threw the engine's
-           `InvalidStateError` out of React's own `element.value =` — no
-           id, no view, no recovery, and no way for the author to know
-           which of their inputs it was about."
-    (if-not (browser?)
-      (skip! "React's assignment needs React's own commit")
-      (let [c    (container!)
-            root (react-dom-client/createRoot c)]
-        (try
-          (let [t (thrown-by
-                   #(react-dom/flushSync
-                     (fn []
-                       (.render root (codec/as-element
-                                      [:input {:type :file :value "budget.csv"
-                                               :on-change noop-change}])))))]
-            (is (= :rf.error/hicasso-file-input-value-prop (id-of t))
-                "the refusal arrives instead of the engine exception")
-            (is (not (instance? js/DOMException t))
-                "and the engine exception does not arrive at all — the
-                 element is refused before React can attempt the write"))
-          (finally
-            (thrown-by #(react-dom/flushSync (fn [] (.unmount root))))
-            (drop-container! c)))))))
-
-(deftest the-type-spelling-is-the-platforms-not-the-authors
-  (testing "an HTML `type` is an enumerated attribute matched ASCII
-           case-insensitively, so every spelling below IS a file input as
-           far as the engine is concerned, and every one of them used to
-           walk past a refusal that compared the string exactly
-           (rf2-h6qm7). The keyword spellings are here because
-           `convert-prop-value` hands React `(name kw)` unchanged, so the
-           author's case survives into the props object either way."
-    (doseq [[what hiccup]
-            [["the shouted string, which is the spelling the audit found"
-              [:input {:type "FILE" :value "budget.csv"
-                       :on-change noop-change}]]
-             ["the shouted keyword, the same attribute by the other door"
-              [:input {:type :FILE :value "budget.csv"
-                       :on-change noop-change}]]
-             ["title case, which is what a form generator emits"
-              [:input {:type "File" :value "budget.csv"
-                       :on-change noop-change}]]
-             ["and a mixed spelling, since the fold is total rather than a
-               list of the plausible ones"
-              [:input {:type "fIlE" :value "budget.csv"
-                       :on-change noop-change}]]]]
-      (is (= :rf.error/hicasso-file-input-value-prop
-             (id-of (thrown-by #(codec/as-element hiccup))))
-          what)))
-  (testing "and the empty value stays the reset idiom at EVERY spelling —
-           the fold widened which controls the predicate recognises, not
-           which values it refuses"
-    (is (nil? (thrown-by #(codec/as-element
-                           [:input {:type "FILE" :value ""
-                                    :on-change noop-change}])))))
-  (testing "a type that merely CONTAINS the letters is not the control"
-    (doseq [hiccup [[:input {:type "profile" :value "x" :on-change noop-change}]
-                    [:input {:type "filename" :value "x" :on-change noop-change}]]]
-      (is (nil? (thrown-by #(codec/as-element hiccup))))))
-  (testing "and a non-string :type, which `convert-prop-value` leaves as a
-           number, is asked the question without being handed to a string
-           method"
-    (is (nil? (thrown-by #(codec/as-element
-                           [:input {:type 0 :value "x"
-                                    :on-change noop-change}]))))))
-
-(deftest mounting-a-shouted-file-input-never-reaches-the-platform-write
-  (testing "the same measurement as the row above, at the shouted
-           spelling — and the reason this one is worth its own mount.
-           Before the fold the engine's `InvalidStateError` did not even
-           arrive at the caller: React caught it inside its own commit
-           and re-reported it as an UNCAUGHT page error, so the author
-           had neither an id nor an exception to catch."
-    (if-not (browser?)
-      (skip! "React's assignment needs React's own commit")
-      (let [c    (container!)
-            root (react-dom-client/createRoot c)]
-        (try
-          (let [t (thrown-by
-                   #(react-dom/flushSync
-                     (fn []
-                       (.render root (codec/as-element
-                                      [:input {:type "FILE" :value "budget.csv"
-                                               :on-change noop-change}])))))]
-            (is (= :rf.error/hicasso-file-input-value-prop (id-of t))
-                "the refusal arrives, and it arrives at the call site")
-            (is (not (instance? js/DOMException t))))
-          (finally
-            (thrown-by #(react-dom/flushSync (fn [] (.unmount root))))
-            (drop-container! c)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE MARKER

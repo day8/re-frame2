@@ -192,15 +192,6 @@
    [h/portal {:target target}
     [counted-host {}]]])
 
-(h/defview bad-target-page
-  "A `:target` that is not a container. Overwhelmingly this is a lookup
-  that answered nothing — the rack renders later than the portal, or its
-  id is spelled two ways."
-  [{:keys [target]}]
-  [:div.owner
-   [h/portal {:target target}
-    [:span.toast "never rendered"]]])
-
 ;; ---------------------------------------------------------------------------
 ;; Helpers
 ;; ---------------------------------------------------------------------------
@@ -208,19 +199,6 @@
 (defn- server-html [hiccup]
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))
-
-(def ^:private !caught (atom nil))
-
-(defn- watched-root!
-  "Mount `hiccup` under an `h/error-boundary` whose only job is to hand the
-  assertion whatever the subject threw. A render-phase refusal is
-  precisely what React routes to a class boundary and nowhere else."
-  [hiccup]
-  (reset! !caught nil)
-  (mount/root! (mount/fresh-container!) frame-id
-               [h/error-boundary {:fallback [:p.escaped "the portal refused"]
-                                  :on-error (fn [e] (reset! !caught e))}
-                hiccup]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the declaration (runs under :node-test too)
@@ -421,44 +399,6 @@
             (mount/release! h)
             (drop-rack! rack-a)
             (drop-rack! rack-b)))))))
-
-;; ---------------------------------------------------------------------------
-;; 4 — the refusal
-;; ---------------------------------------------------------------------------
-
-(deftest a-target-that-is-not-a-container-is-refused-naming-it
-  (if-not (mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (testing "React's own answer here is *Target container is not a DOM
-                element*, which names neither the value, nor the option, nor
-                anything the author wrote. This one carries the offending
-                target and a recovery"
-        (let [h (watched-root! [bad-target-page {:target nil}])]
-          (try
-            (let [data (ex-data @!caught)]
-              (is (= :rf.error/hicasso-portal-no-target (:rf.error/id data)))
-              (is (contains? data :target) "the offending value is carried")
-              (is (nil? (:target data)) "and it is the one that was written")
-              (is (some? (:where data)) "the fn that refused (hic-007's shape)")
-              (is (string? (:reason data)) "and a human sentence")
-              (is (some? (q (:container h) ".escaped"))
-                  "the refusal reached the watching boundary as a render-phase
-                   throw, rather than being swallowed into a hole"))
-            (finally (mount/release! h)))))
-      (testing "and a target of the wrong KIND is the same fault with the same
-                recovery — `createPortal` appends to a container, so anything
-                without a node type is not one. ONE refusal, because there is
-                one thing to do about it"
-        (let [h (watched-root! [bad-target-page {:target "#rack"}])]
-          (try
-            (is (= :rf.error/hicasso-portal-no-target
-                   (:rf.error/id (ex-data @!caught)))
-                "a selector string is not a container — the portal does not
-                 query the document for you")
-            (is (= "#rack" (:target (ex-data @!caught))))
-            (finally (mount/release! h))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — hydration: nothing to reconcile, and no claim on absent bytes

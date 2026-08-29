@@ -461,22 +461,22 @@
             misspelled policy was a setting that never applied — the same
             defect class as an intent crossing as inert data, and it gets
             the same refusal"
-    (is (= :rf.error/hicasso-host-unknown-option
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "server/typo" chart {:sserver :client-only}))))
-    (is (= :rf.error/hicasso-host-unknown-option
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "server/legacy" chart
                                         {:callbacks {} :hydrate? true})))))
   (testing "AND THAT IS WHERE THE RETIRED `:ssr` SPELLING LANDS (rf2-mo4o).
             There is no alias and no deprecation path — this is pre-alpha,
             so a rename is a rename — and the option roster is what says
             so, in both of the shapes `:ssr` used to take"
-    (is (= :rf.error/hicasso-host-unknown-option
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "server/retired-render" chart
                                         {:ssr :render}))))
-    (is (= :rf.error/hicasso-host-unknown-option
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "server/retired-client-only" chart
                                         {:ssr :client-only}))))
-    (is (= :rf.error/hicasso-host-unknown-option
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "server/retired-fallback" chart
                                         {:ssr {:fallback [:div.s]}})))))
   (testing "while the four it does know are accepted together"

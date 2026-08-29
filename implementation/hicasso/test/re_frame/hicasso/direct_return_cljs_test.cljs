@@ -60,11 +60,10 @@
   | event lowering | `intent/lower-prop` | hiccup |
   | controlled repair | `controlled/install!` | hiccup |
 
-  and the key diagnostic, which has no function worth probing because
-  its whole observable is the warning it prints, counted at
+  and the entity-key diagnostic, which has no function worth probing
+  because its whole observable is the warning it prints, counted at
   `console.warn` (Hicasso's channel; React's own key warning is a
-  `console.error` and is not this file's business —
-  `keywarn-dom-cljs-test`).
+  `console.error` and is not this file's business).
 
   **Every count is read against a FLOOR, not against zero.** Both arms
   are reached through the same boundary crossing, and the crossing is

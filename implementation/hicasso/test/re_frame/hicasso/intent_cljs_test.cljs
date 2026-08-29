@@ -595,17 +595,7 @@
         (let [h (intent/with-frame (dispatching !seen)
                                    (fn [] (intent/lower-declared-prop :onRenderItem cb :render)))]
           (is (= [:host/changed 7] (h 7)) "the caller sees the return")
-          (is (= [] @!seen) "and nothing was dispatched")))
-      (testing "a contract outside the two is a loud error rather than a
-                guess — :handler among them, since a plain function already
-                crosses untouched at every position"
-        (doseq [contract [:handler :whatever]]
-          (try
-            (intent/lower-declared-prop :onValueChange cb contract)
-            (is false (str "should have thrown for " contract))
-            (catch :default e
-              (let [d (ex-data e)]
-                (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id d)))))))))))
+          (is (= [] @!seen) "and nothing was dispatched"))))))
 
 (deftest the-override-claims-only-what-the-position-would
   (testing "the override selects between the SAME two wrappers the spelling

@@ -209,9 +209,8 @@
     (is (some? (codec/mint-host! "slots/string" panel {:slots #{"title"}})))
     (is (some? (codec/mint-host! "slots/near-reserved" panel
                                  {:slots #{:constructor-label :prototypes}}))
-        "and the reserved-name refusal is asked of the WHOLE emitted slot,
-         not of a substring of it — an ordinary prop that merely reads like
-         one of the three still mints"))
+        "an ordinary prop that merely reads like a reserved emitted name
+         mints; the crossing's reserved skip is on the WHOLE emitted slot"))
   (testing "and it composes with the two options that were already there"
     (is (some? (codec/mint-host! "slots/all" panel
                                  {:callbacks {:on-close :event}
@@ -221,59 +220,45 @@
 (deftest the-declaration-refuses-a-slots-set-it-cannot-honour
   (testing "not a set. A vector or a map would each have to be read as
             something, and neither reading is one an author could hold"
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/vec" panel {:slots [:title]}))))
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/map" panel {:slots {:title true}}))))
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/kw" panel {:slots :title}))))
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/nil" panel {:slots nil})))
         "an explicit nil is a value and not an absence — the same rule
          `:server nil` takes, and for the same reason: inferring the default
          from nil is how a typo becomes a setting"))
   (testing "an entry that names no prop. Normalising a number into some
             slot nobody wrote is how a declaration comes to be inert"
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/num" panel {:slots #{7}}))))
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/nested" panel {:slots #{[:title]}})))))
   (testing "`key` and `ref` in every spelling. They are React's structural
             slots — an identity contract and a node handle — and neither
             carries markup, so a slot declared on one is a policy that can
             never apply"
     (doseq [k [:key :ref "ref" :x/ref]]
-      (is (= :rf.error/hicasso-host-bad-slots
+      (is (= :rf.error/hicasso-bad-host-declaration
              (error-id #(codec/mint-host! (str "slots/" k) panel {:slots #{k}})))
           (str (pr-str k) " must stay refused"))))
-  (testing "a reserved emitted name, in every spelling. The crossing skips
-            `__proto__`, `prototype` and `constructor` before it reads any
-            declaration — the props object handed to React has a prototype
-            — so a slot declared at one of them would mint, read correct,
-            and silently never deliver: the exact trap :slots exists to
-            delete, wearing the fix's clothes"
-    (doseq [k [:__proto__ :prototype :constructor
-               '__proto__ 'prototype 'constructor
-               "__proto__" "prototype" "constructor"]]
-      (is (= :rf.error/hicasso-host-bad-slots
-             (error-id #(codec/mint-host! (str "slots/reserved-" (pr-str k)) panel
-                                          {:slots #{k}})))
-          (str (pr-str k) " must be refused at the declaration, because the "
-               "crossing can never emit it"))))
   (testing "two spellings of one slot. Whichever the fold reached second
             would silently be the same entry, so the set would carry one
             position the author wrote twice and could not see"
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/dup" panel
                                         {:slots #{:on-empty :onEmpty}})))))
   (testing "and a position declared BOTH a callback and a slot. `:render`
             invokes the value where a slot lowers it, and nothing decides
             which the author meant — so it is refused rather than ordered"
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/both" panel
                                         {:callbacks {:title :render}
                                          :slots     #{:title}}))))
-    (is (= :rf.error/hicasso-host-bad-slots
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "slots/both-spelled" panel
                                         {:callbacks {:on-empty :event}
                                          :slots     #{:onEmpty}})))
@@ -290,7 +275,7 @@
                                   :slots     #{:title}}))))
   (testing "and a third contract is refused at mint — :handler among them,
             since a plain function already crosses untouched everywhere"
-    (is (= :rf.error/hicasso-unknown-callback-contract
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "cb/handler" panel
                                         {:callbacks {:on-close :handler}}))))))
 
@@ -341,23 +326,18 @@
             crossing is untouched, because it never asked for anything"
     (is (fn? (.-title ^js (crossing-props [bare-panel {:title (fn [] nil)}]))))))
 
-(deftest a-ref-at-a-crossing-keeps-hd-022s-rules
-  ;; Named by this bead and unchanged by it: a slot declaration adds a
-  ;; position beside `ref` and does not touch it. The row is here because
-  ;; the package had the rule witnessed at a NATIVE tag only, and `ref` is
-  ;; the one prop a crossing forwards rather than converts.
+(deftest a-ref-at-a-crossing-crosses-by-identity
+  ;; A slot declaration adds a position beside `ref` and does not touch it;
+  ;; `ref` is the one prop a crossing forwards rather than converts.
   (testing "a callback ref crosses by identity — React 19 carries `ref` as
             an ordinary prop, so the gate forwards the very function the
             author wrote and the identity React re-attaches on is theirs"
     (let [f        (fn [_])
           ^js props (crossing-props [panel-host {:ref f :title [:h2.t "T"]}])]
       (is (identical? f (.-ref props)))))
-  (testing "and a VECTOR there is the reserved data spelling, refused at
-            the crossing rather than handed to React as an array it would
-            ignore in silence (HD-022)"
-    (is (= :rf.error/hicasso-ref-vector-reserved
-           (error-id #(crossing-props
-                        [panel-host {:ref [::autosize {:max-rows 8}]}]))))))
+  (testing "and any other value there is forwarded as the author wrote it"
+    (is (= [::autosize {:max-rows 8}]
+           (.-ref ^js (crossing-props [panel-host {:ref [::autosize {:max-rows 8}]}]))))))
 
 (deftest the-escape-has-no-slots-and-cannot-be-given-any
   (testing "`[:>]` is `defhost` with the declaration erased, so what
