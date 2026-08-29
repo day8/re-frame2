@@ -430,7 +430,7 @@
 
   [[server-html!]] cannot be used for such a tree. It reads `innerHTML`
   on the line after a `flushSync` render, and on an ordinary root that is
-  the FIRST pass — every child `:mounting`, wearing its `::h/mounting`
+  the FIRST pass — every child `:mounting`, wearing its `::motion/mounting`
   overrides. Hydrating against those bytes would compare a settled client
   tree with an entering server tree and manufacture a divergence no row
   here is about.
