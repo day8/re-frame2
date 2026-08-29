@@ -135,6 +135,14 @@
     (let [s (presence/step s [(toast 1 "a") (toast 3 "c") (toast 4 "d")] 120 timeout-ms)]
       (is (= [1 2 3 4] (:order s)) "and a genuinely new child is appended"))))
 
+(defn- refusal-data
+  "Run `f` and answer the ex-data of the refusal it raised — or a marker
+  keyword, so a row that fails says WHICH way it failed rather than
+  reading `nil` off a success."
+  [f]
+  (try (f) ::returned-without-refusing
+       (catch :default e (ex-data e))))
+
 (deftest nil-children-are-not-entries-and-unkeyed-children-are-a-loud-error
   (is (= {1 :mounting}
          (presence/phases (presence/step presence/initial
@@ -143,14 +151,34 @@
   (is (thrown-with-msg? js/Error #"no :key"
                         (presence/step presence/initial [[:div.toast "x"]] 0 timeout-ms)))
   (is (thrown-with-msg? js/Error #"keyed hiccup vector"
-                        (presence/step presence/initial ["a string"] 0 timeout-ms))))
+                        (presence/step presence/initial ["a string"] 0 timeout-ms)))
+  (testing "each refusal carries ITS OWN id, recovery and offending child —
+            the discriminator a tool branches on, which the message rows
+            above cannot hold apart: swapping the two ids between the
+            complaints would leave both regexes green"
+    (let [unkeyed (refusal-data
+                    #(presence/step presence/initial [[:div.toast "x"]] 0 timeout-ms))]
+      (is (= :rf.error/hicasso-presence-child-unkeyed (:rf.error/id unkeyed)))
+      (is (= :put-a-key-in-the-child-props-map (:recovery unkeyed)))
+      (is (= [:div.toast "x"] (:child unkeyed))))
+    (let [not-hiccup (refusal-data
+                       #(presence/step presence/initial ["a string"] 0 timeout-ms))]
+      (is (= :rf.error/hicasso-presence-child-not-hiccup (:rf.error/id not-hiccup)))
+      (is (= :give-every-presence-child-a-keyed-hiccup-vector (:recovery not-hiccup)))
+      (is (= "a string" (:child not-hiccup))))))
 
 (deftest timeout-ms-is-mandatory-and-positive
   (is (= 300 (presence/check-timeout! 300)))
   (doseq [bad [nil 0 -1 "300"]]
     (is (thrown-with-msg? js/Error #"positive :timeout-ms"
                           (presence/check-timeout! bad))
-        (str "refused: " (pr-str bad)))))
+        (str "refused: " (pr-str bad)))
+    (let [data (refusal-data #(presence/check-timeout! bad))]
+      (is (= :rf.error/hicasso-presence-timeout-required (:rf.error/id data))
+          (str "with its own id, for " (pr-str bad)))
+      (is (= :give-presence-a-positive-timeout-ms (:recovery data)))
+      (is (= bad (:timeout-ms data))
+          "and the offending value, so a red names what was written"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The phase transform
@@ -163,6 +191,19 @@
             what an override is"
     (is (= [:div.toast {:key 1 :class "toast--exit" :inert true :aria-hidden true} "a"]
            (presence/with-phase (toast 1 "a") :unmounting))))
+  (testing ":mounting — the enter map is merged the same way. This is the
+            arm the exit rows cannot witness: an `override-for` answering
+            nil at :mounting still STRIPS the override keys, so every
+            strip assertion in this file stays green while enter styling
+            dies wholesale — the positive merge is the only pin"
+    (is (= [:div.toast {:key 1 :class "toast--enter"} "a"]
+           (presence/with-phase
+             [:div.toast {:key 1
+                          :re-frame.hicasso/mounting {:class "toast--enter"}}
+              "a"]
+             :mounting))
+        "the mounting map's contents arrive on the element, with the
+         override key itself gone"))
   (testing "an override still cannot reach :key or :ref — the same law :&
             carries, for the same reason: those address node identity, not
             appearance"

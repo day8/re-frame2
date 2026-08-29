@@ -15,6 +15,7 @@
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.route-link :as link]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.test-support :as test-support]))
 
@@ -261,3 +262,115 @@
         "a plain left click is routing's to take: preventDefault fired and the
          url-requested dispatch went to the captured frame (the route change
          itself is the DOM witness's claim)")))
+
+;; ---------------------------------------------------------------------------
+;; The imperative veto — the roster's other admitted half
+;; ---------------------------------------------------------------------------
+
+(defn- with-activate-link
+  "Run `thunk` with `f` published at `:routing/activate-link!` — nil
+  included, which is the detached-artefact arrangement — restoring the
+  previous registration in `finally` so the suite's other rows keep
+  running against routing's real seam."
+  [f thunk]
+  (let [previous (late-bind/get-fn :routing/activate-link!)]
+    (late-bind/set-fn! :routing/activate-link! f)
+    (try (thunk)
+         (finally (late-bind/set-fn! :routing/activate-link! previous)))))
+
+(deftest a-function-veto-rides-the-vector-and-reaches-the-seam-by-identity
+  (testing "the roster's IMPERATIVE half (HD-024: whoever holds the event
+           owns it) had no exercise anywhere — every veto row used nil or
+           the prevent head, so `on-click-roster!`'s fn arm and
+           `lower-veto`'s could rot with every declarative row green. A
+           plain function at :on-click renders, and rides the navigate
+           vector's :veto slot by identity"
+    (let [veto      (fn a-veto [_e] nil)
+          [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
+                               :on-click veto}
+                              "jane")]
+      (is (identical? veto (:veto (second (:on-click attrs))))
+          "the author's own function, untouched — where the declarative
+           head is lowered into a closure, the imperative veto IS the
+           closure already")))
+  (testing "and the lowered click hands that same function to routing's
+           `activate-link!` as the veto argument, the rest of the navigate
+           map beside it. The composition itself — veto first, stand down
+           on defaultPrevented — is routing's own tested law; hicasso's
+           half, pinned here, is that the imperative veto arrives at the
+           seam intact"
+    (let [veto  (fn a-veto [_e] nil)
+          !seam (atom nil)
+          [h _] (lowered-click {:to :conduit.profile/show :params {:username "jane"}
+                                :on-click veto})]
+      (with-activate-link
+        (fn [_e veto-fn frame payload native?]
+          (reset! !seam {:veto-fn veto-fn :frame frame
+                         :payload payload :native? native?})
+          nil)
+        #(h (ev {})))
+      (let [{:keys [veto-fn frame payload native?]} @!seam]
+        (is (identical? veto veto-fn) "the fn crossed the seam by identity")
+        (is (= frame-id frame))
+        (is (= [:rf.route/url-requested {:url    "/profile/jane"
+                                         :to     :conduit.profile/show
+                                         :params {:username "jane"}}]
+               payload))
+        (is (false? native?))))))
+
+;; ---------------------------------------------------------------------------
+;; The two ways routing can be gone, and neither is a throw
+;; ---------------------------------------------------------------------------
+
+(deftest a-detached-click-with-no-routing-hook-degrades-to-native-and-still-runs-the-veto
+  (testing "`navigate-handler`'s own promise: when `:routing/activate-link!`
+           is unbound at CLICK time — the routing artefact hot-reloaded
+           away between render and click — the closure stands aside, so
+           the browser follows the anchor's real href. No throw, no
+           interception, no dispatch"
+    (let [[h !seen]  (lowered-click {:to :conduit.profile/show :params {:username "jane"}})
+          !prevented (atom false)]
+      (with-activate-link nil #(h (ev {:prevented !prevented})))
+      (is (false? @!prevented)
+          "nothing intercepted the click — native navigation is the degrade")
+      (is (= [] @!seen) "and nothing dispatched")))
+  (testing "…and the veto still runs. The imperative fn is invoked with
+           the event"
+    (let [!ran  (atom false)
+          [h _] (lowered-click {:to :conduit.profile/show :params {:username "jane"}
+                                :on-click (fn [_e] (reset! !ran true) nil)})]
+      (with-activate-link nil #(h (ev {})))
+      (is (true? @!ran))))
+  (testing "…and the declarative prevent veto still cancels and dispatches
+           its replacement intent — the app's reaction survives the
+           routing artefact's absence, which is what keeps the degrade a
+           navigation policy rather than a lost click"
+    (let [[h !seen]  (lowered-click {:to :conduit.profile/show :params {:username "jane"}
+                                     :on-click [intent/prevent-head [:conduit/track "jane"]]})
+          !prevented (atom false)]
+      (with-activate-link nil #(h (ev {:prevented !prevented})))
+      (is (true? @!prevented))
+      (is (= [[:conduit/track "jane"]] @!seen)))))
+
+(deftest a-missing-routing-artefact-fails-at-the-link-site-naming-the-artefact-and-the-to
+  (testing "route-link's other absence: no `:routing/link-model` at RENDER
+           means the artefact is off the classpath, and the refusal is
+           the link site's own — the id a tool branches on, the link's
+           :to, and the two coordinates the author needs to repair it.
+           Asserted as ex-data rather than a message regex, per the
+           refusal-shape convention"
+    (let [previous (late-bind/get-fn :routing/link-model)]
+      (try
+        (late-bind/set-fn! :routing/link-model nil)
+        (let [data (try
+                     (rendered {:to :conduit.profile/show :params {:username "jane"}} "jane")
+                     ::returned-without-refusing
+                     (catch :default e (ex-data e)))]
+          (is (= :rf.error/routing-artefact-missing (:rf.error/id data)))
+          (is (= :conduit.profile/show (:to data))
+              "the refusal names the link's own :to")
+          (is (re-find #"day8/re-frame2-routing" (str (:reason data)))
+              "…and the dependency to add")
+          (is (re-find #"re-frame\.routing" (str (:reason data)))
+              "…and the namespace to require at boot"))
+        (finally (late-bind/set-fn! :routing/link-model previous))))))

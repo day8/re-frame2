@@ -152,7 +152,17 @@
         h     (lowered (dispatching !seen) :on-submit [:todo/create])]
     (h (ev {:prevented !prevented}))
     (is (true? @!prevented) "the browser's navigation is prevented")
-    (is (= [[:todo/create]] @!seen) "and the intent still dispatches")))
+    (is (= [[:todo/create]] @!seen) "and the intent still dispatches"))
+  (testing "and the camel spelling — the migrating author's — is the same
+           law. `prevent-by-default?` matches the two names separately, so
+           the :onSubmit arm can rot alone while every kebab row stays
+           green; a regression here fails as a real form submission"
+    (let [!seen (recorder)
+          !prevented (atom false)
+          h     (lowered (dispatching !seen) :onSubmit [:todo/create])]
+      (h (ev {:prevented !prevented}))
+      (is (true? @!prevented) ":onSubmit prevents the browser's navigation too")
+      (is (= [[:todo/create]] @!seen) "and the intent still dispatches"))))
 
 (deftest no-other-event-position-prevents-by-default
   (let [!prevented (atom false)]
