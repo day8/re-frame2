@@ -199,7 +199,7 @@ function serve() {
 const MB = (b) => (b < 0 ? '   n/a' : (b / 1048576).toFixed(2).padStart(7));
 
 async function run() {
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch({
     // Precise memory info, because the 100 KB bucketing Chrome applies
     // without it is coarse enough to hide a per-cycle step even though it

@@ -1074,7 +1074,7 @@ async function main() {
   const runs = [];
   let hardFail = null;
   try {
-    const { chromium } = require('playwright');
+    const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
     for (const r of RUNS) {
       console.error(`[hd8] run ${r.id} — ${r.why}`);
       let out;

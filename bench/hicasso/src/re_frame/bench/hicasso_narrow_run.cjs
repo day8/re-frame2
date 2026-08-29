@@ -305,7 +305,7 @@ async function main() {
   if (!NO_BUILD) build();
   const server = serve();
 
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch({
     args: [
       // Scheduling only: these stop the headless tab being treated as

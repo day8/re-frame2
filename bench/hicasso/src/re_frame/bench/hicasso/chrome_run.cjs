@@ -202,7 +202,7 @@ async function heapForArms(page, cdp, arms, rounds) {
 async function main() {
   if (!NO_BUILD) build();
   const server = serve();
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch({ args: ['--enable-precise-memory-info'] });
   const version = browser.version();
 

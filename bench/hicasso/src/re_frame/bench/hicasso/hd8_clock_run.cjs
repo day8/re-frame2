@@ -1002,7 +1002,7 @@ async function drive() {
   const results = [];
   let failed = null;
   try {
-    const { chromium } = require('playwright');
+    const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
     for (const runDef of RUNS) {
       console.log(`\n;; ======== RUN ${runDef.id} — ${runDef.why} ========`);
       const windowStart = new Date().toISOString();

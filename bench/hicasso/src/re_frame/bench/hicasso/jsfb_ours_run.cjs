@@ -95,7 +95,8 @@
 //   0  every gate cleared.
 //   1  a gate did not, or the run threw. The report above names which.
 
-const crypto = require('node:crypto');
+const crypto = require('node:crypto');
+const path = require('node:path');
 const fs = require('node:fs');
 
 const HOST = process.env.JSFB_HOST || 'localhost';
@@ -555,12 +556,12 @@ async function main() {
   // Required here rather than at module scope, as every other driver in this
   // fleet does it: `require`-ing this file must not pull in Playwright, or the
   // witness could not load the gates above without a browser on the box.
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
 
   // Provenance the report can pin, gathered before anything is measured.
   const provenance = {
     node: process.version,
-    playwright: require('playwright/package.json').version,
+    playwright: require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright', 'package.json')).version,
     rounds: ROUNDS,
     warmup: WARMUP,
     samples: SAMPLES,

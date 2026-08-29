@@ -201,7 +201,7 @@ async function runRow(browser, row) {
 (async () => {
   build();
   const server = serve();
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch();
   const version = browser.version();
   const outcomes = [];

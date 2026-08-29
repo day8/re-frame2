@@ -443,7 +443,7 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
     // A module-scope import is what made the driver unloadable without a
     // browser toolchain, and it is the half of the defect a `require.main`
     // guard on its own does not repair.
-    const at = SRC.indexOf("require('playwright')");
+    const at = SRC.indexOf("require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'))");
     assert.ok(at > 0, 'the driver must still drive a browser');
     assert.ok(at > SRC.indexOf('async function main()'), 'the import must sit inside `main`');
   });
