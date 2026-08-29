@@ -117,6 +117,7 @@
   nothing global, and the hook roster asserts the probe installed before
   it reads a count."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
@@ -739,6 +740,67 @@
                 "and no dismissal was reported for a close the application asked
                  for itself"))
           (finally (mount/release! handle)))))))
+
+;; --- a frameless overlay: legal until it carries `:on-dismiss` -------------
+;;
+;; The presence precedent (`presence-intent-dom-cljs-test`): no frame above
+;; a component that reads nothing is not an error, and an intent it cannot
+;; route is the existing loud error, NAMED. `:on-dismiss` is an intent, and
+;; it is the one the module itself routes rather than one a child wrote —
+;; so a frameless overlay carrying it refuses at render, before the element
+;; can tell the platform it may dismiss while nothing listens. That refusal
+;; is what keeps "the open flag never acquires a second owner" true outside
+;; a frame too.
+
+(def ^:private !frameless-refusal (atom nil))
+
+(defn- frameless-root!
+  "A root whose provider carries the **no-provider sentinel** — the React
+  context default, so exactly an overlay with no frame above it."
+  [hiccup]
+  (mount/root! (mount/fresh-container!) adapter-context/no-provider-sentinel hiccup))
+
+(deftest a-frameless-overlay-is-legal-until-it-carries-on-dismiss
+  (if-not (mount/browser?)
+    (skip! ":node-test has no top layer")
+    (do
+      (fresh!)
+      (testing "CONTROL: without `:on-dismiss` a popover and a modal with no
+                frame above them render — `manual` and `closedby=\"none\"`, so
+                the flag that opened them is their only owner"
+        (let [handle (frameless-root!
+                       [:div
+                        [overlay/popover {:open? true :id "free-p"} [:p "quiet"]]
+                        [overlay/modal {:open? true :id "free-m"} [:p "quiet"]]])]
+          (try
+            (mount/settle!)
+            (is (.matches ($ "#free-p") ":popover-open"))
+            (is (= "manual" (.getAttribute ($ "#free-p") "popover")))
+            (is (true? (.-open ($ "#free-m"))))
+            (is (= "none" (.getAttribute ($ "#free-m") "closedby")))
+            (finally (mount/release! handle)))))
+      (doseq [[head tag] [[overlay/popover "popover"] [overlay/modal "modal"]]]
+        (testing (str "REFUSAL: an open " tag " with `:on-dismiss` and no frame
+                       is the existing loud error, naming the intent, rather
+                       than an element the platform may dismiss with nothing
+                       listening")
+          (reset! !frameless-refusal nil)
+          (let [handle (frameless-root!
+                         [h/error-boundary {:fallback [:p.frameless-refused "refused"]
+                                            :on-error (fn [e] (reset! !frameless-refusal e))}
+                          [head {:open? true :on-dismiss [::dismissed :x] :id "free-x"}
+                           [:p "loud"]]])]
+            (try
+              (mount/settle!)
+              (is (some? ($ ".frameless-refused"))
+                  "the overlay failed rather than rendering with a dead dismissal")
+              (is (nil? ($ "#free-x")) "and no element reached the top layer")
+              (is (= :rf.error/hicasso-intent-outside-boundary
+                     (:rf.error/id (ex-data @!frameless-refusal)))
+                  (str "the existing id, no new vocabulary: " (pr-str (ex-data @!frameless-refusal))))
+              (is (= [::dismissed :x] (:intent (ex-data @!frameless-refusal)))
+                  "and it named the intent")
+              (finally (mount/release! handle)))))))))
 
 ;; --- the dismissal closure is the CURRENT render's --------------------------
 
