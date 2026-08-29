@@ -207,86 +207,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn hframe
-  "**`h/frame` in the authoring surface.** The frame id KEYWORD of the
-  boundary currently rendering. A plain function call, legal anywhere in
-  a body, and a loud error outside a render extent.
+  "The frame id KEYWORD of the boundary currently rendering — exported as
+  `re-frame.hicasso/hframe`. A plain function call, legal anywhere in a
+  body and inside a render callback that body supplied, where it answers
+  the SUPPLYING boundary's frame; `:rf.error/hicasso-frame-outside-boundary`
+  anywhere else. Not a tracked read: one dynamic-var read, no collector
+  edge, no hook. The value is process-local identity carried in closures
+  and must never be placed in markup — two same-process SSR renders take
+  two gensyms, and the render-twice determinism witness would go red.
 
-  Spelled `hframe` here for exactly the reason
-  [[re-frame.hicasso/event]] is spelled `event`: the product
-  name is qualified (`h/frame`), and a bare `frame` would shadow the
-  `re-frame.frame` alias that this namespace — and every other namespace
-  in the package — already carries.
-
-  ## What it is FOR, and the honest layering (design §6)
-
-  It serves ONE author: someone at a foreign edge who must hand a
-  dispatching closure to a caller they do not control — an SDK attach
-  ref, a value-first callback on a foreign component, a `defhost`
-  callback slot. What that author captures is not time; it is **frame
-  identity at the one moment it is knowable**.
-
-  Hand-written async *work* is a different problem and this is not its
-  answer. An fx handler already receives the frame id in its ctx and
-  `:dispatch-later` already expresses delay as data; a `setTimeout` in a
-  view that dispatches is mis-layered, and no primitive here is designed
-  for it. `h/frame` does make that spelling *work* — that softening is
-  stated on the design record rather than argued away, and the
-  compensation is that every guide row putting `h/frame` on the page puts
-  `:fx` first.
-
-  ## The carry spelling is COMPOSITION, not a second primitive
-
-      (rf/capture-frame (h/frame))
-
-  Hicasso contributes the deterministic frame READ; core keeps
-  `capture-frame` as what Spec 002 calls *the ONE public carry
-  primitive*. The two-step spelling, against the adapters' one-step
-  `(rf/capture-frame)`, is the taught asymmetry, and it has a one-
-  sentence reason: **ambient frame lookup is what Hicasso's stricter body
-  discipline withdraws** (see [[ambient-frame-refusal]]).
-
-  THE LOAD-BEARING FACT is narrower than it looks. The refusal deletes
-  the ambient FIND, never the carrying, so `rf/with-frame` and
-  `{:frame <id>}` both still answer inside a body — but neither is the
-  author-facing answer, because both *presuppose knowing the frame id*,
-  which is exactly what a reusable view mounted under N frames cannot
-  know. What makes the composition work is that **`capture-frame`'s
-  1-arity never consults the resolver at all**, so
-  `(rf/capture-frame (h/frame))` is refusal-immune by construction, and
-  `h/frame` supplies the id the carrying spellings presuppose.
-
-  ## Why it reads [[*frame*]] and not the runtime's render slot
-
-  Load-bearing, and the difference is visible in one position.
-  [[*frame*]] is rebound to the
-  **supplying** boundary while a foreign component invokes a render
-  callback ([[render-callback]]), where the runtime's own `rstate.frame`
-  is nil — the foreign render runs outside Hicasso's render pass. So
-  reading the binding answers the OWNER's frame inside a render callback
-  for free, and answers it immune to tree position, adapter, renderer and
-  timing. [[re-frame.hicasso.impl.route-link/route-link]] is the
-  internal consumer already doing exactly this.
-
-  ## NOT a tracked read, and it must not become one
-
-  Reads become collector edges because they are sub-KEYS. The frame is
-  not one: it is render-constant per boundary, resolved once by the shell
-  and bound ambiently. This is one dynamic-var read. It appends nothing
-  to the collector scratch, registers no edge and takes no React hook —
-  so the ≤2-hook shell ledger is untouched. Reactivity needs no edge: a
-  frame change is a context change or a
-  remount, and React propagates context to consumers ahead of the memo
-  comparator.
-
-  ## SSR
-
-  Server frames are per-request gensyms destroyed in the render's
-  `finally`, and the body runs on Node through this same path — so this
-  answers the per-request frame id and per-request isolation holds by
-  construction. **The value is process-local identity, carried in
-  closures, and must never be placed in markup**: two same-process
-  renders take two gensyms, so rendering it would break the render-twice
-  determinism the SSR witnesses assert."
+  It exists so a body can compose the one carry primitive without the
+  ambient find this substrate's render discipline withdraws:
+  `(rf/capture-frame (hframe))` is refusal-immune because `capture-frame`'s
+  1-arity never consults the resolver, and `hframe` supplies the id the
+  carrying spellings presuppose. It reads `*frame*` rather than the
+  runtime's render slot because only the binding is rebound to the
+  supplying boundary during a render callback. Spelled `hframe` because a
+  bare `frame` would shadow the `re-frame.frame` alias this namespace
+  carries. Design record, rejections and witnesses:
+  docs/design/hicasso/studio/hframe-design.md; its retirement is the open
+  question at docs/design/hicasso/product/naming-ledger.md row 18."
   []
   (or *frame*
       (fail! :rf.error/hicasso-frame-outside-boundary
@@ -484,79 +424,29 @@
   ::navigate)
 
 (defn- target-value
-  "The event target's current value — `.value`, except on the two controls
-  where `.value` is not it. One is corrected, one is refused, and the
-  difference between those two answers is the whole of this docstring.
+  "The event target's current value: `.value`, except on the two controls
+  where `.value` is not it. A `<select multiple>` answers its SELECTION as
+  a vector of option values, `[]` when nothing is picked — `.value` there
+  is only the first selected option, and `::h/value` already means the
+  control's current value, so this is a correction; fed back as `:value`
+  it round-trips, because the codec hands React an array. An
+  `<input type=\"file\">` is refused
+  (`:rf.error/hicasso-file-input-value-marker`): `.value` there is the
+  `C:\\fakepath\\` fiction naming one file of many, and the guide keeps
+  file inputs off the marker's surface on purpose, so answering with a
+  `FileList` would widen the marker onto a control the design excludes.
+  The asymmetry is argued at spec/009-Instrumentation.md, the row for that
+  id, and docs/design/hicasso/product/dispositions.md (Select (multiple),
+  File input).
 
-  ## The file input, refused
-
-  On an `<input type=\"file\">`, `HTMLInputElement.value` is in FILENAME
-  MODE: it answers the literal fiction `C:\\fakepath\\` followed by the
-  FIRST selected file's name. So `[:app/upload ::h/value]` on a file input
-  is a correct-looking expression that quietly means something else — it
-  names one file out of however many were chosen, over a path the spec
-  mandates as a deliberate privacy fiction, which nothing downstream can
-  open or turn back into a `File`. Same silence as the multi-select below,
-  same plausible-but-wrong string.
-
-  **It is refused rather than corrected, and the guide is what decides
-  that.** The multi-select was a correction because `::h/value` already
-  meant *the control's current value* and a multi-select's current value
-  IS its selection — the marker was answering its own question badly. A
-  file input is not that case: chapter 04's supported-controls table rules
-  it OUT of the marker's surface on purpose (`no controlled value`, with
-  `:on-change` and an `h/event` reading `.files` as the whole of its event
-  form, *because the platform owns their value*), and answering with a
-  `FileList` here would WIDEN the marker onto a control the design
-  deliberately excludes. The same chapter states the posture that settles
-  it: unsupported controlled shapes are rejected rather than approximated.
-  Handing back the fakepath string is an approximation; so is quietly
-  substituting `.files` for what the author asked for.
-
-  `.files` is the test because it is the discriminator the platform
-  already provides: it is a `FileList` on this control, `null` on every
-  other `<input>`, and absent entirely off an input. It is asked FIRST
-  because this is the one control that must not reach `.value` at all —
-  the cost is one property read on the marker path, and no allocation.
-
-  ## The multi-select, corrected
-
-  HTML defines `HTMLSelectElement.value` as *the value of the first
-  option in tree order whose selectedness is set*, and that definition
-  does not change for a `multiple` select. So on a multi-select `.value`
-  answers a plausible non-empty string that is **not** the selection: the
-  user picks two options, `[:tb/pick ::h/value]` lowers to one, the
-  controlled echo writes that one back, and the second choice is
-  discarded inside the turn. Nothing throws, nothing warns, and the shape
-  is indistinguishable from a single select's honest answer — which is
-  what makes it the worst kind of wrong, and why this is a correction
-  rather than a refusal or a second marker. `::h/value` already means
-  *the control's current value*; a multi-select's current value is its
-  selection, and it always was.
-
-  A selection is a LIST, and `[]` when nothing is picked. That is not
-  invented here: `spec/004B-UI-Tree-and-Conversion.md` rules it for the
-  same DOM control in its conversion contract — \"a `<select multiple>`'s
-  value is not a scalar — what is selected is the *list* of chosen option
-  values\", with the empty selection the empty collection rather than
-  `\"\"`. Fed straight back as `:value` it round-trips, because
-  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands a CLJS vector
-  to React as an array and React's `updateOptions` takes an array on a
-  multiple select.
-
-  ## Why the test is `.multiple` AND `.selectedOptions`
-
-  `.multiple` alone is the wrong test and would break a working control:
-  `<input type=\"email\" multiple>` carries it too and has no selection to
-  read. (`<input type=\"file\" multiple>` carries it as well, and never
-  reaches this branch — it is refused above.) Only a `<select>` has
-  `.selectedOptions`, so asking for it is what confines this branch to
-  the control it is about.
-
-  `.multiple` is asked FIRST of the two select tests because it is
-  `undefined` on every element that is not one of those three, so the
-  overwhelming case — a text field — reaches `.value` on one extra
-  property read and no allocation."
+  `.files` is asked FIRST because it is the platform's own discriminator —
+  a `FileList` on a file input, `null` on every other input — and this is
+  the one control that must not reach `.value` at all. The select test is
+  `.multiple` AND `.selectedOptions`, because `<input type=\"email\"
+  multiple>` carries `.multiple` and has no selection to read, while only a
+  `<select>` has `.selectedOptions`; `.multiple` is asked first because it
+  is `undefined` off those controls, so a text field reaches `.value` on
+  one extra property read and no allocation."
   [target]
   (when (.-files target)
     (fail! :rf.error/hicasso-file-input-value-marker
