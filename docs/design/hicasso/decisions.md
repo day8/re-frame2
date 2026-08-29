@@ -2013,7 +2013,8 @@ below, with the full window in
 > The 2026-08-03 addendum's mechanism — a gate minted per invocation of
 > every render prop, poisoning the ambient dispatch while the call ran and
 > raising `:rf.error/hicasso-dispatch-in-render-position` — is gone, and the
-> id is retired (Spec 009's row is struck in place). It spent a volatile, a
+> id is retired ([Spec 009's row](../../../spec/009-Instrumentation.md#error-event-catalogue)
+> is struck in place). It spent a volatile, a
 > closure and a three-var binding per invocation of every render prop to
 > refuse a case a programmer does not plausibly write and one React's own
 > render-phase warnings already report. What stays is the half that was
