@@ -1501,19 +1501,22 @@ test('THE RECORD RETAINS EACH WINDOW’S RAW STREAM, so a later estimator can be
   lacks(/allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/, 'the certificate is unmoved');
 });
 
-test('AN ALLOCATION WINDOW COMMITS ITS RAW RECORD — stated where the file is written', () => {
+test('AN ALLOCATION WINDOW KEEPS ITS RAW RECORD — stated where the file is written', () => {
   // rf2-erre5 part (1) is a CONVENTION, deliberately not a mechanism: nothing
-  // in this driver can tell whether an operator committed a file, and a gate
+  // in this driver can tell whether an operator kept a file, and a gate
   // that guessed would refuse every run that was not a published window. What
   // it gets instead is a line the operator actually sees, at the moment the
-  // artefact exists, plus the reason beside the code that writes it.
+  // artefact exists, plus the reason beside the code that writes it. Since
+  // rf2-6c12m.6 `data/` is git-ignored and the corpus is archived in git
+  // history, so the line says retaining the record is a deliberate act rather
+  // than telling the operator to commit into an ignored path.
   has(
-    /an allocation window COMMITS this file beside its studio page/,
+    /an allocation window KEEPS this file and its studio page cites it by SHA/,
     'the operator is told, on the run that produced the artefact'
   );
   has(
     /data\/alloc-<bead>\//,
-    'and where it goes — the path rf2-2rtt6.138 used, which is the only one that exists'
+    'and where it goes — the path rf2-2rtt6.138 used, which every reader still looks under'
   );
   // The env var that produces it is named in the usage banner. It was reachable
   // only by reading the last twenty lines of a 3,800-line driver, which is a

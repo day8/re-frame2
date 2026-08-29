@@ -5206,13 +5206,19 @@ if (require.main === module) (async () => {
     server.close();
   }
   // THE RAW RECORD, AND WHAT AN ALLOCATION WINDOW IS EXPECTED TO DO WITH IT
-  // (rf2-erre5). **An allocation window commits this file beside its studio
-  // page**, under
-  // `implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-<bead>/`,
-  // exactly as rf2-2rtt6.138 did — and that is a CONVENTION rather than a
-  // mechanism, because nothing here can tell whether an operator committed a
-  // file, and a gate that guessed would go red on every run that was not a
-  // published window.
+  // (rf2-erre5). **An allocation window KEEPS this file, and its studio page
+  // cites it by SHA.** Its home is `data/alloc-<bead>/` beside the readers
+  // (`bench/hicasso/src/re_frame/bench/hicasso/data/`), where rf2-2rtt6.138
+  // committed its record and where every reader still looks — but since
+  // rf2-6c12m.6 that directory is git-ignored and the corpus of past windows
+  // is archived in git history (`data_archive.cjs` carries the SHA and the
+  // restore command), so a record written there lands in no commit by
+  // accident. Retaining one is a deliberate act: `git add -f` the window's
+  // directory beside its page, or commit it off main and cite that commit;
+  // either way the page's provenance block carries a SHA the record resolves
+  // at. That is a CONVENTION rather than a mechanism, because nothing here
+  // can tell whether an operator kept a file, and a gate that guessed would
+  // go red on every run that was not a published window.
   //
   // WHY IT IS WORTH THE HABIT. The 2026-08-08 window is the only allocation
   // window that ever did it, and it is the only one that has since been
@@ -5239,7 +5245,10 @@ if (require.main === module) (async () => {
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, JSON.stringify(out, null, 2));
     console.error(`[p0] raw data -> ${raw}`);
-    console.error('[p0] an allocation window COMMITS this file beside its studio page');
+    console.error(
+      '[p0] an allocation window KEEPS this file and its studio page cites it by SHA ' +
+        '(data/ is git-ignored — retaining the record is a deliberate act; see data_archive.cjs)'
+    );
   }
   // THE PAGES' OWN FAILURES, JOINING THE LIST THE EXIT ALREADY READS
   // (rf2-sib23). It joins `failures` rather than taking a code of its own
