@@ -417,6 +417,71 @@
                                   (done)))))))))))
 
 ;; ---------------------------------------------------------------------------
+;; W3b — the reset gate: a verdict on one mount must not blind a sibling's
+;; ---------------------------------------------------------------------------
+;;
+;; `assert-clean!` resets the page-wide runtime after the LAST open mount
+;; is read, and only then — `!open`'s whole account in
+;; `re-frame.hicasso.test.mounted` (the rf2-2rtt6.48 shape: a census taken
+;; after a reset answers zero whether the teardown released anything or
+;; not, the gate that cannot go red). Every row above takes its verdicts
+;; in an order an EARLY reset would also satisfy: no row plants a leak
+;; under one mount, takes a sibling's verdict first, and then requires the
+;; leaked mount's reading to still move. This row is that ordering.
+;;
+;; ORDER IS THE ROW. B mounts first and takes its baseline; the leak is
+;; planted inside B's window (W3's orphan, verbatim); A mounts AFTER the
+;; leak, so A's own baseline absorbs it and A's verdict is honestly clean.
+;; A's verdict is taken FIRST — `!open` drops to one, B unread — and the
+;; reset must hold, because a reset here empties the very census B's
+;; reading is about to take: B's leak — real, planted, still leaked —
+;; would read as clean.
+
+(deftest l3-the-reset-gate-holds-while-a-sibling-mount-awaits-its-verdict
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [mb     (seeded 1)
+            orphan (mount/root! (mount/fresh-container!) (:frame mb) [row {:id 2}])
+            _      (hm/unmount! mb)
+            ma     (seeded 2)]
+        (hm/unmount! ma)
+        (-> (hm/assert-clean! ma)
+            (.then
+              (fn [ra]
+                (is (true? (:clean? ra))
+                    (str "premise: A is clean — the orphan predates A's own "
+                         "baseline, so nothing here is A's residue. Got: "
+                         (pr-str (:leaked ra))))
+                (-> (hm/residue mb)
+                    (.then
+                      (fn [rb]
+                        (is (false? (:clean? rb))
+                            "THE GATE. B's reading still moves: A's verdict
+                             — one mount read, one still waiting — did not
+                             reset the page-wide tables out from under it")
+                        (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1 :entries 1}
+                               (:leaked rb))
+                            (str "and it is still W3's precise arithmetic, "
+                                 "read against B's own baseline — a reset "
+                                 "between the two verdicts zeroes both "
+                                 "sides and reads clean. baseline "
+                                 (pr-str (:baseline rb))
+                                 " now " (pr-str (:now rb))))
+
+                        ;; Restore, then FINALISE — the discipline W3
+                        ;; states: the tests for a cleanliness instrument
+                        ;; have to be clean themselves, and B's verdict is
+                        ;; what lets the gate reach zero and reset.
+                        (mount/release! orphan)
+                        (-> (hm/assert-clean! mb)
+                            (.then (fn [after]
+                                     (is (true? (:clean? after))
+                                         "the induced fault was repaired
+                                          before the verdict")
+                                     (done))))))))))))))
+
+;; ---------------------------------------------------------------------------
 ;; W4 — render!: a props change through the same root
 ;; ---------------------------------------------------------------------------
 

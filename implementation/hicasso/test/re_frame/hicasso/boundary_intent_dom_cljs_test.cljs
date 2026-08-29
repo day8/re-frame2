@@ -97,12 +97,16 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso.impl.boundary :refer [boundary]]
             [re-frame.hicasso.hook-probe :as probe]
+            [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            ["react" :as react]
+            ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]))
 
 (def ^:private frame-id ::boundary-intent)
 (def ^:private other-frame-id ::boundary-intent-other)
@@ -128,6 +132,18 @@
 (rf/reg-event :hicasso.bdy/noted
               (fn [{:keys [db]} [_ tag]]
                 {:db (update db :noted (fnil conj []) tag)}))
+
+;; The StrictMode row's pair: `:on-error` is dispatched with the error
+;; appended, so the handler's second element IS the error; and a `:rearm`
+;; is a FAILED reset — the retry the caller scheduled with the cause
+;; still in place, `:attempt` moved and `:boom?` deliberately left true.
+(rf/reg-event :hicasso.bdy/record-error
+              (fn [{:keys [db]} [_ error]]
+                {:db (update db :errors (fnil conj []) (ex-message error))}))
+
+(rf/reg-event :hicasso.bdy/rearm
+              (fn [{:keys [db]} _]
+                {:db (update db :attempt inc)}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -588,3 +604,76 @@
                  nowhere — quietly, because that is what was declared")
             (is (nil? (:noted (db frame-id))))
             (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
+;; 10 — once per FAILURE, measured where React re-runs renders: StrictMode
+;; ---------------------------------------------------------------------------
+;;
+;; `impl.boundary`'s namespace docstring stakes the guarantee on the
+;; lifecycle — `:on-error` fires from `componentDidCatch` and from nowhere
+;; else, StrictMode runs the failing render TWICE and `componentDidCatch`
+;; still fires ONCE — and cites its witness by name in the fenced bench
+;; tree (`arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`),
+;; whose green no longer transfers: the bench twin stopped being
+;; digest-pinned to the shipped class when the freeze manifest retired
+;; `arm1/boundary.cljs`. This is that witness restated against the shipped
+;; door — provenance, not a dependency — with the failed-reset arm folded
+;; in: a reset the caller schedules with the cause still in place is a NEW
+;; failure, so it reports exactly once more.
+
+(h/defview strict-guarded
+  "The retry shape under test, with `:on-error` wired: reads `:attempt` as
+  its `:reset-key` so a `:rearm` dispatch retries the child, and records
+  every report so ONCE is a count rather than a flag."
+  [_]
+  [boundary {:fallback  [:p.fb "caught"]
+             :reset-key (collector/sub [:hicasso.bdy/attempt])
+             :on-error  [:hicasso.bdy/record-error]}
+   [risky {}]])
+
+(defn- strict-root!
+  "`mount/root!`, wrapped in `React.StrictMode`. Written here rather than
+  in the shared mount door because StrictMode is this row's variable and
+  every other row in this file must keep measuring the ordinary tree —
+  the same reasoning `hframe-dom-cljs-test`'s W6 records for its copy."
+  [container frame-kw hiccup]
+  (let [root (react-dom-client/createRoot container)]
+    (react-dom/flushSync
+      (fn [] (.render root (react/createElement
+                             react/StrictMode nil
+                             (mount/provider frame-kw (codec/as-element hiccup))))))
+    {:root root :frame frame-kw :container container}))
+
+(deftest the-boundary-reports-once-per-failure-under-strictmode
+  ;; What reds this row is reporting from anything React runs more than
+  ;; once per failure — the render, in StrictMode, is the visible case.
+  ;; The instance-flag alternative is argued away in `impl.boundary`'s
+  ;; docstring; this row is the measurement that argument leans on.
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh! frame-id)
+      (let [handle (strict-root! (mount/fresh-container!) frame-id [strict-guarded {}])]
+        (try
+          (mount/settle!)
+          (is (some? (query handle ".fb")) "the throw was caught")
+          (is (= ["the child threw"] (:errors (db frame-id)))
+              (str "ONE report, however many times StrictMode invoked the "
+                   "render that threw. Got: " (pr-str (:errors (db frame-id)))))
+
+          (testing "and a FAILED reset is a new failure, reporting exactly
+                    once more: the retry re-mounts the child, the cause is
+                    still in place, it throws again — one more record, not
+                    two for StrictMode's re-run and not zero for a boundary
+                    that stopped counting"
+            (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.bdy/rearm]))
+            ;; Twice, for `click!`'s reason: the dispatch commits on the
+            ;; first settle; the moved `:reset-key` is then read by
+            ;; `componentDidUpdate`, whose own `setState` is a second
+            ;; commit, and the re-thrown child's report follows it.
+            (mount/settle!)
+            (mount/settle!)
+            (is (some? (query handle ".fb")) "it threw again; the fallback stands")
+            (is (= ["the child threw" "the child threw"] (:errors (db frame-id)))
+                (str "Got: " (pr-str (:errors (db frame-id))))))
+          (finally (mount/release! handle)))))))
