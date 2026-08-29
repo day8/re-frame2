@@ -27,7 +27,7 @@
   broader application, and a facade freeze reads both. This form of four
   controls, two buttons and a readout needed `defview`, `sub`, and the three
   markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
-  `h/event` — every intent said what it meant as a vector — and no `use-subs`,
+  `h/event` — every intent said what it meant as a vector — and no
   `boundary`, `portal`, `as-element`, `as-component`, `defhost`, `hframe`,
   `route-link` or `reg-state`. **Six names and three keywords.**
 

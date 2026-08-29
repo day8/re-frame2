@@ -14,7 +14,7 @@
   `for` whose body is a call, an element whose props are a symbol. That
   silence is the design, not a gap: see the export's README for what each
   check refuses to know."
-  (:require [re-frame.hicasso :as h :refer [sub use-subs]]))
+  (:require [re-frame.hicasso :as h :refer [sub]]))
 
 (declare row-view sanitize icon-node props)
 
@@ -519,12 +519,12 @@
 ;; level, unlike the rows above, which is why this half is smaller: a spurious
 ;; warning is noise, and a spurious error stops a programmer working.
 ;;
-;; The doors are referred here, and read once unshadowed, so that the shadowed
+;; The door is referred here, and read once unshadowed, so that the shadowed
 ;; rows below are shadowing something real.
 ;; ---------------------------------------------------------------------------
 
-(h/defview referred-doors [_]
-  [:div (sub [:todo/current]) (str (use-subs {:x [:todo/current]}))])
+(h/defview referred-door [_]
+  [:div (sub [:todo/current])])
 
 (h/defview shadowed-parked-read [{:keys [cache]}]
   (let [sub (fn [_] "ordinary")]
@@ -540,9 +540,3 @@
 ;; outside the body the check walks.
 (h/defview shadowed-in-a-callback [_]
   [:button {:on-click (h/event [sub] [:todo/toggle (sub :value)])} "Save"])
-
-;; The second door shadows the same way.
-(h/defview shadowed-use-subs [{:keys [cache]}]
-  (let [use-subs (fn [_] {:x 1})]
-    (reset! cache (delay (use-subs {:x [:y]}))))
-  [:div "fine"])

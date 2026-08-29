@@ -13,7 +13,7 @@
   `re_frame/hicasso/lint_export_test.clj` is what reads it. Every form
   carries the finding type it must produce, so a row that stops firing is
   read as a broken rule rather than as tidy code."
-  (:require [re-frame.hicasso :as h :refer [use-subs]]))
+  (:require [re-frame.hicasso :as h :refer [sub]]))
 
 ;; ---------------------------------------------------------------------------
 ;; :re-frame.hicasso/direct-view-call -- a view called like a function
@@ -32,9 +32,9 @@
   [:button {:on-click (h/event [_e] [:todo/toggle (h/sub [:todo/current])])}
    "toggle"])
 
-(h/defview grouped-read-inside-a-callback [_]
+(h/defview referred-read-inside-a-callback [_]
   [:button {:on-click (h/event [_e]
-                        (let [{:keys [id]} (use-subs {:id [:todo/current]})]
+                        (let [id (sub [:todo/current])]
                           [:todo/toggle id]))}
    "toggle"])
 
@@ -57,7 +57,7 @@
   [:div "parked"])
 
 (h/defview parked-in-a-volatile [{:keys [cache]}]
-  (vreset! cache (delay (use-subs {:x [:todo/expensive]})))
+  (vreset! cache (delay (sub [:todo/expensive])))
   [:div "parked"])
 
 ;; ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@
 
 ;; The door REFERRED and not shadowed: a bare spelling is still the door.
 (h/defview parked-referred-read [{:keys [cache]}]
-  (reset! cache (delay (use-subs {:x [:todo/expensive]})))
+  (reset! cache (delay (sub [:todo/expensive])))
   [:div "parked"])
 
 ;; And a QUALIFIED read in a body that binds a local named `sub` somewhere

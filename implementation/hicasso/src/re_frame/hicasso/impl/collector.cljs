@@ -88,12 +88,13 @@
 
   The ambient collector — `sub` as an ordinary function call, legal
   inside a `when`, inside a `for`, and inside an inlined helper — is the
-  only read surface acceptable on ergonomics, and grouped `use-subs`
-  sits below the usability bar.
-  So [[sub]] is the surface this runtime engineers for and [[use-subs]]
-  is kept as the control it is measured against. That choice waives none
-  of HD-002's correctness gates, and the tripwire still overrides the
-  clock.
+  only read surface acceptable on ergonomics, and the one this runtime
+  engineers for. The grouped read it was measured against (`use-subs`,
+  one fixed site taking the whole query map) sat below the usability bar
+  and was removed from the door and from this namespace under
+  rf2-6c12m.15; the measurement is docs/design/hicasso/decisions.md
+  HD-002. That choice waives none of HD-002's correctness gates, and the
+  tripwire still overrides the clock.
 
   ### The ownership state machine (clause (a))
 
@@ -249,9 +250,8 @@
   the state machine above forbids — the probe moves the read the other
   way, to a path that mutates nothing at all, transiently or otherwise.
   It is also not a collector charge — `useSyncExternalStore` has the
-  identical render/commit shape, so grouped and the scalar comparator
-  inherit it — and the escrow belongs to the spine rather than to this
-  package.
+  identical render/commit shape, so the scalar comparator inherits it —
+  and the escrow belongs to the spine rather than to this package.
 
   ## The re-render path
 
@@ -1285,8 +1285,8 @@
     (fail! :rf.error/hicasso-sub-outside-render
            're-frame.hicasso.impl.collector/read-key!
            (str "A subscription read " (pr-str query-v)
-                " happened outside a boundary render. `sub` and `use-subs` "
-                "are legal only inside a defview body; `subscribe-once` is "
+                " happened outside a boundary render. `sub` is legal only "
+                "inside a defview body; `subscribe-once` is "
                 "the sanctioned snapshot for handler and utility code.")
            {:query-v query-v}))
   (let [frame-kw (.-frame rstate)
@@ -1304,27 +1304,6 @@
   the commit installs — so a branch not taken contributes no edge."
   [query-v]
   (read-key! query-v))
-
-(defn use-subs
-  "**Grouped — the control.** One fixed site receiving the complete query
-  collection, returning the snapshot the body destructures. Its edges are
-  *declared*: they are the map's values, so a boundary's edge set is a
-  function of its declaration and not of its control flow, and a branch
-  not taken still costs its edge.
-
-      (let [{:keys [todo editing?]}
-            (use-subs {:todo     [:todo/by-id id]
-                       :editing? [:todo.ui/editing? id]})]
-        …)
-
-  Kept, and kept working, because the three-rendering dogfood judgement
-  needs it and because it is the surface the collector is measured
-  against — not because it is being defended. It sits below the
-  ergonomics bar."
-  [query-map]
-  (reduce-kv (fn [m alias query-v] (assoc m alias (read-key! query-v)))
-             {}
-             query-map))
 
 ;; ---------------------------------------------------------------------------
 ;; Read-set entries — the cached subscribe/getSnapshot pair, and the

@@ -430,12 +430,6 @@
   [[re-frame.hicasso.impl.collector/sub]]."}
        sub impl-collector/sub)
 
-     (def ^{:doc "**Grouped — the control.** One fixed site takes the whole
-  query collection and returns the snapshot the body destructures, so a
-  boundary's edge set is a function of its declaration rather than of its
-  control flow. [[re-frame.hicasso.impl.collector/use-subs]]."}
-       use-subs impl-collector/use-subs)
-
      (def ^{:doc "`h/frame` in the authoring surface — the frame id KEYWORD
   of the boundary currently rendering, for the handful of core doors that
   take one (`rf/capture-frame`, `rf/with-frame`). Spelled `hframe` because

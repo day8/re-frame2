@@ -65,8 +65,8 @@
         :else                                      nil))))
 
 (defn- reads-hicasso-state?
-  "Does this node name one of the two reading doors — and does that spelling
-  still MEAN the door here?
+  "Does this node name the reading door — and does that spelling still MEAN
+  the door here?
 
   `:refer [sub]` leaves an ordinary simple symbol behind, and a local may be
   named `sub` like anything else, at which point `(sub …)` is somebody's own
@@ -78,7 +78,7 @@
   it, because nothing is named `h/sub`."
   [locals node]
   (and (not (contains? locals (token-sexpr node)))
-       (contains? #{'sub 'use-subs} (hicasso-var node))))
+       (= 'sub (hicasso-var node))))
 
 ;; ---------------------------------------------------------------------------
 ;; Walking — every node under `node`, quoted data excepted
@@ -222,7 +222,7 @@
 ;; --- a read in the one position that is deferred by construction ----------
 
 (defn- check-read-in-callback!
-  "`h/sub` / `h/use-subs` inside an `event` body.
+  "`h/sub` inside an `event` body.
 
   `event` IS the callback form — its whole contract is that it runs later —
   so a read written inside one is deferred by construction rather than by

@@ -1,13 +1,15 @@
 (ns re-frame.hicasso.facade-roster-ssr-dom-cljs-test
-  "**The three facade names that had no inventory row** — dispositions.md
-  §2.1 rows HS-40 and HS-41, and §2.2 row HS-42.
+  "**The facade names that had no inventory row** — dispositions.md
+  §2.1 row HS-40 and §2.2 row HS-42.
 
   CHECKPOINT 4 read §3's second constraint — *a surface
   that reaches the facade without a row has escaped the inventory, and
   the Phase 4 exit silently stops meaning anything* — against
   `re-frame.hicasso`'s own alias block, and three public names came back
   with no row anywhere: `h/route-link`, `h/use-subs` and `h/reg-state`.
-  This file is what those rows now point at.
+  This file is what those rows now point at. The middle one, HS-41, was
+  the grouped read door; it was removed under rf2-6c12m.15 and its rows
+  went with it.
 
   ## The roster, derived MECHANICALLY
 
@@ -24,23 +26,13 @@
   up in the second grep the day it lands, and §3's constraint says it
   owes a row.
 
-  ## Why each of the three is here rather than covered by a neighbour
+  ## Why each of the two is here rather than covered by a neighbour
 
   **`h/route-link` (HS-40)** is a node OF the rendered tree with real
   server bytes — a plain function answering `[:a {:href …}]`, where the
   href is routing's own synthesis. `requirements-mine.md`'s census counts
   106 sites and licenses them to stay href-real and visible to the server
   renderer. No hicasso suite had ever server-rendered one.
-
-  **`h/use-subs` (HS-41)** is a SECOND public read door, and it is not
-  HS-02 by another spelling — the two doors differ on exactly the axis a
-  server cares about. `h/sub` records an edge WHERE THE READ HAPPENS, so
-  a branch not taken contributes none; `use-subs` takes the whole query
-  collection at one fixed site, so its edges are *declared* and a branch
-  not taken still costs its edge. Asserting HS-02's five properties for
-  this door by inference from its sibling would have asserted the one
-  thing that is false of it. [[a-declared-edge-is-acquired-even-when-its-branch-is-not-rendered]]
-  measures the difference rather than assuming either half.
 
   **`h/reg-state` (HS-42)** is §2.2's, not §2.1's, and this file's one
   row for it says why in the only way that is not an assumption: the
@@ -56,12 +48,12 @@
   obstruction 2, measured in `identifier-prefix-ssr-dom-cljs-test` and
   unrepaired.
   **No surface in this file mints a `useId`**: `route-link` is a plain
-  function that adds no hook, `use-subs` reads through the collector's
-  existing pair, and `reg-state` mints registry entries rather than
-  elements. Every row below is unaffected and none of them repairs it.
+  function that adds no hook, and `reg-state` mints registry entries
+  rather than elements. Every row below is unaffected and none of them
+  repairs it.
 
-  Runtime: `-dom-cljs-test`. Sections 1 to 3 need no DOM and run under
-  `:node-test` as well; section 4 says so and skips there. **The node
+  Runtime: `-dom-cljs-test`. Sections 1 and 2 need no DOM and run under
+  `:node-test` as well; section 3 says so and skips there. **The node
   lane is the one that decides the server claims** — a green browser lane
   says nothing about `renderToString`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -92,27 +84,13 @@
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-sub :hicasso.facade-roster/author (fn [db _] (:author db)))
-(rf/reg-sub :hicasso.facade-roster/title (fn [db _] (:title db)))
-(rf/reg-sub :hicasso.facade-roster/done? (fn [db _] (:done? db)))
-
-;; Read ONLY through the grouped door, and only inside a branch a
-;; `:done?` of false does not take. The acquisition rows need a key whose
-;; reader count answers *was this edge declared*, and a key the page
-;; renders unconditionally cannot.
-(rf/reg-sub :hicasso.facade-roster/badge (fn [db _] (:badge db)))
 
 (rf/reg-event :hicasso.facade-roster/seed
               (fn [_ [_ author]]
-                {:db {:author (or author "jane")
-                      :title  "quarterly"
-                      :done?  false
-                      :badge  "shipped"}}))
+                {:db {:author (or author "jane")}}))
 
 (rf/reg-event :hicasso.facade-roster/rename
               (fn [{:keys [db]} [_ a]] {:db (assoc db :author a)}))
-
-(rf/reg-event :hicasso.facade-roster/finish
-              (fn [{:keys [db]} _] {:db (assoc db :done? true)}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -156,21 +134,6 @@
      (h/route-link {:to route-id :params {:username who} :class "author"}
                    who)]))
 
-(h/defview grouped
-  "HS-41. The grouped read at one fixed site, with three declared
-  queries and only two of them rendered under this request. The `when`
-  is the whole point of the shape: `:badge` is DECLARED, so its edge is
-  a fact about this body's declaration rather than about which branch
-  ran."
-  [_]
-  (let [{:keys [title badge done?]}
-        (h/use-subs {:title [:hicasso.facade-roster/title]
-                     :badge [:hicasso.facade-roster/badge]
-                     :done? [:hicasso.facade-roster/done?]})]
-    [:section.grouped
-     [:h1.g-title title]
-     (when done? [:span.g-badge badge])]))
-
 (h/defview panel
   "HS-42's read half. `reg-state` itself contributes nothing to a tree;
   what reaches a page is the parametric subscription it minted, read
@@ -183,13 +146,12 @@
    [:span.p-state (str (h/sub [panel-concern "p1"]))]])
 
 (h/defview page
-  "The hydration rows' page: all three surfaces in one tree, so ONE
-  adoption covers HS-40, HS-41 and HS-42 rather than leaving them
-  witnessed on the server side alone."
+  "The hydration rows' page: both surfaces in one tree, so ONE adoption
+  covers HS-40 and HS-42 rather than leaving them witnessed on the server
+  side alone."
   [_]
   [:div.page
    [byline {}]
-   [grouped {}]
    [panel {}]])
 
 ;; ---------------------------------------------------------------------------
@@ -303,52 +265,7 @@
       (is (not (re-find #"jane" b)) (str "in either direction: " b)))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — HS-41, `h/use-subs` in the server bytes (no DOM)
-;; ---------------------------------------------------------------------------
-
-(deftest a-grouped-read-answers-the-request-snapshot
-  (testing "HS-41 under §2.4's snapshot clause, proved for THIS door
-            rather than inferred from `h/sub`. One fixed site takes the
-            whole query collection and the body destructures the
-            snapshot, and what lands in the bytes is the frame the render
-            NAMES. Narrowing caught: a grouped read resolving through a
-            page-wide current-frame, which answers both requests from one"
-    (fresh! frame-id "jane")
-    (fresh! other-frame-id "mary")
-    (rf/with-frame other-frame-id
-      (rf/dispatch-sync [:hicasso.facade-roster/finish]))
-    (let [a (server-html frame-id [grouped {}])
-          b (server-html other-frame-id [grouped {}])]
-      (is (re-find #"<h1 class=\"g-title\">quarterly</h1>" a)
-          (str "the grouped snapshot's rendered values are in the bytes: " a))
-      (is (not (re-find #"class=\"g-badge\"" a))
-          (str "and the branch this request does not take contributes no
-                ELEMENT — a declared edge is not a rendered one: " a))
-      (is (re-find #"class=\"g-badge\">shipped" b)
-          (str "while the request that does take it carries the value
-                only that branch renders: " b)))))
-
-(deftest no-cross-request-state-survives-a-grouped-render
-  (testing "HS-41's third server clause. Render A, render B, render A
-            again: A's second response is byte-identical to its first.
-            This is the clause the grouped door most plausibly breaks,
-            because `use-subs` writes a `grouped` flag on the render
-            state before it reads — narrowing caught: any of that state
-            outliving the render, which shows up as the SECOND identical
-            request answering differently from the first"
-    (fresh! frame-id "jane")
-    (fresh! other-frame-id "mary")
-    (rf/with-frame other-frame-id
-      (rf/dispatch-sync [:hicasso.facade-roster/finish]))
-    (let [a1 (server-html frame-id [grouped {}])
-          _  (server-html other-frame-id [grouped {}])
-          a2 (server-html frame-id [grouped {}])]
-      (is (= a1 a2)
-          (str "the same request answered the same way after an unrelated
-                one ran between: " a1 " vs " a2)))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — HS-42, `h/reg-state` (no DOM)
+;; 2 — HS-42, `h/reg-state` (no DOM)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-reg-state-concern-reaches-a-page-only-through-the-read-door
@@ -375,7 +292,7 @@
             "so the value is the request's rather than the registration's")))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — adoption, acquisition and cleanup (DOM)
+;; 3 — adoption, acquisition and cleanup (DOM)
 ;; ---------------------------------------------------------------------------
 
 (deftest the-page-adopts-the-servers-own-nodes
@@ -386,7 +303,7 @@
         [page {}]
         done
         (fn [container seen html]
-          (testing "§2.4's second clause for all three rows at once: the
+          (testing "§2.4's second clause for both rows at once: the
                     client's first pass rendered what the server did, so
                     the two agreed by construction and React found
                     nothing to reconcile"
@@ -399,17 +316,15 @@
             (is (sup/every-server-node? container "a")
                 "the anchor is the SERVER'S node, still carrying the
                  expando — adoption, not a re-render that looks the same")
-            (is (sup/every-server-node? container ".g-title")
-                "as is the grouped read's heading")
             (is (sup/every-server-node? container ".p-state")
-                "and the reg-state panel's")
+                "as is the reg-state panel's")
             (is (= "/profile/jane"
                    (.getAttribute (q container "a") "href"))
                 "the settled anchor keeps routing's href")
             (is (= "false" (.-textContent (q container ".p-state")))
                 "and the concern its registered default")))))))
 
-(deftest a-declared-edge-is-acquired-even-when-its-branch-is-not-rendered
+(deftest an-adopted-read-is-acquired-exactly-once
   (async done
     (if-not (mount/browser?)
       (do (sup/skip! ":node-test has no DOM") (done))
@@ -417,30 +332,13 @@
         [page {}]
         done
         (fn [_container _seen _html]
-          (testing "HS-41's acquisition clause, and **the row that makes
-                    this id not a duplicate of HS-02**. `h/sub` records
-                    an edge where the read happens, so `core-view-ssr`'s
-                    conditional key has NO reader after adoption.
-                    `use-subs` declares its edges at one fixed site, so
-                    the key behind an untaken `when` has exactly one —
-                    the two doors differ here by construction, and a row
-                    that inferred this door's behaviour from its sibling
-                    would have asserted the opposite. Narrowing caught: a
-                    grouped read that lowered to per-read edges, which
-                    reads zero here and makes the two doors
-                    indistinguishable"
-            (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/badge]]))
-                (str "the DECLARED but unrendered key has exactly one
-                      reader after adoption; cells: "
-                     (pr-str (sup/cell-keys))))
-            (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/title]]))
-                (str "as does the key the body did render — one reader
-                      each, not two, so the server render registered NONE
-                      and only the adoption acquired; cells: "
-                     (pr-str (sup/cell-keys))))
+          (testing "§2.4's acquisition clause for the link's own `h/sub`
+                    read: one reader after adoption, not two, so the
+                    server render registered NONE and only the adoption
+                    acquired"
             (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/author]]))
-                (str "and the link's own `h/sub` read acquired exactly
-                      once as well; cells: " (pr-str (sup/cell-keys))))))))))
+                (str "the link's read acquired exactly once; cells: "
+                     (pr-str (sup/cell-keys))))))))))
 
 (deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
   (async done
@@ -539,11 +437,11 @@
                       "root A adopted the server's anchor")
                   (is (sup/every-server-node? cb "a")
                       "and so did root B, concurrently")
-                  (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/badge]]))
-                      (str "and each frame holds its own single declared
-                            edge rather than one shared cell; cells: "
+                  (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/author]]))
+                      (str "and each frame holds its own single edge
+                            rather than one shared cell; cells: "
                            (pr-str (sup/cell-keys))))
-                  (is (= 1 (sup/readers-of [other-frame-id [:hicasso.facade-roster/badge]]))
+                  (is (= 1 (sup/readers-of [other-frame-id [:hicasso.facade-roster/author]]))
                       (str "one each, in both directions; cells: "
                            (pr-str (sup/cell-keys)))))
                 (finally
@@ -559,22 +457,15 @@
     (do
       (fresh!)
       (collector/reset-runtime!)
-      (testing "§2.4's last clause for these rows: exact cleanup, and the
-                grouped door is where it matters most — a declared edge
-                the body never rendered is still a cell somebody has to
-                release. Narrowing caught: a teardown that empties the
-                runtime's tables rather than releasing the
-                subscriptions — it answers zero whether it released
-                anything or not"
+      (testing "§2.4's last clause for these rows: exact cleanup.
+                Narrowing caught: a teardown that empties the runtime's
+                tables rather than releasing the subscriptions — it
+                answers zero whether it released anything or not"
         (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/badge]]))
-              (str "the declared-but-unrendered edge is held while
-                    mounted; cells: " (pr-str (sup/cell-keys))))
           (is (= 1 (sup/readers-of [frame-id [:hicasso.facade-roster/author]]))
-              (str "as is the link's; cells: " (pr-str (sup/cell-keys))))
-          (mount/unmount! handle)
-          (is (zero? (sup/readers-of [frame-id [:hicasso.facade-roster/badge]]))
-              (str "and neither survives the PUBLIC teardown door; cells: "
+              (str "the link's edge is held while mounted; cells: "
                    (pr-str (sup/cell-keys))))
+          (mount/unmount! handle)
           (is (zero? (sup/readers-of [frame-id [:hicasso.facade-roster/author]]))
-              (str "in both cases; cells: " (pr-str (sup/cell-keys)))))))))
+              (str "and it does not survive the PUBLIC teardown door; cells: "
+                   (pr-str (sup/cell-keys)))))))))

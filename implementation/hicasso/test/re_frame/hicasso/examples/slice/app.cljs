@@ -11,8 +11,8 @@
 
       re-frame.core            events, subscriptions, frames
       re-frame.routing         reg-route, and the navigate event
-      re-frame.hicasso         defview, sub, use-subs, boundary,
-                               route-link, reg-state, root!, render!
+      re-frame.hicasso         defview, sub, boundary, route-link,
+                               reg-state, root!, render!
       re-frame.adapter.uix     the reactive adapter, installed at boot
 
   Nothing under `re-frame.hicasso.impl.*`, nothing under
