@@ -137,8 +137,9 @@
   proves the outcome against the fused doors.
 
   What the changed case therefore costs, for an `n`-read boundary with
-  one key different: `n` membership removals and up to `n` armed reapers,
-  one entry miss (a `.slice`, an `(into #{} ks)` and two closures), and
+  one key different: `n` membership removals (each cell left readerless
+  queued for the one reaper timer), one entry miss (a `.slice`, an
+  `(into #{} ks)` and two closures), and
   `n` [[acquire-cell!]]s, each pushing one slot onto a cell's reader
   list. There is **no cheap route for \"19 of 20 keys unchanged\"**, and a
   page whose rows change read set on a data change pays it per row. That
@@ -622,16 +623,84 @@
     (subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
   nil)
 
-(defn- arm-cell-reaper!
+;; ---------------------------------------------------------------------------
+;; The reapers — one armed timer per horizon per turn
+;; ---------------------------------------------------------------------------
+;;
+;; A cell whose last reader leaves and an entry nobody has claimed are each
+;; given a horizon of grace before they are dropped — one macrotask for a
+;; cell, [[entry-reap-horizon-ms]] for an entry. Neither arms a timer of
+;; its own: each horizon has ONE pending queue, and an arm pushes onto it
+;; and starts a timer only when none is running. A cold mount of 300
+;; distinct-read boundaries arms one timer rather than three hundred, and
+;; unmounting them arms two rather than six hundred
+;; (`reaper_coalescing_cljs_test` counts both).
+;;
+;; Semantics are unchanged. Every item carries the instant it falls due, so
+;; a drain reaps only what is past its OWN horizon and re-arms for the head
+;; of whatever is not — an item queued after the timer was armed still
+;; waits its full horizon, which is what keeps `quiesced!`, which settles
+;; strictly past `entry-reap-horizon-ms`, an honest settling point.
+
+(defn- reap-queue
+  "One pending queue for one horizon: the items waiting, the instant each
+  falls due, whether a drain timer is armed, and the drain itself — built
+  once, so arming a timer allocates nothing."
+  [horizon-ms reap!]
+  (let [^js q #js {"items" #js [] "due" #js [] "armed" false "horizon" horizon-ms}]
+    (unchecked-set q "drain"
+      (fn drain []
+        (set! (.-armed q) false)
+        (let [items (.-items q)
+              due   (.-due q)
+              now   (js/Date.now)]
+          (loop []
+            (when (pos? (alength items))
+              (let [left (- (aget due 0) now)]
+                ;; A `left` above the horizon means the clock moved under
+                ;; the queue — the test kit's virtual clock handing its
+                ;; timers back to the real one, a stepped system clock —
+                ;; and an item that cannot be waited for is reaped, never
+                ;; parked.
+                (if (or (<= left 0) (> left horizon-ms))
+                  (do (.shift due)
+                      (reap! (.shift items))
+                      (recur))
+                  (do (set! (.-armed q) true)
+                      (js/setTimeout (.-drain q) left)))))))))
+    q))
+
+(defn- arm-reaper!
+  "Queue `x` for `q`'s horizon, arming the one timer if none is armed."
+  [^js q x]
+  (let [horizon-ms (.-horizon q)]
+    (.push (.-items q) x)
+    (.push (.-due q) (+ (js/Date.now) horizon-ms))
+    (when-not (.-armed q)
+      (set! (.-armed q) true)
+      (js/setTimeout (.-drain q) horizon-ms)))
+  nil)
+
+(defn- reset-reapers!
+  "Forget what `q` is waiting to reap. [[reset-runtime!]]'s half — a timer
+  still armed drains an empty queue and does nothing."
+  [^js q]
+  (set! (.-length (.-items q)) 0)
+  (set! (.-length (.-due q)) 0)
+  (set! (.-armed q) false)
+  nil)
+
+(def ^:private cell-reapers
   "A cell whose last reader unmounts is given one macrotask of grace, so
   a keyed reorder that unmounts and remounts a row within one turn reuses
   the reaction instead of rebuilding it."
-  [^js cell]
-  (js/setTimeout (fn [] (when (and (zero? (alength (.-readers cell)))
-                                   (not (.-disposed cell)))
-                          (dispose-cell! cell)))
-                 0)
-  nil)
+  (reap-queue 0 (fn [^js cell]
+                  (when (and (zero? (alength (.-readers cell)))
+                             (not (.-disposed cell)))
+                    (dispose-cell! cell)))))
+
+(defn- arm-cell-reaper! [^js cell]
+  (arm-reaper! cell-reapers cell))
 
 (declare invalidate-cell!)
 
@@ -1338,7 +1407,7 @@
   zero-leak property is unchanged, and only its zero-POINT moves."
   4)
 
-(defn- arm-entry-reaper!
+(def ^:private entry-reapers
   "An entry with no committed boundary is dropped at the reap horizon.
   Two callers, one rule: an entry a discarded render minted was never
   claimed, and an entry whose last boundary unmounted is no longer
@@ -1347,10 +1416,12 @@
 
   The horizon is [[entry-reap-horizon-ms]] — deliberately past a bare
   `setTimeout 0`, and deliberately not a promise to anyone."
-  [^js entry]
-  (js/setTimeout (fn [] (when (zero? (.-refs entry)) (drop-entry! entry)))
-                 entry-reap-horizon-ms)
-  nil)
+  (reap-queue entry-reap-horizon-ms
+              (fn [^js entry]
+                (when (zero? (.-refs entry)) (drop-entry! entry)))))
+
+(defn- arm-entry-reaper! [^js entry]
+  (arm-reaper! entry-reapers entry))
 
 (defn- entry-matches?
   "Ordered pairwise compare of an entry's key array against `ks`.
@@ -2070,6 +2141,8 @@
   (vreset! !dirty #{})
   (vreset! !deferred #{})
   (vreset! !batching false)
+  (reset-reapers! cell-reapers)
+  (reset-reapers! entry-reapers)
   (generation/reset-basis!)
   (set! (.-entry rstate) nil)
   (set! (.-frame rstate) nil)
