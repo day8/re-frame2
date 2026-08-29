@@ -105,6 +105,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.overlay :as overlay]
+            [re-frame.hicasso.test.forms :as tf]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -332,7 +333,7 @@
             the protocol and not this file's idea of it"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [forms/edit-id control 3 "half-typed"]))
+      (rf/dispatch-sync [tf/edit-id control 3 "half-typed"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"half-typed\"" html)
           (str "the draft, not the committed value: " html))
@@ -343,7 +344,7 @@
             commit a no-op, answered while producing bytes"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [forms/edit-id control 2 "stale"]))
+      (rf/dispatch-sync [tf/edit-id control 2 "stale"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"milk\"" html)
           (str "the committed value, because revision 2 is not 3: " html)))))

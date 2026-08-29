@@ -239,10 +239,13 @@ The optional forms module. One view and its protocol; nothing new underneath it.
                        :on-cancel   [:todo/edit-cancelled id]}]
 
 forms/drafts       ;; the h/reg-state concern every draft lives under
-forms/edit-id      ;; ::edit    — the keystroke event
-forms/commit-id    ;; ::commit  — Enter and blur alike
-forms/cancel-id    ;; ::cancel  — Escape
 ```
+
+The field's protocol is three ordinary events in the module's own keyword
+namespace — `::edit` on `:on-input`, `::commit` on Enter and blur alike,
+`::cancel` on Escape — written into the field's intents rather than exported
+as names. A test that drives the field by hand names them through the kit's
+`re-frame.hicasso.test.forms` (`tf/edit-id`, `tf/commit-id`, `tf/cancel-id`).
 
 `forms/buffered-field` is a controlled `<input>` with an app-db draft in front of
 the committed value. `:control` is an opaque address, not a path; `:value` is the
