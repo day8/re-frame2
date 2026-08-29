@@ -147,6 +147,11 @@
 ;; needs the overlay to survive its own dismissal so the teardown is a
 ;; separate, later event it can attribute.
 (rf/reg-event ::noted (fn [{:keys [db]} [_ k]] {:db (update-in db [:dismissed k] (fnil inc 0))}))
+;; The swap-freshness row's model: WHICH intent the popover's `:on-dismiss`
+;; carries is itself app state, so a dispatch can change it mid-flight and
+;; the row can ask which render's closure the platform's dismissal landed on.
+(rf/reg-sub ::dismiss-tag (fn [db _] (:dismiss-tag db)))
+(rf/reg-event ::retag (fn [{:keys [db]} [_ tag]] {:db (assoc db :dismiss-tag tag)}))
 (rf/reg-event ::clicked (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:clicked k] true)}))
 (rf/reg-sub ::body-read (fn [db _] (:body-read db)))
 
@@ -732,6 +737,68 @@
             (is (zero? (get-in (db) [:dismissed :pb] 0))
                 "and no dismissal was reported for a close the application asked
                  for itself"))
+          (finally (mount/release! handle)))))))
+
+;; --- the dismissal closure is the CURRENT render's --------------------------
+
+(h/defview swap-dismiss-page [_]
+  ;; The subject popover's `:on-dismiss` carries a tag read from app-db,
+  ;; so a `::retag` dispatch re-renders it wired to a DIFFERENT intent
+  ;; while it stays open. `pop-u` is the dismissal driver: an unrelated
+  ;; auto popover joining the LIFO stack light-dismisses the open one —
+  ;; the same engine path the stack row above drives, chosen over a
+  ;; direct `hidePopover()` because the module's own teardown fires the
+  ;; identical event and the row above already proves THAT one routes
+  ;; nowhere.
+  [:div
+   [overlay/popover {:open?      (h/sub [::open? :ps])
+                     :on-dismiss [::dismissed (h/sub [::dismiss-tag])]
+                     :id         "pop-s"}
+    [:p "S"]]
+   [overlay/popover {:open?      (h/sub [::open? :pu])
+                     :on-dismiss [::noted :pu]
+                     :id         "pop-u"}
+    [:p "U"]]])
+
+(deftest a-dismissal-dispatches-the-intent-of-the-render-that-is-on-screen
+  ;; `impl.overlay/dismissal-handler` mints a fresh closure per render,
+  ;; deliberately: it closes over the intent and the frame dispatch THIS
+  ;; render saw, so an overlay whose `:on-dismiss` changed cannot dispatch
+  ;; the previous one. React swaps a listener for free; a stale intent
+  ;; would cost a wrong event. That sentence had no witness: every other
+  ;; row keeps one `:on-dismiss` for the life of its overlay, so a handler
+  ;; cached on first render would pass all of them.
+  (if-not (mount/browser?)
+    (skip! ":node-test has no popover API and no auto stack")
+    (do
+      (fresh!)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [swap-dismiss-page {}])]
+        (try
+          (mount/settle!)
+          (go! [::retag :old])
+          (go! [::opened :ps])
+          (is (.matches ($ "#pop-s") ":popover-open")
+              "premise: the subject is open, wired — this render — to the
+               :old intent")
+
+          (go! [::retag :new])
+          (is (.matches ($ "#pop-s") ":popover-open")
+              "premise: the re-render that re-wired :on-dismiss left the
+               overlay open — nothing here dismissed it")
+
+          ;; THE DISMISSAL, through the platform's own door.
+          (go! [::opened :pu])
+          (is (not (.matches ($ "#pop-s") ":popover-open"))
+              "premise: the unrelated auto popover light-dismissed the subject")
+
+          (is (= 1 (get-in (db) [:dismissed :new] 0))
+              "THE FRESHNESS. The dismissal dispatched the intent of the
+               render on screen when the platform closed it — the one wired
+               AFTER the retag")
+          (is (zero? (get-in (db) [:dismissed :old] 0))
+              "and the previous render's intent did not fire: a handler
+               cached at first render — or a closure over the first
+               render's props — would have dispatched :old here")
           (finally (mount/release! handle)))))))
 
 ;; --- the census ------------------------------------------------------------
