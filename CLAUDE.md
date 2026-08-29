@@ -60,8 +60,10 @@ bd close <id>         # Complete work
   ```bash
   sh scripts/beads-checkpoint.sh   # export from the database, verify, commit
   git checkout HEAD -- .beads      # now safe: HEAD carries the tracker
-  git pull --rebase
+  git pull --rebase origin main    # name both: a bare pull reads the shared fetch-head file
   ```
+
+  **Name remote and branch on that pull, and on the one in the session-completion block above** (that block is tool-generated, so read its bare form as the same command with both named). A bare `git pull --rebase` takes its target from `FETCH_HEAD`, which any fetch in this checkout rewrites — a branch fetch moments earlier leaves several refs in it, and the pull aborts with `Cannot rebase onto multiple branches` on a clean, undiverged tree where neither remedy above applies (measured 2026-08-29 22:31 AUSEST, mid-checkpoint, one line after a `git fetch origin worker/<branch>`). The abort is inert only because the push that follows still lands; the next step it silently skips is the rebase itself.
 
   `sh scripts/beads-checkpoint.sh --pre-pull` (or `-PrePull` on the `.ps1`) answers "would clearing `.beads` throw tracker state away?" — exit 0 means the checkout is safe. **Do not `git stash`**: stashes are repo-global and contaminate every other worktree in flight.
 
