@@ -5003,7 +5003,7 @@ module.exports = {
 if (require.main === module) (async () => {
   build();
   const server = serve();
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../..', 'implementation', 'node_modules', 'playwright'));
   const out = { generatedAt: new Date().toISOString(), build: BUILD, initFn: INIT_FN };
   // EVERY failed gate, not the last one. A single `failed` slot let a
   // later gate's silence overwrite an earlier gate's refusal, and a run

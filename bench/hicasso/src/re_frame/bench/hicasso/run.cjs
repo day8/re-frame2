@@ -117,7 +117,7 @@ function serve() {
 }
 
 async function run() {
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch();
   const page = await browser.newPage();
 

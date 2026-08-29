@@ -85,12 +85,13 @@ const { resetLaneBuildCache } = require('../../../../../../implementation/core/t
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL_ROOT = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.IME_OUT_DIR || 'out/hicasso-ime';
 const INIT_FN = 're-frame.bench.hicasso.ime-app/-main';
-const OUT = path.join(IMPL_ROOT, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.IME_PORT || 8146);
 const READY_TIMEOUT_MS = 60 * 1000;
 
@@ -119,12 +120,12 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL_ROOT, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[ime] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs (rf2-2rtt6.20)`);
   }
   console.error(`[ime] building DEV bundle — ${INIT_FN} -> ${OUT_DIR} (see header for why not :advanced)`);
   shadowBuild({
-    project: PROJECT_ROOT,
+    project: PROJECT,
     mode: 'compile',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,
@@ -618,7 +619,7 @@ async function runImpl(browser, impl) {
 (async () => {
   build();
   const server = serve();
-  const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
+  const { chromium } = require(require.resolve('playwright', { paths: [IMPL] }));
   const browser = await chromium.launch({ headless: true });
   const outcomes = [];
   let died = null;

@@ -490,7 +490,7 @@ function checkPage(label, contract, gates, failures) {
 
 (async () => {
   const variants = selected();
-  const { chromium } = require('playwright');
+  const { chromium } = require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'));
   const browser = await chromium.launch();
   const version = browser.version();
   const rows = [];
