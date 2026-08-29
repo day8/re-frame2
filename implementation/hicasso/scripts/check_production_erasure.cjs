@@ -148,11 +148,11 @@ const SENTINELS = [
     source: 'src/re_frame/hicasso/impl/collector.cljs',
     premise: '(def ^:private views-slot "hicassoViews")',
     why:
-      'The own property `collector/note-view!` writes on a read-set entry — the ' +
-      'declared view names that rendered it, which `re-frame.hicasso.tool` ' +
-      'resolves to a source coordinate. Written from `render-body` inside ' +
-      '`(when ^boolean js/goog.DEBUG …)`, so a release entry carries neither ' +
-      'the slot nor a name.',
+      'The own property `collector/view-subscribe` writes on a read-set entry — ' +
+      'the declared view names holding it, counted at commit and uncounted at ' +
+      'cleanup, which `re-frame.hicasso.tool` resolves to a source coordinate. ' +
+      'Written from `render-body` inside `(when ^boolean js/goog.DEBUG …)`, so ' +
+      'a release entry carries neither the slot nor a name.',
     remedy:
       'Check that gate at impl/collector.cljs `render-body`; a production entry ' +
       'must carry no view names.',

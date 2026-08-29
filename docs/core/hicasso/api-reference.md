@@ -426,9 +426,10 @@ and `:loss`. Read the envelope before the roster: `tool/explain-render` is
 structurally incomplete and says so, because the commit seam carries no cascade
 identity, so it reports `{:reason :uncorrelated}` and offers `:candidates` as
 leads. In a development build every mounted row, reader and explanation also
-carries `:views` — the declared views that rendered that boundary, each with
-the source coordinate `defview` captured — or `:unknown` for a body minted
-without a name. Taught in [Diagnostics](16-diagnostics.md).
+carries `:views` — the declared views currently mounted on that boundary's
+edge set, each with the source coordinate `defview` captured — or `:unknown`
+for a body minted without a name. A view that unmounts leaves the list, and a
+render React discarded never joins it. Taught in [Diagnostics](16-diagnostics.md).
 
 ## `re-frame.hicasso.evidence`
 
