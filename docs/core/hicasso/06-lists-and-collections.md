@@ -39,15 +39,14 @@ can skip their bodies.
     Strings, numbers, keywords, UUIDs, and symbols are valid keys.
     Collections, JS objects, dates, booleans, and functions are not.
 
-Missing keys produce React's warning and
-`:rf.warning/hicasso-missing-key` in development. The Hicasso warning names
-the enclosing view, child head, and first offending index. It fires per call
-site rather than relying on React's page-lifetime deduplication.
+Missing keys produce React's own warning in development; Hicasso adds nothing
+to it. The entity-key warning names the child head and the first offending
+index, and it fires per call site rather than relying on React's page-lifetime
+deduplication.
 
-Hicasso also detects a case React can miss: a sequence passed as a Hicasso
-view's children and flattened before reaching React. The flattened elements may
-already appear validated to React, so the Hicasso check is the only warning.
-Both checks disappear from production.
+It also runs where React never looks: a sequence passed as a Hicasso view's
+children is flattened before reaching React, and the flattened elements already
+appear validated to it. The check disappears from production.
 
 ??? info "For readers coming from Reagent"
     Hicasso does not read `^{:key id}` metadata. Use
@@ -306,7 +305,7 @@ each view and their churn.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Development warning names a view, child, and index | `:rf.warning/hicasso-missing-key` | Put `:key` in every sequence member's props map; Reagent metadata is not read |
+| React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in every sequence member's props map; Reagent metadata is not read |
 | Editing a row remounts it and reports an entity key | `:rf.warning/hicasso-entity-key` | Use a stable primitive domain id, not the full row value |
 | Input state or animation jumps after insertion/reorder | Index keys changed row identity | Key rows by domain id |
 | One entity change runs every row body | A sparse workload uses a read placed too high, or row props all changed | Let rows read their own entities, or accept and measure the coarse model |

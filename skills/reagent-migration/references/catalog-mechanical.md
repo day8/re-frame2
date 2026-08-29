@@ -143,11 +143,9 @@ reorderable or filterable list that is silent state corruption: the wrong row's
 input keeps the wrong row's text.
 
 It rides MIG-01's atomic call-site pass so the props map is built once. Two
-diagnostics help, and neither is complete cover:
+signals help, and neither is complete cover:
 
-- `:rf.warning/hicasso-missing-key` fires (dev only) for a **boundary-headed**
-  member of a sequence. A `for` over plain `[:li …]` gets React's own warning,
-  not Hicasso's.
+- React's own key warning fires for a missing key; Hicasso adds nothing to it.
 - `:rf.warning/hicasso-entity-key` fires when the key is neither a
   string/number/keyword nor a uuid/symbol — an entity map used as a key, which
   was never stable.

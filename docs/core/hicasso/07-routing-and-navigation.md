@@ -86,8 +86,8 @@ Click conduct is browser-compatible:
   new tab
 - anchors with `:target` or `:download` navigate natively
 
-The generated map accepts only `:frame`, `:payload`, `:native?`, and `:veto`.
-Unexpected keys raise `:rf.error/hicasso-malformed-navigate` during rendering.
+The generated map carries `:frame`, `:payload`, `:native?`, and `:veto`;
+`route-link` creates it, and application code does not author it.
 If the core routing artefact was not loaded, rendering raises
 `:rf.error/routing-artefact-missing` and names the requested route instead of
 producing a dead anchor. Ordinary classes, data attributes, and ARIA props pass
@@ -140,9 +140,9 @@ exit. A link veto covers only that link.
 
 Warming a destination on hover, focus, or touch is an event,
 `[:rf.route/prefetch address]`, dispatched from the intent that signals the
-interest. `h/route-link` declines a `:prefetch` key — rendering one raises
-`:rf.error/hicasso-route-link-prefetch-declined` — because that event needs
-nothing the link does not already give you:
+interest. `h/route-link` does not read a `:prefetch` key — the link installs
+none of routing's prefetch handlers — because that event needs nothing the link
+does not already give you:
 
 ```clojure
 (h/route-link {:to             :app/article
@@ -317,9 +317,8 @@ and activation pipeline as route links:
 | --- | --- | --- |
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
-| Rendering raises `:rf.error/hicasso-malformed-navigate` | Application code created or altered the reserved navigation head | Do not author `::h/navigate`; let `route-link` create it |
 | `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
-| Rendering raises `:rf.error/hicasso-route-link-prefetch-declined` | The link carries `:prefetch`, which `route-link` declines | Remove the key and dispatch `[:rf.route/prefetch address]` from `:on-mouse-enter` |
+| A link carrying `:prefetch` warms nothing | `route-link` installs none of routing's prefetch handlers | Dispatch `[:rf.route/prefetch address]` from `:on-mouse-enter` |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
 | Focus stays on the old navigation link | Main region was not keyed/focusable or its ref did not run | Key by page identity, add `:tab-index -1`, and focus from the callback ref |

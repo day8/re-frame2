@@ -149,8 +149,9 @@ head. When the child is a view, Presence passes an ordinary prop:
 `:rf/phase` is one of `:mounting`, `:present`, or `:unmounting`. Tests can pass
 the prop directly without arming timers.
 
-Putting `::motion/unmounting` on a view head raises
-`:rf.error/hicasso-presence-override-on-a-view`.
+Putting `::motion/unmounting` on a view head does nothing: Presence cannot see
+inside a view, so the override is dropped and the view receives `:rf/phase`
+instead.
 
 ## Rules that matter in production
 
@@ -186,7 +187,7 @@ Putting `::motion/unmounting` on a view head raises
 | Dismissed item vanishes immediately | Children are not under Presence, or keys are missing | Wrap the keyed sequence in `motion/presence` and give every child a stable `:key` |
 | Node stays forever after dismiss | `:timeout-ms` omitted or far longer than the CSS | Set `:timeout-ms` to at least the CSS duration; it is required |
 | Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` (or via `:rf/phase` on a view) |
-| Override on a view raises `:rf.error/hicasso-presence-override-on-a-view` | Presence cannot merge into a boundary head | Branch on `:rf/phase` inside the view |
+| Override on a view head has no effect | Presence cannot merge into a boundary head; the override is dropped | Branch on `:rf/phase` inside the view |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
 | Bundle still contains motion code when unused | Something required the module | Require `re-frame.hicasso.motion` only where Presence is used |
 

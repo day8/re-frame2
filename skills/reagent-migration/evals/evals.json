@@ -57,7 +57,7 @@
      "expectations": [
        "Converts item and lst to h/defview and moves ^{:key (:id t)} into the props map as [item {:key (:id t) :t t}] (MIG-07).",
        "States that Hicasso performs NO metadata read anywhere in the codec, so a surviving ^{:key ...} is an ABSENT key rather than a spelling variant — React then reconciles by position, which is silent state corruption in a reorderable or filterable list.",
-       "Notes the diagnostics are incomplete cover: :rf.warning/hicasso-missing-key fires only for a boundary-headed member of a sequence, so a for over plain [:li ...] gets React's warning instead.",
+       "Notes that a missing key gets React's own warning (Hicasso adds no missing-key diagnostic of its own), while a map or other entity value at :key on a boundary-headed member gets :rf.warning/hicasso-entity-key.",
        "Strips the doall (MIG-12).",
        "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never forwarded (the bare-symbol trap).",
        "Notes that :key is read as the exact literal keyword, so \"key\" and :x/key are ordinary attributes rather than the key."
@@ -82,7 +82,7 @@
        "Deletes :should-component-update as dead under memoised boundaries, and extracts :reagent-render as the view body.",
        "Routes the focus-on-mount DOM work to a CALLBACK REF — a function at :ref, React's own contract, called with the node at commit, whose RETURN VALUE is the detach cleanup.",
        "Insists the ref fn be a stable top-level def, because a fresh inline (fn [n] ...) has a new identity every render and React detaches and reattaches on every commit.",
-       "Notes a VECTOR at :ref is refused with :rf.error/hicasso-ref-vector-reserved (a reserved later spelling), and that :ref on a defview HEAD is not a ref at all — the boundary path lifts only :key.",
+       "Notes a VECTOR at :ref is not a ref — it crosses to React as data and never fires, so the callback function is the only spelling — and that :ref on a defview HEAD is not a ref at all — the boundary path lifts only :key.",
        "Recognises there is no dispatch-at-unmount: re-homes the [:resource/release] domain work OUT of the view to whatever causally ends the resource, and enumerates EVERY exit path — an enumeration covering save/delete but missing navigate-away is the classic leak.",
        "Does NOT emit `effect`, a Freehand behavior, v/defbehavior, or a React hook inside the defview body; if hook-shaped lifecycle is genuinely needed it names the island route — a UIx defui or a raw React function component mounted through h/defhost, using n/use-sub / n/use-frame when it needs Hicasso state — where React's rules of hooks apply to source the author controls."
      ]},
