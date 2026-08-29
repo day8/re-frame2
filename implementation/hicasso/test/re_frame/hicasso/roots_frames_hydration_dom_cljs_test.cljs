@@ -466,6 +466,36 @@
                               (is (= "B2" (text-in cb ".title")))
                               (is (= "beta" (text-in cb ".value"))))
 
+                            ;; THE DISCRIMINATING HALF, and the reason the two
+                            ;; assertions above are not yet a witness of
+                            ;; `mount/tree`'s hydrated-root shape: a `render!`
+                            ;; that REMOUNTED the adopted tree — the measured
+                            ;; failure `mount/tree`'s docstring records, a bare
+                            ;; provider handed to a root that adopted under the
+                            ;; Fragment-wrapped closer — would also run the body
+                            ;; once and also paint "B2"/"beta". Node identity
+                            ;; and the memo bail-out are what a remount cannot
+                            ;; fake. (The technique is the fenced
+                            ;; `arm1/hydrate-dom-cljs-test`'s §5 rider, restated
+                            ;; against the shipped door — provenance, not a
+                            ;; dependency.)
+                            (testing "and still ADOPTED through that render: a
+                                      props-equal render! bails at the memo with
+                                      zero body runs, and every node is still the
+                                      SERVER's — neither render remounted the
+                                      tree the adoption established"
+                              (let [ran (sup/body-runs-delta!
+                                          (fn [] (mount/render! hb [screen {:title "B2"}])))]
+                                (is (zero? ran)
+                                    (str "a props-equal render! after adoption "
+                                         "ran no body; read " ran)))
+                              (is (sup/every-server-node? cb ".screen, .title, .value")
+                                  "and the surviving root's nodes still answer to
+                                   the server-node mark — a render! that handed
+                                   this root a bare provider where its Fragment
+                                   wrapper stood would have replaced every one of
+                                   them"))
+
                             (testing "and tearing the survivor down leaves nothing"
                               (is (= sup/released (sup/teardown-census! hb)))))))))
                 (sup/settle-row!
