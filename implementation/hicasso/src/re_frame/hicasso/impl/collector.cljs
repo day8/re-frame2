@@ -42,22 +42,13 @@
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
-;; Errors — `fail!` is `re-frame.hicasso.impl.error`'s
-;; ---------------------------------------------------------------------------
-;;
-;; ONE constructor, `:refer`red so every call site below reads as a bare
-;; `fail!` while the ns form says, once, where the shape lives.
-
-;; ---------------------------------------------------------------------------
 ;; The render context
 ;; ---------------------------------------------------------------------------
 ;;
-;; Module-level rather than per-render objects, and legal for one reason:
-;; **boundary bodies do not nest**. A body returns hiccup; the codec turns
-;; a child boundary into a React *element*, and React runs that child's
-;; body later, after this one has returned. A plain helper called from a
-;; body does run inside it — and its reads belong to the enclosing
-;; boundary, which is exactly the collector's helper-donated read.
+;; Module-level rather than per-render objects, legal because boundary
+;; bodies do not nest: a body returns hiccup, the codec turns a child
+;; boundary into an element, and React runs the child's body after this
+;; one has returned (docs/design/hicasso/product/globals.md).
 
 (def ^js rstate
   "The render slots, one JS object for the whole runtime: the frame the
@@ -73,12 +64,11 @@
   #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil})
 
 (def ^:private ^js scratch
-  "**The one scratch buffer**, reused by every body and reset by
-  overwrite at the top of each. One render's reads, in read order,
-  nothing else, and no allocation: `(set! (.-length scratch) 0)` is the
-  whole of the reset. There is exactly one of it, which is the point —
-  a second would mean telling two render attempts apart, and that is the
-  ledger."
+  "The one scratch buffer: one render's reads, in read order, reset by
+  overwrite at the top of every body — `(set! (.-length scratch) 0)` is
+  the whole of the reset. Exactly one, because a second would mean
+  telling two render attempts apart, which is the ledger HD-002 forbids
+  (docs/design/hicasso/product/globals.md)."
   #js [])
 
 (defn rendering?
@@ -87,9 +77,7 @@
   (some? (.-frame rstate)))
 
 ;; ---------------------------------------------------------------------------
-;; The ambient dispatch a body binds — the memo row is
-;; `re-frame.hicasso.impl.frames`'s; the closure in it is this file's,
-;; because it is `with-commit` partially applied
+;; The ambient dispatch a body binds — `impl.frames` owns the memo row
 ;; ---------------------------------------------------------------------------
 
 (declare with-commit)
@@ -131,70 +119,23 @@
 
 ;; ---------------------------------------------------------------------------
 ;; THE CELL TABLE — one cell per unique (frame, query), shared by every
-;; reader, created and acquired ONLY at commit; and the dependency index
-;; itself
+;; reader, created and acquired ONLY at commit; its reader lists are the
+;; dependency index
 ;; ---------------------------------------------------------------------------
 ;;
-;; A sub-key is `[frame-kw query-v]`. validation.md pins sub-key identity
-;; as `(query-id, args)` under value equality; qualifying it by frame is
-;; strictly finer, and it is the honest key for a runtime in which two
-;; frames are isolated contexts holding two different app-dbs. The pair is
-;; a value, so every law below reads it exactly as it reads a bare query
-;; vector.
-;;
-;; ## The reverse edge lives on the cell
-;;
-;; A second process-global structure beside this table — a sub-index
-;; holding `sub-key -> #{boundary}` and `boundary -> #{sub-key}` — would
-;; be keyed by the SAME B·R key space. Every read would then pay two
-;; persistent map entries where the design needs one table, plus, at
-;; fan-out 1 (which is what the
-;; distinct-query ladder rung measures), a singleton `PersistentHashSet`
-;; per key whose whole job was to hold one pointer.
-;;
-;; So the readers moved onto the cell. `.-readers` is that key's reverse
-;; edge, and one slot in it is simultaneously **the boundary's edge on the
-;; key and its reference to the key's cell** — which is why the cell has
-;; no `refs` counter beside it: the reader list IS the count, and two
-;; records that must stay equal are one record that cannot drift. The
-;; forward edge needs no home either: [[make-subscribe]]'s registration
-;; already holds `.-reads`, the read-set entry's own key set, by
-;; reference.
-;;
-;; **No lookup got worse.** The dirty set was already a walk of the dirty
-;; keys' reader sets, and [[flush!]] already holds the dirty CELLS — an
-;; index would need `.-subKey` mapped over them purely to map them
-;; straight back. There is no such round trip: the union is taken
-;; directly off the cells in hand.
-;;
-;; The table is owned by its sole consumer (architecture.md §2), which is
-;; what lets it be this specific: a general, separately-testable index
-;; algebra would have to serve callers that do not exist.
-;;
-;; Cells are plain JS objects rather than a deftype on purpose: this is
-;; the object the heap ladder prices per unique key, and a deftype would
-;; add a constructor and a prototype to a structure with no behaviour.
-;; `.-readers` is a JS array for the same reason — at the fan-out this
-;; table actually sees, a `.push` and an `.indexOf` beat a persistent set
-;; and retain one object rather than a container per membership.
+;; A sub-key is `[frame-kw query-v]` — finer than validation.md's
+;; `(query-id, args)`, and the honest key for a runtime whose frames are
+;; isolated contexts. `.-readers` is the key's reverse edge AND its
+;; reference count, one slot per reader, so there is no `refs` counter
+;; to drift from it; the forward edge is the registration's own key set
+;; (docs/design/hicasso/architecture.md, section The collector).
 
-;; `!cells` is public so the test kit's runtime door
-;; (`re-frame.hicasso.test.runtime`) can count what the table retains
-;; without this file growing a reader per instrument. It is the
-;; collector's to WRITE, and every writer is in this file.
-;;
-;; **One table for the whole page, and FRAME-SCOPED anyway** — the sub-key
-;; is `[frame-kw query-v]`, so the same query read under two frames
-;; occupies two cells with two reader lists and two reactions, and a
-;; cross-frame read is not a collision to be prevented but an address that
-;; cannot be spelled. Isolation between roots is a property of this KEYING
-;; and not one React provides — React knows nothing about this table.
-;; `roots_frames_isolation_dom_cljs_test` is the standing witness and reads
-;; the key set rather than the DOM, because a boundary that resolved the
-;; wrong frame still renders a plausible page.
-;; `docs/design/hicasso/product/globals.md` carries the same disposition for
-;; every other module-level owner here — `!entries`, the four flush-extent
-;; refs below, `rstate` and `scratch`.
+;; `!cells` is public so the test kit's runtime door can count what the
+;; table retains; every writer is in this file. One table for the whole
+;; page and FRAME-SCOPED by its keying — the same query under two frames
+;; is two cells, and a cross-frame read is an address that cannot be
+;; spelled (`roots-frames-isolation-dom-cljs-test`;
+;; docs/design/hicasso/product/globals.md carries every owner below).
 (defonce !cells (atom {}))
 (defonce ^:private !dirty (volatile! #{}))
 (defonce ^:private !batching (volatile! false))
@@ -229,26 +170,14 @@
 ;; The reapers — one armed timer per horizon per turn
 ;; ---------------------------------------------------------------------------
 ;;
-;; A cell whose last reader leaves and an entry nobody has claimed are each
-;; given a horizon of grace before they are dropped — one macrotask for a
-;; cell, [[entry-reap-horizon-ms]] for an entry. Neither arms a timer of
-;; its own: each horizon has ONE pending queue, and an arm pushes onto it
-;; and starts a timer only when none is running. A cold mount of 300
-;; distinct-read boundaries arms one timer rather than three hundred, and
-;; unmounting them arms two rather than six hundred
-;; (`reaper_coalescing_cljs_test` counts both).
-;;
-;; What a per-item timer gave for free, and the one timer has to keep: an
-;; item's reaper task is enqueued no earlier than the item's own horizon,
-;; so a task posted before that horizon — React's passive flush, which is
-;; what claims an entry — runs first. A timer therefore reaps only what it
-;; was ARMED FOR, an item due at or before its target, and leaves what
-;; rode in after it to a timer armed for that; a timer `reset-runtime!`
-;; or a re-arm has superseded does nothing at all. Measured before this
-;; held: a drain armed by one test's release, still pending after the
-;; reset, dropped the next test's entry between its render and React's
-;; flush, and the island re-subscribed on its next render (the island
-;; hooks' W9 row).
+;; A cell whose last reader leaves gets one macrotask of grace, an
+;; unclaimed entry `entry-reap-horizon-ms`; each horizon has ONE pending
+;; queue and arms a timer only when none is running
+;; (`reaper-coalescing-cljs-test`). A timer reaps only what it was ARMED
+;; FOR — an item due at or before its target — and leaves what rode in
+;; after it to a timer armed for that, so a task posted before an item's
+;; horizon (React's passive flush, which claims an entry) always runs
+;; first; a superseded timer drains nothing.
 
 (defn- arm-timer!
   "Arm `q`'s one timer for `due`, superseding any timer still pending."
@@ -312,7 +241,7 @@
   nil)
 
 (defn- reset-reapers!
-  "Forget what `q` is waiting to reap. [[reset-runtime!]]'s half — a timer
+  "Forget what `q` is waiting to reap. `reset-runtime!`'s half — a timer
   still armed is superseded and drains nothing."
   [^js q]
   (set! (.-length (.-items q)) 0)
@@ -388,13 +317,10 @@
     (set! (.-reaction cell) nil)
     (js/queueMicrotask
       (fn []
-        ;; `(nil? (.-reaction cell))` because [[acquire-cell!]] rebuilds the
-        ;; attachment too, the moment a commit reuses a cell this call left
-        ;; empty. Wiring a cell that already holds a reaction
-        ;; would add a SECOND `add-on-dispose!` hook to it, so the next
-        ;; disposal would invalidate twice, wire twice and compound — the
-        ;; guard is what makes the two writers idempotent with respect to
-        ;; each other rather than merely both correct.
+        ;; `(nil? (.-reaction cell))`: `acquire-cell!` rewires a reused cell
+        ;; too, and wiring one that already holds a reaction would add a
+        ;; second `add-on-dispose!` hook, so the next disposal would
+        ;; invalidate twice, wire twice and compound.
         (when (and (not (.-disposed cell)) (nil? (.-reaction cell)))
           (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
             (dispose-cell! cell)
@@ -449,12 +375,9 @@
     (first-registration! registration))
   nil)
 
-;; Arm it once per process, at load. `defonce` is the arming, so the var
-;; exists for its side effect and is deliberately never read — the hook
-;; vector is the only thing that holds the fn. The hook is the substrate's
-;; own extension point and the runtime installs nothing else global; it costs
-;; a keyword compare on every registration of any kind, a `vswap!` on
-;; every `:sub` one, and the scan above only on a first-time `:sub`.
+;; Armed once per process, at load: the `defonce` IS the arming and the var
+;; is never read (docs/design/hicasso/product/globals.md). It costs a
+;; keyword compare per registration and the scan only on a first-time `:sub`.
 #_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
   (do (registrar/add-registration-hook! sub-registered!) true))
@@ -476,18 +399,10 @@
                                      "frameKw"  frame-kw
                                      "queryV"   query-v
                                      "reaction" nil
-                                     ;; NOT zero. A key with no cell
-                                     ;; contributes the CURRENT
-                                     ;; `commit-basis` to `getSnapshot`,
-                                     ;; so a cell born at the same basis
-                                     ;; contributes the same number and
-                                     ;; a mount that raced nothing
-                                     ;; re-renders for nothing. Born at a
-                                     ;; LATER basis — something installed
-                                     ;; in the gap — it contributes a
-                                     ;; different one, and React's
-                                     ;; post-subscribe re-check corrects
-                                     ;; the boundary.
+                                     ;; NOT zero: a key with no cell
+                                     ;; contributes the CURRENT basis to
+                                     ;; `getSnapshot`, so a cell born at
+                                     ;; the same basis reads the same.
                                      "epoch"    (generation/commit-basis frame-kw)
                                      ;; The key's reverse edge AND its
                                      ;; reference count, in one array —
@@ -495,57 +410,20 @@
                                      "readers"  #js []
                                      "disposed" false}]
                    ;; ONE baseline deref, at construction, before the watch.
-                   ;;
-                   ;; HD-002's adjudication sketches commit-phase
-                   ;; acquisition as "acquire without deref: the value is
-                   ;; already known from the render". Against this
-                   ;; substrate that is not implementable, and the failure
-                   ;; is silent: a derived value starts at an `unset`
-                   ;; baseline that is never `rf=` a real value, and the
-                   ;; render's own read went through the cold probe,
-                   ;; which built no reaction at all. So
-                   ;; a freshly acquired reaction whose baseline is still
-                   ;; `unset` reports movement on the FIRST later commit
-                   ;; whatever the commit did — every newly mounted
-                   ;; boundary re-rendering once for nothing. Establishing
-                   ;; the baseline here costs one compute per *new unique
-                   ;; key*, on a path that has to compute anyway. It is
-                   ;; emphatically not the forbidden commit-phase re-read:
-                   ;; that one is per read per commit and is a tear check;
-                   ;; this one never runs again for the life of the cell.
-                   ;;
-                   ;; The watch then hands us old and new, so the movement
-                   ;; test is free. It is made here rather than trusted to
-                   ;; the layer below because this runtime uses the
-                   ;; notification ITSELF as the dirty signal: the shipping
-                   ;; spine can tolerate a notification that did not move,
-                   ;; since `useSyncExternalStore` re-compares snapshots
-                   ;; after it, and this runtime cannot.
-                   ;;
-                   ;; [[wire-cell!]] performs that deref, that watch and the
-                   ;; disposal hook, because a cell is attached to the
-                   ;; substrate twice — here, and again if the substrate
-                   ;; disposes the reaction underneath it.
+                   ;; "Acquire without deref" is not implementable here: a
+                   ;; fresh reaction's `unset` baseline reports movement on
+                   ;; the first later commit whatever it did
+                   ;; (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md
+                   ;; §3.1). Made here, not trusted to the layer below,
+                   ;; because the notification ITSELF is the dirty signal.
                    (wire-cell! fresh)
                    (swap! !cells assoc sub-key fresh)
                    fresh))]
-    ;; **A REUSED cell may be holding nothing**.
-    ;; [[invalidate-cell!]] drops the reaction synchronously and defers the
-    ;; rewire to the microtask checkpoint, so between those two moments the
-    ;; table holds a cell with no reaction and no watch. A reader attached to
-    ;; it then is unreachable by [[mark-dirty!]] — the boundary renders the
-    ;; right value (a reaction-less cell takes [[cold-read!]]'s probe) and
-    ;; nothing notifies it until the deferred rewire lands. Measured: a
-    ;; boundary mounted in that window painted once and did not move on a
-    ;; write taken in the same turn.
-    ;;
-    ;; So the acquire wires it, and that is not a second owner of the rewire
-    ;; — it is this function keeping the promise its own first line makes.
-    ;; The deferral exists because `invalidate-cell!` is called from inside
-    ;; the registrar's hooks and frame teardown, *\"and none of them is a
-    ;; place to subscribe\"*; a commit is precisely such a place, which is why
-    ;; the whole cell table is commit-owned. Whichever of the two gets here
-    ;; first wires the cell and the other finds a reaction and does nothing.
+    ;; A REUSED cell may hold nothing: `invalidate-cell!` drops the reaction
+    ;; synchronously and rewires at the microtask checkpoint, and a reader
+    ;; attached in between would be unreachable by `mark-dirty!` (measured:
+    ;; painted once, deaf to a same-turn write). So the acquire wires it;
+    ;; whichever of the two gets here first wires, the other finds a reaction.
     (when (nil? (.-reaction cell)) (wire-cell! cell))
     (.push (.-readers cell) reg)
     cell))
@@ -593,28 +471,15 @@
     (when (seq dirty)
       (vreset! !dirty #{})
       (generation/bump-generation!)
-      ;; Re-STAMP rather than increment, so a cell's epoch is a
-      ;; `commit-basis` reading and does not drift into a private
-      ;; numbering the staged term could not be compared against —
-      ;; floored at one above the stamp it carried, because across a
-      ;; same-id frame reincarnation the basis alone can FAIL TO MOVE.
-      ;;
-      ;; A frame's install epoch is NOT monotone across a same-id
-      ;; reincarnation: `generation/commit-basis` says so itself — a
-      ;; reincarnation RESTARTS `frame-commit-epoch`. Measured in
-      ;; Chromium: a boundary mounted across an A→B switch holds epoch 3
-      ;; from basis (gen 1 + frame 2); the successor seats at frame epoch
-      ;; 1; bumping the generation to 2 re-stamps to 1 + 2 = 3 — the SAME
-      ;; NUMBER. `getSnapshot` ties, React's `checkIfSnapshotChanged`
-      ;; finds nothing, no body re-runs, and the predecessor's value
-      ;; stays on screen indefinitely: the notification is delivered and
-      ;; ignored, which is the one failure a re-stamp must make
-      ;; impossible.
-      ;;
-      ;; The floor is what restores monotonicity. It can only raise the
-      ;; stamp, never lower it, so a staged key's `commit-basis` reading
-      ;; stays comparable with a held key's stamp in the direction that
-      ;; matters, and the sum stays monotone.
+      ;; Re-STAMP rather than increment, so a cell's epoch stays a
+      ;; `commit-basis` reading comparable with a staged key's — floored
+      ;; at one above the stamp it carried, because across a same-id frame
+      ;; reincarnation the frame term RESTARTS and the basis alone can fail
+      ;; to move (measured in Chromium: epoch 3 re-stamped to 3, the
+      ;; notification delivered and ignored, the predecessor's value left
+      ;; on screen). The floor can only raise a stamp, so the sum stays
+      ;; monotone (docs/design/hicasso/product/invariants.md, rf2-hic-013;
+      ;; `reincarnation-paint-dom-cljs-test`).
       (doseq [^js c dirty]
         (set! (.-epoch c) (max (inc (.-epoch c))
                                (generation/commit-basis (.-frameKw c)))))
@@ -744,9 +609,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce !entries
-  ;; read-sequence hash -> vector of entries. See [[bucket-key-of]] for
-  ;; why the key is a hash of the WHOLE sequence rather than the first
-  ;; sub-key.
+  ;; read-sequence hash -> vector of entries; `bucket-key-of` says why the
+  ;; key is a hash of the WHOLE sequence rather than the first sub-key.
   (atom {}))
 
 (defn- bucket-key-of
@@ -816,7 +680,7 @@
   Allocates nothing. A false negative — same set, different order — costs
   a second entry and a symmetric difference that removes and re-adds the
   same edges; it is never a wrong answer, which is why the hash in
-  [[bucket-key-of]] chooses the bucket and this decides the match."
+  `bucket-key-of` chooses the bucket and this decides the match."
   [^js entry ^js ks]
   (let [eks (.-keys entry)
         n   (alength eks)]
@@ -926,19 +790,11 @@
 ;; The hook seam — one read, from a React component that is not a boundary
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.hicasso.native/use-sub` is a real React hook inside a real
-;; React function component, and a component is not a
-;; boundary: no shell ran, no body ran, `rstate` names no frame and the
-;; scratch holds somebody else's reads or none. So the hook cannot take
-;; [[sub]], and the two doors below are what it takes instead.
-;;
-;; **They are doors onto this module's tables, never a second copy of
-;; them.** [[hook-entry]] mints its entry from the same cache, with the
-;; same `subscribe` and the same `getSnapshot`, so a hook and a boundary
-;; reading one key SHARE one entry, one registration shape and one cell —
-;; which is why `re-frame.hicasso.tool`'s rosters see a hook's reads
-;; without knowing hooks exist, and why the residue census counts them.
-;; A private table here would have bought a hook that leaked invisibly.
+;; `re-frame.hicasso.native/use-sub` runs inside a real React component: no
+;; shell ran, `rstate` names no frame, the scratch is somebody else's. So
+;; it cannot take `sub`; the two doors below are doors onto THIS module's
+;; tables, never a second copy of them, so a hook and a boundary reading
+;; one key share one entry, one registration shape and one cell.
 
 (defn hook-entry
   "The read-set entry for the SINGLE key `sub-key` — what a hook hands
@@ -1086,8 +942,8 @@
                {:frame frame-kw :generation (generation/generation)})))))
 
 (defn last-reads
-  "The read-set entry the most recent [[render-body]] resolved — what a
-  harness hands [[commit-boundary!]] to take React's place at the commit."
+  "The read-set entry the most recent `render-body` resolved — what a
+  harness hands `commit-boundary!` to take React's place at the commit."
   []
   (.-entry rstate))
 
@@ -1164,31 +1020,18 @@
   (let [component (fn hicasso-boundary [js-props]
                     (performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))
-        ;; The refusal shape's ambient half. The wrapper makes
-        ;; this boundary the origin for the duration of its render, so a
-        ;; refusal raised anywhere below can name the view and resolve the
-        ;; source coordinate `defview` captured. `interop/debug-enabled?` is
-        ;; `^boolean goog.DEBUG`, so under `:advanced` + `goog.DEBUG=false`
-        ;; this `if` folds to `component` and what React calls is the
-        ;; component fn above, unchanged.
+        ;; Dev only: the origin a refusal below names. `interop/debug-enabled?`
+        ;; is `^boolean goog.DEBUG`, so under `:advanced` this `if` folds to
+        ;; `component` and React calls the fn above, unchanged.
         component (if interop/debug-enabled?
                     (error/traced-boundary view-name component)
                     component)]
     (unchecked-set component "displayName" view-name)
     (let [head (codec/memoize-boundary! (codec/mark-boundary! component))]
-      ;; The body, kept ON the head, for the test kit alone.
-      ;; A minted head is a React component and its body is reachable only
-      ;; through `shell`, so `re-frame.hicasso.test` — which mounts nothing
-      ;; and runs no hook — would otherwise have no route back to the
-      ;; function the author wrote. L2 renders one, so the head carries it.
-      ;;
-      ;; ONE own property, and nothing else changes: no registry, no map,
-      ;; no per-view object, and the returned value is still the function.
-      ;; `goog.DEBUG` is the same gate the `displayName`
-      ;; stamp above uses, so under `:advanced` + `goog.DEBUG=false` this
-      ;; folds away with `codec/retain-body!` behind it and a production
-      ;; head answers nil — asserted against the real advanced bundle in
-      ;; `re-frame.hicasso.view-body-retention-elision-prod-test`.
+      ;; The body, kept ON the head for the test kit's L2 walk alone, which
+      ;; mounts nothing and would otherwise have no route back to it. One
+      ;; own property; under `goog.DEBUG=false` it folds away with
+      ;; `codec/retain-body!` (`view-body-retention-elision-prod-test`).
       (when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))
       head)))
 
