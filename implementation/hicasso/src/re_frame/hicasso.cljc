@@ -287,20 +287,20 @@
   return-ignored imperative work in the established vocabulary, and this
   form's contract is `event`.
 
-  **The name states ONE of the three contracts this form can carry**, and
-  which one is selected by POSITION rather than by the name, so the three
-  travel with the name here rather than a page away:
+  **The name states ONE of the two contracts this form can carry**, and
+  which one is selected by POSITION rather than by the name — the same
+  rule at a native tag, a `defhost` and a `[:>]` crossing:
 
   | Position | Contract |
   |---|---|
-  | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
-  | a `defhost` `:callbacks` entry | **as declared** — `:event`, `:handler` or `:render`, never inferred from an `on*` spelling |
+  | an `on*`-spelled prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
   | any other walked prop | **render** — pure; the return is the render output and is NOT dispatched. Handlers lowered inside the call belong to the boundary that supplied it |
 
-  [[re-frame.hicasso.impl.intent]] carries the full table, including the
-  two rows that are not contracts at all — `:ref`, which is React's own
-  and is excluded from lowering, and everywhere Hicasso does not walk,
-  where this is a plain function whose return is ignored.
+  A `defhost` may override the spelling for one prop with
+  `{:callbacks {:on-render-item :render}}`, for the on*-named render
+  props some vendors ship. `:ref` is React's own and is excluded from
+  lowering; where Hicasso does not walk, this is a plain function whose
+  return is ignored ([[re-frame.hicasso.impl.intent]] carries the table).
 
   Expands to nothing but a marked `fn`:
 
@@ -308,11 +308,9 @@
       ;; =>
       (re-frame.hicasso.impl.intent/callback (fn [e] …))
 
-  The value is an ORDINARY FUNCTION — that is the point of the ruling.
-  The contract comes from the position it is written at, so there is
-  nothing to choose between and nothing that can fail to be callable
-  where Hicasso does not walk. See
-  [[re-frame.hicasso.impl.intent]] for the position table."
+  The value is an ORDINARY FUNCTION, so nothing can fail to be callable
+  where Hicasso does not walk. Argument in docs/design/hicasso/decisions.md,
+  HD-024."
      [argv & body]
      `(re-frame.hicasso.impl.intent/callback (fn ~argv ~@body))))
 
@@ -322,132 +320,61 @@
   crossing to a foreign React component once; use the resulting var as a
   hiccup head anywhere, indistinguishable from a view:
 
-      (defhost date-picker DatePicker
-        {:callbacks {:on-change :event}})
+      (defhost date-picker DatePicker)
 
       [date-picker {:selected  due-date
                     :on-change (event [date & _] [:task/set-due date])}]
 
-  `opts` is optional and carries `:callbacks` — a FINITE map from exact
-  prop names to `:event`, `:handler` or `:render`, never inferred from an
-  `on*` spelling — `:slots`, the ReactNode positions, `:server`, the
-  server policy, and `:fallback`, Client-only's placeholder markup:
-
-      (defhost modal Modal
-        {:callbacks {:on-close :event}
-         :slots     #{:title :footer}})
-
-      [modal {:on-close [:dialog/cancel]
-              :title    [:h2 \"Delete article?\"]
-              :footer   [:button {:on-click [:article/delete id]} \"Delete\"]}]
-
-  **A `:slots` prop is markup, and every other prop is data.** Some of a
-  library's props are ReactNode positions — a modal's title, a compound
-  component's footer, `Suspense`'s fallback — and hiccup written at one
-  of them is lowered under the frame of the boundary that wrote the
-  crossing, so an intent inside a slot fires exactly as an intent inside
-  a child does. At an UNDECLARED prop hiccup stays data: `{:title [:h2
-  \"Tasks\"]}` hands the library the vector, silently, because a vector
-  is a legal value at a data position and nothing can be inferred. That
-  is why slots are declared and never guessed. For a one-off,
-  [[as-element]] crosses a real element through any prop.
-
-  A slot may not also be a declared callback, may not be `:key` or
-  `:ref`, may not be a name the crossing can never emit (`__proto__`,
-  `prototype`, `constructor`), and may not be spelled twice — all
-  refused at the declaration with
-  `:rf.error/hicasso-host-bad-slots`.
-
-  **The same two positions are closed to a `:callbacks` entry**, for the
-  same reason and at the same moment: `:key`/`:ref` carry no contract,
-  and a contract at `__proto__`, `prototype` or `constructor` could
-  never be applied, because the crossing skips those names before it
-  reads any declaration. Both are refused with
-  `:rf.error/hicasso-host-structural-callback`, and two spellings of one
-  callback slot with `:rf.error/hicasso-host-callback-slot-collision`.
-  Every question is asked of the CANONICAL slot, so `:on-empty` and
-  `:onEmpty` get one answer between them.
-
-      (defhost chart Chart
-        {:fallback [:div.chart-skeleton]})
-
-      (defhost themed (.-Provider theme-context)
-        {:server :render})
-
-  `:server :client-only` is the DEFAULT and needs no writing: the host
-  region renders nothing on the server and nothing on hydration's first
-  client pass, and the foreign component mounts once the markup is
-  adopted. A declared `:fallback` renders that markup there instead.
-  A fresh (non-hydrated) mount renders the foreign component on its
-  first pass either way — the placeholder never flashes.
-
-  `:server :render` is the other policy and it is an ASSERTION: *this
-  component is safe to render on the server*. The declaration then mints
-  no gate at all — the component is the element's own type — so the same
-  component, the same props, the same context and the same CHILDREN
-  render on the server, on hydration's first pass and on a fresh mount.
-  One tree everywhere: no mismatch, no adoption swap, no remount. It is
-  the only policy under which a crossing's children reach the server
-  response, which is what a transparent wrapper such as a context
-  provider needs. If the assertion is false the server render throws —
-  `window is not defined` — loudly and at the crossing.
-
-  There is no third policy, `:fallback` beside `:render` is refused —
-  the component renders, so nothing stands in for it — and an option
-  `defhost` does not know is refused rather than ignored.
-
-  **A declared fallback is INERT MARKUP, and that is enforced.** It is
-  walked into one element at the declaration and reused at every use
-  site, so a `defview` or `defhost` head written there — an element
-  whose body runs later — is refused with
-  `:rf.error/hicasso-host-fallback-boundary-head`. Write plain hiccup,
-  or declare `:server :render` and render the real subtree.
-
-  Policy lives on the declaration, so every use site inherits it; the
-  defaults, the refusals and the crossing itself are
-  [[re-frame.hicasso.impl.codec/mint-host!]]'s.
-
-  The callback is an [[event]] and not an intent vector because
-  react-datepicker calls `onChange(date, event)` — VALUE-first, with no
-  event at argument one — while the vector spelling is EVENT-first
-  (HD-024's argument law, in
-  [[re-frame.hicasso.impl.intent]]). `[:task/set-due ::h/value]`
-  there raises `:rf.error/hicasso-intent-needs-the-event` naming the
-  position, and the one callback form is the spelling that sees the
-  library's own arguments, in order. At an EVENT-first foreign callback —
-  `onDraft(event)` — the vector and its markers are legal and shorter.
-  Both halves are witnessed in `arm1/host_hatch_dom_cljs_test`.
-
-  Like [[defview]] it is not a compiler: it expands to a `def` of the
-  minted head, reads no body, and captures the name and the source
-  coordinate — the name for `displayName`, and both for every diagnostic
-  the crossing raises.
-
-  ## Two shapes, and a tail is REFUSED rather than dropped
+  **Callback contracts are inferred from the prop's spelling, exactly as
+  at a native tag**: an `on*` prop is an event position (an intent
+  vector, a key-map or an [[event]] dispatches), any other prop that
+  takes an [[event]] is a render position (pure; the return is the
+  render output, and an intent inside it fires into this boundary's
+  frame), and a plain function crosses untouched anywhere. Two shapes:
 
       (defhost name component)
       (defhost name component opts)
 
-  each with an optional docstring in SECOND position — before the
-  component, never after it. Anything past `opts` is refused with
-  `:rf.error/hicasso-host-extra-form`, and options that are not a map
-  with `:rf.error/hicasso-host-bad-options`.
+  each with an optional docstring in SECOND position. `opts` carries four
+  keys, every one optional:
 
-  A macro destructuring `[component opts]` off a variadic tail would drop
-  everything later in silence, so
+  - `:callbacks` — an OVERRIDE, `{prop :event|:render}`, written only
+    where the spelling infers the wrong contract: the on*-named render
+    props some vendors ship, `{:callbacks {:on-render-item :render}}`,
+    where the event wrapper's nil return would blank the UI.
+  - `:slots` — the set of ReactNode positions (a modal's title, a
+    `Suspense` fallback). Hiccup there lowers under this boundary's
+    frame; at an undeclared prop a vector is DATA, because a vector is a
+    legal value and nothing can infer a markup position. A slot may not
+    be `:key`/`:ref`, a name the crossing never emits, a declared
+    callback, or spelled twice (`:rf.error/hicasso-host-bad-slots`).
+  - `:server` — `:client-only` (the DEFAULT: the region renders nothing
+    on the server and on hydration's first pass, and the component mounts
+    once the markup is adopted; a fresh mount never flashes) or `:render`,
+    the ASSERTION that the component is safe on the server, under which
+    no gate is minted and one tree renders everywhere — the only policy
+    under which a crossing's children reach the server response.
+  - `:fallback` — Client-only's placeholder, inert hiccup reused at every
+    site; a boundary head inside it is refused
+    (`:rf.error/hicasso-host-fallback-boundary-head`), and it is refused
+    beside `:render`.
 
-      (defhost modal Modal
-        {:callbacks {:on-close :event}}
-        {:slots #{:title}})   ;; <- minted; the :slots map was GONE
+      (defhost modal Modal {:slots #{:title :footer}})
+      (defhost chart Chart {:fallback [:div.chart-skeleton]})
+      (defhost themed (.-Provider theme-context) {:server :render})
 
-  would read back consistent — the head simply has no slots — and the
-  markup written at `:title` could never arrive. Two options maps are
-  not merged. [[defview]]'s `[argv & body]` has no tail to
-  lose, which is what makes this the one door in the family that could
-  swallow one; the refusal closes the gap `mint-host!`'s own
-  unknown-option message already gives the reason for — *reading past an
-  option it does not know is how a policy comes to be set and never
-  applied* — one layer above that guard.
+  Refused at the declaration: a `nil` component, non-map options, an
+  option outside the four, a contract outside the two, and any form after
+  `opts` (`:rf.error/hicasso-host-extra-form`) — a second options map is
+  not merged, it is dropped, and a policy set and never applied is the
+  defect every one of these refusals exists to delete. The date-picker
+  callback above is an [[event]] rather than a vector because
+  react-datepicker calls `onChange(date, event)`, VALUE-first; the vector
+  spelling is EVENT-first and would raise
+  `:rf.error/hicasso-intent-needs-the-event`. Like [[defview]] this is
+  not a compiler: it expands to a `def` of the head
+  [[re-frame.hicasso.impl.codec/mint-host!]] mints. Argument in
+  docs/design/hicasso/decisions.md, HD-011.
 
   Positional flexibility is deliberately NOT the repair. A docstring
   after the component binds to `opts` (the probe reads only the first
