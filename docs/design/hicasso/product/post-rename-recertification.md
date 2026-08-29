@@ -12,7 +12,7 @@ in the run.** Two things have to be said before any row below is read.
 `h/mount!` is the door that moved most visibly in this window, and it did not move as a rename.
 `impl.mount/root!` **still exists**, at its own name and its own positional shape
 `(container frame-kw hiccup opts)`. What changed is the facade door: `h/mount!` is now a `defn` over
-`(node config view)` — [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 20's ratified contract — whose config
+`(node config view)` — [`naming-ledger.md`](naming-ledger.md) row 20's ratified contract — whose config
 carries `:frame` and `:initial-events`, and it calls `impl.mount/ensure-frame!` to seed the frame
 through `rf/make-frame` before `createRoot`.
 
@@ -96,7 +96,7 @@ the status column now carries those results; §5 records the captured exit codes
 
 **Family 5 cannot be re-run because it was never built, and that is a correction to the bead's own
 premise rather than a miss.** The 5% same-instrument regression line is ledger row **`C1`**, and
-[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) §9.3–§9.4 record it `UNPINNED` and deliberately unbuilt: a heap figure is
+[`budgets.md`](budgets.md) §9.3–§9.4 record it `UNPINNED` and deliberately unbuilt: a heap figure is
 distributional, and §7's rule is that a distributional row is never converted into a flaky PR
 threshold. It was repointed to `rf2-85og2`. The nearest re-runnable gates are the two below.
 
@@ -287,7 +287,7 @@ A fourth re-run followed 442 further commits, and it too is written up separatel
 **One thing on that page corrects §6 above rather than merely extending it**, and the correction is
 worth naming here so a reader of this page is not left with the superseded reading. §6's bullet — and
 the 2026-08-18 page's §4 after it — characterised family 5 as a **clock** estimand. It is not.
-[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) registers `C1` on the **heap ladder**, and the 2026-08-19 anchor
+[`budgets.md`](budgets.md) registers `C1` on the **heap ladder**, and the 2026-08-19 anchor
 `rf2-85og2` took was on that instrument. So *"the gate does not exist"* has stopped being true. Family
 5 still returns no verdict, but the reason is now narrower: the anchor exists and the instrument moved
 after it was taken, so no second same-instrument reading is available yet.

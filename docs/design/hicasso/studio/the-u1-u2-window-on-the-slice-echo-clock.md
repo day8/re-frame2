@@ -6,7 +6,7 @@ quiet-box window, and gate 1 has split: `U1` and `U2` parted company with `U3`,
 interaction through to the paint that follows it, on the witness application
 those rows are stated over. What `U1` and `U2` have owed since is one quiet-box
 window and nothing else — no gate to build, because
-[budgets §7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+[budgets §7](../product/budgets.md#7-where-each-row-is-enforced)
 routes every distributional row to pinned evidence runs and forbids converting
 one into a pull-request threshold. This page is that window's pre-registration
 and its record.
@@ -132,7 +132,7 @@ had to be re-validated.
 ## 4. The pre-registered adjudication rule
 
 The two rows, transcribed from
-[the ledger](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger):
+[the ledger](../product/budgets.md#9-the-budget-line-reconciliation-ledger):
 
 | row | registered line | estimand | arms in the population |
 |---|---|---|---|
@@ -210,7 +210,7 @@ the run at any nonzero count. A run reporting `0 unverified of M` therefore
 witnesses same-turn correctness on all `M` windows.
 
 That is reported, and it is **not** a `U1` verdict.
-[Budgets §9.2](../../../../implementation/hicasso/spec/budgets.md#92-what-each-not-green-row-is-waiting-on)
+[Budgets §9.2](../product/budgets.md#92-what-each-not-green-row-is-waiting-on)
 already refuses exactly this substitution for `rf2-hic-045`'s census: *the echo
 is present before the turn yields* does not imply *the echo reaches the glass
 within 16.7 ms at `p95`*, and conflating the structural reading with the
@@ -224,7 +224,7 @@ exists to prevent.
   tolerance are the instrument's and are not this window's to move.
 - **No gate is built.** `U1` and `U2` are distributional rows: §7 routes them to
   pinned evidence runs and forbids a pull-request threshold,
-  [§9.1](../../../../implementation/hicasso/spec/budgets.md#91-how-to-read-a-row)
+  [§9.1](../product/budgets.md#91-how-to-read-a-row)
   says such a row may never name the first lane, and `check_budget_ledger.py`
   enforces both. The whole edit-shaped half of gate 1 for these two rows **was**
   the instrument, and `rf2-xa8wo` built it.
@@ -489,7 +489,7 @@ frame's rendering steps, and `assert-verified!` would have refused the run at
 any nonzero count. That witnesses `U1`'s **structural** clause, *controlled
 updates correct same-turn*, on every window rather than at `p95`. It is not a
 `U1` verdict, for the reason
-[budgets §9.2](../../../../implementation/hicasso/spec/budgets.md#92-what-each-not-green-row-is-waiting-on)
+[budgets §9.2](../product/budgets.md#92-what-each-not-green-row-is-waiting-on)
 already gives about `rf2-hic-045`'s census: *the echo is present before the turn
 yields* does not imply *the echo reaches the glass within 16.7 ms at `p95`*.
 
@@ -505,7 +505,7 @@ No threshold was guessed and no band widened: the `50 ms`, `100 ms` and
 one-frame lines are the registered ones, and `control-slack` and the guard
 tolerance are the instrument's. **No gate was built** — `U2`'s instrument cell
 names the `P-DEV-1 evidence run` lane, because
-[§7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+[§7](../product/budgets.md#7-where-each-row-is-enforced)
 forbids a distributional row a pull-request threshold and the ledger gate
 enforces it. **No instrument was edited**: the driver's blob in
 [§6](#6-the-instrument-and-the-subject) is the one `rf2-xa8wo` landed, and the

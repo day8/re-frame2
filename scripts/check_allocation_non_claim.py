@@ -152,7 +152,7 @@ QUALIFIERS = re.compile(
 # way the premise has moved and the gate must be re-authorised.
 PREMISES = [
     (
-        "implementation/hicasso/spec/budgets.md",
+        "docs/design/hicasso/product/budgets.md",
         re.compile(r"\|\s*S7\s*\|\s*Warm allocation\s*\|\s*no publishable claim", re.IGNORECASE),
         "budgets.md section 9's S7 row reads `no publishable claim`",
     ),
@@ -325,7 +325,8 @@ def _make_tree(tmp: Path, *, budgets: str, baseline: str, design: str, publicati
     # The two premise files are written at the addresses `PREMISES` names, so a
     # re-point there without a re-point here reds every fixture with PREMISE
     # GONE — which is what rf2-ps7ia's move of `budgets.md` out of
-    # `docs/design/hicasso/product/` did, and the shape this comment exists to
+    # `docs/design/hicasso/product/` did (and rf2-6c12m.8's move back into it
+    # on 2026-08-30 would have done), and the shape this comment exists to
     # make obvious the next time.
     for rel, _, _ in PREMISES:
         path = root.joinpath(*rel.split("/"))

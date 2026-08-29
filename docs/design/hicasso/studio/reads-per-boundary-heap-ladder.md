@@ -1128,7 +1128,7 @@ drift. A re-pin run therefore establishes a **new** anchor rather than repairing
 this one, which is what *superseded rather than repaired* has meant on this page
 throughout. That run is a quiet-box window and is deliberately not taken here,
 so `C1`'s 5% same-instrument regression gate stays `UNPINNED` in
-[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) until it is.
+[`budgets.md`](../product/budgets.md) until it is.
 
 Reproduce:
 
@@ -2665,7 +2665,7 @@ did not move.
 `re-frame.bench.hicasso.arm1.*` — the prototype in the benchmark tree.
 `implementation/hicasso/src` is a deliberately frozen *copy* of that runtime,
 and until 2026-08-11 **no heap instrument pointed at the package at all**,
-which is why [budgets.md](../../../../implementation/hicasso/spec/budgets.md) had to refuse its "re-measured
+which is why [budgets.md](../product/budgets.md) had to refuse its "re-measured
 on `implementation/hicasso`" deliverable and report the refusal instead.
 PR #7939 repointed this rig's four candidate seams at the package — the mount
 door, the runtime reset, and both residue reads — and left the donors, the

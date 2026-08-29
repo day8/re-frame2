@@ -28,8 +28,8 @@ here is secondary to that.
 |---|---|
 | What Phase 3 must deliver, and the words its exit is written in | [`specification.md` §12](specification.md#12-action-programme) |
 | The eight rows the native tier is judged on | [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md#canonical-native-tier-acceptance-checklist) |
-| Every numeric threshold, and which are pinned | [`specification.md` §6](specification.md#6-performance-contract), [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) |
-| Which SSR/hydration row each surface sits on, and its witness | [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md), **not** the matrix — see [`rf2-1qws`](#5-the-misses) |
+| Every numeric threshold, and which are pinned | [`specification.md` §6](specification.md#6-performance-contract), [`budgets.md`](budgets.md) |
+| Which SSR/hydration row each surface sits on, and its witness | [`dispositions.md` §2.1](dispositions.md), **not** the matrix — see [`rf2-1qws`](#5-the-misses) |
 | The review protocol this record discharges — §1 Completeness, §2 Correctness, §3 Quality | `rf2-hic-038` |
 | What each miss is, its severity, and what it takes to close it | [`correction-ledger.md`](correction-ledger.md), and the bead each row names |
 | Every spelling this checkpoint met | [`naming-findings-cp3.md`](naming-findings-cp3.md) |
@@ -78,7 +78,7 @@ Conjunct 3 is the one that decides this record, and it needs no judgement call, 
 independently authored pages say the same thing in their own words:
 
 > *"they are **the deterministic half of `C7` only**: they say there is no interposed work, never how
-> long a render takes, so `C7` stays `UNPINNED`"* — [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md)
+> long a render takes, so `C7` stays `UNPINNED`"* — [`budgets.md`](budgets.md)
 
 > *"**No package-resident clock instrument exists.**"* — [`per-keystroke.md`](per-keystroke.md), which
 > refuses to pin `U1` for the same reason
@@ -206,14 +206,14 @@ sharpest question.
   door opens — citing [Spec 011's hydration-mismatch
   detection](../../../../spec/011-SSR.md#hydration-mismatch-detection), which had said so normatively
   all along. `rf2-s52w` closed the same way on 2026-08-15, a **scope rather than a gap**, confirmed
-  and measured rather than repaired, and [`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md)'s HS-21 row records
+  and measured rather than repaired, and [`dispositions.md`](dispositions.md)'s HS-21 row records
   that half. So this clause was never unmet, only unstated, and it is stated now. **This amendment
   re-scores nothing**: it takes no measurement, runs no section of the protocol, and leaves Row 5's
   *Not green* and this page's verdict where §2 put them. Whether the row's score moves is a §2 re-run's
   to say.
 - **Quality — the row points at the wrong document.** Its deciding evidence is the SSR/hydration
   matrix, which is a table of **policy** carrying no witness column and no test citation. The witness
-  ledger is [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md). A reviewer following the release checklist
+  ledger is [`dispositions.md` §2.1](dispositions.md). A reviewer following the release checklist
   finds obligations and no evidence. → [`rf2-1qws`](#5-the-misses)
 - **Recorded, and owned elsewhere** — `HS-11`/`HS-14` remain Client-only under a measured, unrepaired
   obstruction: the package's only server path emits no counterpart to the adoption closer, so a tree
@@ -232,7 +232,7 @@ sharpest question.
   names HS-11's obstruction 2 as the thing it was built to answer. **The dispositions are not re-scored here, and
   this bullet's point is unchanged**: HS-11, HS-14 and HS-33 are outside the native tier, this
   checkpoint still files nothing against them, and whether the obstruction has actually lifted is
-  [`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md)'s to measure and say — it still records the obstruction as
+  [`dispositions.md`](dispositions.md)'s to measure and say — it still records the obstruction as
   standing. Filed as `rf2-lau0u` so the reading is taken rather than assumed.
 
 ### Row 6 — Dependency and rent

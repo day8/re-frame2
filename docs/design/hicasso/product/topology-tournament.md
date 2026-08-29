@@ -68,12 +68,12 @@ reads exactly two.
 
 **The primary estimand is the clock**: main-thread task duration for the
 commit the operation causes, frame-settled, on P-DEV-1. That is the quantity
-[C3 and U3](../../../../implementation/hicasso/spec/budgets.md#the-comparative-and-regression-rules) are stated on, and
+[C3 and U3](budgets.md#the-comparative-and-regression-rules) are stated on, and
 it is what "arm A beats arm B" means to a user.
 
 A **deterministic work census** is taken on the same operations — boundary
 bodies run, rows of markup rendered, and read edges touched. It is machine
-insensitive: [§2 of the budgets page](../../../../implementation/hicasso/spec/budgets.md#2-the-two-disposition-families-which-6-already-separates)
+insensitive: [§2 of the budgets page](budgets.md#2-the-two-disposition-families-which-6-already-separates)
 establishes that a counter reads the same on a loaded box, so this half needed
 no quiet window and could have been taken at any time.
 
@@ -147,10 +147,10 @@ The **kill lines**, taken from the ratified budgets rather than chosen here:
 
 | line | source | applies to |
 |---|---|---|
-| broad operation within **100 ms p95** | [U3](../../../../implementation/hicasso/spec/budgets.md#the-6-user-visible-budgets) | `bulk`, `reorder` |
-| discrete interaction to next paint within **50 ms p95** | [U2](../../../../implementation/hicasso/spec/budgets.md#the-6-user-visible-budgets) | `sparse`, `edit` |
-| broad update ≤ **1.25x** the best arm in the same cell | [C3](../../../../implementation/hicasso/spec/budgets.md#the-comparative-and-regression-rules) | `bulk`, `reorder` |
-| sustained > **1.5x** | [C4](../../../../implementation/hicasso/spec/budgets.md#the-comparative-and-regression-rules) | all |
+| broad operation within **100 ms p95** | [U3](budgets.md#the-6-user-visible-budgets) | `bulk`, `reorder` |
+| discrete interaction to next paint within **50 ms p95** | [U2](budgets.md#the-6-user-visible-budgets) | `sparse`, `edit` |
+| broad update ≤ **1.25x** the best arm in the same cell | [C3](budgets.md#the-comparative-and-regression-rules) | `bulk`, `reorder` |
+| sustained > **1.5x** | [C4](budgets.md#the-comparative-and-regression-rules) | all |
 
 A cell still above its line after two iterations takes one of exactly two
 dispositions, written into the table and never left open:
@@ -169,7 +169,7 @@ There is no third disposition, and no cell carries "needs more investigation".
   improvement discovered during the run is filed as its own bead and run as its
   own window; a rung added between runs makes the series two instruments.
 - It will not restate a published figure on thin evidence. S1–S8 in
-  [the budgets page](../../../../implementation/hicasso/spec/budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)
+  [the budgets page](budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)
   are not this page's to move.
 - It will not score `rf2-hic-080`'s predictions. That is that bead's phase 2,
   deliberately held by a different worker, and a tournament that graded its own
@@ -224,13 +224,13 @@ C4" survives the table intact and [§2.9.9](#299-what-was-not-concluded) says wh
 
 **The substrate limitation is stated rather than buried.** Every figure below
 is an arm-1 figure and carries no `implementation/hicasso` generalisation. That
-is the same discipline [the budgets page](../../../../implementation/hicasso/spec/budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)
+is the same discipline [the budgets page](budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)
 applies to its own rows when it labels S6 and S7 *bench-tree figures* beside
 S1–S5's *package figures*, and it is not softened here.
 
 **The box did not have to be quiet for this half, and saying so is the point.**
 Body runs and rows of markup are integers on monotone counters;
-[§2 of the budgets page](../../../../implementation/hicasso/spec/budgets.md#2-the-two-disposition-families-which-6-already-separates)
+[§2 of the budgets page](budgets.md#2-the-two-disposition-families-which-6-already-separates)
 establishes that a counter reads the same on a loaded box. The census is
 therefore an ordinary PR gate that anyone can re-run, which is exactly what a
 one-shot clock session on one machine is not.
@@ -288,7 +288,7 @@ Whatever separates those three arms on a bulk commit is **not** the number of
 rows built; it is per-boundary overhead, which at `B = 1000` is 1,000 boundary
 shells against one. The shell is a registered, breached line — `1,100 B` and
 `1,095 B` against a frozen `1,024 B`
-([S1/S2](../../../../implementation/hicasso/spec/budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)) —
+([S1/S2](budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)) —
 so the bulk question routes into `rf2-hic-018`'s open disposition rather than
 being answerable here.
 
@@ -311,7 +311,7 @@ are the same fact.
 One registered budget line is deterministic, so the census can speak to it:
 
 > **U5** — Narrow-update body work scales with changed rows, not all mounted
-> rows. ([budgets §4](../../../../implementation/hicasso/spec/budgets.md#the-6-user-visible-budgets), family:
+> rows. ([budgets §4](budgets.md#the-6-user-visible-budgets), family:
 > **deterministic**, estimand **boundary bodies run**, pinned as D1–D4)
 
 **Read against its registered estimand, every arm passes — including the one
@@ -1033,7 +1033,7 @@ window did not relitigate that refusal.
   and **never a `p95` at all**. Dividing a 20-commit window by 20 gives a mean
   per commit, and a mean is not a percentile. Every cell here is therefore
   **UNASSESSED** against those lines, in the same sense
-  [the budgets page](../../../../implementation/hicasso/spec/budgets.md#the-comparative-and-regression-rules) already
+  [the budgets page](budgets.md#the-comparative-and-regression-rules) already
   records `C8`'s `≥ 2 ms p95` disjunct as unassessed at its witness. `S1`–`S8`
   are not this page's to move and are not moved.
 
@@ -1045,7 +1045,7 @@ window did not relitigate that refusal.
     `flushSync` on a synthetic bench page, and `U1`–`U3` are stated over a slice
     application's interactions through to a paint. A `p95` is now computable
     here; it would still be a `p95` of the wrong population. See
-    [budgets.md §9.4](../../../../implementation/hicasso/spec/budgets.md#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take).
+    [budgets.md §9.4](budgets.md#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take).
 - **`C3` and `C4` are not addressed at all**, and not merely unresolved. They
   compare Hicasso against **the best relevant adapter**; this table compares
   four read *topologies* against each other inside one runtime. The two are
@@ -1189,7 +1189,7 @@ windows, not because it was re-derived.
   `UNASSESSED` against them, `C3` and `C4` stay unaddressed as different
   populations, and no `implementation/hicasso` generalisation is drawn from an
   arm-1 figure. **No row of
-  [`budgets.md` §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger)
+  [`budgets.md` §9](budgets.md#9-the-budget-line-reconciliation-ledger)
   moves as a result of this part, in either direction.**
 
 **The tree.** This window runs the instrument exactly as it stands at

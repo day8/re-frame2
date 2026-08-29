@@ -21,8 +21,8 @@
 Governing documents: [specification §3.4](specification.md#34-capability-pays-rent)
 and [§6](specification.md#6-performance-contract), the
 [boundary-substrate paragraph](lanes/hot-path-architecture.md#boundary-substrate-and-hook-budget),
-[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) for every figure, and
-[`invariants.md`](../../../../implementation/hicasso/spec/invariants.md) for the I9 row this page narrows.
+[`budgets.md`](budgets.md) for every figure, and
+[`invariants.md`](invariants.md) for the I9 row this page narrows.
 
 ---
 
@@ -125,7 +125,7 @@ asymmetry decidable rather than merely awkward.
 
 **[RULED]** S1–S4 are package figures as of 2026-08-12, re-pinned by `rf2-fe0l`
 in one solo quiet-window run of the P0 ladder repointed at
-`implementation/hicasso` ([`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md), and
+`implementation/hicasso` ([`budgets.md` §4](budgets.md), and
 [the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)).
 Both donors, both floors and both shells returned on their published anchors; the
 candidate's slope bands are 1–9 B wide over six rounds.
@@ -188,7 +188,7 @@ per process and a bulk write re-renders every arm mounted against the frame. The
 candidate appears in the `hicasso` segment only, on UIx. **There is no
 candidate-on-ratom clock reading on any tree**, and S6/S7 remain bench-tree
 figures — no package-resident clock instrument exists
-([`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md)).
+([`budgets.md` §4](budgets.md)).
 
 The clock axis therefore cannot discriminate. What it can do is say which arm has
 a reading at all, and that arm is the spine.
@@ -346,7 +346,7 @@ the natural instrument is this same ladder.
 
 **[RULED]** The line is the literal **`1,024 B`**, frozen by the operator on
 2026-08-12, with the adjudication rule that a confidence band crossing it is
-UNRESOLVED rather than a pass ([`budgets.md` §5](../../../../implementation/hicasso/spec/budgets.md)).
+UNRESOLVED rather than a pass ([`budgets.md` §5](budgets.md)).
 
 **[DERIVED] The verdict is a plain red, and the UNRESOLVED rule does not fire.**
 
@@ -432,7 +432,7 @@ segment) and `1,101 B` (UIx segment)**. All five fields
 [`specification.md` §6](specification.md#6-performance-contract) requires —
 reason, ceiling, effective revision, reopen conditions, revert trigger — are
 recorded verbatim in
-[`budgets.md` §5](../../../../implementation/hicasso/spec/budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
+[`budgets.md` §5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
 (PR #8095), and are neither restated nor re-derived here.
 
 Read the scope precisely, because a summary destroys it:
@@ -443,7 +443,7 @@ Read the scope precisely, because a summary destroys it:
   record cannot be cited against**;
 - the ruling **prices the breach; it does not pass it** — the K1 pattern, that
   acceptance of a price is not a pass. `S1`, `S2` and `C5` stay `BREACH` in
-  [§9's ledger](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger), red now
+  [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger), red now
   carrying a disposition, and no row here is recoloured;
 - the effective revision is **conditional**: operative only while the shell, the
   wrapper, the comparator, the React version (19.2.0), the build mode and the
@@ -453,7 +453,7 @@ Read the scope precisely, because a summary destroys it:
   third route this section priced but did not measure therefore stays live, and
   the acceptance lapses the day it lands.
 
-**Nothing is recoloured in the meantime.** [`budgets.md` §7](../../../../implementation/hicasso/spec/budgets.md) keeps the
+**Nothing is recoloured in the meantime.** [`budgets.md` §7](budgets.md) keeps the
 distributional family out of blocking PR thresholds, so the red row costs no gate
 and buys no allowance; §6 already forbids a relative regression allowance from
 recolouring it. The row is published beside its line, in the red, with this
@@ -512,7 +512,7 @@ code, no measurement, a demonstrated target of 1,417 B/read, and a bracket that
 says where it would have to land.
 
 **Not touched.** `spec/**` is not reached by any verdict here — the freeze lands
-in [`invariants.md`](../../../../implementation/hicasso/spec/invariants.md#7-recorded-freezes), which is this tree's
+in [`invariants.md`](invariants.md#7-recorded-freezes), which is this tree's
 ledger, and the specification rows this page cites are cited rather than changed.
 
 ---
@@ -525,7 +525,7 @@ Written 2026-08-12 for `rf2-hic-018`.
 (PRs #7939 and #7941) in one solo quiet-window run of `p0_run.cjs --only ladder`
 against `implementation/hicasso`, six rounds, package candidate and both donors
 in the same run set; they are quoted from
-[`budgets.md` §4](../../../../implementation/hicasso/spec/budgets.md) and
+[`budgets.md` §4](budgets.md) and
 [the ladder's own section](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l),
 which carry the controls. **Bench-tree figures are labelled bench-tree
 everywhere they appear** — the no-wrapper and `frame-prop` shell arms in

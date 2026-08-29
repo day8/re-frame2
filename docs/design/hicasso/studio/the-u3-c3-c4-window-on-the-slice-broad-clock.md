@@ -5,7 +5,7 @@ landed: item (a), the donor arm and the second driver, in PR #8599, and item
 (b), the suite-level self-test plus the two measurement-fidelity repairs PR
 #8599's audit found, in PR #8606. What has been owed since is **item (c) — one
 quiet-box window, and nothing else**. There is no gate to build, because
-[budgets §7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+[budgets §7](../product/budgets.md#7-where-each-row-is-enforced)
 routes every distributional row to pinned evidence runs and forbids converting
 one into a pull-request threshold. This page is that window's pre-registration
 and its record.
@@ -160,9 +160,9 @@ nothing here had to be re-validated.
 ## 4. The pre-registered adjudication rules
 
 The three rows, transcribed from
-[the ledger](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger)
+[the ledger](../product/budgets.md#9-the-budget-line-reconciliation-ledger)
 and, for `C3` and `C4`, from
-[§4's comparative table](../../../../implementation/hicasso/spec/budgets.md#the-comparative-and-regression-rules):
+[§4's comparative table](../product/budgets.md#the-comparative-and-regression-rules):
 
 | row | registered line | estimand | arms in the population |
 |---|---|---|---|
@@ -760,7 +760,7 @@ window's own terms forbid improving the rig mid-measurement.
 No threshold was guessed and no band widened: the `100 ms`, `1.25x` and `1.5x`
 lines are the registered ones, and `control-slack`, `blocked-ms` and the guard
 tolerance are the instrument's. **No gate was built** — all three rows are
-distributional, so [§7](../../../../implementation/hicasso/spec/budgets.md#7-where-each-row-is-enforced)
+distributional, so [§7](../product/budgets.md#7-where-each-row-is-enforced)
 forbids them a pull-request threshold and `check_budget_ledger.py` enforces it.
 **No instrument was edited and no arm added**: the driver's and the donor's
 blobs in [§6](#6-the-instrument-and-the-subject) are the ones PRs #8599 and

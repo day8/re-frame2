@@ -85,7 +85,7 @@ should find, so an empty result here means absence rather than a mis-spelled pat
 
 A count of RFC-2119 keywords (`MUST`, `MUST NOT`, `SHALL`, `REQUIRED`) over all 64 files
 returns **one hit, in a single file** — `REQUIRED`, in
-[`dispositions.md`](../../../implementation/hicasso/spec/dispositions.md) — against a control of **35** in
+[`dispositions.md`](product/dispositions.md) — against a control of **35** in
 [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) and 3 in
 [`spec/004B-UI-Tree-and-Conversion.md`](../../../spec/004B-UI-Tree-and-Conversion.md) taken
 with the same expression. The corpus states its laws in the indicative — *"a `defview` is
@@ -117,7 +117,7 @@ minority slices, each nameable to its `spec/` neighbour:
 | Slice | Lines | Belongs beside |
 |---|---|---|
 | [`substrate-decision.md`](product/substrate-decision.md) — the collector's subscription substrate, the adapter Hicasso installs, the two-hook ceiling | ~82 of 546 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
-| [`invariants.md`](../../../implementation/hicasso/spec/invariants.md) §7 *The two-hook ceiling, and the chosen collector substrate* | ~12 of 179 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
+| [`invariants.md`](product/invariants.md) §7 *The two-hook ceiling, and the chosen collector substrate* | ~12 of 179 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
 | [`specification.md`](product/specification.md) §4 root-lifecycle and server/hydration contract rows | ~3 of 506 | [`spec/004C-Roots-and-Mount.md`](../../../spec/004C-Roots-and-Mount.md) |
 
 Nothing in the tree is `004B` material as a *statement*: Hicasso's test kit **consumes**
@@ -193,17 +193,17 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`README.md`](product/README.md) | 82 | WR | — |
 | [`specification.md`](product/specification.md) | 506 | **VS 55%** | WR 45% (§6 budgets, §11 portfolio, §12 programme, §13 done); SC ~3 lines → `004C` |
 | [`decision-brief.md`](product/decision-brief.md) | 164 | WR | — |
-| [`invariants.md`](../../../implementation/hicasso/spec/invariants.md) | 179 | **VS 53%** | WR 40%; SC 7% (§7 two-hook subsection → `006`) |
+| [`invariants.md`](product/invariants.md) | 179 | **VS 53%** | WR 40%; SC 7% (§7 two-hook subsection → `006`) |
 | [`facade-freeze.md`](product/facade-freeze.md) | 247 | **VS 55%** | WR 45% (§1 membership, §4 the amendment, §6 what it is not) |
-| [`dispositions.md`](../../../implementation/hicasso/spec/dispositions.md) | 512 | WR 60% | VS 40% (§2's two policies, §2.4 default rule, target-policy column) |
+| [`dispositions.md`](product/dispositions.md) | 512 | WR 60% | VS 40% (§2's two policies, §2.4 default rule, target-policy column) |
 | [`complaints.md`](../../../implementation/hicasso/spec/complaints.md) | 308 | WR 70% | VS 30% (stability rule, what a complaint carries) — normative half already in `spec/009` |
 | [`globals.md`](product/globals.md) | 240 | WR | — |
 | [`requirements-mine.md`](product/requirements-mine.md) | 130 | WR | — |
-| [`naming-ledger.md`](../../../implementation/hicasso/spec/naming-ledger.md) | 75 | WR | — |
+| [`naming-ledger.md`](product/naming-ledger.md) | 75 | WR | — |
 | [`naming-packet.md`](product/naming-packet.md) | 364 | WR | — |
 | [`naming-findings-cp2.md`](product/naming-findings-cp2.md) | 43 | WR | — |
 | [`naming-findings-cp3.md`](product/naming-findings-cp3.md) | 57 | WR | — |
-| [`budgets.md`](../../../implementation/hicasso/spec/budgets.md) | 2204 | WR | — |
+| [`budgets.md`](product/budgets.md) | 2204 | WR | — |
 | [`release-policy.md`](product/release-policy.md) | 339 | **RF 70%** | WR 30% |
 | [`release-scans.md`](product/release-scans.md) | 336 | WR | — |
 | [`per-keystroke.md`](product/per-keystroke.md) | 659 | WR 80% | RF 20% (§6 asks for it as explanatory documentation *as well as* a witness) |
@@ -250,10 +250,10 @@ excluded.
 | Carrier | Primary? | VS lines | What it holds |
 |---|---|---|---|
 | [`specification.md`](product/specification.md) §§1–5, 7–10 | **VS** | ~278 | Product shape, the architecture laws, the target programming model (`h/defview`, `h/sub`, `h/event`, `h/defhost`, `h/as-element`, root lifecycle, error region), events, controlled fields, host interop, the native hot path, the coverage table, React compatibility, the testing ladder, Xray's questions |
-| [`dispositions.md`](../../../implementation/hicasso/spec/dispositions.md) §2 | WR | ~205 | Per-surface server/hydration policy — the *target policy* half; the inventory-id rule; §2.4's default rule and the only route out of it. Also the tree's only RFC-2119 keyword |
+| [`dispositions.md`](product/dispositions.md) §2 | WR | ~205 | Per-surface server/hydration policy — the *target policy* half; the inventory-id rule; §2.4's default rule and the only route out of it. Also the tree's only RFC-2119 keyword |
 | [`facade-freeze.md`](product/facade-freeze.md) §§2–3, 5 | **VS** | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
 | [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | **VS** | ~113 | The public language: core surface, the optional `n` surface and the provisional `n/$` grammar, nine authoring laws, the exclusions, the interop contract |
-| [`invariants.md`](../../../implementation/hicasso/spec/invariants.md) §§1–4 | **VS** | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
+| [`invariants.md`](product/invariants.md) §§1–4 | **VS** | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
 | [`complaints.md`](../../../implementation/hicasso/spec/complaints.md) §§*What every complaint carries*, *The stability rule*, *Rulings this catalogue owns* | WR | ~92 | The four guaranteed `ex-data` slots and the rule that `:view`/`:source` are context and never branchable; the id-stability rule. **Its normative half already lives in `spec/009` under a bidirectional gate**, which is why this carrier is the least homeless of the twelve |
 | [`lanes/react-compatibility-notes.md`](product/lanes/react-compatibility-notes.md) | **VS** | ~86 | The canonical public-surface SSR/hydration matrix, Activity, Suspense, the external-store ceiling, hydration as a root-level diagnostic contract |
 | [`lanes/testing-xray.md`](product/lanes/testing-xray.md) | **VS** | ~47 | The L0–L4 ladder as a supported product contract, the evidence contract, the failure/privacy contract |

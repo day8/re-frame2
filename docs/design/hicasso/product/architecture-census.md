@@ -58,7 +58,7 @@ rg -n "\[(re-frame\.ssr\.emit|re-frame\.ssr\.head|re-frame\.ui\.|re-frame\.freeh
 | `impl/mount.cljs` ×2 | `hydrateRoot` | as above |
 | `server.cljs` ×2 | `renderToString` | `rdom-server`, from `["react-dom/server" :as rdom-server]` |
 
-The two arms of one renderer, which is the design: `server.cljs` runs **this** runtime under `react-dom/server`, and its own opening says so — *"No JVM string emitter, no parallel hiccup walker."* Hydration parity holds by construction only while one runtime renders both halves, which is why [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) row 22 had to be corrected when it read *JVM-side*.
+The two arms of one renderer, which is the design: `server.cljs` runs **this** runtime under `react-dom/server`, and its own opening says so — *"No JVM string emitter, no parallel hiccup walker."* Hydration parity holds by construction only while one runtime renders both halves, which is why [`naming-ledger.md`](naming-ledger.md) row 22 had to be corrected when it read *JVM-side*.
 
 **What M1b excludes, and why it is not a hole.** `server.cljs` requires three `re-frame.ssr.*` namespaces — `constants`, `html-helpers`, `payload-policy` — and none is an emitter. `html-helpers` is an *escaping* library (`escape-html`, `escape-attr`, `escape-edn-script-body`) shared with the SSR emitter so that entity rules live in one place; the emitter itself is `re-frame.ssr.emit`, and nothing under `implementation/hicasso/src` requires it.
 

@@ -15,7 +15,7 @@ restate what a complaint means or what it carries.
 | What a complaint means, what it carries, its `:recovery` | `spec/009-Instrumentation.md`, §Hicasso and §Hicasso test kit |
 | Whether an id exists, and whether it is retired | the same Spec 009 rows: a row means the runtime raises it today; a struck-through row is the tombstone |
 | How to write the code so it never fires | the guide chapter each row names |
-| What a spelling should be called | [`naming-ledger.md`](naming-ledger.md), settled by the naming packet |
+| What a spelling should be called | [`naming-ledger.md`](../../../docs/design/hicasso/product/naming-ledger.md), settled by the naming packet (design history since 2026-08-30, `rf2-6c12m.8`) |
 
 One owner per fact, bound by id. The repo-wide
 `scripts/check_keyword_catalogue_drift.py` is what keeps the binding true,

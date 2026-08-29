@@ -78,7 +78,7 @@ returns, inside the discrete event, and settles afterwards.
 
 Deterministic counters, so these were exact integers and not bands. A band would
 have been the wrong instrument: contention cannot move a monotone counter
-([budgets §2](../../../../implementation/hicasso/spec/budgets.md#2-the-two-disposition-families-which-6-already-separates)).
+([budgets §2](budgets.md#2-the-two-disposition-families-which-6-already-separates)).
 
 | # | Subject | Stage | Predicted | Measured | |
 |---|---|---|---:|---:|---|
@@ -463,7 +463,7 @@ preserved length could be satisfied by a field that echoed nothing at all
 converge has actual work to do, which is why it is also the one glass write §5
 counts.
 
-That is a stronger fact than the one [`U1`](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger)
+That is a stronger fact than the one [`U1`](budgets.md#9-the-budget-line-reconciliation-ledger)
 is written about. `U1` asks that controlled updates be *echoed within one 60 Hz
 frame at p95*; what the measurement shows is that **no frame boundary is crossed
 at all**. There is no frame to be within.
@@ -471,13 +471,13 @@ at all**. There is no frame to be within.
 ### Why `U1` is nevertheless NOT pinned, and this page refuses to pin it
 
 `U1`'s registered estimand is *latency to visible echo*, at `p95`. It is a
-**distributional** row ([budgets §4](../../../../implementation/hicasso/spec/budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)),
+**distributional** row ([budgets §4](budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)),
 and this page has no clock. The refusal is at source and is not a scheduling
 problem:
 
 - **No package-resident clock instrument exists.**
-  [budgets §9.2](../../../../implementation/hicasso/spec/budgets.md#92-what-each-not-green-row-is-waiting-on) says so in
-  terms, and [§9.3](../../../../implementation/hicasso/spec/budgets.md#93-where-this-ledger-stops-and-rf2-hic-071-begins)
+  [budgets §9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) says so in
+  terms, and [§9.3](budgets.md#93-where-this-ledger-stops-and-rf2-hic-071-begins)
   assigns building one to `rf2-hic-071` — naming this very budget, the *one-frame
   keystroke echo*, as the row that needs it.
 - **Building one here was out of bounds**, and §9.3 gives the reason rather than
@@ -487,7 +487,7 @@ problem:
   is present before the turn yields* and *the echo reaches the glass within
   16.7 ms at the 95th percentile* are different claims, and the first does not
   imply the second on a machine where the event turn itself can be slow. Reading
-  one as the other is precisely the substitution [budgets §3](../../../../implementation/hicasso/spec/budgets.md#3-deterministic-rows-pinned-on-the-moved-package)
+  one as the other is precisely the substitution [budgets §3](budgets.md#3-deterministic-rows-pinned-on-the-moved-package)
   refuses when it keeps `D9`'s residue counters apart from `S5`'s retained bytes.
 
 **So `U1` stays `UNPINNED`, and its deterministic half is now published rather
@@ -501,7 +501,7 @@ above.
 ## 7. Provenance
 
 Every figure above was taken on `P-DEV-1`
-([budgets §1](../../../../implementation/hicasso/spec/budgets.md#1-the-named-reference-profiles)) by the browser lane,
+([budgets §1](budgets.md#1-the-named-reference-profiles)) by the browser lane,
 `npm run test:browser`, from [the census suite][census] — **except §4.1's, which
 come from a different suite on the same lane and the same profile and carry
 [their own run table](#41-the-layer-2-contrast-measured)**. The runs numbered
@@ -516,7 +516,7 @@ figure on that base without one of them moving**. Both are on `main`.
 after the runs, and `'\Processor(_Total)\% Processor Time'` ran 6–17%. It is
 recorded because the lane requires it, and the honest note beside it is that
 **this census did not need it**: every figure on this page is a monotone counter,
-and [budgets §2](../../../../implementation/hicasso/spec/budgets.md#2-the-two-disposition-families-which-6-already-separates)
+and [budgets §2](budgets.md#2-the-two-disposition-families-which-6-already-separates)
 records that a counter reads the same on a loaded box. The rows that would have
 needed a quiet box are the ones §6 refuses.
 
@@ -615,7 +615,7 @@ Any of: a subscription in either application changing layer, which would move th
 recomputation counts without touching any other row; React changing its
 controlled-input update, which would move §5's seven and three; a boundary count
 moving without a topology change to explain it (the standing clause
-[budgets §8](../../../../implementation/hicasso/spec/budgets.md#8-this-pages-own-run-and-what-would-falsify-it) already
+[budgets §8](budgets.md#8-this-pages-own-run-and-what-would-falsify-it) already
 states over `D1`–`D16`); or the arrival of a package-resident clock, which would
 make §6's refusal answerable rather than merely correct.
 
@@ -630,10 +630,10 @@ everything, and this one published a good deal.
   `UNPINNED` and §6 says why the refusal is at source.
 - **No claim about any machine but `P-DEV-1`** — though the counters here are the
   family that carries no hardware profile at all, so
-  [§1's single-profile limitation](../../../../implementation/hicasso/spec/budgets.md#the-single-profile-limitation-accepted-explicitly)
+  [§1's single-profile limitation](budgets.md#the-single-profile-limitation-accepted-explicitly)
   binds this page less tightly than it binds a distributional one.
 - **No new ledger rows.** The census's figures deserve rows in
-  [budgets §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger), and minting
+  [budgets §9](budgets.md#9-the-budget-line-reconciliation-ledger), and minting
   them means editing `check_budget_ledger.py`'s pinned constants, which is
   `rf2-hic-089`'s surface and not this bead's. `U1`'s entry in §9.2 has been
   updated to point here; the rows are filed as follow-up work.

@@ -1,7 +1,7 @@
 # The naming packet — every Hicasso name, defaults applied, one sitting overrides
 
 **Published by `rf2-hic-065`.** This is the single consolidation point the whole
-programme has been deferring names to. [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) is the
+programme has been deferring names to. [`naming-ledger.md`](naming-ledger.md) is the
 row-by-row record and stays the place a new question is appended; this page is what the
 operator reads, and what `rf2-hic-066` sweeps from.
 
@@ -356,7 +356,7 @@ the committed gate: *"CENSUS: 105 public names across 10 shipped namespaces; 0 N
 in naming-ledger.md"*, exit **0**. That is the bead's acceptance condition met mechanically
 rather than by inspection. A non-zero count from here is a public name minted since
 publication with no ledger row — precisely what section 3 of
-[`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md) forbids.
+[`dispositions.md`](dispositions.md) forbids.
 
 **Standing since `rf2-st1x5`,** in two homes rather than the three that bead anticipated.
 The `hicasso-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —
