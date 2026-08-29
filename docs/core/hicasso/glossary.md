@@ -619,9 +619,10 @@ Related: [Overlays and focus](13-overlays-and-focus.md).
 <a id="route-link"></a>
 ### `route-link`
 
-A routing helper that returns a real anchor and encodes navigation as a Hicasso
-intent. It supports route ids and params, optional intent prefetch, native link
-semantics, and link-local veto behaviour.
+A routing helper on the door, called as `h/route-link`, that returns a real
+anchor and encodes navigation as a Hicasso intent. It supports route ids and
+params, native link semantics, and link-local veto behaviour. It declines
+`:prefetch`; warming a destination is an event you dispatch yourself.
 
 It is an inline function, not a separate view. Active-state styling comes from
 a route subscription comparison.

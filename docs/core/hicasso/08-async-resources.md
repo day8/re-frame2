@@ -349,7 +349,7 @@ events cause the first fetch after hydration.
 | Job | Better owner |
 | --- | --- |
 | Data required by the current URL | Route `:resources`, including SSR and transition blocking |
-| Warming data before any view needs it | Route-link `:prefetch :intent` or an explicit ensure |
+| Warming data before any view needs it | `[:rf.route/prefetch address]` from a link's `:on-mouse-enter`, or an explicit ensure |
 | Manual refresh | `[:rf.resource/refetch …]` event |
 | One-off uncached request | Managed HTTP |
 | Drafts, field validation, and submit gating | Forms module |
