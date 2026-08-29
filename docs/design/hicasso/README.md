@@ -27,7 +27,7 @@ tree (three per-model charters, two independent multi-lens review cycles, a
 paper budget, and the `spike-01` index model); nothing load-bearing remains only
 there. The requirements harness is tracked at
 `docs/design/freehand/studio/fitness-harness.md`; measured claims cite the
-repo's studio/bench record and beads. Programme measurements land in
+repo's studio/bench record and beads. The bench lane those measurements were taken on lives at `bench/hicasso/` since 2026-08-29 (rf2-6c12m.1; its README maps the older `implementation/hicasso/test/re_frame/bench/hicasso/` paths cited across this record). Programme measurements land in
 `docs/design/hicasso/studio/` (minted by the first P0 worker).
 
 Like `design/freehand/`, this tree is excluded from the published mkdocs site and
