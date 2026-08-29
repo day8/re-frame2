@@ -1,6 +1,5 @@
 (ns re-frame.hicasso.examples.typeahead.l0-cljs-test
-  "L0 — THE MODEL TIER, THE CENSUS, AND THE DEFECT REACHABILITY
-  DEMONSTRATIONS.
+  "L0 — THE MODEL TIER AND THE DEFECT REACHABILITY DEMONSTRATIONS.
 
   `re-frame.hicasso.test`'s ladder names L0 as the tier the kit
   deliberately does not touch: an event handler is a function of `db` and
@@ -10,25 +9,20 @@
   test kit. Frame scope is the programmer's ordinary bracket,
   `rf/with-new-frame`.
 
-  Three kinds of row live here, answering three different criteria from
+  Two kinds of row live here, answering two criteria from
   `docs/design/hicasso/product/resource-demand-criteria.md` at its
-  effective revision `afbb58febc`.
+  effective revision `afbb58febc`. C1's ceremony census is the `;; CENSUS`
+  markers in `events.cljs` and `views.cljs`, published in
+  `resource-demand-witness.md` with the marker ids as its citations;
+  nothing here counts them.
 
-  ## 1. The census — C1
-
-  [[census]] is read off the witness's own source at macro-expansion time
-  by [[re-frame.hicasso.examples.typeahead.census]]. The rows below pin
-  its shape and its counts, so a ceremony site deleted, added or
-  re-classified reds this file by name rather than quietly moving a
-  published number.
-
-  ## 2. The model — the application actually works
+  ## 1. The model — the application actually works
 
   Debounce, supersession, stale-reply suppression, refresh-with-data,
   cancellation and both resources' acquire and release paths, driven
   through a real frame so a registration that never happened cannot pass.
 
-  ## 3. The reachability demonstrations — C2
+  ## 2. The reachability demonstrations — C2
 
   C2 admits a defect class only with *a mutation that makes the
   hand-written answer actually exhibit the defect*, so that an
@@ -71,15 +65,13 @@
   because `rf/dispatch-sync` runs the effects too. Nothing here waits on a
   duration and nothing here reports one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso.examples.typeahead.db :as db]
             [re-frame.hicasso.examples.typeahead.events :as events]
             [re-frame.hicasso.examples.typeahead.service :as service]
             [re-frame.hicasso.examples.typeahead.subs :as subs]
-            [re-frame.test-support :as test-support])
-  (:require-macros [re-frame.hicasso.examples.typeahead.census :as c]))
+            [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The mutations — the application's own functions, one thing removed
@@ -174,91 +166,7 @@
 (defn- generation [frame] (get-in (app-db frame) [:search :generation]))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The census — C1's instrument
-;; ---------------------------------------------------------------------------
-
-(def census
-  "Every ceremony region in the witness, read off its source. **The whole
-  application is scanned**, not the two files that happen to hold rows
-  today: a site can only escape the count by being in a file this vector
-  does not name, so the vector names them all."
-  (c/emit-census
-    '["re_frame/hicasso/examples/typeahead/db.cljs"
-      "re_frame/hicasso/examples/typeahead/events.cljs"
-      "re_frame/hicasso/examples/typeahead/service.cljs"
-      "re_frame/hicasso/examples/typeahead/subs.cljs"
-      "re_frame/hicasso/examples/typeahead/views.cljs"
-      "re_frame/hicasso/examples/typeahead/app.cljs"]))
-
-(def ^:private classes
-  "C1's three, restated here because the emitting macro is a `.clj` and a
-  ClojureScript namespace can call its macros but not read its vars. The
-  macro already refuses an unknown class at expansion time; this is the
-  runtime half of the same statement."
-  #{"OWNERSHIP" "POLICY" "DOMAIN"})
-
-(defn- ids-of [klass]
-  (into (sorted-set) (comp (filter #(= klass (:class %))) (map :id)) census))
-
-(deftest the-census-instrument-answered
-  ;; Asserted BEFORE anything is asserted with it. An empty census passes
-  ;; every classification check below vacuously, and a census that had
-  ;; scanned one file would report a complete-looking count over a
-  ;; fraction of the application.
-  (testing "it is populated"
-    (is (pos? (count census)) "the census is empty — the scan found nothing"))
-
-  (testing "every row carries what a report needs to cite it"
-    (doseq [{:keys [id class role label file from to lines]} census]
-      (is (contains? classes class) (str id " is classified " class))
-      (is (not (str/blank? role)) (str id " has no role"))
-      (is (not (str/blank? label)) (str id " has no label"))
-      (is (string? file) (str id " names no file"))
-      (is (< 0 from to) (str id "'s marker lines are not in order"))
-      (is (pos? lines)
-          (str id " delimits an EMPTY region — a marker pair around
-               nothing counts a site that is not there"))))
-
-  (testing "more than one file contributed"
-    ;; The positive control on the scan itself. Both the model tier and
-    ;; the view tier hold ceremony, and a scan that had silently failed on
-    ;; one file would still look like a healthy census.
-    (is (= #{"re_frame/hicasso/examples/typeahead/events.cljs"
-             "re_frame/hicasso/examples/typeahead/views.cljs"}
-           (into #{} (map :file) census))
-        "the set of files holding ceremony moved. That is a real finding
-         either way — a new file grew a correlation region, or one lost
-         its last — and the report's C1 table names the files it read")))
-
-(deftest the-census-counts-are-pinned
-  ;; THE PUBLISHED FIGURE. `docs/design/hicasso/product/resource-demand-witness.md`
-  ;; publishes these ids and counts; this row is what stops the document
-  ;; and the code disagreeing. Sets rather than totals, so a failure names
-  ;; the row that moved instead of printing two integers.
-  (testing "OWNERSHIP — the class demand could claim"
-    (is (= #{"O1" "O2" "O3" "O4" "O5" "O6" "O7" "O8" "O9"} (ids-of "OWNERSHIP"))))
-
-  (testing "POLICY — explicit under demand as well, so never claimable"
-    (is (= #{"P1" "P2" "P3" "P4" "P5"} (ids-of "POLICY"))))
-
-  (testing "DOMAIN — would exist under any mechanism"
-    (is (= #{"X1"} (ids-of "DOMAIN"))))
-
-  (testing "and nothing is classified twice or not at all"
-    (is (= (count census) (count (distinct (map :id census)))))
-    (is (= (set (map :id census))
-           (into #{} (concat (ids-of "OWNERSHIP") (ids-of "POLICY") (ids-of "DOMAIN")))))))
-
-(deftest ownership-has-both-an-acquire-and-a-release
-  ;; C1 stops on an OWNERSHIP census that is empty or acquire-only: a
-  ;; mechanism with nothing to release has nothing to buy.
-  (let [ownership (filter #(= "OWNERSHIP" (:class %)) census)]
-    (is (= {"release" 6 "acquire" 3} (frequencies (map :role ownership)))
-        "the OWNERSHIP roles moved. Both halves must be non-empty for C1
-         to be answerable at all, and the split is a published figure")))
-
-;; ---------------------------------------------------------------------------
-;; 2. The debounce figure, and the control that moves it
+;; The debounce figure, and the control that moves it
 ;; ---------------------------------------------------------------------------
 
 (deftest a-burst-of-keystrokes-makes-exactly-one-request
