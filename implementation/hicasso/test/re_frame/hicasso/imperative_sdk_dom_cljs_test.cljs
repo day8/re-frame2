@@ -958,18 +958,13 @@
   ;; entries a `useRef` or a `useState` — so that the recipe's cost cannot
   ;; be confused with a change to what every boundary on the page pays.
   ;;
-  ;; No fiber needed: both ledgers are declarations, read off the runtime.
-  (testing "the context-fed shell still declares exactly its two hooks"
+  ;; No fiber needed: the ledger is a declaration, read off the runtime.
+  (testing "the shell still declares exactly its two hooks"
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
            collector/shell-hook-ledger))
     (is (= 2 (count collector/shell-hook-ledger))))
-  (testing "and the frame-fed variant still declares exactly its one"
-    (is (= [:use-sync-external-store/subscription-epoch]
-           collector/frame-prop-shell-hook-ledger)))
-  (testing "neither shell declares a ref or a state hook — HD-020(b)"
-    (is (empty? (filter #(#{:use-ref :use-state} %)
-                        (concat collector/shell-hook-ledger
-                                collector/frame-prop-shell-hook-ledger))))))
+  (testing "and declares no ref or state hook — HD-020(b)"
+    (is (empty? (filter #(#{:use-ref :use-state} %) collector/shell-hook-ledger)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. The roster

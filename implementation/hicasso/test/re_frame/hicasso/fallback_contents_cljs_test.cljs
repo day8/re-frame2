@@ -19,31 +19,19 @@
   is therefore STRUCTURAL, about the declared form, and not a property of
   the walk.
 
-  ## Two measurements decided it, and both are kept below
+  ## One measurement decided it, and it is kept below
 
-  1. **The declared placeholder was not a value.** `mint-host-gate!`
-     walks once and reuses the element everywhere, and its stated reason
-     is *\"a placeholder that differs per site is not a placeholder\"*.
-     One declaration carrying a boundary head rendered `ALPHA` in one
-     frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
-     justification falsified by what it permitted.
-     [[a-declared-placeholder-is-a-placeholder-again]] keeps that
-     measurement, taken now against an INERT fallback, where all three
-     documents are the same one.
-  2. **It did not survive the arm's own other boundary variant.** This
-     arm ships two mints:
-     [[re-frame.hicasso.impl.collector/mint-view!]] (context-fed,
-     what `defview` mints) and
-     [[re-frame.hicasso.impl.collector/mint-frame-prop-view!]]
-     A frame-fed head reads `intent/*frame*` when its
-     ELEMENT is created — which in a fallback is mint time, where the
-     var is `nil` — so it baked `nil` in, minted happily, and threw
-     `:rf.error/no-frame-prop` one render into the server response.
-     Whether a boundary head in a fallback worked at all was therefore a
-     property of which mint it came from, which is not a rule an author
-     can hold. The refusal is walk-scoped and asks the MARKER, so it
-     catches that variant for free —
-     [[the-frame-fed-variant-is-caught-by-the-same-refusal]].
+  **The declared placeholder was not a value.** `mint-host-gate!`
+  walks once and reuses the element everywhere, and its stated reason
+  is *\"a placeholder that differs per site is not a placeholder\"*.
+  One declaration carrying a boundary head rendered `ALPHA` in one
+  frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
+  justification falsified by what it permitted.
+  [[a-declared-placeholder-is-a-placeholder-again]] keeps that
+  measurement, taken now against an INERT fallback, where all three
+  documents are the same one. The refusal is walk-scoped and asks the
+  boundary MARKER rather than the mint, so it holds for every head the
+  mint door produces.
 
   ## The ruling, and the recovery it points at
 
@@ -58,9 +46,8 @@
   ## The mutation witnesses — both directions
 
   **Remove the refusal** (delete `mint-host-gate!`'s call to
-  `refuse-deferring-heads-in-fallback!`) and every row in §2 and §3 goes
-  red: the heads mint again, and the frame-fed one goes back to throwing
-  mid-render rather than at the declaration.
+  `refuse-deferring-heads-in-fallback!`) and every row in §2 goes red:
+  the heads mint again.
 
   **Over-refuse** (make `deferring-head-kind` answer a kind for anything
   non-nil, the shape a walk that confused \"an element\" with \"a
@@ -128,17 +115,6 @@
   "A `defview` head written into a fallback — the whole question."
   [_]
   [:section.fb-view [:h2.sub (collector/sub [:hicasso.fb/title])]])
-
-(def ^:private frame-fed-view
-  "The SAME body, minted through the arm's other boundary variant
-  (rf2-2rtt6.39). Minted directly rather than through `defview` because
-  `lang.clj`'s macro mints the context-fed one — which is exactly the
-  point: the two are indistinguishable in hiccup and used to disagree
-  here."
-  (collector/mint-frame-prop-view!
-    "fallback-contents/frame-fed-view"
-    (fn frame-fed-view-body [_]
-      [:section.fb-frame-fed [:h2.sub (collector/sub [:hicasso.fb/title])]])))
 
 (defn- inner-component [_props]
   (react/createElement "i" #js {:className "inner"} "INNER"))
@@ -296,55 +272,7 @@
            the two frames are genuinely distinguishable"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — the frame-fed variant, caught by the same refusal
-;; ---------------------------------------------------------------------------
-
-(deftest the-frame-fed-variant-is-caught-by-the-same-refusal
-  (fresh!)
-  (testing "the frame-fed variant reads `intent/*frame*` when its ELEMENT is
-            created. Everywhere else that is inside an ancestor body or
-            `root-element`; in a fallback it is MINT TIME, where the var is
-            nil — so it used to bake nil in, mint happily, and throw
-            `:rf.error/no-frame-prop` one render into the server response.
-            The refusal is walk-scoped and asks the boundary MARKER, so it
-            covers this variant without knowing it exists"
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
-           (error-id #(host-with-fallback "fb/frame-fed" [frame-fed-view {}])))))
-  (testing "and the throw has MOVED to the declaration, which is the whole
-            point — an author's stack now names the line they wrote"
-    (is (not= :rf.error/no-frame-prop
-              (error-id #(host-with-fallback "fb/frame-fed-2"
-                                             [frame-fed-view {}])))))
-  (testing "while the SAME view inside an ordinary body still renders — so
-            the refusal is about the fallback POSITION and not about the
-            view, and the variant is not collateral damage"
-    (let [html (server-html frame-a [:div.page [frame-fed-view {}]])]
-      (is (re-find #"ALPHA" html) (str "control: " html)))))
-
-;; ---------------------------------------------------------------------------
-;; 3b — the shell's own guard, positively
-;; ---------------------------------------------------------------------------
-
-(deftest a-frame-fed-boundary-with-no-frame-in-its-props-refuses-by-id
-  (testing "the OTHER half of section 3's story: outside the fallback
-            position the mint bakes the frame into the element's props,
-            and the shell's guard is what stands when an element reaches
-            React without one — an outward bridge minting by hand, or the
-            hole this file closed. Its shape had never been POSITIVELY
-            pinned anywhere: section 3 asserts only that the id is NOT
-            this one on the declaration path, which a renamed or gutted
-            refusal satisfies vacuously. The guard runs before either of
-            the shell's hooks, which is what makes it assertable here
-            with no React render"
-    (let [data (error-data #(collector/frame-prop-shell
-                              (fn [_] [:p "unreachable"])
-                              #js {}))]
-      (is (= :rf.error/no-frame-prop (:rf.error/id data)))
-      (is (= 're-frame.hicasso.impl.collector/frame-prop-shell (:where data)))
-      (is (= :mint-the-root-element-with-a-frame (:recovery data))))))
-
-;; ---------------------------------------------------------------------------
-;; 4 — every legitimate fallback position, proven ONE AT A TIME
+;; 3 — every legitimate fallback position, proven ONE AT A TIME
 ;;
 ;; A refusal is only as good as what it leaves alone. One row per shape a
 ;; real placeholder is written in, so an over-broad walk fails by NAME

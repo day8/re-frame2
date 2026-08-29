@@ -57,8 +57,10 @@
   **The `:what` strings are DATA, held byte-for-byte against the measured
   table.** Thirteen of the fourteen are identical to
   `re-frame.bench.hicasso.arm1.runtime/retained-inventory`'s, and the
-  fourteenth — `:react/use-context` — differs only in the namespace it
-  names. That tree is the artefact the heap ladders were read off,
+  fourteenth — `:react/use-context` — differs in the namespace it names
+  and in no longer pricing the frame-fed shell variant, which the bench
+  copy keeps and src does not (rf2-6c12m.16). That tree is the artefact
+  the heap ladders were read off,
   so a ladder is compared against these rows on the assumption they still
   say what the measurement said. Rewriting one for its prose silently
   moves the baseline a published row was taken against; whoever needs one
@@ -72,7 +74,7 @@
     {:token :react/use-sync-external-store
      :what  "React's own hook cell for the one subscription hook"}
     {:token :react/use-context
-     :what  "React's own hook cell for the frame hook, plus the fiber's context dependency record — held by the CONTEXT-fed shell only. The frame-fed variant ([[re-frame.hicasso.impl.collector/mint-frame-prop-view!]]) does NOT hold it: its frame arrives as the element prop `rfFrame`, which costs one slot in every boundary element's props object instead. A ladder reading this table for that variant must subtract this token and add that slot (rf2-2rtt6.39, priced on rf2-2rtt6.72)"}
+     :what  "React's own hook cell for the frame hook, plus the fiber's context dependency record"}
     {:token :react/memo-fiber
      :what  "one EXTRA React fiber — `mint-view!`'s props-equality bail-out is a `React.memo` carrying a comparator, and a memo with a custom comparator stays a MemoComponent rather than collapsing into React's SimpleMemoComponent, so React holds a wrapper fiber above the component's own (rf2-2rtt6.52)"}
     {:token :read-set-entry

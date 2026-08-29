@@ -855,7 +855,7 @@ _FIX_HINTS = {
         "`re-frame.bench.hicasso.{front,arm1}.*`, which is NOT in this repo: a "
         "refusal whose `:where` names it points a consumer at nothing. Raise "
         "from the package's own namespace — e.g. "
-        "`:where 're-frame.hicasso.impl.collector/frame-prop-shell` — and "
+        "`:where 're-frame.hicasso.impl.collector/shell` — and "
         "assert against the PACKAGE prefix `\"re-frame.hicasso.impl.\"` rather "
         "than one file's, so the next move of a guard between `impl` "
         "namespaces does not red the row. If you are writing PROSE about the "

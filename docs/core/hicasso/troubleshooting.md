@@ -191,14 +191,6 @@ a boundary that does not carry the frame with it.
 
 Taught in [Events as data](03-events-as-data.md).
 
-<a id="no-frame-prop"></a>
-#### `:rf.error/no-frame-prop`
-
-You mounted a frame-fed boundary with no frame in its props.
-
-Recovery: `:mint-the-root-element-with-a-frame` — the root element and any
-outward bridge name the frame they mint under.
-
 <a id="no-frame-context"></a>
 #### `:rf.error/no-frame-context`
 

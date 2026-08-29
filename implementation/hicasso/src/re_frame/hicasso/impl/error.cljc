@@ -156,10 +156,9 @@
   React calls is byte-for-byte the undecorated component.
 
   It wraps the COMPONENT rather than the body, which buys the shell's own
-  two refusals — `:rf.error/no-frame-context` and
-  `:rf.error/no-frame-prop` are raised before the body runs, and a
-  boundary that refuses to render at all should still be able to say
-  which boundary it was."
+  refusal — `:rf.error/no-frame-context` is raised before the body runs,
+  and a boundary that refuses to render at all should still be able to
+  say which boundary it was."
   [view-name component]
   (fn hicasso-traced-boundary [js-props]
     (let [prev @!origin]
@@ -228,7 +227,7 @@
   - `:rf.error/hicasso-true-child` has none either, at the codec's arm:
     the refusal fires only when the child IS `true`, so the value is a
     constant the id already names.
-  - `:rf.error/no-frame-context`, `:rf.error/no-frame-prop` and
+  - `:rf.error/no-frame-context` and
     `:rf.error/hicasso-frame-outside-boundary` have no frame, because the
     offence is that there is none to have.
 

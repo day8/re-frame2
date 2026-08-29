@@ -83,10 +83,7 @@ it yet).
 
 Three ids here are **corpus-owned** — Hicasso reuses a spelling the wider
 framework already defines rather than minting a private twin — and are
-rowed in Spec 009's main catalogue rather than in its Hicasso section. A
-fourth, `:rf.error/no-frame-prop`, only looks like one: it is Hicasso's,
-rowed in the Hicasso section, and is the single live id without the
-`hicasso-` prefix (see *Open, and not settled here*).
+rowed in Spec 009's main catalogue rather than in its Hicasso section.
 
 <!-- rf2-hic-021: status=live -->
 
@@ -146,7 +143,6 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
 | `:rf.error/hicasso-unknown-callback-contract` | named a callback contract outside `:event` / `:handler` / `:render` | — |
-| `:rf.error/no-frame-prop` | mounted a frame-fed boundary with no frame in its props | — |
 | `:rf.error/hicasso-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
 | `:rf.error/hicasso-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
 | `:rf.error/hicasso-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
@@ -214,6 +210,7 @@ Spellings that are dead.
 | `:rf.error/hicasso-dispatch-in-render-position` | raised by a render callback that dispatched while it was running — an armed gate minted per invocation of every render prop | Retired 2026-08-29 (rf2-6c12m.20). The gate policed a case a programmer does not plausibly write and one React already warns on, at the price of a volatile, a closure and a three-var binding on every invocation of every render prop. The useful half of the wrapper — rebinding the supplying boundary's frame and dispatch for the call — stays; a handler lowered inside a callback with no owner raises `:rf.error/hicasso-intent-outside-boundary` as it always did. The frozen bench donor `front/intent.cljs` still carries the emitter, which is why the register gate's R3/R4 scan stops at the bench lane |
 | `:rf.error/hicasso-merge-not-a-map` | raised when the reserved `:&` attribute key carried something other than a map | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key itself. Naming-ledger row 2 ruled the key out of the grammar; the guide never taught it and no example, testbed or app used it. Forwarding a caller's attributes is an ordinary `merge` with the owned keys last, so there is no reserved key to carry a non-map. The frozen bench donor `front/codec.cljs` still carries the emitter |
 | `:rf.error/hicasso-revision-from-remainder` | raised when a `:&` remainder introduced `::h/revision` onto an element whose author had not written one | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key. With one map and no remainder there is no provenance to ask of the revision; it is read once off the element's map and never emitted. The frozen bench donor `front/codec.cljs` still carries the emitter |
+| `:rf.error/no-frame-prop` | raised by the frame-as-a-prop shell variant — the one-hook boundary that took its frame as the element prop `rfFrame` — when an element reached it with no frame | Retired 2026-08-29 (rf2-6c12m.16). The variant was a measurement hypothesis shipping in production: not exported, minted by nothing but four test files, and priced across the package (a marker and a prop write per boundary element, an `identical?` every context-fed boundary paid in the memo comparator, a second justification for the fallback refusal). It lives on in the bench tree's own copy of the runtime (`arm1/runtime.cljs`, which still carries this emitter) until it wins a measurement. It was also the one live id without the `hicasso-` prefix, recorded as found rather than corrected; the question is moot |
 
 ## Rulings this catalogue owns
 
@@ -276,9 +273,8 @@ a key a caller no longer writes. That is not a rule-1 trigger: the refusal
 means exactly what it always meant — *the fixture map was not a map from
 query vector to value* — and an id names the refusal, not the option. Under
 rule 2 the rename would buy one better word for a tombstone kept forever, a
-fresh spelling every consumer must re-learn, and two more Spec 009 rows; it
-is the same trade that leaves `:rf.error/no-frame-prop` recorded below as
-found rather than corrected. The current spelling belongs in the Trigger
+fresh spelling every consumer must re-learn, and two more Spec 009 rows.
+The current spelling belongs in the Trigger
 column and in the message, which is where a reader meets it. This id's own
 recovery, `:pass-a-map-of-query-to-value`, names a shape rather than a key
 and needed no change at all — the same distinction seen from the other side,
@@ -301,8 +297,3 @@ untracked drift rather than a red build.
   cancel — and whether either deserves a catalogue id is a design question
   the module's own sitting takes, not one a register can decide. Nothing is
   reserved for them.
-- **`:rf.error/no-frame-prop` is the one live id without the `hicasso-`
-  prefix.** Nothing in core emits it and it reads as a sibling of the
-  corpus-owned `:rf.error/no-frame-context`. Whether it is renamed into the
-  family is a naming question; it is recorded as found rather than
-  corrected, and a rename would be a retirement plus a mint under rule 2.
