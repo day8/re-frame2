@@ -724,12 +724,38 @@ function report() {
   L('    magnitude on a two-population mixture. It should be RETIRED and replaced by two figures');
   L(`    that are: mode 1's own dispersion (p90 ${pooled.mode1.p90} over the corpus) and the fraction over the`);
   L('    bar. THAT IS A RULING, NOT THIS READER\'S CALL — the triple is cited by other windows\' bands.');
-  L('  IS THE TAIL SESSION-CARRIED? NOT DECIDABLE HERE. Three windows are three sessions, and the');
-  L('    session is confounded with the design, the round count and the date in all three. What is');
-  L('    ruled out is the round count (F); what is established is a within-run component (E).');
-  L('  WHAT IS MISSING: two sessions on ONE design. Every window in this corpus changed the design');
-  L('    and the session together, so re-running phase 3\'s twelve-round design in a fresh session is');
-  L('    the cheapest measurement that would separate them.');
+  // THE SESSION QUESTION, ANSWERED OFF THE SAME GROUPING THE TOTAL LINE COUNTS —
+  // rf2-oflj7 items 5 and 6. This said `NOT DECIDABLE HERE. Three windows are
+  // three sessions` under a section A that prints `4 windows over 5 sessions`,
+  // with the self-test pinning each of the two, and `WHAT IS MISSING: two
+  // sessions on ONE design` about a corpus whose fourth window IS two sessions
+  // on one design — the measurement this file's header amendment 3 already
+  // records as taken, with its 17.7% / 17.2% reading and its conclusion. Both
+  // arms are emittable and `spanning` chooses between them. The conclusion the
+  // answered arm prints is the header's own and not a new one: the per-session
+  // fractions it rests on are derived here and pinned by the self-test at the
+  // header's figures, so a corpus that moved them reds and gets read, rather
+  // than re-concluded by a threshold this reader does not have.
+  if (spanning.length === 0) {
+    L(`  IS THE TAIL SESSION-CARRIED? NOT DECIDABLE HERE. ${windowSessions.length} windows are ${windowSessions.length} sessions, and the`);
+    L(`    session is confounded with the design, the round count and the date in all ${windowSessions.length}. What is`);
+    L('    ruled out is the round count (F); what is established is a within-run component (E).');
+    L('  WHAT IS MISSING: two sessions on ONE design. Every window in this corpus changed the design');
+    L('    and the session together, so re-running phase 3\'s twelve-round design in a fresh session is');
+    L('    the cheapest measurement that would separate them.');
+  } else {
+    for (const [w, n] of spanning) {
+      const perSession = [...groupBy(rows.filter((r) => r.window === w), (r) => r.session)]
+        .map(([, rs]) => f1(ladder(cellsOf(rs)).overBarPct));
+      L(`  IS THE TAIL SESSION-CARRIED? PARTLY ANSWERED. ${w} is one design held still across ${n} sessions,`);
+      L('    where the session is not confounded with the design or the date, and its over-bar fraction');
+      L(`    reads ${perSession.join('% against ')}% over those sessions in order. ON THIS EVIDENCE THE SECOND`);
+      L('    POPULATION IS NOT SESSION-CARRIED. What is ruled out is the round count (F); what is');
+      L('    established is a within-run component (E).');
+    }
+    L(`  WHAT WAS MISSING, two sessions on ONE design, ${spanning.map(([w]) => w).join(' and ')} supplies; the other`);
+    L(`    ${windowSessions.length - spanning.length} windows changed the design and the session together and cannot separate them.`);
+  }
 
   return out.join('\n');
 }
@@ -1042,8 +1068,6 @@ function selfTest() {
   ck('the report names the basis of its cross-window comparisons',
     /Every cross-window comparison below is stated OVER THE BAR/.test(rep), true);
   ck('the report leaves the p90 to a ruling', /THAT IS A RULING, NOT THIS READER'S CALL/.test(rep), true);
-  ck('the report says the session question is not decidable here',
-    /IS THE TAIL SESSION-CARRIED\? NOT DECIDABLE HERE\./.test(rep), true);
   // THE CLEAN PREFIX, READ BACK AS A NUMBER — rf2-t78z. The check this replaces
   // asked whether `THIS READER HAS NOT TESTED WHETHER THOSE ARE THE SAME THREE`
   // was present, and it was, through every run the sentence spent saying
@@ -1114,6 +1138,38 @@ function selfTest() {
   // shape as the empty-span branch above.
   ck('and says they are the same partition exactly when no window spans two sessions',
     /WINDOW AND SESSION ARE THE SAME PARTITION HERE/.test(rep), nSpanning === 0);
+
+  // THE SESSION VERDICT, HELD TO THAT SAME GROUPING AND READ BACK AS NUMBERS —
+  // rf2-oflj7 items 5 and 6. The pin this replaces held the verdict to
+  // `NOT DECIDABLE HERE` — deliberately, and correctly for the corpus it was
+  // written on — a hundred lines under a pin holding the same run's TOTAL line
+  // to `4 windows, 5 sessions`, so one self-test enforced both halves of a
+  // contradiction. The not-decidable arm may print only when no window spans
+  // two sessions; the answered arm must name the spanning window, its session
+  // count and its per-session over-bar fractions, which are re-derived here and
+  // pinned at the figures the header's amendment 3 rests on.
+  const P_SESSION_Q = /IS THE TAIL SESSION-CARRIED\? (NOT DECIDABLE HERE|PARTLY ANSWERED)\. (.+?) (?:windows are|is one design held still across) (\d+) sessions/;
+  const P_SESSION_PCT = /its over-bar fraction\n;; {5}reads ([\d.]+(?:% against [\d.]+)*)% over those sessions in order\. ON THIS EVIDENCE THE SECOND\n;; {5}POPULATION IS NOT SESSION-CARRIED\./;
+  const P_MISSING = /WHAT (IS MISSING:|WAS MISSING,) two sessions on ONE design/;
+  ck('the session verdict and its missing-measurement clause are located exactly once each',
+    [P_SESSION_Q, P_MISSING].map(hits), [1, 1]);
+  ck('the verdict is not-decidable exactly when no window spans two sessions, and the missing-measurement clause agrees',
+    [grab(P_SESSION_Q, (m) => m[1]), grab(P_MISSING, (m) => m[1])],
+    nSpanning === 0 ? ['NOT DECIDABLE HERE', 'IS MISSING:'] : ['PARTLY ANSWERED', 'WAS MISSING,']);
+  if (nSpanning === 0) {
+    ck('and the not-decidable arm counts the windows it cannot separate',
+      grab(P_SESSION_Q, (m) => [m[2], Number(m[3])]), [String(WINDOWS.length), WINDOWS.length]);
+  } else {
+    const [spanW, spanN] = wSess.find(([, n]) => n > 1);
+    const perSessionD = [...groupBy(rows.filter((r) => r.window === spanW), (r) => r.session)]
+      .map(([, rs]) => Number(ladder(cellsOf(rs)).overBarPct.toFixed(1)));
+    ck('the answered arm names the spanning window and its session count',
+      grab(P_SESSION_Q, (m) => [m[2], Number(m[3])]), [spanW, spanN]);
+    ck('and its per-session over-bar fractions are the sessions\' own',
+      grab(P_SESSION_PCT, (m) => m[1].split('% against ').map(Number)), perSessionD);
+    ck('which are the figures the header\'s amendment 3 rests on',
+      [spanW, perSessionD], ['phase 4', [17.7, 17.2]]);
+  }
 
   // SECTION C'S HEADING is that claim again in four words, and it went stale with
   // it. Held against the same grouping, and required to NAME any window that
