@@ -442,15 +442,21 @@
                   (is (= 3 (count (get-in e [:read-attribution :edges])))
                       "and three cells, for the same reason"))
 
-                (testing "the producer says WHY there is no tree, as DATA rather
-                          than as an omission"
-                  (let [naming (get-in e [:mounted-boundaries :naming])]
-                    (is (= :opaque (:basis naming)))
-                    (is (false? (:complete? naming)))
-                    (is (hh/unknown? (:view naming)))
-                    (is (hh/unknown? (:source naming))
-                        (str "a boundary is identified by the edge set it holds; "
-                             "there is no tree here to be opaque ABOUT")))))))
+                (testing "the producer names VIEWS, never a tree — a row's :views
+                          is declared names with source coordinates, or the
+                          explicit unknown"
+                  (doseq [row (get-in e [:mounted-boundaries :boundaries])]
+                    (let [views (:views row)]
+                      (is (or (hh/unknown? views)
+                              (and (vector? views)
+                                   (every? (fn [v] (and (string? (:view v))
+                                                        (or (hh/unknown? (:source v))
+                                                            (map? (:source v)))))
+                                           views)))
+                          (str "a boundary is identified by the edge set it holds "
+                               "and named by the views that rendered it; there is "
+                               "no tree here to be opaque ABOUT — got "
+                               (pr-str views)))))))))
           (.catch (report-failure! "inner-tree opacity"))
           (.then (fn [_] (release-minted!) (done)))))))
 
