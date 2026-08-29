@@ -1,245 +1,45 @@
 (ns re-frame.hicasso.impl.intent
-  "INTENT LOWERING — the shared front half's ergonomics-as-data.
-  The author writes what should
-  happen, and the front half, not the author, turns it into the closure
-  the browser calls.
+  "Intent lowering: the front half turns what an author writes at an
+  `on-*` prop into the closure the browser calls. It dispatches on the
+  SHAPE of the value, so there is no roster of DOM event names to keep in
+  step with the platform:
 
       [:button {:on-click [:todo/toggle id]} \"done\"]
       [:input  {:on-input [:todo.ui/edit id ::h/value]}]
       [:form   {:on-submit [:todo/create]}]
-      [:input  {:on-key-down {\"Enter\"  [:todo/commit id]
-                              \"Escape\" [:todo.ui/cancel id]}}]
+      [:input  {:on-key-down {\"Enter\" [:todo/commit id] \"Escape\" [:todo.ui/cancel id]}}]
       [:a      {:href \"#\" :on-click [::h/prevent [:todo/show-done]]}]
 
-  authoring.md's whole event surface, and nothing beyond it. Four
-  behaviours, dispatched on the *shape* of the value at an `on-*` prop
-  so that there is no roster of blessed prop names to keep in step with
-  the DOM:
-
-  | value      | lowered to |
-  |------------|------------|
-  | vector     | a closure dispatching that intent |
-  | map        | a composition-gated key-map |
-  | [[callback]] | one form; the POSITION selects its contract — see below |
-  | fn         | passed through untouched — ordinary functions stay legal |
+  | value at an event position | lowered to |
+  |---|---|
+  | vector | a closure dispatching that intent (`intent-handler`) |
+  | map | a composition-gated key-map (`key-map-handler`) |
+  | the one callback form, `h/event` (`callback`) | a wrapper whose contract the POSITION selects — event, render, or `:ref`'s own |
   | anything else | passed through untouched |
 
-  ## ONE callback form, and the position selects the contract (HD-024)
+  Owns the ambient render context (`*frame*`, `*dispatch*`, `with-frame`,
+  `hframe`); the one callback form and its two wrappers; the marker roster
+  (`::h/value`, `::h/checked`) and its one pure materializer; the two
+  reserved heads (`::h/prevent`, and the navigate head `route-link` mints);
+  the composition gate; and the lowering doors `lower-prop`,
+  `lower-declared-prop` and `lower-props`. It does not implement the
+  `defhost` / `[:>]` crossing (`re-frame.hicasso.impl.codec`, HD-011) or
+  the controlled-value restore (`re-frame.hicasso.impl.controlled`, HD-019),
+  which wraps the handler produced here after it has been produced.
 
-  When a vector is not enough, a roster design (the one this ruling
-  rejects) asks the author to pick from FOUR forms, each with a
-  different contract — one
-  returning an event vector, one whose return is ignored, one that is
-  pure and runs during a foreign render, one that passes a function
-  through by identity — and then adds a FIFTH rule about *where the
-  roster reaches*. Outside that reach the failure is not even the
-  library's: a roster carrier handed to a raw `#js` prop is a marker
-  object rather than a function, so the author gets the engine's own
-  `TypeError`, \"naming nothing you wrote\".
+  Three laws every var below assumes. The frame is read ONCE, at lowering
+  time, and the closure closes over it, because a browser event fires
+  long after the render's dynamic extent has unwound (HD-020(a)). The
+  vector spelling is EVENT-FIRST: whatever reads the event takes it from
+  argument one, and a value-first invoker is refused by name rather than
+  left to the engine's `TypeError` (HD-024). And behaviour lives in the
+  vector where `=` can see it — a reserved head, never metadata (HD-026,
+  HD-027).
 
-  Hicasso ships **one** form, [[callback]] (`h/event`), and it is an
-  ORDINARY FUNCTION. The contract comes from the position, because the
-  runtime already knows every position it walks:
-
-  | Position | How it is recognised | Contract |
-  |---|---|---|
-  | an `on*`-spelled prop — on a native tag, a `defhost` or a `[:>]` crossing alike | [[event-prop?]] — the same two-shape rule as an intent vector | **event**: a returned VECTOR is dispatched; any other return is ignored |
-  | any other walked prop (a foreign render prop) | not an event position | **render**: pure. The return is the render output and is NOT dispatched; the wrapper rebinds the frame that supplied it, so an intent inside the returned markup fires into that frame |
-  | `:ref` | [[ref-position?]] | React's own: commit phase, the node as the argument, the return as the detach cleanup. Excluded from lowering entirely |
-  | anywhere Hicasso does not walk — a raw `#js` prop, a value handed to a foreign API | it is not a position | it is a plain function and it simply runs; the return is ignored |
-
-  That last row is the deletion. There is no carrier object, so there is
-  nothing that can fail to be callable, so the fifth rule has nothing to
-  govern.
-
-  **A `defhost` declaration may override the spelling for one prop**,
-  `{:callbacks {:on-render-item :render}}`, for the on*-named render
-  props some vendors ship (Fluent's `onRenderItem`, Ant's `onRow`), where
-  the event wrapper's nil return would blank the UI. The override takes
-  `:event` or `:render` and nothing else, and [[lower-declared-prop]]
-  applies it with the same two wrappers. A declared `:slots` position is
-  markup rather than a callback position and refuses the marked form
-  ([[re-frame.hicasso.impl.codec/host-entry]]). Inference by position at a
-  host is HD-024's own law applied to the crossing; the argument is in
-  docs/design/hicasso/decisions.md, HD-024's 2026-08-29 addendum.
-
-  **A Hicasso view's own props map is not a position — it is data in
-  transit.** An intent vector handed to a view is not lowered there
-  either; the view puts it on an element and *that* position lowers it.
-  A callback travels the same way, and a callback a view simply *calls*
-  is ordinary Clojure with no foreign ABI in between, so there is nothing
-  to protect. Which is also why the render row is not free-floating
-  policy: it bites exactly where something other than Hicasso invokes the
-  callback.
-
-  **`raw-fn`'s identity passthrough is not v0, and costs nothing to
-  omit**: [[re-frame.hicasso.impl.codec/convert-prop-value]]
-  already passes functions to React by identity, deliberately, so that
-  `React.memo` and every downstream bail-out that compares handler
-  identity keep working. The behaviour a roster design spells as a fourth
-  roster form is the default here. The census agrees with the omission —
-  zero foreign components across 85 idiomatic files.
-
-  ## The argument law: the vector spelling is EVENT-FIRST
-
-  One law, and it covers every feature of the vector spelling that reads
-  the event — `::h/prevent`, `::h/value`, `::h/checked`, `:on-submit`'s
-  auto-prevent and the key-map's `.key` lookup alike: **a vector or a
-  key-map takes the DOM event from argument ONE.** That is what every
-  native position hands it, and what an event-first foreign contract
-  (`(on-draft event)`) hands it too.
-
-  A value-first foreign invoker — `(on-pick value event)`, the date
-  picker's `(on-change date)` — has no event at argument one, and there is
-  nothing to guess: the vector cannot know which of the library's
-  arguments is the event, and a runtime that went looking for one would be
-  guessing at a foreign ABI's argument order. **`h/event` is
-  that spelling**, and it needs no rule of its own, because the one form
-  receives every argument the invoker passed, in order.
-
-  What the law buys is that the violation is LOUD.
-  [[event-arg!]] checks the one property the closure is about to read and
-  raises `:rf.error/hicasso-intent-needs-the-event` naming the position,
-  the intent, and the argument that actually arrived. Without it the
-  author gets `value.preventDefault is not a function` — the engine's own
-  `TypeError`, naming nothing they wrote, which is the failure class the
-  whole ruling exists to delete.
-
-  It is paid only by the closures that read the event. An intent carrying
-  no marker and no prevent never touches its argument, so it costs
-  nothing, and it is correct under ANY invoker contract — which is why the
-  overwhelmingly common `[:todo/toggle id]` at a declared position needs
-  no law at all.
-
-  ## The frame, and why the closure closes over it
-
-  HD-020(a): a boundary resolves its frame **once**, from the substrate's
-  single internal context, and binds it ambiently for the render's
-  dynamic extent so inlined helpers and generated callbacks resolve it
-  without hooks of their own. [[*dispatch*]] is that ambient binding —
-  the frame-locked `dispatch` the substrate hands back for this
-  boundary's frame.
-
-  Lowering reads it **at lowering time**, during the render, and the
-  generated closure closes over the value. That is the load-bearing part:
-  the browser invokes these callbacks long after the render's dynamic
-  extent has unwound, and a closure that read an ambient binding *when
-  the click happened* would find nothing there. Reading it eagerly is
-  also the cheaper of the two — one read per lowered props map instead of
-  one per event.
-
-  A vector at an event position with no ambient frame is a loud error,
-  never a silently inert handler.
-
-  [[hframe]] (`h/frame` in the authoring surface) is the AUTHOR-facing
-  half of the same binding — the one door an author has to the frame
-  identity the lowering reads implicitly. See its docstring; the design
-  record is `docs/design/hicasso/studio/hframe-design.md`.
-
-  A RENDER callback ([[render-callback]]) re-establishes that ambient
-  context for its own invocation, out of what it captured when it was
-  lowered, so a row built inside a foreign `renderRow` belongs to the
-  boundary that SUPPLIED the callback — the only frame that can own it.
-
-  ## The marker roster and its one pure materializer
-
-  Two markers, both of which the ruled surface names:
-  `:re-frame.hicasso/value` (authoring.md's `::h/value`) and
-  `:re-frame.hicasso/checked` — the controlled pair HD-010's owned-literal
-  merge law and HD-019's controlled door both speak of. They are ordinary
-  qualified keywords; the namespace segment names the product namespace
-  HD-017 forbids *creating* before P2, which costs a keyword nothing.
-
-  [[materialize]] is the one pure materializer: it substitutes markers at
-  the intent vector's top level, which is the shape the corpus writes
-  (`[:todo.ui/edit id ::h/value]`), and does not walk nested structure —
-  a per-event deep walk to serve a shape nobody writes would be paid on
-  every keystroke of every controlled field.
-
-  **The static/dynamic split is decided once, at lowering time.** An
-  intent carrying no marker lowers to a closure that dispatches a vector
-  it already holds; only a marker-carrying intent pays a materialization
-  per event. Deciding this per render rather than per event is why the
-  controlled path costs one allocation per keystroke and the ordinary
-  button path costs none.
-
-  ## The policy defaults
-
-  - **`:on-submit` auto-prevents** (authoring.md, census-weighted), and
-    the opt-out for the rare form that wants a real submission is the
-    existing `h/event` escape — a callback is handed the event, so the event
-    is the callback's.
-  - **Anywhere else, prevention is opted IN by one reserved head**:
-    `[::h/prevent [:conduit/show-your-feed]]`. It is a head rather than
-    metadata because **metadata does not participate in `=`**, and
-    HD-021's headless door sells itself on intent vectors assertable by
-    equality: `(= [:app/go] ^{::h/prevent? true} [:app/go])` is `true`,
-    so the one axis the annotation carried was the one axis a structural
-    test — or a log, or a snapshot — could not see. `preventDefault`
-    changes the event's `canceled` flag; it is behaviour, and behaviour a
-    spelling hides from the product's own testing story is a defect
-    rather than a taste. A click cannot simply auto-prevent the way
-    submit does: a modifier-click on a real link must still open a tab,
-    so the anchor-acting-as-a-button needs an explicit opt-in and this is
-    its spelling (HD-026).
-  - **The key-map is composition-gated, centrally.** A key event arriving
-    mid-composition commits nothing: `isComposing`, or the legacy
-    keyCode-229 signal that is all some IMEs on some browsers ever send.
-    authoring.md pins the case that must not fire — a composing Enter —
-    and the gate is written over the whole map rather than that one key,
-    because during composition every keystroke belongs to the IME and a
-    per-key exception list is a second place for the law to rot.
-  - Each key-map branch is lowered **once per render** into a plain map
-    of key-string → handler, so an event is one `.-key` lookup and no
-    allocation.
-
-  ## The navigate head
-
-  The SECOND reserved head, and the router-owned counterpart of
-  `::h/prevent`: `[navigate-head {…}]` at an event position is the click
-  half of `re-frame.hicasso.impl.route-link/route-link`. The head is this
-  namespace's own keyword rather than a public marker — `route-link`
-  mints it and no author writes it — and the route-link view puts it on
-  the anchor it builds, carrying the whole click decision AS DATA: the
-  render-captured frame, the routing-owned dispatch payload, the
-  native-attrs verdict, and the caller's veto:
-
-      [:a {:href \"/profile/jane\"
-           :on-click [navigate-head {:frame    :app/frame
-                                     :payload  [:rf.route/url-requested {…}]
-                                     :native?  false
-                                     :veto     nil}]}]
-
-  Same school as the prevent head (HD-026): behaviour in the vector where
-  `=` can see it, classified once at lowering. `route-link` mints the
-  form and nothing else writes it, so the lowering reads the map
-  (`unwrap-navigate`) rather than re-validating it. The click LAW is
-  not restated here: the lowered closure hands the event to
-  routing's own `:routing/activate-link!` late-bound seam — the same one
-  decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
-  deferral and `preventDefault`-then-dispatch stay routing's law, stated
-  once. A hook that vanished between render and click (dev hot-reload of
-  the routing artefact) degrades to native navigation — the browser
-  follows the real `href` — after running the veto.
-
-  The `:veto` slot is where the two heads compose, and the composition is
-  the existing grammar: `[::h/prevent [:app/event]]` there lowers to the
-  ordinary prevent closure, `activate-link!` runs it FIRST, sees
-  `defaultPrevented`, and stands down — the navigation is cancelled and
-  the app intent dispatched instead. That is the cancelable-navigation
-  case the prevent head was built for, reached with no new machinery. A
-  BARE intent vector at the veto slot is refused loudly: a route click
-  already produces the one routing intent, and a second un-prevented
-  intent site on the same click would be one user action yielding two
-  semantic events (Freehand's route-link law, kept).
-
-  This namespace deliberately does not implement `defhost`/`[:>]`
-  interop (HD-011, its own surface), or any controlled-value restore.
-  HD-019's door belongs to whatever owns the DOM element, which is the
-  emitter rather than the lowering:
-  [[re-frame.hicasso.impl.controlled]] wraps the handler this
-  namespace produced, after it has produced it, and nothing about the
-  lowering changes because of it."
+  Design record: docs/design/hicasso/decisions.md HD-020, HD-024, HD-026
+  and HD-027; the authoring surface in docs/design/hicasso/authoring.md
+  §Event intent as data; the frame read in
+  docs/design/hicasso/studio/hframe-design.md."
   (:require [re-frame.frame :as frame]
             [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.late-bind :as late-bind]))
