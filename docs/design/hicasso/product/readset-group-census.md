@@ -6,6 +6,8 @@ The order in the row is the design. The census runs first, and if the census say
 
 **Everything above the *Result* heading was written and committed before the instrument existed.** That ordering is the whole value of a pre-registration, so it is checkable rather than asserted: the criteria landed in their own commit on `worker/readset-hic083`, and the census code landed after it. Measured on a tree based at `8f1234311551e70b9825071e5317441922e56489`.
 
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The landmark this page calibrates against is named below as `re-frame.hicasso.impl.inventory/stats`, the spelling it had when the criteria were frozen. PR #8745 moved that reader, unchanged, to the test kit's runtime door: it is `re-frame.hicasso.test.runtime/stats` now, `impl.inventory` is deleted, and the census reads `impl.collector`'s tables and the kit's readers from the test tree. The pre-registered text keeps its words.
+
 ## What is proposed
 
 > Identical `(frame, ordered-read-set)` boundaries may be able to share cell membership and fan notification out, reducing approximately `B x R` memberships toward `R + B`. Census first. Benchmark singleton, shared and distinct-query populations, then stress retry, set replacement, notification cleanup, HMR, reincarnation and multiple roots. Stop if fewer than roughly 10% of real memberships coalesce or the common case regresses.

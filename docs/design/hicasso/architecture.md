@@ -76,7 +76,11 @@ elements vs own DOM).
    grouped, which declares them; the scalar comparator arm does not use them.
    The ~3-line nil-checked evidence sink seam (HD-005) moved with them, event
    shapes unchanged, so tooling attaches without redesign; no evidence
-   subsystem ships in v0.
+   subsystem ships in v0. **[Amended 2026-08-29, `rf2-6c12m.17`.]** That seam
+   is gone: PR #8745 deleted `impl/evidence.cljs` and the collector's two
+   taps, since nothing in src attached and the Xray projection reads the
+   collector's tables directly. The instruments that did attach now reach the
+   runtime through the test kit's own door, `re-frame.hicasso.test.runtime`.
 3. **Ergonomics-as-data** — event vectors in attributes, the value placeholder,
    auto-prevent on submit, the composition-gated key-map, `route-link`
    ([authoring.md](authoring.md)).

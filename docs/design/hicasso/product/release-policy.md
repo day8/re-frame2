@@ -144,7 +144,7 @@ renamed without something going red.
 |---|---|---|---|
 | The ordinary authoring door, `re-frame.hicasso` | [`dispositions.md` §2.1](../../../../implementation/hicasso/spec/dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](../../../../implementation/hicasso/spec/dispositions.md#22-public-surfaces-with-no-server-render-behavior) | `implementation/hicasso/scripts/check_facade_inventory.py`, CI job `hicasso-facade-inventory` | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
 | The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
-| Refusal ids | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
+| Refusal ids | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) | ~~`implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue`~~ — **[amended 2026-08-29: retired in PR #8753; the ids are now held against Spec 009 and the emitters by the repo-wide `scripts/check_keyword_catalogue_drift.py`]** | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
 | Optional modules — forms, motion, native, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | five modules, each proving zero reachable production code when absent |
 | The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
@@ -155,6 +155,8 @@ Reproduce the first and third rows with:
 python implementation/hicasso/scripts/check_facade_inventory.py
 python implementation/hicasso/scripts/check_complaint_catalogue.py
 ```
+
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The second command no longer runs: PR #8753 (`rf2-6c12m.7`) deleted `check_complaint_catalogue.py` and its `hicasso-complaint-catalogue` job, and with them the reserved, pending-retirement and tombstone sections of `complaints.md`. Which refusal ids exist and which are retired is now Spec 009's rows alone — a struck-through row is the tombstone — reconciled against the emitters by `scripts/check_keyword_catalogue_drift.py` in both directions. The 2026-08-18 count in the table stands as the measurement it was.
 
 Both print their own counts, which is where the numbers above came from. If a figure on this page and a
 figure that script prints ever disagree, **the script is right**: it reads the door, and this page only
