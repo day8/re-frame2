@@ -145,8 +145,7 @@ The rule at the edge is: **motion stays inside; meaning leaves as one event.**
              (set-xy nil))}
       (.-label props))))
 
-(h/defhost drag-card drag-surface
-  {:callbacks {:on-drop :event}})
+(h/defhost drag-card drag-surface)
 
 (h/defview board-card [{:keys [id]}]
   (let [title (h/sub [:card/title id])]

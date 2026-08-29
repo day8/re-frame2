@@ -315,9 +315,7 @@ Declare the crossing once, then use the resulting var as a Hiccup head anywhere.
 
 (h/defhost rows
   "The declared door onto the virtualiser."
-  vendor/virtual-rows
-  {:callbacks {:render-row :render
-               :on-window  :event}})
+  vendor/virtual-rows)
 
 (h/defview ledger [_]
   (let [total (h/sub [::subs/row-count])]
@@ -331,10 +329,14 @@ Declare the crossing once, then use the resulting var as a Hiccup head anywhere.
                           [::events/window-shown {:from from :to to}])}]]))
 ```
 
-**Declare each callback's contract; never infer it from an `on*` spelling.**
-`:render` means the vendor calls it during its own render and uses what comes
-back; `:event` means a returned vector is dispatched under the frame of the
-boundary that wrote the crossing.
+**Each callback's contract is inferred from its spelling, exactly as on a
+native tag.** `:on-window` is an `on*` prop, so it is an event position: a
+returned vector is dispatched under the frame of the boundary that wrote the
+crossing. `:render-row` is not, so it is a render position: the vendor calls it
+during its own render and uses what comes back. Nothing here needs a
+`:callbacks` map. Write one only where a vendor names a render prop `on*` —
+`{:callbacks {:on-render-item :render}}` — because the event wrapper returns
+`nil` and would blank the list.
 
 **Both callbacks here are `h/event` rather than intent vectors**, because this
 vendor invokes them value-first — `renderRow(index, offset)` — so there is no DOM
@@ -352,8 +354,7 @@ you hold it:
 
 ```clojure
 (h/defhost modal vendor/Modal
-  {:callbacks {:on-close :event}
-   :slots     #{:title :footer}})
+  {:slots #{:title :footer}})
 
 [modal {:on-close [::events/cancel]
         :title    [:h2 "Delete article?"]

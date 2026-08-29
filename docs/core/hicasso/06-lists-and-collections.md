@@ -197,8 +197,7 @@ window:
   (:require ["react-virtuoso" :refer [Virtuoso]]
             [re-frame.hicasso :as h]))
 
-(h/defhost virtual-list Virtuoso
-  {:callbacks {:item-content :render}})
+(h/defhost virtual-list Virtuoso)
 
 (h/defview orders-table [_]
   (let [ids (h/sub [:orders/visible-ids])]
