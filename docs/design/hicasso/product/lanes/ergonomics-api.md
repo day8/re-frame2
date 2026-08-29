@@ -27,6 +27,10 @@ Applications get one obvious `h` facade; optional capabilities use named namespa
 
 What survives is the island: a UIx `defui` or a raw React component mounted through `h/defhost` (or `[:>]` for a one-off), reading through `n/use-sub` — the same cell table, reader membership and Xray rosters a boundary's `h/sub` uses — and dispatching through `n/use-frame`, whose operations are pinned to the frame's incarnation. The [canonical native-boundary laws](design-laws.md#native-boundary) were amended in the same act and remain the owner. The ruling's grounds: only the two hooks do something React cannot; everything else duplicated UIx, raw React or `h/defhost` and had one non-test consumer; and the direct-return measurement the grammar rested on (budgets row S8, 19.2% of mount time recovered, observed range 7.0–31.4%) is UNRESOLVED against the guide's own 20% keep line. A defview may still return a React element directly, and that escape is what S8 measures. If real application work later shows repeated friction, the smallest helper proven by that code is added then.
 
+### Provisional `n/$` grammar
+
+Retired with the section above, under the same ruling; the heading stays because [`specification.md`](../specification.md) and the package's `invariants.md` link to it. The grammar it described is deleted, and its text is in this page's history before 2026-08-29.
+
 ## Authoring laws
 
 1. A `defview` is always a boundary; an ordinary `defn` is always inline composition.
