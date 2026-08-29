@@ -120,13 +120,6 @@ Recovery: `:use-nil-or-false`.
 
 Named in [Views and reads](02-views-and-reads.md).
 
-<a id="hicasso-merge-not-a-map"></a>
-#### `:rf.error/hicasso-merge-not-a-map`
-
-You forwarded a non-map at the attribute-remainder key.
-
-Recovery: `:forward-a-map-at-the-merge-key` — forward a map, or drop the key.
-
 <a id="hicasso-ref-vector-reserved"></a>
 #### `:rf.error/hicasso-ref-vector-reserved`
 
@@ -303,14 +296,6 @@ Recovery: `:put-the-revision-on-a-controlled-input-or-textarea`.
 
 Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
 [Diagnostics](16-diagnostics.md).
-
-<a id="hicasso-revision-from-remainder"></a>
-#### `:rf.error/hicasso-revision-from-remainder`
-
-You let a forwarded attribute map introduce the reset trigger.
-
-Recovery: `:write-the-revision-as-a-literal-on-the-element` — drive it from
-whatever the caller sent through an ordinary prop.
 
 <a id="hicasso-file-input-value-prop"></a>
 #### `:rf.error/hicasso-file-input-value-prop`
@@ -647,7 +632,7 @@ Named in [Motion and presence](12-motion-and-presence.md).
 #### `:rf.error/hicasso-presence-override-out-of-reach`
 
 You wrote a phase-attribute override where no presence tray can apply it —
-deeper than a tray's direct child, forwarded through a `:&` remainder, or under
+deeper than a tray's direct child, or under
 no tray at all.
 
 Recovery: `:put-the-override-on-a-presence-child` — move it onto the tray's own

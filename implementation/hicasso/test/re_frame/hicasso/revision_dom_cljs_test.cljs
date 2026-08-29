@@ -407,49 +407,6 @@
                        :re-frame.hicasso/revision "r" :on-input noop-input}]]]]
       (is (nil? (errors-of #(codec/as-element hiccup))) what))))
 
-(deftest a-remainder-may-not-arm-a-reset
-  (testing "R1 — THE `:&` DOOR, the repair the adversarial pass called the
-           big one. `merge-caller` denies a remainder only the structural
-           slots plus the slots owned by literals the element wrote, so a
-           `::h/revision` in a remainder survives the merge. Reading it
-           PRE-merge is what stops it arming anything; refusing it is the
-           lane's posture, because a remainder asking for conduct it cannot
-           be given should learn that from a diagnostic rather than from a
-           field that never resets."
-    (is (= :rf.error/hicasso-revision-from-remainder
-           (:rf.error/id (errors-of
-                          #(codec/as-element
-                            [:input {:value "committed" :on-input noop-input
-                                     :& {:re-frame.hicasso/revision "hostile"}}]))))
-        "a hostile remainder cannot force a field re-baseline the element's
-         author never wrote"))
-  (testing "and the literal wins when both are present — no refusal, because
-           `merge-caller`'s owned-literal law has already denied the
-           remainder's copy on the canonical slot `revision`, so the key
-           that survives to be tested is the author's own"
-    (if-not (browser?)
-      (skip! "the winning half is a behaviour, not a shape")
-      (let [c    (container!)
-            root (react-dom-client/createRoot c)]
-        (try
-          (is (nil? (errors-of
-                     #(render! root
-                               (codec/as-element
-                                [:input {:id "f" :value "committed" :on-input noop-input
-                                         :re-frame.hicasso/revision "mine"
-                                         :& {:re-frame.hicasso/revision "hostile"}}]))))
-              "both present: the literal is what arms, and nothing is refused")
-          (let [n (node c)]
-            (drift! n "a draft")
-            (render! root (codec/as-element
-                           [:input {:id "f" :value "committed" :on-input noop-input
-                                    :re-frame.hicasso/revision "mine-2"
-                                    :& {:re-frame.hicasso/revision "hostile"}}]))
-            (is (= "committed" (.-value n)) "and it is the literal's bump that resets")
-            (is (not (.hasAttribute n "revision"))
-                "with neither copy reaching the DOM"))
-          (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3 — NEVER A DOM ATTRIBUTE
 ;; ---------------------------------------------------------------------------

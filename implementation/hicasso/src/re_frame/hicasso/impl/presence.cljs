@@ -176,8 +176,8 @@
 
   A **native node** takes the phase's attribute-override map merged over
   its own attributes — the override WINS, because that is what an
-  override is — with the two structural slots never taken from it, the
-  same law `:&` carries (HD-023). The two override keys are always
+  override is — with the two structural slots never taken from it
+  (HD-023). The two override keys are always
   removed HERE, on a tray's direct children; anywhere else they are
   REFUSED, by the codec's own prop walk
   ([[re-frame.hicasso.impl.codec/refuse-misplaced-override!]]). Between
@@ -185,8 +185,8 @@
   attribute.
 
   **The exclusion is on the canonical SLOT, through the filter
-  [[re-frame.hicasso.impl.codec/without-structural]] that `:&`
-  uses.** It has to be: an override carrying `\"key\"` or `:x/key`
+  [[re-frame.hicasso.impl.codec/without-structural]].** It has to be:
+  an override carrying `\"key\"` or `:x/key`
   survives a raw `#{:key :ref}` dissoc and canonicalises straight onto
   React's key, which would remount the very node presence exists to
   retain — the child would restart its exit, or vanish and come back,
@@ -204,7 +204,7 @@
   **The refusal has two doors.** This one refuses the override the tray
   CAN see and cannot apply; the codec's prop walk refuses the one the
   tray never sees at all — written on a grandchild, inside a view's body,
-  forwarded through a `:&` remainder, or under no tray whatsoever."
+  or under no tray whatsoever."
   [child phase]
   (let [props (props-of child)]
     (if (codec/boundary-head? (nth child 0))

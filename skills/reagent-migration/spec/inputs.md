@@ -23,9 +23,8 @@ the check rather than a polish pass.
   - `impl/intent.cljs` — the four `on-*` shapes, the two markers, the two
     reserved heads, the key map and its composition gate, the event-first
     argument law, every intent refusal id.
-  - `impl/codec.cljs` — prop lowering, `:key`, `:ref` (`check-ref!`), the `:&`
-    remainder and the owned-literal law, the `[:>]` crossing, the reserved-name
-    skips.
+  - `impl/codec.cljs` — prop lowering, `:key`, `:ref` (`check-ref!`), the `[:>]`
+    crossing, the reserved-name skips.
   - `impl/slot.cljc` — the canonical prop-name rule (the MIG-11 table). Shared
     with the codemod, which is why the two cannot drift.
   - `impl/state.cljc` — `reg-state`'s signature, address shape and key rules.
@@ -78,7 +77,6 @@ teaches forms that do not exist. Measured examples, each verified absent from
 | an `h/fn` spelling | shipped is `h/event` |
 | a Maven coordinate on the installation page | does not resolve |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
-| a plain `merge` for caller attrs | shipped is the reserved `:&` key + owned-literal law |
 | "binding `:value` to a contenteditable throws at the source" | not implemented |
 
 The hazard is the whole `docs/design/**` tree — `mkdocs.yml` excludes it from the

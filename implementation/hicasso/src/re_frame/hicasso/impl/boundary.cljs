@@ -189,9 +189,8 @@
   because the refusal has to name the roster it checked: the author who
   wrote `:on-errors` is told what the four are, from the same value the
   guard read. `:key` never reaches here (`boundary-element` strips it
-  onto the React props) and neither does `:&` (`merge-caller` folds it
-  before the hand-off), so both are absent by construction rather than
-  by exemption."
+  onto the React props), so it is absent by construction rather than by
+  exemption."
   #{:on-error :reset-key :fallback :children})
 
 (defn- check-props!

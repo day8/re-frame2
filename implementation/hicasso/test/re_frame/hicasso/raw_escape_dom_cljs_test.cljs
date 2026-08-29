@@ -2,7 +2,7 @@
   "THE `[:>]` RAW ESCAPE AGAINST A REAL REACT (HD-011).
 
   The element-level contract — the carrier, the prop walk, the value
-  roster, `:&`, `:key`, refs, the mis-parse regression — is
+  roster, `:key`, refs, the mis-parse regression — is
   [[re-frame.hicasso.codec-cljs-test]]'s, where it can be
   read off the element without a DOM. This file carries the three claims
   that a mounted React is the only honest witness for:

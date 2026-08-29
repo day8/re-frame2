@@ -121,19 +121,19 @@
   calling convention, and a plain function in head position is a loud
   error.
 
-  ## Three reserved attribute keys, and nothing else
+  ## Two reserved attribute keys, and nothing else
 
   | Key | Meaning |
   |---|---|
-  | `:&` | the caller's remainder map. One merge, one law: **the literal keys written in the map always win** (HD-023, [[merge-caller]]) |
   | `:ref` | a callback ref in v0; a **vector** is the reserved data spelling and is refused loudly (HD-022, [[check-ref!]]) |
-  | `:re-frame.hicasso/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's own PRE-MERGE map in [[native-element]], never emitted as an attribute, never reachable from a `:&` remainder ([[revision-key]]) |
+  | `:re-frame.hicasso/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's map in [[native-element]], never emitted as an attribute ([[revision-key]]) |
 
-  *Two columns; three body rows; hand-counted.*
+  *Two columns; two body rows; hand-counted.*
 
-  All three are attribute *keys*, not forms — so the merge survives into a
-  structural test and into tooling, and none adds a public concept in the
-  K5 sense.
+  Both are attribute *keys*, not forms — so they survive into a
+  structural test and into tooling, and neither adds a public concept in
+  the K5 sense. A caller's attributes are forwarded with an ordinary
+  `merge`, owned keys last; there is no reserved merge key.
 
   ## One canonical slot, and every rule asks it
 
@@ -159,9 +159,8 @@
   further on: it is folded onto the **emitted object**, where the slot is
   not resolved at all because it already *is* the slot. An explicit id
   therefore beats `#tag` in every spelling, and a declared class composes
-  with `.foo` in every spelling — including a spelling a `:&` remainder
-  forwarded, which is the one door where the author of the element never
-  sees the key at all.
+  with `.foo` in every spelling — including one a caller forwarded, which
+  the author of the element never sees.
 
   ### The two exceptions, argued rather than assumed
 
@@ -182,21 +181,9 @@
   exception argued. Note also
   that `:key` has BOTH halves, an exact match in the walk *and* a
   canonical-slot denial in [[structural-slots]]; the revision takes only
-  the first, and closes the same gap from the other end — its read is
-  PRE-merge, so a remainder cannot reach it, and [[convert-props]]
-  refuses a remainder that carries it rather than letting it pass
-  silently. **If a third exception ever arrives, restate the doctrine
+  the first. **If a third exception ever arrives, restate the doctrine
   with its exceptions enumerated rather than accumulating them one commit
-  at a time.**
-
-  One consequence of leaving the slot unclaimed is worth stating because
-  it is a surprise if undocumented: an element that writes a literal
-  `:re-frame.hicasso/revision` thereby claims the canonical slot
-  `revision` as an OWNED literal, so a `:&` remainder's ordinary bare
-  `revision` attribute is denied by [[merge-caller]]'s owned-literal law.
-  That is correct conduct — the law is on the slot — but the element's
-  author never wrote an attribute named `revision`, so nothing on the
-  page explains the denial except this paragraph."
+  at a time.**"
   (:require [clojure.string :as str]
             [re-frame.hicasso.impl.controlled :as controlled]
             [re-frame.hicasso.impl.error :refer [fail!]]
@@ -450,8 +437,7 @@
   "The two React slots that address the ELEMENT rather than its
   attributes. `key` is React's own identity contract and `ref` is
   HD-016's node handle; neither is an attribute, and neither is ever
-  taken from a map that is *about* attributes — a `:&` remainder
-  ([[merge-caller]]) or a presence phase override
+  taken from a map that is *about* attributes — a presence phase override
   ([[re-frame.hicasso.impl.presence/with-phase]]).
 
   Held as canonical SLOTS rather than as keys, because the spelling is
@@ -485,13 +471,6 @@
   [m]
   (without-slots m structural-slots))
 
-(defn- denied-slots
-  "The slots a `:&` remainder may not reach: the two structural ones, plus
-  the slot of every literal the element wrote. One set, so one rule states
-  both halves of the owned-literal law ([[merge-caller]])."
-  [owned]
-  (reduce-kv (fn [denied k _] (conj denied (canonical-slot k))) structural-slots owned))
-
 ;; ---------------------------------------------------------------------------
 ;; Classes and the shorthand merge
 ;; ---------------------------------------------------------------------------
@@ -521,8 +500,8 @@
   rule is *an explicit id wins over the shorthand, and the shorthand
   class is prepended to a declared one*; stated over the props MAP it
   reads `:id`, `:class` and `:className` and sees exactly three of the
-  spellings this codec accepts. `[:div#tag.foo {:& {\"id\" \"caller\"
-  \"className\" \"bar\"}}]` walks straight past that form of it: neither
+  spellings this codec accepts. `[:div#tag.foo {\"id\" \"caller\"
+  \"className\" \"bar\"}]` walks straight past that form of it: neither
   key is seen, the shorthand is added as a second entry landing on the
   same React slot, and which one survives is decided by the order the
   props map happens to iterate in — the explicit id can lose to `#tag`,
@@ -584,67 +563,6 @@
     (or (keyword? v) (symbol? v)) (name v)
     (coll? v)                (clj->js v)
     :else                    v))
-
-;; ---------------------------------------------------------------------------
-;; `:&` — the one attribute merge, and the owned-literal law (HD-023)
-;; ---------------------------------------------------------------------------
-
-(def merge-key
-  "`:&` — the reserved attribute key carrying a caller's remainder map.
-  There is exactly one merge in Hicasso and this is it. It is DATA, not a
-  call, so a forwarded remainder survives into a structural test and into
-  tooling; and it cannot collide with a real DOM attribute."
-  :&)
-
-(defn merge-caller
-  "Fold a `:&` remainder into the attribute map, under **the owned-literal
-  law, unconditionally**: the literal keys written in the map ALWAYS win.
-
-  This is HD-010(a)'s law — `:key`, `:ref`, controlled `:value`/`:checked`
-  and owned event handlers are unoverridable — applied to *every* merge
-  rather than only under theming, and it is the whole point of the
-  ruling. HD-023's record prices the alternative it rejects: a design
-  where the author chooses between three merge forms depending on where
-  the target is, and where the penalty for choosing wrong is SILENT —
-  caret and IME protection simply stop, with no
-  diagnostic anywhere. Making the law unconditional deletes that class —
-  the controlled-input door cannot be forfeited by a merge at all,
-  because a merge cannot reach an owned literal.
-
-  The case where a caller override SHOULD win is spelled by **not writing
-  the literal**, which is the honest way round: the dangerous default is
-  the other one.
-
-  **The law is enforced on the CANONICAL SLOT, never on the map key.**
-  The deny set is [[structural-slots]] seeded with the slot of every
-  literal the element writes, so one rule says both halves of the law:
-  nothing in a remainder may reach `key` or `ref`, and nothing in a
-  remainder may reach a slot an owned literal already claims — however
-  either is spelled. Without that, `:onInput` against an owned
-  `:on-input` survives the merge as a distinct map key, both land on
-  React's one `onInput` slot, and which handler wins is decided by the
-  order the props map happens to iterate in. An unconditional law cannot
-  be map-order-dependent, so the check is the emitted slot
-  ([[canonical-slot]]) or it is not a law.
-
-  Absent — the overwhelming case — this is one `contains?` and the map
-  comes back by identity, allocating nothing. Present, it is one filter
-  and one `merge` that, the filter having run, is a plain union."
-  [props]
-  (if-not (contains? props merge-key)
-    props
-    (let [caller (get props merge-key)
-          owned  (dissoc props merge-key)]
-      (cond
-        (nil? caller) owned
-        (map? caller) (merge (without-slots caller (denied-slots owned)) owned)
-        :else
-        (fail! :rf.error/hicasso-merge-not-a-map
-               're-frame.hicasso.impl.codec/merge-caller
-               (str ":& carries a caller's attribute map and nothing else. It was "
-                    "given " (pr-str (type caller)) ". Forward a map, or drop the key.")
-               :forward-a-map-at-the-merge-key
-               {:value caller})))))
 
 ;; ---------------------------------------------------------------------------
 ;; `::h/revision` — the controlled element's reset trigger
@@ -773,8 +691,8 @@
   it is applied to a tray's DIRECT children and to nothing else. So an
   override on a legal placement is gone before this walk is reached, and
   an override that arrives here was written somewhere the tray never
-  walks: on a grandchild, inside a child view's body, forwarded through
-  a `:&` remainder, or under no tray at all.
+  walks: on a grandchild, inside a child view's body, or under no tray at
+  all.
 
   Two things went wrong at once and only the second was visible. The
   animation the author declared never happened; and the map fell through
@@ -825,12 +743,10 @@
   and without the map copy one would cost; every other spelling flows
   through. The literal
   [[revision-key]] is skipped beside it, for the same reason and at the
-  same price: [[native-element]] has already read it off the author's own
-  PRE-MERGE map, so by the time the walk sees it there is nothing left to
-  do but keep it out of the emitted object — a reset trigger is not a DOM
-  attribute. The skip is unconditional because the walk cannot tell a
-  literal from a remainder's copy; the provenance question is asked once,
-  in [[convert-props]], where the answer is still available. A keyword or symbol key
+  same price: [[native-element]] has already read it off the author's
+  map, so by the time the walk sees it there is nothing left to do but
+  keep it out of the emitted object — a reset trigger is not a DOM
+  attribute. A keyword or symbol key
   is answered by its [[prop-slot]] — name and classification in one
   lookup, `event?` gated on `keyword?` because a symbol is never an
   event position — and a value that nothing claims (not a ref, not a
@@ -898,26 +814,22 @@
       o)))
 
 (defn convert-props
-  "One pass over the attribute map: fold a `:&` remainder under the
-  owned-literal law, refuse a reserved `:ref` value, fold the tag
-  shorthand, drop `:key` (React's own contract — it is not an attribute),
-  lower every intent, and set each converted value under its React prop
-  name.
+  "One pass over the attribute map: refuse a reserved `:ref` value, fold
+  the tag shorthand, drop `:key` (React's own contract — it is not an
+  attribute), lower every intent, and set each converted value under its
+  React prop name.
 
-  Two things about the order. Intent lowering happens *inside* the single
-  walk, so the codec does not traverse the props map a second time to
-  find the event positions. And [[merge-caller]] runs FIRST — before any
-  prop-name conversion — which is what lets ONE rule cover the case that
-  otherwise demands a merge form of its own (HD-023's record prices
-  that). A forwarded `:className` is merged
-  as the key it was written as and then converted by *this position's*
-  grammar; nothing canonicalises it into `:class` on the way through and
-  hands the wrong name onward.
+  Intent lowering happens *inside* the single walk, so the codec does
+  not traverse the props map a second time to find the event positions.
+  A caller's attributes reach this map through an ordinary `merge`,
+  owned keys last — the one spelling, taught in the guide — so the codec
+  sees one map and asks no provenance question of it.
 
   The tag shorthand is folded LAST, onto the emitted object
-  ([[fold-shorthand!]]) — so `[:input.form-control {:& caller}]` composes
-  `\"form-control\"` with the caller's classes instead of one silently
-  replacing the other, and does so however the caller spelled them.
+  ([[fold-shorthand!]]) — so `[:input.form-control (merge caller {…})]`
+  composes `\"form-control\"` with the caller's classes instead of one
+  silently replacing the other, and does so however the caller spelled
+  them.
 
   The `:ref` reservation, the ref position's exclusion from intent
   lowering, the class coercion and the shorthand fold are all taken on
@@ -941,9 +853,8 @@
 
   1. **No attribute map at all** (`props` nil): the emitted object is
      exactly the shorthand's `id`/`className`, so it is built directly —
-     no merge, no map iteration, no fold.
-  2. **Everything else**: convert the map (a `:&` remainder merged in
-     first, by identity when there is none), then fold the shorthand onto
+     no map iteration, no fold.
+  2. **Everything else**: convert the map, then fold the shorthand onto
      the result.
 
   React's own `key` contract: the LITERAL `:key` is dropped in-loop (one
@@ -961,52 +872,14 @@
   [[re-frame.hicasso.impl.intent/lower-prop]] at all. The slot's
   `event?` flag is gated on `keyword?` at the call site — a symbol shares
   the cache entry but is not an event position — and a string-keyed prop
-  takes `reagent2.impl.template`'s uncached path unchanged.
-
-  ## The `:&` door is shut on the revision, loudly
-
-  [[revision-key]] is read PRE-merge, in [[native-element]], so a
-  remainder's copy arms nothing by construction. Left there it would be
-  merely inert, and inert is the wrong posture for this lane: a
-  remainder that writes a reset trigger the element's author never wrote
-  is asking for a behaviour it cannot be given, and it should learn that
-  from a diagnostic rather than from a field that never resets. So the
-  provenance question is asked exactly once, here, where both maps are
-  still in hand — present after the merge and absent from the author's
-  own literals means it came through `:&`, and that is refused.
-
-  **When the element writes the literal too, the literal simply wins and
-  nothing is refused**: [[merge-caller]]'s owned-literal law has already
-  denied the remainder's copy on the canonical slot `revision`, so the
-  key that survives to be tested is the author's own. Order matters, and
-  this is downstream of the merge for exactly that reason.
-
-  The cost on the ordinary path is one `identical?`. [[merge-caller]]
-  returns its argument by identity when there is no `:&` at all, so the
-  two `contains?` calls are reached only by an element that actually
-  merged a remainder."
+  takes `reagent2.impl.template`'s uncached path unchanged."
   [props ^ParsedTag parsed]
   (if (nil? props)
     (let [o #js {}]
       (when-some [id (.-id parsed)] (unchecked-set o id-slot id))
       (when-some [c (.-className parsed)] (unchecked-set o class-slot c))
       o)
-    (let [merged (merge-caller props)]
-      (when-not (identical? merged props)
-        (when (and (contains? merged revision-key)
-                   (not (contains? props revision-key)))
-          (fail! :rf.error/hicasso-revision-from-remainder
-                 're-frame.hicasso.impl.codec/convert-props
-                 (str (pr-str revision-key) " is a RESET TRIGGER the element's own "
-                      "author writes, and a `:&` remainder may not arm one. It "
-                      "re-baselines a controlled field to the model, discarding "
-                      "the draft in it — conduct a caller forwarding attributes "
-                      "cannot be given. Write the revision as a literal on the "
-                      "element, driving it from whatever the caller sent through "
-                      "an ordinary prop.")
-                 :write-the-revision-as-a-literal-on-the-element
-                 {:revision (get merged revision-key)})))
-      (fold-shorthand! (reduce-kv convert-entry #js {} merged) parsed))))
+    (fold-shorthand! (reduce-kv convert-entry #js {} props) parsed)))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundary heads (HD-016 / HD-004)
@@ -2695,20 +2568,12 @@
   is the tag parsed here. The codec asks one question and takes one
   answer; which of the two it is belongs entirely to that namespace.
 
-  ## The revision is read here, and it is read PRE-MERGE
+  ## The revision is read here
 
-  [[revision-key]] is taken off `props` — the author's OWN attribute map,
-  before [[convert-props]] folds any `:&` remainder into it — with the
-  same expression shape the `:key` read below uses, and for the same
-  reason. `key` and the revision are the two positions a remainder must
-  never reach: [[merge-caller]] denies a remainder only the structural
-  slots plus the slots owned by literals the element wrote, so
-  `{:& {:re-frame.hicasso/revision r}}` on an element that writes no
-  literal survives the merge. Reading pre-merge is what makes arming it
-  from that door impossible rather than merely unlikely — the hostile
-  remainder cannot force a field re-baseline the element's author never
-  wrote. [[convert-props]] refuses such a remainder in the same pass, so
-  the door is shut loudly as well as shut.
+  [[revision-key]] is taken off `props` — the author's attribute map —
+  with the same expression shape the `:key` read below uses, and for the
+  same reason: `key` and the revision are triggers rather than
+  attributes, read once at the element and never emitted.
 
   What lands on the emitted object is a marker under a private slot, and
   [[re-frame.hicasso.impl.controlled/install!]] deletes it as it
@@ -2731,20 +2596,7 @@
 
 (defn- boundary-element [argv]
   (let [has-props? (props-map? argv 1)
-        ;; The SAME merge, at the crossing. This is the case that breaks
-        ;; a spread implemented as an ELEMENT FORM whose content is the
-        ;; attribute grammar (HD-023's record prices that design):
-        ;; sending a remainder through one on the way to a declared
-        ;; foreign head rewrites `:className` into the `:class` slot and
-        ;; the component never sees the prop it reads — forcing a third
-        ;; rule, "neither spread form is legal there, use an ordinary
-        ;; `merge`". `:&` has no such problem because it is
-        ;; not a spread: it is a key in the props map, merged before any
-        ;; conversion, and the conversion that follows is the POSITION's
-        ;; own — a props map handed to a boundary or a declared foreign
-        ;; head is passed through unrenamed. One rule, both positions,
-        ;; and the owned-literal law holds identically at each.
-        props      (merge-caller (if has-props? (nth argv 1) {}))
+        props      (if has-props? (nth argv 1) {})
         children   (realize-children argv (if has-props? 2 1))
         ;; THE HAND-OFF, and the one position the eager codec did not
         ;; reach. Everywhere else a lazy read is forced by the pass that
@@ -3119,9 +2971,8 @@
   `:rf.error/hicasso-intent-outside-boundary` an intent vector raises.
 
   One pass over the attr map, mirroring [[convert-props]] with the
-  position table's second row swapped in for the first: fold a `:&`
-  remainder under the owned-literal law (the same one merge, at a third
-  position), extract `:key` (React's contract, not an attribute), refuse
+  position table's second row swapped in for the first: extract `:key`
+  (React's contract, not an attribute), refuse
   a reserved `:ref` vector and pass a callback ref through untouched,
   lower every DECLARED slot by its declared contract
   ([[re-frame.hicasso.impl.intent/lower-declared-prop]] — an
@@ -3156,7 +3007,7 @@
         declared   (unchecked-get head "callbacks")
         slots      (unchecked-get head "slots")
         has-props? (props-map? argv 1)
-        props      (merge-caller (if has-props? (nth argv 1) {}))
+        props      (if has-props? (nth argv 1) {})
         js-props   (reduce-kv (partial host-entry head declared slots) #js {} props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
@@ -3439,9 +3290,7 @@
   attribute map at 2 when there is one, children from 3 or from 2.
   `[:> Component]` with neither is legal.
 
-  Everything after the component is [[host-element]]'s own body: fold a
-  `:&` remainder under the owned-literal law BEFORE conversion (HD-023
-  clause (d) — the conversion that follows is the position's own),
+  Everything after the component is [[host-element]]'s own body:
   extract `:key` onto the crossing's outer element, and walk every prop
   through [[host-entry]] against an EMPTY declared roster. Children lower
   eagerly, here, inside the render window of the boundary that wrote the
@@ -3461,7 +3310,7 @@
   [argv]
   (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
-        props      (merge-caller (if has-props? (nth argv 2) {}))
+        props      (if has-props? (nth argv 2) {})
         js-props   (reduce-kv (partial host-entry raw-crossing {} #{}) #js {} props)
         carrier    #js {"c" component "p" js-props}]
     (when-some [k (:key props)] (unchecked-set carrier "key" k))
