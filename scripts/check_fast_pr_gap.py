@@ -348,62 +348,20 @@ SPINE_LANES = (
         "spine node tier: 'hicasso lint export gate', at lint.yml's pin",
         working_dir="implementation",
     ),
-    # rf2-uomk — the budget ledger's own unconditional job: the checker's
-    # other input families (the ledger page, the disposition records) arm no
-    # classifier output, so the npm chain alone left a ledger-only PR running
-    # it nowhere.  The spine covers both homes through the chain, so the job's
-    # two steps are not a local gap.
-    Lane(
-        "hicasso-budget-ledger",
-        r"^python implementation/hicasso/scripts/check_budget_ledger\.py"
-        r"(?: --self-test)?$",
-        "spine node tier: 'hicasso invariants gate' chains this checker "
-        "(`npm run test:hicasso-invariants`), both modes",
-    ),
-    # rf2-gz4bq — the facade-inventory gate's own unconditional job, the third
-    # instance of the shape above: half its input is `dispositions.md`, which
-    # arms no classifier output, so the npm chain alone left a document-only PR
-    # running it nowhere.  The spine covers both homes through the chain, so
-    # the job's two steps are not a local gap; without this lane they would be
-    # reported as one, which is the same lie in the opposite direction.
-    Lane(
-        "hicasso-facade-inventory",
-        r"^python implementation/hicasso/scripts/check_facade_inventory\.py"
-        r"(?: --self-test)?$",
-        "spine node tier: 'hicasso invariants gate' chains this checker "
-        "(`npm run test:hicasso-invariants`), both modes",
-    ),
-    # rf2-r5iy7 — the guide-sample gate's own unconditional job, the fourth
-    # instance of the shape above and the starkest: `docs/core/hicasso/**` is
-    # HALF this checker's input and arms no classifier output whatsoever (all
+    # rf2-r5iy7 — the guide-sample gate's own unconditional job: `docs/core/hicasso/**`
+    # is HALF this checker's input and arms no classifier output whatsoever (all
     # thirty-two measure false), so the npm chain alone left every guide-only
     # PR running it nowhere.  The spine covers both homes through the chain, so
     # the job's two steps are not a local gap; without this lane they would be
-    # reported as one, which is the same lie in the opposite direction.
+    # reported as one, which is the same lie in the opposite direction.  (The
+    # budget-ledger, facade-inventory and naming-census lanes that stood beside
+    # this one retired with their checkers and jobs on 2026-08-30, rf2-6c12m.8.)
     Lane(
         "hicasso-guide-samples",
         r"^python implementation/hicasso/scripts/check_guide_samples\.py"
         r"(?: --self-test)?$",
         "spine node tier: 'hicasso invariants gate' chains this checker "
         "(`npm run test:hicasso-invariants`), both modes",
-    ),
-    # rf2-st1x5 — the naming-census gate's own unconditional job, the fifth
-    # instance of the shape above.  Its ledger half (`naming-ledger.md`) arms no
-    # classifier output, so before that job a ledger-only PR ran the census
-    # nowhere -- and before rf2-st1x5 nothing ran it at all, in CI or locally.
-    # UNLIKE the four above, the spine covers it DIRECTLY rather than through
-    # `npm run test:hicasso-invariants`: the live run takes an absolute repo
-    # root as an argument (it refuses to derive one), and npm's script shell is
-    # `sh` on Linux/macOS and `cmd.exe` on Windows, so no single spelling of
-    # that argument expands on both.  The spine is one POSIX shell everywhere
-    # and passes `$spine_root`.  Without this lane the job's two steps would be
-    # reported as a local gap, which is the same lie in the opposite direction.
-    Lane(
-        "hicasso-naming-census",
-        r"^python implementation/hicasso/scripts/check_naming_census\.py"
-        r"(?: --self-test| \"\$PWD\")$",
-        "spine always-on: 'hicasso naming census self-test' + "
-        "'hicasso naming census (rf2-st1x5)', both modes",
     ),
     Lane(
         "mkdocs-strict",
