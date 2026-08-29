@@ -239,7 +239,7 @@ the server render. Other declaration failures include:
 
 - `:rf.error/hicasso-host-bad-ssr-policy` for an unsupported policy or a
   `:fallback` combined with Render;
-- `:rf.error/hicasso-host-unknown-option` for an unknown host option.
+- `:rf.error/hicasso-bad-host-declaration` for an unknown host option.
 
 ## Multiple roots report independently
 

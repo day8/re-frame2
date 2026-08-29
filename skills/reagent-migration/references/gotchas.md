@@ -60,11 +60,10 @@ paginated one it is silent state corruption — the wrong row keeps the wrong
 row's input text, the wrong item animates, the wrong subtree survives a
 re-sort. MIG-07 is therefore mandatory rather than cosmetic.
 
-Two dev-only warnings help and neither is complete cover:
-`:rf.warning/hicasso-missing-key` fires only for a **boundary-headed** member of
-a sequence (a `for` over plain `[:li …]` gets React's own warning instead), and
-`:rf.warning/hicasso-entity-key` fires when the key is not a
-string/number/keyword/uuid/symbol.
+Two signals help and neither is complete cover: React's own key warning fires
+for a missing key (Hicasso adds nothing to it), and the dev-only
+`:rf.warning/hicasso-entity-key` fires for a **boundary-headed** member of a
+sequence whose key is not a string/number/keyword/uuid/symbol.
 
 `:key` is the **exact literal keyword**. `"key"` and `:x/key` are ordinary
 attributes, not the key.
@@ -153,9 +152,9 @@ cleanup over and over.
 (h/defview composer [_] [:textarea {:ref (fn [n] (when n (.focus n)))}])
 ```
 
-Two more: a **vector** at `:ref` is refused with
-`:rf.error/hicasso-ref-vector-reserved` (that spelling is reserved for later),
-and `:ref` on a **`defview` head** is not a ref at all — the boundary path lifts
+Two more: a **vector** at `:ref` is not a ref — it crosses to React as data and
+the ref never fires, so the callback function is the only spelling — and
+`:ref` on a **`defview` head** is not a ref at all — the boundary path lifts
 only `:key`, so it stays in the props map as ordinary data with nothing to
 report it.
 

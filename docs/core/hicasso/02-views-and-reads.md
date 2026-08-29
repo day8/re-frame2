@@ -91,8 +91,9 @@ inline helper because it was called with function syntax.
 
 Every member of a sequence of children needs a key. Put `:key` in that child's
 props map. Hicasso does not read Reagent-style `^{:key id}` metadata, and `for`
-does not invent a key. Missing keys produce
-`:rf.warning/hicasso-missing-key` in development, naming the view and child.
+does not invent a key. Missing keys produce React's own development warning;
+a key that is a map or other entity value produces
+`:rf.warning/hicasso-entity-key`, naming the child.
 
 This page owns the spelling. [Lists and collections](06-lists-and-collections.md)
 explains key quality: use a stable domain identity, never an array index or the
@@ -296,7 +297,7 @@ Four facts explain the observable behaviour:
 | An unforced `delay` in props throws at the child view | `:rf.error/hicasso-deferred-read-at-boundary` | Force it in the owning body or pass an ordinary function/value with an explicit contract |
 | A plain `defn` used as a Hiccup head throws | `:rf.error/hicasso-bad-head` | Call the helper or define it with `h/defview` |
 | Calling a `defview` directly throws | The view was invoked as a function | Render `[todo-row {:id 7}]` |
-| Development warns about a missing key | `:rf.warning/hicasso-missing-key` | Put `:key` in each sequence member's props map; metadata is not read |
+| React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in each sequence member's props map; metadata is not read |
 | The first render reports an unknown subscription | `:rf.error/no-such-sub` | Require the namespace that registers the subscription before mounting |
 | A child runs although its props look the same | A prop uses reference identity or one of the child's own reads changed | Hoist a function/JS object, pass persistent data, or inspect the child's own subscriptions |
 | One state change re-renders many unrelated views | The subscription read is higher in the tree than necessary | Move the read into the view that displays the value |

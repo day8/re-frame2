@@ -113,13 +113,6 @@ You let `true` reach child position.
 
 Named in [Views and reads](02-views-and-reads.md).
 
-<a id="hicasso-ref-vector-reserved"></a>
-#### `:rf.error/hicasso-ref-vector-reserved`
-
-You put a vector at the canonical `ref` slot.
-
-Write the callback ref, or move the mechanic to an event and an effect.
-
 <a id="ui-tree-malformed"></a>
 #### `:rf.error/ui-tree-malformed`
 
@@ -215,13 +208,6 @@ The one callback form receives every argument the invoker passed, in order.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 
-<a id="hicasso-unknown-callback-contract"></a>
-#### `:rf.error/hicasso-unknown-callback-contract`
-
-You named a contract outside `:event` / `:render` in a `defhost` `:callbacks`
-override. Contracts are inferred from the prop's spelling; the override is only
-for a prop whose spelling infers the wrong one, such as an on*-named render prop.
-
 <a id="hicasso-malformed-prevent"></a>
 #### `:rf.error/hicasso-malformed-prevent`
 
@@ -229,13 +215,6 @@ You wrapped something other than exactly one intent vector in the prevent
 decorator.
 
 Named in [Events as data](03-events-as-data.md).
-
-<a id="hicasso-malformed-navigate"></a>
-#### `:rf.error/hicasso-malformed-navigate`
-
-You wrote the navigate decorator outside its closed grammar.
-
-Named in [Routing and navigation](07-routing-and-navigation.md).
 
 ### Controlled inputs
 
@@ -252,12 +231,6 @@ You put the reset trigger on something that is not a controlled text field.
 
 Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
 [Diagnostics](16-diagnostics.md).
-
-<a id="hicasso-file-input-value-prop"></a>
-#### `:rf.error/hicasso-file-input-value-prop`
-
-You put a non-empty `:value` on a file input, which the platform refuses and
-React writes anyway.
 
 <a id="hicasso-file-input-value-marker"></a>
 #### `:rf.error/hicasso-file-input-value-marker`
@@ -288,8 +261,8 @@ a function, so nothing could fire it.
 
 A `defhost` declaration is validated once, at the declaration, rather than at
 every crossing. Most of this group therefore fires at load time and names the
-declaration; the raw `[:>]` escape has no declaration to validate, so its two
-fire at the crossing instead.
+declaration; the raw `[:>]` escape has no declaration to validate, so its one
+fires at the crossing instead.
 
 Taught in [Interop](09-interop.md).
 
@@ -298,33 +271,19 @@ Taught in [Interop](09-interop.md).
 
 You declared a `defhost` over `nil`.
 
-<a id="hicasso-host-bad-options"></a>
-#### `:rf.error/hicasso-host-bad-options`
+<a id="hicasso-bad-host-declaration"></a>
+#### `:rf.error/hicasso-bad-host-declaration`
 
-You gave a `defhost` declaration options that are not a map — usually a
-docstring written after the component instead of before it.
-
-<a id="hicasso-host-extra-form"></a>
-#### `:rf.error/hicasso-host-extra-form`
-
-You wrote a form after `defhost`'s options map — a second options map is not
-merged, it is discarded.
-
-<a id="hicasso-host-unknown-option"></a>
-#### `:rf.error/hicasso-host-unknown-option`
-
-You gave a `defhost` declaration an option outside its roster `#{:callbacks
-:slots :server :fallback}` — the retired `:ssr` spelling included.
+You wrote a `defhost` declaration outside its shape, and the reason names
+which: options that are not a map (usually a docstring written after the
+component instead of before it); an option outside `#{:callbacks :slots :server
+:fallback}` — the retired `:ssr` spelling included; a `:callbacks` contract
+outside `:event` and `:render`; a `:slots` value that is not a set of ordinary
+prop names (a non-set, an entry that names no prop, `key`/`ref`, one slot
+spelled twice, or a position that is also a declared callback); or a form after
+the options map, which is discarded rather than merged.
 
 Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
-
-<a id="hicasso-host-bad-slots"></a>
-#### `:rf.error/hicasso-host-bad-slots`
-
-You declared a `defhost` `:slots` that is not a set of ordinary prop names — a
-non-set, an entry that names no prop, `key`/`ref`, a name the crossing can never
-emit (`__proto__`, `prototype`, `constructor`), one slot spelled twice, or a
-position that is also a declared callback.
 
 <a id="hicasso-host-bad-ssr-policy"></a>
 #### `:rf.error/hicasso-host-bad-ssr-policy`
@@ -355,40 +314,17 @@ Write the markup there, or take the position out of `:slots`.
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
 [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-raw-no-component"></a>
-#### `:rf.error/hicasso-raw-no-component`
-
-You handed the raw escape `nil` in component position.
-
-Write `[:> Component props & children]`, or declare the crossing with `defhost`.
-
-Named in [Interop](09-interop.md).
-
 <a id="hicasso-raw-not-a-component"></a>
 #### `:rf.error/hicasso-raw-not-a-component`
 
-You handed the raw escape a value React will not mint a fiber for.
+You handed the raw escape `nil` in component position — usually a `:default`
+import that resolved nothing — or a Hicasso `defview` or `defhost` head, which
+is a head in its own right.
 
-A function or class component, a React built-in wrapper, or a memo / lazy /
-forwardRef / context value.
+Write `[:> Component props & children]` with the real component, or write the
+head as `[my-view …]`. Any other invalid type is React's own error at render.
 
 Named in [Interop](09-interop.md).
-
-### Portals
-
-A portal renders into a container you name, so the one thing it cannot do
-without is that container.
-
-Taught in [Interop](09-interop.md).
-
-<a id="hicasso-portal-no-target"></a>
-#### `:rf.error/hicasso-portal-no-target`
-
-You gave `h/portal` a `:target` that is not a DOM container — usually a lookup
-that answered nothing.
-
-Render the portal only once the container is there, or point `:target` at a node
-that outlives the page, such as `js/document.body`.
 
 ### Routing
 
@@ -406,14 +342,6 @@ You rendered a route link with no ambient frame.
 #### `:rf.error/hicasso-route-link-bad-on-click`
 
 You gave a route link an `:on-click` outside the route-click roster.
-
-<a id="hicasso-route-link-prefetch-declined"></a>
-#### `:rf.error/hicasso-route-link-prefetch-declined`
-
-You wrote `:prefetch` on a route link (declined outright in v0).
-
-`:on-mouse-enter [:rf.route/prefetch {…}]` needs nothing the link does not
-already give you.
 
 <a id="routing-artefact-missing"></a>
 #### `:rf.error/routing-artefact-missing`
@@ -434,37 +362,16 @@ to give up.
 
 Taught in [Motion and presence](12-motion-and-presence.md).
 
-<a id="hicasso-presence-child-not-hiccup"></a>
-#### `:rf.error/hicasso-presence-child-not-hiccup`
-
-You gave a presence boundary a child that is not a hiccup vector.
-
 <a id="hicasso-presence-child-unkeyed"></a>
 #### `:rf.error/hicasso-presence-child-unkeyed`
 
-You gave a presence child no `:key`.
+You gave a presence boundary a child with no `:key` — a child that is not a
+hiccup vector included.
 
 <a id="hicasso-presence-timeout-required"></a>
 #### `:rf.error/hicasso-presence-timeout-required`
 
 You left a presence boundary's timeout absent or not positive.
-
-<a id="hicasso-presence-override-on-a-view"></a>
-#### `:rf.error/hicasso-presence-override-on-a-view`
-
-You wrote a phase-attribute override on a view head.
-
-Named in [Motion and presence](12-motion-and-presence.md).
-
-<a id="hicasso-presence-override-out-of-reach"></a>
-#### `:rf.error/hicasso-presence-override-out-of-reach`
-
-You wrote a phase-attribute override where no presence tray can apply it —
-deeper than a tray's direct child, or under
-no tray at all.
-
-Move it onto the tray's own child; below a view head, branch on the `:rf/phase`
-prop instead.
 
 ### Overlays and focus
 
@@ -491,25 +398,12 @@ are checked at registration and at use.
 
 Taught in [Ephemeral state](11-ephemeral-state.md).
 
-<a id="hicasso-state-bad-concern"></a>
-#### `:rf.error/hicasso-state-bad-concern`
+<a id="hicasso-state-bad-argument"></a>
+#### `:rf.error/hicasso-state-bad-argument`
 
-You registered an ephemeral-state concern that is not namespace-qualified.
-
-<a id="hicasso-state-bad-key"></a>
-#### `:rf.error/hicasso-state-bad-key`
-
-You used an instance key outside the accepted set (`nil` included).
-
-<a id="hicasso-state-bad-option"></a>
-#### `:rf.error/hicasso-state-bad-option`
-
-You passed non-map options, or an option outside the roster, at registration.
-
-<a id="hicasso-state-redefined"></a>
-#### `:rf.error/hicasso-state-redefined`
-
-You re-registered a concern with a different default.
+You gave `reg-state` a concern that is not namespace-qualified, or options
+outside `{:default …}`; or you used an instance key outside the accepted set
+(`nil` included) at a read or a write. The reason names which.
 
 ### The test kit
 
@@ -641,18 +535,6 @@ the same change. So a reservation is promoted, never drifted into.
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
 | `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept |
-
-### Retiring later
-
-[`:rf.error/hicasso-route-link-prefetch-declined`](#hicasso-route-link-prefetch-declined)
-is live today and already decided against. It retires when route links accept
-`:prefetch` rather than declining the key outright, and its successor is the
-reserved `:rf.error/hicasso-route-link-bad-prefetch` above.
-
-The declined spelling is never reused for the successor, and the reason is worth
-seeing: the two say different things — *this key does nothing here* against
-*this value is not one of the ones it takes* — so an error monitor grouping by
-id would silently merge a v0 report with a later one about a typo.
 
 ### Dead
 

@@ -337,18 +337,16 @@
  *   • `file-input-is-uncontrollable` — React's controlled write is
  *     `element.value = …`, which throws `InvalidStateError` on a file input
  *     in all three engines, and React 19.2 carries no controlled-file-input
- *     warning, so nothing upstream was going to say it. REFUSED rather than
- *     corrected, on both halves: `:rf.error/hicasso-file-input-value-prop`
- *     from `impl.controlled/install!` (`rf2-u2tza`) and
+ *     warning. The prop half is left to the engine: `InvalidStateError` is
+ *     the report (rf2-6c12m.11 retired the `-file-input-value-prop` refusal
+ *     that once stood in front of it). The marker half is REFUSED:
  *     `:rf.error/hicasso-file-input-value-marker` from
- *     `impl.intent/target-value` (`rf2-lhsvs`), each with its `spec/009`
- *     row. The asymmetry with the multi-select above is deliberate and both
- *     spec rows state it: `::h/value` already means *the control's current
- *     value* and a multi-select's current value IS its selection, whereas a
- *     file input is a control the marker's surface excludes on purpose.
- *     THIS ROW'S ASSERTIONS ARE UNCHANGED and still pass, because what they
- *     drive is the PLATFORM's `element.value = …` directly rather than
- *     anything Hicasso now refuses first.
+ *     `impl.intent/target-value` (`rf2-lhsvs`), with its `spec/009` row. The
+ *     asymmetry with the multi-select above is deliberate and the spec row
+ *     states it: `::h/value` already means *the control's current value* and
+ *     a multi-select's current value IS its selection, whereas a file input
+ *     is a control the marker's surface excludes on purpose. THIS ROW'S
+ *     ASSERTIONS drive the PLATFORM's `element.value = …` directly.
  *
  * ### One cell is UNADDRESSED rather than passing
  *

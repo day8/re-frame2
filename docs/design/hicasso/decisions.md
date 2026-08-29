@@ -1466,6 +1466,11 @@ deletions they justify are shipped. Read every "against K5" below as historical.
 
 ## HD-022 — `:ref`'s vector value-space is reserved now, and refused loudly in v0
 
+**Amended 2026-08-29 (rf2-6c12m.11).** The reservation is retired: a vector at
+`:ref` crosses to React as data like any other value, and
+`:rf.error/hicasso-ref-vector-reserved` is struck. The ruling below stands as the
+v0 record.
+
 **Ruling.** `:ref` accepts **a function** — HD-003's escape hatch and HD-016's
 callback-refs-only rule, both unchanged. A **vector** (`{:ref [registered-id
 config]}`) is **RESERVED**: v0 refuses it with `:rf.error/hicasso-ref-vector-reserved`
@@ -2189,6 +2194,13 @@ express — in which case it is a new row, not a new form.
 
 ## HD-025 — Presence: phase as a prop, and `::h/mounting` / `::h/unmounting` as data
 
+**Amended 2026-08-29 (rf2-6c12m.11).** An override written on a boundary child,
+or anywhere no tray reaches, is dropped rather than refused — a boundary child
+receives `:rf/phase` and the codec's prop walks skip the two private keys, so no
+override reaches the DOM as an attribute. `:rf.error/hicasso-presence-override-on-a-view`
+and `-override-out-of-reach` are struck; `-child-not-hiccup` folds into
+`-child-unkeyed`.
+
 **Ruling.** Two changes, both of them data.
 
 **(1) `::h/mounting` and `::h/unmounting` are attribute OVERRIDE MAPS on a native
@@ -2387,6 +2399,12 @@ click** on the census feed tab against an un-decorated control on the same page:
 shapes. **Reopens** on the dogfooding condition named under Scope.
 
 ## HD-027 — `route-link`: a plain function over routing's link seam, and a second reserved head
+
+**Amended 2026-08-29 (rf2-6c12m.11).** The navigate map is no longer re-validated
+at lowering — `route-link` mints it and nothing else writes it — so
+`:rf.error/hicasso-malformed-navigate` is struck. The v0 `:prefetch` decline
+(`:rf.error/hicasso-route-link-prefetch-declined`) is struck with it: `:prefetch`
+is a key the link owns and does not read, kept off the anchor.
 
 **Ruling.** The fifth tier-1 shape's Hicasso spelling is **`route-link`, a plain
 function** (`front/route_link.cljs` in the bench arm): the author writes

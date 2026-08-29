@@ -193,19 +193,17 @@ const SENTINELS = [
     premise: '"[hicasso] ',
     why:
       'The prefix every console message the package prints begins with, and ' +
-      'the FAMILY rather than one member: all four live in impl/codec.cljs — ' +
-      '`boundary-props=`\'s fail-open notice, `set-lowering-owner!`\'s ' +
-      'unbalanced set/clear warning, and `check-seq-keys!` / ' +
-      '`check-member-key!`\'s two key warnings. Every one of them sits behind ' +
+      'the FAMILY rather than one member: both live in impl/codec.cljs — ' +
+      '`boundary-props=`\'s fail-open notice and `check-member-key!`\'s ' +
+      'entity-key warning. Each sits behind ' +
       '`(when ^boolean js/goog.DEBUG …)`, so under `:advanced` the `keywarn` ' +
-      'object, its tables and every message string fold away with the ' +
-      'branches that reach them. A row per message would name the leak more ' +
-      'narrowly and leave three of the four uncovered the day a fifth is ' +
-      'written; the prefix cannot.',
+      'table and every message string fold away with the branches that ' +
+      'reach them. A row per message would name the leak more narrowly and ' +
+      'leave the other uncovered the day a third is written; the prefix ' +
+      'cannot.',
     remedy:
-      'Check the `goog.DEBUG` wrappers at those four sites in ' +
-      'impl/codec.cljs — both the call site and the message itself have to ' +
-      'be inside one.',
+      'Check the `goog.DEBUG` wrappers at those sites in impl/codec.cljs — ' +
+      'both the call site and the message itself have to be inside one.',
   },
 ];
 

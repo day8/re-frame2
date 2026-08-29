@@ -95,9 +95,8 @@ Three things are load-bearing:
 - **The ref fn must be a stable top-level `def`.** An inline `(fn [n] …)` is a
   fresh identity every render, so React detaches and reattaches on every commit —
   running your mount work repeatedly and your cleanup repeatedly.
-- **A VECTOR at `:ref` is refused**, with `:rf.error/hicasso-ref-vector-reserved`
-  and the recovery `use-a-callback-ref-or-an-effect`. That spelling is reserved
-  for a later data form; it is not a v0 surface.
+- **A VECTOR at `:ref` is not a ref.** It crosses to React as data and the ref
+  never fires; the callback function is the only spelling.
 - **`:ref` on a `defview` head is not a ref at all.** The boundary path lifts
   only `:key`; a `:ref` written there stays in the props map as ordinary data
   and nothing checks it. Put the ref on the element you actually want.

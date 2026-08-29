@@ -23,7 +23,7 @@ the check rather than a polish pass.
   - `impl/intent.cljs` — the four `on-*` shapes, the two markers, the two
     reserved heads, the key map and its composition gate, the event-first
     argument law, every intent refusal id.
-  - `impl/codec.cljs` — prop lowering, `:key`, `:ref` (`check-ref!`), the `[:>]`
+  - `impl/codec.cljs` — prop lowering, `:key`, `:ref`, the `[:>]`
     crossing, the reserved-name skips.
   - `impl/slot.cljc` — the canonical prop-name rule (the MIG-11 table). Shared
     with the codemod, which is why the two cannot drift.

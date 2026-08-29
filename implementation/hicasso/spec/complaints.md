@@ -77,47 +77,31 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 | Complaint | Raised when you | Taught in |
 |---|---|---|
 | `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch16 |
+| `:rf.error/hicasso-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:callbacks :slots :server :fallback}`, a `:callbacks` contract outside `:event`/`:render`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
 | `:rf.error/hicasso-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
 | `:rf.error/hicasso-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
 | `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-file-input-value-marker` | read `::h/value` off a file input, where `.value` is the `C:\fakepath\` fiction and the first file's name — not the files | — |
-| `:rf.error/hicasso-file-input-value-prop` | put a non-empty `:value` on a file input, which the platform refuses and React writes anyway | — |
 | `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
-| `:rf.error/hicasso-host-bad-options` | gave a `defhost` declaration options that are not a map — usually a docstring written after the component instead of before it | — |
-| `:rf.error/hicasso-host-bad-slots` | declared a `defhost` `:slots` that is not a set of ordinary prop names — a non-set, an entry that names no prop, `key`/`ref`, a name the crossing can never emit (`__proto__`, `prototype`, `constructor`), one slot spelled twice, or a position that is also a declared callback | — |
 | `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
-| `:rf.error/hicasso-host-extra-form` | wrote a form after `defhost`'s options map — a second options map is not merged, it is discarded | — |
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |
 | `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
 | `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch03, ch09, ch16 |
-| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster `#{:callbacks :slots :server :fallback}` — the retired `:ssr` spelling included | ch09, ch18 |
 | `:rf.error/hicasso-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
 | `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
-| `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
 | `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
 | `:rf.error/hicasso-overlay-anchor-missing` | gave an overlay an `:anchor` naming a DOM id no element in the document carries. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is the typo this catches | ch13 |
-| `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
-| `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
-| `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
-| `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch12 |
-| `:rf.error/hicasso-presence-override-out-of-reach` | wrote a phase-attribute override where no presence tray can apply it — deeper than a tray's direct child, or under no tray at all | — |
+| `:rf.error/hicasso-presence-child-unkeyed` | gave a presence boundary a child with no `:key` — a child that is not a hiccup vector included | — |
 | `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
-| `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
-| `:rf.error/hicasso-raw-not-a-component` | handed the raw escape a value React will not mint a fiber for | ch09 |
-| `:rf.error/hicasso-ref-vector-reserved` | put a vector at the canonical `ref` slot | — |
+| `:rf.error/hicasso-raw-not-a-component` | handed the raw escape `nil`, or a `defview`/`defhost` head; any other bad type is React's own error at render | ch09 |
 | `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
 | `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
 | `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
-| `:rf.error/hicasso-route-link-prefetch-declined` | wrote `:prefetch` on a route link (declined outright in v0) | — |
-| `:rf.error/hicasso-state-bad-concern` | registered an ephemeral-state concern that is not namespace-qualified | — |
-| `:rf.error/hicasso-state-bad-key` | used an instance key outside the accepted set (`nil` included) | — |
-| `:rf.error/hicasso-state-bad-option` | passed non-map options, or an option outside the roster, at registration | — |
-| `:rf.error/hicasso-state-redefined` | re-registered a concern with a different default | — |
+| `:rf.error/hicasso-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
 | `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
-| `:rf.error/hicasso-unknown-callback-contract` | named a contract outside `:event` / `:render` in a `defhost` `:callbacks` override | — |
 | `:rf.error/hicasso-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
 | `:rf.error/hicasso-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
 | `:rf.error/hicasso-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |

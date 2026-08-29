@@ -52,11 +52,12 @@ string instead of a keyword, provide that value explicitly with `#js`,
 `clj->js`, a string, or `(name value)`. Hicasso does not guess a library's
 data model.
 
-The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`.
-`:rf.error/hicasso-host-unknown-option` reports an unknown option. Declaration
-also fails for a `:callbacks` value outside `:event` and `:render`, a malformed
-`:slots` set, or a component that resolved to `nil` — often a mistaken
-`:default` import. These errors point to the declaration rather than a later
+The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`. A
+declaration outside that shape — an unknown option, a `:callbacks` value outside
+`:event` and `:render`, a malformed `:slots` set — fails with
+`:rf.error/hicasso-bad-host-declaration`, the reason naming which; a component
+that resolved to `nil` — often a mistaken `:default` import — fails with
+`:rf.error/hicasso-host-no-component`. These errors point to the declaration rather than a later
 mount.
 
 ## Callback contracts
@@ -130,7 +131,7 @@ Declare the override once, on the host:
 
 `:callbacks` takes `:event` or `:render` and nothing else, and a declared
 contract outranks the spelling. Any other value is refused at the declaration
-with `:rf.error/hicasso-unknown-callback-contract`. Write the override only
+with `:rf.error/hicasso-bad-host-declaration`. Write the override only
 where the spelling is wrong; the usual case needs none.
 
 ## ReactNode slots
@@ -279,11 +280,11 @@ The fallback is a placeholder, not server rendering of the foreign component.
 Only a declaration on the real component with `{:server :render}` makes that
 claim.
 
-The raw component position must evaluate to a valid React element type. `nil`
-raises `:rf.error/hicasso-raw-no-component`. A string, keyword, Hicasso
-`defview` head, `defhost` head, or already-built React element raises
-`:rf.error/hicasso-raw-not-a-component`. These errors occur at the authored
-crossing, including during server render.
+The raw component position must evaluate to a valid React element type. `nil` —
+usually a mistaken `:default` import — and a Hicasso `defview` or `defhost` head
+raise `:rf.error/hicasso-raw-not-a-component` at the authored crossing,
+including during server render. Any other invalid type is React's own error at
+render.
 
 ## Render a Hicasso view from native React
 
@@ -313,7 +314,7 @@ as a component.
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
 | React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
 | A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
-| `:rf.error/hicasso-unknown-callback-contract` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
+| `:rf.error/hicasso-bad-host-declaration` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included — or another declaration-shape fault the reason names | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
 | A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Hicasso body or use a declared event callback |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
 | `:rf.error/hicasso-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |
