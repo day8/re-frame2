@@ -224,8 +224,6 @@
       (is (= [1 1 0] (:position data))
           "the index route into the DECLARED form — the div's child 1 is the
            span, whose child 1 is the offending vector, whose head is at 0")
-      (is (= :write-inert-hiccup-or-declare-server-render (:recovery data))
-          "and the recovery names the supersession, not just the ban")
       (is (re-find #"fb/named" (ex-message (try (host-with-fallback
                                                   "fb/named"
                                                   [:div.skeleton

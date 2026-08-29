@@ -458,7 +458,6 @@
                           (catch :default e (ex-data e)))]
       (is (= :rf.error/hicasso-generation-fence-exhausted (:rf.error/id data)))
       (is (= 're-frame.hicasso.impl.collector/render-body (:where data)))
-      (is (= :move-the-write-out-of-the-render (:recovery data)))
       (is (= frame-id (:frame data))
           "the refusal names the frame whose commits kept landing"))))
 

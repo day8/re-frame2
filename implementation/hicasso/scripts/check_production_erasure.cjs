@@ -37,11 +37,6 @@
  *   - `hicassoBody` (dev-only) against `hicassoBoundary` (ungated) — two
  *     adjacent own-property slots in `impl/codec.cljs`, both written with
  *     `unchecked-set` on the same minted head, one behind the gate.
- *   - `hicasso-refusal-incomplete` (dev-only) against
- *     `rf.error/hicasso-empty-vector` (ungated) — a refusal minted inside
- *     `fail!`'s `debug-enabled?` guard against one minted by `fail!` on
- *     the shipped path. If `fail!` had not compiled at all, both would be
- *     absent and the second says so.
  *   - the entry's own view name, which `mint-view!` stamps
  *     unconditionally, proving the bundle really compiled a declaration.
  *
@@ -175,21 +170,6 @@ const SENTINELS = [
     remedy:
       'Find the `:require` of `re-frame.hicasso.test` under ' +
       'implementation/hicasso/src/ and move it into the test that needs it.',
-  },
-  {
-    surface: 'complaint payload detail — `fail!`\'s completeness guard (rf2-hic-007)',
-    sentinel: 'hicasso-refusal-incomplete',
-    source: 'src/re_frame/hicasso/impl/error.cljc',
-    premise: ':rf.error/hicasso-refusal-incomplete',
-    why:
-      'The meta-refusal `check-complete!` mints when a refusal reaches ' +
-      '`fail!` without the required four. `fail!` calls it inside ' +
-      '`(when interop/debug-enabled? …)` — in production the incomplete ' +
-      'refusal is thrown as-is rather than replaced, so this id and the ' +
-      'sentence around it are dev-only in terms.',
-    remedy:
-      'Check the `(when interop/debug-enabled? (check-complete! data))` line ' +
-      'in impl/error.cljc `fail!`.',
   },
   {
     surface: 'evidence projection — the versioned envelope (rf2-hic-023)',

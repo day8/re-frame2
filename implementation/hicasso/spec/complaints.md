@@ -26,17 +26,16 @@ column below is hand-maintained.
 
 ## What every complaint carries
 
-A complaint is a thrown `ex-info`. Its message is the reason with the id
-appended in brackets, and its `ex-data` carries four slots that
-`re-frame.hicasso.impl.error/fail!` refuses to mint a refusal without:
+A complaint is a thrown `ex-info`, built by
+`re-frame.hicasso.impl.error/fail!` through `re-frame.error/ex-info-from-data`.
+Its message is the reason with the id appended in brackets, and its `ex-data`
+carries core's four slots:
 
 - `:rf.error/id` — the stable discriminator. **This** is what to branch on.
 - `:where` — the symbol naming the fn that refused.
-- `:reason` — the human sentence.
-- `:recovery` — a keyword naming the concrete fix.
-
-Those four are guaranteed, because the constructor's guard reads the ex-data
-map it is about to throw rather than the arguments it was handed.
+- `:reason` — the human sentence, which names the fix.
+- `:recovery` — always `:no-recovery`: a complaint is a throw the runtime
+  does not recover from.
 
 Beyond them a complaint carries its own class's situational slots — the
 offending value, the prop position, the frame — enumerated per id in Spec
@@ -115,7 +114,6 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 | `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
 | `:rf.error/hicasso-raw-not-a-component` | handed the raw escape a value React will not mint a fiber for | ch09 |
 | `:rf.error/hicasso-ref-vector-reserved` | put a vector at the canonical `ref` slot | — |
-| `:rf.error/hicasso-refusal-incomplete` | (framework-internal) minted a refusal missing one of the four required slots | — |
 | `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
 | `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
 | `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
@@ -149,81 +147,19 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 
 ## Rulings this catalogue owns
 
-**Complaint text is built by `fail!`, not routed through `re-frame.error`.**
-`impl/error.cljc` and Spec 009's §Hicasso both defer this question here.
-The answer is that it stays where it is. The message shape `fail!` produces
-is already core's contract — the reason with the bracketed id appended — so
-routing through core's builder changes nothing a reader sees, while it
-would put every sentence in the package under core's message conventions
-and add a dependency to the one door every refusal passes through. The
-`rf2:builder-bypass-ok` marker at that call records the exception honestly:
-`id` is a parameter there, so the source cannot show what the message will
-say, which is the checker's own computed-discriminator case rather than a
-bypass of the contract.
-
 **The four required slots are the contract; `:view` and `:source` are not.**
 Stated above under *What every complaint carries*, and repeated here because
 it is the promise most easily made too broadly.
 
-**An id is frozen; the `:recovery` beside it is not.** The stability rule
-governs the id and nothing else in the row, and the division is a statement
-about what each slot IS rather than about how often either is read.
-`:rf.error/id` is the **discriminator**: the handle a stored error, a
-monitor's grouping rule and a test's assertion match on, which is the whole
-reason a retired id's row is struck rather than deleted. `:recovery` is **concrete advice about
-a live API** — it names the fix in the words a programmer would type — so it
-tracks whatever API it points at, and is rewritten when that API is renamed.
-
-That rests on the contract and not on a usage count. This paragraph used to
-say a recovery keyword is "branched on by nothing", which is simply untrue:
-`test_kit_cljs_test` asserts one exactly, and rf2-k855's own PR notes that a
-consumer may branch on `:recovery` too. Nothing stops them; what the split
-says is that only the id CARRIES a promise, so a consumer branching on
-advice about a renamed API is relying on something this register never
-undertook to hold still. Freezing both would put every refusal's advice
-under the id's contract, and leave the substrate telling a programmer to
-type a word that no longer exists.
-
-**`:rf.error/hicasso-host-bad-ssr-policy` keeps its spelling too, and for the
-same reason.** `defhost`'s policy option settles as `:server` with a sibling
-`:fallback` (naming-ledger row 21, applied by rf2-mo4o), so this id names a key
-a caller no longer writes. The meaning has not changed: the refusal means what it
-always meant — *this declaration does not name a server policy the door can
-honour* — and it now covers one more way to fail that question, `:fallback`
-declared beside `:render`, which is the same fault rather than a different one.
-No id was minted and none retired. The two recovery keywords that named the
-retired option moved with it, as row 23's did and in ONE pass across the
-runtime, the witnesses and the Spec 009 rows:
-`:declare-client-only-a-fallback-or-render` is now
-`:declare-render-or-client-only-with-an-optional-fallback`, and
-`:write-inert-hiccup-or-declare-ssr-render` is now
-`:write-inert-hiccup-or-declare-server-render`. `defhost`'s unknown-option
-recovery moved on the same terms (`:declare-callbacks-or-ssr` →
-`:declare-callbacks-slots-server-or-fallback`), because it enumerates the roster
-and the roster changed.
-
-**`:rf.error/hicasso-test-bad-reads` keeps its spelling.** The L2 fixture
-option it polices settles as `:subs` (naming-ledger row 23), so the id names
-a key a caller no longer writes. That is not a change of meaning: the refusal
-means exactly what it always meant — *the fixture map was not a map from
-query vector to value* — and an id names the refusal, not the option. A
-rename would buy one better word at the price of a tombstone kept forever, a
-fresh spelling every consumer must re-learn, and two more Spec 009 rows.
-The current spelling belongs in the Trigger
-column and in the message, which is where a reader meets it. This id's own
-recovery, `:pass-a-map-of-query-to-value`, names a shape rather than a key
-and needed no change at all — the same distinction seen from the other side,
-and the shape a recovery keyword should prefer wherever one is available.
-The sibling advice on `:rf.error/hicasso-test-missing-read-fixture` does
-name the key, so it moved with it: `:add-the-query-to-reads` is now
-`:add-the-query-to-subs`. The two spellings did NOT move in the same pass as
-the option — rf2-k855 established the shape and correctly declined to land
-half of it, and the rewrite arrived one bead later under rf2-6640, across
-the kit's source, its assertion and its Spec 009 row at once. Together,
-because nothing gates them: `check_keyword_catalogue_drift.py` reconciles
-`:rf.error/*` ids, so a
-recovery keyword that disagreed with what the runtime raises would be silent
-untracked drift rather than a red build.
+**Two ids keep their spellings although the options they police were
+renamed.** `:rf.error/hicasso-host-bad-ssr-policy` names `:ssr`, which
+`defhost` settled as `:server` with a sibling `:fallback` (naming-ledger row
+21), and `:rf.error/hicasso-test-bad-reads` names `:reads`, which the L2
+fixture option settled as `:subs` (row 23). An id names the refusal, not the
+option, and neither refusal changed its meaning; a rename would buy one better
+word at the price of a tombstone kept forever and a fresh spelling every
+consumer must re-learn. The current option spelling belongs in the Trigger
+column and in the message, which is where a reader meets it.
 
 ## Open, and not settled here
 

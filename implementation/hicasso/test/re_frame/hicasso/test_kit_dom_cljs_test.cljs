@@ -82,6 +82,5 @@
         (let [refused (try (ht/canonical-dom {:tag :p}) nil
                            (catch :default e (ex-data e)))]
           (is (= {:rf.error/id :rf.error/hicasso-test-not-a-dom-node
-                  :where       're-frame.hicasso.test
-                  :recovery    :pass-a-dom-node}
-                 (select-keys refused [:rf.error/id :where :recovery]))))))))
+                  :where       're-frame.hicasso.test}
+                 (select-keys refused [:rf.error/id :where]))))))))

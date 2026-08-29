@@ -499,8 +499,7 @@
             boundary moved to Rung 3 leaves the assertion tier that runs
             without a browser"
     (let [{:keys [refused]} (outcome #(ht/tree [direct-body {:id 1}] l2-fixtures))]
-      (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused)))
-      (is (= :assert-it-at-l3 (:recovery refused)))))
+      (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused)))))
 
   (testing "and it refuses at the DIRECT-RETURN position specifically —
             the body answered the element itself, with no tree around it

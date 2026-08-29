@@ -215,7 +215,6 @@
                   "than a key you write. A misspelling here is not an ignored "
                   "option: it is an error boundary that reports nothing, "
                   "wearing a declaration that says it does.")
-             :write-fallback-reset-key-or-on-error
              {:prop k :props prop-roster})))
   (let [on-error (:on-error props)]
     (when-not (or (nil? on-error) (vector? on-error) (fn? on-error))
@@ -227,7 +226,6 @@
                   "boundary is mounted under, or a FUNCTION called with the "
                   "error. A bare keyword is not an intent here — wrap it: "
                   "[:app/failed].")
-             :hand-an-intent-vector-or-a-one-argument-function
              {:value on-error})))
   props)
 

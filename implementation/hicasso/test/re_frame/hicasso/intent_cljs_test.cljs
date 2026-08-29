@@ -605,8 +605,7 @@
             (is false (str "should have thrown for " contract))
             (catch :default e
               (let [d (ex-data e)]
-                (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id d)))
-                (is (= :declare-event-or-render (:recovery d)))))))))))
+                (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id d)))))))))))
 
 (deftest the-override-claims-only-what-the-position-would
   (testing "the override selects between the SAME two wrappers the spelling
@@ -666,10 +665,6 @@
               (is (= :on-pick (:position data)))
               (is (= "preventDefault" (:needed data)))
               (is (= "a-value" (:argument data)))
-              (is (= :write-an-h-event-at-a-value-first-position (:recovery data))
-                  "the recovery names the form the door actually exports: a
-                   `:recovery` is advice about a LIVE api, so it moved with
-                   `hfn` → `h/event` (rf2-15bqc)")
               (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
               (is (re-find #"h/event" (ex-message e)) "and the spelling that works"))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the

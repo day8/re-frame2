@@ -200,8 +200,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One constructor for the whole package: the same id / position / reason
-;; / recovery a test can assert on, plus the ambient view and source
-;; coordinate no call site is in a position to supply.
+;; a test can assert on, plus the ambient view and source coordinate no
+;; call site is in a position to supply.
 
 ;; ---------------------------------------------------------------------------
 ;; Cache hygiene — the own-property guard both caches share
@@ -674,7 +674,6 @@
                 "registered node ownership; v0 accepts a callback ref (a "
                 "function) only. Write the function, or move the mechanic to "
                 "an event and an effect.")
-           :use-a-callback-ref-or-an-effect
            {:ref v :position k}))
   v)
 
@@ -724,7 +723,6 @@
               (pr-str (name k)) " attribute. Move it onto the tray's own "
               "child; below a view head, branch on the :rf/phase prop "
               "instead.")
-         :put-the-override-on-a-presence-child
          {:override v :position k}))
 
 (defn ^boolean override-key?
@@ -1367,7 +1365,6 @@
                 "document per frame and per write, which is not a "
                 "placeholder. Write plain hiccup there, or declare "
                 ":server :render and render the real subtree on the server.")
-           :write-inert-hiccup-or-declare-server-render
            {:host host-name :head (head-name form) :position path :kind kind})
     (cond
       (vector? form)
@@ -1445,7 +1442,6 @@
               "it belongs to Client-only alone: under :render the component "
               "renders, so there is nothing for a placeholder to stand in "
               "for.")
-         :declare-render-or-client-only-with-an-optional-fallback
          (assoc data :host host-name)))
 
 (defn- declared-server
@@ -1574,7 +1570,6 @@
               "such as a modal's title or a Suspense fallback — and hiccup "
               "written at one of them is lowered under the frame that wrote "
               "the crossing. Every other prop stays data.")
-         :declare-slots-as-a-set-of-ordinary-props
          (assoc data :host host-name :slots slots)))
 
 (defn- declared-slots
@@ -1675,7 +1670,6 @@
             (str "defhost " host-name " was given nil as its component. The "
                  "usual cause is a JS import that resolved nothing — e.g. "
                  "`:default` against a library with no default export.")
-            :hand-the-declaration-a-real-component
             {:host host-name}))
    ;; THE SHAPE, before the roster. Without this the doseq
    ;; below hands a non-map to `keys`, and what the author gets is
@@ -1697,7 +1691,6 @@
                  "to arrive here is a docstring written AFTER the component "
                  "instead of before it, which leaves the real options map as "
                  "a trailing form nothing reads.")
-            :pass-a-map-of-options
             {:host host-name :options opts}))
    (doseq [k (keys opts)]
      (when-not (contains? host-options k)
@@ -1708,7 +1701,6 @@
                    ":callbacks, :slots, :server and :fallback. Reading past an "
                    "option it does not know is how a policy comes to be set "
                    "and never applied.")
-              :declare-callbacks-slots-server-or-fallback
               {:host host-name :option k :options host-options})))
    (let [server   (declared-server host-name opts)
          fallback (declared-fallback host-name opts server)
@@ -1723,7 +1715,6 @@
                            ". The contracts are :event and :render, and a "
                            "declaration only needs one where the prop's spelling "
                            "infers the wrong one — an on*-named render prop.")
-                      :declare-event-or-render
                       {:host host-name :position k :contract contract}))
              (assoc m (cached-prop-name k) contract))
            {}
@@ -1797,7 +1788,6 @@
               "component) or (defhost name component opts), each with an "
               "optional docstring in SECOND position — before the component, "
               "never after it. Two options maps are not merged.")
-         :write-one-options-map-and-put-any-docstring-before-the-component
          {:host host-name :extra (vec extra)}))
 
 (defn host-head?
@@ -2233,7 +2223,6 @@
               "means. Hand a FUNCTION instead — the child calls it on every "
               "render, so its reads are the child's edges and are kept — or "
               "deref the delay in the body that wrote it.")
-         :hand-a-function-or-deref-it-in-this-body
          {:value v}))
 
 (defn realize-deep
@@ -2599,7 +2588,6 @@
               "ReactNode slot — a markup position that lowers hiccup and has "
               "no callback contract to give a function. Write the markup "
               "there, or take " (pr-str k) " out of :slots.")
-         :write-markup-at-a-declared-slot
          {:host     (unchecked-get head "displayName")
           :position k
           :slots    (unchecked-get head "slots")}))
@@ -2906,7 +2894,6 @@
            're-frame.hicasso.impl.codec/raw-element
            (str "[:>] was handed " shape " in the Component position. "
                 (raw-component-fix c))
-           :hand-the-escape-a-component-react-accepts
            {:shape shape})))
 
 (defn- raw-component
@@ -2948,7 +2935,6 @@
                   "that resolved nothing — e.g. `:default` against a library "
                   "with no default export. Write [:> Component props & "
                   "children], or declare the crossing with defhost.")
-             :hand-the-escape-a-real-component
              {:argv-count (count argv)})
 
       ;; Ahead of `fn?`, because both marked heads ARE functions or carry
@@ -3113,7 +3099,7 @@
     send the programmer to mount a form that cannot mount.
 
   Both refusals are minted by the RUNTIME's own guards, in the runtime's
-  own order — so the id, the reason and the recovery a consumer sees are
+  own order — so the id and the reason a consumer sees are
   one set of values with one home, which is the whole of what a parity
   table can promise about a form neither side can interpret.
 
@@ -3134,7 +3120,6 @@
     (fail! :rf.error/hicasso-empty-vector
            're-frame.hicasso.impl.codec/vec->element
            "A hiccup vector must have a head."
-           :supply-a-hiccup-head
            {}))
   (let [kind (head-kind (nth argv 0))]
     (when (= :raw kind)
@@ -3169,7 +3154,6 @@
                     "or a defhost product. Hiccup head " (pr-str head) " is none of "
                     "them. A raw JS component is never a silent embedding — declare "
                     "it with defhost, or write the escape [:> Component …] (HD-011)."))
-             (if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)
              {:head head}))))
 
 (defn child-kind
@@ -3249,7 +3233,6 @@
     :true-child     (fail! :rf.error/hicasso-true-child
                            're-frame.hicasso.impl.codec/as-element
                            "nil and false render nothing; true is an error (HD-016)."
-                           :use-nil-or-false
                            {})
     :react-element  x
     :named          (name x)

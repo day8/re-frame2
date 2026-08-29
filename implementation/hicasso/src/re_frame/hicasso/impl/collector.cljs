@@ -1287,7 +1287,6 @@
                 " happened outside a boundary render. `sub` and `use-subs` "
                 "are legal only inside a defview body; `subscribe-once` is "
                 "the sanctioned snapshot for handler and utility code.")
-           :read-inside-a-boundary-body
            {:query-v query-v}))
   (let [frame-kw (.-frame rstate)
         sub-key  [frame-kw query-v]]
@@ -1772,7 +1771,6 @@
                     (inc max-fence-retries) " consecutive runs. A body that "
                     "writes on every render cannot be fenced; move the write "
                     "out of the render.")
-               :move-the-write-out-of-the-render
                {:frame frame-kw :generation (generation/generation)})))))
 
 (defn last-reads
@@ -1814,7 +1812,6 @@
            where
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
                 "tree under a frame boundary — `h/mount!` installs one.")
-           :mount-under-a-frame
            {})
     frame-kw))
 

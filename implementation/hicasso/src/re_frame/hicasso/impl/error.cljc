@@ -1,69 +1,22 @@
 (ns re-frame.hicasso.impl.error
-  "**THE ONE REFUSAL SHAPE** — spec SN §3.6, *Loud, stable failure*:
+  "The package's one refusal constructor, and the dev-only ledger that
+  lets a refusal name the view it was raised from.
 
-  > Every refusal has a stable error id, source coordinate, view, frame
-  > where relevant, tree path or host-prop position, offending value,
-  > expected shape, and actionable recovery.
+  [[fail!]] builds every Hicasso throw through
+  `re-frame.error/ex-info-from-data`, so the ex-data is core's 4-slot
+  shape — `:rf.error/id`, `:where`, `:reason`, `:recovery :no-recovery`
+  — plus the refusal class's own slots from `extra` and, in dev builds,
+  the ambient `:view` / `:source` pair. `defview` and `defhost` write
+  that pair's source here at macro-expansion time, keyed by the same
+  `\"<ns>/<sym>\"` string the macro stamps as `displayName`; the whole
+  ledger is inside `debug-enabled?` gates, so under `:advanced` +
+  `goog.DEBUG=false` it is never written and the two fields are ABSENT
+  from the ex-data rather than nil.
 
-  ONE constructor, for the whole package. A copy of it per lane — codec,
-  collector, intent, presence, route-link, state — is not six risks of
-  divergence; it is six places where a NEW field of the shape has to be
-  added, which is the same as saying the shape cannot grow. Here it
-  grows once.
-
-  ## What the constructor knows that a call site does not
-
-  A refusal names itself — its `id`, the fn that raised it, why, and what
-  to do instead — and those four are the caller's, because only the
-  caller knows them. The other half of the shape is AMBIENT: *which view
-  was rendering* and *where that view was written*. No call site can
-  supply it — `codec/vec->element` refuses a bad head with no idea whose
-  body produced the hiccup — so the constructor reads it, from the
-  ledger below, and every refusal gains two fields nobody has to
-  remember to pass.
-
-  ## The ledger, and why a name is enough
-
-  `defview` and `defhost` capture `:ns` / `:file` / `:line` / `:column`
-  at MACRO-EXPANSION time and hand them here through [[declaring!]],
-  keyed by the same `\"<ns>/<sym>\"` string the macro stamps as
-  `displayName`. That key is the whole of the coupling: the mint doors
-  need no new parameter, the minted head carries no new property, and
-  [[traced-boundary]] — which already has the view name in hand — can
-  resolve the coordinate lazily, at the moment a refusal is raised and
-  never before.
-
-  ## Dev only, and erased rather than emptied
-
-  Every coordinate is emitted by the macro inside
-  `(when re-frame.interop/debug-enabled? …)`, so under `:advanced` +
-  `goog.DEBUG=false` the Closure compiler removes the map literal, its
-  file string and the [[declaring!]] call together. Nothing here degrades
-  to an empty map in production: the ledger is simply never written, and
-  [[fail!]]'s own gate means the two ambient fields are ABSENT from the
-  ex-data rather than present and nil. An absent field says *this build
-  does not carry coordinates*; a nil one would say *this refusal has no
-  coordinate*, and those are different claims.
-
-  ## The completeness guard is a runtime law, not a review note
-
-  [[fail!]] refuses to mint an incomplete refusal (dev builds). The
-  alternative — asserting completeness in a test per refusal id — checks
-  the refusals somebody remembered to enumerate and nothing else, which
-  is precisely how a shape drifts into copies. The guard is on the
-  one door every refusal now passes through, so a refusal minted without
-  a recovery cannot reach a user under any code path, tested or not.
-
-  It reads the map it is ABOUT TO THROW rather than the arguments it was
-  handed, and the distinction is the whole of the guarantee. A guard that
-  validates its inputs and then merges a call site's payload over them
-  has checked a map that no longer exists: were `extra` carrying
-  `{:recovery nil}` to win outright, the one field the guard exists to
-  insist on could be erased immediately after it was insisted on.
-  [[required]] and [[ambient]] are the CONSTRUCTOR's — the required four
-  merged over `extra` rather than under it, the ambient pair stripped
-  from `extra` outright — and [[missing-fields]] reads the result."
-  (:require [clojure.string :as str]
+  One constructor rather than one per lane, so a field of the shape is
+  added in one place. Argument: docs/design/hicasso/product/specification.md
+  §3.6 (Loud, stable failure)."
+  (:require [re-frame.error :as error]
             [re-frame.interop :as interop]))
 
 ;; ---------------------------------------------------------------------------
@@ -169,125 +122,16 @@
           (vreset! !origin prev))))))
 
 ;; ---------------------------------------------------------------------------
-;; The shape
+;; The constructor
 ;; ---------------------------------------------------------------------------
 
-(def required
-  "The four fields no refusal may omit — the caller's half of the shape,
-  because only the caller knows them, and the half [[fail!]]'s guard
-  enforces on the map it is about to throw.
-
-  The ambient pair is deliberately not here: a refusal raised outside
-  every declaration extent genuinely has no view, and demanding one would
-  make the guard lie."
-  [:rf.error/id :where :reason :recovery])
-
-(def ambient
-  "The two fields [[fail!]] supplies rather than the call site — which
-  view was rendering, and where that view was written. Absent, never nil,
-  in production and outside every declaration extent (see the ns
-  docstring on why those are different claims).
-
-  Named as data beside [[required]] because together the two lists are
-  exactly the keys the CONSTRUCTOR owns — and because [[fail!]] READS
-  this vector, to remove these two keys from `extra` before the merge.
-
-  Removing rather than overwriting, and the difference is why this pair
-  needs its own rule. A required field is always there to overwrite
-  with; an ambient one exists only while an origin names a view, so
-  outside every declaration extent — and in production, where
-  [[with-origin]] folds to its input — there was nothing to overwrite
-  and a forged `:view` in `extra` simply survived. The ABSENCE promised
-  above is a claim about what the constructor knows, and it is only
-  worth making if the constructor's silence beats a call site's
-  invention."
+(def ^:private ambient
+  "The two keys [[fail!]] supplies from the ledger rather than from the
+  call site. They are REMOVED from `extra` before the merge, because
+  outside every declaration extent — and in production — there is no
+  origin to overwrite a forged `:view` with, and the constructor's
+  silence is the claim."
   [:source :view])
-
-(def shape
-  "The fields the constructor puts on every refusal — [[required]] and
-  [[ambient]], in the order spec SN §3.6 names them. Data rather than
-  prose so a test can assert against the contract instead of against a
-  copy of it.
-
-  ## What this is six of, and where the rest lives
-
-  §3.6 names EIGHT things: a stable error id, a source coordinate, a
-  view, a frame where relevant, a tree path or host-prop position, the
-  offending value, the expected shape, and an actionable recovery. Four
-  of those are here (`:rf.error/id`, `:source`, `:view`, `:recovery`),
-  and `:where` and `:reason` are the package's own two additions — the fn
-  that refused, and the human sentence.
-
-  The other four — frame, path or position, offending value, expected
-  shape — are **per-CLASS, and not universal**, which is why they are not
-  in this vector and are not enforceable at this door:
-
-  - `:rf.error/hicasso-empty-vector` has no offending value. The offence
-    IS the absence of a head, and `{:value []}` would repeat the id.
-  - `:rf.error/hicasso-true-child` has none either, at the codec's arm:
-    the refusal fires only when the child IS `true`, so the value is a
-    constant the id already names.
-  - `:rf.error/no-frame-context` and
-    `:rf.error/hicasso-frame-outside-boundary` have no frame, because the
-    offence is that there is none to have.
-
-  So the situational half rides [[fail!]]'s `extra` under the spelling
-  its class gives it — `:child`, `:head`, `:query-v`, `:option`,
-  `:declared`, `:instance-key` — and is enumerated PER ID in the Hicasso
-  section of `spec/009-Instrumentation.md`, sixth column, with `(none)`
-  where a class genuinely carries nothing beyond the six here. That
-  column is the situational half's stable representation; the complaint
-  catalogue owns its prose and its per-id round trips.
-
-  [[missing-fields]] is the rule [[fail!]] enforces, and the shape test
-  calls that fn rather than restating it."
-  [:rf.error/id :source :view :where :reason :recovery])
-
-(defn missing-fields
-  "Which of [[required]] the refusal ex-data `data` fails to supply, in
-  [[required]] order. Empty when the refusal is complete.
-
-  It reads the EMITTED MAP rather than [[fail!]]'s arguments, and that is
-  what makes completeness a property of the thing a catch site receives:
-  whatever the constructor merges — today's `extra`, or a field the shape
-  grows later — is inside the check rather than beside it. Public because
-  the shape test asserts on it directly, which keeps the test and the
-  guard reading one rule rather than two copies of it."
-  [data]
-  (let [{id :rf.error/id :keys [where reason recovery]} data]
-    (cond-> []
-      (not (qualified-keyword? id))                     (conj :rf.error/id)
-      (nil? where)                                      (conj :where)
-      (or (not (string? reason)) (str/blank? reason))   (conj :reason)
-      (nil? recovery)                                   (conj :recovery))))
-
-(defn- check-complete!
-  "Refuse to mint a refusal that does not carry [[required]].
-
-  This is the meta-refusal, and it is deliberately the loudest thing in
-  the file: a diagnostic that reaches a user without a recovery has spent
-  the user's attention and given nothing back, which is worse than the
-  original defect. Dev builds only — in production the incomplete refusal
-  is thrown as-is rather than replaced, because a guard that swaps one
-  exception for another in the field would hide the very failure the user
-  is trying to report.
-
-  `data` is the ex-data [[fail!]] is about to throw, not the arguments it
-  was handed — see [[missing-fields]]."
-  [data]
-  (let [missing (missing-fields data)]
-    (when (seq missing)
-      (throw (ex-info (str "A refusal was minted without " (pr-str missing)
-                           ". Every refusal carries an id, the fn that raised it, "
-                           "a reason and a concrete recovery (spec SN §3.6); this "
-                           "one carries " (pr-str (vec (remove (set missing) required)))
-                           ". [:rf.error/hicasso-refusal-incomplete]")
-                      {:rf.error/id :rf.error/hicasso-refusal-incomplete
-                       :where       're-frame.hicasso.impl.error/fail!
-                       :reason      "A refusal must carry every required field of the stable error shape."
-                       :recovery    :give-the-refusal-every-required-field
-                       :refusal     (:rf.error/id data)
-                       :missing     missing})))))
 
 (defn- with-origin
   "Stamp the ambient `:view` and `:source` onto a refusal's ex-data.
@@ -306,49 +150,24 @@
     m))
 
 (defn fail!
-  "**Mint and throw a refusal.** The one constructor; every refusal in the
-  package routes through it.
+  "Mint and throw a Hicasso refusal. Never returns.
 
-  `id` is the stable `:rf.error/…` discriminator a test or a tool
-  branches on, `where` the symbol naming the fn that refused, `reason` the
-  human sentence, `recovery` the keyword naming the concrete fix, and
-  `extra` the refusal class's own situational fields — the offending
+  `id` is the stable `:rf.error/…` discriminator a test or a tool branches
+  on, `where` the symbol of the fn that refused, `reason` the human
+  sentence, and `extra` the refusal class's own slots — the offending
   value, the tree path or host-prop position, the frame where one is
-  relevant.
+  relevant. The throw is `re-frame.error/ex-info-from-data` over
+  `{:rf.error/id id :where where :reason reason :recovery :no-recovery}`,
+  so the message is the reason with the bracketed id appended; in dev
+  builds `:view` and `:source` are stamped from the ambient ledger.
+  `extra` merges UNDER those fields: a canonical key spelled in `extra`
+  loses, and the ambient pair is removed from `extra` before the merge.
 
-  The message is the reason with the id's greppability token appended,
-  which is `re-frame.error`'s contract reproduced rather than delegated.
-  The complaint TEXT stays here rather than being routed through core's
-  builder; the reasons are recorded in
-  `implementation/hicasso/spec/complaints.md`, §Rulings this catalogue
-  owns.
-
-  **`extra` merges UNDER the shape, never over it.** It carries the
-  refusal CLASS's own slots and only those; [[required]] and [[ambient]]
-  are the constructor's, and a spelling of one in `extra` loses — the
-  required four by being overwritten, the ambient pair by being REMOVED
-  before the merge. Two mechanisms rather than one because overwriting
-  only reaches a field the constructor has a value for, and the ambient
-  pair is absent exactly where a forgery would matter most: outside
-  every declaration extent, and in every production build. A forged
-  `:view` there had nothing to lose to.
-
-  Running the merge the other way — on the reading that a call site might
-  know better than the ambient ledger — costs more than it buys: no call
-  site in the package knows better, and the four fields the guard has
-  just insisted on could then be erased one line later. An `extra` of
-  `{:rf.error/id :other :where nil :reason \"replaced\" :recovery nil}`
-  would emit exactly that map. The guard reads the merged result, so its
-  claim is about the refusal a catch site receives."
-  [id where reason recovery extra]
-  (let [data (merge (apply dissoc extra ambient)
-                    (with-origin {:rf.error/id id :where where
-                                  :reason reason :recovery recovery}))]
-    (when interop/debug-enabled?
-      (check-complete! data))
-    ;; rf2:builder-bypass-ok - `id` is a PARAMETER here, so the runtime
-    ;; message carries the `[:rf.error/...]` token the source cannot show
-    ;; (the gate's own "computed discriminator" case). The complaint text
-    ;; is not routed through `re-frame.error` — see complaints.md,
-    ;; §Rulings this catalogue owns.
-    (throw (ex-info (str reason " [" id "]") data))))
+  `:recovery` is always `:no-recovery` because every Hicasso refusal is a
+  throw the runtime does not recover from; the fix lives in `:reason`.
+  Argument: docs/design/hicasso/product/specification.md §3.6."
+  [id where reason extra]
+  (throw (error/ex-info-from-data
+           (merge (apply dissoc extra ambient)
+                  (with-origin {:rf.error/id id :where where
+                                :reason reason :recovery :no-recovery})))))

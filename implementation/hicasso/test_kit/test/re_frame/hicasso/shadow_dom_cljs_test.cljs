@@ -542,13 +542,11 @@
         (str "`:seed` was this surface's own earlier spelling for "
              ":initial-events; accepted in silence it would compare two "
              "UNSEEDED views and call them the same"))
-    (is (= :remove-the-unknown-option (:recovery d)))
     (is (= [:seed] (:unknown d)))))
 
 (deftest the-options-must-be-a-map
   (let [d (refusal #(hm/shadow! [:reference [reference-row {}]]))]
-    (is (= :rf.error/hicasso-test-bad-option (:rf.error/id d)))
-    (is (= :pass-a-map-of-options (:recovery d)))))
+    (is (= :rf.error/hicasso-test-bad-option (:rf.error/id d)))))
 
 (deftest the-script-verb-roster-is-closed
   (let [d (refusal #(hm/shadow! {:reference [reference-row {}]

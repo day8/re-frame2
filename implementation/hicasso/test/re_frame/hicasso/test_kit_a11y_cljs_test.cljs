@@ -74,7 +74,7 @@
 
 (defn- refusal
   [outcome']
-  (some-> (:refused outcome') (select-keys [:rf.error/id :where :recovery])))
+  (some-> (:refused outcome') (select-keys [:rf.error/id :where])))
 
 (h/defview a-child
   "A minted boundary, so the boundary row below records a CALL rather
@@ -223,8 +223,7 @@
             string reaching a projection is a caller reading the wrong
             thing and a nil would let it read on"
     (is (= {:rf.error/id :rf.error/ui-tree-malformed
-            :where       're-frame.hicasso.test
-            :recovery    :no-recovery}
+            :where       're-frame.hicasso.test}
            (refusal (outcome #(ht/role "milk")))))))
 
 (deftest a-boundary-node-has-no-role-and-that-is-not-an-error
@@ -384,8 +383,7 @@
               nil would report a labelled control as unlabelled, which is
               the wrong answer in the one direction that matters"
       (is (= {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test
-              :recovery    :pass-the-tree-the-node-came-from}
+              :where       're-frame.hicasso.test}
              (refusal (outcome #(ht/accessible-name elsewhere
                                                     (tagged labelled :input)))))))
     (testing "the discriminator reports :returned for the legal pairing,
@@ -396,8 +394,7 @@
 (deftest accessible-name-nil-puns-and-refuses-text
   (is (nil? (ht/accessible-name (markup [:div]) nil)))
   (is (= {:rf.error/id :rf.error/ui-tree-malformed
-          :where       're-frame.hicasso.test
-          :recovery    :no-recovery}
+          :where       're-frame.hicasso.test}
          (refusal (outcome #(ht/accessible-name (markup [:div]) "milk"))))))
 
 ;; ---------------------------------------------------------------------------

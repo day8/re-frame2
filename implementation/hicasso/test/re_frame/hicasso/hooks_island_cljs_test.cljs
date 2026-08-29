@@ -199,7 +199,6 @@
             failure the hooks must not have"
     (let [data (refusal #(render-frameless! (react/createElement reader #js {:sym "AAPL"})))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= :mount-under-a-frame (:recovery data)))
       (is (= 're-frame.hicasso.native/use-sub (:where data)))))
 
   (testing "`n/use-frame` refuses identically, and names ITSELF. The two

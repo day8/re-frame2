@@ -71,8 +71,7 @@
 
   Every refusal is minted by [[re-frame.hicasso.impl.error/fail!]], so
   it carries the package's one refusal shape whole — id, the fn that
-  refused, the reason, an actionable recovery, and the ambient view and
-  coordinate
+  refused, the reason, and the ambient view and coordinate
   when a declaration extent is open. Seven ids, every one registered in
   the package's complaint register:
 
@@ -259,7 +258,6 @@
                        (str "The native props map carries " (pr-str k)
                             ", but a native form has one child channel: children are "
                             "the trailing operands of `n/$`.")
-                       :pass-children-after-the-props-operand
                        {:prop k})
 
           (get seen s)
@@ -267,7 +265,6 @@
                        (str "The native props map carries both " (pr-str (get seen s))
                             " and " (pr-str k) ", which normalise to the one React slot "
                             (pr-str s) " — so map order, not the source, would pick the winner.")
-                       :keep-one-spelling-per-react-slot
                        {:slot s :prop k :collides-with (get seen s)})
 
           (and (intent-shaped? v) (event-slot? s))
@@ -275,7 +272,6 @@
                        (str "An event vector is written at the native callback slot "
                             (pr-str s) ". Past the native fence nothing lowers it — React "
                             "would be handed the vector itself.")
-                       :write-a-function-at-a-native-callback
                        {:prop k :slot s :value v})
 
           :else
@@ -304,7 +300,6 @@
                       "classifies its operands syntactically, so a dynamic map written "
                       "in the props position is a CHILD — an element is a JavaScript "
                       "object too, and guessing would misclassify one.")
-                 :mark-the-props-operand-with-n-props
                  {:child c})
 
     (vector? c)
@@ -312,7 +307,6 @@
                  (str "A ClojureScript vector reached a native child position. Hiccup is "
                       "not interpreted past the native fence — square brackets have no "
                       "meaning here.")
-                 :nest-n-dollar-or-convert-with-h-as-element
                  {:child c})
 
     :else c))
@@ -440,7 +434,6 @@
                              "borrowed here. Reading past an option it does not "
                              "know is how a policy comes to be set and never "
                              "applied.")
-                        :declare-the-server-policy
                         {:component component-name :option k
                          :options component-options})))
        (let [policy (get decl :server :client-only)]
@@ -458,7 +451,6 @@
                              "here: a native island is reached from hiccup, so "
                              "markup for the region is written where it "
                              "renders rather than declared.")
-                        :declare-client-only-or-render
                         {:component component-name :server policy}))))
 
      (defn- mint-server-gate
@@ -1012,7 +1004,7 @@
   Without it the same map is a child, because the props operand is
   decided syntactically (see the namespace docstring), and a
   ClojureScript map is not a React child — so the mistake refuses with
-  `:rf.error/hicasso-native-map-as-child` and the recovery names this
+  `:rf.error/hicasso-native-map-as-child` and the reason names this
   form.
 
   A ClojureScript map converts shallowly under the shared slot rule; a

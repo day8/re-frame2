@@ -598,11 +598,7 @@ the life of the refusal and is never reused after retirement, because a
 consumer's stored errors and an error monitor's grouping rule both outlive the
 code. So `:rf.error/hicasso-test-bad-reads` still carries the retired word
 `reads` and always will — it names the refusal, not the option the refusal was
-about. What did move is the advice beside it: the `:recovery` keywords that
-named the retired option were rewritten with it, so the test kit's
-missing-fixture refusal now recovers with `:add-the-query-to-subs` rather than
-`:add-the-query-to-reads`. A `:recovery` is concrete advice about a live API and
-is not frozen the way an id is.
+about. The message beside it names the current spelling.
 
 Naming questions are consolidated and settled by the project operator in a
 working design record that is not published, so the table above is the published

@@ -159,12 +159,10 @@
     (let [unkeyed (refusal-data
                     #(presence/step presence/initial [[:div.toast "x"]] 0 timeout-ms))]
       (is (= :rf.error/hicasso-presence-child-unkeyed (:rf.error/id unkeyed)))
-      (is (= :put-a-key-in-the-child-props-map (:recovery unkeyed)))
       (is (= [:div.toast "x"] (:child unkeyed))))
     (let [not-hiccup (refusal-data
                        #(presence/step presence/initial ["a string"] 0 timeout-ms))]
       (is (= :rf.error/hicasso-presence-child-not-hiccup (:rf.error/id not-hiccup)))
-      (is (= :give-every-presence-child-a-keyed-hiccup-vector (:recovery not-hiccup)))
       (is (= "a string" (:child not-hiccup))))))
 
 (deftest timeout-ms-is-mandatory-and-positive
@@ -176,7 +174,6 @@
     (let [data (refusal-data #(presence/check-timeout! bad))]
       (is (= :rf.error/hicasso-presence-timeout-required (:rf.error/id data))
           (str "with its own id, for " (pr-str bad)))
-      (is (= :give-presence-a-positive-timeout-ms (:recovery data)))
       (is (= bad (:timeout-ms data))
           "and the offending value, so a red names what was written"))))
 

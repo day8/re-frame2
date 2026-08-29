@@ -852,7 +852,6 @@
                   "an `input`/`textarea` tag, and a non-nil :value to re-baseline "
                   "TO. This is a " (pr-str tag) " and the trigger has no field to "
                   "fire at.")
-             :put-the-revision-on-a-controlled-input-or-textarea
              {:tag tag})))
   (when (convergeable? tag js-props)
     (let [slot    (change-slot js-props)
@@ -878,7 +877,6 @@
                     "leave the file input uncontrolled and read `.files` in an "
                     "h/event on :on-change. `:value \"\"` is still accepted — it "
                     "is the one legal write, and it clears the control.")
-               :leave-the-file-input-uncontrolled-and-read-files-with-an-h-event
                {:value (unchecked-get js-props "value")}))
       (case tag
         "input"    shadow-input

@@ -391,8 +391,7 @@
       (codec/as-element [helper {}])
       (is false "should have thrown")
       (catch :default e
-        (is (= :rf.error/hicasso-bad-head (:rf.error/id (ex-data e))))
-        (is (= :call-it-or-make-it-a-view (:recovery (ex-data e))))))))
+        (is (= :rf.error/hicasso-bad-head (:rf.error/id (ex-data e))))))))
 
 (deftest an-empty-hiccup-vector-and-a-nonsense-head-are-loud-errors
   ;; The prose is the CATALOGUED prose (the package's refusals are minted
@@ -457,7 +456,6 @@
       (catch :default e
         (let [d (ex-data e)]
           (is (= :rf.error/hicasso-ref-vector-reserved (:rf.error/id d)))
-          (is (= :use-a-callback-ref-or-an-effect (:recovery d)))
           (is (= [::autosize {:max-rows 8}] (:ref d))
               "the refusal carries the value it refused, so a later
                migration can find its own call sites"))))))
@@ -539,7 +537,6 @@
     (let [d (override-refusal
               #(codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]))]
       (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
-      (is (= :put-the-override-on-a-presence-child (:recovery d)))
       (is (= :re-frame.hicasso.motion/mounting (:position d))
           "the diagnostic names the key that was written")
       (is (= {:class "in"} (:override d))
@@ -840,8 +837,7 @@
                       nil
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id data))
-            ":handler is retired; a plain function is what it named")
-        (is (= :declare-event-or-render (:recovery data)))))))
+            ":handler is retired; a plain function is what it named")))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
   (testing "functions by identity — `React.memo` and every downstream
@@ -1172,8 +1168,7 @@
             'got: object'"
     (testing "nil, and the bare form: the broken-import diagnosis"
       (let [d (ex-data (try (codec/as-element [:> nil {}]) nil (catch :default e e)))]
-        (is (= :rf.error/hicasso-raw-no-component (:rf.error/id d)))
-        (is (= :hand-the-escape-a-real-component (:recovery d))))
+        (is (= :rf.error/hicasso-raw-no-component (:rf.error/id d))))
       (is (= :rf.error/hicasso-raw-no-component (error-id #(codec/as-element [:>])))))
     (testing "a string or a keyword: the GRAMMAR owns tags. Reagent's
               `[:> \"input\" …]` took its controlled-input wrapper on
