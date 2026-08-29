@@ -205,6 +205,7 @@ composition, so neither should dispatch the application's commit or cancel
 intent. The runtime performs this check centrally, including legacy browser
 signals described under [Advanced](#advanced).
 
+<a id="frame-safe-callbacks-and-hframe"></a>
 ## Frame-safe callbacks and `h/hframe`
 
 Generated intent callbacks and `h/event` callbacks retain their view's frame.
