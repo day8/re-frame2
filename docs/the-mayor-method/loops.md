@@ -342,6 +342,17 @@ candidate. Once you have established the failure is the change's own and not the
 not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
 gate, not a proxy that already passed.
 
+**But a red on a change still published as a DRAFT belongs to its author, for as long as that
+author is alive.** The draft flag means the worker has not finished, and a worker briefed to push as
+it goes will publish reds by design: one here deleted a gate's witness in its first commit and the
+gate itself in its third, so the draft read three required jobs red for the twenty minutes between,
+each one a job the change was in the middle of removing. A fix worker dispatched onto that branch is
+a second worker on one branch, which is the collision every fence exists to prevent, and it arrives
+wearing the loop's own instruction. So on a draft: read the failing job against the diff so far —
+a red whose subject the change is deleting is sequencing, not a defect — and either wait for the
+ready mark or message the author. The fix-worker path opens only once the author has marked the
+change ready, or has stopped, which the stranded sweep establishes and this loop does not.
+
 **A failure BEFORE any repository code ran is the second case, and the failing step names
 itself** — an action download rate-limited, a runner setup step dying. The diff cannot have caused
 it, so no second observation is needed: re-run the failed jobs and hold the re-run to the same
