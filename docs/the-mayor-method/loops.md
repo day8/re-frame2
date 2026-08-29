@@ -893,6 +893,14 @@ and both readings went wrong in a single day here, in opposite directions.
    chooses the remedy** — a quota death, a crash, a timeout and step 2's detached-gate strand look
    identical from outside.
 
+   **But the stated reset is a floor, not the only release.** An allowance can be restored by an
+   operator act — re-authenticating, changing plan — well before the clock the harness quoted, and
+   nothing tells the mayor it happened. So before holding the fleet for the whole interval, spend ONE
+   resume message on the worker with the most context to lose: a refusal confirms the hold at no
+   cost beyond what the hold was already costing, and an answer means the interval was over. Measured
+   here: three workers died on a stated reset an hour away; the operator re-authenticated within
+   minutes; one probe resumed all three. Hold on the clock only once the probe has refused.
+
 **Never build a commit from someone else's uncommitted work.** Only that worker knows whether it forms
 a coherent change.
 

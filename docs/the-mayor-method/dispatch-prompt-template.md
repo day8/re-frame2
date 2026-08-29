@@ -786,7 +786,12 @@ whether you re-ran the whole gate or one step.
 **A search that returns ZERO is not a check that passed.** A wrong pattern answers "no matches" in
 the same voice as "nothing is wrong"; the recurring instance is a backslash-bearing literal quoted
 so the shell strips them. Match fixed strings as fixed strings, and when a search underwrites a
-claim, run it once against something it should find.
+claim, run it once against something it should find. **And make that control share the SHAPE of
+the target**, because a pattern fails on a feature, and a control that lacks the feature passes
+without exercising it. Measured: a word-boundary anchor placed after a `$` matched a letter-final
+control and missed every punctuation-final hit, so the census read zero on four real sites while
+its control read green. If the target ends in punctuation, carries a backslash, or spans a line,
+the control must too.
 
 **This is not a fact about searching, and reading it as one is how it gets past you.** ANY
 instrument that can answer "nothing here" gives the same answer when misused, and a misused one
