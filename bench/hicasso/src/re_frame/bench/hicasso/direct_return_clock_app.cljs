@@ -110,7 +110,7 @@
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]))
+            ["react" :as react]))
 
 (def frame-id ::direct-return-clock)
 
@@ -166,15 +166,17 @@
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
-  unchanged. Past `n/$` there is no intent lowering, so the callback slot
-  holds an ordinary function; and no controlled repair, so the field's
-  echo is the author's to write."
+  unchanged. A raw React element passes through the codec untouched, so
+  there is no intent lowering — the callback slot holds an ordinary
+  function — and no controlled repair, so the field's echo is the
+  author's to write."
   [{:keys [id]}]
   (let [label (h/sub [:dr/label id])
         n     (count (h/sub [:dr/tags id]))]
-    (n/$ :div {:class "row" :on-click (fn [_] nil)}
-         (n/$ :span {:class "label"} (str label " " n))
-         (n/$ :input {:class "field" :value label :on-change (fn [_] nil)}))))
+    (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
+      (react/createElement "span" #js {:className "label"} (str label " " n))
+      (react/createElement "input" #js {:className "field" :value label
+                                        :onChange (fn [_] nil)}))))
 
 (defn floor-body
   "The crossing carrying nothing. A boundary is reached through a hiccup

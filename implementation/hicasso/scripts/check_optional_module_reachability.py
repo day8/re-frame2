@@ -79,14 +79,13 @@ the property needs: the module is unreachable or it is not, and
 reachability is decided in the source.  What a byte count would add is
 confidence about the COMPILER, which is not what regresses here.
 
-For the `native` row there IS such a companion, and the division of
-labour is worth stating because neither instrument subsumes the other.
-`scripts/check_bundle_isolation.cjs` (rf2-hic-034) reads the
-`:hicasso-release` bundle for the tier's two sentinel strings, which is
-the linker's half of the same claim — but it can only see the parts of
-the tier that have a production footprint, and a consumer who writes
-only `n/$` with literal props leaves none at all.  THIS gate is the one
-that decides the property exhaustively, because a `:require` is a
+The `native` row has NO bundle companion, and since rf2-6c12m.3 that is
+by construction rather than by omission: `re-frame.hicasso.native` is two
+plain hook functions with no marker property and no refusal family, so
+there is no string a bundle carries if and only if the namespace is
+reachable, and `scripts/check_bundle_isolation.cjs` dropped its two
+native rows with the tier.  THIS gate is the one that decides the
+property, and it decides it exhaustively, because a `:require` is a
 `:require` whether or not Closure keeps anything from it.
 
 THE FORBIDDEN IMPORT, WHICH IS A DIFFERENT SHAPE
@@ -148,8 +147,8 @@ would weigh the same claim in bytes and add confidence about the
 COMPILER, and the paragraph above already says why this gate declines
 that instrument for the module rows: reachability is decided in the
 source, and the compiler is not what regresses here.  The clause is
-therefore measured, and by the arm that can see the parts of the tier a
-bundle cannot — a consumer who writes only `n/$` with literal props
+therefore measured, and by the arm that can see what a bundle cannot — a
+`:require` of two hook functions Closure may then have dropped entirely
 leaves no production footprint at all.
 
 SELF-TEST
@@ -283,13 +282,13 @@ MODULES = [
         # them here would forbid the interpreted tier its own machinery.
         # There is therefore one edge to guard and it is the door.
         #
-        # The two-languages fence is what makes that true: `n/$` reads its
-        # own form and never a `defview` body, so no interpreted path has
-        # any reason to reach for the tier, and neither embedding bridge
-        # names it — `h/as-component` outward, `h/defhost` and `[:>]`
+        # Nothing on the interpreted side has a reason to reach for the
+        # two hooks: a boundary body reads through `h/sub` and the
+        # collector's own doors, and neither embedding bridge names the
+        # namespace — `h/as-component` outward, `h/defhost` and `[:>]`
         # inward, both of which cross to a foreign React component without
-        # caring which tier minted it (rf2-hic-032).  A require appearing
-        # here would therefore be a genuine architectural change and not a
+        # caring what wrote it (rf2-hic-032).  A require appearing here
+        # would therefore be a genuine architectural change and not a
         # convenience.
         "name": "native",
         "door": "re-frame.hicasso.native",
@@ -693,8 +692,8 @@ def scan_forbidden_imports(sources):
     Reuses [[required_namespaces]] rather than grepping, which is the whole
     reason this arm belongs in this file: seventeen docstrings across `src/`
     name UIx as provenance — `impl/controlled.cljs` cites
-    `uix/compiler/input.cljs` by line number, `native.cljc` explains that a
-    UIx parent must not have to require the tier — and every one of them
+    `uix/compiler/input.cljs` by line number, `native.cljc` names a UIx
+    `defui` as one spelling of an island — and every one of them
     must stay legal. A grep-based arm would have to be deleted or exempted
     file by file within a week of landing.
     """
@@ -969,13 +968,14 @@ def self_test():
     )
     assert clean == [], clean
 
-    # And the shape the real tree actually has: `impl/codec.cljs` carries
-    # four `[[re-frame.hicasso.native/…]]` docstring links today.  Prose is
-    # provenance, so the live scan below has to stay green over them.
+    # And the shape a docstring may legitimately have: `impl/collector.cljs`
+    # names `re-frame.hicasso.native/use-sub` in prose beside the hook seam
+    # it serves.  Prose is provenance, so the live scan below has to stay
+    # green over it.
     clean = scan(
         {
             "src/p.cljs": '(ns re-frame.hicasso.impl.codec\n'
-            '  "The sibling door [[re-frame.hicasso.native/declared-server]]."\n'
+            '  "The hook seam `re-frame.hicasso.native/use-sub` reads through."\n'
             "  (:require [re-frame.hicasso.impl.slot :as slot]))"
         }
     )

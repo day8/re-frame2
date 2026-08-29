@@ -155,14 +155,13 @@ DISPOSITIONS = os.path.join(PACKAGE_ROOT, "spec", "dispositions.md")
 #
 # ONE DOOR, deliberately.  `re-frame.hicasso.native` and the three optional
 # module doors are public surfaces too and section 3's constraint reaches them
-# -- but their rosters are not "every non-private def".  The native tier's
-# `el`, `props*`, `component`, `marker` and `declared-server` are the runtime
-# targets its three macros expand INTO: public to the compiler, no part of the
-# authoring surface, and telling one from the other is a judgement only that
-# tier's owner can record.  `re-frame.hicasso` has no such population -- every
-# one of its fifteen defs is a name an author writes -- which is what makes it
-# checkable today.  Adding a second door here is a data change; deciding what
-# its public roster IS is not, and is filed rather than guessed.
+# -- but their rosters are their own.  The hooks namespace is two vars, `use-sub`
+# and `use-frame`, and `hooks_island_cljs_test.cljs` pins that census exactly
+# (rf2-6c12m.3); the module doors' rosters are not "every non-private def".
+# `re-frame.hicasso` has no such population -- every one of its fifteen defs is
+# a name an author writes -- which is what makes it checkable today.  Adding a
+# second door here is a data change; deciding what its public roster IS is
+# not, and is filed rather than guessed.
 DOOR_NS = "re-frame.hicasso"
 DOOR_PREFIX = "h/"
 
@@ -206,9 +205,9 @@ DECLARED = {
         "id": "HS-21",
         # *"Outward bridge: a Hicasso view under a native React parent"* --
         # which is this var's docstring almost word for word (*"the outward
-        # bridge … so a native parent mounts a minted Hicasso view"*).  The
-        # row's disposition measures `native-abi-cljs-test` server-rendering
-        # a bridged view, which is this function's only job.
+        # bridge … so a React parent mounts a minted Hicasso view"*).  The
+        # row's disposition measures a bridged view server-rendered under a
+        # React parent, which is this function's only job.
         "why": "HS-21 is titled `Outward bridge: a Hicasso view under a "
                "native React parent`, which is this var's own docstring",
     },

@@ -44,8 +44,9 @@
   ## Why that makes the refusal the product
 
   Rungs 3, 4 and 5 of the performance ladder
-  (`lanes/hot-path-architecture.md`) — a direct `n/$` element, a named
-  native island, a native screen — all address lowering, hooks, vendor
+  (`lanes/hot-path-architecture.md`) — a defview returning a raw React or
+  UIx element, a named React island, a native screen — all address
+  lowering, hooks, vendor
   behaviour or reconciliation. Every one of those is in the unmeasurable
   half of the table above. A tool that ranked boundaries by the one clock
   it has and then pointed at the native ladder would be recommending an
@@ -644,7 +645,7 @@
    {:route    :direct-element
     :rung     3
     :native?  true
-    :label    "Return a direct React element (`n/$`)"
+    :label    "A defview returning a raw React or UIx element"
     :says     (str "The narrowest useful escape for a measured codec/markup "
                    "hotspot: the same frame, subscription shell, props ABI and "
                    "component identity, skipping Hiccup lowering for that "
@@ -657,13 +658,14 @@
    {:route    :native-island
     :rung     4
     :native?  true
-    :label    "Isolate a named native React island"
+    :label    "Isolate a named React island"
     :says     (str "For a virtualizer, editor, animation surface, canvas/WebGL "
                    "coordinator, retained vendor widget or hook-intensive hot "
-                   "collection. `n/defcomponent` with `n/use-frame` and "
-                   "`n/use-sub` is the default self-contained route; UIx is an "
-                   "optional mature one; JavaScript enters through the host "
-                   "bridge. Same React root, same frame contract.")
+                   "collection. A UIx defui or a raw React function component "
+                   "mounted through `h/defhost`, reading Hicasso state through "
+                   "`n/use-sub` and `n/use-frame` when it needs to; JavaScript "
+                   "enters through the same host bridge. Same React root, same "
+                   "frame contract.")
     :steps    [1 5 6 7]}
 
    :react-shaped

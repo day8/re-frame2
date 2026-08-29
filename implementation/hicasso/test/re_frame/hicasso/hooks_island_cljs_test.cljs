@@ -269,11 +269,7 @@
     (is (fn? n/use-sub))
     (is (fn? n/use-frame)))
 
-  ;; The exact census. Armed by the wave-2 source bead, rf2-6c12m.31, which
-  ;; deletes everything else in the namespace — until it lands this line
-  ;; would red on the names it removes, so it is stated here and not
-  ;; asserted:
-  ;;
-  ;;   (is (= #{"use-sub" "use-frame"} publics)
-  ;;       "the namespace's public census is exactly the two hooks")
-  )
+  (testing "and they are the whole namespace — a third public var reds
+            here at the diff that adds it (rf2-6c12m.3)"
+    (is (= #{"use-sub" "use-frame"} publics)
+        "the namespace's public census is exactly the two hooks")))

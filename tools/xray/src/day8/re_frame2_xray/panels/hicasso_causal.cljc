@@ -66,8 +66,8 @@
   The consequence is worth naming, because a checklist could otherwise
   decide on it. Links 5, 6 and 7 come from [[host-opaque-links]], which
   is a CONSTANT: [[link-host]] reads no argument `slice` was given, so an
-  interpreted-only boundary, a boundary rendering an `n/defcomponent`
-  island, and one rendering a `[:>]` foreign escape produce three
+  interpreted-only boundary, a boundary rendering a React island through
+  `h/defhost`, and one rendering a `[:>]` foreign escape produce three
   IDENTICAL rows. `:host-opaque` therefore means *React owns commit and
   paint for any boundary* and never *a foreign subtree was crossed* —
   the two are indistinguishable in this output because only the first is

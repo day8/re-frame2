@@ -97,13 +97,6 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 | `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
 | `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
 | `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
-| `:rf.error/hicasso-native-bad-server-policy` | gave an `n/defcomponent` declaration a `:server` value outside `#{:client-only :render}` | — |
-| `:rf.error/hicasso-native-children-in-props` | wrote `children` in a native props map, which has one child channel | — |
-| `:rf.error/hicasso-native-hiccup-child` | put a hiccup vector in a native child position, where brackets have no meaning | — |
-| `:rf.error/hicasso-native-intent-in-prop` | put an intent vector at a native callback slot, past the fence where nothing lowers it | — |
-| `:rf.error/hicasso-native-map-as-child` | wrote a dynamic map in native props position, where it lands as a child | — |
-| `:rf.error/hicasso-native-slot-collision` | gave a native props map two source keys normalising to one React slot | — |
-| `:rf.error/hicasso-native-unknown-option` | gave an `n/defcomponent` declaration map a key outside its roster `#{:server}` — `:fallback`, `defhost`'s sibling option, being the one most often borrowed | — |
 | `:rf.error/hicasso-overlay-anchor-missing` | gave an overlay an `:anchor` naming a DOM id no element in the document carries. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is the typo this catches | ch13 |
 | `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |

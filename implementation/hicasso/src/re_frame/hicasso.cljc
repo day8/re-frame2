@@ -166,9 +166,9 @@
   of hooks are about CALL SEQUENCE, so a hook written in a body would
   make its own order depend on a Hicasso data path — a subscription
   answering one row fewer, and the sequence moves. Hook-intensive
-  behaviour belongs in a separately defined native component, where
-  React's rules apply to source the author controls: `n/defcomponent`,
-  and ordinary `react/useX` interop inside it. [spec §5, Rung 3]
+  behaviour belongs in a separately defined React island — a UIx `defui`
+  or a raw React function component mounted through `h/defhost` — where
+  React's rules apply to source the author controls. [spec §5, Rung 3]
 
   Nothing enforces this at runtime and nothing here intends to. The
   macro reads no body — that is the contract above, not an omission —
@@ -551,8 +551,8 @@
        as-element impl-codec/as-element)
 
      (def ^{:doc "`h/as-component` — **the outward bridge**.
-  Answers a real React component for a hiccup head, so a native parent —
-  `n/defcomponent`, UIx, or plain JavaScript — mounts a minted Hicasso
+  Answers a real React component for a hiccup head, so a React parent —
+  UIx or plain JavaScript — mounts a minted Hicasso
   view under the frame it is already in:
 
       (def article-card* (h/as-component article-card))

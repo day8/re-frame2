@@ -152,9 +152,9 @@
  * | clause | section | what makes it visible |
  * |---|---|---|
  * | HMR through the `React.lazy` bridge | `native-lazy-island-across-a-save` | the LOADER COUNT — a re-minted head gets a fresh payload, so the chunk is fetched again, once per crossing |
- * | the native tier across a save | same section | the tier marker, `displayName` and `:server` still readable on the far side, on objects that are all new |
- * | one component through every wrapper | same section | `n/defcomponent` -> `n/memo` -> `n/lazy` -> `defhost` AND `[:>]`, with a `:ref` through both and the save's re-mint over the top |
- * | the pinned-head sabotage turns red | `pinned-lazy-head-sabotage` | a bridge that cached the head across the reload — the conduct `n/component`'s docstring forbids — fetching once where the row above requires twice |
+ * | the React island across a save | same section | `displayName` and the host's `:server` still readable on the far side, on objects that are all new |
+ * | one component through every wrapper | same section | a raw React function -> `react/memo` -> `react/lazy` -> `defhost` AND `[:>]`, with a `:ref` through both and the save's re-mint over the top |
+ * | the pinned-head sabotage turns red | `pinned-lazy-head-sabotage` | a bridge that cached the head across the reload — React's own remount rule forbids it — fetching once where the row above requires twice |
  *
  * ### Out of reach here, and named rather than implied
  *
