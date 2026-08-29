@@ -448,6 +448,13 @@ the block forbids. Between a failure prevented by construction and one prevented
 reader's diligence, take construction; the context cost is the acknowledged price, and a
 brief is the mayor's scarce output.
 
+**And no dispatch is small enough to earn a condensed block.** The temptation is strongest
+exactly where the block most dwarfs the task — a two-line edit behind a two-hundred-line block —
+and condensing there is the paraphrase the mechanical extraction exists to prevent, arriving
+dressed as proportionality. One mayor did it once, on a session's smallest dispatch, having
+pasted the full block on every larger one; the worker behaved anyway, and the outcome does not
+validate the shortcut.
+
 **But "verbatim" forbids WEAKENING a block, not adding to it — and the paragraphs addressed to YOU
 are not part of what travels.** Where the payload is FENCED, the fence settles it: take the
 fence, and every line outside it is yours. Two of the three here are fenced, and their
@@ -695,6 +702,14 @@ notification does not always arrive, and a turn that has ended has nothing left 
 such worker was recovered intact the moment somebody asked it for a status. Word this as the
 sanctioned path, not as a concession; a worker who thinks it has erred reads for how to atone and
 straight past the instruction that would save it.
+
+**And state the rule as a terminal condition, because the strand has variants: the turn ends only
+once the exit file exists and its number is quoted.** Stated as a forbidden wait — *do not end the
+turn waiting for a completion notification* — it fails open on the first wait nobody wrote down: a
+worker that ARMED A MONITOR on its exit file and ended its turn presented as compliant and
+stranded identically, because a watcher owned by an agent stops when its agent does. Measured
+twice in one session, both briefs carrying this block verbatim; the second worker read the
+enumerated wording as licence for the un-enumerated variant.
 
 **A gate heavy enough that two cannot coexist WEDGES rather than fails** — no progress, no exit
 file, no error, from a run that was healthy a minute ago. This is contention for the MACHINE, so
