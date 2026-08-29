@@ -11,11 +11,13 @@
 
       (:document (server/render {:hiccup [views/page {}] …}))
 
-  `render` is the door. `payload-script`, `document` and `render-twice`
-  are the composition helpers a host needs to rebuild the envelope or run
-  a determinism check without writing a second renderer; the roster and
-  the argument for it are naming-ledger rows 22 and 50
-  (`implementation/hicasso/spec/naming-ledger.md`).
+  `render` is the door. `payload-script` and `document` are the
+  composition helpers a host needs to rebuild the envelope without
+  writing a second renderer; the roster and the argument for it are
+  naming-ledger rows 22 and 50
+  (`docs/design/hicasso/product/naming-ledger.md`). The determinism
+  probe over `render` is the test kit's
+  (`re-frame.hicasso.test.server/render-twice`), not this door's.
 
   There is ONE renderer. The server runs the same runtime and the same
   codec under `renderToString`, so hydration parity holds by construction
@@ -228,27 +230,3 @@
         ;; window must already be shut when it runs.
         (roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
-
-(defn render-twice
-  "`render` the same request twice and compare the documents
-  byte-for-byte — the determinism check, run where the renderer is.
-  Returns `{:first :second :identical? :differs-at}`, where `:differs-at`
-  is the index of the first differing character (nil when identical), so
-  a red run is diagnosable. The two renders take two different gensym
-  frame ids, so this is also the standing proof that the per-request id
-  is invisible on the wire."
-  [opts]
-  (let [a (render opts)
-        b (render opts)
-        x (:document a)
-        y (:document b)]
-    {:first      a
-     :second     b
-     :identical? (= x y)
-     :differs-at (when (not= x y)
-                   (let [n (min (count x) (count y))]
-                     (loop [i 0]
-                       (cond
-                         (= i n)                            n
-                         (not= (.charAt x i) (.charAt y i)) i
-                         :else                              (recur (inc i))))))}))

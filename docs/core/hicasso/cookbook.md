@@ -441,15 +441,20 @@ client installs the state **and then** adopts the DOM.
     {:status 200 :headers {"content-type" "text/html"} :body document}))
 ```
 
-**Check determinism where the renderer is**, which is here, in the server
-namespace. A view reading `Date.now` or generating a random id produces a
-document that differs run to run, which hydration then reports as a mismatch on
-someone else's machine. Hand `render-twice` the same options map you hand
-`render`:
+**Check determinism in a test, where the renderer is.** A view reading
+`Date.now` or generating a random id produces a document that differs run to
+run, which hydration then reports as a mismatch on someone else's machine. The
+test kit's `re-frame.hicasso.test.server/render-twice` takes the same options
+map you hand `render`:
 
 ```clojure
-(let [{:keys [identical? differs-at]} (server/render-twice opts)]
-  (assert identical? (str "server render is not deterministic at " differs-at)))
+(ns app.server-test
+  (:require [cljs.test :refer [deftest is]]
+            [re-frame.hicasso.test.server :as ts]))
+
+(deftest the-page-renders-deterministically
+  (let [{:keys [identical? differs-at]} (ts/render-twice opts)]
+    (is identical? (str "server render is not deterministic at " differs-at))))
 ```
 
 The client half is a different file, and it installs state before it touches
