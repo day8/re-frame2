@@ -114,8 +114,12 @@
 // reason.
 //
 // NO MECHANISM IS PROPOSED AND NONE IS EXCLUDED. In particular this reader
-// observes that the clean prefix is three rounds long and that `warmups` is 3,
-// says that it has not tested whether those are the same 3, and stops there.
+// observes that the clean prefix — the leading rounds carrying no mode-2 cell —
+// is TWO rounds long and that `warmups` is 3 in every run, records that those
+// are NOT the same number, and stops there. (This paragraph said `three rounds
+// long` and asked whether that and `warmups` were the same 3: a typed count the
+// table two paragraphs up contradicted on this corpus and on the 242-cell one
+// alike, so it is corrected in place rather than left as the record — rf2-t78z.)
 //
 // ## WHAT THIS MEANS FOR A BAND, WHICH IS THE LIVE CONSUMER
 //
@@ -390,6 +394,9 @@ function corpus() {
         run: `run ${i + 1}`,
         rel,
         rounds: a.rounds,
+        // Read off the record so section E's `warmups is N in every run` is a
+        // count rather than a recollection (rf2-t78z).
+        warmups: a.warmups,
         generatedAt: doc.generatedAt,
         session: recorded || `(inferred: ${w.window})`,
         sessionRecorded: Boolean(recorded),
@@ -617,8 +624,29 @@ function report() {
   L(`  rounds 0-2 : ${seg((c) => c.round <= 2)}      rounds 3+ : ${seg((c) => c.round >= 3)}`);
   L(`  rounds 1-2 alone, a near-complete sample : ${seg((c) => c.round === 1 || c.round === 2)}`);
   L(`  round 0 alone, heavily decimated by certification : ${seg((c) => c.round === 0)}`);
-  L('  The clean prefix is three rounds long and `warmups` is 3 in every run. THIS READER HAS NOT');
-  L('  TESTED WHETHER THOSE ARE THE SAME THREE, and proposes no mechanism for the structure.');
+  // THE CLEAN PREFIX, COUNTED OFF THE TABLE IT SITS UNDER — rf2-t78z. This
+  // sentence said `three rounds long` from four lines below a table reading
+  // round 2 at 12.3%, and had done since it was written: the 242-cell table read
+  // round 2 at 6.7%. It was the one typed count in E, and its only guard asked
+  // whether a DIFFERENT clause of the same sentence was present. The prefix is
+  // counted here as the leading rounds carrying no mode-2 cell, `warmups` is
+  // read off every run record rather than asserted, and the sentence states the
+  // two numbers and whether they coincide. No mechanism is proposed either way,
+  // which is the position the old wording was protecting: two counts that
+  // happen to differ are not a coincidence left unexplained.
+  let cleanPrefix = 0;
+  for (const [, cs] of [...byRound.entries()].sort((a, b) => a[0] - b[0])) {
+    if (cs.some((x) => x.c.abs >= MODE2_FLOOR_B)) break;
+    cleanPrefix++;
+  }
+  const warmupsSeen = [...new Set(rows.map((r) => r.warmups))].sort((a, b) => a - b);
+  const warmupsPhrase = warmupsSeen.length === 1
+    ? `\`warmups\` is ${warmupsSeen[0]} in every run`
+    : `\`warmups\` varies across runs (${warmupsSeen.join(', ')})`;
+  const sameNumber = warmupsSeen.length === 1 && warmupsSeen[0] === cleanPrefix;
+  L(`  The clean prefix is ${cleanPrefix} round${cleanPrefix === 1 ? '' : 's'} long and ${warmupsPhrase}. ` +
+    `THOSE ARE ${sameNumber ? 'THE SAME NUMBER' : 'NOT THE SAME NUMBER'}, and`);
+  L('  this reader proposes no mechanism for the structure either way.');
   L();
 
   L('F. THE COMMON-SUPPORT CONTROL. Phase 3 ran twelve rounds where the earlier windows ran six,');
@@ -1016,8 +1044,27 @@ function selfTest() {
   ck('the report leaves the p90 to a ruling', /THAT IS A RULING, NOT THIS READER'S CALL/.test(rep), true);
   ck('the report says the session question is not decidable here',
     /IS THE TAIL SESSION-CARRIED\? NOT DECIDABLE HERE\./.test(rep), true);
+  // THE CLEAN PREFIX, READ BACK AS A NUMBER — rf2-t78z. The check this replaces
+  // asked whether `THIS READER HAS NOT TESTED WHETHER THOSE ARE THE SAME THREE`
+  // was present, and it was, through every run the sentence spent saying
+  // `three rounds long` under a table reading round 2 at 12.3%. The prefix is
+  // re-derived here from the cells, `warmups` from the run records, both are
+  // pinned at their measured values like every other figure in this block, and
+  // the sentence's SAME / NOT THE SAME word is held to the comparison of the two.
+  const P_PREFIX = /The clean prefix is (\d+) rounds? long and `warmups` is (\d+) in every run\. THOSE ARE (THE SAME NUMBER|NOT THE SAME NUMBER), and/;
+  const roundsD = [...groupBy(all, (c) => c.round)].sort((a, b) => a[0] - b[0]);
+  let prefixD = 0;
+  while (prefixD < roundsD.length && inMode2(roundsD[prefixD][1]) === 0) prefixD++;
+  const warmupsD = [...new Set(rows.map((r) => r.warmups))];
+  ck('E\'s clean-prefix sentence is located exactly once', hits(P_PREFIX), 1);
+  ck('E\'s clean prefix is the count of leading rounds with no mode-2 cell, and it is two',
+    [grab(P_PREFIX, (m) => Number(m[1])), prefixD], [prefixD, 2]);
+  ck('and `warmups` is read off the runs, one value across all of them, and it is three',
+    [grab(P_PREFIX, (m) => Number(m[2])), warmupsD], [warmupsD[0], [3]]);
+  ck('and the sentence says the two coincide exactly when they do',
+    grab(P_PREFIX, (m) => m[3]), prefixD === warmupsD[0] ? 'THE SAME NUMBER' : 'NOT THE SAME NUMBER');
   ck('the report proposes no mechanism for the round structure',
-    /THIS READER HAS NOT\n;; {3}TESTED WHETHER THOSE ARE THE SAME THREE/.test(rep), true);
+    /THOSE ARE (?:THE SAME NUMBER|NOT THE SAME NUMBER), and\n;; {3}this reader proposes no mechanism for the structure either way\./.test(rep), true);
 
   // ---------------------------------------------------------------------------
   // THE NARRATION, HELD AGAINST THE COUNTS IT NARRATES — rf2-oflj7.
