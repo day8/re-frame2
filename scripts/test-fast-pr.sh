@@ -1086,36 +1086,6 @@ run "fast-PR gap map self-test" "python scripts/check_fast_pr_gap.py --self-test
 run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose" \
   python "$spine_root/scripts/check_fast_pr_gap.py" --check
 
-# Hicasso naming census (rf2-st1x5, gate from rf2-hxbhe).  Every public name in
-# the ten shipped `implementation/hicasso` namespaces owes a row in
-# `implementation/hicasso/spec/naming-ledger.md` — `dispositions.md` section 3's
-# constraint, over all ten namespaces rather than the one door
-# `check_facade_inventory.py` reaches.  ALWAYS-ON, mirroring its unconditional
-# `hicasso-naming-census` job: the ledger half of its input is `docs/**`, which
-# measures false at every classifier output, so a tier-gated lane would miss the
-# ledger-only edit this gate mostly exists to police.  Sub-second pure Python.
-#
-# WHY IT IS HERE AND NOT IN `npm run test:hicasso-invariants` beside the other
-# seven hicasso checkers — the one departure, so the reason is written down.
-# This gate REFUSES to derive its own repository root (a script that derives one
-# from its invocation path can walk a SIBLING WORKTREE and report that as the
-# census), so the live run takes an ABSOLUTE root and exits 2 on a relative one.
-# npm runs package scripts through a different shell per platform — `sh` on
-# Linux/macOS, `cmd.exe` on Windows — and `$PWD` expands in the first while
-# staying literal in the second (measured, not assumed: `npm run` on Windows
-# passed `$PWD/..` through verbatim; `%CD%` is the mirror image).  No single
-# spelling of that argument resolves on both, and every other script in
-# `implementation/package.json` is shell-agnostic by construction.  This spine
-# is ONE POSIX shell on all three platforms and `$spine_root` is already
-# absolute, so this is where the local lane belongs.  Self-test first (ten
-# checks including a seeded positive control and its converse), then the live
-# census, which prints the root it read as its first line.
-run "hicasso naming census self-test" "python implementation/hicasso/scripts/check_naming_census.py --self-test" \
-  python "$spine_root/implementation/hicasso/scripts/check_naming_census.py" --self-test
-
-run "hicasso naming census (rf2-st1x5)" "python implementation/hicasso/scripts/check_naming_census.py \"\$PWD\"" \
-  python "$spine_root/implementation/hicasso/scripts/check_naming_census.py" "$spine_root"
-
 # ---------------------------------------------------------------------------
 # THE REST OF CI'S ALWAYS-ON INVARIANT CHECKERS (rf2-ejm7m).
 #
