@@ -51,35 +51,15 @@ view model is useful.
 
 ## Status
 
-!!! warning "Pre-alpha — one door this guide spells differently from the code"
+!!! info "Pre-alpha"
 
-    Hicasso is pre-alpha, and one verb in this guide is written against an
-    intended authoring surface rather than against today's exported spelling.
-    The difference is known and deliberate, and is recorded in the source
-    rather than only here. It is an open naming question rather than work the
-    code owes the guide: the guide's spelling is one candidate among several,
-    and is not the name the door is waiting to take.
-
-    Two forms are no longer among them. The callback form was taught here as
-    `h/fn` against an exported `hfn`, and both sides now spell it
-    **`h/event`** (`rf2-hic-066`, applying the operator's ruling on
-    naming-ledger row 1). The root door was taught as `h/mount!` against an
-    exported `h/root!` that took the frame keyword positionally and carried no
-    `:initial-events` option — and both sides now spell it **`h/mount!`**,
-    over the config map this guide teaches (`rf2-7mtcf`, applying
-    naming-ledger row 13's rename over row 20's ratified contract shape). That
-    gap needed the contract and not just the name, which is why it outlived
-    the rename sweep that closed the callback form.
-
-    - **`h/frame`** is exported today as `h/hframe`. A bare `frame` shadows on
-      a `:refer` in the same way, and the recommendation on record is to
-      retire the verb rather than respell it, leaving `rf/current-frame-id`
-      and `rf/capture-frame` as the frame doors they already are.
-
-    The other namespaces and verbs the guide names — `h/defview`, `h/sub`,
-    `h/mount!`, `h/render!`, `h/unmount!`, `h/defhost`, `h/portal`,
-    `h/as-component`, `h/error-boundary`, `h/hydrate!`, the `n/`, `overlay/`,
-    `motion/` and `forms/` surfaces, `re-frame.hicasso.server`, and the `ht/`
-    and `hm/` test kits — are exported today. [SSR and
+    Hicasso is pre-alpha, and this guide is written against what ships. Every
+    namespace and verb it names is exported today, and a gate reads each
+    verb in every fenced sample against the source that defines it, so a
+    sample here cannot name a spelling the door does not carry. One name is
+    provisional: `h/hframe` is spelled that way because a bare `frame` would
+    shadow on a `:refer`, and the recommendation on record is to retire the
+    verb once core's own frame doors are legal inside a body. Until then it is
+    what ships, and what the guide teaches. [SSR and
     hydration](18-ssr-and-hydration.md) describes shipped behaviour rather
     than an intended contract.
