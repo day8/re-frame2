@@ -23,7 +23,7 @@ Require it as:
 [re-frame.hicasso :as h]
 ```
 
-Forms, overlays, routing helpers, the native tier, and test tooling are separate
+Forms, overlays, routing helpers, the island hooks, and test tooling are separate
 optional namespaces.
 
 Related: [Getting started](01-getting-started.md),
@@ -104,8 +104,8 @@ helper.
   [:span (:title todo)])
 ```
 
-A bare `rf/subscribe` in a view body is not an alternative. Native components
-use [`n/use-sub`](#nuse-sub).
+A bare `rf/subscribe` in a view body is not an alternative. React islands use
+[`n/use-sub`](#nuse-sub).
 
 Related: [Views and reads](02-views-and-reads.md).
 
@@ -141,11 +141,11 @@ which pass by identity, where `:key` and `:ref` live, and how children arrive.
 
 - Hicasso views receive a ClojureScript props map.
 - Declared hosts follow their callback, slot, and server contracts.
-- Native [`n/$`](#n-dollar) uses React slots and does not lower Hicasso event
-  intents or controlled fields.
+- A React island, reached through a host, receives React props; nothing lowers
+  Hicasso event intents or controlled fields inside it.
 
 Related: [Views and reads](02-views-and-reads.md),
-[Interop](09-interop.md), [The native tier](10-native-tier.md).
+[Interop](09-interop.md), [Islands](10-native-tier.md).
 
 <a id="lowering"></a>
 ### Lowering
@@ -155,10 +155,10 @@ Hiccup walk, event-intent callback creation, controlled-field behaviour, and
 attribute normalisation.
 
 When diagnostics identify lowering itself as the cost owner, the local escape
-is a direct [`n/$`](#n-dollar) return from the same view.
+is returning a React element directly from the same view.
 
 Related: [Events as data](03-events-as-data.md),
-[The native tier](10-native-tier.md).
+[Islands](10-native-tier.md).
 
 <a id="owned-wins"></a>
 ### Owned-wins merge
@@ -297,7 +297,7 @@ event intents. Hicasso's controlled path provides:
 - IME composition safety;
 - explicit reset through [`::h/revision`](#hrevision).
 
-The native tier does not provide this repair. Keep controlled text fields on
+A React island does not provide this repair. Keep controlled text fields on
 the interpreted Hicasso path.
 
 Related: [Controlled inputs](04-controlled-inputs.md).
@@ -443,104 +443,52 @@ server policy remain explicit.
 
 Related: [Interop](09-interop.md).
 
-## Native tier
+## Islands
 
 <a id="native-tier"></a>
-### Native tier
+### `re-frame.hicasso.native`
 
-The optional `re-frame.hicasso.native` namespace, usually aliased `n`. It
-provides direct React element construction and named native components.
+The optional hooks namespace, usually aliased `n`. It holds exactly two public
+names, [`n/use-sub`](#nuse-sub) and [`n/use-frame`](#nuseframe), which are how a
+React island reaches Hicasso state. It carries no element grammar and no
+component macro: an island is written in raw React or UIx.
 
-`[...]` always means interpreted Hiccup. `n/$` always means native React.
-Nothing silently compiles or promotes one form into the other.
+`[...]` always means interpreted Hiccup. A React element is never interpreted;
+it passes through unchanged.
 
-Related: [The native tier](10-native-tier.md).
-
-<a id="n-dollar"></a>
-### `n/$`
-
-A macro that constructs one React element directly. It does not perform Hiccup
-lowering, intent conversion, class collection merging, controlled-field repair,
-or automatic Hiccup-child conversion.
-
-```clojure
-(n/$ :td {:class "px"} px)
-(n/$ :td (n/props cell-props) px)
-```
-
-Use `h/as-element` when one native subtree needs an interpreted Hiccup child.
-
-Related: [The native tier](10-native-tier.md).
-
-<a id="nprops"></a>
-### `n/props`
-
-A syntactic marker telling `n/$` that a dynamic expression is its props
-operand. It creates no runtime wrapper.
-
-Without the marker, an arbitrary dynamic map in second position is treated as
-a child.
-
-Related: [The native tier](10-native-tier.md).
-
-<a id="ndefcomponent"></a>
-### `n/defcomponent`
-
-Defines a named top-level React function component with Hicasso's native-tier
-marker, source identity, display name, and server policy. Ordinary React hooks
-are legal inside it.
-
-Use [`n/use-sub`](#nuse-sub) and [`n/use-frame`](#nuseframe) to join the current
-re-frame2 frame.
-
-Related: [The native tier](10-native-tier.md).
+Related: [Islands](10-native-tier.md).
 
 <a id="nuse-sub"></a>
 ### `n/use-sub`
 
-A React hook that subscribes to a re-frame2 query in a native component. It
-obeys React's rules of hooks: call it unconditionally at the top level of the
-component.
+A React hook that subscribes to a re-frame2 query from inside a React island.
+It reads through the same cell table as `h/sub`, so the read joins the same
+membership and Xray rosters, and it obeys React's rules of hooks: call it
+unconditionally at the top level of the component.
 
-Related: [The native tier](10-native-tier.md).
+Related: [Islands](10-native-tier.md).
 
 <a id="nuseframe"></a>
 ### `n/use-frame`
 
-A React hook returning frame-locked operations such as `:dispatch`,
-`:dispatch-sync`, and `:subscribe` for the current native component.
+A React hook returning frame-locked operations — `:dispatch`,
+`:dispatch-sync`, and `:subscribe` — for the frame the island is mounted in,
+pinned to that frame's incarnation.
 
-Related: [The native tier](10-native-tier.md).
+Related: [Islands](10-native-tier.md).
 
 <a id="native-island"></a>
-### Native island
+### Island
 
-A named native React component under the same React root and re-frame2 frame as
-the surrounding Hicasso application. It is appropriate for hooks, vendor
-widgets, and high-rate host-private mechanics.
+A React component, raw React or UIx, mounted through [`h/defhost`](#defhost)
+under the same React root and re-frame2 frame as the surrounding Hicasso
+application. It is appropriate for hooks, vendor widgets, and high-rate
+host-private mechanics.
 
 Xray names and times the crossing, while the inner React tree remains
 host-opaque.
 
-Related: [The native tier](10-native-tier.md).
-
-<a id="nmemo"></a>
-### `n/memo`
-
-Marker-preserving React memoisation for a named native component. Raw
-`react/memo` can erase the marker used by Xray and embedding checks.
-
-Related: [The native tier](10-native-tier.md).
-
-<a id="nlazy"></a>
-### `n/lazy`
-
-Marker-preserving `React.lazy` loading for a named native component. It follows
-React's promise-returning loader contract and retains the Hicasso native marker.
-Declare it at namespace top level.
-
-Related: [Code splitting and lazy loading](21-code-splitting.md),
-[The native tier](10-native-tier.md).
+Related: [Islands](10-native-tier.md).
 
 <a id="performance-ladder"></a>
 ### Performance ladder
@@ -549,12 +497,12 @@ Five explicit implementation levels:
 
 1. ordinary Hicasso;
 2. tuned [read topology](#read-topology);
-3. a direct native return from an existing view;
-4. a named [native island](#native-island);
+3. a React element returned directly from an existing view;
+4. a React [island](#native-island);
 5. a native screen.
 
 Related: [Performance](19-performance.md),
-[The native tier](10-native-tier.md).
+[Islands](10-native-tier.md).
 
 <a id="escape-benefit-rule"></a>
 ### Escape-benefit rule
@@ -685,8 +633,7 @@ Related: [Testing](15-testing.md).
 
 `ht/tree` runs one hook-free Hicasso view body with injected subscription
 fixtures and returns a semantic tree. Nested views remain represented as calls.
-Hooks, hosts, raw React elements, and `n/$` results are refused and belong at
-L3.
+Hooks, hosts, and raw React elements are refused and belong at L3.
 
 Related: [Testing](15-testing.md).
 

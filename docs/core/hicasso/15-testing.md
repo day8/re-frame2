@@ -182,9 +182,7 @@ Use the same approach for:
 - `[::h/prevent INTENT]`;
 - a route link's navigation decision;
 - codecs and round trips;
-- the owned-wins attribute merge;
-- `n/$` macro expansion for native code
-  ([The native tier](10-native-tier.md)).
+- the owned-wins attribute merge.
 
 A test does not need to mount and click a button merely to learn which event
 vector the button contains.
@@ -270,7 +268,6 @@ The harness raises and points to L3 when a body reaches:
 
 - a React hook;
 - a raw React element;
-- an `n/$` result;
 - a `defhost` crossing.
 
 It also raises when a subscription fixture is missing.
@@ -449,7 +446,7 @@ props. The row's own test proves what a row renders.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `ht/tree` raises and points to L3 | The body reached a hook, raw React element, `n/$`, or a host | Mount the view at L3; split out a hook-free semantic part when useful |
+| `ht/tree` raises and points to L3 | The body reached a hook, a raw React element, or a host | Mount the view at L3; split out a hook-free semantic part when useful |
 | `ht/tree` raises and names a query | The body read a subscription with no fixture | Add the exact query fixture; identity is `(query-id, args)` under value equality |
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/hicasso-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
@@ -501,5 +498,5 @@ Use canonical DOM when comparing:
 - before and after a refactor;
 - a Hicasso port with its Reagent original
   ([Migrating from Reagent](20-migration-from-reagent.md));
-- a native island with the interpreted subtree it replaced
-  ([The native tier](10-native-tier.md)).
+- a React island with the interpreted subtree it replaced
+  ([Islands](10-native-tier.md)).

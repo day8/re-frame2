@@ -104,7 +104,7 @@ bare `{:deps true}` reads `deps.edn` without the alias, finds no
 ```
 
 The main namespace is `re-frame.hicasso`, conventionally required as `h`.
-Forms, overlays, motion, routing, the native tier, and the test kit use separate
+Forms, overlays, motion, routing, the island hooks, and the test kit use separate
 namespaces. A build that does not require an optional module does not include
 its code.
 

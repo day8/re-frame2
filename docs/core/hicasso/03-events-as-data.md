@@ -162,8 +162,8 @@ represent a re-frame event:
 
 Typical cases include pointer geometry, pointer capture, `stopPropagation`, or
 an SDK call that is not an application event. Foreign render props and slots
-also use ordinary functions when the position is pure; dispatching from a
-render position raises `:rf.error/hicasso-dispatch-in-render-position`.
+also use ordinary functions when the position is pure: the return is the render
+output, and nothing is dispatched from it.
 
 Do not hand-roll an ambient dispatch closure:
 
@@ -278,7 +278,6 @@ surface rather than a custom click handler.
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
 | A vector is rejected at a host callback | `:rf.error/hicasso-intent-at-a-non-event-contract` | That host position is not declared as an event contract; supply the value its declaration requires |
-| A render prop dispatches | `:rf.error/hicasso-dispatch-in-render-position` | Keep render props pure and move the dispatch to an event position |
 | A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |
 
 ## When not to use an intent

@@ -101,8 +101,8 @@ and fan-out. It first identifies where the time is going:
 | --- | --- | --- |
 | Computation | View code or an expensive subscription chain | Move or reduce the computation; derive display values in subscriptions |
 | Topology | Too many invalidated views or unstable read sets | Move reads, split or combine views, or change collection read shape |
-| Hiccup lowering | Turning one hot view's Hiccup into React elements | Return `n/$` directly from that same view ([The native tier](10-native-tier.md)) |
-| React | Reconciliation, hooks, or vendor internals | Use a named native island or UIx component |
+| Hiccup lowering | Turning one hot view's Hiccup into React elements | Return a React element directly from that same view ([Islands](10-native-tier.md)) |
+| React | Reconciliation, hooks, or vendor internals | Use a React island, raw or UIx ([Islands](10-native-tier.md)) |
 | Layout and paint | Browser style, layout, and rendering | Reduce DOM, virtualise, or fix CSS; use browser tooling |
 
 Only the first two rows of that table are instrumented. The advisor measures

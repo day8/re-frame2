@@ -20,10 +20,9 @@ saying what each one is for. A name written `(name args)` is called; a name
 written `[name props children]` is a Hiccup head; a name with no parentheses is a
 value.
 
-A macro is marked as one. It matters here more than usual, because three of
-Hicasso's doors are macros that expand to a `def` — `h/defview`, `h/defhost` and
-`n/defcomponent` — so they are written at the top level of a namespace and never
-inside a body.
+A macro is marked as one. It matters here more than usual, because two of
+Hicasso's doors are macros that expand to a `def` — `h/defview` and `h/defhost`
+— so they are written at the top level of a namespace and never inside a body.
 
 Refusals are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`. Entries
 name the ids a door raises; [Errors](17-errors.md) explains the shape and
@@ -321,60 +320,27 @@ presence](12-motion-and-presence.md).
 
 ## `re-frame.hicasso.native`
 
-The native tier — real React function components, written past the fence where
-Hiccup is not interpreted. Fourteen names, four of which are the authoring
-surface and the rest of which exist because an expansion names them in the
-consumer's namespace.
+The two hooks a React island uses to reach Hicasso state. An island is a raw
+React or UIx component mounted through `h/defhost`; this namespace adds only
+what React cannot supply — a read that joins Hicasso's own cell table, and the
+frame's incarnation-pinned operations. Nothing else lives here.
 
 ```clojure
 (ns my.app
   (:require [re-frame.hicasso.native :as n]))
 
-;; authoring — macros
-(n/defcomponent name docstring? decl? [^js props] body …)
-(n/$ head props? child …)
-(n/props dynamic-map)
-
-;; hooks — real React hooks, top level of the component, unconditional
+;; real React hooks — top level of the component, unconditional
 (n/use-frame)
 (n/use-sub query-v)
-
-;; heads
-(n/memo f)
-(n/memo f props=)
-(n/lazy load)
-
-;; the seam other tiers read
-(n/marker x)
-n/tier-sentinel
-
-;; named by an expansion, not written by hand
-(n/el type props child …)
-(n/props* x)
-(n/declared-server component-name decl)
-(n/component component-name server f)
-(n/prop-slots m where)
 ```
 
 | Name | What it is |
 | --- | --- |
-| `n/defcomponent` | **Macro.** Defines a native React function component. The ABI is one raw JavaScript props object, children at `.-children`; ordinary React hooks are legal in the body through direct `["react"]` interop. An optional declaration map before the argument vector carries `{:server :render}` or `{:server :client-only}` — the default — and carries nothing else. |
-| `n/$` | **Macro.** Constructs a native React element, and the whole of the v0 grammar. An unqualified keyword head is an intrinsic element, a string is an intrinsic or custom element verbatim, any other expression must evaluate to a native React component. Props are `nil`, a literal map, a `#js` literal or the `n/props` marker; **every other trailing form is a child**. There is no selector shorthand — spell class and id as props. |
-| `n/props` | **Macro.** Marks a dynamic props operand. Without it the same map is a child, because the props operand is decided syntactically, and a map at a child position refuses with `:rf.error/hicasso-native-map-as-child`. |
 | `n/use-frame` | `rf/capture-frame`'s bundle — `{:frame :dispatch :dispatch-sync :subscribe}` — for the frame this island is mounted in. Reference-stable, and pinned to the frame's incarnation rather than to its keyword. |
-| `n/use-sub` | Reads one subscription from a native component. The native counterpart to `h/sub`, and a real hook: two calls in one component are two subscriptions, where a body's several `h/sub` reads are one. |
-| `n/memo` | `React.memo` with the tier marker and the display name carried across. Declared at top level, never in a render. |
-| `n/lazy` | `React.lazy` with the marker intact, the loader unwrapped — a thunk resolving to the component, not to a module record — and the chunk behind the client-only gate, so the server never fetches it. A rejection is terminal: `:reset-key` retries the boundary, not the chunk. |
-| `n/marker` | The tier marker `n/component` stamped, or nil. The seam every ABI helper and every embedding direction reads to recognise a native head. |
-| `n/tier-sentinel` | The marker property name, and the string a bundle carries if and only if this namespace is reachable from it. |
-| `n/el` | `React.createElement`, reached from an `n/$` expansion. Not a consumer surface. |
-| `n/props*` | The runtime half of the props conversion, reached from an `n/props` expansion. |
-| `n/declared-server` | Reads and validates a declaration's `:server` policy, called at load from inside a `n/defcomponent` expansion so the refusal carries the declaration's coordinate. |
-| `n/component` | Mints what `n/defcomponent` `def`s: the element type, stamped with its display name and the tier marker. |
-| `n/prop-slots` | The shared props rule the macro and the runtime both apply, rather than reproduce. |
+| `n/use-sub` | Reads one subscription from a React component. The island counterpart to `h/sub`, and a real hook: two calls in one component are two subscriptions, where a body's several `h/sub` reads are one. |
 
 Both hooks refuse with `:rf.error/no-frame-context` when rendered outside every
-frame. Taught in [The native tier](10-native-tier.md).
+frame. Taught in [Islands](10-native-tier.md).
 
 ## `re-frame.hicasso.server`
 
@@ -649,7 +615,7 @@ error rather than a warning. This is what to type instead.
 | `h/hydrate-root!` | `h/hydrate!` | The same ruling. This half was a true rename and landed first, which is why the two doors changed on different days |
 | `hm/render!`, on the mounted test kit | `hm/rerender!` | Ruled 2026-08-11, swept 2026-08-15. `render!` would have collided with the product facade's own `h/render!`, and a test that reads `render!` should not have to know which of the two it is looking at |
 | `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | Applied on 2026-08-11. L2 answers a data tree and never DOM — the kit's own docstring says it is not a renderer — so `render` both misdescribed the door and collided with two others |
-| `:ssr`, on a `defhost` or `n/defcomponent` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-host-unknown-option` |
+| `:ssr`, on a `defhost` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-host-unknown-option` |
 | `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script`, `server/document` and `server/render-twice` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
 
 One rule explains most of what looks inconsistent above.

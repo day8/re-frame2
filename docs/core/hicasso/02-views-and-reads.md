@@ -312,7 +312,7 @@ the source became long.
 
 If a measured region remains hot after fixing read placement and props
 stability, use the method in [Performance](19-performance.md) before moving it
-to the native tier.
+to React ([Islands](10-native-tier.md)).
 
 ## Advanced
 

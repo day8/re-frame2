@@ -73,7 +73,7 @@ the same frame and app-db. There is no `:fast` interpretation mode and no
 second meaning for `[...]`.
 
 [Performance](19-performance.md) defines the measurement method and
-[Native tier](10-native-tier.md) defines the crossing.
+[Islands](10-native-tier.md) defines the crossing.
 
 ## Hicasso, Reagent, and UIx
 
@@ -97,9 +97,9 @@ inspectable data model.
 
 Interpreting Hiccup has a runtime cost. Cold mount can be slower than a
 hand-written UIx equivalent, and each Hicasso view pays a small fixed cost for
-tracked reads and its re-render boundary. Measure before moving code: the
-native tier is intended for the small part of a real screen that profiling
-identifies, not as the default authoring style.
+tracked reads and its re-render boundary. Measure before moving code: a React
+island is for the small part of a real screen that profiling identifies, not
+the default authoring style.
 
 Hicasso also does not provide a second application-visible reactive store
 inside the view layer. State that other views, tests, tools, routing, or SSR

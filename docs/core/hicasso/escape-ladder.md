@@ -28,16 +28,16 @@ of them at a time.
 
 ## The performance descent
 
-Five rungs, taught with their code in
-[The native tier](10-native-tier.md#escalation-ladder). They are a descent: you
-take rung 4 having failed at 3, and rung 3 having failed at 2.
+Five rungs; the code for rungs 3 to 5 is in [Islands](10-native-tier.md). They
+are a descent: you take rung 4 having failed at 3, and rung 3 having failed at
+2.
 
 | Rung | What you write | Take it when |
 | --- | --- | --- |
 | 1 | Ordinary Hicasso — Hiccup, `h/sub`, event vectors | always; this is where every screen starts |
 | 2 | Tuned Hicasso — boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
-| 3 | A `defview` body returns `n/$` | Hiccup lowering is the measured owner |
-| 4 | A named native island — `n/defcomponent` or UIx | hooks, vendor internals, reconciliation, or per-frame local work dominate |
+| 3 | A `defview` body returns a React element | Hiccup lowering is the measured owner |
+| 4 | A React island — raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
 | 5 | A native screen | the surface is React-shaped from its first useful design |
 
 Rung 2 is where most of this ends. A read moved down, a boundary drawn
@@ -69,7 +69,7 @@ bill.
 | At and past | Semantic tests | Tools | Server rendering | Frame carriage |
 | --- | --- | --- | --- | --- |
 | Performance rung 2 | unchanged | unchanged | unchanged | unchanged |
-| Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | `n/defcomponent` declares `:client-only` or `:render` | `h/event` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
+| Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame (h/hframe))` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
 | A declared host | the crossing is opaque to L2; assert it at L3 | Xray names and times the crossing, not its interior | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | declared `:event` callbacks carry the frame; a plain function does not |
 | The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | nothing is claimed; an event vector at an `on*` prop is refused rather than passed as data |
 
@@ -83,7 +83,7 @@ page is indexed in [Troubleshooting](troubleshooting.md#the-complaint-index).
 One cost is not on the table because it is not recoverable by care. A controlled
 text field moved behind the native fence loses the Hicasso controlled-field
 contract, and native construction does not make typing faster anyway. Keep those
-fields interpreted ([The native tier](10-native-tier.md#when-not-to-go-native)).
+fields interpreted ([Islands](10-native-tier.md#when-not-to-write-an-island)).
 
 ## Taking a performance escape
 
@@ -162,7 +162,7 @@ the threshold, and it is a threshold on count rather than on time.
 
 Crossing changes how a subtree is written, never what the application promises.
 After taking any rung, re-run the contracts Hicasso can no longer inspect for
-you ([The native tier](10-native-tier.md#verify-every-crossing)):
+you ([Islands](10-native-tier.md#verify-every-crossing)):
 
 - DOM and interaction parity;
 - focus and selection;
@@ -205,7 +205,7 @@ no benefit-rule obligation:
 If the screen is React-shaped by design — a canvas editor, a diagramming
 surface, a vendor grid at the centre of the product — you are not escaping
 anything. Implement it natively under the same adapter, root and frames, and
-keep one state owner ([The native tier](10-native-tier.md#native-screens)).
+keep one state owner ([Islands](10-native-tier.md#native-screens)).
 
 And if the answer is “the whole application is React-shaped”, the UIx adapter is
 a better fit than a Hicasso application made of islands. A few named escapes are

@@ -23,61 +23,9 @@ Applications get one obvious `h` facade; optional capabilities use named namespa
 
 ## Optional native surface
 
-The same artifact exposes a separately reachable namespace, provisionally `re-frame.hicasso.native` (`n`). The [canonical native-boundary laws](design-laws.md#native-boundary) govern its semantics, dependency isolation, ABI, and opacity; the [canonical acceptance checklist](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) owns its release proof.
+**Retired 2026-08-29 16:11:11 AUSEST under `rf2-6c12m.3`**, which ruled Option A: `re-frame.hicasso.native` (`n`) shrinks to exactly two public hooks, `n/use-sub` and `n/use-frame`. The `n/$` element grammar, `n/props`, `n/defcomponent`, the marker-preserving ABI helpers (`n/memo`, `n/lazy`), the tier marker and the seven `:rf.error/hicasso-native-*` refusals this section specified are deleted, and the grammar it carried is no longer a contract. The section's text stands in this page's history before that date.
 
-| Surface | Contract |
-|---|---|
-| `n/$` | Macro-expand an explicit native element form to direct React construction; native props, callbacks, children, keys, and refs apply, with no Hicasso intent or controlled-field lowering |
-| `n/props` | Mark a dynamic ClojureScript map or JavaScript object as the props operand of `n/$`; the marker itself emits no wrapper |
-| `n/defcomponent` | Define a stable native function component with source/display metadata, HMR behavior, one props/children ABI, and an explicit server policy that defaults to Client-only |
-| `n/use-sub` | Read re-frame2 state through the substrate-neutral native React hook in the current frame; do not wrap or import UIx |
-| `n/use-frame` | Reuse the existing direct-React frame hook for native component work |
-| ABI helpers | Preserve component identity and the boundary marker through memo, lazy loading, refs, and the two same-root embedding directions |
-
-Ordinary React hooks are used directly. Clojure-friendly wrappers are added only when real island code demonstrates repeated ceremony.
-
-### Provisional `n/$` grammar
-
-The authoring shape is deliberately small:
-
-```clojure
-(n/$ head)
-(n/$ head child*)
-(n/$ head literal-props child*)
-(n/$ head (n/props dynamic-props) child*)
-```
-
-- An unqualified keyword head such as `:div` names an intrinsic React element. A string head names an intrinsic or custom element verbatim. Any other head expression must evaluate to a native React component. Selector shorthand such as `:div.card#main` is not in the v0 native grammar; spell class and id as props.
-- The macro treats only `nil`, a literal ClojureScript map, a `#js` object literal, or the explicit `(n/props expression)` marker as the props operand. Every other trailing form is a child. This syntactic rule avoids misclassifying a dynamic React element—which is itself a JavaScript object—as props.
-- A JavaScript props object passes by identity. A ClojureScript map is converted shallowly: literal keys are lowered by the macro and a dynamic map inside `n/props` uses the separately reachable native helper. The `n/props` marker emits no component or wrapper.
-- ClojureScript-map prop names use the same canonical top-level React slot-name rule as the Hicasso codec: kebab spellings become React camelCase, `:class`/`:for` use the React names, and `data-*`/`aria-*` remain hyphenated. Existing camelCase keywords are fixpoints and string keys pass verbatim. A raw JavaScript object already uses exact React property names and is not renamed. Macro and runtime map conversion share one `.cljc` rule plus parity fixtures; they may not carry copied algorithms.
-- Prop values pass by identity. There is no intent lowering, class collection merge, style-map conversion, keyword-value conversion, controlled-field repair, or deep conversion. Use a JavaScript object where a native API expects one, including React style objects and CSS custom properties.
-- Children are trailing ReactNode values. Nested elements use nested `n/$`; Hiccup vectors are not interpreted. Collections must already be valid React children, normally a JavaScript array or iterable. `:children` in the props map is refused so there is one child channel.
-- `:key` and `:ref` use the ordinary React slots. Two source keys that normalize to the same slot refuse rather than acquire an order-dependent winner.
-
-The provisional `n/defcomponent` ABI is one raw JavaScript props object; React children are available at `.-children`. A declaration map before the argument vector carries the server policy, provisionally `{:server :render}` or `{:server :client-only}`; omission means Client-only. The macro supplies stable top-level component identity, source/display metadata, and HMR conduct, but does not allocate a Clojure map merely to destructure props. A later compile-time destructuring convenience may be considered before the Phase 3 ABI freeze only if it expands to the same object ABI and materially improves real island code.
-
-```clojure
-(ns app.hot-row
-  (:require [re-frame.hicasso.native :as n]))
-
-(n/defcomponent hot-row
-  {:server :render}
-  [^js props]
-  (let [row-id (.-rowId props)
-        label  (n/use-sub [:row/label row-id])]
-    (n/$ :button
-         {:class       "hot-row"
-          :data-row-id row-id
-          :on-click    (.-onOpen props)}
-         label)))
-
-(n/$ hot-row
-     {:row-id row-id
-      :on-open (fn [_event] (open-row! row-id))})
-```
-
-Here the macro emits the canonical `className`, `data-row-id`, `onClick`, `rowId`, and `onOpen` slots. The callback remains a native function; an event vector in `:on-click` is an error, not Hicasso intent syntax.
+What survives is the island: a UIx `defui` or a raw React component mounted through `h/defhost` (or `[:>]` for a one-off), reading through `n/use-sub` — the same cell table, reader membership and Xray rosters a boundary's `h/sub` uses — and dispatching through `n/use-frame`, whose operations are pinned to the frame's incarnation. The [canonical native-boundary laws](design-laws.md#native-boundary) were amended in the same act and remain the owner. The ruling's grounds: only the two hooks do something React cannot; everything else duplicated UIx, raw React or `h/defhost` and had one non-test consumer; and the direct-return measurement the grammar rested on (budgets row S8, 19.2% of mount time recovered, observed range 7.0–31.4%) is UNRESOLVED against the guide's own 20% keep line. A defview may still return a React element directly, and that escape is what S8 measures. If real application work later shows repeated friction, the smallest helper proven by that code is added then.
 
 ## Authoring laws
 
@@ -108,7 +56,7 @@ State ownership is explicit: durable and application-visible ephemera live at ad
 
 `defhost` is the named seam for a foreign component, provider, compound component, retained callback, or server policy. Declared ReactNode props and named content slots lower Hiccup under the captured frame; dev schema/lint validates their positions without deep-converting arbitrary data. A one-off raw element remains available, but repeated or hot use should acquire a name and tests. Render props return Hiccup only through `h/as-element`; otherwise values cross by identity.
 
-Add a thin outward bridge for a native React parent—authored with `n/defcomponent`, UIx, or JavaScript/TypeScript—to render a minted Hicasso view under an existing frame provider. It must retain the memo wrapper, frame isolation, key identity, hydration behavior, and teardown law without creating another root.
+Add a thin outward bridge for a native React parent—authored with raw React, UIx, or JavaScript/TypeScript—to render a minted Hicasso view under an existing frame provider. It must retain the memo wrapper, frame isolation, key identity, hydration behavior, and teardown law without creating another root.
 
 ## Editor and diagnostic ergonomics
 

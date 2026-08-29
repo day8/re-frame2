@@ -7,7 +7,7 @@ is already a native React island.
 This page covers:
 
 - route-level shadow-cljs modules;
-- `n/lazy` and Suspense for native components;
+- `React.lazy` and Suspense for React islands;
 - subscription and resource ownership while React suspends or hides a tree.
 
 ## Split at the route or screen boundary
@@ -111,14 +111,15 @@ to reload.
 
 This is also the only retryable path of the two on this page. `lazy/load` is an
 ordinary promise-returning function: after a failure, `[:admin/wanted]` calls it
-again and really does fetch again. The `n/lazy` section below cannot say that.
+again and really does fetch again. The `React.lazy` section below cannot say
+that.
 
-## Lazy native components with Suspense
+## Lazy islands with Suspense
 
-Use React's lazy model when the split region is already a native island or
-React-first screen. `n/lazy` has the same loader contract as `React.lazy`, but
-preserves Hicasso's native component marker, display name, and server-policy
-metadata.
+Use React's lazy model when the split region is already a React island or
+React-first screen. `React.lazy` takes a loader resolving to a module-shaped
+object, `#js {:default component}`, and the host that mounts it is Client-only,
+so the server never fetches the chunk.
 
 Declare loadables and lazy components at namespace top level:
 
@@ -126,16 +127,19 @@ Declare loadables and lazy components at namespace top level:
 (ns app.charts.gate
   (:require ["react" :as react]
             [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]
             [shadow.lazy :as lazy]))
 
 (def chart-loadable
   (lazy/loadable app.charts.island/heavy-chart))
 
 (def heavy-chart
-  (n/lazy #(lazy/load chart-loadable)))
+  (react/lazy
+   (fn []
+     (.then (lazy/load chart-loadable)
+            (fn [component] #js {:default component})))))
 
-(h/defhost chart-host heavy-chart)
+(h/defhost chart-host heavy-chart
+  {:server :client-only})
 
 (h/defhost suspense react/Suspense
   {:slots    #{:fallback}
@@ -194,14 +198,14 @@ first half of this page. `lazy/load` can be called again, the arrival states are
 already app-db data, and the retry is an ordinary intent.
 
 !!! warning "Create lazy components once"
-    `n/lazy` creates a React component identity. Calling it inside a view body
+    `React.lazy` creates a React component identity. Calling it inside a view body
     creates a new identity on every render, remounts the subtree, and can
     restart the load. Keep both the loadable and lazy component in top-level
     definitions.
 
 A namespace save reallocates the lazy component during hot reload, so React
-remounts that subtree. This is the normal HMR behaviour for named native
-components and `defview` identities, and it is the same allocation a retry would
+remounts that subtree. This is the normal HMR behaviour for islands and
+`defview` identities, and it is the same allocation a retry would
 need — which is the clearest way to see that a retry is not available: a fresh
 head is a *different component*, and only a source save produces one. State that
 must survive a save belongs in app-db.
@@ -306,10 +310,10 @@ cost. Ordinary application state already survives unmount in app-db.
 | Repeated visits start repeated module loads | The load event ignores existing `:loading` or `:loaded` state | Gate the effect on the status as `:admin/wanted` does |
 | Hovering a link then clicking it fetches the chunk twice | The load event skips only `:loaded`, so the click is not deduplicated against the in-flight load the hover started | Gate on `#{:loading :loaded}` |
 | Development watch works but release returns a module 404 | Module entries or `:depends-on` edges differ in the release configuration | Declare the module dependency and keep one authoritative entries list |
-| Suspense fallback appears after every parent render | `n/lazy` is created inside a body, producing a new component identity | Move the loadable and lazy component to top-level definitions |
+| Suspense fallback appears after every parent render | `React.lazy` is called inside a body, producing a new component identity | Move the loadable and lazy component to top-level definitions |
 | Failed chunk leaves the skeleton forever | No error boundary handles the loader rejection | Wrap Suspense with `h/error-boundary` so the failure has somewhere to land |
 | The retry button changes `:reset-key` and the region fails again without a network request | React caches a rejected lazy payload; the head is unchanged, so the loader is never called again | Retry is not available at this boundary. Split at the module boundary when the region must be retryable |
-| Xray shows an anonymous lazy island | Raw `React.lazy` removed Hicasso's native marker | Use `n/lazy` |
+| Xray shows an anonymous lazy island | The lazy component was crossed to raw, with no authored name | Mount it through `h/defhost`, which names the crossing |
 | Local state resets after a source save | HMR created a new component identity and React remounted | Expected. Store durable state in app-db and read it with `n/use-sub` |
 | Lazy area is absent from server HTML | The lazy component is Client-only, and the host that crosses to it declared no placeholder — a Suspense `:fallback` slot is a prop, and a Client-only region does not render far enough to reach it | Declare a same-footprint `:fallback` on the host; the component mounts after adoption |
 | Hidden pane loses UI state | It was unmounted with a conditional rather than retained with Activity | Use `:mode "hidden"` when retention is intentional |

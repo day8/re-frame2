@@ -341,8 +341,8 @@ React renders the server output; there is no parallel JVM string emitter.
 | Roots and `h/as-component` | Render, with request isolation and prefix matching |
 | `h/defhost`, slots, render props, and `h/as-element` | Client-only until the declaration selects Render |
 | Portals, raw React elements, and opaque foreign components | Client-only |
-| Intrinsic `n/$` | Render |
-| `n/defcomponent` and component-headed `n/$` | Client-only until declared Render |
+| A React element returned directly from a `defview` | Render, as React renders it; a component inside it has no Hicasso gate, so it must be server-safe itself |
+| React islands, through `h/defhost` | Client-only until the declaration selects Render |
 | Resource boundaries | Follow their module's server contract; a passive read causes nothing, so no client `[:rf.resource/ensure …]` runs during server rendering |
 
 Event intents require no wire serialisation. Each side turns the same vector
@@ -365,19 +365,17 @@ in the response:
 A provider whose value depends on browser-only state has no deterministic
 server contract and remains Client-only, along with its subtree.
 
-### Native components under SSR
+### Islands under SSR
 
-Intrinsic `n/$` markup renders on the server. A named native component is
-Client-only unless it declares Render:
+An island is Client-only unless its host declares Render:
 
 ```clojure
-(n/defcomponent ticker
-  {:server :render}
-  [^js props]
-  (let [price
-        (n/use-sub
-         [:quote/price (.-symbol props)])]
-    (n/$ :span {:class "ticker"} price)))
+(defn ticker [^js props]
+  (let [price (n/use-sub [:quote/price (.-symbol props)])]
+    (react/createElement "span" #js {:className "ticker"} price)))
+
+(h/defhost ticker-host ticker
+  {:server :render})
 ```
 
 During server rendering, `n/use-sub` performs the same cold snapshot read as

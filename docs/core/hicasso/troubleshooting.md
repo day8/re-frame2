@@ -23,7 +23,7 @@ working on:
 | URLs and navigation | [Routing and navigation](07-routing-and-navigation.md#troubleshooting) |
 | Fetching, mutations, and races | [Async resources](08-async-resources.md#troubleshooting) |
 | A foreign React library | [Interop](09-interop.md#troubleshooting) |
-| `n/$` and native components | [The native tier](10-native-tier.md#troubleshooting) |
+| A React island | [Islands](10-native-tier.md#troubleshooting) |
 | Local UI state | [Ephemeral state](11-ephemeral-state.md#troubleshooting) |
 | Animation and enter/exit | [Motion and presence](12-motion-and-presence.md#troubleshooting) |
 | Modals, popovers, and focus | [Overlays and focus](13-overlays-and-focus.md#troubleshooting) |
@@ -202,8 +202,8 @@ Recovery: `:supply-frame` — the op fails fast and is NOT routed to a synthesis
 default; the fix is to carry the frame explicitly (capture it as a value at
 render time and thread it into the callback, or pass `{:frame …}`).
 
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md), [The
-native tier](10-native-tier.md), [SSR and hydration](18-ssr-and-hydration.md),
+Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
+[Islands](10-native-tier.md), [SSR and hydration](18-ssr-and-hydration.md),
 [Migrating from Reagent](20-migration-from-reagent.md).
 
 ### Intents and callback positions
@@ -477,13 +477,13 @@ Recovery: `:give-the-portal-a-dom-container-that-exists` — render the portal
 only once the container is there, or point `:target` at a node that outlives the
 page, such as `js/document.body`.
 
-### The native tier
+### The retiring `n/$` grammar
 
 Past `n/$` the brackets stop meaning hiccup and the vector stops meaning an
 intent. Every complaint here is a value written in the interpreted language on
-the far side of that fence.
-
-Taught in [The native tier](10-native-tier.md).
+the far side of that fence. The grammar is retired by `rf2-6c12m.3` — an island
+is raw React or UIx, and [Islands](10-native-tier.md) no longer teaches it — so
+these seven entries stand only until their emitters leave, and go with them.
 
 <a id="hicasso-native-map-as-child"></a>
 #### `:rf.error/hicasso-native-map-as-child`

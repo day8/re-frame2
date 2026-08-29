@@ -77,9 +77,9 @@ Presence owns **retention and phase**, nothing else:
 | A hard `:timeout-ms` terminal bound | `transitionend` subscriptions |
 | Cancelling exit when a key re-enters | Gesture or drag state |
 
-High-rate motion stays in a native host or CSS. Host those mechanics with
-[`h/defhost`](09-interop.md) or the [native tier](10-native-tier.md); do not
-route pointer-move events through app-db.
+High-rate motion stays in a React component or CSS. Host those mechanics in a
+foreign component or a [React island](10-native-tier.md) through
+[`h/defhost`](09-interop.md); do not route pointer-move events through app-db.
 
 ## API
 
