@@ -84,8 +84,8 @@ A hiccup child that is a **bare symbol** is *content*, not props:
 ```
 
 It is tempting — and wrong — to treat a non-literal in position 2 as a props map
-and forward it. That **mangles the content**: `item` was never a props map. The
-`:&` remainder (MIG-28) applies **only** to a genuine props-map expression in
+and forward it. That **mangles the content**: `item` was never a props map.
+MIG-28's plain `merge` applies **only** to a genuine props-map expression in
 the props position. When in doubt, it is content.
 
 Related: **data vectors are not hiccup.** `[:buy 1]` inside `{:on-click …}` is
@@ -203,7 +203,6 @@ writing them produces a view that will not load:
 | an `h/fn` spelling | shipped is `h/event`; `hfn` was swept to it |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
 | the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate` and `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
-| a plain `merge` for forwarding caller attrs | shipped is the reserved `:&` key with the owned-literal law (MIG-28) |
 
 **Read the door** — `implementation/hicasso/src/re_frame/hicasso.cljc` — not a
 design page (cardinal rule 6).

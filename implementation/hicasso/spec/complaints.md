@@ -117,7 +117,6 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
 | `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
 | `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
-| `:rf.error/hicasso-merge-not-a-map` | forwarded a non-map at the attribute-remainder key | — |
 | `:rf.error/hicasso-native-bad-server-policy` | gave an `n/defcomponent` declaration a `:server` value outside `#{:client-only :render}` | — |
 | `:rf.error/hicasso-native-children-in-props` | wrote `children` in a native props map, which has one child channel | — |
 | `:rf.error/hicasso-native-hiccup-child` | put a hiccup vector in a native child position, where brackets have no meaning | — |
@@ -130,13 +129,12 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
 | `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch12 |
-| `:rf.error/hicasso-presence-override-out-of-reach` | wrote a phase-attribute override where no presence tray can apply it — deeper than a tray's direct child, forwarded through a `:&` remainder, or under no tray at all | — |
+| `:rf.error/hicasso-presence-override-out-of-reach` | wrote a phase-attribute override where no presence tray can apply it — deeper than a tray's direct child, or under no tray at all | — |
 | `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
 | `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
 | `:rf.error/hicasso-raw-not-a-component` | handed the raw escape a value React will not mint a fiber for | ch09 |
 | `:rf.error/hicasso-ref-vector-reserved` | put a vector at the canonical `ref` slot | — |
 | `:rf.error/hicasso-refusal-incomplete` | (framework-internal) minted a refusal missing one of the four required slots | — |
-| `:rf.error/hicasso-revision-from-remainder` | let a forwarded attribute map introduce the reset trigger | — |
 | `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
 | `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
 | `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
@@ -214,6 +212,8 @@ Spellings that are dead.
 |---|---|---|
 | `:rf.error/hicasso-test-residue-after-quiescence` | reserved for a raising clean-state assertion on the mounted test facade. Never minted and never raised, so no stored error, monitor grouping or page of prose carries it | The facade landed (rf2-hic-027) and deliberately reports instead: `assert-clean!` files residue through `cljs.test/do-report`, because residue is a **test failure** rather than a refusal of the instrument — a throw would make the tool that detects a leak indistinguishable from the tool breaking, and would abort the run at the first finding instead of reporting all of them. So the reservation named a refusal its own surface decided not to have. It is tombstoned rather than left standing because a reserved row claims *a surface that is not built yet*, which stopped being true, and no rule above catches a reservation whose surface shipped without it. A later refusal on that surface — a fixture that cannot establish a baseline at all — is a different refusal under rule 1 and mints its own spelling |
 | `:rf.error/hicasso-dispatch-in-render-position` | raised by a render callback that dispatched while it was running — an armed gate minted per invocation of every render prop | Retired 2026-08-29 (rf2-6c12m.20). The gate policed a case a programmer does not plausibly write and one React already warns on, at the price of a volatile, a closure and a three-var binding on every invocation of every render prop. The useful half of the wrapper — rebinding the supplying boundary's frame and dispatch for the call — stays; a handler lowered inside a callback with no owner raises `:rf.error/hicasso-intent-outside-boundary` as it always did. The frozen bench donor `front/intent.cljs` still carries the emitter, which is why the register gate's R3/R4 scan stops at the bench lane |
+| `:rf.error/hicasso-merge-not-a-map` | raised when the reserved `:&` attribute key carried something other than a map | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key itself. Naming-ledger row 2 ruled the key out of the grammar; the guide never taught it and no example, testbed or app used it. Forwarding a caller's attributes is an ordinary `merge` with the owned keys last, so there is no reserved key to carry a non-map. The frozen bench donor `front/codec.cljs` still carries the emitter |
+| `:rf.error/hicasso-revision-from-remainder` | raised when a `:&` remainder introduced `::h/revision` onto an element whose author had not written one | Retired 2026-08-29 (rf2-6c12m.12) with the `:&` merge key. With one map and no remainder there is no provenance to ask of the revision; it is read once off the element's map and never emitted. The frozen bench donor `front/codec.cljs` still carries the emitter |
 
 ## Rulings this catalogue owns
 

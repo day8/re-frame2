@@ -48,7 +48,7 @@
   pass while checking nothing."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.hicasso.amp-merge-clock-app :as amp]
-            [re-frame.hicasso.impl.codec :as codec]))
+            [re-frame.bench.hicasso.front.codec :as codec]))
 
 ;; ---------------------------------------------------------------------------
 ;; The witness's own inputs

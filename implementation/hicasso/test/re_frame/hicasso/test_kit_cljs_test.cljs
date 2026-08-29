@@ -239,11 +239,12 @@
     (is (= {"tabIndex" 0 "htmlFor" "x"}
            (ht/element-props [:label {:tab-index 0 :for "x"}]))))
 
-  (testing "the `:&` remainder folds under the owned-literal law: a
-            caller cannot reach a slot the element writes"
+  (testing "a caller's map merged with the owned keys last: the literal
+            the element writes wins by presence, and the projection sees
+            the one merged map the codec sees"
     (is (= {"className" "owned" "title" "from-caller"}
-           (ht/element-props [:div {:class "owned"
-                                    :&     {:class "hijacked" :title "from-caller"}}]))))
+           (ht/element-props [:div (merge {:class "hijacked" :title "from-caller"}
+                                          {:class "owned"})]))))
 
   (testing "a lowered handler records as 004B's opaque marker — the site's
             existence and spelling are the claim, its behaviour is L3"

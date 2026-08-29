@@ -140,16 +140,16 @@
 (h/defview slots
   "HS-06 and HS-15. One canonical slot per value however the key was
   written — kebab keyword, camel keyword and string all name the same
-  React prop — and the caller's remainder merged under `:&`, where the
-  literal key written in the map wins (HD-023). The merge helper has no
-  separate public spelling, so HS-15 is witnessed here, at the `:&`
-  seam, which is the only place it is reachable from."
+  React prop — and the caller's attributes forwarded with an ordinary
+  `merge`, owned keys last, so the literal written by the element wins
+  (HD-023; naming-ledger row 34). There is no merge helper and no
+  reserved key, so HS-15 is witnessed here, at the one spelling."
   [{:keys [extra]}]
   [:div.slots
    [:label {:htmlFor "field" :class "lbl"} "label"]
-   [:input {:id "field" :type "text" :readOnly true
-            :defaultValue "typed"
-            :& extra}]
+   [:input (merge extra
+                  {:id "field" :type "text" :readOnly true
+                   :defaultValue "typed"})]
    [:span {:style {:font-weight 700 :margin-top 4}} "styled"]])
 
 (h/defview intents
@@ -404,9 +404,8 @@
 
 (deftest one-canonical-slot-however-the-key-was-written
   (testing "HS-06 and HS-15. `:htmlFor` reaches the bytes as `for`, a
-            style MAP as a serialized declaration, and the caller's `:&`
-            remainder merges under the law that the literal key written
-            in the map wins"
+            style MAP as a serialized declaration, and the caller's map
+            merges under the owned literals, which win by being last"
     (fresh!)
     (let [html (server-html [slots {:extra {:class "from-remainder"
                                            :data-extra "yes"}}])]

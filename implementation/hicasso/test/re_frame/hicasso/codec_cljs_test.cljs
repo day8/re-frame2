@@ -212,10 +212,6 @@
     (doseq [k [:class :className "class" "className" 'class :x/class :class-name]]
       (is (= "a b" (prop (codec/as-element [:div.a {k "b"}]) "className"))
           (str "spelled " (pr-str k)))))
-  (testing "a caller remainder composes too, in every spelling"
-    (doseq [k [:class :className "class" "className" 'class :x/class]]
-      (is (= "a b" (prop (codec/as-element [:div.a {:& {k "b"}}]) "className"))
-          (str "forwarded as " (pr-str k)))))
   (testing "the class value is coerced at the slot, so a collection joins
             whatever key carried it — the coercion used to live in the map
             surgery, where only `:class` and `:className` reached it"
@@ -237,13 +233,8 @@
     (doseq [k [:id "id" 'id :x/id]]
       (is (= "explicit" (prop (codec/as-element [:div#tag {k "explicit"}]) "id"))
           (str "spelled " (pr-str k)))))
-  (testing "forwarded through the one merge — the door where the author of
-            the element never sees the key at all"
-    (doseq [k [:id "id" 'id :x/id]]
-      (is (= "caller" (prop (codec/as-element [:div#tag {:& {k "caller"}}]) "id"))
-          (str "forwarded as " (pr-str k)))))
   (testing "and the shorthand still lands when nothing claims the slot"
-    (is (= "tag" (prop (codec/as-element [:div#tag {:& {:title "t"}}]) "id"))))
+    (is (= "tag" (prop (codec/as-element [:div#tag {:title "t"}]) "id"))))
   (testing "a near miss is not the id slot and keeps its own name"
     (let [e (codec/as-element [:div#tag {:data-id "d" :ids "many"}])]
       (is (= "tag" (prop e "id")))
@@ -252,27 +243,27 @@
 
 (deftest the-shorthand-fold-does-not-depend-on-map-order
   ;; The audit's phrasing: the answer must hold "independent of cache/render
-  ;; /map order". Both spellings of both slots in one remainder, written in
-  ;; both orders, and again in a map big enough to be a PersistentHashMap
-  ;; rather than an array map — the iteration order changes underneath and
-  ;; the emitted element does not.
+  ;; /map order". Both spellings of both slots in one map, written in both
+  ;; orders, and again in a map big enough to be a PersistentHashMap rather
+  ;; than an array map — the iteration order changes underneath and the
+  ;; emitted element does not.
   (let [expected {"id" "caller" "className" "foo bar"}
         emitted  (fn [e] {"id" (prop e "id") "className" (prop e "className")})]
     (testing "the audit's own witness, both ways round"
       (is (= expected (emitted (codec/as-element
-                                [:div#tag.foo {:& {"id" "caller" "className" "bar"}}]))))
+                                [:div#tag.foo {"id" "caller" "className" "bar"}]))))
       (is (= expected (emitted (codec/as-element
-                                [:div#tag.foo {:& {"className" "bar" "id" "caller"}}])))))
+                                [:div#tag.foo {"className" "bar" "id" "caller"}])))))
     (testing "and out of a hash map, whose iteration order is neither"
       (let [caller (into {} (map (fn [i] [(keyword (str "data-" i)) i])) (range 12))]
         (is (= expected (emitted (codec/as-element
-                                  [:div#tag.foo {:& (assoc caller "id" "caller" :x/class "bar")}]))))))
+                                  [:div#tag.foo (assoc caller "id" "caller" :x/class "bar")]))))))
     (testing "renders are independent of what the caches were asked first"
       (codec/reset-caches!)
       (codec/cached-prop-name "class")
       (codec/cached-prop-name :x/id)
       (is (= expected (emitted (codec/as-element
-                                [:div#tag.foo {:& {"id" "caller" "className" "bar"}}])))))))
+                                [:div#tag.foo {"id" "caller" "className" "bar"}])))))))
 
 (deftest prop-values-are-converted-in-the-shapes-react-wants
   (testing "a style map becomes a JS object with camelCased keys"
@@ -416,115 +407,6 @@
          (try (codec/as-element [42 {}]) nil (catch :default e (:rf.error/id (ex-data e)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:&` — one merge, and the owned-literal law unconditional (HD-023)
-;; ---------------------------------------------------------------------------
-
-(deftest a-caller-remainder-merges-under-the-literals-that-are-written
-  (testing "the law, in its plainest form: keys the caller supplies and the
-            element does not, land; keys the element writes are not
-            reachable from `:&` at all."
-    (let [e (codec/as-element [:div {:& {:title "from caller" :id "caller"}
-                                     :id "owned"}])]
-      (is (= "from caller" (prop e "title")) "an unclaimed key lands")
-      (is (= "owned" (prop e "id")) "a written literal always wins")
-      (is (not (contains? (set (prop-names e)) "&"))
-          ":& is a reserved key, never an attribute")))
-  (testing "the whole point of the direction: a caller override is spelled by
-            NOT writing the literal, because the dangerous default is the
-            other way round"
-    (is (= "caller" (prop (codec/as-element [:div {:& {:id "caller"}}]) "id")))))
-
-(deftest a-hostile-remainder-cannot-forfeit-the-controlled-input-door
-  (testing "the predecessor's silent failure, deleted. There, a dynamic map
-            merged onto a controlled input WITHOUT the door-preserving spread
-            form forfeits caret and IME protection, and no diagnostic is
-            raised anywhere — the choice of syntax is the choice of
-            correctness. Here there is one merge and the law is
-            unconditional, so a remainder carrying the whole controlled
-            contract reaches none of it."
-    (let [!seen (atom [])
-          caller {:value      "HOSTILE"
-                  :on-input   [:hostile/edit]
-                  :key        "hostile"
-                  :ref        (fn [_] (swap! !seen conj :ref-fired))
-                  :class      "from-caller"
-                  :aria-label "kept"}
-          e (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                               (fn [] (codec/as-element
-                                       [:input {:& caller
-                                                :value    "owned"
-                                                :on-input [:todo.ui/edit 7 :re-frame.hicasso/value]}])))]
-      (is (= "owned" (prop e "value")) "the controlled value survives")
-      (is (nil? (el-key e)) ":key is never taken from a remainder")
-      (is (nil? (prop e "ref")) ":ref is never taken from a remainder")
-      (is (= "from-caller" (prop e "className")) "an unclaimed key still lands")
-      (is (= "kept" (prop e "aria-label")))
-      ((prop e "onInput") #js {:target #js {:value "typed"}})
-      (is (= [[:todo.ui/edit 7 "typed"]] @!seen)
-          "and the owned handler is the one that fired — the caller's intent
-           never reached the element"))))
-
-(deftest an-owned-class-composes-through-the-tag-shorthand
-  (testing "the one place a caller's value and an owned value both survive,
-            and it needs no exception to the law: the element's own classes
-            are written on the TAG, which is not a literal attribute key, so
-            the shorthand merge composes them with whatever the remainder
-            brought."
-    (let [e (codec/as-element [:input.form-control {:& {:class "form-control-lg"}}])]
-      (is (= "form-control form-control-lg" (prop e "className"))))
-    (testing "and a literal :class still wins outright, because it is a literal"
-      (let [e (codec/as-element [:input.base {:& {:class "from-caller"} :class "owned"}])]
-        (is (= "base owned" (prop e "className")))))
-    (testing "composition does not reopen the deny: what composes is what
-              SURVIVED the merge, and an alias at a slot an owned literal
-              claims never gets that far — in either spelling"
-      (doseq [k ["className" :x/class 'class]]
-        (is (= "base owned"
-               (prop (codec/as-element [:input.base {:& {k "from-caller"} :class "owned"}])
-                     "className"))
-            (str "forwarded as " (pr-str k))))
-      (doseq [k ["id" :x/id 'id]]
-        (is (= "owned"
-               (prop (codec/as-element [:div#tag {:& {k "hostile"} :id "owned"}]) "id"))
-            (str "forwarded as " (pr-str k)))))))
-
-(deftest the-same-merge-and-the-same-law-hold-at-a-crossing
-  (testing "the case the predecessor needs a THIRD rule for. Its spread forms
-            are element forms, so forwarding a remainder through one onto a
-            declared foreign head rewrites `:className` into the `:class`
-            slot and the component never sees the prop it reads — hence
-            'neither spread form is legal there' and an ordinary `merge`
-            instead. `:&` is not a spread: it is a key in the props map,
-            merged before any conversion, and the conversion that follows is
-            the position's own."
-    (let [e (codec/as-element [a-view {:& {:className "react-name" :selected "caller"}
-                                       :selected "owned"}])]
-      (is (= {:className "react-name" :selected "owned"} (prop e "rfProps"))
-          ":className crosses under the name it was written as, and the
-           owned literal still wins")))
-  (testing "a remainder's :key cannot become the crossing's key either"
-    (let [e (codec/as-element [a-view {:& {:key "hostile"} :id 7}])]
-      (is (nil? (el-key e)))
-      (is (= {:id 7} (prop e "rfProps"))))))
-
-(deftest the-merge-costs-one-lookup-when-it-is-absent
-  (testing "the overwhelming case. No `:&` means the map comes back by
-            identity — the feature allocates nothing on an element that does
-            not use it."
-    (let [props {:id "x" :class "y"}]
-      (is (identical? props (codec/merge-caller props)))))
-  (testing "an explicit nil remainder is a no-op that still removes the key"
-    (is (= {:id "x"} (codec/merge-caller {:& nil :id "x"}))))
-  (testing "a non-map remainder is a loud error rather than a silent drop"
-    (is (thrown-with-msg? js/Error #"carries a caller's attribute map"
-                          (codec/as-element [:div {:& [:not :a :map]}])))
-    (try
-      (codec/as-element [:div {:& "nope"}])
-      (is false "should have thrown")
-      (catch :default e
-        (is (= :rf.error/hicasso-merge-not-a-map (:rf.error/id (ex-data e))))))))
-
-;; ---------------------------------------------------------------------------
 ;; The canonical structural-slot filter
 ;; ---------------------------------------------------------------------------
 
@@ -547,66 +429,6 @@
                           {:class "x" :key 1 "key" 2 :x/key 3 :ref (fn [_]) "ref" 4 :x/ref 5})))
     (let [clean {:class "x" :id "y"}]
       (is (identical? clean (codec/without-structural clean))))))
-
-(deftest an-alternate-spelling-in-a-remainder-reaches-neither-structural-slot
-  (testing "the hole this repair closes. A remainder is about ATTRIBUTES;
-            `key` and `ref` are about node identity. Denying `:key` and
-            `:ref` by map-key identity denies one spelling of each and lets
-            three through — and with no literal at that slot to overwrite it
-            afterwards, the caller's value is simply what React gets."
-    (doseq [spelling ["key" 'key :x/key]]
-      (let [e (codec/as-element [:li {:& {spelling "hostile"} :class "row"}])]
-        (is (nil? (el-key e)) (str "a remainder's " (pr-str spelling) " is not the element's key"))
-        (is (= ["className"] (prop-names e))
-            "and it does not land as an attribute either")))
-    (doseq [spelling ["ref" 'ref :x/ref]]
-      (let [!fired (atom false)
-            e      (codec/as-element [:div {:& {spelling (fn [_] (reset! !fired true))}}])]
-        (is (nil? (prop e "ref")) (str "a remainder's " (pr-str spelling) " is not a ref"))
-        (is (= [] (prop-names e)))
-        (is (false? @!fired)))))
-  (testing "and the element's OWN literal is untouched by the filter — the
-            law is about what a remainder may reach, not about what an
-            author may write on their own node"
-    (let [f (fn [_node])
-          e (codec/as-element [:li {:key 7 :ref f :& {:title "caller"}}])]
-      (is (= "7" (el-key e)))
-      (is (identical? f (prop e "ref")))
-      (is (= "caller" (prop e "title"))))))
-
-(deftest an-alias-cannot-defeat-an-owned-literal-at-the-slot-they-share
-  (testing "the second half of the same hole. `:onInput` and `:on-input` are
-            two map keys and ONE React slot, so a raw-key merge leaves both
-            in the map and lets whichever the map iterates last decide —
-            which is a law that holds by luck of map ordering rather than by
-            construction. The deny is on the slot, so the alias never
-            reaches the map at all."
-    (is (= {:on-input [:owned/edit]}
-           (codec/merge-caller {:& {:onInput [:hostile/edit]} :on-input [:owned/edit]})))
-    (is (= {:on-input [:owned/edit]}
-           (codec/merge-caller {:& {"onInput" [:hostile/edit]} :on-input [:owned/edit]}))
-        "including the string spelling of the same React name"))
-  (testing "at a crossing the map is handed over UNRENAMED, so the alias is
-            visible in the props a structural test reads — and the law is
-            the same one rule at both positions (HD-023(d))"
-    (let [e (codec/as-element [a-view {:& {:onInput [:hostile/edit] :title "kept"}
-                                       :on-input [:owned/edit]}])]
-      (is (= {:on-input [:owned/edit] :title "kept"} (prop e "rfProps")))))
-  (testing "and the owned handler is the one React calls"
-    (let [!seen (atom [])
-          e (intent/with-frame (fn [ev] (swap! !seen conj ev))
-                               (fn [] (codec/as-element
-                                       [:input {:& {:onInput [:hostile/edit]
-                                                    :onFocus  [:hostile/focus]}
-                                                :on-input [:todo.ui/edit 7]}])))]
-      ((prop e "onInput") #js {:target #js {}})
-      (is (= [[:todo.ui/edit 7]] @!seen))
-      (is (fn? (prop e "onFocus"))
-          "an alias the element does NOT write still lands — the deny is the
-           slot the literal claimed, never the shape of the spelling")))
-  (testing "the same for the controlled pair spelled with a namespace"
-    (let [e (codec/as-element [:input {:& {:x/value "HOSTILE"} :value "owned"}])]
-      (is (= "owned" (prop e "value"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
@@ -737,15 +559,6 @@
            (:rf.error/id (override-refusal
                            #(codec/as-element
                               [:section [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]]))))))
-
-  (testing "and a `:&` remainder is the same fault wearing a forwarding
-            map: `with-phase` reads the two keys off the child's OWN props,
-            so an override arriving inside a remainder was never seen by
-            the tray either"
-    (is (= :rf.error/hicasso-presence-override-out-of-reach
-           (:rf.error/id (override-refusal
-                           #(codec/as-element
-                              [:div {:& {:re-frame.hicasso.motion/unmounting {:class "out"}}}]))))))
 
   (testing "the crossing takes the same refusal at the same position. A
             `[:>]` head that IS a tray's direct child has its overrides
@@ -1194,30 +1007,6 @@
         (is (identical? r (raw-prop :ref r "ref"))))
       (is (= :rf.error/hicasso-ref-vector-reserved
              (error-id #(codec/as-element [:> a-foreign-component {:ref [::autosize {}]}])))))))
-
-(deftest the-ampersand-law-holds-at-the-escape-before-conversion
-  (testing "HD-023 clause (d): `:&` is merged BEFORE conversion and the
-            conversion that follows is the position's own. Asserted on
-            what the foreign component RECEIVED, not on the hiccup"
-    (let [p (raw-props (codec/as-element
-                         [:> a-foreign-component
-                          {:& {:className "react-name" :selected "caller"}
-                           :selected "owned"}]))]
-      (is (= "react-name" (aget p "className"))
-          "a remainder key crosses under the slot it names")
-      (is (= "owned" (aget p "selected"))
-          "and the owned literal wins, unconditionally")))
-  (testing "the deny is on the canonical SLOT, so a remainder reaches
-            neither structural slot however it is spelled"
-    (doseq [k [:key "key" :x/key]]
-      (is (nil? (el-key (codec/as-element [:> a-foreign-component {:& {k "hostile"}}])))
-          (str "forwarded as " (pr-str k))))
-    (is (nil? (aget (raw-props (codec/as-element [:> a-foreign-component {:& {:ref "hostile"} :ref (fn [_])}]))
-                    "hostile"))))
-  (testing "and the merge is the SAME one — a non-map remainder is the
-            same loud error at this crossing"
-    (is (= :rf.error/hicasso-merge-not-a-map
-           (error-id #(codec/as-element [:> a-foreign-component {:& "nope"}]))))))
 
 (deftest children-lower-eagerly-and-ride-the-outer-element
   (testing "trailing forms lower here, in the render window of the

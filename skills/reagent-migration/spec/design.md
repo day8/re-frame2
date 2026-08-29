@@ -152,8 +152,7 @@ rather than restated.
 
 Hicasso's **draft guide teaches forms that do not exist** —
 an `h/fn` spelling, a key-map restriction to
-`:on-key-down`/`:on-key-up`, a plain `merge` where the shipped answer is the
-reserved `:&` key. The authority is
+`:on-key-down`/`:on-key-up`. The authority is
 `implementation/hicasso/src/re_frame/hicasso.cljc` and the `impl/` namespaces
 beside it, not a design page and not the guide.
 

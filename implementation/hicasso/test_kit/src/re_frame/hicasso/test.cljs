@@ -370,12 +370,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- form-props
-  "The author's attribute map for a hiccup form, with the `:&` remainder
-  folded under the owned-literal law — `codec/merge-caller`'s own answer,
-  never a second merge."
+  "The author's attribute map for a hiccup form — the map as written, or
+  `{}` when the form carries none."
   [form]
   (let [p (nth form 1 nil)]
-    (codec/merge-caller (if (map? p) p {}))))
+    (if (map? p) p {})))
 
 (def ^:private probe-dispatch
   "The dispatch a lowering runs under when nothing is being rendered.
@@ -420,8 +419,8 @@
       ;; => {\"id\" \"main\" \"className\" \"wide tall\" \"tabIndex\" 0}
 
   This is the L1 answer to 'what does the codec do with what I wrote' —
-  the `.class#id` fold, the canonical slot names, the `:&` remainder's
-  owned-literal law, the reserved-key handling — asserted as values
+  the `.class#id` fold, the canonical slot names, the reserved-key
+  handling — asserted as values
   rather than inferred from a rendering. A lowered handler records as
   `{:rf.ui/opaque :fn}` (004B §The opaque marker): the slot's existence
   and spelling are the claim, and the intent it carries is asserted with
@@ -496,10 +495,8 @@
 
   A trigger and not an attribute: a change to it re-baselines a
   controlled field to the model without remounting it (HD-019's reset
-  law). It is read **pre-merge-conversion**, off the author's own
-  attribute map after `:&` folds, which is where the codec reads it —
-  so a remainder cannot arm a reset the element's author never wrote,
-  here or there."
+  law). It is read **pre-conversion**, off the author's own attribute
+  map, which is where the codec reads it — here as there."
   [form]
   (get (form-props form) codec/revision-key))
 

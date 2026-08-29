@@ -204,9 +204,8 @@
              :mounting))
         "the mounting map's contents arrive on the element, with the
          override key itself gone"))
-  (testing "an override still cannot reach :key or :ref — the same law :&
-            carries, for the same reason: those address node identity, not
-            appearance"
+  (testing "an override still cannot reach :key or :ref — those address
+            node identity, not appearance"
     (let [hostile [:div.toast {:key 1
                                :re-frame.hicasso.motion/unmounting
                                {:key "stolen" :ref (fn [_]) :class "x"}}]]
@@ -217,8 +216,8 @@
             :ref}` dissoc and canonicalise onto React's key — after the
             child's own `:key` has been merged, and at the one moment the
             node must NOT be remounted, because it is being animated out.
-            The exclusion is taken on the canonical SLOT, through the very
-            filter `:&` uses."
+            The exclusion is taken on the canonical SLOT, through the
+            codec's structural-slot filter."
     (doseq [spelling ["key" 'key :x/key]]
       (let [hostile [:div.toast {:key 1
                                  :re-frame.hicasso.motion/unmounting
