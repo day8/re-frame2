@@ -4,11 +4,13 @@
 
 The three were first published here from an operator-local working set by `rf2-hic-000`: `decision-brief.md` from `synth.md`, `specification.md` from `synth-codex.md`, `lanes/` from `codex/`. That publication arrangement is **retired** (`rf2-rbme3`, 2026-08-16). What survives of it is the [publication record](#publication-record-historical), kept as provenance and nothing more.
 
-The naming ledger is live and appended-to by beads (see rf2-hic-065), and it now lives at [`implementation/hicasso/spec/naming-ledger.md`](naming-ledger.md) with the rest of the [operative contract](#the-operative-contract-moved-out-rf2-ps7ia).
+The naming ledger is live and appended-to by beads (see rf2-hic-065), and it now lives at [`implementation/hicasso/spec/naming-ledger.md`](naming-ledger.md) with the rest of the [operative contract](#the-operative-contract-moved-out-rf2-ps7ia). **[Amended 2026-08-30, `rf2-6c12m.8`: it is back in this directory as design history, every row dispositioned and nothing appending to it — see the note under that heading.]**
 
 ## The operative contract (moved out, rf2-ps7ia)
 
 **Five documents left this directory on 2026-08-21** and now live at [`implementation/hicasso/spec/`](../../../../implementation/hicasso/spec/README.md), beside the artefact they govern, following the `tools/*/spec/` convention. They were the machine-gated ones — the operative contract another artefact has to obey — and their gates re-pointed in the same pull request, which is what made the move honest rather than a filing decision.
+
+**[Amended 2026-08-30, `rf2-6c12m.8`, PR #8775.] Four of the five came back.** `budgets.md`, `naming-ledger.md`, `dispositions.md` and the full `invariants.md` are in this directory again as ungated design history, each under a dated banner, because they were closed programme records gated as if live; the three checkers in the table below that policed them (`check_budget_ledger.py`, `check_facade_inventory.py`, `check_naming_census.py`) and their unconditional CI jobs were deleted in the same pull request. What stays beside the code is `complaints.md`, a 15-row `invariants.md` (section 1 of the page below) and a new 43-row `server-policy.md` (the surface → Render / Client-only table from `dispositions.md` §2). The links in the table now resolve to the history copies here. `dispositions.md`'s HS-11 and HS-14 moved with the page still carrying `rf2-lau0u`'s open operator question.
 
 | Document | What it owns | Its gate |
 |---|---|---|
