@@ -120,7 +120,29 @@
   [[re-frame.hicasso.impl.collector/invalidate-cell!]] carries the
   *held*-cell half of all three axes; this term carries the *staged* half
   of the registry one, where there is no dead reference to read back
-  through because the commit acquires against the live registration."
+  through because the commit acquires against the live registration.
+
+  ## Why the generation term stays (rf2-6c12m.19)
+
+  On every path that reaches `flush!` the frame's install epoch has
+  already moved, so the generation looks like a term the frame epoch
+  covers. It is not, and the counter-example is the reincarnation above
+  read from the STAGED side: a boundary renders a key no cell holds
+  (snapshot = the live basis), the frame is destroyed and remade under
+  the same id before that boundary commits, and the successor's install
+  count happens to equal the predecessor's at render — the frame term
+  ties, and the staged key moved no watch, so nothing it read bumps the
+  generation. What does is the side effect on any OTHER cell the frame
+  holds: its reaction dies with the frame, the microtask rewire marks it
+  dirty, and that flush bumps the generation, which the staged boundary
+  reads through the basis at commit. Measured
+  (`staged_reincarnation_basis_cljs_test`): with the term, `basis@commit`
+  differs from `basis@render` and React's post-subscribe re-read
+  corrects the boundary; with `@!generation` removed from the sum both
+  read 4, React sees no tear, and the boundary keeps the predecessor's
+  value on screen until the next write to its key. A partial cover — a
+  frame holding no other cell has nothing to rewire and ties either
+  way — but the half it covers is the P0 class, so the term is kept."
   [frame-kw]
   (+ @!generation (frame/frame-commit-epoch frame-kw) @!registry-epoch))
 
