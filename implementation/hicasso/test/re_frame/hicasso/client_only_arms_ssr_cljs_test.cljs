@@ -205,6 +205,47 @@
     [:h2.title "Delete this invoice?"]
     [:button.confirm "Delete"]]])
 
+(h/defview undismissable-modal-page
+  "The `closedby` ladder's no-dismissal arm: with no `:on-dismiss` there
+  is nowhere to route a close request, so the dialog is told to honour
+  none and the open flag cannot acquire a second owner."
+  []
+  [:div.owner
+   [overlay/modal {:open? (h/sub [:hicasso.arms/open?])
+                   :label "Processing"}
+    [:p.wait "Do not close this tab."]]])
+
+(h/defview light-dismiss-modal-page
+  "The ladder's opt-in arm: `:light-dismiss?` widens `closedby` to the
+  platform's `any`, so a backdrop click can dismiss."
+  []
+  [:div.owner
+   [overlay/modal {:open?          (h/sub [:hicasso.arms/open?])
+                   :on-dismiss     [:invoice/cancelled]
+                   :light-dismiss? true
+                   :label          "Quick filter"}
+    [:p.hint "Click anywhere outside to dismiss."]]])
+
+(h/defview manual-popover-page
+  "The popover half of the same choice: no `:on-dismiss` means `manual` —
+  in the top layer, dismissing for nothing."
+  []
+  [:div.owner
+   [overlay/popover {:open? (h/sub [:hicasso.arms/open?])}
+    [:ul {:role "menu"} [:li.choice "Unread"]]]])
+
+(h/defview author-placed-popover-page
+  "An author's `:style {:position-area …}` written beside the
+  `:placement` that also produces one — `element-attrs`' documented
+  precedence subject."
+  []
+  [:div.owner
+   [overlay/popover {:open?      (h/sub [:hicasso.arms/open?])
+                     :on-dismiss [:menu/dismissed]
+                     :placement  :bottom-start
+                     :style      {:position-area "block-start"}}
+    [:ul {:role "menu"} [:li.choice "Unread"]]]])
+
 (h/defview island
   "The Hicasso boundary that sits UNDER the Activity host, so that a row
   measuring bytes is measuring a real read rather than a literal."
@@ -362,6 +403,44 @@
       (is (not (re-find #"<dialog[^>]* open" html))
           (str "and no `open` attribute, so the engine paints none of it
                 until `showModal` runs on the client: " html)))))
+
+(deftest the-dismissal-word-ladder-is-complete-in-the-server-bytes
+  (testing "the rows above pin the DEFAULT arms — `closerequest` on the
+            modal and `auto` on the popover. These are the other three,
+            which nothing had ever exercised: the whole dismissal policy
+            is one platform attribute, so each arm is decidable as server
+            bytes, and an arm that rots is a desync between the app's
+            open flag and the platform's own close behaviour"
+    (testing "a modal with no :on-dismiss honours no close request"
+      (fresh! true)
+      (let [html (server-html [undismissable-modal-page {}])]
+        (is (re-find #"<dialog closedby=\"none\"" html)
+            (str "nowhere to route a dismissal, so none is honoured: " html))))
+    (testing "the :light-dismiss? opt-in is the platform's `any`"
+      (fresh! true)
+      (let [html (server-html [light-dismiss-modal-page {}])]
+        (is (re-find #"<dialog closedby=\"any\"" html)
+            (str "the author asked for backdrop dismissal: " html))))
+    (testing "a popover with no :on-dismiss is `manual` — in the top
+              layer, dismissing for nothing"
+      (fresh! true)
+      (let [html (server-html [manual-popover-page {}])]
+        (is (re-find #"<div popover=\"manual\"" html)
+            (str "no dismissal route, so no light dismiss either: " html))))))
+
+(deftest an-authors-position-area-beats-the-placement-that-produced-one
+  (testing "`element-attrs`' documented precedence, measured in the bytes
+            where both candidates land in the same attribute: the author's
+            `:style` keys merge LAST, so a hand-written `:position-area`
+            wins over the `:placement` table's answer"
+    (fresh! true)
+    (let [html (server-html [author-placed-popover-page {}])]
+      (is (re-find #"position-area:block-start" html)
+          (str "the author's word is in the bytes: " html))
+      (is (not (re-find #"block-end span-inline-end" html))
+          (str "and the placement's is NOT — which is what merge order
+                means, and what a subject without :placement could never
+                decide: " html)))))
 
 (deftest an-anchored-popover-produces-deterministic-server-bytes
   (testing "**THE PROPERTY, and it is the property rather than a name.**
