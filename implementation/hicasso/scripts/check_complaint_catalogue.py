@@ -171,10 +171,10 @@ Hicasso section.  `read_spec_hicasso_ids` reads that structure.  Nothing
 is listed here, and a fourth reused spelling needs no edit to this file.
 
   Not the `hicasso-` id prefix, which is the other thing that looks like
-  it would work: `:rf.error/no-frame-prop` is Hicasso's own, is rowed in
-  the Hicasso section, and carries no prefix (the register records this
-  under *Open, and not settled here*).  A prefix rule would drop it from
-  the subject without saying so — smaller coverage, same green.
+  it would work: `:rf.error/no-frame-prop` was Hicasso's own, rowed in
+  the Hicasso section, and carried no prefix (retired under rf2-6c12m.16,
+  but the shape recurs).  A prefix rule would have dropped it from the
+  subject without saying so — smaller coverage, same green.
 
 WHAT R10 CANNOT SEE:
 

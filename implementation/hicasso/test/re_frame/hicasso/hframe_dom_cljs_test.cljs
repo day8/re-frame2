@@ -6,12 +6,11 @@
   about REACT rather than about the read, which is why they are asserted
   against a live `createRoot` rather than reasoned about:
 
-  1. **It answers under BOTH shell variants** (W1). The context shell
-     resolves its frame through `useContext`; the frame-prop shell takes
-     it as an ordinary prop and spends one hook fewer. `h/frame` reads
-     neither — it reads the ambient the runtime binds either way — and
-     that identity is the thing worth pinning, because a variant that
-     answered differently would make the read a property of the shell.
+  1. **It answers under the shell, and follows the frame** (W1). The
+     shell resolves its frame through `useContext`; `h/frame` reads not
+     the hook but the ambient the runtime binds — and that identity is
+     the thing worth pinning, because a shell that answered differently
+     would make the read a property of the shell.
   2. **The documented trap, made green, plus the isolation law** (W2).
      ONE reusable view, mounted under TWO frames, each instance building
      `(rf/capture-frame (h/frame))` and firing it from a `setTimeout`
@@ -109,7 +108,7 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The two variants of ONE body — the frame-prop suite's own construction
+;; The body under test
 ;; ---------------------------------------------------------------------------
 
 (defn- printing-body
@@ -121,14 +120,9 @@
               :data-done  (str (collector/sub [:hicasso.todo/done? id]))}])
 
 (h/defview context-row
-  "The incumbent shell: the frame arrives through `useContext`."
+  "The shell: the frame arrives through `useContext`."
   [props]
   (printing-body props))
-
-(def frame-prop-row
-  "The challenger shell: the frame arrives as `rfFrame` on the element,
-  and the shell spends one hook fewer."
-  (collector/mint-frame-prop-view! "hframe-frame-prop-row" printing-body))
 
 (defn- frame-attr [handle]
   (some-> (.querySelector (:container handle) ".row") (.getAttribute "data-frame")))
@@ -142,26 +136,17 @@
     (skip! ":node-test has no DOM")
     (do
       (frames!)
-      (testing "the context shell"
+      (testing "the shell"
         (let [handle (mount/root! (mount/fresh-container!) frame-a [context-row {:id 0}])]
           (try (is (= (str frame-a) (frame-attr handle)))
                (finally (mount/release! handle)))))
 
-      (testing "the frame-prop shell — a different route to the frame, one
-               hook fewer, and the SAME answer. `h/frame` reads the ambient
-               the runtime binds either way, so a difference here would mean
-               the read had become a property of the shell"
-        (let [handle (mount/root! (mount/fresh-container!) frame-a [frame-prop-row {:id 0}])]
-          (try (is (= (str frame-a) (frame-attr handle)))
-               (finally (mount/release! handle)))))
-
-      (testing "and both FOLLOW the frame — mounted under a second frame
-               each answers the second. A constant would have passed every
-               row above"
-        (doseq [[label view] [["context" context-row] ["frame-prop" frame-prop-row]]]
-          (let [handle (mount/root! (mount/fresh-container!) frame-b [view {:id 0}])]
-            (try (is (= (str frame-b) (frame-attr handle)) label)
-                 (finally (mount/release! handle)))))))))
+      (testing "and it FOLLOWS the frame — mounted under a second frame it
+               answers the second. A constant would have passed the row
+               above"
+        (let [handle (mount/root! (mount/fresh-container!) frame-b [context-row {:id 0}])]
+          (try (is (= (str frame-b) (frame-attr handle)))
+               (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5's other half — the hook ledger does not move
@@ -188,19 +173,7 @@
             (is (= ["useContext" "useSyncExternalStore"] names)
                 (str "hooks React was asked for: " (pr-str names)))
             (is (= (count collector/shell-hook-ledger) (count names))
-                "and the declared ledger is still the measured one")))
-
-        (testing "and one fewer on the frame-fed shell, unchanged — a read
-                 that had quietly taken a hook would show up as two here"
-          (let [handle (volatile! nil)
-                names  (probe/record!
-                         (fn [] (vreset! handle
-                                         (mount/root! (mount/fresh-container!)
-                                                      frame-a [frame-prop-row {:id 0}]))))]
-            (mount/release! @handle)
-            (is (= ["useSyncExternalStore"] names)
-                (str "hooks React was asked for: " (pr-str names)))
-            (is (= (count collector/frame-prop-shell-hook-ledger) (count names)))))))))
+                "and the declared ledger is still the measured one")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2 — the documented trap made green, and the isolation law

@@ -478,9 +478,8 @@
   not one: it is render-constant per boundary, resolved once by the shell
   and bound ambiently. This is one dynamic-var read. It appends nothing
   to the collector scratch, registers no edge and takes no React hook —
-  so the ≤2-hook shell ledger is untouched, and the frame-prop shell
-  variant answers identically because the same ambient is bound either
-  way. Reactivity needs no edge: a frame change is a context change or a
+  so the ≤2-hook shell ledger is untouched. Reactivity needs no edge: a
+  frame change is a context change or a
   remount, and React propagates context to consumers ahead of the memo
   comparator.
 

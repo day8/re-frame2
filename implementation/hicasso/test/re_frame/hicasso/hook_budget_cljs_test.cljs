@@ -53,15 +53,7 @@
   shell's source, not about the host, so counting it where a PR will
   actually run it is worth more than counting it in a lane a PR does not
   reach. `kernel_commit_owns_cljs_test` takes the same view for the same
-  reason.
-
-  ## The variant this file does not measure
-
-  [[re-frame.hicasso.impl.collector/frame-prop-shell]] declares ONE hook,
-  and its ledger says so. It is a hypothesis under measurement rather
-  than the default — `h/defview` mints the context-fed shell — so what is
-  asserted here is the shipped shell against its own ledger. The same
-  probe answers the variant the day it is taken up."
+  reason."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]

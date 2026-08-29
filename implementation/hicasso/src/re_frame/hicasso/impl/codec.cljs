@@ -897,42 +897,6 @@
   [f]
   (and (fn? f) (true? (unchecked-get f "hicassoBoundary"))))
 
-(def ^:private frame-prop-marker "hicassoFrameProp")
-
-(defn mark-frame-prop!
-  "Record that `f` — an already-marked boundary head — takes its frame as
-  an ordinary ELEMENT PROP rather than from React context, and return it.
-
-  ## Why the codec can supply it at all
-
-  The frame is ordinary data that flows down the tree, and every boundary
-  element below the root is created by an ancestor BODY — which runs
-  inside [[re-frame.hicasso.impl.intent/with-frame]], so the frame
-  is already bound at the exact moment [[boundary-element]] mints the
-  element. Baking it in costs one dynamic-var read and one property
-  write per element, and buys the shell its `useContext` back.
-
-  A foreign component sitting between two Hicasso boundaries is harmless:
-  its children were created by the Hicasso body ABOVE it, with the prop
-  already in them, so passing `props.children` through preserves it. The
-  one creator with no ancestor body is an outward bridge — the root, or a
-  React component that mounts Hicasso itself — and that creator names the
-  frame explicitly ([[root-element]]).
-
-  **This is a MEASUREMENT variant, not the default.** Both variants live here so the
-  comparison is like-for-like: an unmarked head pays exactly what it
-  always paid, because the marker is read where the head's memo wrapper
-  is already read and the prop is written only when it is set."
-  [f]
-  (unchecked-set f frame-prop-marker true)
-  f)
-
-(defn frame-prop-head?
-  "Does this head take the frame as a prop? One own-property read, on a
-  path that already reads one ([[element-type]])."
-  [f]
-  (true? (unchecked-get f frame-prop-marker)))
-
 (def ^:private body-slot "hicassoBody")
 
 (defn retain-body!
@@ -950,7 +914,7 @@
 
   The kit renders a minted head, so the head carries its body. **One own
   property, no registry and no map** — the same shape as
-  [[mark-boundary!]] and [[mark-frame-prop!]] beside it, and the reason
+  [[mark-boundary!]] beside it, and the reason
   the memo contract is untouched: the head is still the function, still
   what a `defview` hands back, and no new object escapes.
 
@@ -1017,25 +981,15 @@
   re-evaluating a `defview` here re-mints the head and its wrapper — a new
   React element *type*, which HMR replaces outright.
 
-  ## `rfFrame` is compared too, and it has to be
+  ## The frame is not compared, and need not be
 
-  A context-fed boundary is safe from this comparator by construction:
-  React propagates a context change to its consumers directly, ahead of
-  the comparator and through a memo, so a subtree that changed frames
-  re-renders whatever its props say. A frame-fed boundary
-  ([[mark-frame-prop!]]) has no such channel — the frame IS a prop, and a
-  comparator that ignored it would bail a re-parented subtree out and
-  leave every body below reading the frame it left. One `identical?` on a
-  keyword closes it, ahead of the `=` that can throw.
-
-  A context-fed boundary pays that one comparison on two `undefined`s,
-  which is
-  the honest price of keeping ONE comparator rather than two: a second
-  memo path would be a second place for the fail-open ruling to rot."
+  A boundary is safe from this comparator by construction: its frame
+  arrives through React context, and React propagates a context change
+  to its consumers directly, ahead of the comparator and through a memo,
+  so a subtree that changed frames re-renders whatever its props say."
   [^js prev ^js next]
   (try
-    (and (identical? (unchecked-get prev "rfFrame") (unchecked-get next "rfFrame"))
-         (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps")))
+    (= (unchecked-get prev "rfProps") (unchecked-get next "rfProps"))
     (catch :default _e
       (when ^boolean js/goog.DEBUG
         (when (exists? js/console)
@@ -1376,27 +1330,17 @@
   thing a mint-time walk exists to prevent. Left to evaluation alone,
   what is enforced is a property of the walk, never a rule about content.
 
-  Two facts make that gap a defect rather than a narrow rule
-  (measured, `re-frame.hicasso.fallback-contents-cljs-test`):
+  One fact makes that gap a defect rather than a narrow rule
+  (measured, `re-frame.hicasso.fallback-contents-cljs-test`): **the
+  declared placeholder is not a value.** [[mint-host-gate!]] walks once
+  and reuses the element everywhere, and its stated reason is *\"a
+  placeholder that differs per site is not a placeholder\"*. One
+  declaration carrying a boundary head renders `ALPHA` in one frame,
+  `BRAVO` in another and `ALPHA-TWO` after a write — the justification
+  falsified by what it permits.
 
-  1. **The declared placeholder is not a value.** [[mint-host-gate!]]
-     walks once and reuses the element everywhere, and its stated reason
-     is *\"a placeholder that differs per site is not a placeholder\"*.
-     One declaration carrying a boundary head renders `ALPHA` in one
-     frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
-     justification falsified by what it permits.
-  2. **It does not survive the frame-fed boundary variant.** A
-     frame-fed head ([[mark-frame-prop!]]) reads `intent/*frame*` at
-     ELEMENT-creation time, which in a fallback is mint time, where the
-     var is `nil` — so it bakes `nil` in, mints happily, and throws
-     `:rf.error/no-frame-prop` one render into the server response.
-     Whether a boundary head in a fallback works at all becomes a
-     property
-     of which mint it came from, which is not a rule an author can hold.
-
-  The refusal is walk-scoped, so it catches that frame-fed variant for
-  free: a frame-fed head is a boundary head, and the walk asks the
-  marker rather than the mint.
+  The refusal is walk-scoped: it asks the boundary marker, never the
+  mint, so it holds for every head the mint door produces.
 
   **`:server :render` is the honest recovery**, against writing a
   provider's subtree a second time as the declaration's fallback: it
@@ -2617,13 +2561,6 @@
         head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    ;; THE FRAME AS DATA. Only for a head that asked for
-    ;; it, so a context-fed head's element carries no extra slot
-    ;; and the two variants stay comparable. `intent/*frame*`
-    ;; is bound by the ancestor body this element is being created inside;
-    ;; at the root there is no ancestor body and [[root-element]] binds it.
-    (when (frame-prop-head? head)
-      (unchecked-set js-props "rfFrame" intent/*frame*))
     (react/createElement (element-type head) js-props)))
 
 (def ^:private html-attr-slots
@@ -3756,10 +3693,7 @@
   [[root-element]]'s reason: this wrapper is not a boundary body, so an
   intent vector written in the props of a `[:div]` handed through here
   stays the loud `:rf.error/hicasso-intent-outside-boundary` it is
-  everywhere else. A frame-fed head ([[mark-frame-prop!]]) is the one
-  head this does not serve; it refuses with `:rf.error/no-frame-prop`,
-  whose recovery already names the outward bridge as the creator that
-  must supply the frame."
+  everywhere else."
   [head]
   (let [named     (when (fn? head) (unchecked-get head "displayName"))
         component (fn hicasso-as-component [js-props]
