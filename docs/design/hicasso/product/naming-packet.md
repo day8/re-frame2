@@ -276,6 +276,13 @@ inside is `:rf.error/hicasso-intent-at-a-non-event-contract` named at the positi
 `hfn` docstring agrees: *"The value is an ORDINARY FUNCTION … The contract comes from the
 position it is written at."*
 
+**[Amended 2026-08-29, PR #8755 (`rf2-6c12m.24`).]** Read at source today, `impl/intent.cljs`
+tabulates **two**: event and render, inferred from the position at a native tag and at a host
+alike, with `:callbacks` as an optional `:event` / `:render` override for an `on*`-named render
+prop. `:handler` is deleted and `:rf.error/hicasso-intent-at-a-non-event-contract` is retired; a
+vector at a render position crosses as data. The row's argument below reads the same with two
+contracts as with three.
+
 So the ruled name states **one** of the three contracts the form can carry. That is not an
 argument against the name — the ruling's ground, that `handler` is a cross-adaptor false
 friend, is untouched by this and `h/callback` would state no contract at all. It is a
