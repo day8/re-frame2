@@ -458,7 +458,7 @@ test('THE HEAP RIG READS THE PACKAGE — all three doors, none of them arm1', ()
   const req = nsRequires(HEAP);
   assert.match(req, /\[re-frame\.hicasso\.impl\.mount :as hic-mount\]/, 'the mount door');
   assert.match(req, /\[re-frame\.hicasso\.impl\.collector :as hic-collector\]/, 'the runtime reset');
-  assert.match(req, /\[re-frame\.hicasso\.impl\.inventory :as hic-inventory\]/, 'the structural census');
+  assert.match(req, /\[re-frame\.hicasso\.test\.runtime :as hic-runtime\]/, 'the structural census');
   assert.ok(
     !/re-frame\.bench\.hicasso\.arm1/.test(req),
     'p0_heap.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
@@ -472,7 +472,7 @@ test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', ()
   const code = codeOf(HEAP);
   assert.strictEqual(countOf(code, 'hic-mount/root!'), 1, 'the mount door, once');
   assert.strictEqual(countOf(code, 'hic-collector/reset-runtime!'), 1, 'the runtime reset, once');
-  assert.strictEqual(countOf(code, 'hic-inventory/residue'), 2, 'the live census and the post-unmount read');
+  assert.strictEqual(countOf(code, 'hic-runtime/residue'), 2, 'the live census and the post-unmount read');
   // The prototype's alias. Its absence is what says no seam was missed.
   assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site left on the old alias');
 });
