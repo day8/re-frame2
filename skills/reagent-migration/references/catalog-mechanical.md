@@ -307,7 +307,7 @@ that is the point of them, so do not add one speculatively:
 [re-frame.hicasso.forms   :as forms]     ; buffered-field + the draft concern
 [re-frame.hicasso.motion  :as motion]    ; presence
 [re-frame.hicasso.overlay :as overlay]   ; popover, modal
-[re-frame.hicasso.native  :as n]         ; the native/hooks tier
+[re-frame.hicasso.native  :as n]         ; the two Hicasso hooks for React islands
 ```
 
 ## MIG-33 — keystroke handlers → a key map

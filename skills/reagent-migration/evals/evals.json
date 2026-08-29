@@ -68,7 +68,7 @@
      "expectations": [
        "Recognises Form-2 / with-let view-held state (MIG-16) and does NOT silently rewrite the view.",
        "States that Hicasso has NO view-local state tier at all — no local, no use-state, no cell — and that an atom in a defview body is re-allocated every render because the body is an anonymous fn React re-invokes; does not emit one.",
-       "Reasons about the real decision: product state or a UI flag → app-db, with h/reg-state as the sugar; a draft-and-commit control → re-frame.hicasso.forms/buffered-field; state genuinely the DOM's → a callback ref or a native component.",
+       "Reasons about the real decision: product state or a UI flag → app-db, with h/reg-state as the sugar; a draft-and-commit control → re-frame.hicasso.forms/buffered-field; state genuinely the DOM's → a callback ref or a React island.",
        "For a simple open/closed flag, lands on app-db via h/reg-state rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
        "If it shows h/reg-state, gets the shape right: a namespace-qualified concern, an optional {:default ...}, a parametric sub read as (h/sub [concern ikey]) and a setter event dispatched as [concern ikey v], stored under [:ui ::concern ikey].",
        "Holds the WHOLE view until the decision is made (cardinal rule 2).",
@@ -84,7 +84,7 @@
        "Insists the ref fn be a stable top-level def, because a fresh inline (fn [n] ...) has a new identity every render and React detaches and reattaches on every commit.",
        "Notes a VECTOR at :ref is refused with :rf.error/hicasso-ref-vector-reserved (a reserved later spelling), and that :ref on a defview HEAD is not a ref at all — the boundary path lifts only :key.",
        "Recognises there is no dispatch-at-unmount: re-homes the [:resource/release] domain work OUT of the view to whatever causally ends the resource, and enumerates EVERY exit path — an enumeration covering save/delete but missing navigate-away is the classic leak.",
-       "Does NOT emit `effect`, a Freehand behavior, v/defbehavior, or a React hook inside the defview body; if hook-shaped lifecycle is genuinely needed it names re-frame.hicasso.native/defcomponent, where React's rules apply to source the author controls."
+       "Does NOT emit `effect`, a Freehand behavior, v/defbehavior, or a React hook inside the defview body; if hook-shaped lifecycle is genuinely needed it names the island route — a UIx defui or a raw React function component mounted through h/defhost, using n/use-sub / n/use-frame when it needs Hicasso state — where React's rules of hooks apply to source the author controls."
      ]},
 
     {"id": 21, "kind": "behavioural", "tier": "D", "name": "d-foreign-react-defhost-and-contracts",
@@ -125,7 +125,7 @@
      "expectations": [
        "Declines (MIG-36): Hicasso has no component-did-update mechanism and no previous-props channel — re-render IS the update, and nothing hands a body the old values.",
        "Notes get-snapshot-before-update in particular has no counterpart, because there is no pre-mutation moment to hook.",
-       "Names the two honest routes before holding: an re-frame.hicasso.native/defcomponent island with react/useEffect and a dependency array where the work is genuinely the DOM's, or app-db where the 'previous value' is really domain history the changing event already knows.",
+       "Names the two honest routes before holding: a React island (a UIx defui or a raw React function component mounted through h/defhost, with n/use-sub / n/use-frame for Hicasso state) with react/useEffect and a dependency array where the work is genuinely the DOM's, or app-db where the 'previous value' is really domain history the changing event already knows.",
        "Holds the WHOLE view on Reagent and states that as a supported configuration.",
        "Does NOT reach for a callback ref as a substitute — a ref fires on commit and on identity change, which is a different phase and frequency."
      ]},
