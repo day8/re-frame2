@@ -33,8 +33,8 @@
 
   **That door is the kit's, and the budget is stated through it.**
   `test.runtime/body-runs` is the internal behind it, and a test is
-  ALLOWED that reach — the fence in `examples.witness-surface-cljs-test`
-  is over APPLICATION namespaces — but an application's own witness
+  ALLOWED that reach — the fence in `examples.fence-cljs-test` is over
+  APPLICATION namespaces — but an application's own witness
   states its budget in the vocabulary of the facade that mounted it.
   Nothing else answers *how many boundary bodies ran*: `hm/census` counts
   cells, edges and boundaries — residue, not work — and Spec 009's render

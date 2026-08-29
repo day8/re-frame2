@@ -6,7 +6,7 @@
   **The model**, which knows nothing about windowing. Ten thousand
   records, four handlers and five reads, and every one of them behaves
   exactly as it would behind a screen that mounted all ten thousand rows.
-  That is the claim `ledger.surface-cljs-test` makes structurally and
+  That is the claim `ledger.events`' `ns` form makes structurally and
   this file makes behaviourally: virtualization is a rendering strategy
   and it does not reach the model.
 

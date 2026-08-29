@@ -7,8 +7,8 @@
   at a hundred records and at ten thousand and asserts that the numbers
   it measures did not move.
 
-  One root, one frame, no route — see `examples.witness-surface-cljs-test`
-  on why an application in this tree registers no route."
+  One root, one frame, no route — `examples.editor.app` says why an
+  application in this tree registers none."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]

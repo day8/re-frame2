@@ -5,9 +5,10 @@
   deliberately does not touch: an event handler is a function of `db` and
   an event vector, a subscription is a function of its inputs, and a
   state transition is the pair. So this file requires neither
-  `re-frame.hicasso` nor either half of the kit, and
-  `examples.witness-surface-cljs-test` proves the same of the namespaces
-  it tests.
+  `re-frame.hicasso` nor either half of the kit, and neither do the
+  namespaces it tests: `examples.fence-cljs-test` holds the kit half of
+  that for every application namespace in the tree, and the
+  `re-frame.hicasso` half is read off their `ns` forms.
 
   Frame scope is the programmer's ordinary bracket — `rf/with-new-frame`.
 

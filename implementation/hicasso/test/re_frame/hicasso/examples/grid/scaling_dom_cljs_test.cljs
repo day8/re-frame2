@@ -21,8 +21,8 @@
   the comparator. It is the kit's door onto the runtime's own always-on
   counter; this file read that counter directly until the door
   existed, which was allowed — the fence in
-  `examples.witness-surface-cljs-test` is over APPLICATION namespaces —
-  but left the application's own witness naming an internal to state a
+  `examples.fence-cljs-test` is over APPLICATION namespaces — but left
+  the application's own witness naming an internal to state a
   budget the specification states.
 
   **It cannot see a props compare.** That matters for reading the table
