@@ -77,8 +77,8 @@
   `re-frame.hicasso.impl.presence-react`. They live under `impl.*`
   because that is the package's one private half and this namespace is a
   door onto part of it, exactly as `re-frame.hicasso` is a door onto the
-  rest. The four catalogued `:rf.error/hicasso-presence-*` ids name
-  `impl.presence-react` as their emitter, so the two files stay put.
+  rest. The two catalogued `:rf.error/hicasso-presence-*` ids are raised
+  from `impl.presence`, so the two files stay put.
 
   **The override keys are `::motion/mounting` and `::motion/unmounting`**,
   as the example above shows — this namespace's own spellings. Naming-ledger

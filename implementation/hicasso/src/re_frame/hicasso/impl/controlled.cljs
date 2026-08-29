@@ -122,7 +122,7 @@
   - **A type whose text cursor exists** — `text`, `search`, `url`,
     `tel`, `password`, or no `:type` at all, which is `text`. Read at
     the PLATFORM's spelling rather than the author's, which is the fold
-    [[caret-type?]] carries and [[file-input-value?]] carries for the
+    [[caret-type?]] carries for the
     same attribute. `setSelectionRange` is not applicable to the others, and
     `setDefaultValue` deliberately skips a focused `number` field
     (`:1738`), so the two exclusions are the same exclusion. React's own
@@ -500,8 +500,7 @@
   `<input>` does for the five applicable types, and for no `:type` at
   all, which is `text`.
 
-  **The type is folded before it is compared, for the reason
-  [[file-input-value?]] states at length about the same attribute.** An
+  **The type is folded before it is compared.** An
   HTML `type` is an enumerated attribute the platform matches ASCII
   case-insensitively, and this predicate reads the PROPS object — the
   author's spelling, which
@@ -535,9 +534,8 @@
   React to render and commit one such field: about **0.1%**, which is why
   the whole-render measurement could not resolve it at all (the run-to-run
   spread on that path was two orders of magnitude larger than the effect).
-  And it sits behind exactly the gate [[file-input-value?]]'s fold sits
-  behind ([[controlled-text-tag?]]), so a page with no controlled inputs
-  still pays nothing for either.
+  And it sits behind [[controlled-text-tag?]], so a page with no
+  controlled inputs still pays nothing for it.
 
   A variant that folded only ON A MISS was measured and REJECTED. It is
   cheaper only for an already-lowercase caret type (23.6–24.7 ns against
@@ -574,62 +572,6 @@
   [tag js-props]
   (and (convergeable-tag? tag)
        (some? (unchecked-get js-props "value"))))
-
-(defn- file-input-value?
-  "Is this a `:value` on a file input that React will actually WRITE?
-
-  A file input is the one form control the platform will not let a model
-  own. `HTMLInputElement.value` is in filename mode there, and its setter
-  refuses every assignment but the empty string — so React's controlled
-  mirror, which is `element.value = …` on both its paths, throws
-  `InvalidStateError` out of the commit. That exception names no view, no
-  framework and no recovery, and React 19.2 carries no
-  controlled-file-input warning of its own, so nothing upstream was ever
-  going to say it. [[install!]] refuses instead.
-
-  **The predicate is non-EMPTY, and that is the whole subtlety.** The
-  obvious reading — refuse a non-nil `:value` — would refuse `:value \"\"`,
-  which is legitimate and is the reset idiom: it is the ONE write the
-  platform accepts, and it clears the control. React skips the assignment
-  entirely when the value already agrees (`initInput` is
-  `value === element.value || (element.value = value)`; `updateInput` is
-  `element.value !== \"\" + getToStringValue(value) && (element.value =
-  …)`), so an empty file input is never written to at all, and one holding
-  a file is written the empty string — legally. Refusing that would have
-  taken the author's only model-driven clear away.
-
-  Non-string values are refused because React stringifies them: `:value 0`
-  becomes `\"0\"` and throws like any other non-empty string. `identical?`
-  is the right test for exactly that reason — it is React's own `===`
-  against the element's empty answer, not a value comparison that would
-  read `0` as empty.
-
-  **The TYPE, unlike the value, is folded before it is compared.**
-  This predicate runs against the props object, which is
-  the author's spelling — `:type \"FILE\"`, or the keyword `:file`
-  spelled `:FILE`, both of which
-  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged.
-  The PLATFORM does not read it that way: an HTML `type` attribute is an
-  enumerated attribute matched ASCII case-insensitively, so
-  `<input type=\"FILE\">` is a file input, `.type` answers `\"file\"`,
-  and `element.value = \"budget.csv\"` throws exactly the
-  `InvalidStateError` this refusal exists to replace. An exact compare
-  here refused the one spelling in sixteen that authors happen to write
-  and let the other fifteen through to the engine — worse than no
-  refusal, because the hole is invisible.
-
-  So the fold is at the COMPARISON and nowhere else. Normalising
-  `js-props` would be the other way to close it and is the wrong one:
-  this object is what React consumes and what reaches the DOM, and the
-  attribute that ships must stay the attribute the author wrote. The
-  `string?` guard is what makes the fold total — `:type 0` survives
-  [[re-frame.hicasso.impl.codec/convert-prop-value]] as a number, which
-  has no `toLowerCase`."
-  [tag js-props]
-  (and (identical? "input" tag)
-       (let [t (unchecked-get js-props "type")]
-         (and (string? t) (identical? "file" (.toLowerCase t))))
-       (not (identical? "" (unchecked-get js-props "value")))))
 
 (defn- convergeable?
   "Is this element one whose rendered value React records on the node,
@@ -822,24 +764,11 @@
   that do not apply to it. \"A checkbox is refused\" is the wrong
   sentence; \"a value-less checkbox is refused\" is the right one.
 
-  ## The file input, refused rather than left to the engine
-
-  One further refusal rides the same branch — [[file-input-value?]],
-  `:rf.error/hicasso-file-input-value-prop`. It is placed there and not
-  earlier so that a page with no controlled inputs pays nothing for it:
-  everything that is not an `input`/`textarea` carrying a `:value` has
-  already gone out the other arm, and what remains pays one property
-  read and one ASCII case fold, which an engine answers by handing back
-  an already-lowercase string unchanged. Unlike the revision refusal
-  above, this one stands in front of an exception rather than a
-  silence — React's controlled mirror would reach `element.value = …`
-  and the platform would throw `InvalidStateError` from inside the
-  commit, attributing nothing. See [[file-input-value?]] for why the
-  predicate is non-EMPTY rather than non-nil and why the TYPE is folded
-  where the value is not, and `re-frame.hicasso.impl.intent/target-value`
-  for the same control's other half — which needs no fold of its own,
-  because it reads the LIVE element and the platform has already
-  normalised the type by the time it looks."
+  A non-empty `:value` on a file input is left to the platform: React's
+  controlled mirror reaches `element.value = …` and the engine throws
+  `InvalidStateError`, which is the report. The other half of that
+  control — reading `::h/value` off it — is
+  `re-frame.hicasso.impl.intent/target-value`'s refusal."
   [tag js-props]
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
@@ -864,21 +793,7 @@
                            (converge! node)))
                        nil))))
   (if (controlled-text-tag? tag js-props)
-    (do
-      (when (file-input-value? tag js-props)
-        (fail! :rf.error/hicasso-file-input-value-prop
-               're-frame.hicasso.impl.controlled/install!
-               (str "A file input has no controlled value. React mirrors a "
-                    "controlled :value onto the element with `element.value = "
-                    "…`, and HTMLInputElement.value refuses every assignment "
-                    "but the empty string on a file input — so this render "
-                    "would throw the engine's own InvalidStateError, naming no "
-                    "view and no recovery. The platform owns the selection: "
-                    "leave the file input uncontrolled and read `.files` in an "
-                    "h/event on :on-change. `:value \"\"` is still accepted — it "
-                    "is the one legal write, and it clears the control.")
-               {:value (unchecked-get js-props "value")}))
-      (case tag
-        "input"    shadow-input
-        "textarea" shadow-textarea))
+    (case tag
+      "input"    shadow-input
+      "textarea" shadow-textarea)
     tag))

@@ -133,7 +133,7 @@
   the way back out, one interaction later and in a different component."
   [concern ikey op]
   (when-not (instance-key? ikey)
-    (fail! :rf.error/hicasso-state-bad-key
+    (fail! :rf.error/hicasso-state-bad-argument
            're-frame.hicasso.impl.state/check-key!
            (str "The instance key for " (pr-str concern) " was "
                 (pr-str ikey) ", which is not a keyword, string, number, "
@@ -190,20 +190,6 @@
 ;; Registration
 ;; ---------------------------------------------------------------------------
 
-;; `concern -> the :default it was registered with`.
-;;
-;; Registration-time bookkeeping, NOT runtime state: nothing reads it
-;; during a render, it holds no per-instance value, and it is the same kind
-;; of thing the sub and event registries themselves are. It exists so a
-;; second `reg-state` for one concern with a DIFFERENT default can be
-;; refused rather than silently changing what every un-set instance reads.
-;;
-;; `defonce`, so a hot reload of THIS namespace does not forget what is
-;; already registered — which is the stricter reading, and the cost is
-;; stated in `reg-state`. (`defonce` takes no docstring in CLJS, which is
-;; why this one is a comment.)
-(defonce ^:private !defaults (atom {}))
-
 (defn reg-state
   "Register a per-instance state `concern`, and mint the two ordinary core
   artefacts a widget needs to use it.
@@ -217,44 +203,24 @@
   `concern` must be a NAMESPACE-QUALIFIED keyword — it is simultaneously a
   sub id, an event id and an `app-db` key, and an unqualified one would
   collide across features on all three at once. `opts` may carry
-  `:default` and nothing else; an unknown option is refused rather than
-  ignored, because an ignored option is a setting the author believes is
-  in force.
-
-  ## What it registers
-
-  - a **sub** under `concern`, reading `[:ui concern ikey]` and falling
-    back to `:default` when the entry is absent;
-  - a **setter event** under `concern`, `[::concern ikey v]`, writing that
-    same path;
-  - the shared **clear event** [[clear-event-id]], if it is not already
-    registered by another concern.
-
-  Both are registered through the ordinary programmatic doors
-  (`re-frame.subs/reg-sub`, `re-frame.events/reg-event`), so everything
-  downstream — caching, the frame's app-db, tooling, a test's
-  `dispatch-sync` — behaves exactly as it does for a hand-written pair.
-
-  ## Registering twice
-
-  Re-registering a concern with the SAME `:default` is a no-op-shaped
-  refresh, which is what a namespace reload is. Re-registering it with a
-  DIFFERENT `:default` **refuses**: the un-set instances of a live widget
-  would otherwise start reading a different value with nothing on screen
-  to say why. That is deliberately the stricter of the two defensible
-  behaviours, and its cost is honest — changing a `:default` in a
-  hot-reloading dev session needs a page reload.
-
+  `:default` and nothing else. Registers, through the ordinary
+  programmatic doors, a **sub** under `concern` reading `[:ui concern
+  ikey]` with `:default` for an absent entry, a **setter event** under
+  `concern` (`[::concern ikey v]`) writing that path, and the shared
+  **clear event** [[clear-event-id]]. Re-registering replaces all three,
+  which is what a namespace reload is: the last `:default` written wins.
   Returns `concern`.
 
-  See the namespace docstring for the tier (`[:ui ::concern ikey]`,
-  app-space and never `:rf/*`), the determinism rule (\"if it would be a
-  good React `:key`, it is a good instance key\"), and the rules an author
-  is taught but this function does not police."
+  The three refusals — an unqualified concern, options that are not a
+  map or carry an unknown key, and a bad instance key at a read or write
+  ([[check-key!]]) — share `:rf.error/hicasso-state-bad-argument`, with
+  the fault named in the reason; each is an argument outside the contract
+  and there is one fix for each. Design record:
+  docs/design/hicasso/decisions.md, HD-009."
   ([concern] (reg-state concern nil))
   ([concern opts]
    (when-not (and (keyword? concern) (namespace concern))
-     (fail! :rf.error/hicasso-state-bad-concern
+     (fail! :rf.error/hicasso-state-bad-argument
             're-frame.hicasso.impl.state/reg-state
             (str "A state concern must be a namespace-qualified keyword; it "
                  "was " (pr-str concern) ". The concern is a sub id, an event "
@@ -262,14 +228,14 @@
                  "with every other feature on the page in three registries.")
             {:concern concern}))
    (when-not (or (nil? opts) (map? opts))
-     (fail! :rf.error/hicasso-state-bad-option
+     (fail! :rf.error/hicasso-state-bad-argument
             're-frame.hicasso.impl.state/reg-state
             (str "reg-state options must be a map; for " (pr-str concern)
                  " they were " (pr-str opts) ".")
             {:concern concern :options opts}))
    (let [unknown (seq (disj (set (keys opts)) :default))]
      (when unknown
-       (fail! :rf.error/hicasso-state-bad-option
+       (fail! :rf.error/hicasso-state-bad-argument
               're-frame.hicasso.impl.state/reg-state
               (str "reg-state accepts :default and nothing else; "
                    (pr-str concern) " was given " (pr-str (vec (sort-by str unknown)))
@@ -277,18 +243,6 @@
                    "believes is in force.")
               {:concern concern :unknown (vec (sort-by str unknown))})))
    (let [default (:default opts)]
-     (when (and (contains? @!defaults concern)
-                (not= default (get @!defaults concern)))
-       (fail! :rf.error/hicasso-state-redefined
-              're-frame.hicasso.impl.state/reg-state
-              (str "The concern " (pr-str concern) " is already registered with "
-                   ":default " (pr-str (get @!defaults concern)) " and cannot be "
-                   "re-registered with " (pr-str default) ". Every instance that "
-                   "has not been written to would start reading a different value "
-                   "with nothing on screen to say why.")
-              {:concern concern
-               :registered-default (get @!defaults concern)
-               :offered-default default}))
      (subs/reg-sub concern
        (fn read-state [db query-v]
          (let [ikey (check-key! concern (nth query-v 1 nil) :read)]
@@ -298,5 +252,4 @@
          (check-key! concern ikey :write)
          {:db (assoc-in db [ui-root concern ikey] v)}))
      (reg-clear-event!)
-     (swap! !defaults assoc concern default)
      concern)))

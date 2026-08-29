@@ -1691,16 +1691,7 @@
   "One body run. The scratch and the probe box are reset
   **unconditionally** — a reset guarded by \"if empty\" would concatenate
   two renders' reads, which is precisely what makes StrictMode's
-  double-invoke correct here rather than additive.
-
-  The two `goog.DEBUG` lines around the lowering are the codec's key
-  warnings asking who is lowering. This is the runtime's sole
-  body-lowering site — `render-body` is its only caller, and the fence's
-  re-runs are idempotent set/clear pairs — so the clear rides the
-  `finally` the frame reset already needed, and a throwing body, a thrown
-  Suspense promise and StrictMode's double-invoke all leave the slot nil
-  rather than stale. In production both lines fold away and
-  `set-lowering-owner!` folds to a return."
+  double-invoke correct here rather than additive."
   [frame-kw body-fn props]
   (set! (.-length scratch) 0)
   (set! (.-probe rstate) nil)
@@ -1710,14 +1701,11 @@
   ;; `shell` because the generation fence can run a body twice for one
   ;; render, and a real count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
-  (when ^boolean js/goog.DEBUG
-    (codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
   (try
     (intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn [] (codec/as-element (body-fn props))))
     (finally
-      (set! (.-frame rstate) nil)
-      (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
+      (set! (.-frame rstate) nil))))
 
 ;; The dev-only own property on a read-set entry: a `js/Map` from each
 ;; declared view's name to its committed-reference count and the `subscribe`
