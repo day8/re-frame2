@@ -226,6 +226,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.controlled :as controlled]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.intent :as intent]))
 
 ;; ---------------------------------------------------------------------------
@@ -1227,14 +1228,14 @@
 (defn- verify-fixtures!
   "Refuse if the body read a key no fixture answered.
 
-  The read set is the runtime's own (`collector/reads-of` over the entry
+  The read set is the runtime's own (`runtime/reads-of` over the entry
   the render resolved), so this asks what the body ACTUALLY read rather
   than what its source appears to read — a read inside a `when` that was
   not taken is correctly absent, and a read from an inlined helper is
   correctly present."
   [frame-kw fixtures entry]
   (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) fixtures)
-        missing  (remove supplied (collector/reads-of entry))]
+        missing  (remove supplied (runtime/reads-of entry))]
     (when (seq missing)
       (refuse! :rf.error/hicasso-test-missing-read-fixture
                (str "the body read " (count missing) " subscription"

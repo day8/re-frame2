@@ -38,7 +38,7 @@
      visible before any DOM is read and unaffected by any re-render
      React performs afterwards.
 
-  2. **Body runs** (`impl.collector/body-runs`, monotone and always
+  2. **Body runs** (`test.runtime/body-runs`, monotone and always
      on). It counts bodies actually INVOKED, so a commit that re-ran a
      boundary it should not have is a number, not an appearance. React's
      own end-of-event repair *raises* this count rather than hiding it —
@@ -71,9 +71,9 @@
   (:require [cljs.test :refer-macros [is]]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.trace.tooling :as trace-tooling]))
 
 ;; ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@
   one key, and `(+ 1 1)` and `2` are different numbers on different
   keys."
   [sub-key]
-  (count (inventory/cell-readers sub-key)))
+  (count (runtime/cell-readers sub-key)))
 
 (defn frame-memo-frames
   "The frames the arm's frame memo holds a row for.
@@ -223,7 +223,7 @@
   over that bundle. Acquiring the dispatch acquires the bundle in the
   same act, which is what stops the two from ever describing different
   incarnations — and which is why a render, not a dispatch, is now what
-  fills this. `impl.inventory/stats`'s `:frames` counts the same rows."
+  fills this. `test.runtime/stats`'s `:frames` counts the same rows."
   []
   (set (keys @frames/!frame-ops)))
 
@@ -241,9 +241,9 @@
   a reading of everything since the page loaded — the counter is monotone
   by design and `reset-runtime!` deliberately leaves it alone."
   [f]
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   (f)
-  (collector/body-runs))
+  (runtime/body-runs))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown census — read BETWEEN the unmount and the reset
@@ -261,7 +261,7 @@
   asserting them here would be asserting a schedule rather than a
   release — [[quiesced!]] is where those two become readable."
   []
-  (select-keys (inventory/residue) [:cell-refs :boundaries :edges]))
+  (select-keys (runtime/residue) [:cell-refs :boundaries :edges]))
 
 (defn teardown-census!
   "Unmount `handle`, read the census, and only THEN finish the release.
@@ -284,10 +284,10 @@
 
 (defn quiesced!
   "The runtime's own settling point — every reaper armed before this call
-  has run. `impl.inventory/quiesced!`, re-exported so a suite settles
+  has run. `test.runtime/quiesced!`, re-exported so a suite settles
   against the runtime's horizon rather than against a copy of it."
   []
-  (inventory/quiesced!))
+  (runtime/quiesced!))
 
 ;; ---------------------------------------------------------------------------
 ;; Server bytes, and the node identity that survives them

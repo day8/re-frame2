@@ -67,7 +67,7 @@
      layered runtime there is nearly always a second defence, and a bare throw
      assertion buys the second defence's silence rather than the first one's
      conduct.
-  2. **Reader membership on the refused key** (`inventory/cell-readers`),
+  2. **Reader membership on the refused key** (`runtime/cell-readers`),
      against membership on the key the body legally read. A refusal that
      also *recorded* — a key pushed on the scratch before the guard, an
      edge acquired at the commit that followed — paints an identical page
@@ -126,8 +126,8 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
@@ -236,11 +236,11 @@
   [o]
   (dissoc (:refused o) :reason))
 
-(defn- readers-of [query-v] (count (inventory/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- ownership [] (dissoc (inventory/residue) :entries))
+(defn- ownership [] (dissoc (runtime/residue) :entries))
 
 (defn- app
   "The hicasso subtree: the frame provider over a root element."
@@ -301,10 +301,10 @@
   gate that cannot go red (`impl.mount/unmount!`)."
   [handle]
   (mount/unmount! handle)
-  (.then (inventory/quiesced!)
+  (.then (runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (inventory/residue))
+                  (runtime/residue))
                "teardown is exact: zero residue after quiescence")
            (mount/release! handle)
            nil)))
@@ -519,7 +519,7 @@
                           of the mount"
                   (is (zero? (readers-of [:red/escaped])))
                   (is (zero? (readers-of [:red/escaped-2])))
-                  (is (nil? (inventory/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
 
                 (testing "while each body's own read is acquired exactly
                           once, and the runtime holds the two boundaries and
@@ -541,7 +541,7 @@
                       entry (collector/last-reads)]
                   (testing "the identical reads are legal in a window"
                     (is (= #{(k [:red/escaped]) (k [:red/escaped-2])}
-                           (collector/reads-of entry)))))
+                           (runtime/reads-of entry)))))
 
                 (exercised! :effect/layout)
                 (exercised! :effect/passive)
@@ -560,7 +560,7 @@
           (done))
       (let [_      (seeded!)
             _      (arm-gate!)
-            before (collector/body-runs)
+            before (runtime/body-runs)
             handle (mount-concurrent!
                      (mount/fresh-container!)
                      (react/createElement
@@ -574,7 +574,7 @@
                 (testing "the premise: React RAN the body — it took its read
                           and then threw the thenable — and then threw the
                           attempt away"
-                  (is (pos? (- (collector/body-runs) before)))
+                  (is (pos? (- (runtime/body-runs) before)))
                   (is (nil? (text-at handle "#painted"))))
 
                 (testing "and the abandoned attempt acquired nothing, so the
@@ -603,7 +603,7 @@
                 (testing "the refused key was not acquired by the retry that
                           followed it"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (inventory/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
 
                 (testing "and the retry acquired exactly its own read set:
                           one reader per key, with no second registration
@@ -670,7 +670,7 @@
 
                 (testing "the refused key was not acquired at the reveal"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (inventory/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
 
                 (testing "while each revealed boundary holds exactly its own
                           read, once. Measured: with one boundary here this

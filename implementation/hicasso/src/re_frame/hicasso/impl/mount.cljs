@@ -116,8 +116,8 @@
 
   An ordinary root gets no wrapper at all, which keeps the tree the whole
   bench lane measures free of it — no extra fiber, no extra
-  passive effect, no context provider, and nothing new in
-  `re-frame.hicasso.impl.inventory/retained-inventory`."
+  passive effect, no context provider, and nothing new retained per
+  boundary."
   [handle hiccup]
   (let [app (provider (:frame handle)
                       (codec/root-element (:frame handle) hiccup))]

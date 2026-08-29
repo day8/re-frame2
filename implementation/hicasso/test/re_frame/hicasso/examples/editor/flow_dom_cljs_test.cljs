@@ -32,7 +32,7 @@
   read off [[re-frame.hicasso.test.mounted/bodies-run]].
 
   **That door is the kit's, and the budget is stated through it.**
-  `impl.collector/body-runs` is the internal behind it, and a test is
+  `test.runtime/body-runs` is the internal behind it, and a test is
   ALLOWED that reach — the fence in `examples.witness-surface-cljs-test`
   is over APPLICATION namespaces — but an application's own witness
   states its budget in the vocabulary of the facade that mounted it.

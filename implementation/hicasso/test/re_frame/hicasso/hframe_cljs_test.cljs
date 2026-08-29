@@ -30,6 +30,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.todo-support :as todo]
             [re-frame.test-support :as test-support]))
 
@@ -191,7 +192,7 @@
            one — it is render-constant per boundary and resolved once by
            the shell"
     (collector/render-body frame-a (fn [_] [:li (str (intent/hframe))]) {})
-    (is (= [] (vec (collector/reads-of (collector/last-reads))))))
+    (is (= [] (vec (runtime/reads-of (collector/last-reads))))))
 
   (testing "and adding it to a READING body changes the read set not at
            all — same keys, same order. The control is the point: the
@@ -200,13 +201,13 @@
     (collector/render-body frame-a
                            (fn [_] [:li (str (collector/sub [:hicasso.todo/done? 0]))])
                            {})
-    (let [without (vec (collector/reads-of (collector/last-reads)))]
+    (let [without (vec (runtime/reads-of (collector/last-reads)))]
       (collector/render-body frame-a
                              (fn [_]
                                [:li (str (intent/hframe))
                                 (str (collector/sub [:hicasso.todo/done? 0]))])
                              {})
-      (let [with (vec (collector/reads-of (collector/last-reads)))]
+      (let [with (vec (runtime/reads-of (collector/last-reads)))]
         (is (= 1 (count without)) "precondition: the control body read exactly one key")
         (is (= without with)
             (str "the frame read must contribute nothing to the collector: "

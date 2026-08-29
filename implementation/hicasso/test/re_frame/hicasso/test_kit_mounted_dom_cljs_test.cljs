@@ -69,7 +69,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.test.mounted :as hm]
@@ -607,7 +607,7 @@
               (is (identical? plain-child (:head data))
                   "the offending head is the one the body wrote"))))
 
-        (-> (inventory/quiesced!)
+        (-> (runtime/quiesced!)
             (.then
               (fn [_]
                 (testing "and the page is as the call found it. The frame this
@@ -661,7 +661,7 @@
                        (is (instance? ExceptionInfo e))
                        (is (= :rf.error/hicasso-empty-vector
                               (:rf.error/id (ex-data e)))))))
-            (.then (fn [_] (inventory/quiesced!)))
+            (.then (fn [_] (runtime/quiesced!)))
             (.then (fn [_]
                      (testing "the frame is destroyed and no counter moved"
                        (is (= before (hm/census))
@@ -736,7 +736,7 @@
                          (is (keyword? frame))
                          (is (not (contains? (set (rf/frame-ids)) frame))
                              (str frame " is still registered"))))))
-            (.then (fn [_] (inventory/quiesced!)))
+            (.then (fn [_] (runtime/quiesced!)))
             (.then (fn [_]
                      (.removeEventListener js/window "error" on-error)
                      (is (= before (hm/census))

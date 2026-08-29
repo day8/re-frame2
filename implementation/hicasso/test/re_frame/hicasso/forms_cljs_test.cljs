@@ -52,6 +52,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
             ["react-dom/server" :as react-dom-server]))
@@ -678,7 +679,7 @@
       (is (some? (re-find #"<input" (:html controlled)))))
     (testing "an uncontrolled element costs the shell's two and nothing"
       (is (= ["useContext" "useSyncExternalStore"] (:hooks bare)))
-      (is (= (count collector/shell-hook-ledger) (count (:hooks bare)))))
+      (is (= (count runtime/shell-hook-ledger) (count (:hooks bare)))))
     (testing "a HAND-WRITTEN controlled field costs a third — the shadow
               `useState` the codec's controlled component holds, which
               every controlled field on any page pays and which I9 does
@@ -707,6 +708,6 @@
                     (count (:hooks (server-render! [hand-written-field {}])))))))
     (testing "and the shell's ledger did not move — no `useRef`, and the
               one `useState` is the element's rather than a boundary's"
-      (is (= 2 (count collector/shell-hook-ledger)))
+      (is (= 2 (count runtime/shell-hook-ledger)))
       (is (= [] (filterv #{"useRef"} hooks)))
       (is (= 1 (count (filterv #{"useState"} hooks)))))))

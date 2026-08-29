@@ -60,8 +60,8 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.todo-support :as todo]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -172,7 +172,7 @@
             (mount/release! @handle)
             (is (= ["useContext" "useSyncExternalStore"] names)
                 (str "hooks React was asked for: " (pr-str names)))
-            (is (= (count collector/shell-hook-ledger) (count names))
+            (is (= (count runtime/shell-hook-ledger) (count names))
                 "and the declared ledger is still the measured one")))))))
 
 ;; ---------------------------------------------------------------------------
@@ -282,7 +282,7 @@
                    one boundary, one edge per read. `h/frame` appends no
                    sub-key, so a double-invoke cannot double anything it
                    contributes — because it contributes nothing"
-            (let [{:keys [entries boundaries edges]} (inventory/stats)]
+            (let [{:keys [entries boundaries edges]} (runtime/stats)]
               (is (= 1 entries))
               (is (= 1 boundaries))
               (is (= 1 edges) "the one real read, counted once")))

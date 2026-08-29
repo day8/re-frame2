@@ -40,7 +40,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.error :as error]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
             ["react" :as react]))
@@ -650,11 +650,11 @@
 
   (testing "and the runtime's own retention tables are as they were — the
             render acquired no cell, took no reference and recorded no edge"
-    (let [before (dissoc (inventory/residue) :entries)]
+    (let [before (dissoc (runtime/residue) :entries)]
       (ht/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
-      (is (= before (dissoc (inventory/residue) :entries)))
+      (is (= before (dissoc (runtime/residue) :entries)))
       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-             (dissoc (inventory/residue) :entries))
+             (dissoc (runtime/residue) :entries))
           "and the baseline itself is the empty one, so the equality above
            is not two identical wrong numbers")))
 
@@ -684,9 +684,9 @@
 
   (testing "and the body-run counter moved, so the row above is not green
             for a body that never ran"
-    (collector/reset-body-runs!)
+    (runtime/reset-body-runs!)
     (ht/tree [greeting-body {:who "ada"}])
-    (is (= 1 (collector/body-runs)))))
+    (is (= 1 (runtime/body-runs)))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the projections' own refusals

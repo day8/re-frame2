@@ -39,7 +39,7 @@
   across a correct hand-over and green across one that retained the
   predecessor's subscription registration too — a leak costs no pixels.
   What distinguishes them is *which object* is holding the key's cell
-  afterwards, and that is [[re-frame.hicasso.impl.inventory/cell-readers]]:
+  afterwards, and that is [[re-frame.hicasso.test.runtime/cell-readers]]:
   the surviving reader must be the successor's registration, by identity,
   not merely one reader rather than two. A count of live readers is a
   weaker instrument than it looks — a runtime that leaked the predecessor
@@ -71,7 +71,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::hmr-remount)
@@ -81,7 +81,7 @@
 
 ;; `:async? true` — `cljs.test` hard-errors on a fn-form fixture in a namespace
 ;; containing an `(async done …)` test, and a residue baseline is only honest
-;; past the runtime's own reap horizon (`inventory/quiesced!`).
+;; past the runtime's own reap horizon (`runtime/quiesced!`).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
@@ -173,7 +173,7 @@
      :release  release
      ;; The registration this commit just installed: the newest reader on
      ;; the key's cell. It is the object the hand-over is judged by.
-     :reg      (peek (inventory/cell-readers sub-key))}))
+     :reg      (peek (runtime/cell-readers sub-key))}))
 
 (defn- same-object?
   "`identical?`, answered as a plain boolean, and every identity assertion
@@ -195,18 +195,18 @@
   "Is `reg` among the registrations currently reading the label key?
   Answered as a boolean, for [[same-object?]]'s reason."
   [reg]
-  (boolean (some #(same-object? % reg) (inventory/cell-readers sub-key))))
+  (boolean (some #(same-object? % reg) (runtime/cell-readers sub-key))))
 
 (defn- settled
   "Run `f` once the runtime's own reapers have run — the only honest place
   to read a residue baseline."
   [f]
-  (.then (inventory/quiesced!) f))
+  (.then (runtime/quiesced!) f))
 
 (def ^:private one-boundary {:cells 1 :cell-refs 1 :boundaries 1 :edges 1})
 (def ^:private nothing      {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- retention [] (dissoc (inventory/residue) :entries))
+(defn- retention [] (dissoc (runtime/residue) :entries))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The head is re-minted, so the element type changes — the whole cause
@@ -314,7 +314,7 @@
               (testing "and it is the SUCCESSOR's registration, by identity —
                         the assertion a count cannot make, and the one a
                         rendered-markup assertion cannot make at all"
-                (let [readers (inventory/cell-readers sub-key)]
+                (let [readers (runtime/cell-readers sub-key)]
                   (is (= 1 (count readers)))
                   (is (true? (same-object? reg2 (first readers)))
                       "the survivor is the generation that is mounted")
@@ -328,7 +328,7 @@
                             — zero residue after quiescence, invariant I5's
                             exact-teardown clause across a reload"
                     (is (= nothing (retention)))
-                    (is (= 0 (:entries (inventory/residue)))
+                    (is (= 0 (:entries (runtime/residue)))
                         "the shared read-set entry is reaped too"))
                   (done))))))))))
 
@@ -352,7 +352,7 @@
           (fn [_]
             (is (= one-boundary (retention))
                 "same terminal retention as destroy-then-create")
-            (is (true? (same-object? reg2 (first (inventory/cell-readers sub-key))))
+            (is (true? (same-object? reg2 (first (runtime/cell-readers sub-key))))
                 "and the successor still holds the key")
             ((:release m2))
             (settled (fn [_] (is (= nothing (retention))) (done)))))))))
@@ -392,7 +392,7 @@
 
             (testing "RED — and the identity assertion names the culprit,
                       which a count could not"
-              (let [readers (inventory/cell-readers sub-key)]
+              (let [readers (runtime/cell-readers sub-key)]
                 (is (= 2 (count readers)))
                 (is (true? (holds-key? reg1))
                     "the retired generation is still reading the key")
@@ -416,7 +416,7 @@
                           instrument reports the clean hand-over, so the red
                           above was the leak and not a broken witness"
                   (is (= one-boundary (retention)))
-                  (is (true? (same-object? reg2 (first (inventory/cell-readers sub-key))))))
+                  (is (true? (same-object? reg2 (first (runtime/cell-readers sub-key))))))
                 ((:release m2))
                 (settled (fn [_] (is (= nothing (retention))) (done)))))))))))
 
@@ -441,14 +441,14 @@
         (fn [_]
           (is (= one-boundary (retention))
               "three saves later, still exactly one cell, one reader, one edge")
-          (is (true? (same-object? (:reg @!live) (first (inventory/cell-readers sub-key))))
+          (is (true? (same-object? (:reg @!live) (first (runtime/cell-readers sub-key))))
               "and the holder is the newest generation")
-          (is (= 1 (:entries (inventory/residue)))
+          (is (= 1 (:entries (runtime/residue)))
               "one read-set entry, shared across every generation and handed
                from each to the next rather than re-minted per save")
           ((:release @!live))
           (settled
             (fn [_]
               (is (= nothing (retention)))
-              (is (= 0 (:entries (inventory/residue))))
+              (is (= 0 (:entries (runtime/residue))))
               (done))))))))

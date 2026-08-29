@@ -323,8 +323,7 @@ def arm_tooling(page: str) -> list[str]:
     for name in sorted(scripts):
         if "hicasso" in name.lower():
             population.append((name, "npm script"))
-    for ns in ("re-frame.hicasso.evidence", "re-frame.hicasso.tool",
-               "re-frame.hicasso.impl.evidence", "re-frame.hicasso.impl.inventory"):
+    for ns in ("re-frame.hicasso.evidence", "re-frame.hicasso.tool"):
         population.append((ns, "tool namespace"))
 
     for name, kind in population:

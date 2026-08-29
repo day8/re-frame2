@@ -124,6 +124,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.overlay :as impl-overlay]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.overlay :as overlay]
             [re-frame.hicasso.test :as ht]
             [re-frame.hicasso.trusted-input-support :as trusted]
@@ -1240,7 +1241,7 @@
                       declares them"
               (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
                   (str "raw: " (pr-str names)))
-              (is (= (count collector/shell-hook-ledger) 2)
+              (is (= (count runtime/shell-hook-ledger) 2)
                   "and the declared shell ledger is still two"))
 
             (let [tail (vec (distinct (drop 2 names)))]

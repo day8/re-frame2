@@ -761,9 +761,10 @@ cost this panel its `:require` lines and nothing else. The target was not a
 rename. `re-frame.hicasso.tool` publishes FOUR reads —
 `read-mounted-boundaries`, `read-read-attribution`, `read-intents`,
 `explain-render` — over a runtime that mints no boundary identity and ships no
-manifest (`re-frame.hicasso.impl.evidence`: *"No evidence subsystem ships: no
-manifest, no registry, no buffering"*). Only `explain-render` even shared a
-name.
+manifest (the runtime's former `impl.evidence` sink seam stated it — *"No
+evidence subsystem ships: no manifest, no registry, no buffering"* — and
+rf2-6c12m.17 removed that seam outright, since the projection never attached
+to it). Only `explain-render` even shared a name.
 
 | What §3.4 asked | Freehand field | On `re-frame.hicasso.tool` |
 |---|---|---|

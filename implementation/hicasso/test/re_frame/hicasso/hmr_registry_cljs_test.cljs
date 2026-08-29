@@ -20,7 +20,7 @@
 
   A boundary re-renders when React's `useSyncExternalStore` decides the
   store moved, which it decides by comparing the number `getSnapshot`
-  returns; [[re-frame.hicasso.impl.collector/snapshot-of]] is that exact
+  returns; [[re-frame.hicasso.test.runtime/snapshot-of]] is that exact
   number. When a save re-registers a subscription a mounted boundary
   reads, the number **does not move** at the instant of the save — the
   key is held, so it contributes its cell's frozen stamp — while the read
@@ -50,7 +50,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.test-support :as test-support]))
 
@@ -148,17 +148,17 @@
   ;; term in every key's live contribution and would render identically.
   (seeded! "A")
   (let [{:keys [entry notified release]} (mount-boundary! label-body)
-        snapshot-a (collector/snapshot-of entry)]
+        snapshot-a (runtime/snapshot-of entry)]
 
     ;; NEGATIVE CONTROL, taken FIRST so the instrument is proven live before
     ;; it is asked to report a tie.
     (rf/with-frame frame-id (rf/dispatch-sync [:hmr-registry/seed "A2"]))
-    (is (> (collector/snapshot-of entry) snapshot-a)
+    (is (> (runtime/snapshot-of entry) snapshot-a)
         "an ordinary write MOVES the number React re-reads — so a tie below
          is the save's property and not a dead instrument")
     (is (= 1 @notified) "and notifies the committed boundary exactly once")
 
-    (let [snapshot-before (collector/snapshot-of entry)
+    (let [snapshot-before (runtime/snapshot-of entry)
           notified-before @notified
           epoch-before    (generation/registry-epoch)]
 
@@ -172,12 +172,12 @@
       (testing "and the mounted boundary's number did not move, so React
                 schedules nothing: a held key contributes its cell's frozen
                 stamp, which no registration touches"
-        (is (= snapshot-before (collector/snapshot-of entry)))
+        (is (= snapshot-before (runtime/snapshot-of entry)))
         (is (= notified-before @notified)))
 
       (testing "nor was its cell disturbed — the first-registration scan
                 reaches only cells holding the id being registered"
-        (is (some? (inventory/cell-reaction label-key)))))
+        (is (some? (runtime/cell-reaction label-key)))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -200,20 +200,20 @@
                                        (fn [_] (collector/sub [:hmr-registry/staged]))
                                        {})
         staged-entry (collector/last-reads)
-        held-before   (collector/snapshot-of (:entry held))
-        staged-before (collector/snapshot-of staged-entry)]
+        held-before   (runtime/snapshot-of (:entry held))
+        staged-before (runtime/snapshot-of staged-entry)]
 
     (rf/reg-sub :hmr-registry/unrelated-to-both (fn [db _] (:label db)))
 
     (testing "the in-flight boundary's number MOVES — conservative in the
               safe direction, which is the only direction a monotone term
               added to a monotone sum can err in"
-      (is (> (collector/snapshot-of staged-entry) staged-before)))
+      (is (> (runtime/snapshot-of staged-entry) staged-before)))
 
     (testing "and the mounted boundary's number TIES, on the very same
               registration — so the term's reach is exactly the set of keys
               inside a render-commit gap and not one key more"
-      (is (= held-before (collector/snapshot-of (:entry held)))))
+      (is (= held-before (runtime/snapshot-of (:entry held)))))
 
     ((:release held))))
 
@@ -233,17 +233,17 @@
     (seeded! "hello")
     (let [{:keys [entry notified release value]} (mount-boundary! label-body)]
       (is (= "hello" value) "the boundary committed against the original sub")
-      (is (some? (inventory/cell-reaction label-key)) "holding a live reaction")
+      (is (some? (runtime/cell-reaction label-key)) "holding a live reaction")
 
       ;; NEGATIVE CONTROL, taken FIRST. Saving a file that registers OTHER
       ;; subscriptions must leave this cell's reaction in place — so the drop
       ;; measured below is caused by editing THIS subscription, and not by
       ;; the mere fact that a registration happened.
       (rf/reg-sub :hmr-registry/some-other-sub (fn [db _] (:label db)))
-      (is (some? (inventory/cell-reaction label-key))
+      (is (some? (runtime/cell-reaction label-key))
           "an unrelated registration leaves the held reaction intact")
 
-      (let [snapshot-before (collector/snapshot-of entry)
+      (let [snapshot-before (runtime/snapshot-of entry)
             notified-before @notified]
 
         ;; THE SAVE: the same id, a changed computation. This is the edit.
@@ -252,12 +252,12 @@
         (testing "synchronously the held reference is gone — the replacement
                   reaches the arm as a disposal, and the repair's first phase
                   drops the reaction rather than deref a retired computation"
-          (is (nil? (inventory/cell-reaction label-key))))
+          (is (nil? (runtime/cell-reaction label-key))))
 
         (testing "yet React has been told nothing: the key is held, so its
                   contribution is the cell's frozen stamp and no registration
                   moves it"
-          (is (= snapshot-before (collector/snapshot-of entry))
+          (is (= snapshot-before (runtime/snapshot-of entry))
               "the number React re-reads TIES across the save")
           (is (= notified-before @notified)
               "and no re-render is scheduled"))
@@ -270,7 +270,7 @@
           (is (= "HELLO" (collector/render-body frame-id label-body {}))))
 
         (at-the-checkpoint
-          #(some? (inventory/cell-reaction label-key))
+          #(some? (runtime/cell-reaction label-key))
           "the edited-sub repair"
           done
           (fn [_turns]
@@ -279,9 +279,9 @@
                       the new registration, moved the number and delivered the
                       notification, so a boundary that painted before the save
                       is told to correct itself before the next paint"
-              (is (some? (inventory/cell-reaction label-key))
+              (is (some? (runtime/cell-reaction label-key))
                   "re-wired rather than left deaf")
-              (is (> (collector/snapshot-of entry) snapshot-before)
+              (is (> (runtime/snapshot-of entry) snapshot-before)
                   "the number React re-reads has moved")
               (is (> @notified notified-before)
                   "the repair is delivered, not merely performed"))
@@ -308,7 +308,7 @@
         ;; makes this row's own rationale — "a bundle captured before the
         ;; reload" — name something that exists.
         row-before    (collector/frame-row frame-id)
-        frames-before (:frames (inventory/stats))]
+        frames-before (:frames (runtime/stats))]
 
     (rf/make-frame {:id frame-id})
 
@@ -321,7 +321,7 @@
 
     (testing "and the arm's frame-op memo is untouched, so a bundle captured
               before the reload still addresses the same incarnation"
-      (is (= frames-before (:frames (inventory/stats)))
+      (is (= frames-before (:frames (runtime/stats)))
           "the reload added no row")
       (is (true? (same-object? row-before (collector/frame-row frame-id)))
           "and it is the SAME row object — so the bundle captured before the

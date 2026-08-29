@@ -52,6 +52,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.state :as state]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.test-support :as test-support]))
 
@@ -110,7 +111,7 @@
   (state/reg-state label {:default ""})
   (rf/make-frame {:id frame-id})
   (reset-runs!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   frame-id)
 
 (defn- panels [handle]
@@ -188,7 +189,7 @@
                  "and an event, and a sub read through the ambient collector is "
                  "not a hook. A third call here is a budget breach (HD-020(b)) "
                  "and would mean this sugar had grown machinery."))
-        (is (= (count collector/shell-hook-ledger) (count names))
+        (is (= (count runtime/shell-hook-ledger) (count names))
             "and the declared ledger is still the measured one — reg-state
              added nothing to it")
         (is (not-any? #{"useRef" "useState"} names)

@@ -50,7 +50,7 @@
      cleanup, installed at React's own seam and toggled at run time.
 
   Nothing here reaches past the authoring surface to make an assertion
-  pass. The identity readers are `re-frame.hicasso.impl.inventory`'s
+  pass. The identity readers are `re-frame.hicasso.test.runtime`'s
   published witness readers, which is what they are for."
   (:require ["react" :as react]
             [hicasso-hmr-testbed.views :as views]
@@ -59,7 +59,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]))
+            [re-frame.hicasso.test.runtime :as runtime]
+            [re-frame.hicasso.native :as n]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -224,7 +225,7 @@
   namespace owns.
 
   The `mapv` is a defensive copy and it is load-bearing, not hygiene.
-  `inventory/cell-readers` answers `(vec (.-readers cell))`, and the
+  `runtime/cell-readers` answers `(vec (.-readers cell))`, and the
   cell's reader list is a JS array the collector mutates IN PLACE — a
   `.push` on acquire (collector.cljs, `acquire-cell!`) and a splice on
   release. A ClojureScript vector built from a JS array can share that
@@ -244,7 +245,7 @@
   nothing is claimed here about whether the runtime should also protect
   this one."
   [frame-kw query]
-  (mapv identity (inventory/cell-readers (sub-key frame-kw query))))
+  (mapv identity (runtime/cell-readers (sub-key frame-kw query))))
 
 (defn- capture-baseline!
   "Freeze the objects the next comparison is made against: the view head
@@ -414,7 +415,7 @@
     #js {:reloads       (fn [] @!reloads)
          :model         (fn [frame-name]
                           (js/JSON.stringify (clj->js (rf/app-db-value (frame-of frame-name)))))
-         :residue       (fn [] (clj->js (inventory/residue)))
+         :residue       (fn [] (clj->js (runtime/residue)))
          :capture       (fn [] (capture-baseline!))
          :identity      (fn [] (identity-report))
          :instance      (fn [frame-name]
@@ -425,7 +426,7 @@
          :note          (fn [frame-name text]
                           (some-> ^js (get-in @!instances [(frame-of frame-name) :current])
                                   (.note text)))
-         :quiesce       (fn [] (inventory/quiesced!))
+         :quiesce       (fn [] (runtime/quiesced!))
          :sabotage      (fn [on?] (vreset! !sabotage? (boolean on?)) @!sabotage?)
          :staleNotified (fn [] @!stale-notified)
          :setLabel      (fn [frame-name label]

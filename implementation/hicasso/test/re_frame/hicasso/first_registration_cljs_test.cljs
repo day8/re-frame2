@@ -59,7 +59,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::first-registration)
@@ -120,7 +120,7 @@
                 the substrate declined to cache, cached anyway, where
                 nothing evicts it"
         (is (nil? value))
-        (is (some? (inventory/cell-reaction late-key))))
+        (is (some? (runtime/cell-reaction late-key))))
 
       ;; NEGATIVE CONTROL, taken FIRST, so the drop measured below is
       ;; attributable to registering THIS id rather than to the mere fact
@@ -128,7 +128,7 @@
       ;; holding the id being registered, and this is the assertion that
       ;; makes that narrowing a measured property.
       (rf/reg-sub :firstreg/unrelated (fn [db _] (:late db)))
-      (is (some? (inventory/cell-reaction late-key))
+      (is (some? (runtime/cell-reaction late-key))
           "an unrelated first registration leaves this cell's reaction in place")
 
       (let [notified-before @notified]
@@ -140,7 +140,7 @@
 
         (testing "synchronously the held recovery is dropped — the repair's
                   first phase, which is all a correct READ needs"
-          (is (nil? (inventory/cell-reaction late-key))))
+          (is (nil? (runtime/cell-reaction late-key))))
 
         (testing "and a body run inside the window already answers with the
                   real handler, because a cell with no reaction takes the
@@ -149,7 +149,7 @@
           (is (= 5 (read-late!))))
 
         (support/at-the-checkpoint
-          #(some? (inventory/cell-reaction late-key))
+          #(some? (runtime/cell-reaction late-key))
           "the first-registration repair"
           done
           (fn [_turns]
@@ -158,7 +158,7 @@
                       to correct itself — it painted nil, and a correction
                       that arrived in a later task could arrive after the
                       paint"
-              (is (some? (inventory/cell-reaction late-key)))
+              (is (some? (runtime/cell-reaction late-key)))
               (is (> @notified notified-before)))
 
             (testing "and the property the repair exists for: a LATER write

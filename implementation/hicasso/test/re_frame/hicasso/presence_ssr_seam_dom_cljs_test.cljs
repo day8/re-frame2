@@ -195,6 +195,7 @@
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.motion :as motion]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
@@ -275,7 +276,7 @@
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [::seed "alpha"]))
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- app-element

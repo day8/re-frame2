@@ -7,7 +7,7 @@
   shortest way to it. This one is the opposite: the mounting, the
   re-rendering and the teardown are all written through
   `re-frame.hicasso` and nothing else, because what is under test IS the
-  public surface. `impl.collector`, `impl.inventory` and `impl.mount` are
+  public surface. `impl.collector`, `test.runtime` and `impl.mount` are
   required for INSTRUMENTS only — the cell table, the reader lists, the
   body counter, `browser?` and `fresh-container!` — never to perform an
   act the door is supposed to be able to perform.
@@ -47,8 +47,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-a ::frame-a)
@@ -116,7 +116,7 @@
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- bare!
@@ -130,14 +130,14 @@
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- live-frame? [frame-kw] (some? (frame/frame-incarnation-token frame-kw)))
 
 (defn- cell-keys [] (set (keys @collector/!cells)))
 
-(defn- readers-of [sub-key] (count (inventory/cell-readers sub-key)))
+(defn- readers-of [sub-key] (count (runtime/cell-readers sub-key)))
 
 (defn- node-at [handle sel] (.querySelector (:container handle) sel))
 
@@ -247,10 +247,10 @@
 
         (testing "the door re-renders the EXISTING root — the new tree is on
                   the page and the boundary body ran again"
-          (collector/reset-body-runs!)
+          (runtime/reset-body-runs!)
           (h/render! a [panel {:tag "second"}])
           (is (= "second" (attr-at a ".panel" "data-tag")))
-          (is (pos? (collector/body-runs))
+          (is (pos? (runtime/body-runs))
               "the re-render did not run the boundary body"))
 
         (testing "and it is a RE-RENDER, not a remount: the very DOM node

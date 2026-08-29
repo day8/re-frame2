@@ -9,7 +9,7 @@
   *how* a boundary's body reaches subscription values, and *the fence*
   that keeps one render pass on one commit.
 
-  ## The five siblings, and why the grouping is what it is
+  ## The siblings, and why the grouping is what it is
 
   The runtime is carved into owned modules so that file fences are real
   files. What stays together here is what could not be separated:
@@ -20,8 +20,10 @@
   | [[re-frame.hicasso.impl.generation]] | the flush generation, the registry epoch and `commit-basis` |
   | [[re-frame.hicasso.impl.frames]] | the one frame-locked memo row per id — incarnation, captured bundle and ambient dispatch coupled — its lazy replacement and the reset door |
   | [[re-frame.hicasso.impl.roots]] | the hydration adoption window — one per root, and NOT this module's to empty |
-  | [[re-frame.hicasso.impl.evidence]] | the dev-only sink seam |
-  | [[re-frame.hicasso.impl.inventory]] | what the runtime RETAINS: the declared census and the measured one |
+
+  What the runtime RETAINS is counted from outside it: the test kit's
+  `re-frame.hicasso.test.runtime` reads the tables this file exposes, so
+  no instrument lives on the hot path.
 
   The grouping above is a dependency fact, not a taste. The render
   context, the commit and the shells are one strongly-connected
@@ -395,7 +397,6 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.error :as error :refer [fail!]]
-            [re-frame.hicasso.impl.evidence :as evidence]
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
             [re-frame.hicasso.impl.intent :as intent]
@@ -425,20 +426,21 @@
 ;; body does run inside it — and its reads belong to the enclosing
 ;; boundary, which is exactly the collector's helper-donated read.
 
-(def ^:private ^js rstate
+(def ^js rstate
   "The render slots: the frame the running body resolved (nil outside a
   render, which is what makes `(sub …)` outside a boundary a loud error
   rather than a silent read of whichever frame happened to be ambient),
-  the two read-surface provenance flags, the entry the last body
-  resolved, and the cold-probe box the running body's cold reads share
-  ([[cold-read!]] — nil until a cold read mints it, reset by every
-  [[run-once]] exactly as the scratch is). One JS object for the whole
-  runtime — not one per render."
-  #js {"frame"    nil "collector" false "grouped" false "entry" nil "probe" nil
-       ;; The always-on body-run counter — one integer
-       ;; on the object that already exists, bumped by [[run-once]] and
-       ;; read by [[body-runs]].
-       "bodyRuns" 0})
+  the entry the last body resolved, the cold-probe box the running body's
+  cold reads share ([[cold-read!]] — nil until a cold read mints it, reset
+  by every [[run-once]] exactly as the scratch is), and the always-on
+  body-run counter — one integer on the object that already exists,
+  bumped by [[run-once]]. One JS object for the whole runtime — not one
+  per render.
+
+  Public so the test kit's runtime door (`re-frame.hicasso.test.runtime`)
+  can read `bodyRuns` off it without this file growing a reader per
+  instrument. It is this file's to WRITE, and every writer is here."
+  #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0})
 
 (def ^:private ^js scratch
   "**The one scratch buffer**, reused by every body and reset by
@@ -566,9 +568,10 @@
 ;; table actually sees, a `.push` and an `.indexOf` beat a persistent set
 ;; and retain one object rather than a container per membership.
 
-;; `!cells` is public so `re-frame.hicasso.impl.inventory` can count what
-;; the table retains without this file growing a reader per instrument.
-;; It is the collector's to WRITE, and every writer is in this file.
+;; `!cells` is public so the test kit's runtime door
+;; (`re-frame.hicasso.test.runtime`) can count what the table retains
+;; without this file growing a reader per instrument. It is the
+;; collector's to WRITE, and every writer is in this file.
 ;;
 ;; **One table for the whole page, and FRAME-SCOPED anyway** — the sub-key
 ;; is `[frame-kw query-v]`, so the same query read under two frames
@@ -1040,10 +1043,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The commit — the only door through which a write becomes re-render work
 ;; ---------------------------------------------------------------------------
-;;
-;; The two evidence tap points below read `evidence/!evidence-sink` as the
-;; OUTERMOST form of their guard, and never through a reader fn. That is
-;; the seam's whole cost claim; `re-frame.hicasso.impl.evidence` states it.
 
 (defn- notify! [registrations]
   (doseq [^js r registrations]
@@ -1101,10 +1100,6 @@
         (set! (.-epoch c) (max (inc (.-epoch c))
                                (generation/commit-basis (.-frameKw c)))))
       (let [boundaries (dirty-readers dirty)]
-        (when-some [sink @evidence/!evidence-sink]
-          (sink {:event            :commit
-                 :dirty-subs       (into #{} (map (fn [^js c] (.-subKey c))) dirty)
-                 :dirty-boundaries boundaries}))
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
               (js/setTimeout (fn []
@@ -1279,7 +1274,6 @@
   edge is *recorded* where the read happens, and the recorded set is what
   the commit installs — so a branch not taken contributes no edge."
   [query-v]
-  (set! (.-collector rstate) true)
   (read-key! query-v))
 
 (defn use-subs
@@ -1299,7 +1293,6 @@
   against — not because it is being defended. It sits below the
   ergonomics bar."
   [query-map]
-  (set! (.-grouped rstate) true)
   (reduce-kv (fn [m alias query-v] (assoc m alias (read-key! query-v)))
              {}
              query-map))
@@ -1548,9 +1541,6 @@
           ^js reg #js {"reads" reads "notify" on-store-change}
           cells (mapv (fn [sub-key] (acquire-cell! sub-key reg)) reads)]
       (unchecked-set reg "cells" cells)
-      (when-some [sink @evidence/!evidence-sink]
-        (when (seq reads)
-          (sink {:event :edges-changed :boundary reg :added reads :dropped #{}})))
       (set! (.-refs entry) (inc (.-refs entry)))
       (fn unsubscribe []
         (set! (.-notify reg) nil)
@@ -1562,14 +1552,10 @@
 (defn commit-boundary!
   "**The seam React occupies.** Hand a boundary's read set and a notifier
   to the same `subscribe` closure `useSyncExternalStore` would call, and
-  get back the same cleanup React would hold.
-
-  It exists because the commit path, the index wiring and the
-  zero-leaked-reference assertion are the parts of this runtime most worth
-  proving cheaply and deterministically, and every one of them is
-  answerable without a browser, a root, or a render. The DOM suites then
-  prove that React drives *this* seam rather than re-proving what the
-  seam does."
+  get back the same cleanup React would hold. With [[render-body]] and
+  [[last-reads]] it is the whole of a harness's render-then-commit — the
+  test kit's and Xray's own suites take React's place through these three
+  — and it is answerable without a browser, a root, or a render."
   [^js entry notify]
   ((.-subscribe entry) notify))
 
@@ -1656,7 +1642,7 @@
   3)
 
 (defn- run-once
-  "One body run. The scratch and both provenance flags are reset
+  "One body run. The scratch and the probe box are reset
   **unconditionally** — a reset guarded by \"if empty\" would concatenate
   two renders' reads, which is precisely what makes StrictMode's
   double-invoke correct here rather than additive.
@@ -1671,14 +1657,12 @@
   `set-lowering-owner!` folds to a return."
   [frame-kw body-fn props]
   (set! (.-length scratch) 0)
-  (set! (.-collector rstate) false)
-  (set! (.-grouped rstate) false)
   (set! (.-probe rstate) nil)
   (set! (.-frame rstate) frame-kw)
   ;; THE BODY-RUN COUNTER, bumped where a body actually runs and nowhere
-  ;; else — see [[body-runs]]. Here rather than in `shell` because the
-  ;; generation fence can run a body twice for one render, and a real
-  ;; count is the one that says so.
+  ;; else — the test kit's `body-runs` reads it. Here rather than in
+  ;; `shell` because the generation fence can run a body twice for one
+  ;; render, and a real count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (when ^boolean js/goog.DEBUG
     (codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
@@ -1691,7 +1675,7 @@
 
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
-  [[last-reads]] carries the read-set entry.
+  [[last-reads]] carries the read-set entry it resolved.
 
   The fence is the loop: capture the [[re-frame.hicasso.impl.generation/commit-basis]], run the body, and
   if a commit landed while it ran, run it again against the newer
@@ -1727,79 +1711,18 @@
                {:frame frame-kw :generation (generation/generation)})))))
 
 (defn last-reads
-  "The read-set entry the most recent [[render-body]] resolved."
+  "The read-set entry the most recent [[render-body]] resolved — what a
+  harness hands [[commit-boundary!]] to take React's place at the commit."
   []
   (.-entry rstate))
-
-(defn reads-of
-  "An entry's sub-key set."
-  [^js entry]
-  (.-set entry))
-
-(defn snapshot-of
-  "The number React stores for a boundary with this read set, and the
-  one it re-reads after `subscribe` to decide whether the store moved
-  under the render. Reading it is the witness's way of performing
-  React's own `checkIfSnapshotChanged` without a browser."
-  [^js entry]
-  ((.-snapshot entry)))
-
-(defn last-tiers
-  "Which read surfaces the most recent body used. The instrument's input,
-  and the reason a rendering's tier is a measured property rather than a
-  claim in a docstring."
-  []
-  {:collector? (.-collector rstate) :grouped? (.-grouped rstate)})
-
-(defn body-runs
-  "How many boundary bodies this runtime has run, since the process
-  started or since the last [[reset-body-runs!]].
-
-  ## Always on, and why
-
-  The SSR adoption row has to read body runs out of the build it
-  actually drives, and the package's builds are `:advanced` with
-  `goog.DEBUG false` — so a `goog.DEBUG`-gated instrument is not an
-  instrument there, it is dead code the compiler removes. Against a
-  declared dev-build witness row, **the counter wins**, because a
-  dev-build row would answer
-  about a build nobody ships and would have to be believed rather than
-  read, and because the price is a single integer increment on a JS
-  object that already exists, next to a body run that allocates elements
-  — below the noise of everything the lane's clock rows measure.
-
-  ## It counts REAL runs (HD-028's rider)
-
-  The bump is inside [[run-once]], which is where a body is invoked. It
-  is therefore blind to how the render got there: a `React.memo` bail-out
-  on `mint-view!`'s wrapper shows up as an increment that did NOT happen,
-  which is exactly what makes this a measurement of adoption rather than
-  an inference from the memo's behaviour. A boundary React skipped and a
-  boundary React ran are two different numbers here, and the memo cannot
-  make the second look like the first.
-
-  Monotone: witnesses take a DELTA across the thing they are measuring,
-  which is why [[reset-runtime!]] deliberately leaves it alone — a
-  teardown door that zeroed the instrument would let a reading taken on
-  the wrong side of a reset look like a reading."
-  []
-  (.-bodyRuns rstate))
-
-(defn reset-body-runs!
-  "Zero [[body-runs]]. Explicit, and not part of [[reset-runtime!]]."
-  []
-  (set! (.-bodyRuns rstate) 0)
-  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; The shell — exactly two React hooks, and no useRef
 ;; ---------------------------------------------------------------------------
-
-(def shell-hook-ledger
-  "The shell's declared hook calls, in call order. The dispatcher-level
-  witness counts against this, so a third hook appearing in the shell
-  fails a test rather than a review."
-  [:use-context/frame :use-sync-external-store/subscription-epoch])
+;;
+;; The shell's declared hook calls are the test kit's `shell-hook-ledger`
+;; (`re-frame.hicasso.test.runtime`), and `hook_budget_cljs_test` counts
+;; the calls React's own dispatcher received against it.
 
 (defn resolve-frame!
   "The frame a React component is IN, taken from the one context every
@@ -1909,8 +1832,8 @@
   carrying a custom comparator stays a `MemoComponent` rather than
   collapsing to React's `SimpleMemoComponent`, so React keeps a wrapper
   fiber above the component's own. That is React's retention rather than
-  this runtime's, and it is recorded in [[re-frame.hicasso.impl.inventory/retained-inventory]] under
-  `:react/memo-fiber` instead of being left for a heap ladder to
+  this runtime's, and the bench tree's retained inventory prices it under
+  `:react/memo-fiber` instead of leaving it for a heap ladder to
   discover.
 
   ## Spec 009's `:render` bucket, and why the bracket is HERE
@@ -1945,9 +1868,9 @@
 
   - **A memo bail-out emits nothing.** React consults the comparator
     ABOVE this fn; a bailed-out boundary never enters it. HD-028's rider
-    holds on the measure stream for the same reason it holds on
-    [[body-runs]] — a boundary React skipped and a boundary React ran are
-    two different numbers.
+    holds on the measure stream for the same reason it holds on the
+    body-run counter — a boundary React skipped and a boundary React ran
+    are two different numbers.
   - **StrictMode's double-invoke emits twice**, which is correct: React
     ran the body twice and the measure stream should say so.
   - **The generation fence emits once.** [[render-body]] may run a body
@@ -2148,6 +2071,9 @@
   (set! (.-frame rstate) nil)
   (set! (.-probe rstate) nil)
   (set! (.-length scratch) 0)
-  ;; `bodyRuns` is deliberately NOT reset here — see [[body-runs]].
+  ;; `bodyRuns` is deliberately NOT reset here: witnesses take a DELTA
+  ;; across the thing they measure, and a teardown door that zeroed the
+  ;; counter would let a reading taken on the wrong side of a reset look
+  ;; like a reading. The kit's `reset-body-runs!` is the explicit zero.
   (frames/forget-frame-ops!)
   nil)

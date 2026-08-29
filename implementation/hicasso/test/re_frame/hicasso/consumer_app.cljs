@@ -9,7 +9,7 @@
   proving: the package smoke renders through React's server renderer and
   drives it from `impl.codec` and `impl.mount`; the controlled testbed
   hangs a harness door on `window`; the HMR testbed patches React's own
-  `useSyncExternalStore` and reads `impl.inventory`. Each reach is correct
+  `useSyncExternalStore` and reads `test.runtime`. Each reach is correct
   for what it measures and disqualifying for what this file claims.
 
   This file is allowed nothing. **Its `:require` list is the deliverable**

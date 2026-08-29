@@ -41,7 +41,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.evidence :as evidence]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.tool :as tool]
             [re-frame.interop :as interop]
             [re-frame.test-support :as test-support]
@@ -145,7 +145,7 @@
             regression to counting unclaimed entries silently inflates
             the roster `:complete? true` is staked on"
     (collector/render-body frame-id (fn [_] (h/sub [:tr/row 0]) nil) {})
-    (is (pos? (:entries (inventory/residue)))
+    (is (pos? (:entries (runtime/residue)))
         "the premise: the probe left a REAL entry in the cache")
     (is (= [] (:boundaries (tool/read-mounted-boundaries)))
         "which the roster does not count, because no reference claims it"))
@@ -188,7 +188,7 @@
     (let [a (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))
           b (mount! (fn [_] (h/sub [:tr/right]) (h/sub [:tr/left]) nil))
           e (tool/read-mounted-boundaries)]
-      (is (= 2 (:entries (inventory/residue)))
+      (is (= 2 (:entries (runtime/residue)))
           "the premise: the runtime really holds TWO entries — without
            this, one row could mean the orders were never distinguished")
       (is (= 1 (count (:boundaries e)))
@@ -246,7 +246,7 @@
     (testing ":fan-out is the cell's own reader-slot count"
       (is (= 3 (:fan-out (:tr/left by-sub))))
       (is (= 1 (:fan-out (:tr/right by-sub))))
-      (is (= (count (inventory/cell-readers (k [:tr/left])))
+      (is (= (count (runtime/cell-readers (k [:tr/left])))
              (:fan-out (:tr/left by-sub)))
           "the projection must not derive a number the table already holds"))
     (testing ":readers are the SAME keys the mounted roster states — the rosters join"
@@ -340,7 +340,7 @@
   (testing "NON-VACUITY: the state these projections read from is carrying the seed"
     (seeded!)
     (let [release (mount! (fn [_] (h/sub [:tr/token]) nil))]
-      (is (= the-secret @(inventory/cell-reaction (k [:tr/token])))
+      (is (= the-secret @(runtime/cell-reaction (k [:tr/token])))
           (str "the cell's live reaction must deref to the seeded secret — if it "
                "does not, every no-egress assertion below is passing against a "
                "runtime that never saw the value"))

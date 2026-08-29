@@ -60,8 +60,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.registrar :as rf-registrar]
             [re-frame.test-support :as test-support]
@@ -71,7 +71,7 @@
             ["react-dom/client" :as react-dom-client]))
 
 (defonce ^:private !runs
-  ;; Body runs for [[card]] alone. `impl.collector/body-runs` counts every
+  ;; Body runs for [[card]] alone. `test.runtime/body-runs` counts every
   ;; boundary in the process; this file mounts one at a time and wants the
   ;; per-row delta unambiguous. `defonce` takes no docstring.
   (atom 0))
@@ -137,7 +137,7 @@
   (some-> (.querySelector node "[data-test=\"card\"]") .-textContent))
 
 (defn- readers-of [frame-kw]
-  (count (inventory/cell-readers [frame-kw [::counter]])))
+  (count (runtime/cell-readers [frame-kw [::counter]])))
 
 (defn- wired?
   "Does this frame's cell hold a live reaction? The cell is the only thing

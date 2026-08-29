@@ -81,8 +81,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.hicasso.tool :as tool]
@@ -136,7 +136,7 @@
 
 (defonce ^:private !island-runs
   ;; Body invocations, counted where the body actually runs. The native
-  ;; counterpart of `collector/body-runs`, which counts BOUNDARY bodies and
+  ;; counterpart of `runtime/body-runs`, which counts BOUNDARY bodies and
   ;; therefore says nothing about an island.
   (atom 0))
 
@@ -240,7 +240,7 @@
 (defn- text-at [handle sel] (some-> (at handle sel) .-textContent))
 (defn- click! [handle sel] (.click ^js (at handle sel)) (mount/settle!) nil)
 
-(defn- readers-of [sub-key] (inventory/cell-readers sub-key))
+(defn- readers-of [sub-key] (runtime/cell-readers sub-key))
 
 (defonce ^:private !minted
   ;; Every root a row has minted through `mount-live!`, oldest first.
@@ -300,7 +300,7 @@
                  (when-not subscribed?
                    (throw (ex-info (str "expected " readers
                                         " subscribed reader(s) on " (pr-str sub-key))
-                                   {:residue (inventory/residue)})))
+                                   {:residue (runtime/residue)})))
                  handle)))))
 
 (defn- skip! [why] (is true (str "a native-hook claim needs a real React DOM — " why)))
@@ -321,7 +321,7 @@
   [label]
   (fn [e]
     (is false (str label " — " (.-message e)
-                   " | residue " (pr-str (inventory/residue))))
+                   " | residue " (pr-str (runtime/residue))))
     nil))
 
 ;; The success arm's `(is (= support/released (teardown! handle)))` is an
@@ -388,7 +388,7 @@
   changed which key an island reads has two of them for a while and that
   says nothing about ownership."
   []
-  (dissoc (inventory/residue) :entries))
+  (dissoc (runtime/residue) :entries))
 
 (def ^:private nothing-owned
   "What an ABANDONED attempt leaves. Every count is zero including
@@ -549,7 +549,7 @@
                           body that reads nothing still mints and claims an
                           entry, and that is what makes the tool tier's census
                           complete"
-                  (is (= 2 (:entries (inventory/residue)))))
+                  (is (= 2 (:entries (runtime/residue)))))
 
                 (testing "and `re-frame.hicasso.tool`'s mounted-boundary
                           projection — hic-023's, the one Xray consumes — NAMES
@@ -654,7 +654,7 @@
               (fn [handle]
                 (let [reg-at-mount (first (readers-of k))
                       runs         (deref !island-runs)
-                      residue      (inventory/residue)]
+                      residue      (runtime/residue)]
 
                   (testing "three re-renders driven by the island's OWN React
                             state — a `useState` bump behind a real click,
@@ -682,7 +682,7 @@
                   (testing "so nothing was released and re-acquired: one cell,
                             one membership, one boundary, one edge, one entry —
                             the numbers the mount established, unmoved"
-                    (is (= residue (inventory/residue))))
+                    (is (= residue (runtime/residue))))
 
                   (testing "the same holds across a re-render the RUNTIME
                             caused. A write moves the value, React re-renders
@@ -694,7 +694,7 @@
                     (is (true? (identical? reg-at-mount (first (readers-of k))))
                         "React holds a DIFFERENT registration, so the
                          subscription was torn down and rebuilt")
-                    (is (= residue (inventory/residue))))
+                    (is (= residue (runtime/residue))))
 
                   (exercised! :hooks/no-resubscribe)
                   (is (= support/released (teardown! handle)))
@@ -735,7 +735,7 @@
                   (is (= #{k} (support/cell-keys)))
                   (is (= 1 (count (readers-of k))))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                         (dissoc (inventory/residue) :entries))))
+                         (dissoc (runtime/residue) :entries))))
 
                 (testing "the island is live, not merely tidy — a subscription
                           torn down by StrictMode's first cleanup and never
@@ -757,7 +757,7 @@
                              (testing "past the reapers the tables are empty"
                                (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                        :edges 0 :entries 0}
-                                      (inventory/residue))))
+                                      (runtime/residue))))
                              nil)))))
             (.catch (report-failure! "W4 StrictMode"))
             ;; The single trailing step, which BOTH arms reach: this row's
@@ -955,7 +955,7 @@
                           transition"
                   (is (= 1 (count (readers-of k))))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                         (dissoc (inventory/residue) :entries))))
+                         (dissoc (runtime/residue) :entries))))
 
                 (exercised! :hooks/transition)
                 (is (= support/released (teardown! handle)))

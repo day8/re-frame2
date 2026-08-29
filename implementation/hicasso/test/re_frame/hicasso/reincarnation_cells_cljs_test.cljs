@@ -27,7 +27,7 @@
 
   A committed boundary re-renders when React's `useSyncExternalStore`
   decides the store moved, which it decides by comparing the number
-  `getSnapshot` returns. [[re-frame.hicasso.impl.collector/snapshot-of]]
+  `getSnapshot` returns. [[re-frame.hicasso.test.runtime/snapshot-of]]
   is that exact number, and reading it is, in the collector's own words,
   *the witness's way of performing React's own `checkIfSnapshotChanged`
   without a browser*.
@@ -64,7 +64,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.test-support :as test-support]))
 
@@ -123,21 +123,21 @@
   (async done
     (incarnate! "A")
     (let [{:keys [value entry notified release]} (render+commit!)
-          snapshot-a (collector/snapshot-of entry)]
+          snapshot-a (runtime/snapshot-of entry)]
       (is (= "A" value) "the committed boundary read the predecessor's value")
-      (is (some? (inventory/cell-reaction sub-key))
+      (is (some? (runtime/cell-reaction sub-key))
           "and it holds a live cell for the key")
 
       ;; NEGATIVE CONTROL, taken FIRST so the instrument is proven live before
       ;; it is asked to report a tie. An ordinary write inside the incarnation
       ;; must move the number and notify the boundary.
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "A2"]))
-      (is (> (collector/snapshot-of entry) snapshot-a)
+      (is (> (runtime/snapshot-of entry) snapshot-a)
           "an ordinary in-incarnation write MOVES the snapshot — so a tie
            below is the transition's property, not a dead instrument")
       (is (= 1 @notified) "and notifies the committed boundary exactly once")
 
-      (let [snapshot-before (collector/snapshot-of entry)
+      (let [snapshot-before (runtime/snapshot-of entry)
             notified-before @notified]
         (rf/destroy-frame! frame-id)
         (rf/make-frame {:id frame-id})
@@ -147,14 +147,14 @@
                   nothing — the number it re-reads is unchanged and no
                   notification has fired, so a committed boundary goes on
                   showing the predecessor's value"
-          (is (= snapshot-before (collector/snapshot-of entry))
+          (is (= snapshot-before (runtime/snapshot-of entry))
               "the snapshot TIES across the reincarnation")
           (is (= notified-before @notified) "and no re-render was scheduled"))
 
         (testing "the cell's reaction reference was dropped synchronously by
                   the teardown, which is what makes the read fall back to the
                   cold probe rather than deref a retired computation"
-          (is (nil? (inventory/cell-reaction sub-key))))
+          (is (nil? (runtime/cell-reaction sub-key))))
 
         (testing "a body re-run right now already reads the SUCCESSOR — the
                   read path is address-directed on the public id, which is
@@ -163,7 +163,7 @@
           (is (= "B" (collector/render-body frame-id body {}))))
 
         (at-the-checkpoint
-          #(some? (inventory/cell-reaction sub-key))
+          #(some? (runtime/cell-reaction sub-key))
           "the reincarnation repair"
           done
           (fn [_turns]
@@ -172,9 +172,9 @@
                       deferred repair has routed to the LIVE incarnation: the
                       attachment is rebuilt, the number moves, and the
                       boundary is notified so it can correct what it painted"
-              (is (some? (inventory/cell-reaction sub-key))
+              (is (some? (runtime/cell-reaction sub-key))
                   "the cell is re-wired rather than left deaf")
-              (is (> (collector/snapshot-of entry) snapshot-before)
+              (is (> (runtime/snapshot-of entry) snapshot-before)
                   "and the number React re-reads has finally moved")
               (is (> @notified notified-before)
                   "the committed boundary is notified — the repair is
@@ -190,18 +190,18 @@
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-             (dissoc (inventory/residue) :entries))
+             (dissoc (runtime/residue) :entries))
           "the commit acquired exactly one cell and one reader membership")
 
       (rf/destroy-frame! frame-id)
 
       (testing "synchronously the cell is still in the table, holding no
                 reaction — the repair's two phases, mid-flight"
-        (is (nil? (inventory/cell-reaction sub-key)))
-        (is (= 1 (:cells (inventory/residue)))))
+        (is (nil? (runtime/cell-reaction sub-key)))
+        (is (= 1 (:cells (runtime/residue)))))
 
       (at-the-checkpoint
-        #(zero? (:cells (inventory/residue)))
+        #(zero? (:cells (runtime/residue)))
         "the no-successor disposal"
         done
         (fn [_turns]
@@ -211,10 +211,10 @@
                     residue after quiescence, and the rescheduling in rf2-2l17
                     moved when that happens without changing what happens"
             (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-                   (dissoc (inventory/residue) :entries))
+                   (dissoc (runtime/residue) :entries))
                 "no cell, no reader membership, no dependency edge survives a
                  frame that did not come back")
-            (is (nil? (inventory/cell-reaction sub-key))))
+            (is (nil? (runtime/cell-reaction sub-key))))
           (release))))))
 
 ;; ---------------------------------------------------------------------------
@@ -240,21 +240,21 @@
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]
       (rf/destroy-frame! frame-id)
-      (is (nil? (inventory/cell-reaction sub-key))
+      (is (nil? (runtime/cell-reaction sub-key))
           "synchronous phase: reference dropped")
       ;; Seat the successor while the deferred phase is still pending.
       (rf/make-frame {:id frame-id})
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "B"]))
       (at-the-checkpoint
-        #(some? (inventory/cell-reaction sub-key))
+        #(some? (runtime/cell-reaction sub-key))
         "the liveness branch"
         done
         (fn [_turns]
           (testing "a successor seated INSIDE the deferral window flips the
                     branch from dispose to re-wire — so the two outcomes are
                     the frame's liveness, read when the deferred phase fires"
-            (is (some? (inventory/cell-reaction sub-key)))
-            (is (= 1 (:cells (inventory/residue)))))
+            (is (some? (runtime/cell-reaction sub-key)))
+            (is (= 1 (:cells (runtime/residue)))))
           (testing "and the re-wired cell answers for the SUCCESSOR"
             (is (= "B" (collector/render-body frame-id body {}))))
           (release))))))

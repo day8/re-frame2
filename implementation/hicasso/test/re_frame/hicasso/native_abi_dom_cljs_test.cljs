@@ -65,7 +65,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as support]
@@ -276,7 +276,7 @@
         (array-seq (.querySelectorAll ^js (:container handle) ".island"))))
 
 (defn- label-key [frame-kw] [frame-kw [::label]])
-(defn- readers-of [sub-key] (inventory/cell-readers sub-key))
+(defn- readers-of [sub-key] (runtime/cell-readers sub-key))
 
 (defonce ^:private !minted
   ;; Every root a row has minted through `mount-live!`, oldest first.
@@ -322,7 +322,7 @@
                  (when-not subscribed?
                    (throw (ex-info (str "expected " readers " reader(s) on "
                                         (pr-str sub-key))
-                                   {:residue (inventory/residue)})))
+                                   {:residue (runtime/residue)})))
                  handle)))))
 
 (defn- report-failure!
@@ -339,7 +339,7 @@
   [label]
   (fn [e]
     (is false (str label " — " (.-message e)
-                   " | residue " (pr-str (inventory/residue))))
+                   " | residue " (pr-str (runtime/residue))))
     nil))
 
 ;; Teardown IS hoisted onto those trailing steps, through [[release-minted!]].
