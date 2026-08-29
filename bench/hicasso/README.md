@@ -49,6 +49,26 @@ So do not read "keep as evidence" as "do not touch". It bounds what this tree ma
 FOR — it is where measurements are taken, not where product code is grown — and it
 protects the 12 files below.
 
+## Where the run data went
+
+The run records the programme's numbers were taken from — 237 files, 80 MB under
+`src/re_frame/bench/hicasso/data/` — were deleted from main on 2026-08-29 (rf2-6c12m.6);
+git history is the archive. The full tree lives at commit `7b492b98cb`, and one command
+puts it back exactly where every reader still looks:
+
+```
+git restore --source=7b492b98cb -- bench/hicasso/src/re_frame/bench/hicasso/data
+```
+
+`data/` is git-ignored, so a restored corpus (or a run record a driver has just written
+there) never lands in a commit by accident. With the corpus absent, `npm run check` still
+runs every self-test; the checks that re-derive a published figure from the corpus are
+skipped and say so in one printed line each, and they run again the moment the tree is
+restored. The handful of small records a self-test needs in its own right — a witness
+record it mutates, the in-page ladder's four runs, two pre-registration declarations —
+stay on main under `fixtures/`. The studio pages' provenance citations are history and
+were not re-pointed; every block carries the SHA its data resolves at.
+
 ## What is frozen here, and why
 
 `re-frame.hicasso` was copied out of this tree. 12 files were the donors, 7 under `front/`

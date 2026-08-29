@@ -1,3 +1,7 @@
 .shadow-cljs/
 out/
 node_modules/
+# The run corpus is archived in git history, not on main (rf2-6c12m.6): a
+# restored or freshly written run record never lands in a commit by accident.
+# See src/re_frame/bench/hicasso/data_archive.cjs and README.md.
+src/re_frame/bench/hicasso/data/

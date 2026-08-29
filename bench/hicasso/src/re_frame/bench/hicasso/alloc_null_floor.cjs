@@ -137,8 +137,9 @@
 const fs = require('fs');
 const path = require('path');
 const { roundCells, NULL_RUNG } = require('./alloc_pass_position.cjs');
+const archive = require('./data_archive.cjs');
 
-const DATA = path.join(__dirname, 'data');
+const DATA = archive.DATA;
 
 // The published triple, `rf2-2rtt6.140`.
 const PUBLISHED = { median: 1.5, p90: 4.5, barB: 45 };
@@ -853,6 +854,9 @@ function selfTest() {
 
   // THE CORPUS IS WHAT WAS READ. Discovery must agree with the pinned list, in
   // both directions. A new null-arm window reds here on purpose — see WINDOWS.
+  // Corpus-backed throughout: without the archived run records there is nothing
+  // here to check, so the whole self-test is skipped rather than half-run.
+  if (!archive.present()) return archive.skipped('alloc_null_floor: the self-test');
   const { carrying, excluded } = discover();
   const pinned = WINDOWS.flatMap((w) => w.runs).sort();
   ck('discovery finds exactly the pinned corpus', carrying.map((c) => c.rel).sort(), pinned);

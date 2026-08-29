@@ -1210,6 +1210,10 @@ function selfTest() {
   // --- the committed corpus, pinned -------------------------------------
   // These are the figures a record quotes. They are pinned as literals so that
   // a change to the extraction reds here rather than drifting into prose.
+  if (!archive.present()) {
+    archive.skipped('alloc_cluster_carrier: the corpus-backed checks');
+    return checks;
+  }
   let corpusFiles = [];
   try {
     corpusFiles = corpus();
@@ -1606,7 +1610,9 @@ function selfTest() {
 
 // --- entry ------------------------------------------------------------------
 
-const DATA = path.join(__dirname, 'data');
+const archive = require('./data_archive.cjs');
+
+const DATA = archive.DATA;
 
 function corpus() {
   const out = [];

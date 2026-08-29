@@ -105,6 +105,17 @@ const DRIVERS = [
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
+// The census blocks below re-derive published figures from the committed run
+// corpus, which is archived in git history (`data_archive.cjs`). A test
+// declared through `corpusTest` runs when `data/` is present and is counted as
+// skipped — one printed line at the exit — when it is not.
+const archive = require('./data_archive.cjs');
+let corpusSkipped = 0;
+const corpusTest = (name, fn) => test(name, () => {
+  if (archive.present()) fn();
+  else corpusSkipped += 1;
+});
+
 /** A row that passed every gate. Overridden one field at a time below. */
 const row = (over) => ({
   id: 'uix/mount-M',
@@ -377,6 +388,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     ...over,
   });
   const t = (what, fn) => test(`census_clock_run.cjs write path: ${what}`, fn);
+  const tc = (what, fn) => corpusTest(`census_clock_run.cjs write path: ${what}`, fn);
 
   t('the published shape is the ONLY thing that is canonical', () => {
     const d = destination(shape());
@@ -683,7 +695,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     });
   };
 
-  t('every committed census dataset either carries the split or refuses to answer', () => {
+  tc('every committed census dataset either carries the split or refuses to answer', () => {
     // Capture backfills nothing: the datasets on disk gain the fields on the
     // next canonical run, not on this commit. Whatever is there, the rule is
     // the same — a row with the split folds, a row without it refuses. There
@@ -910,7 +922,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(d.canonical, false);
   });
 
-  t("a stored split must match the row's own declared shape, dimensions included", () => {
+  tc("a stored split must match the row's own declared shape, dimensions included", () => {
     // The counterweight to the tightening above: a rule that refuses a dropped
     // round, a lost block and a uniformly-missing arm must still accept the real
     // thing unchanged, or it is over-tight rather than fail-closed. `armIds` and
@@ -956,6 +968,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const { controlBlocks, controlVerdict } = DRIVERS[1].mod;
   const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const t = (what, fn) => test(`census run-rejection rate: ${what}`, fn);
+  const tc = (what, fn) => corpusTest(`census run-rejection rate: ${what}`, fn);
 
   // The corpus the rates are stated over, and the rates themselves. Stated as
   // literals so that a new dataset, or an arithmetic change, reds this file
@@ -1020,7 +1033,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       );
   };
 
-  t('the corpus the rates are stated over is the corpus on disk', () => {
+  tc('the corpus the rates are stated over is the corpus on disk', () => {
     const all = corpus();
     const datasets = new Set(all.map((r) => r.where.split('/')[0]));
     assert.strictEqual(datasets.size, CORPUS.datasets, 'a new censusclock-* dataset means the stated rates need recounting');
@@ -1041,7 +1054,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     }
   });
 
-  t('the live arithmetic and the stored verdicts are the same quantity', () => {
+  tc('the live arithmetic and the stored verdicts are the same quantity', () => {
     // Without this the rate would be a rate about the datasets rather than
     // about the rule: a statistic recomputed differently from the one the
     // driver adjudicated on would measure the recomputation.
@@ -1066,7 +1079,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     }
   });
 
-  t('the measured rate, per row — and it is survivable where the control meets its premise', () => {
+  tc('the measured rate, per row — and it is survivable where the control meets its premise', () => {
     const all = corpus();
     for (const [rowId, want] of Object.entries(RATES)) {
       const rows = all.filter((r) => r.rowId === rowId);
@@ -1088,7 +1101,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.ok(Number(RATES.feed.falseRefusalPct) < 90.5);
   });
 
-  t('the arithmetic and the empirical rate AGREE, so p^n is the right model here', () => {
+  tc('the arithmetic and the empirical rate AGREE, so p^n is the right model here', () => {
     // The bead asks whether `1 - p^n` predicts what the corpus actually did.
     // Per row it does; POOLED it does not, and that disagreement is a fact
     // about pooling a mis-centred row with two well-centred ones, not about
@@ -1109,7 +1122,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(all.filter((r) => r.verdict.ok).length, 15, 'against 15 of 30 observed — pooling is the wrong statistic, not the rule');
   });
 
-  t('the ordinary row refuses on its CENTRE, and no relaxation of this rule reaches it', () => {
+  tc('the ordinary row refuses on its CENTRE, and no relaxation of this rule reaches it', () => {
     // The load-bearing assertion. `ordinary` is 0 of 10, and a reader who saw
     // only that number would blame the rule the way rf2-8a746's clock evidence
     // invites. It is the centre: the block median sits BELOW the band's own
@@ -1174,6 +1187,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const { controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD, robustScale } = CENSUS;
   const CSRC = fs.readFileSync(DRIVERS[1].file, 'utf8');
   const t = (what, fn) => test(`census check standard: ${what}`, fn);
+  const tc = (what, fn) => corpusTest(`census check standard: ${what}`, fn);
 
   const ORD = STD.rows.ordinary;
   const p50 = (xs) => {
@@ -1248,7 +1262,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   // --- the frozen numbers are the numbers their own derivations claim --------
 
-  t('the CENTRE recomputes from the baseline the file names, and is not a literal in the code', () => {
+  tc('the CENTRE recomputes from the baseline the file names, and is not a literal in the code', () => {
     // The load-bearing check on half one. The file says the centre is the
     // median of its baseline row-runs' block medians; this recomputes exactly
     // that, from the datasets the file names, through the driver's own
@@ -1297,7 +1311,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.ok(ORD.location.limits[0] < ORD.centre && ORD.centre < ORD.location.limits[1], 'the limits must bracket the centre');
   });
 
-  t('the DISPERSION limit is the lognormal upper 3 sigma of the baseline robust scales', () => {
+  tc('the DISPERSION limit is the lognormal upper 3 sigma of the baseline robust scales', () => {
     const base = ordinaries().filter((r) => setsOf('baseline').includes(r.set));
     const scales = base.map((r) => robustScale(r.per));
     const logs = scales.map(Math.log);
@@ -1317,7 +1331,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   // --- INDEPENDENCE, which is what makes it a check standard ----------------
 
-  t('the baseline and the HOLD-OUT are disjoint, and together they are the corpus', () => {
+  tc('the baseline and the HOLD-OUT are disjoint, and together they are the corpus', () => {
     // rf2-8a746's v1 said in its own `independence` field that its limits were
     // seeded from the 42 runs it was quoted against, so 0-of-42 was a
     // consistency check and not a false-refusal measurement. This corpus is
@@ -1333,7 +1347,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.deepStrictEqual(all, [...base, ...hold].sort(), 'a new censusclock-* dataset means the standard needs recalibrating');
   });
 
-  t('the HOLD-OUT row-runs are IN CONTROL against limits derived WITHOUT them', () => {
+  tc('the HOLD-OUT row-runs are IN CONTROL against limits derived WITHOUT them', () => {
     // The false-refusal measurement, small but real: two row-runs taken five
     // days after the last baseline session, at a different commit, judged by
     // limits that never saw them.
@@ -1352,7 +1366,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   // --- what the repair actually changed, and what it deliberately did not ----
 
-  t('the CENTRE was the defect: the same blocks refuse against 1.7255 and hold against 1.2308', () => {
+  tc('the CENTRE was the defect: the same blocks refuse against 1.7255 and hold against 1.2308', () => {
     const rows = ordinaries();
     assert.strictEqual(rows.length, 10);
     // The strict rule's OWN answer about the element arithmetic is untouched —
@@ -1367,7 +1381,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(ORD.errorRates.retiredCentreForComparison, /passed 0 of 10 row-runs/);
   });
 
-  t('and the ADJUDICATOR is named on the row, so nobody has to infer which rule decided', () => {
+  tc('and the ADJUDICATOR is named on the row, so nobody has to infer which rule decided', () => {
     for (const r of corpus()) {
       if (r.rowId === 'ordinary') {
         assert.ok(r.adj.standard, 'ordinary must carry a standard verdict');
@@ -1381,7 +1395,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     }
   });
 
-  t('THE SIBLING ROWS ARE UNTOUCHED — rf2-y0pkh measured and retained the rule where it works', () => {
+  tc('THE SIBLING ROWS ARE UNTOUCHED — rf2-y0pkh measured and retained the rule where it works', () => {
     // The fence, asserted rather than promised. Their pass counts are the ones
     // rf2-y0pkh measured three hours before this bead, and the rule that
     // produced them is the same function with the same wording.
@@ -1395,7 +1409,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(rf2-y0pkh: measured and retained\)'/);
   });
 
-  t('the tolerance band is REPORTED on a calibrated row, and the all-blocks rule is why', () => {
+  tc('the tolerance band is REPORTED on a calibrated row, and the all-blocks rule is why', () => {
     // The other half of the diagnosis, and the reason re-centring ALONE is not
     // the repair: about the empirical centre 90.0% of blocks are in band and
     // `0.90^18 = 15%`, so the all-blocks rule would still pass 3 of 10. That is
@@ -6146,4 +6160,5 @@ if (failed > 0) {
   console.error(`\nclock_exit_path.test.cjs: ${failed}/${tests.length} failed`);
   process.exit(1);
 }
-console.log(`clock_exit_path.test.cjs: ${tests.length} passed`);
+if (corpusSkipped > 0) archive.skipped(`clock_exit_path.test.cjs: ${corpusSkipped} corpus-backed tests`);
+console.log(`clock_exit_path.test.cjs: ${tests.length - corpusSkipped} passed`);
