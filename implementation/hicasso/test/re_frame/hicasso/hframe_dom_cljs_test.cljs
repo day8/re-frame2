@@ -376,13 +376,17 @@
                 three, and W7 measures that one on purpose, because it is
                 the door that carries no frame of its own"
         (is (= ::did-not-throw
-               (refusal-id #(codec/as-element
-                              [:> foreign-picker {:on-pick [:hicasso.todo/toggle 0]}])))
-            "an intent vector at an event-spelled slot lowers rather than refusing")
+               (refusal-id #(intent/with-frame (fn [_] nil)
+                              (fn [] (codec/as-element
+                                       [:> foreign-picker {:on-pick [:hicasso.todo/toggle 0]}])))))
+            "an intent vector at an event-spelled slot lowers rather than
+             refusing — under a frame, as at a native tag; outside one it is
+             the ordinary outside-boundary refusal, which is the same proof")
         (is (= ::did-not-throw
-               (refusal-id #(codec/as-element
-                              [:> foreign-picker
-                               {:on-pick (intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))
+               (refusal-id #(intent/with-frame (fn [_] nil)
+                              (fn [] (codec/as-element
+                                       [:> foreign-picker
+                                        {:on-pick (intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))))
             "and so does a marked h/event, which takes the event wrapper"))
 
       (let [a (mount/root! (mount/fresh-container!) frame-a [escape-picker {:id 0}])
