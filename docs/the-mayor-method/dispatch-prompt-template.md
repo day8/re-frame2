@@ -564,7 +564,12 @@ actually caught both observed collisions.
 
 If you create a link into shared dependencies, remove the LINK (never its target)
 before you report done: later cleanup follows it and deletes what it points at.
-And kill any poll loops you armed before you report done — each survivor fires
+And the link is WRITABLE through, not only deletable through: an installer a gate
+runs (`npm ci`, `npm install`, or any tool that reinstalls a dependency tree)
+rewrites the SHARED target, not your copy — one emptied the coordinator's real
+tree while the worker's own read as a fresh install. If a nominated gate runs an
+installer, do not link that tree: install your own from the lockfile, or STOP and
+say the gate cannot run against a link. And kill any poll loops you armed before you report done — each survivor fires
 its own completion notification after the work has landed, costing a turn apiece.
 ```
 
@@ -680,6 +685,12 @@ blocker — the five clauses are the merge criterion, and this is not among them
   hand-check what the gate already proved and to record a gap that is not there. Where a surface genuinely has
   no automated coverage, the honest brief says *no automated gate covers this surface; the worker verifies it
   by hand and says so in the change body* — and the change body then reports what was checked and the counts.
+
+- **Read what each nominated gate RUNS before telling the worker to link shared dependencies.** A link
+  into a shared dependency tree is writable through, and a gate that reinstalls dependencies as a step
+  rewrites the shared tree rather than the worker's copy — measured: a conformance runner's `npm ci`
+  emptied the coordinator's real tree through the link the brief had told the worker to make. Where a
+  gate does that, the brief says so and tells the worker to install its own tree from the lockfile.
 
 A skipped gate needs a one-line reason in the change body. A silent skip fails review.
 
