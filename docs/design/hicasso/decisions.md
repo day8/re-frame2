@@ -2451,6 +2451,14 @@ at lowering — `route-link` mints it and nothing else writes it — so
 (`:rf.error/hicasso-route-link-prefetch-declined`) is struck with it: `:prefetch`
 is a key the link owns and does not read, kept off the anchor.
 
+**Amended 2026-08-30 (rf2-6c12m.15).** The navigate head is demoted to the
+implementation: it reads `:re-frame.hicasso.impl.intent/navigate`, is minted
+by `route-link` and named in source only as `impl.intent/navigate-head`, and
+is no longer in the door's marker table. It was never author-written — the
+`::h/…` spelling below is the shape as ruled, not a spelling an application
+uses — and with `hicasso-malformed-navigate` struck nothing polices it as a
+public marker. The grammar and the click law are unchanged.
+
 **Ruling.** The fifth tier-1 shape's Hicasso spelling is **`route-link`, a plain
 function** (`front/route_link.cljs` in the bench arm): the author writes
 `(route-link {:to :conduit.profile/show :params {:username u}} u)` and never sees

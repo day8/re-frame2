@@ -152,7 +152,7 @@
       (is (string? (:href attrs)) "and the link still renders"))))
 
 (defn- lower-navigate
-  "Lower `[::h/navigate m]` at an event position and answer the closure."
+  "Lower `[intent/navigate-head m]` at an event position and answer the closure."
   [m]
   (intent/with-frame frame-id (fn [_] nil)
     (fn [] (intent/lower-prop :on-click [intent/navigate-head m]))))

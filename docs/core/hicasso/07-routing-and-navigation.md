@@ -59,12 +59,13 @@ copy-link, middle-click, and browser link menus continue to work. The helper
 inlines into its caller; it does not create another Hicasso view or
 subscription.
 
-The generated Hiccup contains a reserved navigation head:
+The generated Hiccup carries the click decision as data at `:on-click` — a
+vector headed by a keyword the implementation owns, wrapping a map:
 
 ```clojure
 [:a {:href     "/profile/jane"
      :class    "author"
-     :on-click [::h/navigate
+     :on-click [navigate-head                       ; route-link's own head
                 {:frame   :rf/default
                  :payload [:rf.route/url-requested
                            {:url    "/profile/jane"
@@ -75,8 +76,9 @@ The generated Hiccup contains a reserved navigation head:
  "jane"]
 ```
 
-This form remains comparable with `=` and visible to structural tests. Do not
-write `::h/navigate` yourself; `route-link` owns its shape.
+This form remains comparable with `=` and visible to structural tests, which
+read it through `re-frame.hicasso.impl.intent/navigate-head?`. It is not an
+authoring spelling: `route-link` owns its shape, and there is nothing to write.
 
 Click conduct is browser-compatible:
 

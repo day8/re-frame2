@@ -30,6 +30,7 @@
             [re-frame.hicasso.examples.todo.routes :as routes]
             [re-frame.hicasso.examples.todo.subs :as subs]
             [re-frame.hicasso.examples.todo.views :as views]
+            [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]))
 
@@ -204,9 +205,10 @@
     (is (= [nil "selected" nil] (mapv (comp :class ht/attrs) as))
         "the highlighted tab is derived from the URL, so it cannot
          disagree with the address bar")
-    (is (every? #(= :re-frame.hicasso/navigate (first (:on-click (ht/attrs %)))) as)
-        "the click decision is DATA — a namespaced-keyword-headed vector
-         `=` can see, which is what makes two renders of one link equal")))
+    (is (every? #(intent/navigate-head? (:on-click (ht/attrs %))) as)
+        "the click decision is DATA — a vector headed by the intent
+         namespace's own keyword, which `=` can see and which is what
+         makes two renders of one link equal")))
 
 (deftest the-count-is-pluralised-and-the-clear-button-is-conditional
   (testing "one left"

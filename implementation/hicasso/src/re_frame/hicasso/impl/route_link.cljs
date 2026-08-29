@@ -9,8 +9,8 @@
 
   and never sees a URL. What comes back is ONE real anchor, as data:
 
-      [:a {:href     \"/profile/jane\"          ; routing-owned
-           :on-click [::h/navigate {…}]}       ; the click decision, as data
+      [:a {:href     \"/profile/jane\"               ; routing-owned
+           :on-click [intent/navigate-head {…}]}    ; the click decision, as data
        \"jane\"]
 
   ## A plain function, deliberately — not a boundary
@@ -47,9 +47,11 @@
     is the declarative veto, and it is admitted.**)**
   - **From Replicant (taken, via HD-026): behaviour as a
     namespaced-keyword-headed vector.** The anchor's click carries a
-    `[::h/navigate {…}]` vector `=` can see, so two renders of one link
-    are equal and a structural test reads the click decision off the
-    tree. **(Declined:** Replicant's routing posture of a GLOBAL
+    `[intent/navigate-head {…}]` vector `=` can see, so two renders of
+    one link are equal and a structural test reads the click decision
+    off the tree (`intent/navigate-head?`). The head is the intent
+    namespace's own keyword: this function mints it and no author writes
+    it, so it is not a door marker. **(Declined:** Replicant's routing posture of a GLOBAL
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
   - **Not wired in v0: the `:prefetch :intent` trio.** Routing publishes
@@ -137,8 +139,8 @@
   "One census route-link: compute the routing-owned link model for
   `props`' address (`:to` / `:params` / `:query` / `:fragment`), and
   answer a real `[:a …]` whose `:href` is routing's and whose `:on-click`
-  is the `[::h/navigate {…}]` data form. `children` land inside the
-  anchor. A plain function — call it: `(route-link {:to …} \"jane\")`.
+  is the `[intent/navigate-head {…}]` data form. `children` land inside
+  the anchor. A plain function — call it: `(route-link {:to …} \"jane\")`.
 
   Fails loud at render when routing is absent
   (`:rf.error/routing-artefact-missing`, naming the `:to`), when rendered

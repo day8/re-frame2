@@ -11,7 +11,7 @@
   |---|---|---|
   | `h/error-boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
   | the internal mount witness door | `collector/dispatch!`, in `impl.mount/dispatch!` | `(:frame handle)` — a keyword, retained for the root's whole life |
-  | `::h/navigate` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword, closed over at RENDER and resolved at CLICK |
+  | `intent/navigate-head` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword, closed over at RENDER and resolved at CLICK |
 
   ## The axis, and why \"it resolves late\" is not the fault
 
@@ -52,7 +52,7 @@
     into two successive incarnations (section 2);
   - the mount witness door retains an **address**, and the root it names
     reads that same address, measured side by side (section 3);
-  - `::h/navigate` retains an address too, and routing rules it so
+  - `intent/navigate-head` retains an address too, and routing rules it so
     deliberately (`activate-link!`: *the dispatch always lands on the
     CURRENTLY-committed frame (retarget-safe)*). Section 4 measures what
     pinning it would cost, and the answer is that the link goes dead —
@@ -396,7 +396,7 @@
            id names an ADDRESS and addresses do not move"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. SEAM 3 — `::h/navigate` (`impl.intent/navigate-handler`)
+;; 4. SEAM 3 — `intent/navigate-head` (`impl.intent/navigate-handler`)
 ;; ---------------------------------------------------------------------------
 
 ;; The one seam where a frame keyword is closed over at RENDER and resolved at
@@ -425,7 +425,7 @@
          (finally (late-bind/set-fn! :routing/activate-link! previous)))))
 
 (defn- lower-navigate
-  "Lower one `[::h/navigate {…}]` under the ambient binding a boundary body
+  "Lower one `[intent/navigate-head {…}]` under the ambient binding a boundary body
   runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
   browser would call. The map is exactly what `route-link` mints."
   [tag]
@@ -468,7 +468,7 @@
             (is (= frame-b frame-a)
                 "and it is the SAME value the closure lowered under the
                  successor hands over, so the two are indistinguishable at the
-                 seam: `::h/navigate` carries nothing that could tell them
+                 seam: `navigate-head` carries nothing that could tell them
                  apart even if routing wanted to")))))))
 
 (deftest navigate-through-real-routing-reaches-the-live-incarnation
