@@ -3250,30 +3250,21 @@ jobs:
       - name: npm install
         run: npm ci
 
-      # THE HICASSO INVARIANTS GATE (rf2-8a6s). rf2-hic-001 established
-      # implementation/hicasso/ by copying the measured prototype out of the
-      # benchmark tree with namespaces renamed and nothing else changed, and
-      # `frozen-sources.edn` pins each donor file by digest so that sentence
-      # stays checkable. Until now the check was run BY HAND — the same shape
-      # as the bench-lane compile below before rf2-2rtt6.73, and the same
-      # failure: a divergence nobody ran the gate for is a divergence nobody
-      # notices, and Wave B builds on the false sentence.
-      #
-      # Two properties, both silent when they break: FROZEN (every donor file
-      # still hashes to its pinned digest, every package file the copy
-      # produced is still present) and SEALED (nothing under
-      # implementation/hicasso/ `:require`s a benchmark-tree namespace, which
-      # would make the shipped package depend on a test tree).
-      #
-      # The step now chains two further static reads of the same artefact, which
-      # is why it is no longer called the freeze gate (rf2-ibje): the optional-
-      # module reachability check (nothing optional is reachable from the public
-      # door) and the complaint-catalogue round trip (rf2-hic-021 — every live
-      # diagnostic id is rowed, every reserved spelling is unbuilt). All three
-      # are sub-second pure-Python invariants over implementation/hicasso/**,
-      # they share this job's one input surface, and a separate npm script for
-      # each would need either another workflow step or a declared scheduling
-      # hole for the gain of nothing.
+      # THE HICASSO INVARIANTS GATE (rf2-8a6s). A chain of sub-second static
+      # reads over implementation/hicasso/**, one npm script because they share
+      # this job's one input surface and a separate script for each would need
+      # another workflow step or a declared scheduling hole for the gain of
+      # nothing. The roster is `test:hicasso-invariants` in
+      # implementation/package.json; read it rather than a list here. It opens
+      # with the optional-module reachability check — nothing optional is
+      # reachable from the public door, and no `src/` namespace requires UIx or
+      # the bench tree (the `bench tree` row is what SEALED the package against
+      # its own measurement harness after rf2-6c12m.1 moved that harness out to
+      # bench/hicasso/ and retired the freeze gate that used to seal it) — then
+      # the complaint-catalogue round trip (rf2-hic-021 — every live diagnostic
+      # id is rowed, every reserved spelling is unbuilt), and the ledger reads
+      # chained after those. It was run BY HAND until rf2-8a6s scheduled it:
+      # a divergence nobody ran the gate for is a divergence nobody notices.
       #
       # Hosted in THIS job because its input surface —
       # implementation/hicasso/** (rf2-8a6s's classifier case) — arms
@@ -3302,30 +3293,30 @@ jobs:
       - name: Per-namespace test-isolation gate
         run: node scripts/check-per-ns-isolation.cjs
 
-      # Hicasso bench-lane compile coverage (rf2-2rtt6.73). NO PR gate compiled
-      # this lane. The `:node-test` build above selects `:ns-regexp
-      # "cljs-test$"` plus transitive requires and `:browser-test` selects
-      # `-dom-cljs-test$` likewise, and nothing test-shaped requires the bench
-      # ARMS — measured on the built bundles, `out/node-test.js` contained zero
-      # occurrences of `walk_profile_app` and `out/browser-test/` had no such
-      # module. The only compiler that ever saw an arm was `:hicasso-bench`,
-      # driven BY HAND through a driver that ALSO passed on warnings, so a
-      # broken arm could not go red and a worker mutation-proving a change
-      # through the lane proved nothing.
+      # Hicasso modules compile (rf2-2rtt6.73, rf2-okhdf, rf2-peorl; its own
+      # script since rf2-6c12m.1). The ONE warnings-fatal compile of what no
+      # other gate judges: the optional modules (motion / overlay / forms /
+      # native / server — unreachable from the public door by construction,
+      # so no door-rooted compile sees them, and their own suites compile them
+      # under `:node-test-hicasso` with `:infer-externs false` and under
+      # `:browser-test`, which exits 0 on warnings) and the two core
+      # attribution instruments under core/test/re_frame/bench/ that nothing
+      # test-shaped requires. Measured cost of the hole: four `:infer-warning`s
+      # in impl/overlay.cljs lived on main until read off a browser build by
+      # hand (rf2-9zz0y). One dev-mode `shadow-cljs compile` on the
+      # `:hicasso-modules-compile` id, entries read live off
+      # `check_optional_module_reachability.py --module-namespaces` and a
+      # two-row roster, every warning a failure.
       #
-      # The arms are deliberately LOCAL COPIES of shipping code (the
-      # rf2-2rtt6.32 call-convention discipline, and it is correct), so they
-      # drift by construction and a compile is the cheapest thing that
-      # notices. One dev-mode `shadow-cljs compile` of all 100 lane
-      # namespaces, ~45s, warnings treated as failures. It rides the lane's
-      # existing `:hicasso-bench` id via `--config-merge` — no new build id,
-      # so no hot-zone edit to shadow-cljs.edn (HD-017).
+      # The bench LANE this gate used to compile alongside them is off every
+      # per-PR lane by ruling (rf2-6c12m.1): it lives at bench/hicasso/, a
+      # hand-run project whose own `npm run check` compiles it the same way.
       #
       # Hosted HERE rather than in cljs-examples-compile because this job's
       # `cljs_node_test` surface includes implementation/core/*, which
       # `examples_compile` deliberately excludes — and a core change is
-      # exactly what breaks a local copy of core's calling convention.
-      - name: Hicasso bench-lane compile coverage gate
+      # exactly what breaks the instruments' closure.
+      - name: Hicasso modules compile gate
         run: npm run test:hicasso-compile
 
       # THE HICASSO RELEASE BUILD (rf2-qy1j). rf2-hic-008 added
@@ -3333,7 +3324,7 @@ jobs:
       # `:advanced` / `goog.DEBUG false` compile, entry `re-frame.hicasso.
       # consumer-app` — and correctly stopped there, because package.json and
       # this file were both held. So the build shipped with no npm script and
-      # no job: exactly the shape the bench-lane compile above was in before
+      # no job: exactly the shape the modules compile above was in before
       # rf2-2rtt6.73 and the invariants gate before rf2-8a6s, and with the same
       # consequence — Phase 0's claim that a clean consumer's application
       # compiles for production could stop being true on main and nothing
@@ -3341,7 +3332,7 @@ jobs:
       #
       # WHAT IT CATCHES THAT NOTHING ELSE HERE DOES. Every other compile of
       # these namespaces in the repo is `:none`: `:node-test`, `:browser-test`
-      # and the bench-lane step above all run the ClojureScript compiler and
+      # and the modules-compile step above all run the ClojureScript compiler and
       # never the Closure one. `:advanced` is where renaming, externs
       # inference and DCE-sensitive interop are decided, and a construct only
       # Closure rejects is invisible to all three. Measured rather than

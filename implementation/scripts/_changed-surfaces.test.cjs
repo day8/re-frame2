@@ -5616,6 +5616,29 @@ const DECLARED_NO_SURFACE_OUTPUT = {
     why: 'clj-kondo macro hooks — real Clojure, but consumed only by the linter, and armed by the same lint.yml surface as the config beside them',
     coveredBy: ['.github/workflows/lint.yml'],
   },
+  // rf2-6c12m.1. The Hicasso bench lane — the measurement harness the
+  // programme's numbers were taken on — left implementation/hicasso/test for
+  // its own hand-run shadow project here, off every per-PR lane BY RULING:
+  // its suites exercise LOCAL COPIES of the runtime, so running its 574
+  // deftests per PR could not catch a regression in the shipped one, and its
+  // 82 MB of committed run records are evidence rather than inputs. The
+  // classifier carries an explicit `bench/*` arm that sets nothing, so the
+  // silence is stated in the script as well as declared here. The tree's own
+  // gate is `npm run check` from bench/hicasso/ (every namespace compiled
+  // warnings-fatal plus the harness self-tests), which the bench README
+  // requires before a bench change is published. Two always-on PR jobs still
+  // reach the tree without arming anything: verify-readme-links validates
+  // bench/hicasso/README.md, and js-harness-self-tests runs
+  // lane_cache_wiring.test.cjs, which scans the drivers as text for the
+  // cache-clear rule (rf2-d19nf) across implementation/ AND bench/hicasso/.
+  'bench/hicasso': {
+    why: "the Hicasso bench lane, a hand-run shadow-cljs project kept off every per-PR lane by ruling (rf2-6c12m.1): its suites run against local copies of the runtime, so no PR gate could learn anything from them. Its gate is `npm run check` from bench/hicasso/; two always-on jobs still read it — verify-readme-links (check_readme_links.py over its README) and js-harness-self-tests (lane_cache_wiring.test.cjs over its drivers)",
+    coveredBy: [
+      'bench/hicasso/package.json',
+      'scripts/check_readme_links.py',
+      'implementation/core/test/re_frame/bench/lane_cache_wiring.test.cjs',
+    ],
+  },
   docs: DOCS_YML,
   'docs/EP': DOCS_YML,
   'docs/async': DOCS_YML,
