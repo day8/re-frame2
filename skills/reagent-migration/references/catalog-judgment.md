@@ -189,10 +189,11 @@ Hicasso gives you exactly one escape and it is deliberately plain:
 assume an event at position one, which is what makes it the right answer at a
 value-first foreign callback too (MIG-10).
 
-Two failure modes to know: an `h/event` that returns a vector but captured no
+One failure mode to know: an `h/event` that returns a vector but captured no
 frame raises `:rf.error/hicasso-intent-outside-boundary` at *fire* time, not at
-render; and dispatching from inside a `:render`-contract callback while it is
-running raises `:rf.error/hicasso-dispatch-in-render-position`.
+render. A `:render`-contract callback is pure by contract — its return is the
+render output — and nothing polices a dispatch from inside it beyond React's
+own render-phase warnings.
 
 Coupled to MIG-16's state decision (local work often read view-held state),
 which is why a MIG-18 hit **gates the view**.

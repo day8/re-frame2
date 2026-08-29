@@ -492,32 +492,15 @@
                          (intent/callback (fn [row] [:li (:title row)])))]
       (is (= [:li "milk"] (h {:title "milk"}))
           "the hiccup came back to the caller and was NOT dispatched")
-      (is (= [] @!seen))))
-  (testing "and a dispatch from inside one is refused, naming the POSITION"
-    (let [!seen (recorder)
-          h     (lowered (dispatching !seen) :row-renderer
-                         (intent/callback
-                           (fn [_] ((intent/lower-prop :on-click [:oops]) (ev {})) [:li])))]
-      (try
-        (h {})
-        (is false "should have thrown")
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-dispatch-in-render-position (:rf.error/id d)))
-            (is (= :row-renderer (:position d))
-                "the diagnostic names the POSITION — under one form, the form
-                 is never the answer to the question of what went wrong")
-            (is (re-find #":row-renderer" (ex-message e))))))
-      (is (= [] @!seen) "and nothing reached the frame"))))
+      (is (= [] @!seen)))))
 
 (deftest a-handler-lowered-inside-a-render-body-belongs-to-the-supplying-boundary
-  (testing "rf2-2rtt6.74. The refusal above is INVOCATION-scoped: it covers the
-            call, not everything the call LOWERED. A render prop exists to
-            build interactive rows, and a row's `:on-click` is a legitimate
-            event position that merely happened to be lowered during a render
-            — so it fires later, into the frame of the boundary that SUPPLIED
-            the callback. Nothing else can own it: the invoker has no frame of
-            its own, and frames are isolated contexts."
+  (testing "rf2-2rtt6.74. A render prop exists to build interactive rows, and
+            a row's `:on-click` is a legitimate event position that merely
+            happened to be lowered during a render — so it fires later, into
+            the frame of the boundary that SUPPLIED the callback. Nothing else
+            can own it: the invoker has no frame of its own, and frames are
+            isolated contexts."
     (let [!supplier (recorder)
           !other    (recorder)
           !row      (atom nil)
@@ -559,27 +542,23 @@
 
 (deftest a-render-callback-with-no-owner-forwards-to-a-loud-error-never-to-silence
   (testing "the no-owner edge of the same law. The wrapper was lowered with no
-            frame-locked dispatch in scope, so there is nothing to forward to.
-            The refusal still covers the call; a handler lowered inside it
-            raises the ordinary outside-boundary error when it fires — the
-            silently inert handler is the one outcome that is never available."
+            frame-locked dispatch in scope, so it rebinds nil for its call and
+            a handler lowered inside it raises the ordinary outside-boundary
+            error at lowering — the silently inert handler is the one outcome
+            that is never available."
     (is (nil? intent/*dispatch*))
-    (let [!row (atom nil)
-          h    (intent/lower-prop
-                 :row-renderer
-                 (intent/callback (fn [_]
-                                    (reset! !row (intent/lower-prop :on-click [:oops]))
-                                    [:li])))]
-      (is (= [:li] (h {})) "the body ran and its return is the output")
+    (let [h (intent/lower-prop
+              :row-renderer
+              (intent/callback (fn [_]
+                                 (intent/lower-prop :on-click [:oops])
+                                 [:li])))]
       (try
-        (@!row (ev {}))
+        (h {})
         (is false "should have thrown")
         (catch :default e
           (let [d (ex-data e)]
             (is (= :rf.error/hicasso-intent-outside-boundary (:rf.error/id d)))
-            (is (= :row-renderer (:position d)) "named at the render position")
-            (is (= [:oops] (:event d)))
-            (is (re-find #":row-renderer" (ex-message e)))))))))
+            (is (= [:oops] (:intent d)))))))))
 
 (deftest a-declaration-can-name-the-contract-instead-of-the-position
   (testing "the position table's second row. A `defhost` declaration carries
