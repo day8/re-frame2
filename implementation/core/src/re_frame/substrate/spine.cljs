@@ -2295,7 +2295,7 @@
 ;; environment, and it is NOT evidence about a consumer mount at this horizon
 ;; in either direction. The witness on a representative page now EXISTS —
 ;; committed, one command, and gating nothing (rf2-2rtt6.80):
-;; `hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
+;; `bench/hicasso/src/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
 ;; measures its own page's gap before it will read an adoption integer.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
@@ -2437,7 +2437,7 @@
   THE ADOPTION WITNESS IS A COMMITTED DIAGNOSTIC that nothing invokes on a
   schedule:
 
-      node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs
+      node bench/hicasso/src/re_frame/bench/hicasso/adoption_witness_run.cjs
 
   It measures a quiet single-mount page's gap FIRST and refuses to read the
   adoption integers at all unless that gap sits comfortably inside this

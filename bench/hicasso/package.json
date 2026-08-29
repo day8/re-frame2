@@ -1,0 +1,14 @@
+{
+  "name": "re-frame2-hicasso-bench",
+  "private": true,
+  "description": "The Hicasso measurement lane: a hand-run shadow-cljs project off the implementation classpath (rf2-6c12m.1). No install needed - it reuses implementation/node_modules.",
+  "scripts": {
+    "check": "node src/re_frame/bench/hicasso/compile_gate.cjs && node src/re_frame/bench/hicasso/lane_build.test.cjs && node ../../implementation/core/test/re_frame/bench/lane_cache_wiring.test.cjs && node src/re_frame/bench/hicasso/clock_witness.test.cjs && node src/re_frame/bench/hicasso/alloc_level_witness.test.cjs && node src/re_frame/bench/hicasso/ssr/bake_bytes.test.cjs && node src/re_frame/bench/hicasso/bench_bytes.test.cjs && node src/re_frame/bench/hicasso/alloc_position_confound.cjs --self-test && node src/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --self-test && node src/re_frame/bench/hicasso/alloc_mode_rate_session.cjs --self-test && node src/re_frame/bench/hicasso/alloc_pass_position.cjs --self-test && node src/re_frame/bench/hicasso/alloc_window_ceiling.cjs --self-test && node src/re_frame/bench/hicasso/ladder_band.cjs --self-test && node src/re_frame/bench/hicasso/alloc_pass_design.cjs --controls && node src/re_frame/bench/hicasso/alloc_null_floor.cjs --self-test && node src/re_frame/bench/hicasso/clock_exit_path.test.cjs && node src/re_frame/bench/hicasso/jsfb_compare_exit_path.test.cjs && node src/re_frame/bench/hicasso/jsfb_ours_exit_path.test.cjs && node src/re_frame/bench/hicasso/inpage_ladder_exit_path.test.cjs && node src/re_frame/bench/p0_ladder_structural.test.cjs && node src/re_frame/bench/hicasso_narrow_exit_path.test.cjs",
+    "bench": "node src/re_frame/bench/hicasso/run.cjs",
+    "ssr:bake": "node src/re_frame/bench/hicasso/ssr/driver.cjs bake",
+    "ssr:serve": "node src/re_frame/bench/hicasso/ssr/driver.cjs serve"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.4.10"
+  }
+}

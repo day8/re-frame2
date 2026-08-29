@@ -210,7 +210,7 @@ function prefixesBelowFloor(builds) {
 //
 // TWO OTHER LANES READ THIS SAME LINE, each with its own four-line parser:
 // `scripts/compile-node-test.cjs` (the `:node-test` family) and
-// `hicasso/test/re_frame/bench/hicasso/lane_build.cjs` (`:hicasso-bench`). All
+// `bench/hicasso/src/re_frame/bench/hicasso/lane_build.cjs` (`:hicasso-bench`). All
 // three refuse an unreadable summary; they are deliberately NOT unified, and
 // `compile-node-test.cjs`'s header carries the measured reasons and the test
 // for whether a fourth lane should mint its own (rf2-040s1). Read it before

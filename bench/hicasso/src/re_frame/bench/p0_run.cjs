@@ -168,16 +168,17 @@ const os = require('node:os');
 const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // The bench lane's one page-failure collector, a sibling in this same
 // shared bench-helper directory (rf2-sib23).
-const { watchPage } = require('./sentinel.cjs');
+const { watchPage } = require('../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../..');
+const PROJECT = path.resolve(__dirname, '../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 
 const BUILD = process.env.P0_BUILD || 'hicasso-bench';
 const OUT_DIR = process.env.P0_OUT_DIR || 'out/p0-hicasso';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const INIT_FN = process.env.P0_INIT_FN || 're-frame.bench.p0-app/-main';
 const PORT = Number(process.env.P0_PORT || 8149);
 
@@ -622,7 +623,7 @@ function build() {
   // merges its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was
   // written by a different program. `lane_cache.cjs` carries the measured
   // fault and the rejected alternatives (rf2-2rtt6.20).
-  if (resetLaneBuildCache(IMPL, BUILD)) {
+  if (resetLaneBuildCache(PROJECT, BUILD)) {
     console.error(`[p0] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[p0] building :advanced bundle (donor build id: ${BUILD}) ...`);
@@ -633,7 +634,7 @@ function build() {
   const r = spawnSync(
     process.execPath,
     [runner, 'release', BUILD, '--config-merge', CONFIG_MERGE],
-    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+    { cwd: PROJECT, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
     console.error(`[p0] build failed with status ${r.status}`);

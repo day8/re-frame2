@@ -167,9 +167,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../core/test/re_frame/bench/navigate.cjs');
-const { resetLaneBuildCache } = require('../../../../../../core/test/re_frame/bench/lane_cache.cjs');
-const guard = require('../../../../../../core/test/re_frame/bench/order_guard.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
+const { resetLaneBuildCache } = require('../../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
+const guard = require('../../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('../seam.cjs');
 
 // THE CALIBRATED CHECK STANDARD (rf2-pzqy8) — data, never code. Recalibrating
@@ -195,13 +195,14 @@ const CHECK_STANDARD = require('./census_check_standard.json');
 // `p^18` exponent in that rule's false-refusal arithmetic.
 const EXPECTED_READINGS = CHECK_STANDARD.evidence.rounds * CHECK_STANDARD.evidence.blocks;
 
-const IMPL = path.resolve(__dirname, '../../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.C56CLOCK_OUT_DIR || 'out/census-clock';
 const INIT_FN = 're-frame.bench.hicasso.shapes.census-clock-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.C56CLOCK_PORT || 8143);
 
 // The published design — `clock_run.cjs`'s own depth: 6 rounds x 3 blocks
@@ -731,13 +732,13 @@ const CONFIG_MERGE =
   `{:output-dir "${OUT_DIR}" :asset-path "." ` + `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[c56clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[c56clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
-    cwd: IMPL,
+    cwd: PROJECT,
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   if (r.status !== 0) {

@@ -1069,10 +1069,12 @@ else
         #     hicasso/test are on the global :source-paths and the ns
         #     matches that build's `cljs-test$` regexp) in the `cljs` job;
         #   - the INVARIANTS GATE, `npm run test:hicasso-invariants`, a step
-        #     of that same job — the donor digests in frozen-sources.edn plus
-        #     the no-bench-import seal, and beside them the optional-module
-        #     reachability check and the complaint-catalogue round trip;
-        #   - the bench-lane compile, already an unconditional step there.
+        #     of that same job — the optional-module reachability check (which
+        #     since rf2-6c12m.1 also carries the no-bench-import row the
+        #     retired freeze gate used to seal) and the complaint-catalogue
+        #     round trip;
+        #   - the modules compile (`test:hicasso-compile`), already an
+        #     unconditional step there.
         #
         # NOT implementation_jvm — AND THE OLD REASON HAS EXPIRED, so it
         # is worth being exact about the new one. This row used to read
@@ -1080,11 +1082,12 @@ else
         # probe with `--probe`; it is deliberately absent from
         # scripts/test-jvm-implementation.sh's roster. Arm this the same
         # commit a JVM-runnable suite lands and the roster gains the row."
-        # rf2-0yp7w re-homed the bench harness here, which brought
-        # `test/re_frame/bench/hicasso/front/slot_cljs_test.cljc` — the
-        # `.cljc` equivalence pin for the canonical slot rule (rf2-ani6y)
-        # — so the alias dropped `--probe` and took the test-count floor,
-        # and rf2-ipx7h put the artefact ON that roster with a required
+        # rf2-0yp7w re-homed the bench harness here, which brought the
+        # `.cljc` equivalence pin for the canonical slot rule (rf2-ani6y) —
+        # now `test/re_frame/hicasso/slot_cljs_test.cljc`, retargeted into
+        # the package when the harness moved out again (rf2-6c12m.1) — so
+        # the alias dropped `--probe` and took the test-count floor, and
+        # rf2-ipx7h put the artefact ON that roster with a required
         # `jvm-hicasso` job.
         #
         # The row survives because that job is UNCONDITIONAL, so it needs
@@ -1125,7 +1128,7 @@ else
         #
         # This ADDS to the node arm rather than replacing it. Both still
         # matter and they cover different things: `cljs_node_test` is the
-        # only output that schedules the package smoke and the freeze
+        # only output that schedules the package smoke and the invariants
         # gate, neither of which the browser lane runs.
         cljs_browser=true
         # rf2-ga8m — and, since the three-engine controlled-input gate
@@ -2235,6 +2238,24 @@ else
         # that parent also holds five hand-written migration guides, and a
         # prose edit has no business queueing a JVM lane.
         migration_v1_codemod=true
+        ;;
+      bench/*)
+        # rf2-6c12m.1 — the Hicasso bench lane, a hand-run shadow-cljs project
+        # OFF every per-PR lane by ruling: its suites exercise LOCAL COPIES of
+        # the runtime, so running them per PR could not catch a regression in
+        # the shipped one, and its 82 MB of committed run records are
+        # evidence, not inputs. A bench-only diff is therefore CLASSIFIED to
+        # no gate rather than left unclassified — this arm sets nothing so the
+        # silence is stated. TESTING.md §Changed-surface classifier calls an
+        # unclassified surface a silent hole; this is the other thing, a
+        # surface whose gate is `npm run check` from bench/hicasso/, which
+        # the bench README requires before publishing a change there. Two
+        # unconditional per-PR readers still reach the tree with no gate of
+        # their own: `scripts/check_readme_links.py --ci` validates
+        # bench/hicasso/README.md, and `core/test/re_frame/bench/
+        # lane_cache_wiring.test.cjs` scans the drivers as TEXT for the
+        # cache-clear rule. `implementation/scripts/_changed-surfaces.test.cjs`
+        # pins every output false here.
         ;;
     esac
   done <<< "$files"

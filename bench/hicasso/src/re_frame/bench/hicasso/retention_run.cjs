@@ -77,18 +77,18 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.RETENTION_OUT_DIR || 'out/hicasso-retention';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const INIT_FN = 're-frame.bench.hicasso.retention-probe/-main';
 const PORT = Number(process.env.RETENTION_PORT || 8137);
 
@@ -157,7 +157,7 @@ const CONFIG_MERGE =
 function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[ret] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[ret] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
@@ -165,7 +165,7 @@ function build() {
   // Windows needs `shell: true`, and a shell concatenates argv, which is
   // how the config-merge EDN gets torn in half.
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

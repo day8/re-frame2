@@ -2,12 +2,14 @@
 'use strict';
 // THE OPTIONAL-MODULE ENTRY SOURCE, PINNED — rf2-okhdf.
 //
-//     node hicasso/test/re_frame/bench/hicasso/compile_gate.test.cjs
+//     node hicasso/scripts/check_modules_compile.test.cjs
 //
-// `compile_gate.cjs` compiles the Hicasso optional modules because nothing
-// else in this repository compiles them anywhere warnings are fatal, and it
-// learns which namespaces those are by asking
-// `check_optional_module_reachability.py --module-namespaces`.
+// `check_modules_compile.cjs` compiles the Hicasso optional modules because
+// nothing else in this repository compiles them anywhere warnings are fatal,
+// and it learns which namespaces those are by asking
+// `check_optional_module_reachability.py --module-namespaces`. (It was the
+// bench lane's `compile_gate.cjs` until rf2-6c12m.1 moved the lane out of the
+// package and left this product half behind.)
 //
 // An entry source that quietly contributed NOTHING would leave that gate
 // green over exactly the code it was widened to cover — the defect rf2-okhdf
@@ -18,10 +20,10 @@
 // refusal above could fire correctly over an emitter that had stopped
 // existing and the suite would still be green.
 //
-// It is a SIBLING of `lane_build.test.cjs` and shares its shape deliberately:
-// spawn nothing, decide from a captured result, and pin both directions.
+// It shares the bench lane's `lane_build.test.cjs` shape deliberately: spawn
+// nothing, decide from a captured result, and pin both directions.
 
-// rf2-peorl added a FOURTH entry source — the two `re-frame.bench.*` core
+// rf2-peorl added a SECOND entry source — the two `re-frame.bench.*` core
 // attribution instruments, re-homed here when `implementation/freehand/` took
 // their own gate with it. Its refusals are pinned at the bottom for the same
 // reason: a stated roster that stopped naming real namespaces would leave the
@@ -41,9 +43,9 @@ const {
   MODULE_ROSTER,
   MODULE_ROSTER_FLAG,
   REHOMED_BENCH_ENTRIES,
-} = require('./compile_gate.cjs');
+} = require('./check_modules_compile.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const IMPL = path.resolve(__dirname, '../..');
 
 /** A clean emitter result, over the shape the real roster prints today. */
 function emitted(namespaces) {
@@ -249,7 +251,7 @@ for (const [name, fn] of cases) {
   }
 }
 if (failed > 0) {
-  console.error(`compile_gate.test.cjs: ${failed} of ${cases.length} failed`);
+  console.error(`check_modules_compile.test.cjs: ${failed} of ${cases.length} failed`);
   process.exit(1);
 }
-console.log(`compile_gate.test.cjs: ${cases.length} passed`);
+console.log(`check_modules_compile.test.cjs: ${cases.length} passed`);

@@ -158,15 +158,18 @@ implementation/
                              boundary is a real React function component minted by
                              `defview`, and the runtime owns only what React does not.
                              Extracted by rf2-hic-001 as a mechanical copy of the
-                             measured prototype, which rf2-0yp7w then moved out of
-                             freehand/ to test/re_frame/bench/hicasso/ here, where it
-                             keeps running beside the substrate it measures.
+                             measured prototype. That prototype — the benchmark
+                             harness — now lives at the repo root as bench/hicasso/,
+                             its own hand-run shadow project off this classpath
+                             (rf2-6c12m.1).
     deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
                              so no :clein deploy aliases).
-    frozen-sources.edn       Every donor file the copy read, pinned by digest, plus the
-                             rename table and the forbidden import prefixes.
-    scripts/check_freeze.py  The gate over that pin: the bench tree has not drifted, and
-                             nothing in the package imports it. --self-test included.
+    scripts/check_optional_module_reachability.py
+                             No optional module is reachable from the public door, and
+                             nothing in the package requires UIx or the bench tree.
+    scripts/check_modules_compile.cjs
+                             The optional modules and the two core attribution
+                             instruments compile warnings-fatal (test:hicasso-compile).
     src/re_frame/hicasso.cljc      Public door — the three macros (defview, event, defhost)
                                    and the author-facing vars, each an alias.
     src/re_frame/hicasso/impl/     The copied runtime: codec, controlled, intent, slot,

@@ -11,18 +11,18 @@
 // and never executed.
 const path = require('node:path');
 const { resetLaneBuildCache } = require('../lane_cache.cjs');
-const { shadowBuild } = require('../../../../../hicasso/test/re_frame/bench/hicasso/lane_build.cjs');
+const { shadowBuild } = require('../../../../../../bench/hicasso/src/re_frame/bench/hicasso/lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
+const PROJECT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'bench', 'hicasso');
 const CLEAR_BUILD = 'hicasso-bench';
 const RELEASE_BUILD = 'hicasso-bench-arm';
 
-if (resetLaneBuildCache(IMPL, CLEAR_BUILD)) {
+if (resetLaneBuildCache(PROJECT, CLEAR_BUILD)) {
   console.error(`[fixture] cleared .shadow-cljs/builds/${CLEAR_BUILD}`);
 }
 
 shadowBuild({
-  impl: IMPL,
+  project: PROJECT,
   mode: 'release',
   buildId: RELEASE_BUILD,
   configMerge: '{:output-dir "fixture" :modules {:main {:init-fn fixture.arm/main}}}',

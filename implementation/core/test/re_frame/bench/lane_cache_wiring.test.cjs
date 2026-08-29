@@ -200,6 +200,16 @@ function findImplRoot(from) {
 }
 
 const IMPL_ROOT = findImplRoot(__dirname);
+const REPO_ROOT = IMPL_ROOT === null ? null : path.dirname(IMPL_ROOT);
+// THE BENCH LANE LEFT THE PACKAGE (rf2-6c12m.1) and took every rider of
+// `hicasso-bench` with it, so the riders this gate exists to hold now live
+// under the bench project — its own `shadow-cljs.edn` and `package.json`,
+// one level up from the implementation root. Both trees are scanned, and the
+// bench root is asserted found below for the same reason the implementation
+// root is: a gate that scanned one tree while its subjects sat in the other
+// would be the rescoping rf2-d19nf corrected, in a quieter form.
+const BENCH_ROOT = REPO_ROOT === null ? null : path.join(REPO_ROOT, 'bench', 'hicasso');
+const SCAN_ROOTS = [IMPL_ROOT, BENCH_ROOT].filter((r) => r !== null && fs.existsSync(r));
 const FIXTURE_DIR = path.join(__dirname, 'lane_cache_fixtures');
 
 // THE DECLARED LIST, and the only thing here that is not discovered. An id
@@ -286,7 +296,7 @@ function readSource(abs) {
 }
 
 function read(abs) {
-  const file = path.relative(IMPL_ROOT, abs).split(path.sep).join('/');
+  const file = path.relative(REPO_ROOT, abs).split(path.sep).join('/');
   return { file, abs, ...project(readSource(abs), file) };
 }
 
@@ -365,7 +375,7 @@ function shapeOf(rider) {
 // unparseable file duck the `every candidate was readable` check by having its
 // only occurrence blanked — a fail-open in the one place this gate cannot
 // afford one.
-const CANDIDATE_PATHS = walkCjs(IMPL_ROOT, [])
+const CANDIDATE_PATHS = SCAN_ROOTS.flatMap((root) => walkCjs(root, []))
   .filter((abs) => !abs.endsWith('.test.cjs'))
   .filter((abs) => !abs.startsWith(FIXTURE_DIR + path.sep))
   .filter((abs) => SHARED_BUILD_IDS.some((id) => namesId(readSource(abs), id)))
@@ -380,7 +390,7 @@ for (const abs of CANDIDATE_PATHS) {
   try {
     CANDIDATES.push(read(abs));
   } catch (e) {
-    PARSE_FAILURES.push(`${path.relative(IMPL_ROOT, abs)}: ${e.message}`);
+    PARSE_FAILURES.push(`${path.relative(REPO_ROOT, abs)}: ${e.message}`);
   }
 }
 
@@ -484,6 +494,17 @@ test('the implementation root was found (a gate that scanned nothing is not a pa
     'walked up from this file and never found a directory holding both ' +
       'shadow-cljs.edn and package.json, so discovery had no tree to scan. ' +
       'Repair the anchor — do not fall back to a relative depth.'
+  );
+});
+
+test('the bench project root was found (the riders live there, rf2-6c12m.1)', () => {
+  assert.ok(
+    BENCH_ROOT !== null &&
+      fs.existsSync(path.join(BENCH_ROOT, 'shadow-cljs.edn')) &&
+      fs.existsSync(path.join(BENCH_ROOT, 'package.json')),
+    'bench/hicasso/ beside implementation/ does not hold a shadow-cljs.edn and ' +
+      'package.json, so the tree carrying every `hicasso-bench` rider was not ' +
+      'scanned. Repair BENCH_ROOT — do not let discovery fall back to one tree.'
   );
 });
 

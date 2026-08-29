@@ -86,21 +86,22 @@ const http = require('node:http');
 const path = require('node:path');
 
 // The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 // The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
-const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
+const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The lane's
 // one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.ADOPTWIT_OUT_DIR || 'out/hicasso-adoption-witness';
 const INIT_FN = 're-frame.bench.hicasso.adoption-witness-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.ADOPTWIT_PORT || 8149);
 const TAG = 'adoptwit';
 
@@ -175,11 +176,11 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[${TAG}] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
-  shadowBuild({ impl: IMPL, mode: 'release', buildId: BUILD_ID, configMerge: CONFIG_MERGE, tag: TAG });
+  shadowBuild({ project: PROJECT, mode: 'release', buildId: BUILD_ID, configMerge: CONFIG_MERGE, tag: TAG });
 }
 
 const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };

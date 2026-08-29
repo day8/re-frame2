@@ -1587,7 +1587,7 @@ if [ "$run_node" = true ]; then
   # call-convention discipline), so they drift by construction and a compile
   # is the cheapest thing that notices.  ~45s: one dev-mode `shadow-cljs
   # compile` of all 100 lane namespaces, warnings treated as failures.
-  run "hicasso bench-lane compile" "cd implementation && npm run test:hicasso-compile" \
+  run "hicasso modules compile" "cd implementation && npm run test:hicasso-compile" \
     bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-compile"
 else
   printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'

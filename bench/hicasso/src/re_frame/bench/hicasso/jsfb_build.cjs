@@ -43,9 +43,10 @@ const path = require('node:path');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 
 const BUILD_ID = 'hicasso-bench';
 
@@ -195,7 +196,7 @@ for (const arm of ARMS) {
   // hold a handle for a moment, and a bare `rmSync` throws where the helper
   // waits. One rule, one implementation.
   rmrf(outDir);
-  resetLaneBuildCache(IMPL, BUILD_ID);
+  resetLaneBuildCache(PROJECT, BUILD_ID);
   fs.mkdirSync(outDir, { recursive: true });
 
   const configMerge =
@@ -208,7 +209,7 @@ for (const arm of ARMS) {
   // warnings, so the old `r.status !== 0` let a renamed def through with the
   // arm still publishing a number (rf2-2rtt6.73).
   const verdict = shadowBuildVerdict({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge,

@@ -61,6 +61,14 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
+// The bench project has no `node_modules` of its own: `bench/hicasso/package.json`
+// declares the shadow-cljs pin so the CLI does not warn, and the CLI itself is
+// spawned from the implementation install — the same JS entry-point every
+// other lane in the repo spawns. `shadow-cljs.edn` beside the project reaches
+// the same install for npm packages through `:js-options :node-modules-dir`.
+const IMPL = path.resolve(__dirname, '../../../../../../implementation');
+const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+
 // shadow-cljs colours its output, so every pattern here reads ANSI-stripped
 // text. The lane's build id is a BARE keyword (`[:hicasso-bench]`), unlike the
 // slash-bearing `[:examples/login-uix]` ids `check-examples-compile.cjs`
@@ -201,6 +209,8 @@ function judgeBuild({ status, output }) {
  * report them all (`jsfb_build.cjs`); use `shadowBuild` when the first bad
  * build should end the process, which is every other driver.
  *
+ * `project` is the bench project root — the directory holding the lane's
+ * `shadow-cljs.edn`, and therefore where `.shadow-cljs/` and `out/` land.
  * `mode` is `'release'` or `'compile'`. `configMerge` MUST be a single line —
  * shadow-cljs's CLI re-splits `--config-merge` on whitespace once the EDN
  * contains a newline and then reports `EOF while reading` from a fragment.
@@ -208,13 +218,12 @@ function judgeBuild({ status, output }) {
  * Spawn form is the hardened one used across the repo: shadow's own JS
  * entry-point under THIS node binary, `shell:false`, never a `.cmd` shim.
  */
-function shadowBuildVerdict({ impl, mode, buildId, configMerge }) {
-  const runner = path.join(impl, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const args = [runner, mode, buildId];
+function shadowBuildVerdict({ project, mode, buildId, configMerge }) {
+  const args = [RUNNER, mode, buildId];
   if (configMerge) args.push('--config-merge', configMerge);
 
   const r = spawnSync(process.execPath, args, {
-    cwd: impl,
+    cwd: project,
     encoding: 'utf8',
     // Generous: a warned build prints ~16 lines of context per warning, and a
     // truncated capture would be a parse failure dressed as a clean build.
@@ -242,8 +251,8 @@ function shadowBuildVerdict({ impl, mode, buildId, configMerge }) {
  * `shadowBuildVerdict`, but a bad verdict ends the process. Returns normally
  * only on a clean build, so callers keep reading top-to-bottom.
  */
-function shadowBuild({ impl, mode, buildId, configMerge, tag }) {
-  const verdict = shadowBuildVerdict({ impl, mode, buildId, configMerge });
+function shadowBuild({ project, mode, buildId, configMerge, tag }) {
+  const verdict = shadowBuildVerdict({ project, mode, buildId, configMerge });
   if (!verdict.ok) {
     reportRefusal(tag, verdict);
     process.exit(1);

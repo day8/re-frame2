@@ -37,12 +37,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 const BUILD_ID = 'hicasso-bench-node';
 const OUT = 'out/keywarn-clock.js';
 const TAG = 'keywarn-clock';
 
-fs.rmSync(path.join(IMPL, '.shadow-cljs', 'builds', BUILD_ID), {
+fs.rmSync(path.join(PROJECT, '.shadow-cljs', 'builds', BUILD_ID), {
   recursive: true, force: true,
 });
 
@@ -54,14 +54,14 @@ const merge =
 
 console.error(`[${TAG}] compiling ${BUILD_ID} -> ${OUT}`);
 const verdict = shadowBuildVerdict({
-  impl: IMPL, mode: 'compile', buildId: BUILD_ID, configMerge: merge,
+  project: PROJECT, mode: 'compile', buildId: BUILD_ID, configMerge: merge,
 });
 if (!verdict.ok) {
   reportRefusal(TAG, verdict);
   process.exit(1);
 }
 
-const r = spawnSync(process.execPath, [path.join(IMPL, OUT)], {
-  cwd: IMPL, stdio: 'inherit',
+const r = spawnSync(process.execPath, [path.join(PROJECT, OUT)], {
+  cwd: PROJECT, stdio: 'inherit',
 });
 process.exit(r.status === null ? 1 : r.status);

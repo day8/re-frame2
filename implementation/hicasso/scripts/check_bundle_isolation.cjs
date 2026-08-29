@@ -287,7 +287,7 @@
  *
  * WHAT A HIT DOES NOT DISTINGUISH, stated for the same reason. The
  * prototype this module is the product form of —
- * `test/re_frame/bench/hicasso/ssr/entry.cljs` — mints the identical
+ * `bench/hicasso/src/re_frame/bench/hicasso/ssr/entry.cljs` — mints the identical
  * keyword namespace, so a red here names one of two surfaces rather
  * than one. Both are leaks: a bench fixture in the release bundle is
  * its own defect and a worse one. The remedy below says to check both,
@@ -479,7 +479,7 @@ const SENTINELS = [
       'name it and the release entry must not either — a Node host ' +
       'requires it, and `check_optional_module_reachability.py` decides ' +
       'the source half exhaustively. IF NOTHING REQUIRES THE MODULE, ' +
-      'look at `test/re_frame/bench/hicasso/ssr/entry.cljs`: the ' +
+      'look at `bench/hicasso/src/re_frame/bench/hicasso/ssr/entry.cljs`: the ' +
       'prototype mints the identical keyword namespace, and a bench ' +
       'fixture in the release bundle is its own defect.',
   },

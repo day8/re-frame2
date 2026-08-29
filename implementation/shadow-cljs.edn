@@ -121,19 +121,17 @@
                 "resources/src"
                 "resources/test"
                 ;; rf2-hic-001 — the Hicasso view substrate. src carries
-                ;; the runtime copied out of the benchmark tree
-                ;; (hicasso/test/re_frame/bench/hicasso/{front,arm1}/)
-                ;; under re-frame.hicasso + re-frame.hicasso.impl.*; test
-                ;; carries the package smoke
-                ;; (re-frame.hicasso.smoke-cljs-test), which rides the
-                ;; always-on :node-test gate (`cljs-test$` matches) AND
-                ;; the focused :node-test-hicasso build below. rf2-0yp7w
-                ;; moved that bench tree here from freehand/test/, so the
-                ;; two now share the "hicasso/test" root below and it
-                ;; keeps building under :hicasso-bench; nothing in the
-                ;; package imports it, and hicasso/scripts/check_freeze.py
-                ;; is what says so.
-                ;; Bundle-isolation holds: no production build :requires
+                ;; the runtime under re-frame.hicasso + re-frame.hicasso.impl.*;
+                ;; test carries the package's own suites — the smoke
+                ;; (re-frame.hicasso.smoke-cljs-test) and every
+                ;; `re-frame.hicasso.*-cljs-test` beside it — which ride the
+                ;; always-on :node-test gate (`cljs-test$` matches) AND the
+                ;; focused :node-test-hicasso build below. The benchmark
+                ;; harness the runtime was copied out of is NOT here: rf2-6c12m.1
+                ;; moved it to bench/hicasso/, its own shadow project off this
+                ;; classpath, and check_optional_module_reachability.py's
+                ;; `bench tree` row is what says nothing in the package imports
+                ;; it. Bundle-isolation holds: no production build :requires
                 ;; re-frame.hicasso.*.
                 "hicasso/src"
                 "hicasso/test"
@@ -832,17 +830,17 @@
   ;; this is the *named* surface, not an additional required gate.
   ;;
   ;; Why a new build id rather than --config-merge onto an existing one,
-  ;; which is the house preference and what the bench lane's own
-  ;; :hicasso-bench comment recommends: --config-merge can add a source
+  ;; which is the house preference: --config-merge can add a source
   ;; path or an entry to a build that already has the right SHAPE, and
   ;; there is no existing id whose shape is "compile the hicasso package
   ;; and run its suites". Riding the then-live :node-test-freehand would
   ;; have compiled the package under the FREEHAND artefact's regexp and
-  ;; name, tying a new artefact's gate to a neighbour's; riding
-  ;; :hicasso-bench would compile the package under the BENCH tree's
-  ;; advanced browser build, which is the very coupling this extraction
-  ;; exists to end. One id, one artefact, matching the two donor siblings
-  ;; that came before it.
+  ;; name, tying a new artefact's gate to a neighbour's; riding the bench
+  ;; lane's :hicasso-bench (then in this file, now in
+  ;; bench/hicasso/shadow-cljs.edn) would have compiled the package under
+  ;; the BENCH tree's advanced browser build, which is the very coupling
+  ;; this extraction exists to end. One id, one artefact, matching the two
+  ;; donor siblings that came before it.
   ;;
   ;; The compile alone is half the acceptance: it is what proves the
   ;; renamed impl.* graph loads with the bench tree off the classpath.
@@ -909,112 +907,36 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.hicasso.consumer-app/-main}}}
 
-  ;; rf2-2rtt6.2 — THE HICASSO MEASUREMENT LANE (EP-0038 / HD-017).
+  ;; rf2-6c12m.1 — THE HICASSO PACKAGE'S WARNINGS-FATAL COMPILE of what no
+  ;; other gate judges: the optional modules (motion / overlay / forms /
+  ;; native / server) and the two core attribution instruments re-homed under
+  ;; core/test/re_frame/bench (rf2-peorl). `hicasso/scripts/
+  ;; check_modules_compile.cjs` reads the module entries off
+  ;; `check_optional_module_reachability.py --module-namespaces` and the two
+  ;; instruments off its own roster, merges them in as `:entries`, and refuses
+  ;; the build on ANY warning. That is the whole reason this id exists:
+  ;; `:node-test-hicasso` sets `:infer-externs false` and `:browser-test`
+  ;; exits 0 on warnings, so this is the one compile where an un-externable
+  ;; property access can go red (rf2-9zz0y: four `:infer-warning`s in
+  ;; impl/overlay.cljs lived on main until read off a browser build by hand).
   ;;
-  ;; ONE build id for the whole programme, deliberately. HD-017 makes a new
-  ;; build id a hot-zone edit to this file and therefore a SEQUENCED
-  ;; dispatch; four P0 arms landing four build ids would be four
-  ;; sequenced dispatches for what is one compilation shape. This build is
-  ;; that shape, and every arm rides it by MERGING its own entry:
+  ;; `:browser`, MEASURED rather than assumed: the instruments' closure reads
+  ;; DOM-element properties in core's spine.cljs that only Closure's browser
+  ;; externs can infer, and the same rows under a `:node-script` id raised
+  ;; four `:infer-warning`s there (rf2-bl0j). The analyser classes this gate
+  ;; closes — a deleted def, a renamed require, a dropped arity, an undeclared
+  ;; var — do not vary by `:target`. Driven by `npm run test:hicasso-compile`,
+  ;; a step of the required `cljs` job. No `:dev-http`; compiled, never served.
   ;;
-  ;;   node .../re_frame/bench/hicasso/run.cjs
-  ;;   HICASSO_INIT_FN=<ns>/-main HICASSO_OUT_DIR=out/<arm> node .../run.cjs
-  ;;
-  ;; `run.cjs` passes `--config-merge {:output-dir … :modules {:main
-  ;; {:init-fn …}}}` exactly as the Freehand lane's `b6_prod_run.cjs` rode
-  ;; `:freehand-release` before rf2-0yp7w removed both, so a sibling arm
-  ;; needs NO edit to this file at all. The sequencing law is paid once,
-  ;; here.
-  ;;
-  ;; WHY A NEW ID RATHER THAN RIDING `:freehand-release`, decided while that
-  ;; build still existed. The b6 driver's trick worked because a build id is
-  ;; only a template, and this lane could have merged onto the Freehand
-  ;; release build. It did not, for two reasons: the Freehand programme was
-  ;; withdrawn and its release build had its own gates reading its own
-  ;; `out/` dir (`:freehand-release` was cleaned and rebuilt by
-  ;; `test:freehand-reachability` and `test:freehand-matched`), so a bench
-  ;; run and a gate run would have raced the same
-  ;; `.shadow-cljs/builds/freehand-release` cache; and the charter's
-  ;; anti-regression fence is explicit that Hicasso does not carry a
-  ;; continuity claim to its donors — the measurement lane should not have
-  ;; to borrow a donor's identity to compile. The first reason expired with
-  ;; the build; the second is why this id would still be right today.
-  ;;
-  ;; :advanced with goog.DEBUG false, because HD-012 makes every bar number
-  ;; a browser number taken from the artefact a consumer ships. The Spec 009
-  ;; instrumentation seam, schema validation and trace emission are all
-  ;; `goog.DEBUG`-gated and all sit on the subscription path the bulk row
-  ;; measures; a development build would price a cost no user pays. And
-  ;; `:advanced` cannot compile shadow's `:browser-test` target
-  ;; (`cljs-test-display`'s `goog.define`s collide), which is why the lane
-  ;; is a plain `:browser` module with an `:init-fn` rather than a test
-  ;; build. No `:dev-http` — like every other advanced build here it is
-  ;; compiled and driven, never served by shadow.
-  :hicasso-bench
+  ;; The hicasso BENCH LANE's own ids (`:hicasso-bench`, `:hicasso-bench-node`)
+  ;; left this file with the lane: they live in bench/hicasso/shadow-cljs.edn,
+  ;; a hand-run project off this classpath (rf2-6c12m.1).
+  :hicasso-modules-compile
   {:target     :browser
-   :output-dir "out/hicasso-bench"
+   :output-dir "out/hicasso-modules-compile"
    :asset-path "."
-   :compiler-options {:optimizations   :advanced
-                      :infer-externs   :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
-
-  ;; rf2-0yp7w.9.6 — THE SAME LANE'S NODE PROGRAM ID.
-  ;;
-  ;; `:hicasso-bench` above is the lane's `:browser` shape and cannot serve
-  ;; every driver in it. Two need a PROGRAM under Node instead:
-  ;;
-  ;;   ssr/driver.cjs        `renderToString` resolves `react-dom/server`
-  ;;                         through Node's own conditional exports, which a
-  ;;                         `:browser` build does not take.
-  ;;   keywarn_clock_run.cjs times the key warning's DEV pre-pass, which exists
-  ;;                         only where `goog.DEBUG` is true — the opposite of
-  ;;                         what `:hicasso-bench` pins.
-  ;;
-  ;; Both rode `:freehand-bench-node`, the donor tree's `:node-script`, for the
-  ;; reason recorded in `:hicasso-bench` above: HD-017 makes a build id a hot-
-  ;; zone edit, so riding an existing id was cheaper than minting one. PR #8322
-  ;; then deleted that build with the tree and left both drivers naming a build
-  ;; that does not exist — `no build with id: :freehand-bench-node`, exit 1,
-  ;; before a line of ClojureScript was read. There is now no `:node-script`
-  ;; build anywhere in this file to ride, so the sequencing law is paid here,
-  ;; once, exactly as it was paid once for the browser shape.
-  ;;
-  ;; ONE id for both programs, which is the shape they were already written
-  ;; for: each supplies its own `:main` and `:output-to` through
-  ;; `--config-merge`, and each clears
-  ;; `.shadow-cljs/builds/hicasso-bench-node` first because shadow derives the
-  ;; cache directory from the build id alone, before any merge (rf2-2rtt6.20).
-  ;; The defaults below are the SSR entry, so a bare `shadow-cljs compile
-  ;; hicasso-bench-node` builds something real rather than erroring on a
-  ;; placeholder `:main`.
-  ;;
-  ;; `:infer-externs false`, carried from the departed build and MEASURED here
-  ;; rather than inherited on trust. A `:node-script` build has no browser
-  ;; externs, so Closure cannot resolve a property access on a DOM element and
-  ;; `lane_build.cjs` — which is warnings-fatal — would refuse the build over
-  ;; source these drivers do not own. Re-run at this id with
-  ;; `:infer-externs :auto` merged over it:
-  ;;
-  ;;   [:hicasso-bench-node] Build completed. (192 files, 133 compiled,
-  ;;                                           8 warnings, 10.36s)
-  ;;
-  ;; all eight `:infer-warning`s — four in `core/src/re_frame/substrate/
-  ;; spine.cljs` at 1252, 1577, 1582 and 1874, four more in the lane's own
-  ;; `arm1/mount.cljs`, `front/controlled.cljs` and `front/intent.cljs`. The
-  ;; spine four are the same four `compile_gate.cjs`'s rf2-peorl section
-  ;; records from the DONOR `:node-script` lane, reproduced on this id.
-  ;;
-  ;; A NAME OF ITS OWN, not a donor's. The `:hicasso-bench` note above records
-  ;; the charter's anti-regression fence — Hicasso carries no continuity claim
-  ;; to its donors and the measurement lane should not borrow a donor's
-  ;; identity to compile. That reasoning outlived the build it was written
-  ;; about.
-  :hicasso-bench-node
-  {:target    :node-script
-   :main      re-frame.bench.hicasso.ssr.node/-main
-   :output-to "out/hicasso-bench-node.js"
-   :compiler-options {:infer-externs false}}
+   :compiler-options {:infer-externs :auto}
+   :modules {:main {:entries [re-frame.hicasso]}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in

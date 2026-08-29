@@ -72,7 +72,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert');
-const { allocPassFlips } = require('../../../../../core/test/re_frame/bench/p0_run.cjs');
+const { allocPassFlips } = require('../p0_run.cjs');
 const {
   decompose,
   separation,

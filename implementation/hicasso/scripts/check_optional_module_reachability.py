@@ -42,7 +42,7 @@ than grepping the file.
 THE ROSTER ALSO DRIVES THE COMPILE (rf2-okhdf)
 ----------------------------------------------
 `--module-namespaces` prints [[MODULES]]'s doors and engines, one per
-line, and `hicasso/test/re_frame/bench/hicasso/compile_gate.cjs` reads
+line, and `hicasso/scripts/check_modules_compile.cjs` reads
 that list to decide what it compiles.  The two arms are the SAME roster
 read in opposite directions, which is why the emission lives here rather
 than as a second list over there: this file forbids anything outside a
@@ -178,8 +178,8 @@ SRC = PACKAGE_ROOT / "src"
 DEPS_EDN = PACKAGE_ROOT / "deps.edn"
 
 # rf2-b3gy.  The libraries no `src/` namespace may require and no production
-# coordinate may name.  One entry today; the list shape is what keeps a second
-# one from being a rewrite.
+# coordinate may name.  Two entries; the list shape is what keeps the second
+# from being a rewrite, and a row with no `coordinate_marker` takes arm 1 only.
 #
 # `prefixes` are matched as NAMESPACE SEGMENTS rather than as substrings, so
 # `uix` catches `uix.core` and `uix.dom.server` and does NOT catch a namespace
@@ -205,6 +205,24 @@ FORBIDDEN_IMPORTS = [
             "dependency graph contains no UIx code. Hicasso ships no reactive "
             "adapter: the consumer picks one, and this package must not pick "
             "for them"
+        ),
+    },
+    {
+        # rf2-6c12m.1.  The bench lane is the measured prototype the package
+        # was copied out of, and since the move it is off this package's
+        # classpath entirely (bench/hicasso/, a hand-run project) -- so a
+        # `:require` of it is a compile error in every build as well as a
+        # finding here.  This row is what says so in the package's own terms,
+        # with the same prose exemption as the row above: six `src/`
+        # docstrings cite bench namespaces as provenance and stay legal.  No
+        # coordinate: the lane publishes none, and this arm reads `deps.edn`
+        # for nothing on its behalf.
+        "name": "bench tree",
+        "prefixes": ["re-frame.bench"],
+        "why": (
+            "the bench lane is a measurement harness of local copies, kept as "
+            "evidence off the package classpath (bench/hicasso/); shipped code "
+            "that reached into it would depend on a tree no consumer receives"
         ),
     },
 ]
@@ -721,6 +739,8 @@ def scan_forbidden_coordinates(deps_text):
         ]
     problems = []
     for rule in FORBIDDEN_IMPORTS:
+        if not rule.get("coordinate_marker"):
+            continue
         marker = rule["coordinate_marker"].lower()
         for token in SYMBOL_RE.findall(production):
             if marker in token.lower():
@@ -1022,7 +1042,7 @@ def self_test():
     for ns in emitted:
         assert ns in declared, (
             "the roster emits `{}`, which no file under src/ declares. "
-            "compile_gate.cjs would be handed a namespace that cannot be "
+            "check_modules_compile.cjs would be handed a namespace that cannot be "
             "resolved.".format(ns)
         )
 
@@ -1079,6 +1099,35 @@ def self_test():
     # A namespace that merely STARTS with the letters is not the library.
     clean = scan_forbidden_imports(
         {"src/s.cljs": "(ns re-frame.hicasso.core\n  (:require [uixels.grid :as g]))"}
+    )
+    assert clean == [], clean
+
+    # THE BENCH-TREE ROW (rf2-6c12m.1), both directions.  RED: a require of
+    # the lane by the spelling the old freeze gate's SEALED arm scanned for,
+    # and by the rider spelling that sits one segment shallower.
+    for spelling in ("re-frame.bench.hicasso.lane", "re-frame.bench.p0-app"):
+        flagged = scan_forbidden_imports(
+            {
+                "src/b.cljs": "(ns re-frame.hicasso.impl.intent\n"
+                "  (:require [{} :as lane]))".format(spelling)
+            }
+        )
+        assert len(flagged) == 1, (spelling, flagged)
+        assert spelling in flagged[0] and "bench tree" in flagged[0], (spelling, flagged)
+    # GREEN: the provenance citations `src/` carries today -- a docstring
+    # naming a bench suite by namespace, and a `[[wikilink]]` into one.
+    clean = scan_forbidden_imports(
+        {
+            "src/p.cljs": '(ns re-frame.hicasso.impl.route-link\n'
+            '  "Lifted from [[re-frame.bench.hicasso.shapes.card/card]]; the\n'
+            '  witness `re-frame.bench.hicasso.front.slot-cljs-test` pins it."\n'
+            "  (:require [re-frame.hicasso.impl.slot :as slot]))"
+        }
+    )
+    assert clean == [], clean
+    # And a namespace that merely starts with the letters is not the lane.
+    clean = scan_forbidden_imports(
+        {"src/q.cljs": "(ns re-frame.hicasso.core\n  (:require [re-frame.benchmarks.x :as x]))"}
     )
     assert clean == [], clean
 

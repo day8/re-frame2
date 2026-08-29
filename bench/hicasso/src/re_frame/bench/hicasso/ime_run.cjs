@@ -78,9 +78,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
-const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
+const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
@@ -124,7 +124,7 @@ function build() {
   }
   console.error(`[ime] building DEV bundle — ${INIT_FN} -> ${OUT_DIR} (see header for why not :advanced)`);
   shadowBuild({
-    impl: IMPL_ROOT,
+    project: PROJECT_ROOT,
     mode: 'compile',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

@@ -43,6 +43,10 @@ const os = require('node:os');
 const path = require('node:path');
 
 const DRIVER = path.join(__dirname, 'p0_run.cjs');
+// The P0 fixture and the work census stayed in the package when the lane
+// moved out (rf2-6c12m.1): `p0_write_page_cljs_test` rides the per-PR
+// `:node-test` build through them, so they live where that build reads.
+const CORE_BENCH = path.resolve(__dirname, '../../../../../implementation/core/test/re_frame/bench');
 // Requiring the driver must NOT drive it: it builds, serves and launches a
 // browser. The `require.main === module` guard is part of what is under test.
 const {
@@ -2020,7 +2024,7 @@ test('the RETENTION ladder is not moved by any of this', () => {
   // retention figure describing a page it was not taken on.
   const HEAP = fs.readFileSync(path.join(__dirname, 'p0_heap.cljs'), 'utf8');
   const ARMS = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
-  const FIXTURE = fs.readFileSync(path.join(__dirname, 'p0_fixture.cljc'), 'utf8');
+  const FIXTURE = fs.readFileSync(path.join(CORE_BENCH, 'p0_fixture.cljc'), 'utf8');
   // AMENDED, NOT DELETED (rf2-gxrr). The absolute `doesNotMatch` on
   // `write-all!` was this pin's SHAPE; criterion 6's row separation is its
   // CONTENT — "a reader of any row can tell from the row which write
@@ -2079,7 +2083,7 @@ test('the RETENTION ladder is not moved by any of this', () => {
     /\(rf\/reg-event :p0\/write-all\s+\(fn \[\{:keys \[db\]\} \[_ v\]\] \(wc\/event!\) \{:db \(assoc db :cells \(vec \(repeat cells-n v\)\)\)\}\)\)/,
     '`:p0/write-all` still rebuilds at the literal `cells-n`, behind the census macro'
   );
-  const WORKCOUNT = fs.readFileSync(path.join(__dirname, 'p0_workcount.cljc'), 'utf8');
+  const WORKCOUNT = fs.readFileSync(path.join(CORE_BENCH, 'p0_workcount.cljc'), 'utf8');
   assert.match(
     WORKCOUNT,
     /#\?\(:cljs \(goog-define counting\? false\)/,
@@ -3315,7 +3319,7 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // inherit a width; a branch that skipped the re-seed for an already
   // installed segment would reintroduce exactly that.
   const ARMS_SRC = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
-  const FIXTURE_SRC = fs.readFileSync(path.join(__dirname, 'p0_fixture.cljc'), 'utf8');
+  const FIXTURE_SRC = fs.readFileSync(path.join(CORE_BENCH, 'p0_fixture.cljc'), 'utf8');
   assert.match(
     ARMS_SRC,
     /\(rf\/make-frame \{:id frame-id :initial-events \[\[:p0\/seed \(long grid-width\)\]\]\}\)/,

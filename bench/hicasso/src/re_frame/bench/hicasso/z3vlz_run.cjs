@@ -80,17 +80,17 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 // This driver needs it MOST: it builds four different variants back to back in
 // a single run, so it was poisoning its own later rungs with its earlier ones
 // without any second driver being involved.
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 const BUILD_ID = 'hicasso-bench';
 const PORT = Number(process.env.Z3VLZ_PORT || 8171);
 const SENTINEL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -202,7 +202,7 @@ function build(variant) {
   // The lane's cache rule, before anything reads the cache — and PER VARIANT,
   // because each of the four is a different program. `lane_cache.cjs` carries
   // the measurement and the rejected alternatives.
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[z3vlz] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N variants (rf2-2rtt6.20)`);
   }
   console.error(`[z3vlz] building :advanced — ${variant.name} -> ${variant.outDir}`);
@@ -224,7 +224,7 @@ function build(variant) {
     `:compiler-options {:source-map true} ` +
     `:modules {:main {:init-fn ${variant.initFn}}}}`;
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: dev ? 'compile' : 'release',
     buildId: BUILD_ID,
     configMerge: merge,
@@ -240,7 +240,7 @@ const SLIM_REAGENT = /(^|[\\/])reagent2[\\/]/;
 const UIX = /(^|[\\/])uix[\\/]/;
 
 function composition(variant) {
-  const mapFile = path.join(IMPL, variant.outDir, 'main.js.map');
+  const mapFile = path.join(PROJECT, variant.outDir, 'main.js.map');
   if (!fs.existsSync(mapFile)) {
     console.error(
       `[z3vlz] FAILED: no source map at ${mapFile} — the bundle-composition check ` +
@@ -299,7 +299,7 @@ function checkComposition(variant) {
 const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'application/json' };
 
 function serve(outDir) {
-  const OUT = path.join(IMPL, outDir);
+  const OUT = path.join(PROJECT, outDir);
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
     '<!doctype html><html><head><meta charset="utf-8"><title>z3vlz</title></head>' +

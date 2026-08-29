@@ -155,12 +155,12 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
-const guard = require('../../../../../core/test/re_frame/bench/order_guard.cjs');
+const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('./seam.cjs');
 const kbwitness = require('./clock_witness.cjs');
 // THE GATE ON A BULK ROW (rf2-8a746). One module, required by this driver and
@@ -168,12 +168,12 @@ const kbwitness = require('./clock_witness.cjs');
 // arithmetic are two adjudicators.
 const checkstd = require('./clock_check_standard.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.HCLOCK_OUT_DIR || 'out/hicasso-clock';
 const INIT_FN = 're-frame.bench.hicasso.clock-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HCLOCK_PORT || 8137);
 
 const ROUNDS = Number(process.env.HCLOCK_ROUNDS || 6);
@@ -288,12 +288,12 @@ const CONFIG_MERGE =
   `{:output-dir "${OUT_DIR}" :asset-path "." ` + `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

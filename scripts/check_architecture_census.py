@@ -530,11 +530,11 @@ def self_test() -> int:
     check("a surface with no row is a finding",
           any("no row on the census page" in f
               for f in arm_tooling(page.replace(
-                  "implementation/hicasso/scripts/check_freeze.py", "REMOVED"))))
+                  "implementation/hicasso/scripts/check_optional_module_reachability.py", "REMOVED"))))
     check("an empty Consumer cell is a finding",
           any("Consumer cell is empty" in f
               for f in arm_tooling(re.sub(
-                  r"(\| `implementation/hicasso/scripts/check_freeze\.py`[^|]*\|[^|]*\|)[^|]*\|",
+                  r"(\| `implementation/hicasso/scripts/check_optional_module_reachability\.py`[^|]*\|[^|]*\|)[^|]*\|",
                   r"\1 |", page))))
 
     print("self-test: " + ("all arms bite." if ok else "AN ARM DID NOT BITE."))
