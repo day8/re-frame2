@@ -1476,135 +1476,26 @@
     element))
 
 (defn mint-view!
-  "Turn a body fn into a boundary: a React function component, marked as a
-  legal hiccup head and given the codec's stable memo wrapper. Minted
-  once, at definition — which is why the codec's third HD-004 cache
-  (stable component heads) has nothing to do in this runtime, and why HD-016
-  can make a plain function in head position a loud error instead of
-  auto-wrapping it.
+  "Turn a body fn into a boundary: a React function component, marked as
+  a legal hiccup head and wrapped in the codec's stable memo — minted once,
+  at definition, which is why the codec's stable-heads cache (HD-004) has
+  nothing to do here and why a plain function in head position can be a
+  loud error (HD-016). Returns the head, still a function: `React.memo`
+  answers an object, and the codec and the tests require a minted head to
+  BE one, so `codec/memoize-boundary!` attaches the wrapper to the head
+  and the codec creates elements from the wrapper.
 
-  **The returned value is still the function**, and that is a constraint
-  rather than an accident: `React.memo` answers an object, the codec and
-  these tests require a minted head to BE a function, and no memo object
-  may escape as the public representation. `memoize-boundary!` therefore attaches the wrapper to
-  the head and hands the head back; the codec creates elements from the
-  wrapper. See [[re-frame.hicasso.impl.codec/memoize-boundary!]].
-
-  ## Why there is a bail-out at all (HD-006 as amended)
-
-  Without one, a write that moves a key the PAGE reads re-renders the
-  page and then every boundary beneath it — 300 of 300 cards on the
-  tier-1 feed shape, every card's props and every card's subscription
-  values equal. That contradicts the central claim — that
-  boundaries are independent, and a write wakes only its readers — on
-  precisely the bulk row the bar is set on, and it is the axis Reagent's
-  argv compare already wins.
-
-  ## Why bailing out on PROPS is safe when bodies read SUBSCRIPTIONS
-
-  This is the question the bail-out has to answer, because a memo that
-  bailed while a subscription moved would freeze a row on screen — the
-  exact failure class [[invalidate-cell!]] and [[first-registration!]]
-  exist to close. It is safe
-  because props are not the only channel into the shell, and memo blocks
-  only one of them:
-
-  - **Subscriptions** arrive through [[shell]]'s `useSyncExternalStore`.
-    A commit calls that fiber's own `onStoreChange` ([[flush!]] →
-    `notify!`), which schedules an update **on the boundary's fiber**.
-    React consults `checkScheduledUpdateOrContext` BEFORE it consults the
-    comparator, so a fiber with pending work re-renders and the
-    comparator is never even asked. A row whose reads moved cannot be
-    bailed out, whatever its props say. Precedent: reagent-slim's
-    default update check is argv `=`, and reactive invalidation bypasses
-    it via `forceUpdate` — the same shape, by design.
-  - **The frame** arrives through `useContext`, and React propagates a
-    context change to its consumers directly — again ahead of the
-    comparator, and again through a memo.
-  - **Props** are the remaining channel, and the only one memo blocks.
-
-  So the bail-out is exactly the case where all three are unchanged, and
-  a body that is a pure function of the three cannot observe it — which
-  is the contract: bodies stay pure and re-runnable, and memoization is a
-  scheduling optimization and never observable semantics. The residue is
-  a body reading something that is none of the three — a bare atom,
-  `Date.now()` — which was never tracked and never woke a boundary on its
-  own before either; the cascade merely re-ran it by accident. Reagent's
-  argv compare has the identical residue.
-
-  ## What it costs, stated rather than claimed away
-
-  **No hook** — the comparator is React's, not the shell's, so the ≤2-hook
-  budget is untouched and the ledger still reads `useContext` +
-  `useSyncExternalStore`. **One fiber per boundary**: a `React.memo`
-  carrying a custom comparator stays a `MemoComponent` rather than
-  collapsing to React's `SimpleMemoComponent`, so React keeps a wrapper
-  fiber above the component's own. That is React's retention rather than
-  this runtime's, and the bench tree's retained inventory prices it under
-  `:react/memo-fiber` instead of leaving it for a heap ladder to
-  discover.
-
-  ## Spec 009's `:render` bucket, and why the bracket is HERE
-
-  Spec 009 §What gets bracketed names four hot paths; three of them
-  (`:event`, `:sub`, `:fx`) are core's and are already live for a
-  Hicasso app, because they sit in the router, the subs layer and the fx
-  layer this runtime consumes unchanged. The fourth — `:render` — is the
-  **view substrate's**, and it is bracketed here so a Hicasso app's
-  per-view render reaches the User-Timing stream like every other
-  re-frame2 app's. It is a `:render` in the spec's own terms: the bucket is keyed
-  on the *representation* of the work — one view boundary's body run,
-  once per render pass the host actually performs — not on which
-  registration API minted the head. `reg-view*` mints its wrapper with a
-  `defn`; `defview` mints its wrapper here; both are \"the wrapper the
-  substrate emits around a registered view body\", which is exactly what
-  the spec's `Where` column describes.
-
-  **The bracket is the component fn and not [[render-body]]**, and the
-  reason is a cost that would survive elision. [[render-body]] does not
-  know the view's name — threading one in would add a parameter passed on
-  every render of every boundary, present in the OFF bundle as well as
-  the on one, which is the thing Spec 009's whole design is arranged to
-  avoid (and which [[hydrate-cljs-test]] would have to be edited to
-  accommodate). `view-name` is already closed over at this exact point,
-  so under `:advanced` + `re-frame.performance/enabled? false` the macro
-  constant-folds to `(shell body-fn js-props)` — byte-for-byte the call
-  that was here before, with nothing added anywhere.
-
-  Placing it at the component fn also makes four behaviours fall out
-  rather than be arranged:
-
-  - **A memo bail-out emits nothing.** React consults the comparator
-    ABOVE this fn; a bailed-out boundary never enters it. HD-028's rider
-    holds on the measure stream for the same reason it holds on the
-    body-run counter — a boundary React skipped and a boundary React ran
-    are two different numbers.
-  - **StrictMode's double-invoke emits twice**, which is correct: React
-    ran the body twice and the measure stream should say so.
-  - **The generation fence emits once.** [[render-body]] may run a body
-    up to four times for ONE React render; the bracket spans the whole
-    retry loop, so the entry count stays one-per-render-pass and its
-    duration is the wall-clock React actually paid — the honest RUM
-    number rather than a count inflated by an internal retry.
-  - **A throwing body still emits**, via the macro's own `try/finally`,
-    and an abandoned render (a suspended subtree, an SSR pass React
-    discards) emits the time it genuinely spent. Nothing durable is left
-    behind either way: the bracket writes one measure and clears it by
-    name unless the consumer flipped `retain-entries?`.
-
-  **Boundaries only.** A plain inlined helper called from a body is not a
-  React component and is not a `reg-view` peer, so it is not separately
-  bracketed — its cost lands inside the enclosing boundary's measure,
-  which is the same place its reads land (see the render-context comment
-  above).
-
-  **The id rule, pinned:** the entry is `rf:render:<view-name>`, where
-  `view-name` is the string this fn was given and the string stamped as
-  `displayName` on the line below — so a consumer reading a measure name
-  and a developer reading React DevTools are looking at the same
-  identifier, and `defview` makes it `\"<ns>/<sym>\"`. Witnessed in
-  `arm1.render-measure-cljs-test` (the OFF half) and
-  `arm1.render-measure-emit-nightly-test` (the ON half)."
+  The component fn is Spec 009's `:render` bracket
+  (`rf:render:<view-name>`, the string also stamped as `displayName`) and,
+  in a dev build, `error/traced-boundary`'s origin, so a refusal raised
+  below can name the view; both fold away under `:advanced` with their
+  flags off. The bail-out is a scheduling optimisation and never
+  observable semantics: React consults the boundary's own
+  `useSyncExternalStore` and context updates before the comparator, so a
+  boundary whose reads moved cannot be bailed out whatever its props say
+  (docs/design/hicasso/decisions.md HD-028). Why the bracket sits on the
+  component fn rather than in `render-body`, and what follows from that:
+  docs/design/hicasso/architecture.md, section The collector."
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
   (let [component (fn hicasso-boundary [js-props]
@@ -1643,94 +1534,28 @@
 ;; ---------------------------------------------------------------------------
 
 (defn publish-view-alias!
-  "Publish the name `defview` already computed to core's `:view`
-  registrar, so a keyword an author WROTE resolves forward to the
-  boundary they meant.
+  "Publish the `:view` registrar alias for a `defview`, so a keyword an
+  author wrote resolves forward to the boundary they meant. `view-id` is
+  `(keyword \"<ns>\" \"<sym>\")` — the id `rf/reg-view` derives from its own
+  symbol, so one convention answers for both substrates; `slot` is the
+  coordinate map the macro captured (`:ns` / `:file` / `:line` / `:column`
+  at the top level, where `(rf/handler-meta :view id)` reads them) plus the
+  author's `:doc`; `head` is the minted boundary, stored under
+  `:hicasso/component`. Answers `view-id` (spec/Conventions.md, the
+  `reg-*` return-value convention).
 
-  Three arguments, each already in the macro's hand at the declaration:
-
-  - `view-id` is `(keyword \"<ns>\" \"<sym>\")` — byte-identical to the
-    id `rf/reg-view` derives from its own symbol
-    (`core-reg-view-macro/expand-reg-view`), so ONE convention answers
-    for both substrates and a tool needs no per-substrate spelling.
-  - `slot` is the coordinate map the macro captured, plus the author's
-    `:doc` when they wrote one. It is stored the way `reg-view` stores
-    it — `:ns` / `:file` / `:line` / `:column` at the TOP LEVEL of the
-    registration metadata, which is where `(rf/handler-meta :view id)`
-    already reads them, so a consumer needs no second seam. `:doc`
-    rides along for the same reason it does on a `reg-view`: the
-    registrar dev-warns `:rf.warning/missing-doc` for a macro-path
-    registration with no usable `:doc`, and withholding a docstring the
-    author DID write would make that warning fire on a documented view.
-  - `head` is the value the `def` binds — the minted boundary — under
-    `:hicasso/component`.
-
-  ## The entry is an ALIAS, and carries NO `:handler-fn`
-
-  `rf/view` answers *the registered render fn*, and this entry has none:
-  a Hicasso boundary is a React component minted by [[mint-view!]], not
-  a hiccup-returning render fn, and pretending otherwise would make that
-  contract lie. So `(rf/view id)` answers nil here, deliberately, and a
-  substrate handed a Hicasso id keeps whatever diagnostic it already
-  has. The head is reachable at `:hicasso/component` by a consumer that
-  knows what to do with a React component.
-
-  This publishes RESOLVABILITY and not identity. The name is not new —
-  `defview` already stamps it as DevTools `displayName`, keys Spec 009's
-  `rf:render:<name>` measure off it, and attributes refusals with it;
-  the only thing missing was lookup. Mounted boundary identity is still
-  keyed by the read set and still unnamed, which is what
-  `re-frame.hicasso.tool` answers the BACKWARD question with — its
-  refusals stand untouched, because they refuse *which view is this
-  runtime boundary?* while this answers *where is the view the author
-  named in source?*.
-
-  ## Why `registrar/register!` rather than `rf/reg-view*`
-
-  Two reasons, and either alone is decisive. `rf/reg-view*` on CLJS
-  delegates to `re-frame.views/reg-view*`, which ALWAYS builds a
-  frame-aware render wrapper and stores it under `:handler-fn` — so it
-  cannot mint the metadata-only entry above at all. And its first step
-  is `apply-adapter-wrap-view`, which consults the `:adapter/wrap-view`
-  late-bind hook AT REGISTRATION TIME; a `defview` is declared at
-  namespace load, which routinely precedes `rf/init!`, so a registration
-  that went through that path would ask an adapter question before there
-  is an adapter to answer it. Writing the slot here — a plain
-  registration under a kind the registrar already knows — is
-  adapter-NEUTRAL by construction: no hook is consulted, nothing wraps
-  the head, and `:hicasso/component` is `identical?` to the value the
-  `def` binds whether an adapter is installed or not.
-
-  ## Hot reload — the slot needed nothing added, the NOTIFICATION did
-
-  Re-evaluating a `defview` re-registers the SAME id, and the registrar
-  replaces the slot atomically — one entry, never two, with the fresh
-  head. The provenance is unchanged across a save, so the registrar's
-  collision warning stays correctly silent; a genuine cross-source clash
-  on one id still surfaces, because it surfaces for every kind.
-
-  What the entry DID have to say out loud is where its executable
-  identity lives, and `:executable-key` says it. `register!` tags every
-  `:rf.registry/handler-replaced` — and every replacement-hook call —
-  with `:different-fn?`, derived by default from `:handler-fn`. This
-  entry has none by design, so the default derivation compares nil with
-  nil and reports `:different-fn? false` for a genuine swap of one
-  component for another: a hot-reload consumer branching on that tag
-  would read every Hicasso view edit as an idempotent reload and decline
-  to refresh. Naming `:hicasso/component` as the executable slot makes
-  the tag truthful without a second HMR surface, without a hicasso-side
-  replacement hook, and without putting anything in `:handler-fn`.
-  The registrar reads the key this
-  registration named; it learns nothing about Hicasso.
-
-  Called ONLY from inside the `defview` expansion's
-  `(when re-frame.interop/debug-enabled? …)` gate — the same gate the
-  declaration extent rides — so under `:advanced` + `goog.DEBUG=false`
-  the call, this fn and the slot map all leave the bundle and a
-  production Hicasso app has no registry at runtime. Witnessed in
-  `re-frame.hicasso.error-source-coord-elision-prod-test`.
-
-  Answers `view-id`, per Conventions §`reg-*` return-value."
+  The entry is an ALIAS: it carries no `:handler-fn`, so `(rf/view id)`
+  answers nil deliberately — a boundary is a React component, not a
+  render fn — and `:executable-key` names `:hicasso/component` so a
+  reload's `:rf.registry/handler-replaced` reports a real swap rather
+  than an idempotent one. Written through `registrar/register!` rather
+  than `rf/reg-view*`, which always builds a `:handler-fn` wrapper and
+  consults the `:adapter/wrap-view` hook at registration time, which at
+  namespace load precedes `rf/init!`. Dev only: called inside the
+  `defview` expansion's `interop/debug-enabled?` gate, so the call, this
+  fn and the slot leave a production bundle
+  (`error-source-coord-elision-prod-test`). The argument:
+  docs/design/hicasso/architecture.md, section The collector."
   [view-id slot head]
   (registrar/register! :view view-id (assoc slot
                                        :hicasso/component head
