@@ -60,9 +60,9 @@ The three unavailable rows are not an oversight awaiting a later bead.
   observer-first channel that is off by default.
 
 Rungs 3, 4 and 5 of the performance ladder
-(`lanes/hot-path-architecture.md` §The performance ladder) — a direct `n/$`
-element, a named native island, a native screen — **all address a class in the
-unavailable half**. So the honest consequence of §10's sentence is that
+(`lanes/hot-path-architecture.md` §The performance ladder) — a defview returning
+a raw React or UIx element, a named React island, a native screen — **all
+address a class in the unavailable half**. So the honest consequence of §10's sentence is that
 
 > **from this evidence the advisor never recommends a native route.**
 
@@ -235,8 +235,8 @@ Three thresholds, each with its reason attached rather than a taste:
 |---|---|---|
 | `:computation` | narrow or memoize the subscription | — (below the substrate) |
 | `:read-topology` | tune topology without changing language | 2 |
-| `:lowering` | return a direct React element (`n/$`) | 3 |
-| `:react-work` | named native React island | 4 |
+| `:lowering` | a defview returning a raw React or UIx element | 3 |
+| `:react-work` | named React island | 4 |
 | `:react-shaped` | implement the screen natively | 5 |
 | `:unattributed` | **measure first** — the refusal | — |
 

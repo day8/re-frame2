@@ -648,8 +648,8 @@
 ;; or a re-arm has superseded does nothing at all. Measured before this
 ;; held: a drain armed by one test's release, still pending after the
 ;; reset, dropped the next test's entry between its render and React's
-;; flush, and the island re-subscribed on its next render
-;; (`native_hooks_dom_cljs_test`, W9).
+;; flush, and the island re-subscribed on its next render (the island
+;; hooks' W9 row).
 
 (defn- arm-timer!
   "Arm `q`'s one timer for `due`, superseding any timer still pending."

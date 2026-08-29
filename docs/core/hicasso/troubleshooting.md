@@ -390,60 +390,6 @@ that answered nothing.
 Render the portal only once the container is there, or point `:target` at a node
 that outlives the page, such as `js/document.body`.
 
-### The retiring `n/$` grammar
-
-Past `n/$` the brackets stop meaning hiccup and the vector stops meaning an
-intent. Every complaint here is a value written in the interpreted language on
-the far side of that fence. The grammar is retired by `rf2-6c12m.3` — an island
-is raw React or UIx, and [Islands](10-native-tier.md) no longer teaches it — so
-these seven entries stand only until their emitters leave, and go with them.
-
-<a id="hicasso-native-map-as-child"></a>
-#### `:rf.error/hicasso-native-map-as-child`
-
-You wrote a dynamic map in native props position, where it lands as a child.
-
-Write `(n/props m)` where the map is meant as props.
-
-<a id="hicasso-native-hiccup-child"></a>
-#### `:rf.error/hicasso-native-hiccup-child`
-
-You put a hiccup vector in a native child position, where brackets have no
-meaning.
-
-Nest with `n/$`, or bring interpreted hiccup across with `h/as-element`.
-
-<a id="hicasso-native-intent-in-prop"></a>
-#### `:rf.error/hicasso-native-intent-in-prop`
-
-You put an intent vector at a native callback slot, past the fence where nothing
-lowers it.
-
-A plain function; intents belong on the interpreted side of the fence.
-
-<a id="hicasso-native-children-in-props"></a>
-#### `:rf.error/hicasso-native-children-in-props`
-
-You wrote `children` in a native props map, which has one child channel.
-
-<a id="hicasso-native-slot-collision"></a>
-#### `:rf.error/hicasso-native-slot-collision`
-
-You gave a native props map two source keys normalising to one React slot.
-
-<a id="hicasso-native-unknown-option"></a>
-#### `:rf.error/hicasso-native-unknown-option`
-
-You gave an `n/defcomponent` declaration map a key outside its roster
-`#{:server}` — `:fallback`, `defhost`'s sibling option, being the one most often
-borrowed.
-
-<a id="hicasso-native-bad-server-policy"></a>
-#### `:rf.error/hicasso-native-bad-server-policy`
-
-You gave an `n/defcomponent` declaration a `:server` value outside
-`#{:client-only :render}`.
-
 ### Routing
 
 A route link is an ordinary anchor that the router owns. These fire where it was

@@ -615,10 +615,10 @@ def self_test():
     minted, _, qualified_mid = roster(
         "(h/defview qualified [props] 1)\n"
         "(h/defn- quiet-qualified [] 2)\n"
-        "  (when x (n/defcomponent called-not-defined y))\n"
+        "  (when x (h/defhost called-not-defined y))\n"
     )
     assert minted == ["qualified"], minted
-    assert qualified_mid == ["defcomponent"], qualified_mid
+    assert qualified_mid == ["defhost"], qualified_mid
     checks += 1
     print("  ok  a QUALIFIED `def*` head is a definition -- and is still "
           "subject to the private and open-the-line rules")

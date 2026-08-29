@@ -24,7 +24,7 @@ amount of rewording can hide:
   * a SECOND EMITTER must either call a renderer that is not React's, or reach
     one through a `:require`.  Both are enumerable.
   * a COMPILED-HICCUP MODE must have a build-time pass, which in ClojureScript
-    means a `defmacro`.  The macro roster is frozen at six names, so a seventh
+    means a `defmacro`.  The macro roster is frozen at three names, so a fourth
     is the tripwire and nobody has to agree on what "compiler" means.
   * a VIEWCELL-CLASS GRAPH and a PER-BOUNDARY CALLBACK-CELL TABLE both need a
     RETAINED STRUCTURE that today does not exist.  A new module-level mutable
@@ -71,14 +71,15 @@ PACKAGE_JSON = REPO / "implementation" / "package.json"
 # Arm 1 — the rejected mechanisms
 # ---------------------------------------------------------------------------
 
-# The six macros the package publishes.  `h/defview`, `h/event` and `h/defhost`
-# on the ordinary facade; `n/props`, `n/$` and `n/defcomponent` on the native
-# escape.  Every one is `defn`-class sugar with a function fallback, which is
-# what the charter's *No analyzer* constraint permits; none classifies, lowers
-# or refuses a body form.  A SEVENTH NAME IS THE TRIPWIRE — not because a
-# seventh macro is necessarily a compiler, but because a compiled-hiccup mode
-# cannot arrive without one, so the roster is where the question gets asked.
-MACRO_ROSTER = {"defview", "event", "defhost", "props", "$", "defcomponent"}
+# The three macros the package publishes — `h/defview`, `h/event` and
+# `h/defhost`, all on the ordinary facade (the native tier's three left with it,
+# rf2-6c12m.3; `re-frame.hicasso.native` is two plain hook functions now).
+# Every one is `defn`-class sugar with a function fallback, which is what the
+# charter's *No analyzer* constraint permits; none classifies, lowers or
+# refuses a body form.  A FOURTH NAME IS THE TRIPWIRE — not because a fourth
+# macro is necessarily a compiler, but because a compiled-hiccup mode cannot
+# arrive without one, so the roster is where the question gets asked.
+MACRO_ROSTER = {"defview", "event", "defhost"}
 
 # A renderer this package is allowed to call.  React's own, in its two halves.
 # `re-frame.hicasso.server` runs THIS runtime under `react-dom/server`; the

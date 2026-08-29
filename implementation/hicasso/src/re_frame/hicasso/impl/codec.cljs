@@ -1083,12 +1083,9 @@
 ;; **The key is `:server` and the values are the two sides that render**
 ;; (naming-ledger row 21). `:ssr` would name the TECHNIQUE
 ;; and admit the fallback as a third value shape — an enum sometimes
-;; replaced by a nested map — while `n/defcomponent`, the sibling door in
-;; this same package, takes `:server` with these two values and
-;; refuses the `:ssr` spelling outright
-;; ([[re-frame.hicasso.native/declared-server]]). One library, one policy
-;; concept, one spelling; and a fallback reads as what it is, markup at
-;; the crossing rather than a policy value.
+;; replaced by a nested map. One policy concept, one spelling; and a
+;; fallback reads as what it is, markup at the crossing rather than a
+;; policy value.
 ;;
 ;; **`:render` exists for the context PROVIDER case**: a transparent
 ;; wrapper that contributes no markup of its own and exists solely to
@@ -1446,8 +1443,7 @@
 
 (defn- declared-server
   "The `:server` policy this declaration carries, validated — one of the
-  TWO the SSR matrix admits, and the same two `n/defcomponent` takes on
-  the sibling door ([[re-frame.hicasso.native/declared-server]]). Absent
+  TWO the SSR matrix admits. Absent
   means `:client-only` — the ruled default, so an author who writes
   nothing gets the conservative answer and an author who writes the
   default explicitly gets the same one.
@@ -1474,11 +1470,7 @@
   `:server` answers which arm applies and `:fallback` is the Client-only
   arm's payload. That is the split the guide teaches, and it is what
   makes the policy displayable — an enum, rather than an enum sometimes
-  replaced by a nested map. The sibling native door has `:server` with
-  the same two values and no `:fallback` at all, deliberately: a fallback
-  is markup a GATE renders in the crossing's place, and a native
-  component is its own element type
-  ([[re-frame.hicasso.native/server-policies]]).
+  replaced by a nested map.
 
   `contains?` and not `if-some`, exactly as [[declared-slots]] draws it:
   an explicit `nil` is a VALUE and the default belongs to an ABSENT key,
@@ -1798,7 +1790,7 @@
 
 (defn host-server
   "The `:server` policy `head` was declared with — `:client-only` or
-  `:render`, the same two `n/marker` records on the sibling door. The
+  `:render`. The
   declaration read back as data, for a server walk that wants to state
   the policy it is honouring and for the witnesses that
   assert on it. Nothing on the render path reads it: the policy is
@@ -3300,15 +3292,13 @@
   `--custom-property` is preserved verbatim; the three React renames go
   back to their HTML spellings through [[slot-keys]].
 
-  **The round trip is the contract**, and it is what lets the two fences
-  compose. A native parent writing `(n/$ card {:article-id 7})` has its
-  key lowered to `\"articleId\"` by the native macro, and this function
-  hands the body back `:article-id` — so an author who writes the same
-  keyword on both sides of the fence reads the same keyword in the body,
-  and a JavaScript parent writing `articleId={7}` reaches the same place.
-  Witnessed over `slot-corpus` in `re-frame.hicasso.native-abi-cljs-test`,
-  twice: every keyword or symbol row's decoded key emits back into the
-  SAME slot, and the taught spellings decode to themselves.
+  **The round trip is the contract**, and it is what lets the two sides
+  of a crossing compose. A React parent writing `articleId={7}` — or a
+  UIx one writing `{:article-id 7}`, which UIx lowers the same way —
+  reaches the body as `:article-id`, so an author who writes the same
+  keyword on both sides of the crossing reads the same keyword in the
+  body: every decoded key emits back into the SAME slot, and the taught
+  spellings decode to themselves.
 
   A slot carrying a hyphen is answered verbatim, which is the only rule
   that can be right: the forward direction camelCases a key by consuming
@@ -3390,8 +3380,8 @@
 
 (defn as-component
   "**Hand a hiccup head to React.** Answers a real React function
-  component, so a native parent — `n/defcomponent`, UIx, or plain
-  JavaScript — can render a minted Hicasso view without a second root,
+  component, so a React parent — UIx or plain JavaScript — can render a
+  minted Hicasso view without a second root,
   a second frame, or a sight of the internal `rfProps` ABI.
 
       (def article-card* (h/as-component article-card))
@@ -3403,7 +3393,7 @@
   cross by identity. Called ONCE, at top level, beside the view it
   bridges: it allocates a component, so minting one inside a render would
   hand React a fresh element type on every pass and remount the subtree —
-  `n/lazy`'s law and `defcomponent`'s, for the same reason.
+  `React.memo` and `React.lazy`'s own law, for the same reason.
 
   ## What it preserves, and why the list is short
 

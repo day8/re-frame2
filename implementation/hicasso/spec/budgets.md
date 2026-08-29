@@ -153,9 +153,9 @@ it exists to make assertable.
 | D11 | Prop-pipeline entries a direct return drops (`codec/convert-props`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
 | D12 | Event-lowering entries a direct return drops (`intent/lower-prop`) | **2** | as D10 | as D10 — reads 2 against a floor of 0 |
 | D13 | Controlled-repair entries a direct return drops (`controlled/install!`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
-| D14 | Wrappers between the element type React reconciles and the author's own function, declared island | **0** | `three_way_parity_cljs_test` | the `:client-only` default answers a gate instead; UIx's route answers a generated component |
+| D14 | Wrappers between the element type React reconciles and the author's own function, handwritten-React island | **0** | `three_way_parity_cljs_test` | the `:client-only` default answers a gate instead; UIx's route answers a generated component |
 | D15 | Slots on the props object React carries, and they are the author's own | **1** | as D14 | UIx's route also reads 1 — but the slot is `argv`, which the author never wrote |
-| D16 | Unwrapping hops per render, per component, native and handwritten React | **0** | as D14 | the UIx route reads 1 — the `argv` carrier being opened |
+| D16 | Unwrapping hops per render, per component, handwritten React | **0** | as D14 | the UIx route reads 1 — the `argv` carrier being opened |
 | D17 | Subscription recomputations per keystroke, four-field editor | **10** | `per_keystroke_dom_cljs_test` | D20 — a refused keystroke reads 0 |
 | D18 | Subscription recomputations per keystroke, grid 5×5 | **31** | as D17 | D19 — the same measurement at 10×10 reads 111 |
 | D19 | Subscription recomputations per keystroke, grid 10×10 | **111** | as D17 | D18 — quartering the grid moves it to 31 |
@@ -272,7 +272,7 @@ Three qualifications, in the order a reader meets them. **The band is stated ove
 the DECLARED arm** — since `rf2-hic-046` the `:client-only` default answers a gate
 rather than the author's function, costing one fiber and one hook the declared arm
 does not, and that is the ruled price of a conservative default rather than a
-figure about `n/defcomponent`. **They are counts and identities, not clocks**, so
+figure about the island itself. **They are counts and identities, not clocks**, so
 like D10–D13 they carry no hardware profile, which is what lets them sit in this
 section rather than §4. And **they are the deterministic half of C7 only**: they
 say there is no interposed work, never how long a render takes, so C7 stays
@@ -968,7 +968,7 @@ and its verdict is recorded there.
 | C4 | Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
 | C5 | R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
 | C6 | Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
-| C7 | Native island within 5% or 1 ms of the same component mounted directly | co-instrumented against both handwritten React and UIx |
+| C7 | ~~Native island within 5% or 1 ms of the same component mounted directly~~ | **RETIRED 2026-08-29 (`rf2-6c12m.3`)** — its subject no longer exists: an island IS the component mounted directly, so there is no second measurement to take. The row stays in §9's table under this ledger's closed status vocabulary and is judged by nothing |
 | C8 | An escape **taken for a benefit** recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass. An **interoperability** escape — one whose alternative is not a slower spelling but no spelling at all — is outside the population | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
 
 ---
@@ -1573,9 +1573,9 @@ loses no address.
 | D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D13 | 3 controlled-repair entries dropped by a direct return (`controlled/install!`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
-| D14 | 0 wrappers between the element type React reconciles and the author's own function, declared island | 0 — the type is `identical?` to the function, on the native and handwritten-React routes alike; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D14 | 0 wrappers between the element type React reconciles and the author's own function, handwritten-React island | 0 — the type is `identical?` to the function on the handwritten-React route; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
-| D16 | 0 unwrapping hops per render, per component, native and handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D16 | 0 unwrapping hops per render, per component, handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D17 | 10 subscription recomputations per keystroke, four-field editor | 10 — `::field` 4, `::committed` 4, `::revision` 1, `::dirty?` 1; one of the ten computes a new value | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
 | D18 | 31 subscription recomputations per keystroke, grid at 5×5 — a LINEAR quantity at a stated mount size | 31 — `::cell` 25, `::row-total` 5, `::dimensions` 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
 | D19 | 111 subscription recomputations per keystroke, grid at 10×10 — a LINEAR quantity at a stated mount size | 111 — `::cell` 100, `::row-total` 10, `::dimensions` 1; 109 of them compute what they computed last time | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
@@ -1606,7 +1606,7 @@ loses no address.
 | C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
 | C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C7 | ~~a native island within 5% or 1 ms of the same component mounted directly~~ RETIRED 2026-08-29 (`rf2-6c12m.3`): an island is the component itself now, so there is no second measurement | — | — | `UNPINNED` | — (none) | `rf2-6c12m.3` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C8 | an escape taken for a benefit recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget; an interoperability escape is outside the population | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
 
@@ -1907,7 +1907,7 @@ or `C5` changes with it.
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
   because nothing reached one.
-- **`C8` has no population yet; `C7` now has one.** The native-island rule
+- **`C8` has no population yet; `C7` is RETIRED.** **[2026-08-29, `rf2-6c12m.3`: the native island `C7` measured is deleted — an island is a UIx `defui` or a raw React component mounted through `h/defhost`, which IS the component mounted directly, so the rule has no second arm to compare. The row keeps its `UNPINNED` cell under this ledger's closed vocabulary and is judged by nothing; what follows is the history of how it got there.]** The native-island rule
   and the escape-benefit rule are both stated over landed escapes and islands,
   and the apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and
   `rf2-hic-045`. What *kind* of population `C8` is waiting for is no longer an

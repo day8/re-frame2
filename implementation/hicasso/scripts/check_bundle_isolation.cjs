@@ -4,40 +4,44 @@
  * production bundle (rf2-hic-034; the forms module added by rf2-sh56,
  * motion and overlay by rf2-ot28g, the server module by rf2-fn62g).
  *
- * Five surfaces are measured here and the law each answers to is its
- * own: the NATIVE TIER, whose clause is quoted next, and the optional
- * MOTION, OVERLAY, FORMS and SERVER modules, whose clause is
- * `invariants.md` §1 — *optional libraries: named consumer required;
- * zero reachable production code when absent*. They share this file
- * because they share one instrument and one bundle; each surface's own
- * reasoning is with its rows.
+ * Four surfaces are measured here — the optional MOTION, OVERLAY, FORMS
+ * and SERVER modules — and the law they answer to is `invariants.md` §1:
+ * *optional libraries: named consumer required; zero reachable production
+ * code when absent*. They share this file because they share one
+ * instrument and one bundle; each surface's own reasoning is with its
+ * rows.
  *
- * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER, and it now says
- * it of all five. Every module `check_optional_module_reachability.py`
- * rows is measured here. The last to arrive was
+ * THE NATIVE TIER IS NO LONGER ROWED HERE, and the absence is the design
+ * (rf2-6c12m.3). `re-frame.hicasso.native` shrank to two plain hook
+ * functions — `use-sub` and `use-frame` — with no marker property, no
+ * refusal family and no macro of their own, so there is no string a bundle
+ * carries if and only if the namespace is reachable: a sentinel planted
+ * beside a hook would be dropped by Closure whether or not the isolation
+ * held, and the gate would pass for the wrong reason. The namespace's
+ * separate reachability (design-laws.md, Native boundary, clause 6) is
+ * therefore the SOURCE-SIDE gate's question alone —
+ * `check_optional_module_reachability.py`'s `native` row decides it over
+ * `:require` forms, exhaustively, and says so.
+ *
+ * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER: every module
+ * `check_optional_module_reachability.py` rows is measured here except
+ * `native`, for the reason just given. The last to arrive was
  * `re-frame.hicasso.server`, which this file carried for one bead as a
  * named gap on the ground that it is a Node module and the one bundle
  * this gate reads is a browser build — see the server section below,
  * where that objection is answered rather than inherited.
  *
- * > 6. The native namespace is separately reachable. An interpreted-only
- * >    production dependency graph and bundle contain neither native-tier
- * >    runtime nor UIx code.
- * >
- * >   — the native-boundary law,
- * >     `docs/design/hicasso/product/lanes/design-laws.md`
- *
- * Clause 6 has TWO halves and they are checked in two places, because
+ * Reachability has TWO halves and they are checked in two places, because
  * neither instrument can answer the other's question:
  *
  *   - the DEPENDENCY GRAPH is a property of the source, and
  *     `check_optional_module_reachability.py` decides it over `:require`
- *     forms — exhaustively, including the shapes that leave no string in
- *     a bundle at all (see "What a string scan cannot see" below);
+ *     forms — exhaustively, including a require whose every function
+ *     Closure then drops, which leaves no string in a bundle at all;
  *   - the BUNDLE is this file. It reads the one build in the repo that
  *     compiles the package the way a consumer ships it — `:hicasso-release`,
  *     `:advanced` + `goog.DEBUG=false`, entry `re-frame.hicasso.consumer-app`
- *     — and asks whether any native-tier runtime survived into it.
+ *     — and asks whether any optional module's bytes survived into it.
  *
  * The source-side gate is the stronger of the two and is not made
  * redundant by this one. What this one adds is confidence about the
@@ -47,56 +51,18 @@
  *
  * ## Unique sentinels, never a public-name grep
  *
- * Grepping the bundle for `native` proves nothing — the word occurs in
- * React's own event plumbing and in the codec's prose. Each row below is
- * a string that ONE surface emits and nothing else does, so a hit names
- * WHICH surface leaked rather than merely that something did.
+ * Grepping the bundle for a module's bare name proves nothing — `modal`
+ * and `drafts` occur in any application. Each row below is a string that
+ * ONE surface emits and nothing else does, so a hit names WHICH surface
+ * leaked rather than merely that something did.
  *
  * A sentinel is only worth scanning for if it is LOAD-BEARING. A marker
  * planted beside the code would be dropped by Closure whether or not the
- * isolation held, and the gate would pass for the wrong reason. Both
- * sentinels here are strings their surface cannot function without:
- *
- *   - `rf2:hicasso-native-tier` is the own-property NAME
- *     `native/component` writes with `unchecked-set` and `native/marker`
- *     reads back with `unchecked-get`. Closure cannot rename a string
- *     used as a computed property key and cannot delete it while the
- *     code that writes it is reachable. `native.cljc` says so at
- *     [[tier-sentinel]], where it also names this bead as the proof.
- *   - `rf.error/hicasso-native-` is the refusal-id FAMILY the tier mints
- *     — all seven of its ids share it and no other surface uses it.
- *
- * ## Two sentinels because there are two reachability shapes
- *
- * They are not belt-and-braces. Closure's dead-code elimination works
- * per function, so which strings survive depends on WHICH of the tier a
- * consumer touched:
- *
- *   - a consumer who writes `n/defcomponent` (or `n/memo` / `n/lazy`)
- *     drags `component` in, and with it the marker string — while the
- *     refusal ids may fold away entirely, since `checked`'s per-child
- *     fence is `debug-enabled?`-gated;
- *   - a consumer who writes `(n/props …)` drags `props*` and therefore
- *     `prop-slots` in, whose last three refusals are UNGATED and hold on
- *     both paths — while `component` is never called and the marker
- *     string is absent.
- *
- * Either sentinel alone is green against the other's leak. Both together
- * cover every part of the tier that has a production footprint.
- *
- * ## What a string scan cannot see, stated rather than left to be found
- *
- * There is a third shape and it leaves NOTHING to find: a consumer who
- * writes only `n/$` with literal props. The macro lowers the props at
- * expansion, `checked` folds away under `goog.DEBUG=false`, and what
- * remains is `react/createElement` — React's own function, which every
- * bundle already has. Past DCE, `n/$` IS `createElement`.
- *
- * That is not a hole in the zero-rent claim; it is the claim at its
- * strongest, and it is why the source-side gate exists and why this file
- * does not pretend to subsume it. A scan that reported green there would
- * be right by accident, so the sentence is written here instead of a row
- * nobody can falsify.
+ * isolation held, and the gate would pass for the wrong reason. Every
+ * sentinel here is a string its surface cannot function without — a
+ * `displayName` stamped at namespace load, a namespaced keyword that is
+ * a sub id and an app-db key at once, a keyword namespace handed to
+ * `keyword` at runtime — and each row says which.
  *
  * ## Reachable positive controls
  *
@@ -106,23 +72,24 @@
  * PRESENT, chosen so the pair differs by REACHABILITY and by nothing
  * else:
  *
- *   - `hicassoBoundary` (present) against `rf2:hicasso-native-tier`
- *     (absent) — two own-property marker names, both written with
- *     `unchecked-set` onto a freshly minted component, one in a
- *     namespace the public door leads to and one in a namespace it never
- *     names. That pairing is what makes the absence a statement about
- *     reachability rather than about compilation.
+ *   - `hicassoBoundary` (present) against the three stamped-name rows
+ *     (absent) — own-property writes with `unchecked-set` onto a freshly
+ *     minted component, one in a namespace the public door leads to and
+ *     three in namespaces it never names. That pairing is what makes the
+ *     absence a statement about reachability rather than about
+ *     compilation.
  *   - `rf.error/hicasso-empty-vector` (present) against
- *     `rf.error/hicasso-native-` (absent) — a shipped refusal id minted
- *     by `impl.error/fail!` against the tier's own family minted by the
- *     same `fail!`. If `fail!` had been dropped whole, both would be
- *     absent and the first is what says so.
+ *     `re-frame.hicasso.forms/drafts` (absent) — two namespaced keyword
+ *     literals whose fully-qualified names survive `:advanced`, one
+ *     minted by the codec the public door reaches and one by a module it
+ *     never names.
  *   - `rf-uix-sub-` (present) — and this one is the interesting control.
  *     See the next section.
  *
  * ## `zero UIx` does not hold, and the reason is worth a control
  *
- * Clause 6 says an interpreted-only bundle contains no UIx code. THE
+ * The native-boundary law's clause 6 says an interpreted-only bundle
+ * contains no UIx code. THE
  * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Hicasso ships no
  * reactive adapter of its own — `consumer_app.cljs`'s docstring says so
  * where the consumer is standing — and the three adapters a consumer may
@@ -135,7 +102,7 @@
  * about which adapter the fixture happened to choose. So the string is
  * carried as a CONTROL instead, where it earns its place twice: it
  * proves a whole React view library and a whole reactive substrate
- * really compiled into this bundle, which makes the native tier's
+ * really compiled into this bundle, which makes every module's
  * absence a much sharper reading than it would be from a bundle that
  * compiled almost nothing.
  *
@@ -148,16 +115,11 @@
  *
  * rf2-sh56 shipped `re-frame.hicasso.forms` — the optional module whose
  * `buffered-field` the guide's chapter 5 documents — and it is measured
- * here beside the native tier. The rows are two, and the reason is
- * DIFFERENT from the native tier's, so the sentence above is not
- * borrowed:
- *
- *   - the tier has two reachability shapes because `n/defcomponent` and
- *     `(n/props …)` drag different code, and either sentinel alone is
- *     green against the other's leak;
- *   - the forms module has ONE. It registers its events at namespace
- *     load, so nothing about it is conditionally reachable: require it
- *     and both strings are present, do not and neither is.
+ * here beside the other modules. The rows are two, and NOT because the
+ * module has two reachability shapes: it has ONE. It registers its
+ * events at namespace load, so nothing about it is conditionally
+ * reachable — require it and both strings are present, do not and
+ * neither is.
  *
  * What the second row buys is therefore not coverage of a second path.
  * It is that a hit NAMES WHICH HALF leaked, and that the two halves can
@@ -208,8 +170,8 @@
  *   - MOTION HAS ONE. The module's whole product is `presence`, a single
  *     component minted at `impl.presence-react`'s namespace load. There
  *     is no second door to reach it by, so one row covers every way in.
- *   - OVERLAY HAS TWO, and it is the NATIVE TIER's situation rather than
- *     the forms module's. `popover` and `modal` are two independent
+ *   - OVERLAY HAS TWO, unlike the forms module. `popover` and `modal` are
+ *     two independent
  *     top-level components in one namespace; Closure's elimination is
  *     per-var, so a consumer who re-exports `overlay/popover` beside
  *     `h/portal` drags the anchor machinery in and leaves the dialog's
@@ -270,9 +232,9 @@
  * cheapest leak this module can have, which is the direction the
  * `--rf-overlay-` note above already rules out.
  *
- * AND THERE IS A THIRD SHAPE THAT LEAVES NOTHING TO FIND, exactly as
- * `n/$` has one — the paragraph above is the pattern this one follows
- * rather than an excuse borrowed for the occasion. Every name in this
+ * AND THERE IS A THIRD SHAPE THAT LEAVES NOTHING TO FIND — the shape
+ * the hooks namespace has entirely, which is why it is not rowed here.
+ * Every name in this
  * module is a `defn` and the namespace has NO top-level side effect, so
  * unlike `hicasso/presence` and the forms rows — both stamped at
  * namespace load — a bare `:require` that never calls anything can be
@@ -307,12 +269,8 @@
  * bundle for a reason that has nothing to do with isolation. The roster
  * premise below is checked against the source before the bundle is
  * opened, so a rename fails the gate rather than reporting a green
- * absence for a string nobody emits any more; and
- * `re-frame.hicasso.native-fence-cljs-test`'s
- * `the-tier-sentinel-is-reachable-rather-than-a-dead-literal` asserts in
- * the ordinary `goog.DEBUG` node lane that the marker is what a LIVE
- * `n/defcomponent` really stamps. Surface on, string present; surface
- * unreachable, string gone — and neither half is evidence alone.
+ * absence for a string nobody emits any more. Surface on, string present;
+ * surface unreachable, string gone — and neither half is evidence alone.
  */
 
 'use strict';
@@ -336,38 +294,6 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'hicasso-release', 'main.js');
 // ---------------------------------------------------------------------------
 
 const SENTINELS = [
-  {
-    surface: 'native tier — the marker every minted component carries (rf2-hic-030)',
-    sentinel: 'rf2:hicasso-native-tier',
-    source: 'src/re_frame/hicasso/native.cljc',
-    premise: '"rf2:hicasso-native-tier"',
-    why:
-      'The own-property name `native/component` writes with `unchecked-set` ' +
-      'onto the author\'s own function, and `native/marker` reads back with ' +
-      '`unchecked-get`. It is in this bundle if and only if `defcomponent`, ' +
-      '`n/memo` or `n/lazy` is reachable from the entry.',
-    remedy:
-      'Find the `:require` of `re-frame.hicasso.native` that made the tier ' +
-      'reachable from the public door. Nothing under implementation/hicasso/src/ ' +
-      'may name it; an application requires it directly, in the region that ' +
-      'wants it.',
-  },
-  {
-    surface: 'native tier — the refusal-id family the fence mints (rf2-hic-030)',
-    sentinel: 'rf.error/hicasso-native-',
-    source: 'src/re_frame/hicasso/native.cljc',
-    premise: ':rf.error/hicasso-native-slot-collision',
-    why:
-      'The prefix all seven of the tier\'s refusal ids share and no other ' +
-      'surface uses. It reaches a bundle by a DIFFERENT route from the marker ' +
-      'above: `prop-slots`\'s last three refusals are ungated, so a consumer ' +
-      'who writes `(n/props …)` and never a `defcomponent` leaks these and ' +
-      'not the marker. Either sentinel alone is green against the other\'s ' +
-      'leak, which is why there are two.',
-    remedy:
-      'Same as above — the tier became reachable. `props*` is the runtime ' +
-      'half of `n/$`\'s props rule and only a dynamic props operand calls it.',
-  },
   {
     surface: 'forms module — the view the chapter documents (rf2-sh56)',
     sentinel: 're-frame.hicasso.forms/buffered-field',
@@ -433,8 +359,8 @@ const SENTINELS = [
     why:
       'The `displayName` stamped onto `impl.overlay/popover` at namespace ' +
       'load, by the same idiom as the two rows above. THE OVERLAY MODULE ' +
-      'HAS TWO REACHABILITY SHAPES, the native tier\'s situation rather ' +
-      'than the forms module\'s: `popover` and `modal` are two independent ' +
+      'HAS TWO REACHABILITY SHAPES, unlike the forms module: ' +
+      '`popover` and `modal` are two independent ' +
       'top-level components, so a consumer who re-exports one drags that ' +
       'one in and Closure drops the other. Either sentinel alone is green ' +
       'against the other\'s leak, which is why there are two.',
@@ -502,11 +428,11 @@ const CONTROLS = [
     premise: '(unchecked-set f "hicassoBoundary" true)',
     proves:
       'the interpreted tier\'s own marker machinery compiled. It is the ' +
-      'REACHABLE counterpart of `rf2:hicasso-native-tier`: same idiom, same ' +
-      '`unchecked-set`, same freshly minted component, and the only ' +
-      'difference between the two is whether the public door\'s require ' +
+      'REACHABLE counterpart of the three stamped-name rows: same idiom, ' +
+      'same `unchecked-set`, same freshly minted component, and the only ' +
+      'difference between them is whether the public door\'s require ' +
       'graph leads to the namespace that writes it. That is what makes "no ' +
-      'native marker" a statement about reachability rather than about ' +
+      'module name" a statement about reachability rather than about ' +
       'compilation.',
   },
   {
@@ -514,9 +440,10 @@ const CONTROLS = [
     source: 'src/re_frame/hicasso/impl/codec.cljs',
     premise: ':rf.error/hicasso-empty-vector',
     proves:
-      '`impl.error/fail!` and a shipped refusal id compiled. The tier\'s ' +
-      'family above is minted by the same `fail!`; if it had been dropped ' +
-      'entirely both would be absent, and this is what says so.',
+      'a namespaced keyword literal minted by the codec survived `:advanced` ' +
+      'with its fully-qualified name — the same shape the forms module\'s ' +
+      '`drafts` row is read through, so an absence there is a statement about ' +
+      'reachability and not about keyword literals being dropped.',
   },
   {
     control: 'rf-uix-sub-',
@@ -527,8 +454,8 @@ const CONTROLS = [
       'compiled into this bundle — the UIx adapter the exemplar installs, ' +
       'which Hicasso deliberately ships none of its own. It is the reason ' +
       'the absences above are worth reading: a bundle carrying UIx, React, ' +
-      'core and the interpreted codec, and STILL carrying no native-tier ' +
-      'runtime, has isolated the tier rather than compiled nothing. It is ' +
+      'core and the interpreted codec, and STILL carrying no optional ' +
+      'module, has isolated the modules rather than compiled nothing. It is ' +
       'also the honest record that clause 6\'s "nor UIx code" does not hold ' +
       'of this fixture and why — see the header.',
   },
@@ -637,20 +564,20 @@ function selfTest() {
   // never tested in. Each string below is shape-adjacent to a sentinel and
   // is legal in a consumer bundle; none may be mistaken for one.
   //
-  //   - the tier's own name in PROSE reaches no bundle, but the codec's
-  //     docstrings name it and a scanner reading source rather than the
-  //     artefact would trip on them;
+  //   - the hooks namespace's name in PROSE reaches no bundle, but the
+  //     codec's docstrings name it and a scanner reading source rather
+  //     than the artefact would trip on it;
   //   - `hicassoBoundary` is the interpreted marker, one word away from
-  //     the native one;
+  //     the stamped module names;
   //   - the other refusal families share `rf.error/hicasso-` with the
-  //     tier's, and the tier's suffix is the whole of the difference.
+  //     forms module's keyword, and the suffix is the whole difference.
   //
   // The forms rows add a near-miss of their own, and it is the reason
   // both of their sentinels are fully qualified: an application is
   // entirely free to have a `buffered-field` of its own and a `:drafts`
   // key of its own, and a bundle carrying either must stay green.
   const legal = [
-    `${green} … re-frame.hicasso.native/declared-server …`,   // a docstring link
+    `${green} … re-frame.hicasso.native/use-sub …`,           // a docstring mention
     `${green} … hicassoBody hicassoBoundary hicassoOwner …`,   // neighbouring markers
     `${green} … rf.error/hicasso-empty-vector rf.error/hicasso-bad-head …`,
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
