@@ -639,58 +639,87 @@
 ;; unmounting them arms two rather than six hundred
 ;; (`reaper_coalescing_cljs_test` counts both).
 ;;
-;; Semantics are unchanged. Every item carries the instant it falls due, so
-;; a drain reaps only what is past its OWN horizon and re-arms for the head
-;; of whatever is not — an item queued after the timer was armed still
-;; waits its full horizon, which is what keeps `quiesced!`, which settles
-;; strictly past `entry-reap-horizon-ms`, an honest settling point.
+;; What a per-item timer gave for free, and the one timer has to keep: an
+;; item's reaper task is enqueued no earlier than the item's own horizon,
+;; so a task posted before that horizon — React's passive flush, which is
+;; what claims an entry — runs first. A timer therefore reaps only what it
+;; was ARMED FOR, an item due at or before its target, and leaves what
+;; rode in after it to a timer armed for that; a timer `reset-runtime!`
+;; or a re-arm has superseded does nothing at all. Measured before this
+;; held: a drain armed by one test's release, still pending after the
+;; reset, dropped the next test's entry between its render and React's
+;; flush, and the island re-subscribed on its next render
+;; (`native_hooks_dom_cljs_test`, W9).
+
+(defn- arm-timer!
+  "Arm `q`'s one timer for `due`, superseding any timer still pending."
+  [^js q due now]
+  (let [id (inc (.-seq q))]
+    (set! (.-seq q) id)
+    (set! (.-target q) due)
+    (js/setTimeout (fn [] ((.-drain q) id)) (max 0 (- due now))))
+  nil)
 
 (defn- reap-queue
   "One pending queue for one horizon: the items waiting, the instant each
-  falls due, whether a drain timer is armed, and the drain itself — built
-  once, so arming a timer allocates nothing."
+  falls due, the due the armed timer was armed for (`target`, -1 when
+  none), the arm counter a drain checks itself against, and the drain —
+  built once, so arming a timer allocates one closure."
   [horizon-ms reap!]
-  (let [^js q #js {"items" #js [] "due" #js [] "armed" false "horizon" horizon-ms}]
+  (let [^js q #js {"items" #js [] "due" #js [] "target" -1 "seq" 0 "horizon" horizon-ms}]
     (unchecked-set q "drain"
-      (fn drain []
-        (set! (.-armed q) false)
-        (let [items (.-items q)
-              due   (.-due q)
-              now   (js/Date.now)]
-          (loop []
+      (fn drain [id]
+        (when (== id (.-seq q))
+          (let [items  (.-items q)
+                due    (.-due q)
+                target (.-target q)
+                now    (js/Date.now)]
+            (set! (.-target q) -1)
+            (loop []
+              (when (pos? (alength items))
+                (let [head (aget due 0)
+                      left (- head now)]
+                  ;; A `left` above the horizon means the clock moved under
+                  ;; the queue — the test kit's virtual clock handing its
+                  ;; timers back to the real one, a stepped system clock —
+                  ;; and an item that cannot be waited for is reaped, never
+                  ;; parked.
+                  (when (or (> left horizon-ms)
+                            (and (<= left 0) (<= head target)))
+                    (.shift due)
+                    (reap! (.shift items))
+                    (recur)))))
             (when (pos? (alength items))
-              (let [left (- (aget due 0) now)]
-                ;; A `left` above the horizon means the clock moved under
-                ;; the queue — the test kit's virtual clock handing its
-                ;; timers back to the real one, a stepped system clock —
-                ;; and an item that cannot be waited for is reaped, never
-                ;; parked.
-                (if (or (<= left 0) (> left horizon-ms))
-                  (do (.shift due)
-                      (reap! (.shift items))
-                      (recur))
-                  (do (set! (.-armed q) true)
-                      (js/setTimeout (.-drain q) left)))))))))
+              (arm-timer! q (aget due 0) now))))))
     q))
 
 (defn- arm-reaper!
   "Queue `x` for `q`'s horizon, arming the one timer if none is armed."
   [^js q x]
-  (let [horizon-ms (.-horizon q)]
+  (let [now        (js/Date.now)
+        horizon-ms (.-horizon q)]
     (.push (.-items q) x)
-    (.push (.-due q) (+ (js/Date.now) horizon-ms))
-    (when-not (.-armed q)
-      (set! (.-armed q) true)
-      (js/setTimeout (.-drain q) horizon-ms)))
+    (if (neg? (.-target q))
+      (let [due (+ now horizon-ms)]
+        (.push (.-due q) due)
+        (arm-timer! q due now))
+      ;; A rider on a timer already armed. Where the horizon is measured it
+      ;; is stamped one tick late: the clock is whole milliseconds and the
+      ;; timer is not, so a drain could otherwise find it due up to a
+      ;; millisecond short of the horizon a timer of its own would have
+      ;; given it. A zero horizon measures nothing, and its rider is due
+      ;; with the drain.
+      (.push (.-due q) (+ now horizon-ms (if (pos? horizon-ms) 1 0)))))
   nil)
 
 (defn- reset-reapers!
   "Forget what `q` is waiting to reap. [[reset-runtime!]]'s half — a timer
-  still armed drains an empty queue and does nothing."
+  still armed is superseded and drains nothing."
   [^js q]
   (set! (.-length (.-items q)) 0)
   (set! (.-length (.-due q)) 0)
-  (set! (.-armed q) false)
+  (set! (.-target q) -1)
+  (set! (.-seq q) (inc (.-seq q)))
   nil)
 
 (def ^:private cell-reapers
@@ -1415,6 +1444,14 @@
 
 (defn- arm-entry-reaper! [^js entry]
   (arm-reaper! entry-reapers entry))
+
+(defn reapers-armed?
+  "Whether either reap queue holds an armed timer — what the test kit's
+  `quiesced!` waits out, since a drain re-arms for what rode in after its
+  own timer and the platform may clamp that timer past the item's horizon."
+  []
+  (or (not (neg? (.-target cell-reapers)))
+      (not (neg? (.-target entry-reapers)))))
 
 (defn- entry-matches?
   "Ordered pairwise compare of an entry's key array against `ks`.
