@@ -47,7 +47,7 @@
 
 (defn- toast [id message]
   [:div.toast {:key id
-               :re-frame.hicasso/unmounting {:class       "toast--exit"
+               :re-frame.hicasso.motion/unmounting {:class       "toast--exit"
                                              :inert       true
                                              :aria-hidden true}}
    message])
@@ -199,7 +199,7 @@
     (is (= [:div.toast {:key 1 :class "toast--enter"} "a"]
            (presence/with-phase
              [:div.toast {:key 1
-                          :re-frame.hicasso/mounting {:class "toast--enter"}}
+                          :re-frame.hicasso.motion/mounting {:class "toast--enter"}}
               "a"]
              :mounting))
         "the mounting map's contents arrive on the element, with the
@@ -208,7 +208,7 @@
             carries, for the same reason: those address node identity, not
             appearance"
     (let [hostile [:div.toast {:key 1
-                               :re-frame.hicasso/unmounting
+                               :re-frame.hicasso.motion/unmounting
                                {:key "stolen" :ref (fn [_]) :class "x"}}]]
       (is (= [:div.toast {:key 1 :class "x"}]
              (presence/with-phase hostile :unmounting)))))
@@ -221,7 +221,7 @@
             filter `:&` uses."
     (doseq [spelling ["key" 'key :x/key]]
       (let [hostile [:div.toast {:key 1
-                                 :re-frame.hicasso/unmounting
+                                 :re-frame.hicasso.motion/unmounting
                                  {spelling "stolen" :class "x"}}]
             out     (presence/with-phase hostile :unmounting)]
         (is (= [:div.toast {:key 1 :class "x"}] out)
@@ -231,7 +231,7 @@
              under, and nothing in an override can move it")))
     (doseq [spelling ["ref" 'ref :x/ref]]
       (let [hostile [:div.toast {:key 1
-                                 :re-frame.hicasso/unmounting
+                                 :re-frame.hicasso.motion/unmounting
                                  {spelling (fn [_]) :class "x"}}]]
         (is (= [:div.toast {:key 1 :class "x"}]
                (presence/with-phase hostile :unmounting))
@@ -253,8 +253,8 @@
     (doseq [phase [:present :mounting :unmounting]]
       (let [child [:div {:key 1
                          :class "toast"
-                         :re-frame.hicasso/mounting   {:class "toast--enter"}
-                         :re-frame.hicasso/unmounting {:class "toast--exit"}}]
+                         :re-frame.hicasso.motion/mounting   {:class "toast--enter"}
+                         :re-frame.hicasso.motion/unmounting {:class "toast--exit"}}]
             names (set (js/Object.keys (.-props (codec/as-element
                                                   (presence/with-phase child phase)))))]
         (is (not (contains? names "mounting")) (str "at " phase))
@@ -266,7 +266,7 @@
             to the DOM"
     (is (thrown-with-msg?
           js/Error #"no presence tray can reach"
-          (codec/as-element [:div {:re-frame.hicasso/mounting {:class "toast--enter"}}])))))
+          (codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "toast--enter"}}])))))
 
 (deftest a-boundary-child-takes-the-phase-as-an-ordinary-prop
   (let [card (codec/mark-boundary! (fn [_] nil))]
@@ -280,7 +280,7 @@
               failure this ruling deletes"
       (is (thrown-with-msg?
             js/Error #":rf/phase"
-            (presence/with-phase [card {:key 1 :re-frame.hicasso/unmounting {:class "x"}}]
+            (presence/with-phase [card {:key 1 :re-frame.hicasso.motion/unmounting {:class "x"}}]
                                  :unmounting))))))
 
 ;; ---------------------------------------------------------------------------
@@ -312,7 +312,7 @@
   [toasts]
   (mapv (fn [t]
           [:div.toast {:key (:id t)
-                       :re-frame.hicasso/unmounting {:class       "toast--exit"
+                       :re-frame.hicasso.motion/unmounting {:class       "toast--exit"
                                                      :inert       true
                                                      :aria-hidden true}}
            (:message t)])

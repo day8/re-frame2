@@ -689,7 +689,7 @@
 ;; A presence override no tray can reach
 ;; ---------------------------------------------------------------------------
 ;;
-;; `impl.presence/with-phase` strips `::h/mounting` / `::h/unmounting` off
+;; `impl.presence/with-phase` strips `::motion/mounting` / `::motion/unmounting` off
 ;; every entry it renders and merges the phase's map in their place, and it
 ;; runs on a motion/presence tray's DIRECT children and nowhere else. So
 ;; reaching THIS walk with one of the two keys still on the map means no
@@ -715,10 +715,10 @@
             about the door one level up, and the identical silent drop
             survived one level down on a native node"
     (let [d (override-refusal
-              #(codec/as-element [:div {:re-frame.hicasso/mounting {:class "in"}}]))]
+              #(codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]))]
       (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
       (is (= :put-the-override-on-a-presence-child (:recovery d)))
-      (is (= :re-frame.hicasso/mounting (:position d))
+      (is (= :re-frame.hicasso.motion/mounting (:position d))
           "the diagnostic names the key that was written")
       (is (= {:class "in"} (:override d))
           "and carries the map it refused, so a migration can find its sites")))
@@ -726,7 +726,7 @@
   (testing "both keys, and the message names the attribute that would
             otherwise have landed on the page"
     (let [d (override-refusal
-              #(codec/as-element [:div {:re-frame.hicasso/unmounting {:class "out"}}]))]
+              #(codec/as-element [:div {:re-frame.hicasso.motion/unmounting {:class "out"}}]))]
       (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
       (is (re-find #"\"unmounting\" attribute" (:reason d)))))
 
@@ -736,7 +736,7 @@
     (is (= :rf.error/hicasso-presence-override-out-of-reach
            (:rf.error/id (override-refusal
                            #(codec/as-element
-                              [:section [:div {:re-frame.hicasso/mounting {:class "in"}}]]))))))
+                              [:section [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]]))))))
 
   (testing "and a `:&` remainder is the same fault wearing a forwarding
             map: `with-phase` reads the two keys off the child's OWN props,
@@ -745,7 +745,7 @@
     (is (= :rf.error/hicasso-presence-override-out-of-reach
            (:rf.error/id (override-refusal
                            #(codec/as-element
-                              [:div {:& {:re-frame.hicasso/unmounting {:class "out"}}}]))))))
+                              [:div {:& {:re-frame.hicasso.motion/unmounting {:class "out"}}}]))))))
 
   (testing "the crossing takes the same refusal at the same position. A
             `[:>]` head that IS a tray's direct child has its overrides
@@ -756,7 +756,7 @@
            (:rf.error/id (override-refusal
                            #(codec/as-element
                               [:> an-override-crossing
-                               {:re-frame.hicasso/mounting {:class "in"}}])))))))
+                               {:re-frame.hicasso.motion/mounting {:class "in"}}])))))))
 
 (deftest the-override-refusal-claims-the-two-private-keywords-and-nothing-else
   (testing "THE LEAK PATH, measured rather than argued. A bare `:mounting`

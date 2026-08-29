@@ -8,9 +8,9 @@
       (h/defview toast-tray [_]
         [motion/presence {:timeout-ms 300}
          (for [t (h/sub [:toasts/visible])]
-           [:div.toast {:key            (:id t)
-                        ::h/unmounting {:class \"toast toast--exit\"
-                                        :inert true :aria-hidden true}}
+           [:div.toast {:key                 (:id t)
+                        ::motion/unmounting {:class \"toast toast--exit\"
+                                             :inert true :aria-hidden true}}
             (:message t)])])
 
   ## The posture
@@ -80,15 +80,15 @@
   rest. The four catalogued `:rf.error/hicasso-presence-*` ids name
   `impl.presence-react` as their emitter, so the two files stay put.
 
-  **The override keys are `::h/mounting` and `::h/unmounting`**, as the
-  example above shows — the `re-frame.hicasso` spellings, even under this
-  door; naming-ledger row 31 is where a respelling to `::motion/…` would
-  be settled."
+  **The override keys are `::motion/mounting` and `::motion/unmounting`**,
+  as the example above shows — this namespace's own spellings. Naming-ledger
+  row 31 ruled the respelling from the prototype's `::h/…` (operator,
+  2026-08-11), and the vocabulary now matches the row (rf2-hg3q)."
   (:require [re-frame.hicasso.impl.presence-react :as impl-presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
-  `:timeout-ms`, applying each child's own `::h/mounting` /
-  `::h/unmounting` attribute overrides while it is in that phase, and
+  `:timeout-ms`, applying each child's own `::motion/mounting` /
+  `::motion/unmounting` attribute overrides while it is in that phase, and
   handing a child that is itself a boundary the ordinary `:rf/phase`
   prop instead (HD-025).
 

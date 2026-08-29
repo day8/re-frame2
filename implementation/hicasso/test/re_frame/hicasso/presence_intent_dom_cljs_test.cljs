@@ -25,7 +25,7 @@
   1. a **bare intent vector** on a native presence child dispatches;
   2. an **`h/event` at an event position** on one dispatches what it returns;
   3. both of them still dispatch **while the child is being retained** —
-     the `::h/unmounting` window, where the child is gone from app-db,
+     the `::motion/unmounting` window, where the child is gone from app-db,
      still on screen, still clickable, and re-lowered by presence on
      every one of its own renders;
   4. the intent lands in the frame the **tray** was mounted under, proved
@@ -136,7 +136,7 @@
    (for [t (collector/sub [:hicasso.presence-intent/visible])]
      [:div.toast {:key (:id t)
                   :data-id (:id t)
-                  :re-frame.hicasso/unmounting {:class "toast--exit"}}
+                  :re-frame.hicasso.motion/unmounting {:class "toast--exit"}}
       (:message t)
       [:button.dismiss {:data-id  (:id t)
                         :on-click [:hicasso.presence-intent/dismissed (:id t)]}

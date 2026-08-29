@@ -16,15 +16,15 @@
 
   ## The two shapes
 
-  **(1) `::h/mounting` and `::h/unmounting` are attribute OVERRIDE MAPS
-  on a native node.** The boundary merges them into that node's attrs
-  while the child is in that phase:
+  **(1) `::motion/mounting` and `::motion/unmounting` are attribute
+  OVERRIDE MAPS on a native node.** The boundary merges them into that
+  node's attrs while the child is in that phase:
 
-      (h/presence {:timeout-ms 300}
+      (motion/presence {:timeout-ms 300}
         (for [t (sub [:toasts/visible])]
           [:div.toast {:key (:id t)
-                       ::h/unmounting {:class \"toast toast--exit\"
-                                       :inert true :aria-hidden true}}
+                       ::motion/unmounting {:class \"toast toast--exit\"
+                                            :inert true :aria-hidden true}}
            (:message t)]))
 
   The child view has disappeared and the three `(when exiting? …)`
@@ -55,8 +55,8 @@
     what that case is for, and an override written on a boundary child is
     a loud error naming `:rf/phase` rather than a silently dropped map.
   - **ENTER is the weak half**: driving enter purely as a `:mounting` →
-    `:present` class flip can race paint. `::h/mounting` ships, and the
-    guide teaches the CSS answer — an animation on insertion, or
+    `:present` class flip can race paint. `::motion/mounting` ships, and
+    the guide teaches the CSS answer — an animation on insertion, or
     `@starting-style`.
 
   ## The standing rules
@@ -86,17 +86,18 @@
 ;; are this module's vocabulary, but the codec's prop walk has to
 ;; recognise them — it is where an override written OUT OF THIS
 ;; MODULE'S REACH is refused — and this namespace requires the codec
-;; rather than the other way round. One home, so a respelling of the
-;; pair — naming-ledger row 31's to settle — cannot land on half of them.
+;; rather than the other way round. One home, which is what let
+;; naming-ledger row 31's ruled respelling to `::motion/…` land on both
+;; of them at once (rf2-hg3q).
 
 (def mounting-key
-  "`::h/mounting` — the attribute overrides applied while a child is
+  "`::motion/mounting` — the attribute overrides applied while a child is
   entering."
   codec/mounting-key)
 
 (def unmounting-key
-  "`::h/unmounting` — the attribute overrides applied while a child is
-  being retained on its way out."
+  "`::motion/unmounting` — the attribute overrides applied while a child
+  is being retained on its way out."
   codec/unmounting-key)
 
 (def override-keys #{mounting-key unmounting-key})

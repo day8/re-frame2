@@ -101,7 +101,7 @@
   [motion/presence {:timeout-ms retention-ms}
    (for [t (h/sub [::toasts])]
      [:div.toast {:key           t
-                  ::h/unmounting {:class "toast toast--exit"}}
+                  ::motion/unmounting {:class "toast toast--exit"}}
       (name t)])])
 
 (use-fixtures :each
@@ -242,7 +242,7 @@
                   measured against — and on the wall clock it would stay this
                   way for a full second"
           (is (= 2 (toast-count m)) "the node survives the data — that is the module")
-          (is (some? (exiting m)) "wearing the author's own `::h/unmounting` class"))
+          (is (some? (exiting m)) "wearing the author's own `::motion/unmounting` class"))
 
         (hm/advance-clock! m (dec retention-ms))
 

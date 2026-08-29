@@ -44,10 +44,10 @@ records the dismissal.
   [motion/presence {:timeout-ms 300}
    (for [t (h/sub [:toasts/visible])]
      [:div.toast
-      {:key            (:id t)
-       ::h/unmounting  {:class       "toast toast--exit"
-                        :inert       true
-                        :aria-hidden true}}
+      {:key                 (:id t)
+       ::motion/unmounting  {:class       "toast toast--exit"
+                             :inert       true
+                             :aria-hidden true}}
       (:message t)
       [:button {:on-click [:toasts/dismiss (:id t)]} "×"]])])
 ```
@@ -57,7 +57,7 @@ What happens:
 1. The user dismisses toast `7`. The handler removes it from app-db.
 2. Presence still has a child with key `7`. That child enters the **unmounting**
    phase.
-3. Presence merges `::h/unmounting` attributes onto the real element. The exit
+3. Presence merges `::motion/unmounting` attributes onto the real element. The exit
    class starts the CSS transition; `:inert` and `:aria-hidden` stop interaction
    and hide the node from assistive tech while it is still painted.
 4. After 300 ms Presence removes the child. Removal is **timer-based**, not
@@ -99,28 +99,28 @@ the author's node with the author's attributes merged for the active phase.
 
 ### Phase overrides on elements
 
-On a native element child, write overrides with the Hicasso markers:
+On a native element child, write overrides with the motion markers:
 
 ```clojure
 [:div.card
- {:key           id
-  ::h/mounting   {:class "card card--enter" :inert true}
-  ::h/unmounting {:class "card card--exit"  :inert true :aria-hidden true}}
+ {:key                id
+  ::motion/mounting   {:class "card card--enter" :inert true}
+  ::motion/unmounting {:class "card card--exit"  :inert true :aria-hidden true}}
  body]
 ```
 
 | Marker | When applied |
 | --- | --- |
-| `::h/mounting` | While the child is entering (first paint of a new key) |
-| `::h/unmounting` | While the child is retained after its key left the live set |
+| `::motion/mounting` | While the child is entering (first paint of a new key) |
+| `::motion/unmounting` | While the child is retained after its key left the live set |
 
-These markers live in the `re-frame.hicasso` keyword namespace (`::h/...` when
-you alias the door as `h`). The motion **module** is separate; the markers are
-shared vocabulary, not `::motion/...` keys.
+These markers live in the `re-frame.hicasso.motion` keyword namespace
+(`::motion/...` when you alias the module as `motion`): the module owns its
+vocabulary, and the door's `::h/...` markers are a separate roster.
 
 Prefer CSS insertion animations or `@starting-style` for simple entrances.
-Use `::h/mounting` when the node must carry attributes such as `:inert` until
-it settles.
+Use `::motion/mounting` when the node must carry attributes such as `:inert`
+until it settles.
 
 ### Phase prop on views
 
@@ -149,7 +149,7 @@ head. When the child is a view, Presence passes an ordinary prop:
 `:rf/phase` is one of `:mounting`, `:present`, or `:unmounting`. Tests can pass
 the prop directly without arming timers.
 
-Putting `::h/unmounting` on a view head raises
+Putting `::motion/unmounting` on a view head raises
 `:rf.error/hicasso-presence-override-on-a-view`.
 
 ## Rules that matter in production
@@ -185,7 +185,7 @@ Putting `::h/unmounting` on a view head raises
 | --- | --- | --- |
 | Dismissed item vanishes immediately | Children are not under Presence, or keys are missing | Wrap the keyed sequence in `motion/presence` and give every child a stable `:key` |
 | Node stays forever after dismiss | `:timeout-ms` omitted or far longer than the CSS | Set `:timeout-ms` to at least the CSS duration; it is required |
-| Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::h/unmounting` (or via `:rf/phase` on a view) |
+| Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` (or via `:rf/phase` on a view) |
 | Override on a view raises `:rf.error/hicasso-presence-override-on-a-view` | Presence cannot merge into a boundary head | Branch on `:rf/phase` inside the view |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
 | Bundle still contains motion code when unused | Something required the module | Require `re-frame.hicasso.motion` only where Presence is used |
@@ -206,7 +206,8 @@ retention machine out of applications that never ask for it. A check in the
 Hicasso package fails if the public door re-acquires a hard dependency on the
 module.
 
-### Phase vocabulary freeze
+### Phase vocabulary
 
-The override markers remain `::h/mounting` and `::h/unmounting` until the
-naming ledger freezes any respell. Guide examples use those shipped keys.
+The override markers are `::motion/mounting` and `::motion/unmounting` — the
+naming ledger's ruled spellings (row 31), shipped by the engine and used by
+every example here. The prototype's `::h/...` spellings are retired.

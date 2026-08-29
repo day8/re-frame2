@@ -125,7 +125,7 @@
   hydrating client root.
 
   Without it the two halves disagree about motion. Presence starts a
-  child `:mounting` and applies that child's `::h/mounting` attribute
+  child `:mounting` and applies that child's `::motion/mounting` attribute
   overrides while it is in that phase, so a windowless server render
   ships the ENTER appearance — the class, and the `opacity: 0`, an
   animation is about to move off. The hydrating client's first pass

@@ -25,11 +25,10 @@
 
   ## The marker keywords need no export
 
-  `::h/value`, `::h/prevent`, `::h/navigate`, `::h/mounting`,
-  `::h/unmounting`, `::h/revision`, `::h/checked` and `::h/clear` read
-  `:re-frame.hicasso/…`. Alias this namespace as `h` and the
-  auto-resolved spelling the guide teaches resolves, with no keyword
-  changing value.
+  `::h/value`, `::h/prevent`, `::h/navigate`, `::h/revision`,
+  `::h/checked` and `::h/clear` read `:re-frame.hicasso/…`. Alias this
+  namespace as `h` and the auto-resolved spelling the guide teaches
+  resolves, with no keyword changing value.
 
   ## What this door does NOT carry — the optional modules
 
@@ -45,9 +44,12 @@
   `:require` here would put the retention machine into every bundle that
   ever touched the door. So the door names no optional module, and
   `hicasso/scripts/check_optional_module_reachability.py` fails if one
-  reappears. `::h/mounting` and `::h/unmounting` stay in the marker set
-  above: they are the vocabulary the motion module reads, and moving the
-  namespace is not renumbering the keywords (naming-ledger row 31)."
+  reappears. The presence override keys are the motion module's own
+  vocabulary and spell its namespace: `::motion/mounting` /
+  `::motion/unmounting`, i.e. `:re-frame.hicasso.motion/…` — naming-ledger
+  row 31's ruled respelling, executed under rf2-hg3q. They are not `::h/…`
+  keywords and are not in the marker set above; the codec still recognises
+  them, and refuses one written out of a presence tray's reach."
   ;; The macro side reaches core's `re-frame.source-coords` for the one
   ;; thing a defining macro cannot do portably by hand: pick the right
   ;; `:file` for the coordinate it captures. Under CLJS the analyzer never

@@ -587,7 +587,7 @@ Related: [Ephemeral state](11-ephemeral-state.md).
 
 Optional exit-retention head from `re-frame.hicasso.motion`. Keeps keyed
 children for `:timeout-ms` after their data leaves app-db so CSS exit
-transitions can run. Applies `::h/mounting` / `::h/unmounting` attribute
+transitions can run. Applies `::motion/mounting` / `::motion/unmounting` attribute
 overrides on elements, or passes `:rf/phase` to view children. Not an
 animation system.
 

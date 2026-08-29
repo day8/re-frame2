@@ -197,7 +197,7 @@
   [motion/presence {:timeout-ms dom-retention-ms}
    (for [t (h/sub [::toasts])]
      [:div.toast {:key            t
-                  ::h/unmounting {:class       "toast toast--exit"
+                  ::motion/unmounting {:class       "toast toast--exit"
                                   :inert       true
                                   :aria-hidden true}}
       (name t)])])
@@ -292,7 +292,7 @@
                     "the dismissed toast is still painted — that is the whole module")
                 (let [exiting (.querySelector container ".toast--exit")]
                   (is (some? exiting)
-                      "the author's own `::h/unmounting` class, merged onto the author's own node")
+                      "the author's own `::motion/unmounting` class, merged onto the author's own node")
                   (when exiting
                     (is (= "true" (.getAttribute exiting "aria-hidden"))
                         "and the a11y attributes that belong in that phase, in the same map"))))
@@ -325,7 +325,7 @@
 ;; as an attribute*. The first clause was true and the second was scoped
 ;; to it: `with-phase` runs on a tray's DIRECT children, and an override
 ;; written anywhere else fell through to the ordinary prop walk, which
-;; takes `(name k)` — so `::h/mounting` was emitted as a `mounting`
+;; takes `(name k)` — so `::motion/mounting` was emitted as a `mounting`
 ;; ATTRIBUTE onto the element and the animation never ran.
 ;;
 ;; **This is a DOM claim and only a DOM lane can settle it.** The node
@@ -353,7 +353,7 @@
               (is (some? node))
               (is (= "x" (.getAttribute node "mounting"))
                   "an author's own `:mounting` attribute — untouched, and
-                   painted, which is exactly the shape `::h/mounting` took"))
+                   painted, which is exactly the shape `::motion/mounting` took"))
             (finally (mount/release! handle)))))
 
       (testing "and the override key itself is REFUSED before any element
@@ -362,7 +362,7 @@
           (is (thrown-with-msg?
                 js/Error #"no presence tray can reach"
                 (mount/root! container frame-kw
-                             [:div.probe {:re-frame.hicasso/mounting {:class "in"}}])))
+                             [:div.probe {:re-frame.hicasso.motion/mounting {:class "in"}}])))
           (is (zero? (.-length (.querySelectorAll container "[mounting]")))
               "and the container is empty of it — the refusal is not a
                second write that undoes a first")))

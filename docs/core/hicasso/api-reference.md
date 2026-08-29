@@ -218,10 +218,13 @@ auto-resolved spelling with no keyword changing value.
 | `::h/revision` | an attribute on a controlled field | a change re-baselines the field to the model without remounting it |
 | `::h/clear` | as an event head | removes an `h/reg-state` instance, back to the concern's default |
 | `::h/navigate` | emitted by `h/route-link` | the click decision, as data |
-| `::h/mounting` / `::h/unmounting` | attributes on a `motion/presence` child | the attribute overrides applied while the child is in that phase |
 
 Substitution is top level only: `[:todo/edit id ::h/value]` reads, and a marker
 nested inside a map or a sub-vector does not.
+
+The presence override markers are not in this roster: they are the motion
+module's own vocabulary — `::motion/mounting` / `::motion/unmounting` —
+documented under [`re-frame.hicasso.motion`](#re-framehicassomotion).
 
 ## `re-frame.hicasso.forms`
 
@@ -305,7 +308,7 @@ about an animation: retention.
 ```
 
 `motion/presence` retains exiting keyed children for `:timeout-ms`, applying each
-child's own `::h/mounting` / `::h/unmounting` attribute overrides while it is in
+child's own `::motion/mounting` / `::motion/unmounting` attribute overrides while it is in
 that phase, and handing a child that is itself a boundary the ordinary
 `:rf/phase` prop instead — `:mounting`, `:present` or `:unmounting`. It inserts
 no wrapper node and stamps no `data-*`.

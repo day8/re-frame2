@@ -109,9 +109,10 @@ diagnostic. Restructure the event's payload instead:
 The reserved **heads** — `::h/prevent` and `::h/navigate` — are a separate,
 two-entry roster and sit at index 0. They do not nest inside each other.
 
-Everything else spelled `::h/…` belongs to another module and is not a dispatch
-marker: `::h/revision` is a controlled-input attribute, `::h/mounting` /
-`::h/unmounting` are presence overrides, `::h/clear` is a registered event id.
+Everything else spelled `::h/…` is not a dispatch marker: `::h/revision` is a
+controlled-input attribute, `::h/clear` is a registered event id. The presence
+overrides are the motion module's own keywords — `::motion/mounting` /
+`::motion/unmounting`, i.e. `:re-frame.hicasso.motion/…` — not `::h/…` at all.
 
 ## Prop-dialect edges that fail silently
 
@@ -201,7 +202,7 @@ writing them produces a view that will not load:
 |---|---|
 | an `h/fn` spelling | shipped is `h/event`; `hfn` was swept to it |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
-| the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate`, `::h/mounting`, `::h/unmounting`, `::h/clear` |
+| the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate` and `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
 | a plain `merge` for forwarding caller attrs | shipped is the reserved `:&` key with the owned-literal law (MIG-28) |
 
 **Read the door** — `implementation/hicasso/src/re_frame/hicasso.cljc` — not a

@@ -709,19 +709,20 @@
 ;; DEFINED here, for [[revision-key]]'s own reason one section up: this
 ;; walk has to recognise them, and `presence` requires this namespace
 ;; rather than the other way round. Writing the two literals a second
-;; time in the walk would leave a keyword with two homes, which is a
-;; drift waiting for the respelling `naming-ledger.md` row 31 holds open
-;; (`::motion/mounting`). One home, and `presence` reads them from it.
+;; time in the walk would leave a keyword with two homes — which is why
+;; `naming-ledger.md` row 31's respelling to `::motion/…` (ruled, and
+;; executed under rf2-hg3q) could land whole: one home, and `presence`
+;; reads them from it.
 
 (def mounting-key
-  "`::h/mounting` — the attribute overrides applied while a presence
+  "`::motion/mounting` — the attribute overrides applied while a presence
   child is entering."
-  :re-frame.hicasso/mounting)
+  :re-frame.hicasso.motion/mounting)
 
 (def unmounting-key
-  "`::h/unmounting` — the attribute overrides applied while a presence
-  child is being retained on its way out."
-  :re-frame.hicasso/unmounting)
+  "`::motion/unmounting` — the attribute overrides applied while a
+  presence child is being retained on its way out."
+  :re-frame.hicasso.motion/unmounting)
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
@@ -764,8 +765,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- refuse-misplaced-override!
-  "`::h/mounting` / `::h/unmounting` reached a PROP WALK, which means no
-  presence tray applied them.
+  "`::motion/mounting` / `::motion/unmounting` reached a PROP WALK, which
+  means no presence tray applied them.
 
   [[re-frame.hicasso.impl.presence/with-phase]] strips both keys off
   every entry it renders and merges the phase's map in their place, and

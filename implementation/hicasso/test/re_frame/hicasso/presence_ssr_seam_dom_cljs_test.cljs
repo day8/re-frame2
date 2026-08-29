@@ -243,7 +243,7 @@
   the server's bytes at all — an attribute-only divergence is outside
   React's hydration-mismatch contract by React's own rules
   (`impl.mount`'s reporter header, Spec 011 §Hydration-mismatch
-  detection), so a native child wearing `::h/mounting` attributes would
+  detection), so a native child wearing `::motion/mounting` attributes would
   diverge here in silence."
   [{:keys [tag] :as props}]
   (let [phase (:rf/phase props)]
