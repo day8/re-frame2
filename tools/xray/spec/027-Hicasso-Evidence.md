@@ -162,19 +162,28 @@ So a boundary is keyed by its edge set and `:instances` counts how many hold
 it. That is the exact granularity the runtime retains, and it is what makes
 the Mounted and Reads rosters join without a correlation step.
 
-**In a dev build the entry also names the views that rendered it.** `defview`
+**In a dev build the entry also names the views that HOLD it.** `defview`
 stamps `"<ns>/<sym>"` on the body as `displayName` and hands its source
-coordinate to `impl.error`'s dev-only ledger; `collector/render-body` records
-that name on the read-set entry it resolved, under the `hicassoViews` own
-property, inside `goog.DEBUG`. The producer resolves each name back to its
-coordinate, so every mounted row, every attribution reader and every
-explanation carries `:views` — one `{:view :source}` per declared view that
-rendered the edge set, sorted by name — or `:unknown` for a body minted
-without a name (a harness fn; a name minted outside the macro carries
-`:source :unknown`). Two declared views over one edge set are still one row,
-naming both. The stamp costs a production build nothing: the slot is written
-only under `goog.DEBUG`, and `check_production_erasure.cjs` scans the release
-bundle for the slot name (rf2-6c12m.21).
+coordinate to `impl.error`'s dev-only ledger. The name rides on the reference,
+not on the render: in a dev build the shell hands React a per-(entry, view)
+`subscribe` that counts the name where React commits the reference and
+uncounts it where React's cleanup releases it, kept on the read-set entry
+under the `hicassoViews` own property inside `goog.DEBUG`. So a row's
+`:views` is exactly the roster `refs > 0` claims — a view that unmounts
+leaves the row its twin still holds, and a render React discards (a suspended
+attempt, an aborted transition, StrictMode's first invoke) names nothing,
+because no `subscribe` ever followed it (the merged-PR audit of #8758). The
+producer resolves each name back to its coordinate, so every mounted row,
+every attribution reader and every explanation carries `:views` — one
+`{:view :source}` per declared view holding the edge set, sorted by name — or
+`:unknown` for a body minted without a name (a harness fn; a name minted
+outside the macro carries `:source :unknown`). Two declared views over one
+edge set are still one row, naming both. React re-subscribes on no render it
+did not already: the named `subscribe` is cached per (entry, view), so its
+identity moves exactly when the entry's does. The stamp costs a production
+build nothing: the slot is written only under `goog.DEBUG`, and
+`check_production_erasure.cjs` scans the release bundle for the slot name
+(rf2-6c12m.21).
 
 The tab spends the name where a reader looks: a Mounted, Reads, Why or
 Advisor row leads with the view (testid `…-views`, hover text the

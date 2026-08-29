@@ -274,6 +274,54 @@
           "no coordinate was declared, and the row says so rather than guessing")
       (release))))
 
+;; The two rows the merged-PR audit of #8758 asked for. A row's `:views`
+;; is the roster `entry-rows` claims — the views HOLDING the edge set now —
+;; so the name has to ride on the reference: counted where React commits
+;; it, uncounted where React releases it, and never written by a render.
+
+(deftest an-unmounted-view-leaves-the-row-its-twin-still-holds
+  (seeded!)
+  (let [a1  (mount! (codec/retained-body named-probe))
+        a2  (mount! (codec/retained-body named-probe))
+        b   (mount! (codec/retained-body twin-probe))
+        row (fn [] (first (:boundaries (tool/read-mounted-boundaries))))]
+    (testing "the premise: one row, three holders, both names"
+      (is (= 3 (:instances (row))))
+      (is (= [named-probe-name twin-probe-name] (mapv :view (:views (row))))))
+    (testing "one of two mounted instances unmounting leaves its view named —
+              attribution is a count on the reference, not a flag"
+      (a1)
+      (is (= 2 (:instances (row))))
+      (is (= [named-probe-name twin-probe-name] (mapv :view (:views (row))))))
+    (testing "the last instance unmounting takes the name with it while the
+              twin's reference keeps the row: the row names who holds it NOW"
+      (a2)
+      (is (= 1 (:instances (row))))
+      (is (= [twin-probe-name] (mapv :view (:views (row))))
+          "a name that outlives its reference misattributes the twin's row")
+      (let [edge (first (filter #(= :tr/left (:sub-id %))
+                                (:edges (tool/read-read-attribution))))]
+        (is (= [twin-probe-name] (mapv :view (:views (first (:readers edge)))))
+            "and the attribution reader, named through the same entry, agrees")))
+    (b)))
+
+(deftest a-render-react-never-commits-names-no-live-row
+  (seeded!)
+  (let [b (mount! (codec/retained-body twin-probe))]
+    (testing "the premise: the twin's row is live and named"
+      (is (= [twin-probe-name]
+             (mapv :view (:views (first (:boundaries (tool/read-mounted-boundaries))))))))
+    ;; A speculative render over the SAME edge set: React runs a body it
+    ;; then discards — a suspended attempt, an aborted transition,
+    ;; StrictMode's first invoke — so this resolves the live entry and no
+    ;; `subscribe` ever follows.
+    (collector/render-body frame-id (codec/retained-body named-probe) {})
+    (let [row (first (:boundaries (tool/read-mounted-boundaries)))]
+      (is (= 1 (:instances row)) "nothing committed, so nothing new holds the row")
+      (is (= [twin-probe-name] (mapv :view (:views row)))
+          "a body React never committed must not be named on a row it never held"))
+    (b)))
+
 ;; ---------------------------------------------------------------------------
 ;; Read 2 — read attribution
 ;; ---------------------------------------------------------------------------
