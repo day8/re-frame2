@@ -15,9 +15,9 @@
   layer-1 readers memoised on the whole of `app-db`, so a keystroke re-runs
   every mounted cell's `get-in` and the equality gate on the OUTPUT is what
   keeps ninety-nine of them from notifying. Notification is what scales
-  narrowly; recomputation scales with the grid —
-  `examples.per-keystroke-dom-cljs-test` counts 111 at 10x10 and 31 at 5x5
-  against two boundary bodies at both sizes
+  narrowly; recomputation scales with the grid — the per-keystroke census
+  counted 111 at 10x10 and 31 at 5x5 against two boundary bodies at both
+  sizes, and `grid.row-total-layer2-dom-cljs-test` re-reads the same figures
   (`docs/core/hicasso/19-performance.md` §Scale the same
   topology to a grid).
 
