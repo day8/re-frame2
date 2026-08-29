@@ -71,22 +71,27 @@
   (select-keys (stats) [:cells :cell-refs :boundaries :edges :entries]))
 
 (defn quiesced!
-  "A promise that resolves once every reaper armed before this call has
-  run — **the runtime's own settling point, and the only honest place to
-  take a [[residue]] BASELINE**.
+  "A promise that resolves once the runtime's reapers are idle — **its own
+  settling point, and the only honest place to take a [[residue]]
+  BASELINE**.
 
   One macrotask is not that point. `collector/entry-reap-horizon-ms` is
   deliberately outside a bare `setTimeout 0`, so a residue read one
   macrotask after an unclaimed render still counts entries the runtime
-  is about to drop. This settles strictly past that horizon, so a timer
-  armed here expires after every reaper armed before it — the cell
-  reapers included — and the horizon itself stays a margin no caller may
+  is about to drop. This waits strictly past that horizon and then keeps
+  waiting while either reap queue holds an armed timer — a drain re-arms
+  for what rode in after its own timer, and the platform may clamp that
+  timer past the item's horizon — so it observes the runtime rather than
+  modelling its clock. The horizon itself stays a margin no caller may
   rely on: this promise says only *wait for me*, never *here is my
   number*."
   []
   (js/Promise.
     (fn [resolve]
-      (js/setTimeout (fn [] (resolve nil)) (inc collector/entry-reap-horizon-ms)))))
+      ((fn settle []
+         (js/setTimeout (fn []
+                          (if (collector/reapers-armed?) (settle) (resolve nil)))
+                        (inc collector/entry-reap-horizon-ms)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The cell and entry witnesses
