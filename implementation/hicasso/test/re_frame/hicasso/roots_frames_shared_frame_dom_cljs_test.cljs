@@ -59,9 +59,9 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.test-support :as test-support]))
 
@@ -134,7 +134,7 @@
   (rf/make-frame {:id shared-frame})
   (rf/with-frame shared-frame (rf/dispatch-sync [::seed "alpha"]))
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- text-at [handle sel]
@@ -177,15 +177,15 @@
                   every existing row pins at one"
           (is (= [2 2] [(sup/readers-of [shared-frame label-q])
                         (sup/readers-of [shared-frame count-q])])
-              (str "reader counts: " (pr-str (inventory/residue)))))
+              (str "reader counts: " (pr-str (runtime/residue)))))
 
         (testing "and the two readers are two DISTINCT boundaries, not one
                   counted twice — `:boundaries` counts registrations and
                   `readers-of` counts slots, so the two numbers can disagree
                   and here they corroborate"
-          (is (= 2 (:boundaries (inventory/stats)))
-              (str "got " (pr-str (inventory/stats))))
-          (is (= 4 (:cell-refs (inventory/residue)))
+          (is (= 2 (:boundaries (runtime/stats)))
+              (str "got " (pr-str (runtime/stats))))
+          (is (= 4 (:cell-refs (runtime/residue)))
               "two keys at fan-out two"))
 
         (testing "one frame is one memo row, however many roots render it —
@@ -282,9 +282,9 @@
                             unless the number is taken"
                     (is (= [1 1] [(sup/readers-of [shared-frame label-q])
                                   (sup/readers-of [shared-frame count-q])])
-                        (str "got " (pr-str (inventory/residue))))
-                    (is (= 1 (:boundaries (inventory/stats)))
-                        (str "got " (pr-str (inventory/stats)))))
+                        (str "got " (pr-str (runtime/residue))))
+                    (is (= 1 (:boundaries (runtime/stats)))
+                        (str "got " (pr-str (runtime/stats)))))
 
                   (testing "and the survivor is LIVE, which is the half a count
                             cannot show. A cell disposed out from under root B

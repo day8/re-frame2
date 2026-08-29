@@ -55,7 +55,7 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::staged-reincarnation)
@@ -111,7 +111,7 @@
   []
   (let [value (collector/render-body frame-id (fn [_] (collector/sub [:staged/who])) {})
         entry (collector/last-reads)]
-    {:value value :entry entry :at-render (collector/snapshot-of entry)}))
+    {:value value :entry entry :at-render (runtime/snapshot-of entry)}))
 
 (deftest a-staged-key-committed-across-a-same-id-reincarnation-sees-the-store-move
   (async done
@@ -119,7 +119,7 @@
           release-held (commit-held!)
           {:keys [value entry at-render]} (render-staged!)]
       (is (= "A" value) "the render painted the predecessor's value")
-      (is (some? (inventory/cell-reaction held-key))
+      (is (some? (runtime/cell-reaction held-key))
           "and the frame holds one other cell, whose reaction the teardown will dispose")
 
       ;; THE GAP. The frame dies and comes back under the same id, with a
@@ -128,16 +128,16 @@
       (let [epoch-b (reincarnate-to-epoch! "B" epoch-a)]
         (is (= epoch-a epoch-b)
             "precondition: the successor's install epoch ties the predecessor's at render")
-        (is (nil? (inventory/cell-reaction held-key))
+        (is (nil? (runtime/cell-reaction held-key))
             "the held cell's reaction was dropped synchronously by the teardown")
 
         (support/at-the-checkpoint
-          #(some? (inventory/cell-reaction held-key))
+          #(some? (runtime/cell-reaction held-key))
           "the held cell's reincarnation rewire"
           done
           (fn [_turns]
             (let [release-staged (collector/commit-boundary! entry (fn []))
-                  at-commit      (collector/snapshot-of entry)]
+                  at-commit      (runtime/snapshot-of entry)]
               (testing "the commit lands after the rewire, so React's
                         post-subscribe re-read of `getSnapshot` must differ
                         from the number the fiber captured at render — the
@@ -162,7 +162,7 @@
   (let [release-held (commit-held!)
         {:keys [entry at-render]} (render-staged!)
         release-staged (collector/commit-boundary! entry (fn []))]
-    (is (= at-render (collector/snapshot-of entry))
+    (is (= at-render (runtime/snapshot-of entry))
         "a cell born at the basis the render read contributes the same number")
     (release-staged)
     (release-held)))

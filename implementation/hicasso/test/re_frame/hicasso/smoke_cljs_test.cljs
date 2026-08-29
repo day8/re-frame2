@@ -37,7 +37,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.test-support :as test-support]
             ["react-dom/server" :as react-dom-server]))
@@ -118,7 +118,7 @@
       (is (nil? (re-find #">hello<" markup))))))
 
 (deftest the-module-graph-loads-and-a-server-render-acquires-nothing
-  ;; The runtime is six owned modules, and `impl.inventory` is the one
+  ;; The runtime is six owned modules, and `test.runtime` is the one
   ;; nothing else requires — its readers reach
   ;; ACROSS the split, into the collector's tables, the frame memo and the
   ;; generation counters. Requiring it here is what puts it on the build at
@@ -134,4 +134,4 @@
     (seeded! "hello")
     (html [greeting-line {:tag "greet"}])
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (inventory/residue) :entries)))))
+           (dissoc (runtime/residue) :entries)))))

@@ -157,6 +157,7 @@
             [re-frame.hicasso.impl.controlled :as controlled]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]
@@ -440,7 +441,7 @@
               subscription/epoch hook, in the order the ledger declares
               them, with the body between"
       (is (= ["useContext" "useSyncExternalStore"] (vec direct)))
-      (is (= (count collector/shell-hook-ledger) (count direct))))
+      (is (= (count runtime/shell-hook-ledger) (count direct))))
 
     (testing "the boundary pays the same two on either arm: Rung 3 is an
               escape from the codec, not from the boundary. A third hook

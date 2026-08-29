@@ -77,7 +77,7 @@
   |---|---|---|
   | [[!live]] | live instances the vendor knows about | reads 1 under one mount, 2 under two |
   | the `window` listener | reached by [[fire-external!]] | the external event dispatches an intent while mounted |
-  | `inventory/residue` | the runtime's own ownership | non-zero BEFORE the teardown that zeroes it |
+  | `runtime/residue` | the runtime's own ownership | non-zero BEFORE the teardown that zeroes it |
 
   The listener census is the one that had to be built this way. A ledger
   entry saying *a listener was registered* is a fact about bookkeeping; the
@@ -114,8 +114,8 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.test-support :as test-support]
@@ -324,7 +324,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; EVERY screen reads `[::picks]`, and the read is not decoration — it is
-;; what makes `inventory/residue` a live instrument here.
+;; what makes `runtime/residue` a live instrument here.
 ;;
 ;; The first draft of this file had no read anywhere: a chart takes its
 ;; data from a prop and the SDK owns everything else, so no body ever
@@ -961,10 +961,10 @@
   ;; No fiber needed: the ledger is a declaration, read off the runtime.
   (testing "the shell still declares exactly its two hooks"
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           collector/shell-hook-ledger))
-    (is (= 2 (count collector/shell-hook-ledger))))
+           runtime/shell-hook-ledger))
+    (is (= 2 (count runtime/shell-hook-ledger))))
   (testing "and declares no ref or state hook — HD-020(b)"
-    (is (empty? (filter #(#{:use-ref :use-state} %) collector/shell-hook-ledger)))))
+    (is (empty? (filter #(#{:use-ref :use-state} %) runtime/shell-hook-ledger)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. The roster

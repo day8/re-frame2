@@ -37,7 +37,7 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.native :as n]
             [re-frame.test-support :as test-support]
@@ -151,7 +151,7 @@
             behind on a render React discarded, and which is invisible
             from the markup because the markup is right either way"
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (inventory/residue) :entries))))
+           (dissoc (runtime/residue) :entries))))
 
   (testing "`:entries` is deliberately outside that reading, and being
             exact about it is the difference between a census and a
@@ -163,7 +163,7 @@
             property of hooks: a boundary body whose render React
             discards leaves exactly the same one, and the hook seam mints
             through the same door precisely so there is one story"
-    (is (= 1 (:entries (inventory/residue))))))
+    (is (= 1 (:entries (runtime/residue))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The refusal, and that the two hooks are distinguishable in it

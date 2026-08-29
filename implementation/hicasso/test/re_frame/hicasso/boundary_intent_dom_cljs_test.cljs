@@ -100,6 +100,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
@@ -480,11 +481,11 @@
                    taken over the path this repair changed")
               (is (= #{"useContext" "useSyncExternalStore"} (set names))
                   (str "every dispatcher read on this page belongs to a "
-                       "`defview` SHELL — the two `collector/shell-hook-ledger` "
+                       "`defview` SHELL — the two `runtime/shell-hook-ledger` "
                        "declares. Two `h/error-boundary` classes are in this "
                        "tree (the watcher and the subject) and between them they "
                        "contributed none. Raw: " (pr-str names)))
-              (is (= 2 (count collector/shell-hook-ledger) (count (distinct names)))
+              (is (= 2 (count runtime/shell-hook-ledger) (count (distinct names)))
                   "and the declared shell ledger is the measured roster")
               (is (empty? (filter #{"useRef" "useMemo" "useCallback" "useState"
                                     "useEffect"}

@@ -193,11 +193,11 @@
 ;;
 ;; It reads `useState` and nothing else — no `n/use-sub`, no `h/sub`. A
 ;; subscribing island would contribute cells and reader memberships to
-;; `inventory/residue`, and this region RE-SUSPENDS on every save: the head
+;; `runtime/residue`, and this region RE-SUSPENDS on every save: the head
 ;; is re-minted, its payload is fresh, and React shows the fallback until
 ;; the chunk arrives. The arrival lands on React's scheduler, while
 ;; `zero-stale-registrations` and `lost-cleanup-sabotage` take their
-;; residue baselines behind `inventory/quiesced!` — a `setTimeout` past the
+;; residue baselines behind `runtime/quiesced!` — a `setTimeout` past the
 ;; reap horizon. Those two clocks are not ordered with respect to each
 ;; other, so a subscribing island here would make every census comparison
 ;; in this suite a race against React's scheduler rather than a statement

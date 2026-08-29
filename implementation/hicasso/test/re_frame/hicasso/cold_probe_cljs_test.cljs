@@ -85,7 +85,7 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.test-support :as test-support]))
@@ -194,9 +194,9 @@
             keeps none of them"
     (is (nil? (get @collector/!cells (k [:coldprobe/plain]))))
     (is (nil? (sub-cache-entry [:coldprobe/plain])))
-    (is (= [] (inventory/cell-readers (k [:coldprobe/plain]))))
+    (is (= [] (runtime/cell-readers (k [:coldprobe/plain]))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (inventory/residue) :entries))))
+           (dissoc (runtime/residue) :entries))))
 
   ;; THE CONTROL, and the reason the four nils above mean anything. Both
   ;; tables are perfectly capable of holding this key; what decides is
@@ -210,7 +210,7 @@
               that cannot see"
       (is (some? (get @collector/!cells (k [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
-      (is (= 1 (count (inventory/cell-readers (k [:coldprobe/plain]))))))
+      (is (= 1 (count (runtime/cell-readers (k [:coldprobe/plain]))))))
     (release)))
 
 (deftest a-cold-read-answers-what-the-committed-path-answers
@@ -255,7 +255,7 @@
             scratch's sub-keys are values: a repeated read is a repeated
             entry in the sequence and one member of the set"
     (is (= #{(k [:coldprobe/counted])}
-           (collector/reads-of (collector/last-reads)))))
+           (runtime/reads-of (collector/last-reads)))))
 
   ;; THE OTHER HALF, and it is the half a global memo would break. The box
   ;; is reset by every body run, so a LATER render computes again rather

@@ -18,7 +18,7 @@
   `hm/bodies-run` is the kit's page-wide work counter and `hm/census` its
   residue counter — the two readers on `re-frame.hicasso.test.mounted`
   that take no handle, because neither reads a mount. Nothing here reaches
-  `impl.collector` or `impl.inventory` for a number the facade already
+  `impl.collector` or `test.runtime` for a number the facade already
   publishes.
 
   **No figure in this file is a duration.** Every reading is a count of

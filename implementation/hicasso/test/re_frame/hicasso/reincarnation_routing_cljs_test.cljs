@@ -64,7 +64,7 @@
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
             [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::reincarnation)
@@ -442,11 +442,11 @@
   (is (contains? @frames/!frame-ops frame-id)
       "a render leaves exactly one row behind — the bundle and the ambient
        dispatch are one record now, so acquiring the dispatch acquires both")
-  (is (= 1 (:frames (inventory/stats)))
+  (is (= 1 (:frames (runtime/stats)))
       "which is what the residue census counts under its `:frame-ops` token")
   (collector/reset-runtime!)
   (is (= {} @frames/!frame-ops) "and the whole-runtime reset empties it")
-  (is (= 0 (:frames (inventory/stats)))))
+  (is (= 0 (:frames (runtime/stats)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. NEGATIVE CONTROL — restore late keyword resolution and BOTH failures

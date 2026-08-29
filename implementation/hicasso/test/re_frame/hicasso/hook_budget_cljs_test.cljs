@@ -9,7 +9,7 @@
   > — `docs/design/hicasso/architecture.md`, Arm 1
 
   A hard architectural line, and the package has never had a witness for
-  it. [[re-frame.hicasso.impl.collector/shell-hook-ledger]] is a
+  it. [[re-frame.hicasso.test.runtime/shell-hook-ledger]] is a
   DECLARATION — a vector of two keywords the shell says it calls — and a
   budget a runtime reports about itself is not evidence. This file counts
   the calls React actually received, through
@@ -63,6 +63,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -227,7 +228,7 @@
     (testing "and the ledger the shell declares agrees with what React was
               asked for — which is what makes the declaration a checked
               statement rather than a comment that can rot"
-      (is (= (count collector/shell-hook-ledger) (count hooks))))
+      (is (= (count runtime/shell-hook-ledger) (count hooks))))
 
     (testing "neither is `useRef` and neither is `useState`: HD-020(b)'s
               two named prohibitions, stated as themselves rather than
@@ -326,7 +327,7 @@
 
     (testing "and the shell's ledger is what it was: the crossing added a
               fiber and a hook to the PAGE, not to the boundary"
-      (is (= 2 (count collector/shell-hook-ledger))))))
+      (is (= 2 (count runtime/shell-hook-ledger))))))
 
 (deftest an-ssr-render-crossing-costs-no-hook-and-the-hosted-hooks-are-its-own
   (seeded!)
@@ -356,4 +357,4 @@
     (testing "and the budget is still the budget — the component brought
               three hooks through the door and the shell's ledger did not
               move"
-      (is (= 2 (count collector/shell-hook-ledger))))))
+      (is (= 2 (count runtime/shell-hook-ledger))))))

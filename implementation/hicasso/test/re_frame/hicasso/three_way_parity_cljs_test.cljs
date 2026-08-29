@@ -92,6 +92,7 @@
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.native :as n]
             [re-frame.test-support :as test-support]
             [uix.core :as uix :refer-macros [defui]]
@@ -597,7 +598,7 @@
     (testing "I9 holds at two, read off the ledger the shell declares — the
               three-route tree above added a native island and a foreign
               UIx subtree and moved it by nothing"
-      (is (= 2 (count collector/shell-hook-ledger))))
+      (is (= 2 (count runtime/shell-hook-ledger))))
 
     (testing "and neither `useRef` nor `useState` is among them: HD-020(b)'s
               two named prohibitions, over every hook Hicasso spent on this

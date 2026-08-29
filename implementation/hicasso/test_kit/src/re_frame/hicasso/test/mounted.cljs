@@ -188,9 +188,9 @@
             [cljs.test :as t]
             [re-frame.core :as rf]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -349,7 +349,7 @@
   The handover is the half that is easy to leave out and impossible to
   see afterwards. The runtime arms reapers of its own inside a mount's
   window (`impl.collector`'s entry and cell reapers, whose horizon
-  `impl.inventory/quiesced!` waits out), and a clock that simply dropped
+  `test.runtime/quiesced!` waits out), and a clock that simply dropped
   its table on the way out would strand them — [[assert-clean!]] would
   then report residue the runtime was about to release, which is a red
   nobody can act on. So every outstanding timer is re-armed on the real
@@ -455,7 +455,7 @@
 (def counted
   "The residue counters [[assert-clean!]] compares, in report order.
 
-  `impl.inventory/residue`'s own five, which are the runtime's own
+  `test.runtime/residue`'s own five, which are the runtime's own
   numbers rather than a copy of them: live cells, the reader memberships
   that are simultaneously the cell references and the dependency edges,
   the distinct boundaries holding one, and the cached read-set entries.
@@ -477,7 +477,7 @@
   facade does not visit should read it through the same door the report
   does, rather than through a second assembly of the same numbers."
   []
-  (assoc (inventory/residue) :frames (set (rf/frame-ids))))
+  (assoc (runtime/residue) :frames (set (rf/frame-ids))))
 
 ;; ---------------------------------------------------------------------------
 ;; The work counter — the census's opposite number
@@ -567,9 +567,9 @@
   where this counter bumps once per body INVOCATION — so on a body the
   fence re-ran the two disagree by design."
   [f]
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   (f)
-  (collector/body-runs))
+  (runtime/body-runs))
 
 (defn- leaked
   "What `now` has that `baseline` did not — the report's `:leaked` map, or
@@ -1224,7 +1224,7 @@
        :now            {:cells 2 :cell-refs 2 … :frames #{…}}
        :leaked         {:cells 2 :cell-refs 2 :boundaries 1 :edges 2}}
 
-  The reading is taken after `impl.inventory/quiesced!` — the runtime's
+  The reading is taken after `test.runtime/quiesced!` — the runtime's
   OWN settling point, not a macrotask. The entry reaper's horizon sits
   deliberately outside a bare `setTimeout 0`, so a census taken one
   macrotask after an unclaimed render still counts entries the runtime is
@@ -1256,7 +1256,7 @@
   (release-clock-for! handle)
   (let [baseline (get handle baseline-key)
         mounted? (= :mounted @(get handle state-key))]
-    (.then (inventory/quiesced!)
+    (.then (runtime/quiesced!)
            (fn [_]
              (let [now (census)
                    l   (leaked baseline now)]

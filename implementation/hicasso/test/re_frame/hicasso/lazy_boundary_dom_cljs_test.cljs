@@ -92,7 +92,7 @@
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.native :as n]
             [re-frame.test-support :as test-support]
@@ -368,25 +368,25 @@
 
 (defn- k [query-v] [frame-id query-v])
 
-(defn- ownership [] (dissoc (inventory/residue) :entries))
+(defn- ownership [] (dissoc (runtime/residue) :entries))
 
 (defn- reader-count
   "A COUNT rather than the reader vector: a registration and the cells it
   acquired hold each other, so `cljs.test`'s failure printer walks a cycle
   and dies on the vector."
   [query-v]
-  (count (inventory/cell-readers (k query-v))))
+  (count (runtime/cell-readers (k query-v))))
 
 (defn- sole-reader [query-v]
-  (let [rs (inventory/cell-readers (k query-v))]
+  (let [rs (runtime/cell-readers (k query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- teardown-census! [handle]
   (mount/unmount! handle)
-  (.then (inventory/quiesced!)
+  (.then (runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (inventory/residue))
+                  (runtime/residue))
                "teardown is exact: zero residue after quiescence")
            (mount/release! handle)
            nil)))

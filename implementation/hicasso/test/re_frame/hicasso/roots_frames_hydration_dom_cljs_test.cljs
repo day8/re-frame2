@@ -53,9 +53,9 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.motion :as motion]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.test-support :as test-support]))
@@ -147,7 +147,7 @@
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- both-committed?

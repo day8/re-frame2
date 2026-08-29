@@ -45,8 +45,8 @@
   ## The observable, and why a rendered value would not do
 
   Every legality row asserts on the **read set** the render resolved
-  (`collector/reads-of`) and on **reader membership** at the commit
-  (`inventory/cell-readers`), never on what a body painted. That is
+  (`runtime/reads-of`) and on **reader membership** at the commit
+  (`runtime/cell-readers`), never on what a body painted. That is
   the commit-owns suite's lesson, inherited: a read attributed to the wrong
   boundary paints an identical page, and a read set that accumulated a
   previous body's keys paints an identical page too. What changes is what is
@@ -96,7 +96,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::read-extent)
@@ -240,13 +240,13 @@
 
     (testing "two helper frames deep, and both keys are the BOUNDARY's —
               there is no helper-level read set for them to belong to"
-      (is (= #{(k [:re/left]) (k [:re/right])} (collector/reads-of entry))))
+      (is (= #{(k [:re/left]) (k [:re/right])} (runtime/reads-of entry))))
 
     (let [cleanup (collector/commit-boundary! entry (fn []))]
       (testing "and the commit acquires both on the boundary's behalf: one
                 registration in each key's reader list, the same one"
-        (let [[a] (inventory/cell-readers (k [:re/left]))
-              [b] (inventory/cell-readers (k [:re/right]))]
+        (let [[a] (runtime/cell-readers (k [:re/left]))
+              [b] (runtime/cell-readers (k [:re/right]))]
           (is (some? a))
           (is (identical? a b))))
       (cleanup))))
@@ -264,7 +264,7 @@
 
     (testing "flag false: the else arm ran, so the else arm's key is the
               one recorded and the then arm's is absent"
-      (is (= #{(k [:re/flag]) (k [:re/left])} (collector/reads-of low))))
+      (is (= #{(k [:re/flag]) (k [:re/left])} (runtime/reads-of low))))
 
     (rf/with-frame frame-id (rf/dispatch-sync [:re/raise]))
 
@@ -273,8 +273,8 @@
                 — and the first arm's key is GONE rather than accumulated,
                 which is what a two-key assertion can see and a one-key
                 assertion cannot"
-        (is (= #{(k [:re/flag]) (k [:re/right])} (collector/reads-of high)))
-        (is (not (contains? (collector/reads-of high) (k [:re/left]))))))))
+        (is (= #{(k [:re/flag]) (k [:re/right])} (runtime/reads-of high)))
+        (is (not (contains? (runtime/reads-of high) (k [:re/left]))))))))
 
 (deftest a-variable-length-loop-records-every-row-it-ran
   (seeded!)
@@ -288,19 +288,19 @@
 
     (testing "every row of a two-row loop is in the set — the seq was forced
               inside the window by the same pass that made the elements"
-      (is (= #{(k [:re/row 0]) (k [:re/row 1])} (collector/reads-of two))))
+      (is (= #{(k [:re/row 0]) (k [:re/row 1])} (runtime/reads-of two))))
 
     (let [four (probe! (body-of 4))]
       (testing "and the length is a render-time fact: four rows, four keys,
                 no ledger of what the previous render read"
         (is (= #{(k [:re/row 0]) (k [:re/row 1])
                  (k [:re/row 2]) (k [:re/row 3])}
-               (collector/reads-of four)))))
+               (runtime/reads-of four)))))
 
     (let [one (probe! (body-of 1))]
       (testing "shrinking is symmetric: the read set is what THIS render
                 read, so three keys left it without anything being diffed"
-        (is (= #{(k [:re/row 0])} (collector/reads-of one)))))))
+        (is (= #{(k [:re/row 0])} (runtime/reads-of one)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reconciliation clause — appearing and disappearing reads land at the
@@ -320,18 +320,18 @@
           release-1   (collector/commit-boundary! first-entry (fn []))]
 
       (testing "the first commit owns exactly the first read set"
-        (is (= #{(k [:re/left]) (k [:re/right])} (collector/reads-of first-entry)))
-        (is (= 1 (count (inventory/cell-readers (k [:re/left])))))
-        (is (= 1 (count (inventory/cell-readers (k [:re/right])))))
-        (is (= [] (inventory/cell-readers (k [:re/flag])))))
+        (is (= #{(k [:re/left]) (k [:re/right])} (runtime/reads-of first-entry)))
+        (is (= 1 (count (runtime/cell-readers (k [:re/left])))))
+        (is (= 1 (count (runtime/cell-readers (k [:re/right])))))
+        (is (= [] (runtime/cell-readers (k [:re/flag])))))
 
       ;; The re-render: `:re/right` disappears, `:re/flag` appears,
       ;; `:re/left` stays.
       (let [second-entry (probe! (fn [_] [:p (h/sub [:re/left]) (h/sub [:re/flag])]))]
 
         (testing "the render alone changes no membership — render probes"
-          (is (= 1 (count (inventory/cell-readers (k [:re/right])))))
-          (is (= [] (inventory/cell-readers (k [:re/flag])))))
+          (is (= 1 (count (runtime/cell-readers (k [:re/right])))))
+          (is (= [] (runtime/cell-readers (k [:re/flag])))))
 
         (let [release-2 (collector/commit-boundary! second-entry (fn []))]
           ;; React's order at a changed subscription: subscribe the new,
@@ -340,29 +340,29 @@
           (release-1)
 
           (testing "the arrived key gained a reader"
-            (is (= 1 (count (inventory/cell-readers (k [:re/flag]))))))
+            (is (= 1 (count (runtime/cell-readers (k [:re/flag]))))))
 
           (testing "the departed key lost its only one"
-            (is (= [] (inventory/cell-readers (k [:re/right])))))
+            (is (= [] (runtime/cell-readers (k [:re/right])))))
 
           (testing "and the key that stayed has exactly ONE reader, not two
                     — a runtime that acquired for the successor without
                     releasing the predecessor also paints correctly, and
                     this is the number that tells them apart"
-            (is (= 1 (count (inventory/cell-readers (k [:re/left]))))))
+            (is (= 1 (count (runtime/cell-readers (k [:re/left]))))))
 
           (testing "the surviving reader is the SUCCESSOR by identity, which
                     a count alone cannot say"
-            (let [[reader] (inventory/cell-readers (k [:re/left]))]
+            (let [[reader] (runtime/cell-readers (k [:re/left]))]
               (is (= #{(k [:re/left]) (k [:re/flag])}
-                     (inventory/boundary-reads reader)))))
+                     (runtime/boundary-reads reader)))))
 
           (release-2)
-          (.then (inventory/quiesced!)
+          (.then (runtime/quiesced!)
                  (fn [_]
                    (testing "and the pair leaves nothing behind"
                      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                            (inventory/residue))))
+                            (runtime/residue))))
                    (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -464,7 +464,7 @@
                    (testing "the body's OWN read is unaffected — the refusal
                              is the crossing's, not the query's"
                      (is (= #{(k [:re/left])}
-                            (collector/reads-of (collector/last-reads)))))
+                            (runtime/reads-of (collector/last-reads)))))
                    (done)))))))
 
 (deftest a-timer-callback-refuses
@@ -500,7 +500,7 @@
                   (let [entry (probe! (fn [_] [:p (h/sub [:re/flag])
                                                (h/sub [:re/row 0])]))]
                     (is (= #{(k [:re/flag]) (k [:re/row 0])}
-                           (collector/reads-of entry)))))
+                           (runtime/reads-of entry)))))
                 (done)))
             0)
           [:p (h/sub [:re/left])])
@@ -526,7 +526,7 @@
                                   [:li {:key i} (h/sub [:re/row i])])]))]
 
     (testing "the in-window loop's rows are edges of this boundary"
-      (is (= #{(k [:re/row 0]) (k [:re/row 1])} (collector/reads-of entry))))
+      (is (= #{(k [:re/row 0]) (k [:re/row 1])} (runtime/reads-of entry))))
 
     (testing "the escaped seq really is unrealised — otherwise the row below
               would be measuring a value the body already computed"
@@ -602,7 +602,7 @@
                           [:div [crossing-child {:v @d}]])))]
     (testing "a delay forced in the writing body crosses, and its read is
               that body's own edge"
-      (is (= #{(k [:re/right])} (collector/reads-of entry))))))
+      (is (= #{(k [:re/right])} (runtime/reads-of entry))))))
 
 (deftest an-escaped-deferral-forced-in-another-body-is-the-declared-limit
   (seeded!)
@@ -636,7 +636,7 @@
       (testing "but forced inside a DIFFERENT body's render it does not
                 refuse — and the read is filed under that body, which never
                 wrote it. The page paints correctly and the edge is wrong"
-        (is (= #{(k [:re/flag]) (k [:re/right])} (collector/reads-of victim)))))))
+        (is (= #{(k [:re/flag]) (k [:re/right])} (runtime/reads-of victim)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The controls that make the matrix worth its greens
@@ -679,7 +679,7 @@
     ;; the extent guard removed the escaped reads reach `subscribe-once`,
     ;; which refuses before acquiring anything, so the zeros hold either
     ;; way. What keeps it from being a zero the instrument cannot make
-    ;; non-zero is that the instrument is shared — `inventory/residue` is
+    ;; non-zero is that the instrument is shared — `runtime/residue` is
     ;; proven able to answer non-zero by `the-residue-census-can-answer-
     ;; false` in `kernel_commit_owns_cljs_test`, which runs in this same
     ;; bundle. The cross-reference is deliberate: one proven control beats
@@ -694,14 +694,14 @@
       (testing "three refusals later the runtime owns exactly what the
                 probing render owned: nothing"
         (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-               (dissoc (inventory/residue) :entries)))
-        (is (= [] (inventory/cell-readers (k [:re/right]))))
-        (is (nil? (inventory/cell-reaction (k [:re/right])))))
+               (dissoc (runtime/residue) :entries)))
+        (is (= [] (runtime/cell-readers (k [:re/right]))))
+        (is (nil? (runtime/cell-reaction (k [:re/right])))))
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and the render-phase entry cache evaporates at the
                          runtime's own horizon, refusals included"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (done))))))

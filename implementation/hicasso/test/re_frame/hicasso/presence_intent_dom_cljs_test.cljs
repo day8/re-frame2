@@ -72,6 +72,7 @@
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.presence-react :refer [presence]]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
@@ -427,11 +428,11 @@
           (try
             (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
                 (str "the SHELL's two come first, in the order "
-                     "collector/shell-hook-ledger declares, and they are still the "
+                     "runtime/shell-hook-ledger declares, and they are still the "
                      "whole of it — this repair added a hook to presence and "
                      "to nothing that HD-020(b)'s ≤2 budget governs. Raw: "
                      (pr-str names)))
-            (is (= (count collector/shell-hook-ledger) (count (take 2 names)))
+            (is (= (count runtime/shell-hook-ledger) (count (take 2 names)))
                 "and the declared shell ledger is the measured one")
             (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
                 (str "presence's own roster, in call order: the frame hook, "

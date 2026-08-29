@@ -31,7 +31,7 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::reaper-coalescing)
@@ -79,22 +79,22 @@
           armed     (counting-timers #(vreset! !releases (mount-rows!)))]
       (is (= 1 armed)
           (str "timers armed by mounting " rows " rows: " armed))
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "past the horizon, the claimed entries and the held
                          cells are exactly what a mount retains"
                  (is (= {:cells rows :cell-refs rows :boundaries rows
                          :edges rows :entries rows}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (let [armed (counting-timers #(doseq [release @!releases] (release)))]
                  (is (= 2 armed)
                      (str "timers armed by unmounting " rows " rows: " armed)))
-               (.then (inventory/quiesced!)
+               (.then (runtime/quiesced!)
                       (fn [_]
                         (testing "and past the horizon every cell, membership
                                   and entry has been reaped — the coalescing
                                   changed how many timers, never what runs"
                           (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                   :edges 0 :entries 0}
-                                 (inventory/residue))))
+                                 (runtime/residue))))
                         (done))))))))

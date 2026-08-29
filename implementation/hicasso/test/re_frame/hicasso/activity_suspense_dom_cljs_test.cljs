@@ -20,7 +20,7 @@
 
   Three observables, chosen for three different failure modes.
 
-  **Reader membership** (`inventory/cell-readers`) carries the ownership
+  **Reader membership** (`runtime/cell-readers`) carries the ownership
   rows, and it is read by IDENTITY. A leaked predecessor beside a missing
   successor counts the same as a correct reveal, and both paint the same
   page: this arm's reads are address-directed, so a revealed boundary
@@ -44,7 +44,7 @@
   A row that asserts \"nothing was acquired\" is worthless if React never
   rendered anything — the assertion holds for a render that never
   happened. Every transition below therefore asserts its own premise
-  first: `collector/body-runs` moved, or the DOM changed, or the reader
+  first: `runtime/body-runs` moved, or the DOM changed, or the reader
   count reached the value the next assertion is about.
 
   ## The census is taken BEFORE the fixture resets anything
@@ -67,8 +67,8 @@
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -129,7 +129,7 @@
   "The census with the entry cache projected out. A read-set entry is a
   render-phase cache, not ownership."
   []
-  (dissoc (inventory/residue) :entries))
+  (dissoc (runtime/residue) :entries))
 
 (defn- reader-count
   "How many registrations read `query-v`.
@@ -139,11 +139,11 @@
   cycle and dies on the vector. The seam file's `reader-count` carries
   the full note."
   [query-v]
-  (count (inventory/cell-readers (k query-v))))
+  (count (runtime/cell-readers (k query-v))))
 
 (defn- sole-reader
   [query-v]
-  (let [rs (inventory/cell-readers (k query-v))]
+  (let [rs (runtime/cell-readers (k query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- poll
@@ -186,10 +186,10 @@
 (defn- teardown-census!
   [handle]
   (mount/unmount! handle)
-  (.then (inventory/quiesced!)
+  (.then (runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (inventory/residue))
+                  (runtime/residue))
                "teardown is exact: zero residue after quiescence")
            (mount/release! handle)
            nil)))
@@ -360,16 +360,16 @@
                 ;; The write is what the reveal will have to correct for;
                 ;; the prop change is what moves the hidden read set.
                 (mount/dispatch! handle [:acsd/bump :a])
-                (swap! !state assoc :runs-before (collector/body-runs))
+                (swap! !state assoc :runs-before (runtime/body-runs))
                 (act! (fn [] (@!set-which :b)))
-                (poll #(> (collector/body-runs) (:runs-before @!state))
+                (poll #(> (runtime/body-runs) (:runs-before @!state))
                       "React renders the hidden child against its new prop")))
             (.then
               (fn [_]
                 (testing "the premise: React really did run the hidden
                           body. Without this the zeros below are the zeros
                           of a render that never happened"
-                  (is (pos? (- (collector/body-runs) (:runs-before @!state)))))
+                  (is (pos? (- (runtime/body-runs) (:runs-before @!state)))))
 
                 (testing "and the hidden render published nothing — no
                           durable ownership on the key it just read, none

@@ -12,7 +12,7 @@
   the read-set entry cache, the scratch buffer, the render-state object,
   the frame-op memo table, the generation counter: one each, for the whole
   process (`impl.collector`, `impl.frames`, `impl.generation`;
-  `impl.inventory/retained-inventory` enumerates them). Isolation between
+  `test.runtime/retained-inventory` enumerates them). Isolation between
   two roots is therefore not a property React provides — React knows
   nothing about any of those tables — it is a property of how they are
   KEYED. A sub-key is `[frame-kw query-v]`, and that qualification is the
@@ -43,8 +43,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.test-support :as test-support]
             ["react" :as react]))
@@ -148,7 +148,7 @@
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
   (collector/reset-runtime!)
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
   nil)
 
 (defn- text-at [handle sel]
@@ -190,7 +190,7 @@
           (is (= [1 1 1 1]
                  [(sup/readers-of [frame-a label-q]) (sup/readers-of [frame-a count-q])
                   (sup/readers-of [frame-b label-q]) (sup/readers-of [frame-b count-q])])
-              (str "reader counts: " (pr-str (inventory/residue)))))
+              (str "reader counts: " (pr-str (runtime/residue)))))
 
         (testing "and the frame-locked ambient dispatch memoised for each body
                   is keyed by frame too — a second table saying the same thing

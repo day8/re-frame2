@@ -73,7 +73,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.checkpoint-support :as support]
             [re-frame.test-support :as test-support]
@@ -238,7 +238,7 @@
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
-                   " | residue " (pr-str (dissoc (inventory/residue) :entries))))
+                   " | residue " (pr-str (dissoc (runtime/residue) :entries))))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -307,11 +307,11 @@
                                     replaced the attachment, it did not add a
                                     second"
                             (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                                   (dissoc (inventory/residue) :entries))))
+                                   (dissoc (runtime/residue) :entries))))
 
                           (exercised! :paint-order/mounted-reincarnation)
                           (mount/unmount! handle)
-                          (.then (inventory/quiesced!)
+                          (.then (runtime/quiesced!)
                                  (fn [_] (mount/release! handle) nil))))
                       (.catch (report-failure! "W1 paint-order witness" handle))))))
             (.catch (report-failure! "W1 paint-order witness" nil))
@@ -372,7 +372,7 @@
                           (is (= "B" later)))
                         (exercised! :paint-order/macrotask-sabotage)
                         (mount/unmount! handle)
-                        (.then (inventory/quiesced!)
+                        (.then (runtime/quiesced!)
                                (fn [_] (mount/release! handle) nil))))
                     (.catch (report-failure! "W1 sabotage control" handle)))))
             (.catch (report-failure! "W1 sabotage control" nil))
@@ -453,11 +453,11 @@
                   (testing "and it is corrected ONCE: one cell, one reader, no
                             second registration left by the correcting render"
                     (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                           (dissoc (inventory/residue) :entries))))
+                           (dissoc (runtime/residue) :entries))))
 
                   (exercised! :paint-order/staged-gap)
                   (mount/unmount! handle)
-                  (.then (inventory/quiesced!)
+                  (.then (runtime/quiesced!)
                          (fn [_] (mount/release! handle) nil))))
               (.catch (report-failure! "W2 staged-gap witness" handle))
               ;; The single trailing step, which BOTH arms reach: this row's

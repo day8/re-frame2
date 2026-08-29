@@ -92,12 +92,12 @@
             ;; equivalents are 1:1 and named here so a reader can check
             ;; the claim: `impl.mount/root!` for the mount door,
             ;; `impl.collector/reset-runtime!` for the page-wide fixture
-            ;; reset, `impl.inventory/residue` for the structural census.
+            ;; reset, `re-frame.hicasso.test.runtime/residue` for the structural census.
             ;; Bench requiring package is the allowed direction;
             ;; `hicasso/scripts/check_freeze.py`'s SEALED rule forbids
             ;; only package requiring bench.
             [re-frame.hicasso.impl.collector :as hic-collector]
-            [re-frame.hicasso.impl.inventory :as hic-inventory]
+            [re-frame.hicasso.test.runtime :as hic-runtime]
             [re-frame.hicasso.impl.mount :as hic-mount]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
@@ -469,7 +469,7 @@
         live       (live-key-count)]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
-    (let [hic (hic-inventory/residue)]
+    (let [hic (hic-runtime/residue)]
       #js {:elements     elements
            :expected     want
            :keys         live
@@ -1455,7 +1455,7 @@
              ;; HD-002 clause (d)'s failure and a different and worse
              ;; finding than a large per-boundary figure.
              :hicassoResidue (fn []
-                               (let [r (hic-inventory/residue)]
+                               (let [r (hic-runtime/residue)]
                                  #js {:cells      (:cells r)
                                       :cellRefs   (:cell-refs r)
                                       :boundaries (:boundaries r)

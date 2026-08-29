@@ -97,7 +97,7 @@
   ## No clock
 
   Where a property is only true after the reapers run, the settle is
-  [[re-frame.hicasso.impl.inventory/quiesced!]] — the runtime's own
+  [[re-frame.hicasso.test.runtime/quiesced!]] — the runtime's own
   horizon — and never a `setTimeout` of this file's choosing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [clojure.set :as set]
@@ -108,7 +108,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::activity-suspense)
@@ -137,7 +137,7 @@
 ;; firing.
 ;;
 ;; `:async? true` selects the MAP form, which the rows settling against
-;; `inventory/quiesced!` require — `cljs.test` hard-errors on a fn-form
+;; `runtime/quiesced!` require — `cljs.test` hard-errors on a fn-form
 ;; fixture for an `(async done …)` test, because the fn form unwinds its
 ;; ambient scope the instant it returns. `:ambient-frame nil` because this
 ;; suite seats its own top-level frame.
@@ -205,12 +205,12 @@
   render-phase CACHE, not ownership, so the rows that care about it name
   it separately."
   []
-  (dissoc (inventory/residue) :entries))
+  (dissoc (runtime/residue) :entries))
 
 (defn- readers
   "The registrations currently reading `query-v`, as a snapshot vector."
   [query-v]
-  (inventory/cell-readers (k query-v)))
+  (runtime/cell-readers (k query-v)))
 
 (defn- reader-count
   "How many registrations read `query-v`.
@@ -319,10 +319,10 @@
       (testing "VISIBLE-CONNECTED — the commit acquired exactly the read
                 set, and the registration holding it is the one this
                 commit minted"
-        (is (= #{(k [:acs/a])} (collector/reads-of entry)))
+        (is (= #{(k [:acs/a])} (runtime/reads-of entry)))
         (is (some? visible))
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-        (is (= #{(k [:acs/a])} (inventory/boundary-reads visible))
+        (is (= #{(k [:acs/a])} (runtime/boundary-reads visible))
             "and its forward edge is the entry's own key set"))
 
       (testing "it is LIVE, not merely present — a write to its key
@@ -360,13 +360,13 @@
 
       (exercised! :activity/hide-releases)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and at the runtime's own horizon the hidden
                          boundary's residue is exactly zero — a hide that
                          retained a cell would show here"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -426,7 +426,7 @@
 
       (exercised! :activity/hide-inside-a-deferred-notification-window)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and the deferred notification is not delivered to
                          it. React has torn this subscription down; calling
@@ -472,18 +472,18 @@
     (let [committed (commit! (render! panel-body))]
       (hide! committed)
 
-      (let [before (collector/body-runs)
+      (let [before (runtime/body-runs)
             ;; React renders hidden children at lower priority. Three runs,
             ;; because a leak of one membership per hidden render is
             ;; invisible in a single one.
             entries (doall (repeatedly 3 #(render! conditional-body)))
-            delta   (- (collector/body-runs) before)]
+            delta   (- (runtime/body-runs) before)]
 
         (testing "the premise: the bodies genuinely RAN. Without this the
                   zeros below are the zeros of a render that never
                   happened, which is the cheapest possible false green"
           (is (= 3 delta))
-          (is (every? #(= #{(k [:acs/which]) (k [:acs/a])} (collector/reads-of %))
+          (is (every? #(= #{(k [:acs/which]) (k [:acs/a])} (runtime/reads-of %))
                       entries)
               "and each one resolved a real, non-empty read set"))
 
@@ -502,7 +502,7 @@
                   thing a probing render leaves, and calling it out is what
                   keeps the zeros above honest — but not one of them is
                   CLAIMED"
-          (is (pos? (:entries (inventory/residue))))
+          (is (pos? (:entries (runtime/residue))))
           (is (every? #(zero? (entry-refs %)) entries)
               "zero refs on every hidden render's entry: React never called
                `subscribe`, so nothing above counted a claim that was
@@ -510,12 +510,12 @@
 
       (exercised! :activity/hidden-render-publishes-nothing)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and the speculative cache evaporates at the
                          runtime's own horizon"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -568,10 +568,10 @@
 
       (exercised! :activity/reveal-reacquires)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                      (inventory/residue))
+                      (runtime/residue))
                    "teardown after a hide/reveal/hide cycle is exact")
                (done))))))
 
@@ -611,8 +611,8 @@
       (testing "the premise: the read set really did MOVE across the hidden
                 window. Without this the row is a hide/reveal of one
                 unchanged set, which section 3 already covers"
-        (is (= #{(k [:acs/which]) (k [:acs/a])} (collector/reads-of entry-a)))
-        (is (= #{(k [:acs/which]) (k [:acs/b])} (collector/reads-of entry-b)))
+        (is (= #{(k [:acs/which]) (k [:acs/a])} (runtime/reads-of entry-a)))
+        (is (= #{(k [:acs/which]) (k [:acs/b])} (runtime/reads-of entry-b)))
         (is (some? pre-hide)))
 
       (testing "THE ROW. `:acs/a` was read before the hide and is not read
@@ -631,7 +631,7 @@
             "one registration per boundary, holding both its keys — not two
              registrations holding one each")
         (is (= #{(k [:acs/which]) (k [:acs/b])}
-               (inventory/boundary-reads reveal-reg))))
+               (runtime/boundary-reads reveal-reg))))
 
       (testing "so the census is the reveal's read set and nothing else.
                 `:cells` is 3 because `:acs/a`'s cell is still inside its
@@ -652,13 +652,13 @@
       (hide! revealed)
       (exercised! :activity/conditional-read-moved-while-hidden)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and the dropped key's cell is gone at the horizon,
                          so nothing survives the transition on `:acs/a`'s
                          behalf"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (done))))))
 
 (deftest NEGATIVE-CONTROL-skipping-the-release-on-hide-resurrects-the-stale-membership
@@ -704,9 +704,9 @@
       ;; Release the visible one only. The leak is the point of the row, so
       ;; it is left for quiescence to fail to collect.
       (hide! revealed)
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
-               (is (pos? (:cell-refs (inventory/residue)))
+               (is (pos? (:cell-refs (runtime/residue)))
                    "and the leak OUTLIVES quiescence — a reaper cannot
                     collect a cell that still has a reader, which is
                     precisely why the release is the invariant")
@@ -866,12 +866,12 @@
 
       (exercised! :activity/repeated-hide-reveal-cycles)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "and the census after four full cycles is the census
                          after none: exact ownership does not accumulate"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -893,7 +893,7 @@
                 lists, its forward edge answers its read set, and the
                 entry it was minted from is CLAIMED"
         (is (some? connected))
-        (is (= #{(k [:acs/a])} (inventory/boundary-reads connected)))
+        (is (= #{(k [:acs/a])} (runtime/boundary-reads connected)))
         (is (= 1 (entry-refs entry))))
 
       (hide! committed)
@@ -904,7 +904,7 @@
                 `subscribe` is what a reveal calls"
         (is (zero? (reader-count [:acs/a])))
         (is (= 0 (entry-refs entry)))
-        (is (= #{(k [:acs/a])} (inventory/boundary-reads connected))
+        (is (= #{(k [:acs/a])} (runtime/boundary-reads connected))
             "the released registration still answers its read set — the
              forward edge is the entry's key set, shared by reference and
              never cleared, so a projection can still say WHAT a hidden
@@ -920,12 +920,12 @@
 
       (exercised! :lifecycle/three-states-distinguished)
 
-      (.then (inventory/quiesced!)
+      (.then (runtime/quiesced!)
              (fn [_]
                (testing "UNMOUNTED — every table is empty, and the entry has
                          been evicted from the cache"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (inventory/residue))))
+                        (runtime/residue))))
 
                (testing "THE FINDING, stated where a reader of this file will
                          meet it. Between the hide above and the quiescence

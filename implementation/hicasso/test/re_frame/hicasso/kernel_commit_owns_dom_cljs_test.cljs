@@ -21,7 +21,7 @@
   A test that asserts \"nothing was acquired\" is worthless if no body ever
   ran — the assertion would hold for a render that never happened, which
   is the cheapest possible false green. **Every row below therefore asserts
-  the premise first**: `collector/body-runs` moved, so React genuinely ran
+  the premise first**: `runtime/body-runs` moved, so React genuinely ran
   the body it then threw away. Where the premise is what the row waits on,
   it is also the poll condition, so the row cannot proceed without it.
 
@@ -44,7 +44,7 @@
 
   Two kinds, chosen for two different failure modes.
 
-  **Reader membership** (`inventory/cell-readers`) carries every
+  **Reader membership** (`runtime/cell-readers`) carries every
   abandonment row. The reason is the lesson a sibling witness paid for on
   the controlled-input surface the same night: a value assertion stays
   green under a real leak. If an abandoned attempt DID acquire, the page
@@ -65,7 +65,7 @@
   ## No clock
 
   Every wait is [[re-frame.test-support/poll-until]] on the condition
-  itself, or [[re-frame.hicasso.impl.inventory/quiesced!]] — the runtime's
+  itself, or [[re-frame.hicasso.test.runtime/quiesced!]] — the runtime's
   own reaper horizon. Nothing here sleeps a chosen number of
   milliseconds, and nothing assumes a reaper has run at a point the
   runtime has not said it has.
@@ -89,8 +89,8 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
@@ -149,9 +149,9 @@
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- ownership [] (dissoc (inventory/residue) :entries))
+(defn- ownership [] (dissoc (runtime/residue) :entries))
 
-(defn- readers-of [query-v] (count (inventory/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
 
 (defn- app
   "The hicasso subtree: the frame provider over a root element."
@@ -216,10 +216,10 @@
   cannot go red — see the namespace docstring."
   [handle]
   (mount/unmount! handle)
-  (.then (inventory/quiesced!)
+  (.then (runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (inventory/residue))
+                  (runtime/residue))
                "teardown is exact: zero residue after quiescence")
            (mount/release! handle)
            nil)))
@@ -292,7 +292,7 @@
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             gate   (make-gate)
-            before (collector/body-runs)
+            before (runtime/body-runs)
             handle (mount-concurrent!
                      (mount/fresh-container!)
                      (react/createElement
@@ -307,7 +307,7 @@
                 (testing "the premise: React RAN the boundary body before it
                           threw the attempt away. Without this the zeros
                           below are the zeros of a render that never was"
-                  (is (pos? (- (collector/body-runs) before))))
+                  (is (pos? (- (runtime/body-runs) before))))
 
                 (testing "and the attempt was genuinely abandoned — the
                           fallback is on the page, the boundary's markup is
@@ -376,14 +376,14 @@
                   "the old tree commits")
             (.then
               (fn [_]
-                (let [before (collector/body-runs)]
+                (let [before (runtime/body-runs)]
                   ;; A REAL transition. React renders the new tree at
                   ;; transition priority; it suspends; React keeps the
                   ;; committed UI and throws the new render away.
                   ((.-startTransition react) (fn [] (@!set-phase 1)))
                   ;; The poll condition IS the premise — the row cannot
                   ;; proceed until React has actually run the new body.
-                  (-> (poll #(> (collector/body-runs) before)
+                  (-> (poll #(> (runtime/body-runs) before)
                             "the transition renders the new body")
                       (.then
                         (fn [_]
@@ -427,7 +427,7 @@
     (if-not (mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
-            before (collector/body-runs)
+            before (runtime/body-runs)
             ;; TWO boundaries reading DIFFERENT keys, and that is the whole
             ;; design of this row rather than incidental scenery.
             ;;
@@ -455,7 +455,7 @@
                           StrictMode really did run BOTH bodies twice. A green
                           here with a delta of 2 would be a green for a
                           StrictMode that never engaged"
-                  (is (= 4 (- (collector/body-runs) before))))
+                  (is (= 4 (- (runtime/body-runs) before))))
                 (prove-live! handle [:kcod/bump-left] "left=2right=7"
                              "the strict boundaries are subscribed and live")))
             (.then
@@ -471,7 +471,7 @@
                   (is (= 1 (readers-of [:kcod/right])))
                   (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
                          (ownership)))
-                  (is (= 2 (:entries (inventory/residue)))))
+                  (is (= 2 (:entries (runtime/residue)))))
                 (exercised! :strict-mode/double-invoke)
                 (teardown-census! handle)))
             (.catch (report-failure! "strictmode witness" handle))
@@ -493,14 +493,14 @@
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             _      (reset! !throw? true)
-            before (collector/body-runs)
+            before (runtime/body-runs)
             handle (mount-concurrent! (mount/fresh-container!) (guarded 0))]
         (-> (poll #(= "caught" (text handle)) "the error boundary catches")
             (.then
               (fn [_]
                 (testing "the premise: the body RAN, took its read, and then
                           threw"
-                  (is (pos? (- (collector/body-runs) before))))
+                  (is (pos? (- (runtime/body-runs) before))))
 
                 (testing "the throwing attempt is rolled back to nothing —
                           there is nothing to roll back, because a

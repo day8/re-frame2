@@ -13,7 +13,7 @@
 
   These six are the whole contract of the subscription→boundary index,
   and this file is the package's witness for them.
-  `inventory/cell-readers` answers a SNAPSHOT — its docstring says why —
+  `runtime/cell-readers` answers a SNAPSHOT — its docstring says why —
   which is a claim about the instrument. `kernel_commit_owns_cljs_test`
   asserts ACQUISITION — which keys a commit takes and which readers it
   installs. Neither asks the question the laws ask, which is the one the
@@ -22,7 +22,7 @@
   ## The observable is the notification, and it has to be
 
   Every law below is asserted on the count of `onStoreChange` calls a
-  committed boundary received, and on `inventory/cell-readers` beside it.
+  committed boundary received, and on `runtime/cell-readers` beside it.
   Reader membership alone is not the law: an edge that is present and a
   commit that never consults it produce identical censuses and opposite
   screens. So each row reads the edge to establish its premise and the
@@ -63,7 +63,7 @@
   `kernel_commit_owns_cljs_test`'s server-render row; StrictMode's
   double-invoke leaving no residue is that file's two-subscribes row and
   its DOM sibling's; and the registration sharing the entry's key set by
-  reference is `impl.inventory/boundary-reads`' own definition. A second
+  reference is `test.runtime/boundary-reads`' own definition. A second
   copy of any of them would double the maintenance and the two would
   drift."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -71,7 +71,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::index-laws)
@@ -145,7 +145,7 @@
 
 (defn- release! [b] ((:release b)))
 
-(defn- readers-of [query-v] (count (inventory/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Law 1 — a commit of that sub dirties that boundary ONLY
@@ -269,7 +269,7 @@
 
     (testing "the premise: the wide render read both keys, so `b` carries
               two memberships"
-      (is (= #{(k [:idxlaw/a]) (k [:idxlaw/b])} (collector/reads-of (:entry wide))))
+      (is (= #{(k [:idxlaw/a]) (k [:idxlaw/b])} (runtime/reads-of (:entry wide))))
       (is (= 2 (readers-of [:idxlaw/b]))))
 
     ;; The re-run, with one read fewer. At the seam a read-set change is
@@ -280,7 +280,7 @@
       (release! wide)
 
       (testing "the narrow read set is the branch the body actually took"
-        (is (= #{(k [:idxlaw/a])} (collector/reads-of (:entry narrow)))))
+        (is (= #{(k [:idxlaw/a])} (runtime/reads-of (:entry narrow)))))
 
       (testing "and `b` has lost the boundary that stopped reading it while
                 keeping the one that did not"

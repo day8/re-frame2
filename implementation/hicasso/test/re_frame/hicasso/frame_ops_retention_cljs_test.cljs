@@ -33,7 +33,7 @@
   §2 takes the bead's ACCEPTANCE literally: read the table's
   `hicasso.ssr` rows after one request, serve three more, and read them
   again. Bounded means the two readings agree at zero; leaking means the
-  second is three higher. Its own control is `collector/body-runs`, so a
+  second is three higher. Its own control is `runtime/body-runs`, so a
   `render` that reached no boundary at all — which would leave the table
   empty for the wrong reason — reds instead of passing.
 
@@ -48,6 +48,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
+            [re-frame.hicasso.test.runtime :as runtime]
             [re-frame.hicasso.server :as server]
             [re-frame.test-support :as test-support]))
 
@@ -118,14 +119,14 @@
   (is (empty? (ssr-rows))
       "baseline: no per-request rows before the first render")
 
-  (collector/reset-body-runs!)
+  (runtime/reset-body-runs!)
 
   (testing "control — a render really runs this page's boundary body"
     (is (str/includes? (:html (server/render (request))) "alpha")
         "the seeded snapshot reaches the bytes")
-    (is (pos? (collector/body-runs))
+    (is (pos? (runtime/body-runs))
         (str "a `render` that reached no boundary would leave the table "
-             "empty for the wrong reason; ran " (collector/body-runs)
+             "empty for the wrong reason; ran " (runtime/body-runs)
              " bodies")))
 
   (let [after-1 (count (ssr-rows))]
