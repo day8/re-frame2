@@ -721,7 +721,14 @@ turn waiting for a completion notification* — it fails open on the first wait 
 worker that ARMED A MONITOR on its exit file and ended its turn presented as compliant and
 stranded identically, because a watcher owned by an agent stops when its agent does. Measured
 twice in one session, both briefs carrying this block verbatim; the second worker read the
-enumerated wording as licence for the un-enumerated variant.
+enumerated wording as licence for the un-enumerated variant. **And the terminal condition alone
+did not close it either**: with that sentence in the block, three more workers in one session
+ended their turns on a *watch*, a *notification subscription* and a *background task expected to
+wake them* — each a fresh name for the same wait, and each read as outside the rule because the
+rule named a monitor. So name the class rather than the instances: a Monitor, a watch, a
+subscription, a background task you expect to wake you — every one of these is the same strand,
+because you are the only thing that can read the exit file, and you can only read it while your
+turn is still running.
 
 **A gate heavy enough that two cannot coexist WEDGES rather than fails** — no progress, no exit
 file, no error, from a run that was healthy a minute ago. This is contention for the MACHINE, so
