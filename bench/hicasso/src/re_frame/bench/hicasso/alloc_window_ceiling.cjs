@@ -90,7 +90,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA = path.join(__dirname, 'data');
+const archive = require('./data_archive.cjs');
+
+const DATA = archive.DATA;
 const DIR = 'alloc-0gjqi';
 const RUNS = ['paired-run1', 'paired-run2'];
 
@@ -690,6 +692,13 @@ function selfTest() {
     checks++;
     if (got !== want) fail.push(`${name}: got ${got}, want ${want}`);
   };
+  const finish = () => {
+    if (fail.length) {
+      console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
+      process.exit(1);
+    }
+    console.log(`self-test OK (${checks} checks)`);
+  };
 
   // rise drops negative legs AND negative gaps.
   const w = {
@@ -764,6 +773,14 @@ function selfTest() {
   // second merged-PR audit of #8591 caught that; this version reads the real 528
   // windows through `rungTable`, so it fails if the reader's own arithmetic
   // moves, and pins the 3 / 5 / 10 under-bound refusal counts the page publishes.
+  //
+  // Everything from here down reads the committed `alloc-0gjqi` corpus, which
+  // is archived in git history (`data_archive.cjs`); without it the synthetic
+  // checks above are the whole of this self-test.
+  if (!archive.present()) {
+    archive.skipped('alloc_window_ceiling: the corpus-backed checks');
+    return finish();
+  }
   const cws = windows();
   const cF = med(cws.filter((c) => c.rungKey === 'floor').map((c) => c.perWrite));
   const T = rungTable(cws, cF);
@@ -829,11 +846,7 @@ function selfTest() {
   }
   ck('an empty certified set refuses to yield a ceiling', threw, true);
 
-  if (fail.length) {
-    console.error('SELF-TEST FAILED:\n  ' + fail.join('\n  '));
-    process.exit(1);
-  }
-  console.log(`self-test OK (${checks} checks)`);
+  finish();
 }
 
 if (require.main === module) {

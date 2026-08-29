@@ -35,6 +35,18 @@ const witness = require('./alloc_level_witness.cjs');
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
+// The corpus control below re-derives its populations from the committed run
+// corpus, which is archived in git history (`data_archive.cjs`). A test declared
+// through `corpusTest` runs when `data/` is present and is counted as skipped —
+// one printed line at the exit — when it is not; `scoreCorpus` tolerates a
+// missing directory, so without the guard these would pass on nothing.
+const archive = require('./data_archive.cjs');
+let corpusSkipped = 0;
+const corpusTest = (name, fn) => test(name, () => {
+  if (archive.present()) fn();
+  else corpusSkipped += 1;
+});
+
 // --- the module's own fixtures ----------------------------------------------
 
 test('every fixture in alloc_level_witness.cjs passes', () => {
@@ -49,7 +61,7 @@ test('every fixture in alloc_level_witness.cjs passes', () => {
 let corpus = null;
 const scored = () => (corpus ??= witness.scoreCorpus());
 
-test('the bound refuses every elevated run in the committed corpus', () => {
+corpusTest('the bound refuses every elevated run in the committed corpus', () => {
   const r = scored();
   assert.deepStrictEqual(
     r.misses.map((m) => `${m.corpus}/${m.run}`),
@@ -58,7 +70,7 @@ test('the bound refuses every elevated run in the committed corpus', () => {
   );
 });
 
-test('and it refuses no run that is not elevated', () => {
+corpusTest('and it refuses no run that is not elevated', () => {
   const r = scored();
   assert.deepStrictEqual(
     r.falsePositives.map((m) => `${m.corpus}/${m.run}`),
@@ -67,7 +79,7 @@ test('and it refuses no run that is not elevated', () => {
   );
 });
 
-test('the populations are the ones the bound was set against', () => {
+corpusTest('the populations are the ones the bound was set against', () => {
   const r = scored();
   // 101 admissible records; 100 carry both halves on at least one segment.
   assert.strictEqual(r.scored, 101, 'the admissible population changed');
@@ -77,7 +89,7 @@ test('the populations are the ones the bound was set against', () => {
   assert.strictEqual(r.refusedForStep, 40, 'the refusal count no longer equals the elevated count');
 });
 
-test('the two populations are still separated by the margin the bound rests on', () => {
+corpusTest('the two populations are still separated by the margin the bound rests on', () => {
   const r = scored();
   assert.strictEqual(r.normal.minB, 96);
   assert.strictEqual(r.normal.maxB, 194);
@@ -91,7 +103,7 @@ test('the two populations are still separated by the margin the bound rests on',
   assert.ok(r.mode.minPct / r.bound > 2.5, 'less than 2.5x of margin below the elevated population');
 });
 
-test('the runs the corpus itself excludes are excluded here, and named', () => {
+corpusTest('the runs the corpus itself excludes are excluded here, and named', () => {
   const r = scored();
   assert.deepStrictEqual(
     r.inadmissible.map((x) => `${x.corpus}/${x.run}`).sort(),
@@ -112,7 +124,7 @@ test('the runs the corpus itself excludes are excluded here, and named', () => {
   );
 });
 
-test('every committed record carries the whole declared segment roster', () => {
+corpusTest('every committed record carries the whole declared segment roster', () => {
   const r = scored();
   assert.deepStrictEqual(
     r.missingSegment.map((m) => `${m.corpus}/${m.run}`),
@@ -122,7 +134,7 @@ test('every committed record carries the whole declared segment roster', () => {
   assert.deepStrictEqual(r.expected, ['reagent-subs', 'uix-subs']);
 });
 
-test('exactly one reading falls back to a ramp round, and it is not an elevated one', () => {
+corpusTest('exactly one reading falls back to a ramp round, and it is not an elevated one', () => {
   const r = scored();
   assert.strictEqual(r.degraded.length, 1);
   assert.strictEqual(r.degraded[0].run, 'armed-03-a4a1537cb71');
@@ -137,13 +149,13 @@ test('exactly one reading falls back to a ramp round, and it is not an elevated 
 // tightening it under the normal population must start refusing normal ones.
 // If either fails, the separation being claimed is not there.
 
-test('a bound loosened past the mode stops refusing elevated runs', () => {
+corpusTest('a bound loosened past the mode stops refusing elevated runs', () => {
   const loose = witness.scoreCorpus({ bound: 0.25 });
   assert.strictEqual(loose.refusedForStep, 0, 'a 25% bound still refused something');
   assert.strictEqual(loose.misses.length, 40, 'the elevated runs did not become misses');
 });
 
-test('a bound tightened under the normal population starts refusing normal runs', () => {
+corpusTest('a bound tightened under the normal population starts refusing normal runs', () => {
   const tight = witness.scoreCorpus({ bound: 0.004 });
   assert.strictEqual(tight.falsePositives.length, 60, 'a 0.4% bound did not refuse the whole normal population');
 });
@@ -162,7 +174,7 @@ test('a bound tightened under the normal population starts refusing normal runs'
 // directions are asserted — the intact record certifies, the mutilated one
 // refuses. A gate that can only be shown to pass is not a gate.
 
-const RECORD = path.join(__dirname, 'data', 'alloc-77gz8', 'run01-a4a1537cb71.json');
+const RECORD = path.join(__dirname, 'fixtures', 'alloc-77gz8', 'run01-a4a1537cb71.json');
 const readRecord = () => JSON.parse(fs.readFileSync(RECORD, 'utf8'));
 
 const withoutSegment = (record, segment) => {
@@ -203,7 +215,7 @@ test('the same holds for the other segment, so the roster is not half-checked', 
   assert.ok(v.faults.some((f) => f.code === 'level-segment' && f.message.startsWith('reagent-subs:')));
 });
 
-test('and the corpus control fails rather than passes when a record loses a segment', () => {
+corpusTest('and the corpus control fails rather than passes when a record loses a segment', () => {
   // The corpus control is what the spine actually runs. Score the same corpus
   // with a roster the records cannot satisfy: every scored run must now be
   // held out of the bands and named, not quietly certified.
@@ -224,5 +236,6 @@ for (const [name, fn] of tests) {
     console.error(`FAIL ${name}\n     ${e.message}`);
   }
 }
-console.log(`;; ${tests.length - failed}/${tests.length} checks pass`);
+if (corpusSkipped > 0) archive.skipped(`alloc_level_witness.test.cjs: ${corpusSkipped} corpus-backed checks`);
+console.log(`;; ${tests.length - corpusSkipped - failed}/${tests.length - corpusSkipped} checks pass`);
 process.exit(failed ? 1 : 0);

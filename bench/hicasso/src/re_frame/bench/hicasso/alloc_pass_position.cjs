@@ -162,6 +162,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const archive = require('./data_archive.cjs');
 
 // The mid-rung cells, verbatim from the record's section A: R3 and R7 on each
 // of four arm families. A DESCRIPTION of the population the published window
@@ -1183,124 +1184,132 @@ function report(rows, declared = null) {
 // than drifting.
 function selfTest() {
   const assert = require('node:assert');
-  const dir = path.join(__dirname, 'data', 'alloc-0gjqi');
-  const rows = [
-    { label: '1', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run1.json'), 'utf8')).alloc },
-    { label: '2', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run2.json'), 'utf8')).alloc },
-  ];
+  // --- THE PUBLISHED FIGURES, RE-DERIVED FROM THE COMMITTED CORPUS --------------
+  //
+  // `alloc-0gjqi` is archived in git history (`data_archive.cjs`): with it absent
+  // these checks are skipped, in one printed line, and run again on restore.
+  if (archive.present()) {
+    const dir = path.join(archive.DATA, 'alloc-0gjqi');
+    const rows = [
+      { label: '1', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run1.json'), 'utf8')).alloc },
+      { label: '2', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run2.json'), 'utf8')).alloc },
+    ];
 
-  // Both runs' controls passed at 8.00 B/double with 0 unverified read-backs.
-  for (const { label, row } of rows) {
-    const c = controls(row);
-    assert.strictEqual(c.ok, true, `run ${label}: control verdict`);
-    assert.strictEqual(c.unverified, 0, `run ${label}: unverified read-backs`);
-    assert.strictEqual(c.differential.toFixed(2), '8.00', `run ${label}: differential`);
-    assert.strictEqual(c.passOrder, 'parity', `run ${label}: the corpus is a parity corpus`);
-  }
-
-  // The twelve published blocks, `n` and median, to the published digits.
-  const published = [
-    ['1', 0, 'page', 3, '+0.35%'],
-    ['1', 1, 'all', 8, '-1.00%'],
-    ['1', 2, 'page', 7, '+0.35%'],
-    ['1', 3, 'all', 8, '-1.03%'],
-    ['1', 4, 'page', 4, '+0.74%'],
-    ['1', 5, 'all', 7, '-0.78%'],
-    ['2', 0, 'page', 4, '+1.51%'],
-    ['2', 1, 'all', 8, '-0.93%'],
-    ['2', 2, 'page', 7, '+0.45%'],
-    ['2', 3, 'all', 5, '+0.03%'],
-    ['2', 4, 'page', 6, '+0.28%'],
-    ['2', 5, 'all', 6, '+0.36%'],
-  ];
-  const all = rows.flatMap(({ label, row }) => blocks(row, label));
-  assert.strictEqual(all.length, published.length, 'block count');
-  published.forEach((p, i) => {
-    const b = all[i];
-    assert.strictEqual(`${b.run}/${b.round}/${b.first}/${b.n}`, `${p[0]}/${p[1]}/${p[2]}/${p[3]}`,
-      `block ${i}: run/round/first/n`);
-    assert.strictEqual(pct(b.m), p[4], `block ${i}: median`);
-  });
-
-  // The published count, and the published median of the second-minus-first
-  // column. That column's published median is -0.59%, which is the median of
-  // the ROUNDED column; the unrounded one is -0.60%. Both are pinned so a
-  // reader of either figure can see which is which.
-  assert.strictEqual(all.filter((b) => b.secondMinusFirst < 0).length, 10, 'second-lower count');
-  assert.strictEqual(pct(median(all.map((b) => b.secondMinusFirst))), '-0.60%', 'unrounded median');
-  assert.strictEqual(
-    median(published.map((p, i) => Number((all[i].secondMinusFirst * 100).toFixed(2)))).toFixed(2),
-    '-0.59',
-    'the published median, taken over the rounded column'
-  );
-
-  // Both runs' and the pooled decomposition on the PASS grouping.
-  const dec = [
-    ['1', '+0.35%', '-1.00%', '+0.68%', '-0.33%'],
-    ['2', '+0.45%', '+0.03%', '+0.21%', '+0.24%'],
-  ];
-  for (const [label, a, b, half, free] of dec) {
-    const d = decompose(all.filter((x) => x.run === label), (x) => x.first === 'page');
-    assert.strictEqual(pct(d.a), a, `run ${label}: page-first median`);
-    assert.strictEqual(pct(d.b), b, `run ${label}: all-first median`);
-    assert.strictEqual(pct(d.half), half, `run ${label}: pass term`);
-    assert.strictEqual(pct(d.free), free, `run ${label}: write term`);
-  }
-  const pooled = decompose(all, (x) => x.first === 'page');
-  assert.strictEqual(pct(pooled.a), '+0.40%', 'pooled page-first median');
-  assert.strictEqual(pct(pooled.b), '-0.86%', 'pooled all-first median');
-  assert.strictEqual(pct(pooled.half), '+0.63%', 'pooled pass term');
-  assert.strictEqual(pct(pooled.free), '-0.23%', 'pooled write term');
-
-  // ON A PARITY CORPUS THE TWO GROUPINGS ARE ONE PARTITION, and the reader must
-  // say so rather than pretend to have separated them.
-  const byParity = decompose(all, (x) => x.evenRound);
-  assert.strictEqual(pct(byParity.half), pct(pooled.half), 'parity and pass agree on a parity corpus');
-  const sep = separation(all);
-  // `+n` and not `-n`: under `parity` the EVEN rounds are the `page`-first
-  // ones, so the two indicators agree in every block. The sign is a property
-  // of which way round the rig's own ternary falls, not of the tie.
-  assert.strictEqual(sep.dot, sep.n, 'a parity corpus is perfectly tied');
-  assert.strictEqual(sep.orthogonal, false, 'and is therefore not orthogonal');
-
-  // THE NULL ARM, pinned on the published section E — and it is the pin that
-  // caught this reader's one real defect. A `d_all` of exactly zero is what the
-  // R = 0 arm is SUPPOSED to read, and an earlier `roundCells` dropped every
-  // such cell as a division hazard: 24 of 38 survived, the absolute median read
-  // 3 instead of 1.5 and the 90th percentile 56.5 instead of 4.5. Nothing else
-  // here would have seen it — every mid-rung figure above was unaffected.
-  const na = nullArm(rows.map((r) => r.row));
-  assert.strictEqual(na.n, 38, 'null arm: published n');
-  assert.strictEqual(na.median, 0, 'null arm: published median');
-  assert.strictEqual(na.absMedian, 1.5, 'null arm: published absolute median');
-  assert.strictEqual(na.p90, 4.5, 'null arm: published 90th percentile');
-  assert.strictEqual(na.max, 96.5, 'null arm: published max');
-
-  // THE FLOOR-FREE ESTIMATOR MUST DISAGREE. Same blocks, `perBoundaryPerWrite`
-  // instead of `arm − floor`, and the count falls to 3 of 6 in run 1.
-  const floorFree = (row, label) => {
-    const out = [];
-    for (const round of row.perRound || []) {
-      const rs = [];
-      for (const { segment, arm } of FAMILIES) {
-        for (const rung of MID_RUNGS) {
-          const a = certifiedWindow(round, segment, `${arm}#${rung}`, 'all');
-          const p = certifiedWindow(round, segment, `${arm}#${rung}`, 'page');
-          const fa = certifiedWindow(round, segment, FLOOR_ARM, 'all');
-          const fp = certifiedWindow(round, segment, FLOOR_ARM, 'page');
-          if (!a || !p || !fa || !fp || !a.perBoundaryPerWrite) continue;
-          rs.push((p.perBoundaryPerWrite - a.perBoundaryPerWrite) / a.perBoundaryPerWrite);
-        }
-      }
-      if (rs.length) out.push({ run: label, m: median(rs), first: (round.writeLegs || [])[0] });
+    // Both runs' controls passed at 8.00 B/double with 0 unverified read-backs.
+    for (const { label, row } of rows) {
+      const c = controls(row);
+      assert.strictEqual(c.ok, true, `run ${label}: control verdict`);
+      assert.strictEqual(c.unverified, 0, `run ${label}: unverified read-backs`);
+      assert.strictEqual(c.differential.toFixed(2), '8.00', `run ${label}: differential`);
+      assert.strictEqual(c.passOrder, 'parity', `run ${label}: the corpus is a parity corpus`);
     }
-    return out;
-  };
-  const ff = rows.flatMap(({ label, row }) => floorFree(row, label)).filter((b) => b.run === '1');
-  const ffLower = ff.filter((b) => (b.first === 'page' ? -b.m : b.m) < 0).length;
-  assert.strictEqual(ff.length, 6, 'floor-free run 1 block count');
-  assert.notStrictEqual(ffLower, 6, 'the floor-free estimator must NOT reproduce run 1\'s 6 of 6');
-  assert.strictEqual(ffLower, 3, 'and reads 3 of 6, which is the measured wrong answer');
+
+    // The twelve published blocks, `n` and median, to the published digits.
+    const published = [
+      ['1', 0, 'page', 3, '+0.35%'],
+      ['1', 1, 'all', 8, '-1.00%'],
+      ['1', 2, 'page', 7, '+0.35%'],
+      ['1', 3, 'all', 8, '-1.03%'],
+      ['1', 4, 'page', 4, '+0.74%'],
+      ['1', 5, 'all', 7, '-0.78%'],
+      ['2', 0, 'page', 4, '+1.51%'],
+      ['2', 1, 'all', 8, '-0.93%'],
+      ['2', 2, 'page', 7, '+0.45%'],
+      ['2', 3, 'all', 5, '+0.03%'],
+      ['2', 4, 'page', 6, '+0.28%'],
+      ['2', 5, 'all', 6, '+0.36%'],
+    ];
+    const all = rows.flatMap(({ label, row }) => blocks(row, label));
+    assert.strictEqual(all.length, published.length, 'block count');
+    published.forEach((p, i) => {
+      const b = all[i];
+      assert.strictEqual(`${b.run}/${b.round}/${b.first}/${b.n}`, `${p[0]}/${p[1]}/${p[2]}/${p[3]}`,
+        `block ${i}: run/round/first/n`);
+      assert.strictEqual(pct(b.m), p[4], `block ${i}: median`);
+    });
+
+    // The published count, and the published median of the second-minus-first
+    // column. That column's published median is -0.59%, which is the median of
+    // the ROUNDED column; the unrounded one is -0.60%. Both are pinned so a
+    // reader of either figure can see which is which.
+    assert.strictEqual(all.filter((b) => b.secondMinusFirst < 0).length, 10, 'second-lower count');
+    assert.strictEqual(pct(median(all.map((b) => b.secondMinusFirst))), '-0.60%', 'unrounded median');
+    assert.strictEqual(
+      median(published.map((p, i) => Number((all[i].secondMinusFirst * 100).toFixed(2)))).toFixed(2),
+      '-0.59',
+      'the published median, taken over the rounded column'
+    );
+
+    // Both runs' and the pooled decomposition on the PASS grouping.
+    const dec = [
+      ['1', '+0.35%', '-1.00%', '+0.68%', '-0.33%'],
+      ['2', '+0.45%', '+0.03%', '+0.21%', '+0.24%'],
+    ];
+    for (const [label, a, b, half, free] of dec) {
+      const d = decompose(all.filter((x) => x.run === label), (x) => x.first === 'page');
+      assert.strictEqual(pct(d.a), a, `run ${label}: page-first median`);
+      assert.strictEqual(pct(d.b), b, `run ${label}: all-first median`);
+      assert.strictEqual(pct(d.half), half, `run ${label}: pass term`);
+      assert.strictEqual(pct(d.free), free, `run ${label}: write term`);
+    }
+    const pooled = decompose(all, (x) => x.first === 'page');
+    assert.strictEqual(pct(pooled.a), '+0.40%', 'pooled page-first median');
+    assert.strictEqual(pct(pooled.b), '-0.86%', 'pooled all-first median');
+    assert.strictEqual(pct(pooled.half), '+0.63%', 'pooled pass term');
+    assert.strictEqual(pct(pooled.free), '-0.23%', 'pooled write term');
+
+    // ON A PARITY CORPUS THE TWO GROUPINGS ARE ONE PARTITION, and the reader must
+    // say so rather than pretend to have separated them.
+    const byParity = decompose(all, (x) => x.evenRound);
+    assert.strictEqual(pct(byParity.half), pct(pooled.half), 'parity and pass agree on a parity corpus');
+    const sep = separation(all);
+    // `+n` and not `-n`: under `parity` the EVEN rounds are the `page`-first
+    // ones, so the two indicators agree in every block. The sign is a property
+    // of which way round the rig's own ternary falls, not of the tie.
+    assert.strictEqual(sep.dot, sep.n, 'a parity corpus is perfectly tied');
+    assert.strictEqual(sep.orthogonal, false, 'and is therefore not orthogonal');
+
+    // THE NULL ARM, pinned on the published section E — and it is the pin that
+    // caught this reader's one real defect. A `d_all` of exactly zero is what the
+    // R = 0 arm is SUPPOSED to read, and an earlier `roundCells` dropped every
+    // such cell as a division hazard: 24 of 38 survived, the absolute median read
+    // 3 instead of 1.5 and the 90th percentile 56.5 instead of 4.5. Nothing else
+    // here would have seen it — every mid-rung figure above was unaffected.
+    const na = nullArm(rows.map((r) => r.row));
+    assert.strictEqual(na.n, 38, 'null arm: published n');
+    assert.strictEqual(na.median, 0, 'null arm: published median');
+    assert.strictEqual(na.absMedian, 1.5, 'null arm: published absolute median');
+    assert.strictEqual(na.p90, 4.5, 'null arm: published 90th percentile');
+    assert.strictEqual(na.max, 96.5, 'null arm: published max');
+
+    // THE FLOOR-FREE ESTIMATOR MUST DISAGREE. Same blocks, `perBoundaryPerWrite`
+    // instead of `arm − floor`, and the count falls to 3 of 6 in run 1.
+    const floorFree = (row, label) => {
+      const out = [];
+      for (const round of row.perRound || []) {
+        const rs = [];
+        for (const { segment, arm } of FAMILIES) {
+          for (const rung of MID_RUNGS) {
+            const a = certifiedWindow(round, segment, `${arm}#${rung}`, 'all');
+            const p = certifiedWindow(round, segment, `${arm}#${rung}`, 'page');
+            const fa = certifiedWindow(round, segment, FLOOR_ARM, 'all');
+            const fp = certifiedWindow(round, segment, FLOOR_ARM, 'page');
+            if (!a || !p || !fa || !fp || !a.perBoundaryPerWrite) continue;
+            rs.push((p.perBoundaryPerWrite - a.perBoundaryPerWrite) / a.perBoundaryPerWrite);
+          }
+        }
+        if (rs.length) out.push({ run: label, m: median(rs), first: (round.writeLegs || [])[0] });
+      }
+      return out;
+    };
+    const ff = rows.flatMap(({ label, row }) => floorFree(row, label)).filter((b) => b.run === '1');
+    const ffLower = ff.filter((b) => (b.first === 'page' ? -b.m : b.m) < 0).length;
+    assert.strictEqual(ff.length, 6, 'floor-free run 1 block count');
+    assert.notStrictEqual(ffLower, 6, 'the floor-free estimator must NOT reproduce run 1\'s 6 of 6');
+    assert.strictEqual(ffLower, 3, 'and reads 3 of 6, which is the measured wrong answer');
+  } else {
+    archive.skipped('alloc_pass_position: the published-figure checks over alloc-0gjqi');
+  }
 
   // --- THE BOUNDARY, PROVED IN BOTH DIRECTIONS -------------------------------
   //
@@ -1309,10 +1318,12 @@ function selfTest() {
   // one clause at a time broken on it, then the shapes the audit of #8615
   // found the front door blessing — an EMPTY corpus, a TRUNCATED one, and one
   // with duplicate or out-of-range rounds.
-  // THE DECLARATION IS A COMMITTED FILE AND ITS ABSENCE IS A FAILURE, not a
-  // skip. A self-test that quietly passes when its fixture is missing is the
-  // same class of defect as a boundary that admits an empty corpus.
-  const declPath = path.join(__dirname, 'data', 'alloc-legorder', 'pre-registration.json');
+  // THE DECLARATION IS A COMMITTED FIXTURE AND ITS ABSENCE IS A FAILURE, not a
+  // skip: it is what the boundary is proved against, so it stays on main under
+  // `fixtures/` rather than in the archived run corpus. A self-test that quietly
+  // passes when its fixture is missing is the same class of defect as a
+  // boundary that admits an empty corpus.
+  const declPath = path.join(__dirname, 'fixtures', 'alloc-legorder', 'pre-registration.json');
   assert.ok(fs.existsSync(declPath), `the pre-registration must be committed at ${declPath}`);
   {
     const declared = JSON.parse(fs.readFileSync(declPath, 'utf8'));
@@ -1564,7 +1575,7 @@ function selfTest() {
       // AND THE CLAUSE DOES NOT SIMPLY REFUSE EVERY PARTITION. Phase 3's
       // re-adjudication declares all four runs into ONE session, which is a
       // legitimate declaration and must be admitted when the records agree.
-      const p3Path = path.join(__dirname, 'data', 'alloc-legorder', 'phase3-re-adjudication.json');
+      const p3Path = path.join(__dirname, 'fixtures', 'alloc-legorder', 'phase3-re-adjudication.json');
       assert.ok(fs.existsSync(p3Path), `the phase-3 declaration must be committed at ${p3Path}`);
       const p3 = JSON.parse(fs.readFileSync(p3Path, 'utf8'));
       assert.strictEqual(admissibleCorpus(corpus(p3), p3).ok, true,
@@ -1610,7 +1621,7 @@ function selfTest() {
         'the two-session wording is unchanged, to the byte'
       );
 
-      const p3 = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'alloc-legorder', 'phase3-re-adjudication.json'), 'utf8'));
+      const p3 = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'alloc-legorder', 'phase3-re-adjudication.json'), 'utf8'));
       const one = report(corpus(p3), cheap(p3));
       assert.strictEqual(one.refused, false, 'the one-session fixture is read');
       assert.ok(one.lines.some((l) => l.includes('BY SESSION — 1 session(s)')), 'and reads one session');
@@ -1634,10 +1645,9 @@ function selfTest() {
   // it realises all twelve rounds and is admitted; with round 0's windows
   // stripped of certification it realises eleven, `q·parity` moves off zero,
   // and it is refused. Nothing else about the record moves.
-  {
-    const dir4 = path.join(__dirname, 'data', 'alloc-legorder');
-    const declared = JSON.parse(fs.readFileSync(path.join(dir4, 'pre-registration.json'), 'utf8'));
-    const runPath = path.join(dir4, 'run1.json');
+  if (archive.present()) {
+    const declared = JSON.parse(fs.readFileSync(declPath, 'utf8'));
+    const runPath = path.join(archive.DATA, 'alloc-legorder', 'run1.json');
     assert.ok(fs.existsSync(runPath), `phase 4's run 1 must be committed at ${runPath}`);
     const want = { ...declared.window, ...declared.runs[0] };
     const load = () => JSON.parse(fs.readFileSync(runPath, 'utf8')).alloc;
@@ -1669,6 +1679,8 @@ function selfTest() {
       got.reasons.every((r) => /^the realised block set|^realised q·/.test(r)),
       `and ONLY on the realised clauses, got: ${got.reasons.join('; ')}`
     );
+  } else {
+    archive.skipped("alloc_pass_position: the realised-labelling check over phase 4's run 1");
   }
 
   // --- THE BAND'S OWN CONTROLS ------------------------------------------------
@@ -1862,13 +1874,16 @@ function selfTest() {
       `an assignment the record does not reproduce is refused, got: ${JSON.stringify(swap.refused)}`);
   }
 
-  console.log(`[alloc-pass-position] self-test OK — 12 published blocks, both decompositions, `
-    + `the parity tie, the null arm's 38 cells, the floor-free estimator's 3 of 6, `
+  const corpusPart = archive.present()
+    ? `12 published blocks, both decompositions, the parity tie, the null arm's 38 cells, the floor-free estimator's 3 of 6, `
+    : '';
+  const realisedPart = archive.present() ? `both a fixture and phase 4's own run 1` : 'a fixture';
+  console.log(`[alloc-pass-position] self-test OK — ${corpusPart}`
     + `${sched12.length} admissible schedules, the design's own ${support.length}-assignment support in both `
     + `directions, the identical-run degeneracy that only the paired support produces, `
     + `the band's four synthetic controls, the `
-    + `fail-closed boundary in both directions, the realised labelling on both a fixture and `
-    + `phase 4's own run 1, the declared session partition collapsed and mispartitioned, and `
+    + `fail-closed boundary in both directions, the realised labelling on ${realisedPart}, `
+    + `the declared session partition collapsed and mispartitioned, and `
     + `both branches of the session verdict all reproduce`);
 }
 

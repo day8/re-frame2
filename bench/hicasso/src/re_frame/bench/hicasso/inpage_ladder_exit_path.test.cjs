@@ -47,7 +47,7 @@ const AGG = path.join(__dirname, 'inpage_ladder_aggregate.cjs');
 const agg = require('./inpage_ladder_aggregate.cjs');
 const SRC = fs.readFileSync(AGG, 'utf8');
 
-const DIR = path.join(__dirname, 'data', 'inpage-ladder-409ab');
+const DIR = path.join(__dirname, 'fixtures', 'inpage-ladder-409ab');
 const RUNS = ['A', 'B', 'C', 'D'];
 const read = (r) => fs.readFileSync(path.join(DIR, `run${r}.edn`), 'utf8');
 

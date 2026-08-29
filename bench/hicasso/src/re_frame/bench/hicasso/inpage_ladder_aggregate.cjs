@@ -79,7 +79,9 @@ const fs = require('fs');
 const path = require('path');
 const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 
-const DIR = path.join(__dirname, 'data', 'inpage-ladder-409ab');
+// The four published runs stay on main as fixtures (68 KB): they are the whole
+// of this window's corpus and `inpage_ladder_exit_path.test.cjs` mutates them.
+const DIR = path.join(__dirname, 'fixtures', 'inpage-ladder-409ab');
 const RUNS = ['A', 'B', 'C', 'D'];
 const EPS = 5e-4; // the page rounds every recorded figure to 4 places
 

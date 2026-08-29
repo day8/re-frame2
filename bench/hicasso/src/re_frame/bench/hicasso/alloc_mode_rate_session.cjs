@@ -80,7 +80,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DATA = path.join(__dirname, 'data');
+const archive = require('./data_archive.cjs');
+
+const DATA = archive.DATA;
 
 // `rf2-77gz8`'s criterion, unchanged. See the header: quoted, not chosen.
 const HIGH_MODE_B = 21000;
@@ -410,6 +412,10 @@ function selfTest() {
   })());
 
   // --- the committed corpus, pinned ---------------------------------------
+  if (!archive.present()) {
+    archive.skipped('alloc_mode_rate_session: the corpus-backed checks');
+    return checks;
+  }
   let a = null;
   try {
     a = analyse();
