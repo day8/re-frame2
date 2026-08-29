@@ -4,7 +4,7 @@ The core routing artefact defines route registration, navigation events, and
 route subscriptions. This page covers the Hicasso view side: route links,
 prefetch, scroll and focus policy, and unsaved-change guards.
 
-## Register routes and require the view integration
+## Register routes
 
 Register routes once during boot:
 
@@ -24,17 +24,17 @@ Register routes once during boot:
 (rf/reg-route :app/inbox    {} "/inbox")
 ```
 
-Require the Hicasso routing module where links are rendered:
+`h/route-link` ships on the door, so a view that renders links requires nothing
+beyond it:
 
 ```clojure
 (ns app.views.articles
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.routing :refer [route-link]]))
+  (:require [re-frame.hicasso :as h]))
 ```
 
 ## Render an application route link
 
-Call `route-link` as a plain helper. Name a registered route and its params
+Call `h/route-link` as a plain helper. Name a registered route and its params
 rather than constructing a URL:
 
 ```clojure
@@ -43,14 +43,14 @@ rather than constructing a URL:
         (h/sub [:article/summary id])]
     [:article.card
      [:h2
-      (route-link {:to :app/article
-                   :params {:id id}}
+      (h/route-link {:to :app/article
+                     :params {:id id}}
         title)]
      [:span.byline
       "by "
-      (route-link {:to     :app/profile
-                   :params {:username author}
-                   :class  "author"}
+      (h/route-link {:to     :app/profile
+                     :params {:username author}
+                     :class  "author"}
         author)]]))
 ```
 
@@ -102,7 +102,7 @@ where the navigation renders and pass the result into an inline helper:
 (h/defview site-nav []
   (let [current (h/sub [:rf.route/id])
         nav     (fn [to label]
-                  (route-link
+                  (h/route-link
                    {:to           to
                     :class        (when (= to current) "is-active")
                     :aria-current (when (= to current) "page")}
@@ -122,7 +122,7 @@ as `:on-click`: `nil`, `[::h/prevent INTENT]`, an `h/event`, or a plain
 function.
 
 ```clojure
-(route-link
+(h/route-link
  {:to       :app/inbox
   :on-click (when draft-open?
               [::h/prevent [:composer/confirm-discard]])}
@@ -138,19 +138,23 @@ exit. A link veto covers only that link.
 
 ## Prefetch on user intent
 
-A route link can warm destination data on hover, focus, or touch:
+Warming a destination on hover, focus, or touch is an event,
+`[:rf.route/prefetch address]`, dispatched from the intent that signals the
+interest. `h/route-link` declines a `:prefetch` key — rendering one raises
+`:rf.error/hicasso-route-link-prefetch-declined` — because that event needs
+nothing the link does not already give you:
 
 ```clojure
-(route-link {:to       :app/article
-             :params   {:id "intro"}
-             :prefetch :intent}
+(h/route-link {:to             :app/article
+               :params         {:id "intro"}
+               :on-mouse-enter [:rf.route/prefetch {:to     :app/article
+                                                    :params {:id "intro"}}]}
   "Read more")
 ```
 
-`:intent` is the only accepted value. Omit `:prefetch` for a passive link. Any
-other value fails at render rather than silently choosing a different mode.
-The link dispatches `[:rf.route/prefetch {:to … :params …}]`; application code
-may also dispatch that event directly.
+The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else.
+`:on-focus` carries the same vector for keyboard intent, and application code
+may dispatch the event directly.
 
 Prefetch does not navigate. It does not change the URL, run guards, apply
 scroll/focus policy, or block activation. A later click uses ordinary resource
@@ -315,7 +319,7 @@ and activation pipeline as route links:
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
 | Rendering raises `:rf.error/hicasso-malformed-navigate` | Application code created or altered the reserved navigation head | Do not author `::h/navigate`; let `route-link` create it |
 | `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
-| `:prefetch` is rejected | The value is not `:intent` | Remove the key or use `:prefetch :intent` |
+| Rendering raises `:rf.error/hicasso-route-link-prefetch-declined` | The link carries `:prefetch`, which `route-link` declines | Remove the key and dispatch `[:rf.route/prefetch address]` from `:on-mouse-enter` |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
 | Focus stays on the old navigation link | Main region was not keyed/focusable or its ref did not run | Key by page identity, add `:tab-index -1`, and focus from the callback ref |

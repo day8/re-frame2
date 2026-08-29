@@ -78,8 +78,11 @@ The panel remains in the same React and re-frame2 tree as its trigger. It uses
 the same frame and subscriptions. The top layer changes paint order, so
 ancestor `overflow`, transforms, and stacking contexts do not clip it.
 
-Where CSS anchor positioning is available, the browser tracks the anchor.
-Otherwise the module recalculates on open and resize.
+Where CSS anchor positioning is available, the browser places the panel and
+keeps tracking the anchor as it moves. The module measures nothing and installs
+no scroll or resize listener; where anchor positioning is unavailable, the
+panel opens at the top layer's default position, and placing it is CSS you
+write.
 
 ## Modals
 
@@ -341,7 +344,7 @@ to the next library. The top-layer primitives remove those failure classes.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Panel is clipped by `overflow: hidden` or appears under a sticky header | It is an ordinary positioned element, not a top-layer overlay | Render it through `overlay/popover` |
-| Outside click closes the platform popover, then it opens again | `:on-dismiss` ran but the handler left the app-db flag true | Set the open flag false in the dismiss handler |
+| Outside click closes the popover, and the next click on the trigger does nothing | `:on-dismiss` ran but the handler left the app-db flag true. The element is still mounted and closed, `showPopover` runs only when it mounts, and setting a flag that is already true changes nothing | Set the open flag false in the dismiss handler |
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
 | `:rf.error/hicasso-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries — a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is not | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |

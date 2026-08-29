@@ -38,13 +38,38 @@ Use an explicit app-db address for state that affects what the application can
 do or what another part of the application can observe: open, expanded,
 selected, or the active tab.
 
-One parameterised event and subscription can serve every instance:
+`h/reg-state` mints the pair every instance shares — one parameterised
+subscription and one setter event under `[:ui concern instance-key]` — and
+nothing else:
 
 ```clojure
 (ns app.panels
   (:require [re-frame.core :as rf]
             [re-frame.hicasso :as h]))
 
+(h/reg-state ::expanded? {:default false})
+
+(h/defview panel [{:keys [id title]}]
+  (let [expanded? (h/sub [::expanded? id])]
+    [:section
+     [:h3 {:on-click [::expanded? id (not expanded?)]} title]
+     (when expanded?
+       [panel-body {:id id}])]))
+```
+
+`(h/sub [::expanded? id])` reads, `[::expanded? id value]` writes, and
+`[::h/clear ::expanded? id]` removes the entry so that instance reads its
+default again. The concern must be a namespace-qualified keyword — it is a sub
+id, an event id and an app-db key at once — and registering it again with a
+different `:default` refuses. A hundred panels reuse the one pair, and the
+address gives you replay, frame isolation, Xray visibility, and direct test
+setup.
+
+When a change means more than "this slot now holds that value" — something
+else must happen, or the change itself must be recorded — write a named event
+and its subscription by hand instead:
+
+```clojure
 (rf/reg-sub :panel/expanded?
   (fn [db [_ panel-id]]
     (get-in db [:ui :panel/expanded panel-id] false)))
@@ -52,20 +77,11 @@ One parameterised event and subscription can serve every instance:
 (rf/reg-event :panel/toggled
   (fn [{:keys [db]} [_ panel-id]]
     {:db (update-in db [:ui :panel/expanded panel-id] not)}))
-
-(h/defview panel [{:keys [id title]}]
-  [:section
-   [:h3 {:on-click [:panel/toggled id]} title]
-   (when (h/sub [:panel/expanded? id])
-     [panel-body {:id id}])])
 ```
 
-A hundred panels reuse the same event and subscription. The address gives you
-replay, frame isolation, Xray visibility, and direct test setup.
-
-Prefer named events such as `[:panel/toggled id]` over a generic
-`[:ui/set path value]`. The named event records what happened and leaves room
-for effects or related state changes later.
+`[:panel/toggled id]` records what happened and leaves room for effects or
+related state changes later; `[::expanded? id true]` records only the value.
+Either way, prefer a named event over a generic `[:ui/set path value]`.
 
 ## 2. Drafts and form state: the forms module
 
@@ -73,10 +89,13 @@ A draft is application-visible when validation, submit gating, dirty-leave
 logic, or another view needs it. Store it at an app-db address, usually through
 `re-frame.hicasso.forms`.
 
-The forms module packages draft, baseline, touched state, validation gates,
-and mutation status around an address you supply
-([Forms](05-forms.md)). For a smaller concern, ordinary events and an app-db
-slice are enough:
+The forms module is one view, `forms/buffered-field`: a draft in front of a
+committed value, with a baseline, a commit protocol and the `::h/revision`
+reset, at an address you supply ([Forms](05-forms.md)). Validation gating and
+submit status are recipes on ordinary events and subscriptions, taught in the
+same chapter; there is no form object, validation DSL or submit orchestrator
+to require. For a smaller concern, ordinary events and an app-db slice are
+enough:
 
 ```clojure
 [:search/draft-changed q]
