@@ -228,6 +228,133 @@ node as `defaultValue`, which React maintains there itself. The matrix, the
 two implementations UIx chooses between, and the price are on
 [the studio page](studio/controlled-input-two-implementations.md).
 
+## The root (HD-021(b)) — mount, hydration and teardown
+
+The mechanism record for `impl/mount.cljs`, written 2026-08-30 when that
+file's docstrings were trimmed to the contract (rf2-76hbj, executing the
+rf2-6c12m.4 rule). The ruling is
+[HD-021](decisions.md#hd-021--the-v0-execution-contract-root-hmr-headless);
+the door names and the `(node config view)` shape are naming-ledger rows 13
+and 20 (`implementation/hicasso/spec/naming-ledger.md`); what teardown may
+and may not touch is [globals.md](product/globals.md).
+
+**Every door commits before it returns, except the hydrating one.** React 19
+renders a root concurrently and a `useSyncExternalStore` notification
+schedules at the sync lane rather than committing inline, so `render!` renders
+inside `flushSync` and `settle!` is the empty `flushSync` that lets an
+already-scheduled notification land — which is what lets a witness read the
+DOM on the line after a dispatch. Neither is `act`: `act` diverts work to a
+queue that is not the browser's, the right tool for an effect-ordering test
+and the wrong one for a witness that reads the page. `hydrate-root!` calls
+`hydrateRoot` plain. Adoption is React's own concurrent business and nothing
+in the tree forces it synchronously, so a `flushSync` there would manufacture
+a schedule no shipped caller has and every row taken through it would be a
+row about the manufactured one; the door returns before the tree is adopted,
+the DOM on the next line is still the server's, and the completion signal is
+the adoption window closing
+([the mutation finding](studio/ssr-spike-witness.md#a-finding-the-mutation-proof-produced)).
+
+**The hydrated root's shape, and why it rides on every render.** `tree` is the
+one place the root tree's shape is decided. An ordinary root is the bare frame
+provider around the app subtree — no extra fiber, passive effect or context
+provider, so the tree the bench lane measures carries none of them. A
+hydrated root is a Fragment whose first child is `adoption-window-closer` and
+whose second is the app under the window's provider, and the handle's
+`:adoption` key selects that branch: the window's presence is the one fact
+that says a root is hydrated, and there is no second flag to disagree with
+it. The wrapper must be reproduced on every subsequent `render!`, because
+React reconciles a root by its top element — a bare provider handed to a root
+that adopted under the Fragment is not a cheaper render but a different tree,
+and React unmounts the adopted subtree and mounts a fresh one, discarding
+every node, cell and subscription the adoption established. That was observed
+when the shape landed as the first `render!` after a hydration re-running all
+four boundary bodies and replacing all four DOM nodes; the standing witness is
+`re-frame.hicasso.roots-frames-hydration-dom-cljs-test`, whose
+`tearing-down-one-hydrated-root-leaves-the-other-adopted-and-live` row asserts
+that a props-equal `render!` after adoption bails at the memo with zero body
+runs and every node still the server's. `tree` is public because
+`re-frame.hicasso.server/render` builds its element from the same function:
+React derives a `useId` from tree position as well as from the prefix, so the
+server's bytes and the adopted tree agree by construction rather than by two
+implementations agreeing (`implementation/hicasso/spec/dispositions.md`,
+HS-11 obstruction 2).
+
+**The adoption window is per-root, closed by a component, and minted in
+production.** `hydrate-root!` mints the window and carries it on the handle as
+`:adoption`; nothing else can reach it, and the closer, the reporter and the
+presence reads all take that one object, so *this root is adopting* is one
+fact with one owner rather than a page-wide slot several callers race for.
+It is closed by `adoption-window-closer` — a nil-rendering component running
+a passive `useEffect` with empty deps, placed outside the frame provider
+because it reads no subscription — rather than by the function, because a
+passive effect is the earliest thing unambiguously after the hydration
+commit; closing before `hydrateRoot` returned would close it before a single
+body had run inside it. The window reaches the closer as a prop, which is
+what confines a closer to its own root. Per-root rather than page-wide
+because the two failure directions are both real: React holds
+`onRecoverableError` for the root's whole lifetime and fires it for
+post-hydration recoveries too, so a page-wide window (or a reference count)
+would label a completed root's later recovery a hydration mismatch whenever
+any sibling was still adopting, while a page-wide boolean lets one root's
+closer silence another root's genuine mismatch — the
+`a-completed-roots-later-recovery-is-not-a-mismatch-while-a-sibling-adopts`
+and `two-overlapping-hydrating-roots-recover-and-complain-independently` rows
+in the same namespace. The window is minted unconditionally, where the spine
+(`re-frame.substrate.spine`) mints only when it is going to install a
+reporter, because this one has a production reader: presence starts an
+adopted child `:present` rather than `:mounting`
+(`a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition`),
+so the window and its provider ride in a release build and only the reporter
+is debug-gated.
+
+**The reporter, and why the two root options are gated differently.** With no
+root options React's default handler is the only channel, so a divergence
+React recovers from — a text mismatch, a missing or extra or wrong-type
+element — would be an uncaught window error and nothing else, and Spec 011's
+`:rf.ssr/hydration-mismatch` would never fire. `hydration-reporter` closes
+over one root's window, emits the diagnostic while that window is open, and
+always delegates to React's default afterwards, because installing any
+`onRecoverableError` takes the default off and a reporter that only emitted
+would swallow the error the fail-open rule requires to stay uncaught
+(`rf2-2rtt6.97`, on [the SSR spike page](studio/ssr-spike-witness.md)).
+Attribute-only divergences are outside React's own contract and stay outside
+this channel ([production-server-arm.md](production-server-arm.md)). The
+reporter is a diagnostic: its emit compiles away behind
+`interop/debug-enabled?`, and what would remain is a replica of the default
+React runs anyway, so a release build installs none. `:identifier-prefix` is
+behaviour — it decides what `useId` answers, and a release build that dropped
+it would hydrate every server `useId` into a mismatch — so it is never gated.
+Both doors hand React the bare arity when there is nothing to say, which is
+why `root-options` answers nil rather than an empty object.
+
+**`ensure-frame!` seeds before the first render and guards on the
+incarnation.** `root!` ensures its frame before `createRoot`: created through
+`rf/make-frame` with `:initial-events` when absent, joined untouched when
+live. The guard asks `frame/frame-incarnation-token` rather than trusting
+`make-frame`, because re-`make-frame`-ing a live id is idempotent
+replacement — config and generation refresh, durable state preserved — so an
+unguarded call would not fail a joining root, it would silently refresh the
+config of the frame the first root created, and the guide promises the
+opposite (`docs/core/hicasso/00-installation.md`). `make-frame` drains the
+seed to a fixed point before it returns, so the seeded app-db is on the frame
+before React renders anything and the first paint is the seeded one — an
+ordering the substrate's `frame-root` component cannot have, since its ensure
+runs in a `useLayoutEffect` after the first commit, and a root door, being a
+function call, simply does first. `hydrate-root!` does not ensure: an
+adopting root takes its state from the payload through `re-frame.ssr/hydrate!`,
+and a seed there would overwrite it.
+
+**Teardown is root-scoped.** `unmount!` shuts the root's own window first — a
+root torn down before its passive effects ran never gets its closer, and an
+open window that outlives its root is one nothing can shut — then unmounts
+inside `flushSync`. It empties none of the runtime's tables: they are
+one-per-page and keyed by frame, so a reset would tear down every sibling
+root's state, and what survives an unmount is exactly what a residue gate
+reads — a teardown that emptied the tables first would answer zero whether it
+released anything or not. It does not remove the container, which is the
+caller's node. `release!` does both and empties the runtime; it is the fixture
+door, and it is off the facade for that reason (naming-ledger row 13).
+
 ## Memoization (HD-028, amending HD-006)
 
 A value-equality bail-out is the boundary **default**: every minted head carries

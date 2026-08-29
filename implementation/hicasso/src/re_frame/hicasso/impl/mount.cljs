@@ -216,53 +216,23 @@
       o)))
 
 (defn ensure-frame!
-  "ENSURE `frame-kw` before its root's first render: create the frame if
-  it is absent, seeding it with `initial-events`; JOIN it untouched if it
-  is already live. Answers `frame-kw`.
+  "Ensure `frame-kw` before its root's first render: create it through
+  `rf/make-frame` seeded with `initial-events` when absent; join it
+  untouched — no re-seed, no config refresh — when live. Answers
+  `frame-kw`. This is core's `frame-root` vocabulary
+  (docs/EP/EP-0027-frame-initial-events.md): `:initial-events` reaches
+  `make-frame` untouched, and EP-0027's preflight owns its shape and
+  errors.
 
-  ## This is core's `frame-root` vocabulary, not a second one
-
-  `rf/frame-root` (Reagent) and `re-frame.adapter.uix/frame-root` are the
-  substrate's ENSURE boundaries and they already read exactly this way —
-  *creates the frame if absent, REUSES it if present without re-seeding*,
-  taking `rf/make-frame`'s own opts, `:initial-events` among them
-  (EP-0027). This door reads the same way, so a consumer's boot line
-  names the frame id once — to the root door — rather than to
-  `rf/make-frame` and then again to `root!`. `:initial-events` reaches
-  `make-frame` UNTOUCHED — no default, no coercion, no second spelling
-  and no re-validation, the pass-through discipline
-  [[root-options]] already applies to `:identifier-prefix`. EP-0027's
-  preflight owns the shape and its errors name `rf/make-frame`, which is
-  the constructor a consumer would otherwise have called by hand.
-
-  ## Why the guard is on the INCARNATION and not on `make-frame`
-
-  Re-`make-frame`-ing a live id is IDEMPOTENT REPLACEMENT — config and
-  generation refresh, durable state preserved — so an unguarded call
-  would not crash a joining root, it would silently refresh the config of
-  the frame the first root created. The guide teaches the opposite in as
-  many words (*\"a later root that names the same frame joins its current
-  state and does not replay `:initial-events`\"*), so absence is asked
-  first. `frame/frame-incarnation-token` is the liveness question the
-  package asks — nil for absent, destroyed, or another actor's
-  provisional record — and it is what
-  [[re-frame.hicasso.impl.frames/frame-row]] already asks one layer down.
-
-  ## Synchronous, and that is what buys \"before first paint\"
-
-  `make-frame` dispatches `:initial-events` synchronously, in order,
-  draining each to a fixed point before it returns. So calling this
-  BEFORE `createRoot` means the seeded app-db is on the frame by the time
-  React renders anything, and the first paint is the seeded one rather
-  than an empty frame filled in a moment later. That is the ordering the
-  substrate's `frame-root` cannot have — it is a component, so its ENSURE
-  runs in a `useLayoutEffect` after the first commit — and a ROOT door,
-  being an ordinary function call, can simply do it first.
-
-  Not [[hydrate-root!]]'s: an adopting root takes its state from the
-  server payload through `re-frame.ssr/hydrate!`, so a seed here would
-  overwrite it. That door's chapter tells a consumer to `rf/make-frame`
-  first and means it."
+  The guard asks `frame/frame-incarnation-token` rather than trusting
+  `make-frame`, because re-`make-frame`-ing a live id is idempotent
+  REPLACEMENT — config and generation refresh, durable state preserved —
+  so an unguarded call would not fail a joining root, it would silently
+  refresh the first root's config, and the guide promises the opposite
+  (docs/core/hicasso/00-installation.md). Synchronous, and called before
+  `createRoot`: `make-frame` drains the seed to a fixed point before it
+  returns, so the first paint is the seeded one
+  (docs/design/hicasso/architecture.md, section The root)."
   [frame-kw initial-events]
   (when (nil? (frame/frame-incarnation-token frame-kw))
     (rf/make-frame (cond-> {:id frame-kw}
@@ -438,110 +408,36 @@
                 (when interop/debug-enabled? (hydration-reporter window))))
 
 (defn hydrate-root!
-  "Associate `container`'s **existing server-rendered DOM** with
-  `frame-kw` and `hiccup`, by adoption. [[root!]]'s hydrating twin, and
-  the client half every SSR route shares.
+  "Associate `container`'s existing server-rendered DOM with `frame-kw`
+  and `hiccup` by adoption: `root!`'s hydrating twin, published as
+  `h/hydrate!`. Returns `root!`'s handle shape plus `:adoption`, this
+  root's own window, and every other door takes a hydrated handle
+  unchanged. Does not ensure the frame — an adopting root's state arrives
+  through `re-frame.ssr/hydrate!` first, and a seed here would overwrite
+  it.
 
-  Returns the same handle shape [[root!]] does — `{:root :frame
-  :container}` — so [[render!]], [[dispatch!]], [[unmount!]] and
-  [[release!]] all take a hydrated handle unchanged.
+  Returns BEFORE the tree is adopted: `hydrateRoot` is called plain,
+  because a `flushSync` would manufacture a schedule no shipped caller
+  has, so the DOM on the next line is still the server's and the window
+  is closed by `adoption-window-closer` from a passive effect, the
+  earliest point unambiguously after the hydration commit. In debug
+  builds the root carries `hydration-reporter` as its `onRecoverableError`,
+  so a divergence React recovers from surfaces as Spec 011's
+  `:rf.ssr/hydration-mismatch` beside the uncaught error, never instead
+  of it. The window is minted in every build because presence reads it in
+  production.
 
-  ## `hydrateRoot` is not wrapped in `flushSync`
-
-  No `flushSync`, and that is a finding rather than an omission: nothing
-  in this tree forces hydration synchronously, so a flush here would
-  manufacture a schedule no shipped caller has and every row taken
-  through it would be a row about the manufactured one. The consequence
-  is that **this returns before the tree is adopted** — React adopts
-  concurrently, and the DOM on the line after this call is still the
-  server's.
-
-  ## So the window is closed by a COMPONENT, not by this function
-
-  [[adoption-window-closer]] rides as a Fragment sibling of the app
-  subtree and clears the window from its passive effect. That is the
-  spine's pattern (`spine.cljs`, `adoption-window-closer` /
-  `make-render`), and the reason is the same in both places: a passive
-  effect is the earliest thing that is unambiguously after the hydration
-  commit. Closing the window here, before `hydrateRoot` returns, would
-  close it before a single body had run inside it.
-
-  The closer sits OUTSIDE the frame provider on purpose — it reads no
-  subscription and needs no frame, and a nil-rendering component with no
-  frame dependency is the smallest thing that can carry the effect.
-
-  ## It carries two root options — one the package's, one the CALLER's
-
-  [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
-  divergence React recovers from surfaces as Spec 011's
-  `:rf.ssr/hydration-mismatch` instead of only as an uncaught window
-  error. It is the SPINE's arrangement, and it does not soften the
-  fail-open rule: the reporter always reports, so the uncaught error is
-  still uncaught and the diagnostic is added beside it.
-
-  `opts` is the caller's half and carries ONE key,
-  `:identifier-prefix` — React's `identifierPrefix`, passed through
-  untouched. **Hand it the same string the server render
-  used.** `useId` is numbered per root and prefixed by this option, so a
-  hydrating root given a different prefix (or none, where the server had
-  one) resolves every id in the tree differently from the bytes it is
-  adopting; React sees the divergence as a mismatch and recovers by
-  replacing the subtree, which is a correct repair of a page that should
-  never have shipped.
-
-  Name neither and [[hydrate-root-options]] answers nil in production, so
-  this call is the bare two-argument one it always was.
-
-  ## Matching the prefix is NECESSARY and it is not SUFFICIENT
-
-  The prefix half of the pair does meet in React's own vocabulary, and
-  needs nothing from this package: a consumer names `identifierPrefix` on
-  `react-dom/server`'s own render and the same string here — the
-  [[root-options]] section comment is where that is set out.
-
-  **Matching root STRUCTURE is the other half** (`dispositions.md`
-  HS-11 obstruction 2). React derives a `useId` from tree POSITION as
-  well as from the prefix, and a hydrating root's tree is NOT the app
-  subtree: [[tree]] wraps it in a Fragment whose first child is
-  [[adoption-window-closer]], with the adoption-window provider around
-  the app. A server path emitting no counterpart to that fork bakes
-  bytes that hydrate into a text mismatch whose two ids agree on the
-  prefix and differ after it.
-
-  `re-frame.hicasso.server/render` is the matching server-render entry,
-  and it matches by calling [[tree]], the same function this door calls,
-  with a handle carrying its own per-request window. So the fork is
-  decided once for both halves, the closer occupies the same tree
-  position on both sides, and the adoption provider presence reads to
-  start an adopted child `:present` rather than `:mounting` has its
-  server counterpart. `re-frame.hicasso.server-render-ssr-dom-cljs-test`
-  is the witness — its rows pin the hydrating shape and that the entry's
-  bytes hydrate through `h/hydrate!` without a mismatch.
-
-  **This door is on the `re-frame.hicasso` facade as `h/hydrate!`** —
-  the spelling naming-ledger row 13 rules, over row 20's `(node config
-  view)` contract shape.
-
-  ## The handle carries `:adoption` — this root's OWN window
-
-  [[root!]]'s three keys are all here and every door takes this handle
-  unchanged. The fourth key is not decoration and it is not a flag: it is
-  the window itself, minted here and reachable from nowhere else. Three
-  things need it and each gets the same object — the closer, the
-  reporter, and the provider presence reads — so \"this root is adopting\"
-  is one fact with one owner rather than a page-wide slot four callers
-  race for.
-
-  It is also what [[tree]] branches on, because the wrapper is part of the
-  ROOT's shape and [[render!]] has to reproduce it or React tears the
-  adopted tree down and rebuilds it.
-
-  **Minted unconditionally, unlike the spine's** — which mints only when
-  it is going to install a reporter, because its window has no other
-  reader. This window has a PRODUCTION reader: presence starts an
-  adopted child `:present` rather than `:mounting`, which is behaviour a
-  release build must keep. So the window and its provider ride in
-  production and only the reporter is debug-gated."
+  `opts` carries one key, `:identifier-prefix` — React's `identifierPrefix`,
+  passed through untouched, and it must be the string the server render
+  used or every `useId` in the tree resolves differently from the bytes
+  and React recovers by replacing the subtree. Matching the prefix is
+  necessary and not sufficient: `useId` also derives from tree position,
+  and this root's tree is `tree`'s Fragment rather than the bare app, so
+  the server half must be `re-frame.hicasso.server/render`, which builds
+  its element from the same function
+  (implementation/hicasso/spec/dispositions.md HS-11, obstruction 2;
+  `re-frame.hicasso.server-render-ssr-dom-cljs-test`). Mechanism and
+  witnesses: docs/design/hicasso/architecture.md, section The root."
   ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
    (let [window  (roots/open-adoption-window!)
