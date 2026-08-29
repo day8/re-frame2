@@ -375,6 +375,80 @@
              (.indexOf document (str "id=\"" ssr-constants/payload-script-id "\""))
              (.indexOf document "/js/app.js"))))))
 
+(deftest a-hostile-value-cannot-break-out-of-the-envelope
+  (testing "a `</script` inside an ALLOWLISTED app-db value is escaped in
+            the payload script body — the EDN-aware escaper's whole job,
+            and until this row nothing in the shipped tree exercised it:
+            deleting the `escape-edn-script-body` call would have redded
+            only the fenced bench donor's pin"
+    (let [evil "</script><script>window.pwned=1</script>"
+          {:keys [document payload]}
+          (server/render (request :snapshot {:label evil :secret "x"}))]
+      (is (= evil (get-in payload [:rf/app-db :label]))
+          "the premise: the hostile value IS on the allowlisted wire —
+           without this the absence below could be the allowlist's doing")
+      (is (not (str/includes? document "</script><script>"))
+          "the raw breakout sequence reaches no position in the document")
+      (is (str/includes? document "\\u003c/script")
+          "because inside the EDN string literal every < is the reader's
+           six-character escape, which round-trips to the same value")))
+  (testing "the document envelope's own text and attribute positions
+            escape too — the title through `escape-html`"
+    (let [{:keys [document]}
+          (server/render (request :title "Bob's <Feed> & Friends"))]
+      (is (str/includes? document "<title>Bob&#39;s &lt;Feed&gt; &amp; Friends</title>")
+          (str "every reserved character in its HTML spelling: " document))
+      (is (not (str/includes? document "<Feed>"))
+          "and the raw angle pair reaches nothing")))
+  (testing "`or`, not `:or` — a caller with one options map threads nil
+            through for every option it did not set, so the KEY is
+            supplied and destructuring defaults never fire; the module's
+            own comment records the page silently getting id=\"\" when
+            this regressed"
+    (let [{:keys [document]}
+          (server/render (request :title nil :app-element-id nil))]
+      (is (str/includes? document "<div id=\"app\">")
+          "the app element default survives an explicit nil")
+      (is (str/includes? document "<title>Hicasso SSR</title>")
+          "and so does the title default"))))
+
+(deftest frame-opts-ride-under-the-modules-id-and-the-wire-keys-ride-the-payload
+  (testing "`:frame-opts` merges UNDER the module's :id and
+            :initial-events — a request needing :url-strategy or
+            :fx-overrides declares them the way any frame does, and a
+            copy-pasted :id or :initial-events in them cannot hijack the
+            per-request frame or replace the seed. The invariant is one
+            `assoc`, and nothing pinned it"
+    (let [{:keys [document payload frame-id]}
+          (server/render (request :frame-opts {:id             ::hijack
+                                               :initial-events [[::relabel "hijacked"]]}))]
+      (is (not= ::hijack frame-id)
+          "the per-request gensym rules the frame id")
+      (is (= wire-frame (:rf/frame-id payload))
+          "and the wire id stays the caller's stable one")
+      (is (str/includes? document "alpha")
+          "the seed is the module's snapshot")
+      (is (not (str/includes? document "hijacked"))
+          "and the frame-opts' events vector never ran")))
+  (testing "`:version` and `:schema-digest` ride the payload under the
+            wire keys the hydrate side reads — the version COERCED to the
+            schema's integer (Spec-Schemas pins `:rf/version` as `:int`,
+            and a whole-number string is parsed rather than rejected)"
+    (let [{:keys [payload]}
+          (server/render (request :version "7" :schema-digest "digest-abc"))]
+      (is (= 7 (:rf/version payload)))
+      (is (= "digest-abc" (:rf/schema-digest payload))))
+    (testing "an omitted `:version` still ships the slot — the SSR
+              artefact's own protocol constant, so both wire ends agree
+              with no host wiring; an `(or version …)` here once silently
+              defeated the version-mismatch check"
+      (let [{:keys [payload]} (server/render (request))]
+        (is (pos-int? (:rf/version payload)))))
+    (testing "while an omitted `:schema-digest` omits the KEY — the
+              no-participation shape, not a nil stamped on the wire"
+      (let [{:keys [payload]} (server/render (request))]
+        (is (not (contains? payload :rf/schema-digest)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; 3b — HOW EVERY ASYNC ROW BELOW ENDS
 ;; ---------------------------------------------------------------------------

@@ -139,6 +139,17 @@
       (is (nil? (:loss e)))
       (is (= [] (:boundaries e)))))
 
+  (testing "a rendered-but-not-yet-committed boundary is OUTSIDE the scope
+            — the docstring's own sentence, and until this row nothing
+            discriminated refs-gating from entries-not-existing. A
+            regression to counting unclaimed entries silently inflates
+            the roster `:complete? true` is staked on"
+    (collector/render-body frame-id (fn [_] (h/sub [:tr/row 0]) nil) {})
+    (is (pos? (:entries (inventory/residue)))
+        "the premise: the probe left a REAL entry in the cache")
+    (is (= [] (:boundaries (tool/read-mounted-boundaries)))
+        "which the roster does not count, because no reference claims it"))
+
   (let [a (mount! (fn [_] (h/sub [:tr/left]) nil))
         b (mount! (fn [_] (h/sub [:tr/left]) nil))
         c (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))]
@@ -164,6 +175,31 @@
     (testing "an unmounted boundary leaves the roster"
       (a) (b) (c)
       (is (= [] (:boundaries (tool/read-mounted-boundaries)))))))
+
+(deftest two-read-orders-of-one-edge-set-collapse-to-one-row-that-says-so
+  (seeded!)
+  (testing "the runtime's entry compare is ORDERED, so `left,right` and
+            `right,left` are two live entries — but their edge SETS are
+            equal, and the edge set is this door's identity. The row must
+            collapse them and SAY it did: `:read-orders` was asserted
+            nowhere above 1, so the collapse arm of `entry-rows` could
+            rot into duplicate DOM ids for a panel and an ambiguous join
+            for a consumer with every existing row green"
+    (let [a (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))
+          b (mount! (fn [_] (h/sub [:tr/right]) (h/sub [:tr/left]) nil))
+          e (tool/read-mounted-boundaries)]
+      (is (= 2 (:entries (inventory/residue)))
+          "the premise: the runtime really holds TWO entries — without
+           this, one row could mean the orders were never distinguished")
+      (is (= 1 (count (:boundaries e)))
+          "one row per distinct edge set, whatever the read order")
+      (let [row (first (:boundaries e))]
+        (is (= [(bk [:tr/left]) (bk [:tr/right])] (:key (:boundary row))))
+        (is (= 2 (:instances row)) "both boundaries are counted in it")
+        (is (= 2 (:read-orders row))
+            "and the row says it folded two orders, which is the honest
+             rendering of a collapse the identity demanded"))
+      (a) (b))))
 
 (deftest the-mounted-roster-names-what-it-cannot-know
   (seeded!)
@@ -508,6 +544,44 @@
             (str read-name " must be byte-identical across two calls — a roster "
                  "ordered by a hash map's seq is not"))))
     (a) (b) (c)))
+
+(deftest roster-order-is-a-total-order-and-not-an-insertion-accident
+  ;; [[every-read-is-deterministic]] calls each read twice over the SAME
+  ;; map instances, and a hash map's seq is order-stable within one
+  ;; process — so that row cannot detect the hazard its own message
+  ;; names: a roster ordered by iteration order prints identically twice
+  ;; and still differs between two processes that built the same state.
+  ;; This row builds the same logical population twice, in OPPOSITE
+  ;; mount orders, and requires the projected orders to agree — which
+  ;; only a real total order over the rows can deliver.
+  (let [bodies   [(fn [_] (h/sub [:tr/left]) nil)
+                  (fn [_] (h/sub [:tr/right]) nil)
+                  (fn [_] (h/sub [:tr/row 0]) nil)
+                  (fn [_] (h/sub [:tr/row 1]) nil)
+                  (fn [_] (h/sub [:tr/row 2]) nil)]
+        orders   (fn []
+                   {:roster (mapv (comp :key :boundary)
+                                  (:boundaries (tool/read-mounted-boundaries)))
+                    :edges  (mapv :sub-id (:edges (tool/read-read-attribution)))})
+        build!   (fn [bs] (seeded!) (mapv mount! bs))
+        forward  (let [stops (build! bodies)
+                       o     (orders)]
+                   (run! #(%) stops)
+                   o)
+        _        (collector/reset-runtime!)
+        backward (let [stops (build! (vec (rseq bodies)))
+                       o     (orders)]
+                   (run! #(%) stops)
+                   o)]
+    (is (= 5 (count (:roster forward)))
+        "non-vacuous: five distinct rows are being ordered")
+    (is (= 5 (count (:edges forward)))
+        "and five attribution edges — the three :tr/row parameterizations
+         stay three cells even though they project one :sub-id")
+    (is (= forward backward)
+        "two constructions of one logical state must project the same
+         BYTES in the same order — insertion order leaking into the
+         roster is exactly what `ordered` exists to delete")))
 
 (deftest no-read-takes-a-consumer-discriminator
   (testing "ONE door: Xray and Pair cannot be handed different shapes"

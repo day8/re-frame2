@@ -322,6 +322,28 @@
       (is (re-find #"ALPHA" html) (str "control: " html)))))
 
 ;; ---------------------------------------------------------------------------
+;; 3b — the shell's own guard, positively
+;; ---------------------------------------------------------------------------
+
+(deftest a-frame-fed-boundary-with-no-frame-in-its-props-refuses-by-id
+  (testing "the OTHER half of section 3's story: outside the fallback
+            position the mint bakes the frame into the element's props,
+            and the shell's guard is what stands when an element reaches
+            React without one — an outward bridge minting by hand, or the
+            hole this file closed. Its shape had never been POSITIVELY
+            pinned anywhere: section 3 asserts only that the id is NOT
+            this one on the declaration path, which a renamed or gutted
+            refusal satisfies vacuously. The guard runs before either of
+            the shell's hooks, which is what makes it assertable here
+            with no React render"
+    (let [data (error-data #(collector/frame-prop-shell
+                              (fn [_] [:p "unreachable"])
+                              #js {}))]
+      (is (= :rf.error/no-frame-prop (:rf.error/id data)))
+      (is (= 're-frame.hicasso.impl.collector/frame-prop-shell (:where data)))
+      (is (= :mint-the-root-element-with-a-frame (:recovery data))))))
+
+;; ---------------------------------------------------------------------------
 ;; 4 — every legitimate fallback position, proven ONE AT A TIME
 ;;
 ;; A refusal is only as good as what it leaves alone. One row per shape a

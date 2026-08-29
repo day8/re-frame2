@@ -437,6 +437,32 @@
                (done))))))
 
 ;; ---------------------------------------------------------------------------
+;; 1c. The fence's own terminal refusal
+;; ---------------------------------------------------------------------------
+
+(deftest a-body-that-writes-on-every-run-exhausts-the-fence-and-is-refused-by-id
+  (seeded!)
+  (testing "[[writing-body]]'s docstring names the case: the generation
+            fence re-runs a body that observed a new commit, and a body
+            that writes on EVERY run cannot be fenced. The refusal is the
+            retry loop's own terminal arm, and nothing in the shipped
+            tree had ever driven it — the only exercise was the fenced
+            bench twin's, by message regex, against its own copy of the
+            runtime"
+    (let [always-writer (fn writer [_]
+                          (rf/with-frame frame-id (rf/dispatch-sync [:acs/bump :a]))
+                          [:p "writer"])
+          data          (try
+                          (collector/render-body frame-id always-writer {})
+                          ::returned-without-refusing
+                          (catch :default e (ex-data e)))]
+      (is (= :rf.error/hicasso-generation-fence-exhausted (:rf.error/id data)))
+      (is (= 're-frame.hicasso.impl.collector/render-body (:where data)))
+      (is (= :move-the-write-out-of-the-render (:recovery data)))
+      (is (= frame-id (:frame data))
+          "the refusal names the frame whose commits kept landing"))))
+
+;; ---------------------------------------------------------------------------
 ;; 2. Hidden work publishes no read sets
 ;; ---------------------------------------------------------------------------
 
