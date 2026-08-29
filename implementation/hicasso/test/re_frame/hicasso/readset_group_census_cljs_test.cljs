@@ -44,7 +44,10 @@
 
 (def ^:private frame-id ::readset-census)
 
-(doseq [i (range 24)]
+;; 65 rather than the 24 the census rows need: the bucket-scan law at the
+;; bottom of this file grows a 64-entry cache whose read sequences share a
+;; first key, and each needs a distinct second one.
+(doseq [i (range 65)]
   (rf/reg-sub (keyword "rsc" (str "k" i)) (fn [db [_]] (get db i))))
 
 (rf/reg-event :rsc/seed (fn [_ [_ db]] {:db db}))
@@ -321,3 +324,39 @@
         "every membership is shareable by the generous reading, and
          grouping still costs one — which is why the verdict is taken on
          both denominators and not on this one")))
+
+;; ---------------------------------------------------------------------------
+;; The entry cache's own scan law
+;; ---------------------------------------------------------------------------
+
+(deftest the-bucket-scan-does-not-grow-with-the-number-of-boundaries
+  ;; The law was discharged in the bench tree against the twin runtime's
+  ;; own copy (`arm1/runtime_cljs_test`), and the freeze pin that made
+  ;; that green transfer to the shipped collector was retired — so the
+  ;; regression this hash specifically guards, first-key bucketing
+  ;; degrading an N-row list to an N-deep scan (the whole quadratic in
+  ;; rf2-2rtt6.46, a defect that actually shipped), had no live pin.
+  ;; Restated here against `inventory/entry-buckets` and the production
+  ;; entry cache. Probe-only renders, deliberately: the cache is minted
+  ;; at render, so no commit is needed and none is taken.
+  (seeded!)
+  (testing "an entry lookup compares against the read sequences that
+            COLLIDE, not against every live boundary that happens to
+            share a first key — the page-wide-key-then-per-row-key shape
+            one moved `let` binding produces"
+    (dotimes [i 8]
+      (collector/render-body frame-id (reading [(q 0) (q (inc i))]) {}))
+    (let [small (inventory/entry-buckets)]
+      (is (= 8 (:entries (inventory/stats)))
+          "eight distinct read sequences, eight entries")
+      (is (= 1 (:max-bucket small))
+          "and the deepest bucket holds ONE — the whole-sequence hash
+           separates what a first-key hash would pile up")
+      (dotimes [i 56]
+        (collector/render-body frame-id (reading [(q 0) (q (+ 9 i))]) {}))
+      (let [large (inventory/entry-buckets)]
+        (is (= 64 (:entries (inventory/stats))))
+        (is (= (:max-bucket small) (:max-bucket large))
+            (str "the scan is " (:max-bucket large) " deep at 64 rows and "
+                 (:max-bucket small) " at 8 — growth here is the quadratic
+                 coming back"))))))
