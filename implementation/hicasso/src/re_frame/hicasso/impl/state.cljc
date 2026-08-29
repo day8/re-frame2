@@ -71,14 +71,14 @@
   must be recorded — retire the concern and write a named domain event.
   This sugar is for the assignments that mean nothing but themselves.
 
-  ## What was REJECTED, and stays rejected
+  ## Clear is an EVENT, never a sentinel value
 
   Clear is a FRAMEWORK-NAMED EVENT, `[::h/clear ::concern ikey]`, and not
-  a sentinel VALUE. The rejected variant put `::h/clear` in the value
+  a sentinel VALUE. A sentinel would put `::h/clear` in the value
   position of the ordinary setter — which reads beautifully right up to
   the first concern whose values are keywords, at which point setting the
   concern to a legitimate value would silently `dissoc` it instead. That
-  is a fail-silent hazard of exactly the class this whole ruling exists to
+  is a fail-silent hazard of exactly the class this namespace exists to
   delete, so there is no sentinel here and no \"convenience\" arity that
   accepts one."
   (:require [re-frame.events :as events]
@@ -101,7 +101,7 @@
   :re-frame.hicasso/clear)
 
 ;; ---------------------------------------------------------------------------
-;; Errors — the lane's shape (front.presence/fail!)
+;; Errors
 ;; ---------------------------------------------------------------------------
 
 ;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
@@ -242,8 +242,8 @@
   refresh, which is what a namespace reload is. Re-registering it with a
   DIFFERENT `:default` **refuses**: the un-set instances of a live widget
   would otherwise start reading a different value with nothing on screen
-  to say why. That is the stricter of the two behaviours the ruling
-  allowed, and its cost is honest — changing a `:default` in a
+  to say why. That is deliberately the stricter of the two defensible
+  behaviours, and its cost is honest — changing a `:default` in a
   hot-reloading dev session needs a page reload.
 
   Returns `concern`.

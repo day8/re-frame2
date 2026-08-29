@@ -51,7 +51,9 @@
 (defonce !evidence-sink (atom nil))
 
 (defn set-evidence-sink!
-  "Attach (or with nil, detach) the evidence sink."
+  "Attach (or with nil, detach) the evidence sink: a fn of one event map,
+  keyed by `:event` (`:commit` or `:edges-changed`), called synchronously
+  from the collector's tap points."
   [f]
   (reset! !evidence-sink f)
   nil)

@@ -1,9 +1,10 @@
 (ns re-frame.hicasso.impl.mount
-  "ARM 1's ROOT — one operation, an idempotent teardown (HD-021(b)).
+  "THE PACKAGE'S ROOT — one operation, an idempotent teardown
+  (HD-021(b)).
 
   `root!` ENSURES a frame, associates it with a DOM node and a hiccup
   tree, and returns the handle every other door here takes. That is the
-  whole execution contract this arm needs; the names stay unfrozen
+  whole execution contract the package needs; the names stay unfrozen
   (HD-021 pins the semantics, not the spelling).
 
   ## Three of these vars ARE the public door
@@ -174,7 +175,7 @@
 ;; must be given the prefix its server render used, or every `useId` in
 ;; the tree resolves to a different string on the client and React
 ;; recovers by throwing the server's nodes away. Neither is a fact about
-;; this arm. These doors are what let a caller say the word.
+;; this package. These doors are what let a caller say the word.
 ;;
 ;; **The PREFIX's server half is React's too, and it needs no door
 ;; here.** It is spelled on whichever server caller bakes the bytes:
@@ -197,9 +198,9 @@
   nothing to say.
 
   Nil rather than an empty object, because both root doors branch on it
-  to call React's BARE arity — the arrangement [[hydrate-root!]] has
-  always had for production, where the reporter compiles away and the
-  shipped call is the two-argument one it was before any option existed.
+  to call React's BARE arity — the arrangement [[hydrate-root!]] relies
+  on for production, where the reporter compiles away and the shipped
+  call is the bare two-argument one.
 
   String keys through `unchecked-set`, for the reason the `displayName`
   stamps in this file use it: the string key is what keeps the property
@@ -225,10 +226,9 @@
   substrate's ENSURE boundaries and they already read exactly this way —
   *creates the frame if absent, REUSES it if present without re-seeding*,
   taking `rf/make-frame`'s own opts, `:initial-events` among them
-  (EP-0027). This arm was the odd one out: its client root could scope a
-  frame but never make one, so every consumer boot in the package wrote
-  `rf/make-frame` and then `root!` with the frame id spelled twice. Both
-  halves of that pair are here now, and `:initial-events` reaches
+  (EP-0027). This door reads the same way, so a consumer's boot line
+  names the frame id once — to the root door — rather than to
+  `rf/make-frame` and then again to `root!`. `:initial-events` reaches
   `make-frame` UNTOUCHED — no default, no coercion, no second spelling
   and no re-validation, the pass-through discipline
   [[root-options]] already applies to `:identifier-prefix`. EP-0027's
@@ -243,10 +243,10 @@
   the frame the first root created. The guide teaches the opposite in as
   many words (*\"a later root that names the same frame joins its current
   state and does not replay `:initial-events`\"*), so absence is asked
-  first. `frame/frame-incarnation-token` is the arm's own liveness
-  question — nil for absent, destroyed, or another actor's provisional
-  record — and it is what [[re-frame.hicasso.impl.frames/frame-row]]
-  already asks one layer down.
+  first. `frame/frame-incarnation-token` is the liveness question the
+  package asks — nil for absent, destroyed, or another actor's
+  provisional record — and it is what
+  [[re-frame.hicasso.impl.frames/frame-row]] already asks one layer down.
 
   ## Synchronous, and that is what buys \"before first paint\"
 
@@ -278,7 +278,7 @@
   [[ensure-frame!]] and before React renders anything — ordinary events,
   in the order given, run once when this mount CREATES the frame and
   never when it joins one. It is core's `:initial-events`
-  reaching `rf/make-frame` untouched, not a spelling this arm owns.
+  reaching `rf/make-frame` untouched, not a spelling this package owns.
 
   `:identifier-prefix` is handed straight to `createRoot` as React's
   `identifierPrefix`. A page mounting two roots gives them
@@ -327,7 +327,7 @@
 ;; component is a function, so the write was a type error the compiler
 ;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
 ;; and it is the STRING key that keeps the property off Closure's renamer
-;; under `:advanced` — the reason the arm's other stamps
+;; under `:advanced` — the reason the package's other stamps
 ;; (`collector/mint-view!`, `codec/memoize-boundary!`) are spelled this way.
 (unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
 
@@ -337,17 +337,18 @@
 ;;
 ;; React reports the adoption divergences it RECOVERS FROM — a text
 ;; mismatch, or a missing / extra / wrong-type element — through the root's
-;; `onRecoverableError`. Left with no root options this door got React's
-;; DEFAULT handler, so a mismatch was an uncaught window error and NOTHING
-;; ELSE: Spec 011's `:rf.ssr/hydration-mismatch` never fired, and a mismatch
-;; was invisible to every tool that reads the instrumentation stream.
+;; `onRecoverableError`. With no root options that channel is React's
+;; DEFAULT handler, so a mismatch would be an uncaught window error and
+;; NOTHING ELSE: Spec 011's `:rf.ssr/hydration-mismatch` would never fire,
+;; and a mismatch would be invisible to every tool that reads the
+;; instrumentation stream. The reporter below is what closes that gap.
 ;;
-;; The shape below is the spine's (`re-frame.substrate.spine`,
-;; `native-hydration-reporter` / `hydrate-root-options`), because this arm is
-;; a React-element root exactly as a native UIx root is: no hashable client
-;; render-tree, so adoption IS the verification channel. Attribute-only
-;; divergences are outside it by React's own contract and stay outside it
-;; here (Spec 011 §Hydration-mismatch detection).
+;; The shape is the spine's (`re-frame.substrate.spine`,
+;; `native-hydration-reporter` / `hydrate-root-options`), because this
+;; package's root is a React-element root exactly as a native UIx root is:
+;; no hashable client render-tree, so adoption IS the verification channel.
+;; Attribute-only divergences are outside it by React's own contract and
+;; stay outside it here (Spec 011 §Hydration-mismatch detection).
 
 (defn- report-recoverable-default!
   "React's own default reporting, replicated.
@@ -397,9 +398,9 @@
       here would mislabel a completed root's later recovery whenever any
       sibling was still adopting** — which is what a page-global
       reference count would have bought.
-    - Never emitting is the other failure, and it is the one that was
-      shipping: a page-wide boolean let root A's closer silence root B's
-      genuine mismatch.
+    - Never emitting is the other failure: a page-wide BOOLEAN lets
+      root A's closer silence root B's genuine mismatch, which is why
+      the window is per-root rather than a page-wide flag.
 
   The delegation is unconditional in both cases — installing ANY
   `onRecoverableError` takes React's default off, so the fail-open rule
@@ -422,8 +423,8 @@
   `interop/debug-enabled?` and the only thing left to install would be a
   replica of the default React would have run anyway. The spine gates the
   same way, one clause wider: it also installs for a host-authored
-  `:on-recoverable-error`, and this arm has no host-authored callback to
-  compose with.
+  `:on-recoverable-error`, and this package has no host-authored callback
+  to compose with.
 
   **`:identifier-prefix` is NOT gated, and that asymmetry is the point.**
   The reporter is a diagnostic and a release build is
@@ -469,7 +470,7 @@
   subscription and needs no frame, and a nil-rendering component with no
   frame dependency is the smallest thing that can carry the effect.
 
-  ## It carries two root options — one the arm's, one the CALLER's
+  ## It carries two root options — one the package's, one the CALLER's
 
   [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
   divergence React recovers from surfaces as Spec 011's
@@ -494,7 +495,7 @@
   ## Matching the prefix is NECESSARY and it is not SUFFICIENT
 
   The prefix half of the pair does meet in React's own vocabulary, and
-  needs nothing from this arm: a consumer names `identifierPrefix` on
+  needs nothing from this package: a consumer names `identifierPrefix` on
   `react-dom/server`'s own render and the same string here — the
   [[root-options]] section comment is where that is set out.
 
@@ -513,12 +514,13 @@
   decided once for both halves, the closer occupies the same tree
   position on both sides, and the adoption provider presence reads to
   start an adopted child `:present` rather than `:mounting` has its
-  server counterpart. `hydration-tree-parity-ssr-dom-cljs-test` is the
-  witness.
+  server counterpart. `re-frame.hicasso.server-render-ssr-dom-cljs-test`
+  is the witness — its rows pin the hydrating shape and that the entry's
+  bytes hydrate through `h/hydrate!` without a mismatch.
 
-  **This door is on the `re-frame.hicasso` facade as `h/hydrate!`**,
-  under naming-ledger row 13's `hydrate-root!`→`hydrate!` spelling and
-  row 20's `(node config view)` contract shape.
+  **This door is on the `re-frame.hicasso` facade as `h/hydrate!`** —
+  the spelling naming-ledger row 13 rules, over row 20's `(node config
+  view)` contract shape.
 
   ## The handle carries `:adoption` — this root's OWN window
 
@@ -536,7 +538,7 @@
 
   **Minted unconditionally, unlike the spine's** — which mints only when
   it is going to install a reporter, because its window has no other
-  reader. This arm's window has a PRODUCTION reader: presence starts an
+  reader. This window has a PRODUCTION reader: presence starts an
   adopted child `:present` rather than `:mounting`, which is behaviour a
   release build must keep. So the window and its provider ride in
   production and only the reporter is debug-gated."
@@ -563,7 +565,7 @@
   teardown that emptied the tables first answers `0` whether it released
   anything or not, and that is a gate that cannot go red.
   It is also what makes teardown ROOT-scoped in a multi-root page —
-  every table this arm holds is one-per-page and keyed by frame, so a
+  every table the package holds is one-per-page and keyed by frame, so a
   door that reset them would tear down every sibling root's state along
   with its own.
 
@@ -615,8 +617,8 @@
   nil)
 
 (defn dispatch!
-  "Dispatch through the arm's synchronous door and commit the echo. The
-  witness door; an intent written in a view reaches
+  "Dispatch through the package's synchronous door and commit the echo.
+  The witness door; an intent written in a view reaches
   `collector/dispatch!` on its own."
   [handle event]
   (collector/dispatch! (:frame handle) event)
@@ -632,6 +634,6 @@
 
 (defn browser?
   "Is there a real DOM here? `:node-test` has none, and every DOM claim in
-  this arm degrades to a stated skip there rather than a false green."
+  this package degrades to a stated skip there rather than a false green."
   []
   (and (exists? js/document) (some? (.-createElement js/document))))

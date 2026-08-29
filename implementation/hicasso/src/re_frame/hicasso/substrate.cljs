@@ -35,7 +35,7 @@
   every deref, which is right for a headless SSR render and wrong under a live
   view. `re-frame.hicasso.impl.collector/wire-cell!` installs a watch on the
   reaction it subscribes and marks its cell dirty when the value moves; under
-  plain-atom that watch fires never, so the arm paints once and is deaf
+  plain-atom that watch fires never, so the runtime paints once and is deaf
   thereafter.
 
   Watchability alone would not settle it either. A `reagent.ratom/Reaction` is

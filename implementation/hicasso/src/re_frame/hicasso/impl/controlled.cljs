@@ -50,8 +50,8 @@
      no-op, because it only assigns when the two differ
      (`react-dom-client.development.js:1661-1667`), and a no-op there is
      what lets the caret survive;
-  3. put the caret back **by offset from the END of the string**, which
-     is Arm 2's algorithm and Reagent's before it — the offset a
+  3. put the caret back **by offset from the END of the string** —
+     Reagent's own algorithm, because the offset is what a
      normalisation that changes the length preserves, where an absolute
      position does not.
 
@@ -66,9 +66,10 @@
   **stale the moment step 1 commits a new one**. Writing it back is not
   a missing improvement, it is a regression: on a keystroke the model
   took verbatim it wipes the character the user just typed.
-  `front/controlled_dom_cljs_test` reproduces exactly that, by handing
-  [[converge-to!]] the closure's value instead of the record's — one
-  argument different, and the accepted keystroke disappears.
+  `re-frame.hicasso.controlled-dom-cljs-test` reproduces exactly that,
+  by handing [[converge-to!]] the closure's value instead of the
+  record's — one argument different, and the accepted keystroke
+  disappears.
 
   Comparing the field against what the handler saw does not answer it
   either. `(= (.-value node) dom-value)` is **true in both cases**: on a
@@ -100,7 +101,7 @@
 
   **So the price the option was quoted at is not charged here.** What
   remains is the dependency, and [[last-rendered]] is the one place that
-  names it. `front/controlled_dom_cljs_test` asserts the invariant
+  names it. `arm1_controlled_grid_dom_cljs_test` asserts the invariant
   directly, on a live element, across a re-render that moves the value —
   so if React ever stopped mirroring, a row named for the invariant goes
   red rather than five rows going subtly wrong.
@@ -310,8 +311,8 @@
   given.
 
   What does happen is measured on the hydration harness rather than on a
-  hand-rolled `hydrateRoot`, because hand-rolled arms disagree about node
-  identity in opposite directions on consecutive runs:
+  hand-rolled `hydrateRoot`, because hand-rolled hydration harnesses
+  disagree about node identity in opposite directions on consecutive runs:
   `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption* is a fact rather
   than a wait — `hydrate-root!` returns before the tree is adopted, so a
   synchronous dispatch on the next line cannot be raced.
@@ -344,7 +345,7 @@
   namespace docstring for the four lines of `react-dom` that maintain
   it. The one place this namespace depends on that behaviour, so it is
   the one place a row has to pin, and
-  `front/controlled_dom_cljs_test/the-record-is-the-elements-own-and-is-not-the-closures`
+  `arm1_controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
   pins it.
 
   `js/undefined` on anything that is not a live form control — a
@@ -770,8 +771,8 @@
 
   The one reader an element-tree test needs, so that walking what the
   codec emitted stays a question about the DOM rather than about this
-  namespace. `front/census_article_editor_cljs_test` picks its inputs
-  out of a rendered fieldset with it."
+  namespace. `re-frame.hicasso.controlled-dom-cljs-test` reads every
+  emitted element's tag through it."
   [e]
   (let [t (.-type e)]
     (or (when (fn? t) (unchecked-get t native-tag-key))

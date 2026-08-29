@@ -14,11 +14,11 @@
   ## What this namespace is
 
   **The three authoring macros live HERE**, because this is the authoring
-  surface. `hframe` is the one name still awaiting its respelling:
-  naming-ledger row 18 RETIRES the verb rather than respelling it, in
-  favour of core's `rf/current-frame-id` and a zero-arity
-  `rf/capture-frame` — and that one waits on a seam, because zero-arity
-  `rf/capture-frame` refuses inside a Hicasso body today.
+  surface. `hframe` is provisional rather than settled: naming-ledger
+  row 18 retires the verb — in favour of core's `rf/current-frame-id`
+  and a zero-arity `rf/capture-frame` — and the retirement waits on a
+  seam, because zero-arity `rf/capture-frame` refuses inside a Hicasso
+  body.
 
   **Every other var below is an ALIAS.** This namespace adds no
   behaviour: each `def` names a value `re-frame.hicasso.impl.*` owns.
@@ -75,8 +75,8 @@
 ;; hand its macros to a consumer, and its `:clj` side is these three macros
 ;; and nothing else — no runtime namespace is required on the JVM, so there
 ;; is no JVM render path for a reader to mistake for one. A `.cljc` that
-;; carried more would invite a JVM-side implementation this arm does not
-;; have.
+;; carried more would invite a JVM-side implementation this package does
+;; not have.
 
 #?(:clj
    (defmacro defview
@@ -279,12 +279,11 @@
    (defmacro event
      "**The one callback form** (HD-024). `h/event` in the authoring
   surface, and `event` here — the same name, since the door is reached
-  qualified. It was `hfn` until naming-ledger row 1 was swept
- : the guide had always taught `h/fn`, which is a name the
-  door could never carry, because a bare `fn` shadows `cljs.core/fn` for
-  anyone who `:refer`s it. `h/handler` was rejected as a cross-adaptor
-  false friend — `handler` means return-ignored imperative work in the
-  established vocabulary, and this form's contract is `event`.
+  qualified. Naming-ledger row 1 settles the name: not `fn`, because a
+  bare `fn` shadows `cljs.core/fn` for anyone who `:refer`s it; and not
+  `handler`, a cross-adaptor false friend — `handler` means
+  return-ignored imperative work in the established vocabulary, and this
+  form's contract is `event`.
 
   **The name states ONE of the three contracts this form can carry**, and
   which one is selected by POSITION rather than by the name, so the three
@@ -439,11 +438,11 @@
         {:callbacks {:on-close :event}}
         {:slots #{:title}})   ;; <- minted; the :slots map was GONE
 
-  read back consistent — the head simply had no slots — and the markup
-  written at `:title` could never arrive. Two options maps are not
-  merged and never were. [[defview]]'s `[argv & body]` has no tail to
-  lose, which is what made this the one door in the family that
-  swallowed one; the refusal closes the gap `mint-host!`'s own
+  would read back consistent — the head simply has no slots — and the
+  markup written at `:title` could never arrive. Two options maps are
+  not merged. [[defview]]'s `[argv & body]` has no tail to
+  lose, which is what makes this the one door in the family that could
+  swallow one; the refusal closes the gap `mint-host!`'s own
   unknown-option message already gives the reason for — *reading past an
   option it does not know is how a policy comes to be set and never
   applied* — one layer above that guard.
@@ -506,7 +505,7 @@
                   (re-frame.hicasso.impl.error/declared!)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The vars — aliases, every one under its prototype name
+;; The vars — aliases, every one naming a value `impl.*` owns
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
@@ -659,25 +658,19 @@
      ;; for both halves — so the counterpart emits the tree this door
      ;; adopts, position for position.
      ;;
-     ;; The SPELLING is naming-ledger row 13 (`hydrate-root!`→`hydrate!`)
-     ;; applied as a default, as the ledger header says a recommendation
-     ;; is applied before the sitting, and as route rows 21 and 23 take
-     ;; it. The CONTRACT SHAPE is row 20's `(node config view)` with
-     ;; `:frame` + `:identifier-prefix`, kept as taught.
+     ;; The DOOR NAMES are `mount!` and `hydrate!` over impl's `root!`
+     ;; and `hydrate-root!`, and the CONTRACT SHAPE is `(node config
+     ;; view)` with a config map — naming-ledger rows 13 and 20 carry the
+     ;; ruling and the argument, kept as the guide teaches.
      ;;
-     ;; **Row 13's other half — `root!`→`mount!` — is not a rename.** The
+     ;; **`mount!` is a contract, not a respelling of `root!`.** The
      ;; guide teaches `h/mount!` over row 20's config map carrying
-     ;; `:frame` AND `:initial-events`, where a bare `root!` takes the
-     ;; frame POSITIONALLY and implements `:initial-events` nowhere, so a
-     ;; var rename alone would publish this name against every taught call
-     ;; site and fail at runtime under a green compile — new behaviour
-     ;; wearing a spelling's clothes. Row 20 settles it and is ruled *keep
-     ;; as taught*, on the ground that `:initial-events` is **borrowed
-     ;; from core's `frame-root` vocabulary rather than minted here**. So
-     ;; the door below takes the contract, `impl.mount/ensure-frame!`
-     ;; supplies the behaviour by calling `rf/make-frame` exactly as a
-     ;; consumer's own boot line does, and inventory row HS-10 goes with
-     ;; the name.
+     ;; `:frame` AND `:initial-events`, where impl's `root!` takes the
+     ;; frame POSITIONALLY — so the door below takes the taught contract
+     ;; and `impl.mount/ensure-frame!` supplies the seeding behaviour by
+     ;; calling `rf/make-frame` exactly as a consumer's own boot line
+     ;; does. Row 20's ground: `:initial-events` is **borrowed from
+     ;; core's `frame-root` vocabulary rather than minted here**.
 
      (def ^{:doc "`h/mount!` — **the root door**: ensure a frame,
   associate it with a DOM container and one root view, and answer the
@@ -694,9 +687,9 @@
 
   **`:frame`** is the frame keyword this root scopes, and mounting
   ENSURES it: the frame is created if it does not exist, or JOINED as it
-  stands if another root already uses it. Nothing else in this arm makes
-  a frame, so a consumer's boot line names the id once here rather than
-  twice — to `rf/make-frame` and again to the root door.
+  stands if another root already uses it. Nothing else in the package
+  makes a frame, so a consumer's boot line names the id once here rather
+  than twice — to `rf/make-frame` and again to the root door.
 
   **`:initial-events`** is an ordered vector of ordinary event vectors,
   dispatched synchronously into the frame **when this mount CREATES it**,
@@ -722,7 +715,7 @@
 
   [[hydrate!]]'s reason exactly, and the two doors are the same case seen
   twice: `impl.mount/root!` is `(container frame-kw hiccup opts)` — the
-  prototype's positional shape — and row 20 keeps the guide's config map,
+  impl tier's positional shape — and row 20 keeps the guide's config map,
   because a config map is what lets `:initial-events` and
   `:identifier-prefix` join without an arity each. So the adaptation is
   three lines here and impl keeps one caller shape for its own witnesses

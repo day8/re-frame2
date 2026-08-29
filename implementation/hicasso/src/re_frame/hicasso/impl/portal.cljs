@@ -44,7 +44,8 @@
   `:server` describes [[portal-body]] — the component the head renders —
   and that component *is* safe to run on the server: on the server it
   renders the caller's `:fallback`, or nothing, and never reaches for a
-  container. The published matrix row (`Portal helper | Client-only`)
+  container. The published matrix row (dispositions.md HS-20,
+  `Portal helper | Client-only`)
   describes the SURFACE, and the surface is client-only because the
   portalled subtree never reaches the response.
 

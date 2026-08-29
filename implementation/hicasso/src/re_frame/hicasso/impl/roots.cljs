@@ -108,8 +108,8 @@
   ;; which [[adopting?]] reads as closed — so every tree with no provider
   ;; above it (every ordinary mount, every Hicasso boundary anywhere) gets
   ;; the right answer with no provider, no object and no branch. Only a
-  ;; hydrating root installs one. This is the shape the compiled tier's
-  ;; phase context already uses for the same fact.
+  ;; hydrating root installs one — the same absence-means-closed discipline
+  ;; `re-frame.substrate.spine` holds its root-local adoption flag to.
   (react/createContext nil))
 
 (defn with-adoption

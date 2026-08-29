@@ -81,9 +81,9 @@
   `impl.presence-react` as their emitter, so the two files stay put.
 
   **The override keys are `::h/mounting` and `::h/unmounting`**, as the
-  example above shows. The door moved to this namespace; the vocabulary
-  did not, and a respelling to `::motion/…` waits on the naming ledger
-  (row 31)."
+  example above shows — the `re-frame.hicasso` spellings, even under this
+  door; naming-ledger row 31 is where a respelling to `::motion/…` would
+  be settled."
   (:require [re-frame.hicasso.impl.presence-react :as impl-presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for

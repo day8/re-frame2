@@ -79,8 +79,8 @@
 ;;              :ops         <bundle>         `rf/capture-frame`'s
 ;;                                            {:frame :dispatch :dispatch-sync
 ;;                                             :subscribe}, pinned to it
-;;              :dispatch    <closure>        the arm's ambient dispatch over
-;;                                            THAT bundle}
+;;              :dispatch    <closure>        the runtime's ambient dispatch
+;;                                            over THAT bundle}
 ;;
 ;; The residue ledger counts this table under the `:frame-ops` token, priced as
 ;; "one capture-frame bundle and one ambient dispatch per frame" — one row is

@@ -15,8 +15,7 @@
 
   ## A plain function, deliberately — not a boundary
 
-  Freehand's `v/route-link` is a `defview`; here that would be the wrong
-  citation. A Hicasso boundary costs two hooks and a row in every
+  A Hicasso boundary costs two hooks and a row in every
   boundary count, and the census's 106 links live INSIDE rows that are
   already boundaries — an author byline is not a unit of re-render. So
   `route-link` is a plain function like
@@ -36,14 +35,15 @@
     the same two
     definitions, and the packaging graph stays
     `hicasso -> core late-bind <- routing` (Conventions §Packaging).
-  - **From Freehand (taken): render-time capture and render-time
+  - **Owned here: render-time capture and render-time
     refusal.** The frame is captured at RENDER (a click fires after the
     render scope has unwound); a missing routing artefact fails at the
     LINK SITE with `:rf.error/routing-artefact-missing`; and the
-    route-click one-intent law is kept — see [[on-click-roster!]].
-    **(Declined:** the fn-only `:on-click` roster. Freehand narrows to
-    fn / `v/handler` because it has no in-band spelling for
-    \"cancel-and-replace\"; Hicasso does — `[::h/prevent [:app/event]]`
+    route-click one-intent law holds — the click produces the one
+    routing intent, see [[on-click-roster!]].
+    **(Declined:** a fn-only `:on-click` roster. That narrowing is only
+    forced on a surface with no in-band spelling for
+    \"cancel-and-replace\"; Hicasso has one — `[::h/prevent [:app/event]]`
     is the declarative veto, and it is admitted.**)**
   - **From Replicant (taken, via HD-026): behaviour as a
     namespaced-keyword-headed vector.** The anchor's click carries a
@@ -150,7 +150,7 @@
   at the site that wrote the link, with the render stack, before any
   anchor exists. A BARE intent vector is the taught mistake and gets the
   teaching diagnostic: the click already produces the one routing intent
-  (Freehand's route-link law, kept)."
+  — the route-click one-intent law."
   [on-click]
   (when-not (or (nil? on-click)
                 (intent/prevent-head? on-click)

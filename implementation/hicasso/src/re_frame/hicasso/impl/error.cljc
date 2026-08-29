@@ -50,7 +50,7 @@
   [[fail!]] refuses to mint an incomplete refusal (dev builds). The
   alternative — asserting completeness in a test per refusal id — checks
   the refusals somebody remembered to enumerate and nothing else, which
-  is precisely how the shape drifted into six copies. The guard is on the
+  is precisely how a shape drifts into copies. The guard is on the
   one door every refusal now passes through, so a refusal minted without
   a recovery cannot reach a user under any code path, tested or not.
 

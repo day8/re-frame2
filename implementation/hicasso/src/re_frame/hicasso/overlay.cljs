@@ -68,8 +68,8 @@
 
   ## What follows from the posture, and is witnessed
 
-  `re-frame.hicasso.overlay-dom-cljs-test` is the witness; each claim
-  below names the row that holds it, and the browser lane is where they
+  `re-frame.hicasso.overlay-dom-cljs-test` is the witness for the claims
+  below, and the browser lane is where they
   are decided — the node lane has no top layer, so every claim about one
   degrades to a stated skip there.
 
@@ -164,13 +164,13 @@
   ## An `:anchor` that names no element REFUSES
 
   The alternative is a silent no-op — the panel opening in the top layer
-  at the UA's default position, visibly unanchored, saying nothing. Per
-  `implementation/hicasso/spec/complaints.md` promoting the reservation
-  is ONE act and not three: the emitter, the `spec/009-Instrumentation.md`
-  row and the move of the register row to `live` land together, because
-  R3 and R6 of `check_complaint_catalogue.py` red on either half alone.
-  The spelling is the naming packet's — ledger rows 30 and 40 apply their
-  defaults, and row 30 records it as the corpus's single deliberate mint.
+  at the UA's default position, visibly unanchored, saying nothing.
+  `:rf.error/hicasso-overlay-anchor-missing` is a live row of
+  `implementation/hicasso/spec/complaints.md` and of
+  `spec/009-Instrumentation.md`'s catalogue, and
+  `check_complaint_catalogue.py` holds the emitter and both rows in
+  step; naming-ledger row 30 records the id as the corpus's single
+  deliberate mint.
 
   `:rf.error/hicasso-overlay-anchor-missing` is raised from
   [[re-frame.hicasso.impl.overlay/claim-anchor!]] — the ref callback, the
@@ -179,7 +179,7 @@
   one is asking for the default position rather than failing to find a
   trigger.
 
-  ## `:exit-ms` is still not here
+  ## `:exit-ms` is deliberately not here
 
   Retaining a leaving node for its exit animation is
   `re-frame.hicasso.motion`'s subject and already has a machine, a

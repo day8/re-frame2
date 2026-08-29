@@ -39,9 +39,9 @@
 
   Residence: `implementation/hicasso/src`, the package's own source root.
   No production build requires it — Hicasso is bundle-isolated and
-  EXPERIMENTAL — and nothing here reaches the benchmark tree the copy
-  came from, which `implementation/hicasso/scripts/check_freeze.py`
-  enforces.
+  EXPERIMENTAL — and nothing here reaches the benchmark tree
+  (`re-frame.bench.hicasso.*`), which
+  `implementation/hicasso/scripts/check_freeze.py` enforces.
 
   ## The shell, and the ≤2-hook budget (HD-020)
 
@@ -88,10 +88,10 @@
   inside a `when`, inside a `for`, and inside an inlined helper — is the
   only read surface acceptable on ergonomics, and grouped `use-subs`
   sits below the usability bar.
-  So [[sub]] is the surface this arm engineers for and [[use-subs]] is
-  kept as the control it is measured against. That inverts which tier is
-  defended; it waives none of HD-002's correctness gates, and the
-  tripwire still overrides the clock.
+  So [[sub]] is the surface this runtime engineers for and [[use-subs]]
+  is kept as the control it is measured against. That choice waives none
+  of HD-002's correctness gates, and the tripwire still overrides the
+  clock.
 
   ### The ownership state machine (clause (a))
 
@@ -142,19 +142,19 @@
   `n` [[acquire-cell!]]s, each pushing one slot onto a cell's reader
   list. There is **no cheap route for \"19 of 20 keys unchanged\"**, and a
   page whose rows change read set on a data change pays it per row. That
-  is the honest price and the thing to watch on the bulk rows. What it no
-  longer includes is the pair of whole-map rebuilds of a second
-  process-global map that the separate index charged on the same commit.
+  is the honest price and the thing to watch on the bulk rows. It
+  includes no whole-map rebuild of any second process-global map: the
+  reader lists on the cells are the only index there is.
 
   A durable per-boundary id would make the difference live, and it is
-  **unavailable at this arm's fences rather than merely unbuilt**. It has
+  **unavailable at this runtime's fences rather than merely unbuilt**. It has
   to survive a re-subscribe, so it cannot live on the registration; the
   shell has no per-instance storage that is not a hook, and a third hook
   breaks the HD-020 budget the ledger witness enforces; and threading one
   into `subscribe` would mean `subscribe` closing over something other
   than the read set, which is what makes it a shared, identity-stable
   pure function of a value in the first place. Buying the diff costs the
-  two properties this arm exists to demonstrate, so it is not bought —
+  two properties the design guarantees, so it is not bought —
   and nothing needs it, because the subscribe/cleanup pair React already
   performs is the whole operation.
 
@@ -164,7 +164,7 @@
   a set with itself — slower, still correct. The compare is what decides
   a match, and it is deliberately not *replaced* by a content hash, whose
   failure mode would be a silently missing edge. A hash does choose which
-  entries the compare is run against ([[scratch-bucket-key]]), which is a
+  entries the compare is run against ([[bucket-key-of]]), which is a
   different job with a different failure mode — a collision costs a
   second entry, never a wrong one.
 
@@ -183,11 +183,11 @@
   look perfectly correct on the first render, because the values are right
   once realised; it would simply never update again.
 
-  This arm is safe by construction: [[run-once]] closes the window around
+  This runtime is safe by construction: [[run-once]] closes the window around
   `codec/as-element`, and the codec is eager everywhere it walks —
   `expand-seq` drives a seq to exhaustion, `realize-children` folds one
   into a vector, a seq at a *native* prop position goes through
-  `clj->js`, and `front.codec/realize-deep` forces every lazy sequence
+  `clj->js`, and `impl.codec/realize-deep` forces every lazy sequence
   reachable from a *boundary's* props before the crossing hands them on.
   A lazy read is therefore forced inside the window by the same pass that
   turns hiccup into elements, and moving the codec call out of `run-once`
@@ -215,7 +215,7 @@
   satisfied. Structure is repaired there — `realize-deep` forces it at
   the crossing — and an explicit deferral is REFUSED there, by the same
   walk, because forcing a `delay` would change what the author wrote.
-  `front.codec/refuse-deferred!`, and `arm1/deferred-read-cljs-test`.
+  `impl.codec/refuse-deferred!`, and `arm1/deferred-read-cljs-test`.
 
   ### The cold read, and what it costs (clause (a) consequence)
 
@@ -225,13 +225,13 @@
   read of a key nothing holds yet is a **cold probe** ([[cold-read!]]):
   reuse a live sub-cache reaction by deref alone when one
   exists, else compute PURE against one coherent frame-state snapshot
-  through one render-scoped memo — the cold-probe discipline the internal
-  observation port carried before it was retired (rf2-63t1i), reached now
-  through the core seam it too used (`re-frame.subs/compute-sub-with-memo`). The probe
+  through one render-scoped memo — the cold-probe discipline, reached
+  through the core seam built for it
+  (`re-frame.subs/compute-sub-with-memo`). The probe
   creates no cache entry, takes no reference, installs no watch and
   leaves no disposal obligation, so an abandoned render leaves the world
-  exactly as it found it — and unlike the `subscribe-once` crossing it
-  replaces (profiled on the acceptance shape's 141-read mount,
+  exactly as it found it — and unlike a `subscribe-once` crossing
+  (profiled on the acceptance shape's 141-read mount,
   `read_profile_app.cljs`), it does not pay a reaction build, a cache
   insert, an in-tick evict and a dispose cascade per read to arrive at a
   value it retains nothing of. Acquisition happens at commit, without a
@@ -241,14 +241,14 @@
   when the commit acquires and takes its baseline. What the probe
   removes is the second *construction*, not the second compute. The
   shipping React spine attacks the same double build with a render-phase
-  escrow, and this arm deliberately does **not** copy it:
+  escrow, and this runtime deliberately does **not** copy it:
   an escrow is a render-phase ref-count mutation, which is the one thing
   the state machine above forbids — the probe moves the read the other
   way, to a path that mutates nothing at all, transiently or otherwise.
   It is also not a collector charge — `useSyncExternalStore` has the
   identical render/commit shape, so grouped and the scalar comparator
-  inherit it — and the escrow belongs to the shared front half rather
-  than to this arm.
+  inherit it — and the escrow belongs to the spine rather than to this
+  package.
 
   ## The re-render path
 
@@ -257,11 +257,11 @@
         -> the dirty CELLS' own reader lists -> dirty boundary set
         -> registration notify (React's onStoreChange)
         -> React re-renders exactly those boundaries
-        -> bodies re-run -> hiccup -> front.codec -> React reconciles
+        -> bodies re-run -> hiccup -> impl.codec -> React reconciles
 
   The dirty *sub-key* set is push-cheap: a key is marked only when the
   sub layer's own equality cutoff let a change through. Notifications are
-  batched by [[with-commit]], which the arm's frame-locked dispatch wraps
+  batched by [[with-commit]], which the runtime's frame-locked dispatch wraps
   around every intent, so one user action is one flush however many
   subscriptions it moved.
 
@@ -271,8 +271,8 @@
   *inside a body* — a commit landing between two of one render's reads.
   The other is the **render→commit gap** — a commit landing after the
   body returned and before React runs the effect that acquires its
-  edges. The predecessor guarded the second by re-reading every
-  subscription at commit; this arm may not (HD-002), so it needs
+  edges. Re-reading every subscription at commit would guard the second,
+  but a commit-phase deref is forbidden (HD-002), so the runtime needs
   something else there.
 
   Both windows are judged against one number, [[re-frame.hicasso.impl.generation/commit-basis]]:
@@ -288,8 +288,8 @@
   render→commit gap?* — because it answers without watching anything.
   [[re-frame.hicasso.impl.generation/registry-epoch]] counts `:sub` registrations, which are neither a
   flush nor an install, so a `reg-sub` in the gap would otherwise move no
-  term at all. The second term is what the runtime was
-  missing, and it is why the basis is not just the generation:
+  term at all. The second term is what the generation alone cannot
+  supply, and it is why the basis is not just the generation:
 
   > The generation only moves when `flush!` bumps it, `flush!` only runs
   > from `mark-dirty!`, and `mark-dirty!`'s only caller is the
@@ -329,11 +329,11 @@
 
   ### The other two axes, and which half of each the basis carries
 
-  The predecessor compared three things. The other two — a `:sub`
-  registration (its `:registry-epoch`) and a same-id frame reincarnation
-  (its `:node-key`) — split cleanly by whether the boundary in question
-  **already holds a cell** for the key, and the two halves want opposite
-  answers.
+  Writes are not the only movement invariant 5 must see. The other two
+  axes — a `:sub` registration (Spec 006's registry epoch) and a same-id
+  frame reincarnation (its `:node-key`) — split cleanly by whether the
+  boundary in question **already holds a cell** for the key, and the two
+  halves want opposite answers.
 
   For a boundary that holds one, **adding a term closes nothing**: each
   transition leaves the cell holding a reaction that can no longer answer
@@ -351,8 +351,8 @@
   [[re-frame.hicasso.impl.generation/commit-basis]] — the basis TIES across a reincarnation, so no
   arithmetic over these terms could report it.
 
-  What each transition does to a *held* cell, and what the arm hears when
-  it happens:
+  What each transition does to a *held* cell, and what the runtime hears
+  when it happens:
 
   | transition | what the cell is left holding | what announces it |
   |---|---|---|
@@ -360,19 +360,19 @@
   | **frame destruction** (incl. a same-id reincarnation) | a container wired to the frame that no longer exists, answering the destroyed incarnation's db | the reaction's own disposal |
   | `:sub` **first registration** | the substrate's uncached nil-recovery, which was never wired to anything and can never see the handler that has now arrived | nothing — so [[first-registration!]] listens for the registration itself |
 
-  So the arm takes the substrate's own events instead of a term.
+  So the runtime takes the substrate's own events instead of a term.
   [[invalidate-cell!]] is the one repair all three reach:
   [[wire-cell!]] arms it per unique key against the reaction's disposal,
   which covers the two transitions that dispose; the third disposes
   nothing — `registrar/add-replacement-hook!` fires only when a previous
-  handler existed — so the arm hangs it off
+  handler existed — so the runtime hangs it off
   `registrar/add-registration-hook!` ([[sub-registered!]]), narrowed to
   first-time `:sub` registrations and to the cells that hold the id being
   registered. It costs no React hook and no per-boundary object.
 
   The gap half rides the same hook, one line earlier, as a `vswap!` on
-  [[re-frame.hicasso.impl.generation/registry-epoch]] — so the arm reads a registry count it keeps itself
-  and `observation/registry-epoch*` stays `^:private`. **What is
+  [[re-frame.hicasso.impl.generation/registry-epoch]] — a registry count the runtime keeps itself
+  rather than a new public reader on a production namespace. **What is
   rejected is the OTHER placement**: a registry term in
   every key's *live* contribution to [[make-snapshot]], which moves every
   mounted boundary in the application on every `reg-sub`. This term is in
@@ -482,12 +482,12 @@
       nil)))
 
 (defn frame-row
-  "The arm's one memo row for `frame-kw` — `{:incarnation :ops :dispatch}`,
+  "The runtime's one memo row for `frame-kw` — `{:incarnation :ops :dispatch}`,
   pinned to the incarnation live right now.
 
   [[re-frame.hicasso.impl.frames/frame-row]] owns the table and the
   incarnation discipline; this is the door that supplies the closure factory,
-  so every caller in the arm reads the SAME row and the bundle can never
+  so every caller in the runtime reads the SAME row and the bundle can never
   describe a different incarnation than the closure that calls it."
   [frame-kw]
   (frames/frame-row frame-kw mint-frame-dispatch))
@@ -642,16 +642,15 @@
   performed twice — once when the cell is born and once when the
   substrate disposes the reaction out from under it.
 
-  **Activation comes first, and it is not optional** — \"ACTIVATE, then
-  watch, then observe\" (rf2-8cnxg; first stated by the internal observation
-  port, retired 2026-08-21, so this is now one of the sites that states it).
+  **Activation comes first, and it is not optional** — ACTIVATE, then
+  watch, then observe.
   A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
   built deliberately without `:auto-run`, and a Reaction learns its sources
   only through `deref-capture`: a plain deref taken outside `*ratom-context*`
   runs the body raw and leaves `watching` nil. The reaction is then not in
   app-db's watcher set, so the watch below never fires, [[mark-dirty!]] never
   fires — that watch is its only caller — and no write after the mount ever
-  becomes re-render work. Measured: the arm painted once and was deaf
+  becomes re-render work. Measured: the runtime painted once and was deaf
   thereafter. `interop/activate-derived-value!` is the substrate's own op for
   this and is a routed no-op on the React-hook spine, which wires one watch
   per source at construction.
@@ -660,7 +659,7 @@
   notification, and before the baseline deref so that deref reads a settled
   node — the activation left it clean, so the baseline recomputes nothing.
 
-  The disposal hook is the arm's counterpart to the two axes
+  The disposal hook is the runtime's counterpart to the two axes
   `commit-basis` cannot see, and it is deliberately an
   *event* rather than a term in the epoch sum: the substrate already
   tells us, exactly and only when it happens, and a term would have to be
@@ -697,7 +696,7 @@
      reaches here through [[first-registration!]] instead.
 
   The first two leave the cell holding a container whose `-dispose` has
-  already run `(reset! watchers {})`, so the watch this arm installed is
+  already run `(reset! watchers {})`, so the watch this runtime installed is
   gone and `mark-dirty!` can never fire for that key again. Measured,
   before this hook existed: the boundary read the RETIRED computation
   forever and no later write notified it. That is why neither axis was
@@ -727,7 +726,7 @@
   other two is a frame fact — so `getSnapshot` ties, React schedules
   nothing at the instant the successor seats, and the committed fiber
   goes on holding the predecessor's value until the rebuild moves the
-  number. This was a `setTimeout 0`, which hands the correction to a
+  number. A `setTimeout 0` here would hand the correction to a
   LATER task, and the event loop is free to update the rendering between
   tasks: the predecessor's value could reach the screen, and on a
   tenant or account switch that is another tenant's data, briefly, with
@@ -743,7 +742,7 @@
   the three hooks named above and was measured red; the unwound stack is
   the whole of what the deferral buys, and the microtask checkpoint is
   the earliest moment the stack is unwound. The narrowing that costs is
-  that the rewire window is now the current checkpoint rather than a
+  that the rewire window is the current checkpoint rather than a
   whole task, so a successor seated in a LATER task finds the cell
   disposed — and recovers, through [[cold-read!]]'s probe on the next
   render, which is the same recovery a key that never had a cell gets."
@@ -774,7 +773,7 @@
   `registrar/add-replacement-hook!` — the hook the
   sub-cache eviction that [[invalidate-cell!]] rides is built on — fires
   only when a previous handler existed. A *first* `reg-sub` for a query
-  therefore evicts nothing, disposes nothing, and would reach an arm that
+  therefore evicts nothing, disposes nothing, and would reach a runtime that
   listened for disposals alone by no route whatsoever.
 
   It has something to reach because a boundary can hold the miss. The
@@ -782,7 +781,7 @@
   query emits `:rf.error/no-such-sub`, recovers to a nil-yielding
   reaction, and **deliberately does not cache it**, precisely so that a
   later registration is observed by the next `subscribe`
-  (`subs/build-and-cache!*`). This arm has exactly one property that
+  (`subs/build-and-cache!*`). This runtime has exactly one property that
   breaks that assumption — a cell holds its reaction for the life of
   every boundary reading the key, and never subscribes again — so the
   recovery the substrate declined to cache was cached anyway, in a cell,
@@ -832,7 +831,7 @@
   nil)
 
 (defn- sub-registered!
-  "The arm's whole listening post on the registry, and the two halves of
+  "The runtime's whole listening post on the registry, and the two halves of
   the registry axis in one place because they are one event.
 
   **Bump then scan.** [[re-frame.hicasso.impl.generation/registry-epoch]] counts every `:sub` registration,
@@ -857,7 +856,7 @@
 ;; Arm it once per process, at load. `defonce` is the arming, so the var
 ;; exists for its side effect and is deliberately never read — the hook
 ;; vector is the only thing that holds the fn. The hook is the substrate's
-;; own extension point and the arm installs nothing else global; it costs
+;; own extension point and the runtime installs nothing else global; it costs
 ;; a keyword compare on every registration of any kind, a `vswap!` on
 ;; every `:sub` one, and the scan above only on a first-time `:sub`.
 #_:clj-kondo/ignore
@@ -867,7 +866,7 @@
 (defn- acquire-cell!
   "**Commit-phase only.** Take (building if necessary) the durable
   reference for `sub-key` on `reg`'s behalf, and attach the one watch
-  that turns the sub layer's equality cutoff into this arm's dirty set.
+  that turns the sub layer's equality cutoff into this runtime's dirty set.
   Acquire without deref: the render already knows the value.
 
   Taking the reference and recording the edge are **one act**: `reg` is
@@ -924,11 +923,11 @@
                    ;;
                    ;; The watch then hands us old and new, so the movement
                    ;; test is free. It is made here rather than trusted to
-                   ;; the layer below because this arm uses the
+                   ;; the layer below because this runtime uses the
                    ;; notification ITSELF as the dirty signal: the shipping
                    ;; spine can tolerate a notification that did not move,
                    ;; since `useSyncExternalStore` re-compares snapshots
-                   ;; after it, and this arm cannot.
+                   ;; after it, and this runtime cannot.
                    ;;
                    ;; [[wire-cell!]] performs that deref, that watch and the
                    ;; disposal hook, because a cell is attached to the
@@ -1061,7 +1060,7 @@
                       (flush!))))))
 
 (defn dispatch!
-  "The arm's frame-locked dispatch — HD-019's synchronous door. The event
+  "The runtime's frame-locked dispatch — HD-019's synchronous door. The event
   drains synchronously inside the caller's turn (the discrete browser
   event, for an intent) and the store notification runs before that turn
   ends, so React commits the echo in the same turn.
@@ -1087,12 +1086,10 @@
 
   1. **A live sub-cache reaction is reused by deref alone.** Some other
      holder (a cell on another boundary mid-anything, a tool, a test)
-     keeps the reaction warm; the acquire/release round trip
-     `subscribe-once` performed to reach the same deref bumped a
-     ref-count both ways for nothing. The peek is exactly the port's
-     (`observation/probe`), and single-threaded CLJS is what makes the
-     unguarded deref safe: nothing can evict between the `get` and the
-     `@`.
+     keeps the reaction warm; a `subscribe-once` reaching the same deref
+     would bump a ref-count both ways for nothing. Single-threaded CLJS
+     is what makes the unguarded deref safe: nothing can evict between
+     the `get` and the `@`.
   2. **A truly cold key computes PURE** — `subs/compute-sub-with-memo`
      against ONE coherent frame-state snapshot, minted lazily on the
      run's first cold read ([[run-once]] resets the box, so a fence
@@ -1138,9 +1135,9 @@
   newer one, fresh box included. The values a probe computes are what
   the sub-cache reaction would have answered against the same committed
   state — `compute-sub` and the reactive path share the input grammar,
-  the recover-to-nil contracts and the schema validation, which is why
-  the port could stake commit-free Tier-1 reads on the equivalence
-  first."
+  the recover-to-nil contracts and the schema validation, which is what
+  makes the equivalence a contract of the seam rather than a
+  coincidence."
   [frame-kw query-v]
   (let [frame-record (frame/frame frame-kw)]
     (if (nil? frame-record)
@@ -1182,7 +1179,7 @@
   against the run's one frame-state snapshot, retains nothing, and so
   leaves an abandoned render's world as it found it.
 
-  A cell [[invalidate-cell!]] has dropped the reaction of takes the cold
+  A cell whose reaction [[invalidate-cell!]] has dropped takes the cold
   path too, and that is the whole of what an invalidated read needs to be
   correct: the probe computes against the registration and the frame
   incarnation that are live NOW, so a render in the window between
@@ -1244,9 +1241,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce !entries
-  ;; read-sequence hash -> vector of entries. See [[scratch-bucket-key]]
-  ;; for why the key is a hash of the WHOLE sequence and not, as it once
-  ;; was, the first sub-key.
+  ;; read-sequence hash -> vector of entries. See [[bucket-key-of]] for
+  ;; why the key is a hash of the WHOLE sequence rather than the first
+  ;; sub-key.
   (atom {}))
 
 (defn- bucket-key-of
@@ -1274,14 +1271,14 @@
   no allocation, which is what keeps the steady-state hit path at zero
   bytes.
 
-  **Why the first sub-key was not enough.** Bucketing on
-  `(aget scratch 0)` made the scan's cost a function of how an author
-  ordered their `let` bindings. A row body reading its per-row key first
-  put one entry in each bucket; the same body reading a page-wide key
-  first — one line moved — put every live row's entry in ONE bucket, and
-  every probe then passed the length test and the index-0 test and failed
-  only at the last key. Mounting N such rows cost `sum(i)` probes, and
-  N = 300 is a rung this programme benchmarks. Same page, same edges,
+  **Why the first sub-key is not enough.** Bucketing on
+  `(aget scratch 0)` makes the scan's cost a function of how an author
+  orders their `let` bindings. A row body reading its per-row key first
+  puts one entry in each bucket; the same body reading a page-wide key
+  first — one line moved — puts every live row's entry in ONE bucket, and
+  every probe then passes the length test and the index-0 test and fails
+  only at the last key. Mounting N such rows costs `sum(i)` probes, and
+  N = 300 is a rung the benchmark suite measures. Same page, same edges,
   same DOM, ~150x the entry-lookup work. Hashing the whole sequence makes
   the bucket a function of the read set rather than of its first element,
   and `the-bucket-scan-does-not-grow-with-the-number-of-boundaries`
@@ -1325,7 +1322,7 @@
   meets, where a `setTimeout 0` escrow reaper beats
   `createRoot().render()`'s passive flush and costs `bodyRuns` 2.00N on
   every consumer mount; 4 ms is the SHORTEST delay measured to win there,
-  at N = 1 and N = 300 alike, and this arm adopts that number rather than
+  at N = 1 and N = 300 alike, and this runtime adopts that number rather than
   inventing one.
 
   ## A MARGIN, NOT A CONTRACT
@@ -1382,8 +1379,8 @@
   set.
 
   The bucket is [[bucket-key-of]]'s hash of the whole read sequence,
-  so what a lookup scans is the set of read sequences that COLLIDE — not,
-  as it once was, the set of live boundaries that happen to share a first
+  so what a lookup scans is the set of read sequences that COLLIDE —
+  never the set of live boundaries that happen to share a first
   key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
   reason.
 
@@ -1469,11 +1466,11 @@
   `subscribe`: the edge-set replacement in full, done by the pair. See
   the ns docstring, clause (b).
 
-  **Abandoned renders are safe structurally rather than by a guard.** The
-  retired index needed a liveness check in `record-reads` so a stale
-  body run could not resurrect an unmounted boundary's edges; here there
-  is no render-phase write to guard, because the only write is inside
-  this closure and React calls it at commit and nowhere else."
+  **Abandoned renders are safe structurally rather than by a guard.** A
+  design that wrote edges during the render would need a liveness check
+  so a stale body run could not resurrect an unmounted boundary's edges;
+  here there is no render-phase write to guard, because the only write is
+  inside this closure and React calls it at commit and nowhere else."
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
@@ -1497,7 +1494,7 @@
   get back the same cleanup React would hold.
 
   It exists because the commit path, the index wiring and the
-  zero-leaked-reference assertion are the parts of this arm most worth
+  zero-leaked-reference assertion are the parts of this runtime most worth
   proving cheaply and deterministically, and every one of them is
   answerable without a browser, a root, or a render. The DOM suites then
   prove that React drives *this* seam rather than re-proving what the
@@ -1594,7 +1591,7 @@
   double-invoke correct here rather than additive.
 
   The two `goog.DEBUG` lines around the lowering are the codec's key
-  warnings asking who is lowering. This is the arm's sole
+  warnings asking who is lowering. This is the runtime's sole
   body-lowering site — `render-body` is its only caller, and the fence's
   re-runs are idempotent set/clear pairs — so the clear rides the
   `finally` the frame reset already needed, and a throwing body, a thrown
@@ -1690,7 +1687,7 @@
   ## Always on, and why
 
   The SSR adoption row has to read body runs out of the build it
-  actually drives, and the arm's builds are `:advanced` with
+  actually drives, and the package's builds are `:advanced` with
   `goog.DEBUG false` — so a `goog.DEBUG`-gated instrument is not an
   instrument there, it is dead code the compiler removes. Against a
   declared dev-build witness row, **the counter wins**, because a
@@ -1835,7 +1832,7 @@
   "Turn a body fn into a boundary: a React function component, marked as a
   legal hiccup head and given the codec's stable memo wrapper. Minted
   once, at definition — which is why the codec's third HD-004 cache
-  (stable component heads) has nothing to do in this arm, and why HD-016
+  (stable component heads) has nothing to do in this runtime, and why HD-016
   can make a plain function in head position a loud error instead of
   auto-wrapping it.
 
@@ -1858,9 +1855,10 @@
 
   ## Why bailing out on PROPS is safe when bodies read SUBSCRIPTIONS
 
-  This is the question the repair has to answer, because a memo that
+  This is the question the bail-out has to answer, because a memo that
   bailed while a subscription moved would freeze a row on screen — the
-  exact failure class this arm has repaired four times. It is safe
+  exact failure class [[invalidate-cell!]] and [[first-registration!]]
+  exist to close. It is safe
   because props are not the only channel into the shell, and memo blocks
   only one of them:
 
@@ -1870,7 +1868,7 @@
     React consults `checkScheduledUpdateOrContext` BEFORE it consults the
     comparator, so a fiber with pending work re-renders and the
     comparator is never even asked. A row whose reads moved cannot be
-    bailed out, whatever its props say. Donor precedent: reagent-slim's
+    bailed out, whatever its props say. Precedent: reagent-slim's
     default update check is argv `=`, and reactive invalidation bypasses
     it via `forceUpdate` — the same shape, by design.
   - **The frame** arrives through `useContext`, and React propagates a
@@ -1895,7 +1893,7 @@
   carrying a custom comparator stays a `MemoComponent` rather than
   collapsing to React's `SimpleMemoComponent`, so React keeps a wrapper
   fiber above the component's own. That is React's retention rather than
-  this arm's, and it is recorded in [[re-frame.hicasso.impl.inventory/retained-inventory]] under
+  this runtime's, and it is recorded in [[re-frame.hicasso.impl.inventory/retained-inventory]] under
   `:react/memo-fiber` instead of being left for a heap ladder to
   discover.
 
@@ -1904,7 +1902,7 @@
   Spec 009 §What gets bracketed names four hot paths; three of them
   (`:event`, `:sub`, `:fx`) are core's and are already live for a
   Hicasso app, because they sit in the router, the subs layer and the fx
-  layer this arm consumes unchanged. The fourth — `:render` — is the
+  layer this runtime consumes unchanged. The fourth — `:render` — is the
   **view substrate's**, and it is bracketed here so a Hicasso app's
   per-view render reaches the User-Timing stream like every other
   re-frame2 app's. It is a `:render` in the spec's own terms: the bucket is keyed
@@ -2009,7 +2007,7 @@
   too, and the bracket is here for the same reason it is there: this is
   the wrapper the substrate emits, `view-name` is already closed over, so
   the OFF bundle is byte-for-byte the call that preceded it. The two mint
-  fns are the arm's two view-substrate wrappers, and a `:render` bucket
+  fns are the runtime's two view-substrate wrappers, and a `:render` bucket
   wired to one of them and not the other would report half a page."
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
@@ -2018,7 +2016,7 @@
                       (frame-prop-shell body-fn js-props)))
         ;; The same dev-only origin wrapper [[mint-view!]] applies, and here
         ;; for the reason its docstring gives about the `:render` bucket: a
-        ;; shape wired to one of the arm's two view-substrate wrappers and
+        ;; shape wired to one of the runtime's two view-substrate wrappers and
         ;; not the other would attribute half a page's refusals to nothing.
         component (if interop/debug-enabled?
                     (error/traced-boundary view-name component)
@@ -2108,7 +2106,7 @@
   would read every Hicasso view edit as an idempotent reload and decline
   to refresh. Naming `:hicasso/component` as the executable slot makes
   the tag truthful without a second HMR surface, without a hicasso-side
-  replacement hook, and without putting anything in `:handler-fn`
+  replacement hook, and without putting anything in `:handler-fn`.
   The registrar reads the key this
   registration named; it learns nothing about Hicasso.
 
@@ -2147,16 +2145,13 @@
   owns the act of emptying it, so this fn cannot silently miss a slot
   somebody adds elsewhere.
 
-  **It does NOT touch the hydration adoption window**. It used
-  to, because the window was one boolean for the whole page and a fixture
-  that threw mid-hydration would otherwise leave the page permanently
-  adopting. A window now belongs to the root that minted it and is
-  reachable only from that root's handle, so there is nothing page-wide
-  left to rescue: a root whose construction threw left an unreachable
-  object, and a root that is torn down is closed by
-  `impl.mount/unmount!`. Reaching in from here would be the opposite of
-  the repair — a reset in one root shutting a sibling root's window while
-  it is still adopting."
+  **It does NOT touch the hydration adoption window**. A window
+  belongs to the root that minted it and is reachable only from that
+  root's handle, so there is nothing page-wide to rescue: a root whose
+  construction threw left an unreachable object, and a root that is torn
+  down is closed by `impl.mount/unmount!`. Reaching in from here would be
+  cross-root interference — a reset in one root shutting a sibling root's
+  window while it is still adopting."
   []
   (doseq [[_ cell] @!cells] (dispose-cell! cell))
   (reset! !cells {})

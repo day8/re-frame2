@@ -112,8 +112,8 @@
   once. Mirroring the fork here instead would have re-created the exact
   failure the repair is for, one file further along.
 
-  The second candidate stays unruled and is not foreclosed: making the
-  closer a wrapper would change the client tree and this module would
+  The second candidate repair — making the closer a wrapper — is not
+  foreclosed: it would change the client tree and this module would
   follow it for free, because it does not know what the shape is.
 
   ## The adoption window is OPEN around `renderToString`
@@ -121,8 +121,8 @@
   A server render is the FIRST HALF OF AN ADOPTION, so it runs in the
   window the client's hydrating half runs in — one window per request,
   scoped over that request's tree. `impl.roots/open-adoption-window!`
-  names this module as the second minter and records it as *decided,
-  not built*; this is the building.
+  names this module as one of the window's TWO minters, beside the
+  hydrating client root.
 
   Without it the two halves disagree about motion. Presence starts a
   child `:mounting` and applies that child's `::h/mounting` attribute
@@ -180,8 +180,8 @@
   This module is that tier: `codec/root-element` hands React an element
   and the tree is walked INSIDE `renderToString`, so at no point does a
   data tree describing the page exist for anything to hash. The
-  prototype measured what a hash here would be worth — the dogfood
-  screen and a ~1,200-element feed page both hashed `83b865f8`, because
+  measured worth of a hash here is nothing — the dogfood
+  screen and a ~1,200-element feed page both hash `83b865f8`, because
   the root's canonical form is `[#fn[] {}]` — and a constant that always
   agrees is a fail-open gate wearing the shape of a check.
 
@@ -205,8 +205,11 @@
   mirrors that shell's envelope closely enough to be recognisable and
   is deliberately minimal: no head model, no attribute bags, no
   `:body-end` hook. **No streaming** — `renderToPipeableStream` is out
-  of scope per the adversarial review, and out of scope here means
-  absent, not deferred."
+  of scope for this module, and out of scope here means absent, not
+  deferred: every request-written owner is safe precisely because the
+  render never awaits — the S3 property
+  `docs/design/hicasso/product/globals.md` records — and adopting a
+  streaming renderer is the one change that would put that at risk."
   (:require [re-frame.core :as rf]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
