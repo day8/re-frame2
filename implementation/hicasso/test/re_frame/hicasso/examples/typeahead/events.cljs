@@ -17,15 +17,11 @@
 
   A census a human transcribes into a report is a census that rots on the
   next commit. So each region is delimited here, in the code it describes,
-  by an opening and a closing comment marker, and
-  [[re-frame.hicasso.examples.typeahead.census]] reads them off this file
-  at macro-expansion time — that namespace holds the grammar, and holds it
-  rather than this docstring because a marker written in prose here would
-  be SCANNED like any other and would count a site that does not exist.
-  The report's table is generated from the same read, so a site deleted,
-  added or re-classified moves the published count on the next compile
-  rather than on the next time somebody remembers. `l0-cljs-test` pins
-  that count.
+  by an opening and a closing comment marker —
+  `;; CENSUS <id> | <class> | <role> | <label>` … `;; /CENSUS <id>` — and
+  the marker id is the citation the published table
+  (`docs/design/hicasso/product/resource-demand-witness.md`) uses: line
+  numbers move on any edit above them, `git grep 'CENSUS O5'` does not.
 
   ## What OWNERSHIP means here, and what it does not
 

@@ -13,8 +13,8 @@
 
   These six are the whole contract of the subscription→boundary index,
   and this file is the package's witness for them.
-  `inventory_snapshot_cljs_test` asserts that `cell-readers` answers a
-  SNAPSHOT, which is a claim about the instrument. `kernel_commit_owns_cljs_test`
+  `inventory/cell-readers` answers a SNAPSHOT — its docstring says why —
+  which is a claim about the instrument. `kernel_commit_owns_cljs_test`
   asserts ACQUISITION — which keys a commit takes and which readers it
   installs. Neither asks the question the laws ask, which is the one the
   runtime exists to answer: **given a commit, which boundaries re-run?**
