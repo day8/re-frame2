@@ -31,8 +31,8 @@
   Two same-process renders take two different gensyms, so a body that
   RENDERS the value makes the document nondeterministic. That is an
   authorable hazard rather than a framework one, and it is already
-  instrumented: [[re-frame.hicasso.server/render-twice]]'s byte
-  comparison is the standing determinism check. Both halves are asserted
+  instrumented: the kit's `re-frame.hicasso.test.server/render-twice`
+  byte comparison is the standing determinism check. Both halves are asserted
   here — a body that reads the id and keeps it out of markup renders
   byte-identical documents, and a body that deliberately prints it does
   not.
@@ -68,6 +68,7 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.server :as server]
+            [re-frame.hicasso.test.server :as ts]
             [re-frame.test-support :as test-support]))
 
 ;; Registered ABOVE `use-fixtures`, for the sibling suites' reason: the
@@ -160,7 +161,7 @@
            documents are byte-identical anyway — because the value went
            into a read and not into the page"
     (let [{:keys [identical? differs-at] a :first b :second}
-          (server/render-twice (request [discreet {}]))]
+          (ts/render-twice (request [discreet {}]))]
       (is identical? (str "the two documents differ at index " differs-at))
       (is (not= (:frame-id a) (:frame-id b))
           "and they were different requests — this is the whole point")
@@ -171,10 +172,10 @@
   (testing "THE ROW THAT MAKES THE ONE ABOVE MEAN SOMETHING, and the one
            claim in this family the package could not previously make.
            Rendering the per-request id is an authorable hazard, and the
-           claim is that `server/render-twice`'s byte comparison catches
+           claim is that `ts/render-twice`'s byte comparison catches
            it. A claim about a check that has never been watched failing is
            not a check, so here it is failing"
-    (let [{:keys [identical? differs-at] a :first} (server/render-twice (request [indiscreet {}]))]
+    (let [{:keys [identical? differs-at] a :first} (ts/render-twice (request [indiscreet {}]))]
       (is (not identical?)
           "a document carrying the per-request gensym cannot be
            deterministic, and the determinism witness must say so")

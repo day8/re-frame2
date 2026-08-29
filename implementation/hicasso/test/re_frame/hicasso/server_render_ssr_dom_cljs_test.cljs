@@ -81,6 +81,7 @@
             [re-frame.hicasso.impl.roots :as roots]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
+            [re-frame.hicasso.test.server :as ts]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.test-support :as test-support]
@@ -285,7 +286,7 @@
             per-request gensym is INVISIBLE on the wire — the two renders
             take different ids, so a document that mentioned one could not
             be byte-identical to the other"
-    (let [{:keys [identical? differs-at first second]} (server/render-twice (request))]
+    (let [{:keys [identical? differs-at first second]} (ts/render-twice (request))]
       (is identical?
           (str "two renders of one request differed at character " differs-at))
       (is (not= (:frame-id first) (:frame-id second))

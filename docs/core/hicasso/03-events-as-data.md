@@ -256,7 +256,7 @@ frame and creating another under the same id does not revive the old handle;
 using it raises `:rf.error/frame-destroyed` and does not reach the successor.
 Capture during the live render rather than keeping a global stash. Do not put
 the frame id into markup: on the server it is process-local identity and would
-break deterministic render-twice checks.
+break the determinism check (`re-frame.hicasso.test.server/render-twice`).
 
 Calling `h/hframe` outside a Hicasso render extent raises
 `:rf.error/hicasso-frame-outside-boundary`.

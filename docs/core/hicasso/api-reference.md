@@ -346,14 +346,13 @@ frame. Taught in [Islands](10-native-tier.md).
 ## `re-frame.hicasso.server`
 
 The optional server module: one request in, one document out, rendered by the
-Hicasso runtime itself under Node's `react-dom/server`. Four public names.
+Hicasso runtime itself under Node's `react-dom/server`. Three public names.
 
 ```clojure
 (ns app.server
   (:require [re-frame.hicasso.server :as server]))
 
 (server/render opts)
-(server/render-twice opts)
 (server/payload-script payload-edn)
 (server/document {:html h :payload-script s :app-element-id id
                   :script-src src :title t})
@@ -384,16 +383,18 @@ Its `opts`:
 | `:frame-opts` | merged under the id and the setup vector, for a request needing `:images`, `:url-strategy` or `:fx-overrides`. `:id` and `:initial-events` are this module's and cannot be overridden |
 | `:version`, `:schema-digest` | passed to the payload builder |
 
-The other three are composition helpers, public by decision rather than by
+The other two are composition helpers, public by decision rather than by
 omission — each passes the same test, that an external host does something with
 it which `server/render`'s returned values alone cannot do.
 `server/payload-script` re-wraps a payload a host has mutated, keeping the tag
 byte-identical to the framework's own and the escaping correct.
 `server/document` rebuilds the envelope for a host post-processing `:html`.
-`server/render-twice` renders the same request twice and compares the documents
-byte-for-byte, answering `{:first :second :identical? :differs-at}` — the
-ready-made host-side check for the nondeterminism a view reading `Date.now`
-introduces.
+
+The determinism check — render the same request twice and compare the
+documents byte-for-byte, answering `{:first :second :identical? :differs-at}` —
+is a test's business rather than a running host's, so it lives in the test kit
+as `re-frame.hicasso.test.server/render-twice`. Its own namespace, because it is
+the one kit door that requires the server module and `react-dom/server`.
 
 The frame id in `:frame-id` is a per-request gensym, destroyed before `render`
 returns. It is there to be asserted on, not used. Taught in [SSR and
@@ -591,7 +592,8 @@ error rather than a warning. This is what to type instead.
 | `hm/render!`, on the mounted test kit | `hm/rerender!` | Ruled 2026-08-11, swept 2026-08-15. `render!` would have collided with the product facade's own `h/render!`, and a test that reads `render!` should not have to know which of the two it is looking at |
 | `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | Applied on 2026-08-11. L2 answers a data tree and never DOM — the kit's own docstring says it is not a renderer — so `render` both misdescribed the door and collided with two others |
 | `:ssr`, on a `defhost` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-bad-host-declaration` |
-| `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script`, `server/document` and `server/render-twice` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
+| `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script` and `server/document` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
+| `server/render-twice` | `re-frame.hicasso.test.server/render-twice` | Moved 2026-08-30 (rf2-6c12m.15). A determinism probe is a test's instrument, not a running host's door; the kit namespace is its own so that `react-dom/server` is required only by the one test that asks |
 
 One rule explains most of what looks inconsistent above.
 
