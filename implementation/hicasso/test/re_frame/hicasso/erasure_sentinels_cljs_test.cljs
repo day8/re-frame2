@@ -123,18 +123,19 @@
 (deftest the-console-diagnostics-print-the-prefix-the-scan-names
   (testing "`[hicasso]` opens the codec's dev console messages"
     (let [said     (atom [])
-          original (.-warn js/console)]
+          original (.-warn js/console)
+          row      (fn [_js-props] nil)]
+      (unchecked-set row "displayName" "erasure/row")
+      (codec/mark-boundary! row)
       (try
         (set! (.-warn js/console) (fn [& args] (swap! said conj (str/join " " args))))
-        (codec/set-lowering-owner! "erasure/outer")
-        (codec/set-lowering-owner! "erasure/inner")
+        (codec/as-element [:ul (list [row {:key {:id 1}}])])
         (finally
-          (set! (.-warn js/console) original)
-          (codec/set-lowering-owner! nil)))
+          (set! (.-warn js/console) original)))
       (is (some #(str/starts-with? % (:console-prefix sentinels)) @said)
           "the prefix the scan requires the bundle not to carry — the
-           unbalanced set/clear warning is the member reached from here,
-           and all four are written with it"))))
+           entity-key warning is the member reached from here, and every
+           member is written with it"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive controls

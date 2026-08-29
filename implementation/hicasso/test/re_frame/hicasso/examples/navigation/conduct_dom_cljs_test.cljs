@@ -77,11 +77,10 @@
   drives each of them — with a SYNTHETIC event, not a real DOM one: the
   suite that drove them through the browser retired with the compiled-view
   substrate (rf2-0yp7w), so no browser-level witness survives it.
-  Hicasso's own `h/route-link` DECLINES
-  `:prefetch` outright in v0 and fails loud at the link site
-  (`:rf.error/hicasso-route-link-prefetch-declined`), so there is nothing
-  on this application's surface to witness. Admitting the key is a
-  naming-ledger question that is still open (row 36 — *keep as taught*,
+  Hicasso's own `h/route-link` wires none of the prefetch handlers in v0
+  — `:prefetch` is a key the link owns and does not read — so there is
+  nothing on this application's surface to witness. Admitting the key is
+  a naming-ledger question that is still open (row 36 — *keep as taught*,
   status open), not this bead's to settle."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]

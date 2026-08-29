@@ -95,13 +95,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-builds-the-canonical-map-and-the-bracketed-id-message
-  (let [throw! #(error/fail! :rf.error/hicasso-state-bad-option
+  (let [throw! #(error/fail! :rf.error/hicasso-state-bad-argument
                              're-frame.hicasso.impl.state/reg-state
                              "reg-state options must be a map."
                              {:options :not-a-map})]
     (testing "the ex-data is core's four slots over the class's own — asserted
               whole, so a slot the constructor stopped writing cannot hide"
-      (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
+      (is (= {:rf.error/id :rf.error/hicasso-state-bad-argument
               :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
               :recovery    :no-recovery
@@ -109,7 +109,7 @@
              (refusal throw!))))
     (testing "and the message is the reason with the bracketed id appended —
               core's derivation, so message and discriminator cannot drift"
-      (is (= "reg-state options must be a map. [:rf.error/hicasso-state-bad-option]"
+      (is (= "reg-state options must be a map. [:rf.error/hicasso-state-bad-argument]"
              (message-of throw!))))))
 
 (deftest extra-cannot-erase-or-replace-what-the-constructor-guarantees
@@ -118,7 +118,7 @@
             class's own slots ride alongside untouched"
     (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
-    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
+    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
                                       're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       {:rf.error/id :rf.error/hicasso-true-child
@@ -129,7 +129,7 @@
                                        :source      {:ns 'app.impostor}
                                        :options     :not-a-map}))]
       (error/declared!)
-      (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
+      (is (= {:rf.error/id :rf.error/hicasso-state-bad-argument
               :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
               :recovery    :no-recovery
@@ -148,7 +148,7 @@
   (testing "outside every extent a forged `:view` and `:source` are DROPPED,
             not overwritten — a catch site reading `:view` gets absence
             rather than a file name the call site made up"
-    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
+    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
                                       're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       {:view    "app.impostor/not-a-view"
@@ -156,7 +156,7 @@
                                                  :file "app/impostor.cljs"
                                                  :line 1 :column 1}
                                        :options :not-a-map}))]
-      (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
+      (is (= {:rf.error/id :rf.error/hicasso-state-bad-argument
               :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
               :recovery    :no-recovery
@@ -215,12 +215,12 @@
             at the top of a file that must load"
     (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
-    (let [data (refusal #(error/fail! :rf.error/hicasso-host-unknown-option
+    (let [data (refusal #(error/fail! :rf.error/hicasso-bad-host-declaration
                                       're-frame.hicasso.impl.codec/mint-host!
                                       "defhost was given an option it does not know."
                                       {:option :nope}))]
       (error/declared!)
-      (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
+      (is (= {:rf.error/id :rf.error/hicasso-bad-host-declaration
               :where       're-frame.hicasso.impl.codec/mint-host!
               :recovery    :no-recovery
               :view        "app.pickers/calendar"
@@ -229,7 +229,7 @@
              (dissoc data :reason)))))
 
   (testing "and the extent closes, so the next refusal is not attributed to it"
-    (is (nil? (:view (refusal #(error/fail! :rf.error/hicasso-state-bad-option
+    (is (nil? (:view (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
                                             're-frame.hicasso.impl.state/reg-state
                                             "reg-state options must be a map."
                                             {})))))))
@@ -248,7 +248,7 @@
     (testing "the refusal still names the declaration that is wrong — the
               extent closes AFTER `fail!` has built the ex-data, so nothing
               the `finally` does can reach a refusal already on its way out"
-      (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
+      (is (= {:rf.error/id :rf.error/hicasso-bad-host-declaration
               :where       're-frame.hicasso.impl.codec/mint-host!
               :view        "re-frame.hicasso.error-shape-cljs-test/refusing-declaration"
               :option      :not-an-option}

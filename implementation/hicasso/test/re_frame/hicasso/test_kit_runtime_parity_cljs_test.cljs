@@ -242,8 +242,8 @@
    {:case    "`[:>]` with NO component raises the runtime's own refusal"
     :form    [:div [:>]]
     :subject [:>]
-    :runtime [:refused :rf.error/hicasso-raw-no-component]
-    :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
+    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
+    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
               :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — the escape's Component slot is empty. "
                   "Opacity is not the answer: there is nothing for React to "
@@ -253,24 +253,13 @@
    {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
     :form    [:div [:> nil]]
     :subject [:> nil]
-    :runtime [:refused :rf.error/hicasso-raw-no-component]
-    :refuses {:rf.error/id :rf.error/hicasso-raw-no-component
+    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
+    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
               :where       're-frame.hicasso.impl.codec/raw-element}
     :why     (str "codec/raw-component — a `:default` import that resolved "
                   "nothing is the usual cause, and it is the case a test kit "
                   "is most likely to meet first. Distinct SPELLING from `[:>]` "
                   "(the ex-data's `:argv-count` differs), same fault.")}
-
-   {:case    "`[:> :div]` — a keyword in the Component slot — raises the runtime's own refusal"
-    :form    [:div [:> :div]]
-    :subject [:> :div]
-    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
-    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
-              :where       're-frame.hicasso.impl.codec/raw-element}
-    :why     (str "codec/raw-component — the GRAMMAR owns tags, so a keyword "
-                  "is one of the escape's three deliberate narrowings. The "
-                  "second refusal id on this arm, which is why the arm needs "
-                  "two rows and not one.")}
 
    {:case    "a `defhost` crossing refuses to L3 — the escape's neighbour"
     :form    [:div [a-host]]

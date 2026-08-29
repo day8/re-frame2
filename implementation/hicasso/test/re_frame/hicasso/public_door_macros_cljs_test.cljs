@@ -228,7 +228,7 @@
                  #(h/defhost two-options-host badge-component
                     {:server :render}
                     {:slots #{:title}}))]
-      (is (= :rf.error/hicasso-host-extra-form (:rf.error/id data))
+      (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
           (str "the tail was refused and named. Raised: " (pr-str data)))
       (is (= ['{:slots #{:title}}] (:extra data))
           "and the refusal carries the FORM that would have been dropped,
@@ -255,18 +255,18 @@
     (let [data (error-data #(codec/mint-host! "doc/in-the-wrong-place"
                                               badge-component
                                               "a docstring in the wrong place"))]
-      (is (= :rf.error/hicasso-host-bad-options (:rf.error/id data))
+      (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
           (str "refused, and from the door rather than from inside `keys`. "
                "Raised: " (pr-str data)))
       (is (= "a docstring in the wrong place" (:options data))
           "carrying the value it was given")))
 
   (testing "and every other non-map is refused the same way"
-    (is (= :rf.error/hicasso-host-bad-options
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "bad/vec" badge-component [:server :render]))))
-    (is (= :rf.error/hicasso-host-bad-options
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "bad/kw" badge-component :render))))
-    (is (= :rf.error/hicasso-host-bad-options
+    (is (= :rf.error/hicasso-bad-host-declaration
            (error-id #(codec/mint-host! "bad/set" badge-component #{:server})))))
 
   (testing "THE NEAR MISS. `nil` is *no options*, which is exactly what the

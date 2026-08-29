@@ -430,97 +430,45 @@
       (is (identical? clean (codec/without-structural clean))))))
 
 ;; ---------------------------------------------------------------------------
-;; The reserved `:ref` value-space (HD-022)
+;; `:ref` — React's own slot, forwarded untouched
 ;; ---------------------------------------------------------------------------
 
-(deftest a-callback-ref-is-the-v0-surface-and-reaches-react-by-identity
-  (testing "HD-003's escape hatch and HD-016's callback-refs-only rule are
-            unchanged by the reservation: a function at :ref is the v0
-            spelling, and it arrives at React as the same function object —
+(deftest a-callback-ref-is-the-surface-and-reaches-react-by-identity
+  (testing "HD-003's escape hatch and HD-016's callback-refs-only rule: a
+            function at :ref arrives at React as the same function object —
             rewrapping it would detach and reattach the node every render."
     (let [f (fn [_node] nil)
           e (codec/as-element [:div {:ref f}])]
       (is (identical? f (prop e "ref"))))))
 
-(deftest a-vector-at-ref-is-reserved-and-refused-loudly
-  (testing "the whole of rf2-2rtt6.38. `{:ref [registered-id config]}` is the
-            spelling the later data form wants, so v0 claims the value-space
-            now and refuses it with a diagnostic naming the reservation —
-            rather than handing React an opaque array, which it would ignore
-            in silence and which would look like a ref that never fires."
-    (is (thrown-with-msg? js/Error #"RESERVED"
-                          (codec/as-element [:div {:ref [::autosize {:max-rows 8}]}])))
-    (try
-      (codec/as-element [:textarea.composer {:ref [::autosize {:max-rows 8}]}])
-      (is false "should have thrown")
-      (catch :default e
-        (let [d (ex-data e)]
-          (is (= :rf.error/hicasso-ref-vector-reserved (:rf.error/id d)))
-          (is (= [::autosize {:max-rows 8}] (:ref d))
-              "the refusal carries the value it refused, so a later
-               migration can find its own call sites"))))))
-
-(deftest the-reservation-holds-at-the-ref-slot-however-the-ref-is-spelled
-  (testing "the hole. This codec deliberately accepts string, symbol and
-            namespaced prop spellings and emits them all under one React
-            name, so a reservation that reads `(:ref props)` is a
-            reservation `\"ref\"` and `:x/ref` walk straight past — on their
-            way to React with the opaque array the reservation exists to
-            stop, which is the silent ref-that-never-fires it was written to
-            replace."
-    (doseq [spelling ["ref" 'ref :x/ref :re-frame.hicasso/ref]]
-      (try
-        (codec/as-element [:textarea.composer {spelling [::autosize {:max-rows 8}]}])
-        (is false (str "should have thrown for " (pr-str spelling)))
-        (catch :default e
-          (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-ref-vector-reserved (:rf.error/id d))
-                (str "refused, spelled " (pr-str spelling)))
-            (is (= spelling (:position d))
-                "and the diagnostic names the spelling that was written")
-            (is (= [::autosize {:max-rows 8}] (:ref d))))))))
-  (testing "and a callback ref under an alternate spelling still reaches
-            React's ref slot BY IDENTITY — the reservation is the VECTOR
-            arm, not a claim on the spelling, and the ref position is
-            excluded from callback lowering at the slot rather than at the
-            key. Wrapping it would both forbid a dispatch that is legitimate
-            there and change the identity React uses to decide whether to
-            re-attach the node."
+(deftest a-ref-crosses-by-identity-however-it-is-spelled
+  (testing "the ref position is excluded from callback lowering at the SLOT
+            rather than at the key, so `\"ref\"` and `:x/ref` reach React's
+            ref slot by identity too — wrapping would both forbid a dispatch
+            that is legitimate there and change the identity React uses to
+            decide whether to re-attach the node"
     (let [f (intent/callback (fn [_node]))]
       (is (identical? f (prop (codec/as-element [:div {"ref" f}]) "ref")))
       (is (identical? f (prop (codec/as-element [:div {:x/ref f}]) "ref")))))
-  (testing "a vector anywhere else is still an ordinary prop value"
-    (is (= "a b" (prop (codec/as-element [:div {:class ["a" "b"]}]) "className")))
-    (is (some? (prop (codec/as-element [:div {:data-refs [1 2]}]) "data-refs")))))
-
-(deftest the-reservation-costs-one-branch-and-claims-nothing-else
-  (testing "no other :ref value moves. A string ref, a nil ref and a map at
-            :ref all pass through the ordinary conversion — the reservation
-            is the VECTOR arm and nothing wider, because a wider claim would
-            be designing the later surface rather than reserving room for it."
+  (testing "every :ref value passes through the ordinary conversion — the
+            codec claims nothing about the slot's value-space"
     (is (nil? (prop (codec/as-element [:div {:ref nil}]) "ref")))
     (is (= "legacy" (prop (codec/as-element [:div {:ref "legacy"}]) "ref")))
-    (is (some? (prop (codec/as-element [:div {:ref {:a 1}}]) "ref"))))
+    (is (some? (prop (codec/as-element [:div {:ref {:a 1}}]) "ref")))
+    (is (some? (prop (codec/as-element [:div {:ref [::autosize {:max-rows 8}]}]) "ref"))
+        "a vector converts as any collection does; nothing is reserved"))
   (testing "and :ref is not an event position, so intent lowering never sees it"
     (is (false? (intent/event-prop? :ref)))))
 
-
 ;; ---------------------------------------------------------------------------
-;; A presence override no tray can reach
+;; A presence override no tray reached
 ;; ---------------------------------------------------------------------------
 ;;
-;; `impl.presence/with-phase` strips `::motion/mounting` / `::motion/unmounting` off
-;; every entry it renders and merges the phase's map in their place, and it
-;; runs on a motion/presence tray's DIRECT children and nowhere else. So
-;; reaching THIS walk with one of the two keys still on the map means no
-;; tray applied it, and the author got two failures from one legal-looking
-;; declaration: the animation never ran, and `(name k)` emitted the key as
-;; an ordinary `mounting` attribute onto the element.
-
-(defn- override-refusal
-  "The ex-data of the refusal `f` raises, or `nil` if it raised nothing."
-  [f]
-  (try (f) nil (catch :default e (ex-data e))))
+;; `impl.presence/with-phase` strips `::motion/mounting` / `::motion/unmounting`
+;; off a tray's DIRECT children and merges the phase's map in their place.
+;; One that reaches a prop walk was written somewhere no tray walks, and the
+;; walk skips it: it is Hicasso's private key, and `(name k)` would
+;; otherwise have emitted it as an ordinary `mounting` attribute.
 
 (defn- an-override-crossing
   "A foreign component, for the crossing arm below. Local because
@@ -528,67 +476,37 @@
   [_props]
   nil)
 
-(deftest an-override-outside-a-trays-direct-child-is-refused-rather-than-emitted
-  (testing "the fault the ruling at `with-phase`'s view-head arm always
-            implied and only half-closed: `silently dropping the map is the
-            class of failure this whole ruling exists to delete` was written
-            about the door one level up, and the identical silent drop
-            survived one level down on a native node"
-    (let [d (override-refusal
-              #(codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]))]
-      (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
-      (is (= :re-frame.hicasso.motion/mounting (:position d))
-          "the diagnostic names the key that was written")
-      (is (= {:class "in"} (:override d))
-          "and carries the map it refused, so a migration can find its sites")))
+(declare raw-props)
 
-  (testing "both keys, and the message names the attribute that would
-            otherwise have landed on the page"
-    (let [d (override-refusal
-              #(codec/as-element [:div {:re-frame.hicasso.motion/unmounting {:class "out"}}]))]
-      (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
-      (is (re-find #"\"unmounting\" attribute" (:reason d)))))
-
-  (testing "DEPTH is the whole point — a tray walks its direct children and
+(deftest an-override-outside-a-trays-direct-child-is-skipped-rather-than-emitted
+  (testing "a native node: the key is dropped and no attribute reaches the page"
+    (let [e (codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "in"} :id "x"}])]
+      (is (= ["id"] (vec (js/Object.keys (.-props e)))))))
+  (testing "both keys, and at any depth — a tray walks its direct children and
             nothing below them, so a grandchild is as unreachable as an
             element with no tray above it at all"
-    (is (= :rf.error/hicasso-presence-override-out-of-reach
-           (:rf.error/id (override-refusal
-                           #(codec/as-element
-                              [:section [:div {:re-frame.hicasso.motion/mounting {:class "in"}}]]))))))
+    (let [e     (codec/as-element [:section [:div {:re-frame.hicasso.motion/unmounting {:class "out"}}]])
+          child (aget (.-props e) "children")]
+      (is (= [] (vec (js/Object.keys (.-props child)))))))
+  (testing "the crossing skips it at the same position — a [:>] head that IS a
+            tray's direct child has its overrides stripped and merged exactly
+            as a native node does, so one arriving here is misplaced for the
+            identical reason"
+    (let [e (codec/as-element [:> an-override-crossing
+                               {:re-frame.hicasso.motion/mounting {:class "in"} :size 1}])]
+      (is (= ["size"] (vec (js/Object.keys (raw-props e))))))))
 
-  (testing "the crossing takes the same refusal at the same position. A
-            `[:>]` head that IS a tray's direct child has its overrides
-            stripped and merged exactly as a native node does — the tray
-            does not ask what kind of head its child carries — so one
-            arriving here is misplaced for the identical reason"
-    (is (= :rf.error/hicasso-presence-override-out-of-reach
-           (:rf.error/id (override-refusal
-                           #(codec/as-element
-                              [:> an-override-crossing
-                               {:re-frame.hicasso.motion/mounting {:class "in"}}])))))))
-
-(deftest the-override-refusal-claims-the-two-private-keywords-and-nothing-else
-  (testing "THE LEAK PATH, measured rather than argued. A bare `:mounting`
-            is an ordinary author attribute the walk emits under its own
-            name — which is exactly how the namespaced key used to reach
-            the DOM, since `convert-entry` takes `(name k)` and the
-            namespace is dropped on the way"
+(deftest the-override-skip-claims-the-two-private-keywords-and-nothing-else
+  (testing "a bare `:mounting` is an ordinary author attribute the walk emits
+            under its own name; the skip is on the EXACT keyword and not on
+            the canonical slot, because these two are Hicasso's own private
+            keys where `ref` and `className` are React's positions"
     (is (= "x" (prop (codec/as-element [:div {:mounting "x"}]) "mounting")))
-    (is (= "x" (prop (codec/as-element [:div {:unmounting "x"}]) "unmounting"))))
-
-  (testing "so the check is on the EXACT keyword and not on the canonical
-            slot — [[revision-key]]'s doctrine exception, for its reason.
-            `ref` and `className` are React's positions and are claimed at
-            the slot; these two are Hicasso's own private keys, and
-            claiming the slot would confiscate a `mounting` attribute the
-            author is entitled to write"
+    (is (= "x" (prop (codec/as-element [:div {:unmounting "x"}]) "unmounting")))
     (doseq [spelling [:mounting "mounting" 'mounting :x/mounting :data-mounting]]
-      (is (nil? (override-refusal
-                  #(codec/as-element [:div {spelling "x"}])))
-          (str "not refused, spelled " (pr-str spelling))))
-    (is (nil? (override-refusal
-                #(codec/as-element [:> an-override-crossing {:mounting "x"}])))
+      (is (= "x" (prop (codec/as-element [:div {spelling "x"}]) (name spelling)))
+          (str "emitted, spelled " (pr-str spelling))))
+    (is (= "x" (aget (raw-props (codec/as-element [:> an-override-crossing {:mounting "x"}])) "mounting"))
         "and the same at the crossing, where a foreign ABI may genuinely
          name a prop `mounting`")))
 
@@ -836,7 +754,7 @@
                                         {:callbacks {:on-pick :handler}})
                       nil
                       (catch :default e (ex-data e)))]
-        (is (= :rf.error/hicasso-unknown-callback-contract (:rf.error/id data))
+        (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
             ":handler is retired; a plain function is what it named")))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
@@ -1083,11 +1001,11 @@
     (testing "an intent vector at a NON-event slot is ordinary data"
       (is (= ["a" "b"] (js->clj (raw-prop :columns ["a" "b"] "columns")))))
     (testing "`:ref` takes HD-016's rule at this crossing exactly as at the
-              door: a callback ref through, the reserved vector refused"
+              door: a callback ref through by identity, any other value
+              untouched"
       (let [r (fn [_node])]
         (is (identical? r (raw-prop :ref r "ref"))))
-      (is (= :rf.error/hicasso-ref-vector-reserved
-             (error-id #(codec/as-element [:> a-foreign-component {:ref [::autosize {}]}])))))))
+      (is (= [::autosize {}] (raw-prop :ref [::autosize {}] "ref"))))))
 
 (deftest children-lower-eagerly-and-ride-the-outer-element
   (testing "trailing forms lower here, in the render window of the
@@ -1159,66 +1077,35 @@
     (is (some? (codec/as-element [:> (.-Suspense react) {}
                                   [:> (react/lazy (fn [] (js/Promise.resolve #js {:default a-foreign-component}))) {}]])))))
 
-(deftest a-value-react-would-not-mint-a-fiber-for-is-refused-at-the-crossing
+(deftest the-three-values-react-would-accept-or-misreport-are-refused-at-the-crossing
   (testing "refused HERE, in the owner's render and on the server too,
-            rather than by React. React's own 'Element type is invalid'
-            is minted at fiber creation — behind the gate that is
-            post-adoption and client-only — and it names `typeof type`,
-            so a keyword, map, vector, set or record all read
-            'got: object'"
+            rather than by React — whose own refusal is minted at fiber
+            creation, post-adoption and client-only"
     (testing "nil, and the bare form: the broken-import diagnosis"
       (let [d (ex-data (try (codec/as-element [:> nil {}]) nil (catch :default e e)))]
-        (is (= :rf.error/hicasso-raw-no-component (:rf.error/id d))))
-      (is (= :rf.error/hicasso-raw-no-component (error-id #(codec/as-element [:>])))))
-    (testing "a string or a keyword: the GRAMMAR owns tags. Reagent's
-              `[:> \"input\" …]` took its controlled-input wrapper on
-              exactly this path, so accepting one would silently drop
-              caret and IME protection at a site a migrator ports verbatim"
-      (doseq [c ["input" "div" :div]]
-        (let [d (ex-data (try (codec/as-element [:> c {}]) nil (catch :default e e)))]
-          (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)) (str "for " (pr-str c)))
-          (is (re-find #"computed KEYWORD head" (:reason d))
-              "and the message says what to write instead"))))
+        (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
+        (is (= 3 (:argv-count d)))
+        (is (re-find #"no default export" (:reason d))))
+      (is (= :rf.error/hicasso-raw-not-a-component (error-id #(codec/as-element [:>])))))
     (testing "a defview head, which React WOULD accept — it is fn?-true,
               so a bare 'is it a function' test mounts the shell raw, the
               body reads rfProps, gets undefined, and receives nil props"
       (let [d (ex-data (try (codec/as-element [:> a-view {}]) nil (catch :default e e)))]
         (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
-        (is (= "a defview product" (:shape d)))
+        (is (identical? a-view (:component d)))
+        (is (re-find #"a defview product" (:reason d)))
         (is (re-find #"\[my-view" (:reason d)))))
     (testing "a defhost head — the escape is for what a declaration cannot
               express, and this one already IS a declaration"
       (let [d (ex-data (try (codec/as-element [:> a-host {}]) nil (catch :default e e)))]
-        (is (= "a defhost product" (:shape d)))
-        (is (re-find #"\[my-host" (:reason d)))))
-    (testing "a React ELEMENT, which is a legal child and never a type"
-      (let [d (ex-data (try (codec/as-element [:> (codec/as-element [:div]) {}]) nil (catch :default e e)))]
-        (is (= "a React element" (:shape d)))
-        (is (re-find #"legal CHILD" (:reason d)))))
-    (testing "and the ClojureScript shapes React would answer
-              'got: object' for — each NAMED rather than printed, because
-              a foreign or cyclic value would blow `pr-str` inside a
-              diagnostic"
-      (doseq [[c shape] [[{:a 1} "a map"]
-                         [[:a 1] "a vector"]
-                         [#{:a} "a set"]
-                         [(list :a) "a collection"]
-                         [(js/Date.) "a foreign object"]]]
-        (let [d (ex-data (try (codec/as-element [:> c {}]) nil (catch :default e e)))]
-          (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)) (str "for " shape))
-          (is (= shape (:shape d))))))
-    (testing "a non-fn IFn — an r/partial, a multimethod, a keyword used
-              as a lookup — is a WORKING Reagent site that would die here
-              as an opaque object. The refusal steers to wrapping it"
-      (let [d (ex-data (try (codec/as-element [:> (reify IFn (-invoke [_ _] nil)) {}])
-                            nil (catch :default e e)))]
-        (is (= "callable, but not a function" (:shape d)))
-        (is (re-find #"\(fn \[props\]" (:reason d)))))
-    (testing "the shape is in ex-data and the discriminating reason is in
-              the message — one error id is enough because the message
-              carries the difference"
-      (is (re-find #"was handed a map in the Component position"
-                   (ex-message (try (codec/as-element [:> {:a 1} {}]) nil (catch :default e e))))))))
+        (is (= :rf.error/hicasso-raw-not-a-component (:rf.error/id d)))
+        (is (re-find #"a defhost product" (:reason d)))))
+    (testing "everything else is React's to judge — a keyword, a map or a
+              React element crosses, and React reports it at fiber creation
+              with its own 'Element type is invalid'"
+      (doseq [c [:div {:a 1} (codec/as-element [:div])]]
+        (is (identical? c (raw-component-of (codec/as-element [:> c {}])))
+            (str "crosses: " (pr-str c)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What the codec must NOT be
@@ -1240,14 +1127,14 @@
          twenty renders with twenty distinct class VALUES add nothing")))
 
 ;; ---------------------------------------------------------------------------
-;; The minted key warnings — development only
+;; The entity-key warning — development only
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every row below owns its own view and member NAMES, because the dedupe
-;; Set is deliberately page-lifetime and has no reset hook: "once per site"
-;; is the contract, and a fixture that reset it would be testing a
-;; different one. Distinct names are the cheaper discipline and they also
-;; make each row's site visible in its own source.
+;; Every row below owns its own member NAMES, because the dedupe Map is
+;; deliberately page-lifetime and has no reset hook: "once per site" is the
+;; contract, and a fixture that reset it would be testing a different one.
+;; An ABSENT key is React's own warning and is left to it; what the codec
+;; warns on is a key React would coerce by CONTENT.
 
 (defn- named-view
   "A distinct marked boundary head, stamped the way an arm's mint stamps
@@ -1268,33 +1155,20 @@
     (try (f) (finally (set! (.-warn js/console) original)))
     @seen))
 
-(defn- lowering-as
-  "Lower `hiccup` with `owner` recorded as the enclosing view, the way the
-  arm's `run-once` records it — and clear it afterwards, the way `run-once`
-  clears it in its `finally`."
-  [owner hiccup]
-  (codec/set-lowering-owner! owner)
-  (try (codec/as-element hiccup)
-       (finally (codec/set-lowering-owner! nil))))
-
-(deftest an-unkeyed-boundary-seq-warns-once-naming-the-view-the-child-and-the-index
-  (let [row  (named-view "w1.ns/row")
-        out  (warnings-during
-               #(lowering-as "w1.ns/list" [:ul (for [i (range 3)] [row {:id i}])]))
-        line (first out)]
-    (is (= 1 (count out)) "one line, not one per member")
-    (is (re-find #"w1\.ns/list" line) "the enclosing view — the fact React cannot name")
-    (is (re-find #"w1\.ns/row" line) "the member head")
-    (is (re-find #"first at index 0" line))
-    (is (re-find #":key in its props map" line) "the fix spelling, not just the complaint")
-    (is (re-find #":rf\.warning/hicasso-missing-key" line))))
+(deftest an-unkeyed-boundary-seq-is-reacts-to-warn-about-and-the-codec-is-silent
+  (let [row (named-view "w1.ns/row")]
+    (is (= [] (warnings-during
+                #(codec/as-element [:ul (for [i (range 3)] [row {:id i}])])))
+        "React already warns about a missing key; the codec adds nothing")
+    (is (= [] (warnings-during
+                #(codec/as-element [:ul (list [row {:key nil :id 1}])])))
+        "and `:key nil` is the same absent key")))
 
 (deftest a-keyed-boundary-seq-is-silent-and-so-is-every-legitimate-key-shape
   (testing "the canonical keyed list says nothing at all"
     (let [row (named-view "w2.ns/row")]
       (is (= [] (warnings-during
-                  #(lowering-as "w2.ns/list"
-                                [:ul (for [i (range 300)] [row {:key i}])]))))))
+                  #(codec/as-element [:ul (for [i (range 300)] [row {:key i}])]))))))
   (testing "each primitive key shape individually — a warning that fired on
             valid code would be worse than no warning"
     (doseq [[label k] [["number" 1] ["string" "a"] ["keyword" :a]
@@ -1302,54 +1176,36 @@
                        ["zero" 0] ["empty-string" ""]]]
       (let [row (named-view (str "w2b.ns/" label))]
         (is (= [] (warnings-during
-                    #(lowering-as "w2b.ns/list" [:ul (list [row {:key k}])])))
+                    #(codec/as-element [:ul (list [row {:key k}])])))
             (str "a " label " key is a legitimate key"))))))
 
 (deftest the-site-warns-exactly-once-however-many-renders-it-takes
   (let [row     (named-view "w3.ns/row")
-        hiccup  [:ul (list [row {}] [row {}])]
-        first-r (warnings-during #(lowering-as "w3.ns/list" hiccup))
-        again   (warnings-during #(lowering-as "w3.ns/list" hiccup))]
-    (is (= 1 (count first-r)) "two unkeyed members of one head are one site")
+        hiccup  [:ul (list [row {:key {:id 1}}] [row {:key {:id 2}}])]
+        first-r (warnings-during #(codec/as-element hiccup))
+        again   (warnings-during #(codec/as-element hiccup))]
+    (is (= 1 (count first-r)) "two entity-keyed members of one head are one site")
     (is (= [] again) "a second render of the same site re-fires nothing")))
 
-(deftest a-site-is-the-pair-of-the-enclosing-view-and-the-member-head
-  (testing "one view, two member heads — two sites"
+(deftest a-site-is-the-member-head-and-the-hazard
+  (testing "two member heads — two sites"
     (let [a   (named-view "w4.ns/a")
           b   (named-view "w4.ns/b")
           out (warnings-during
-                #(lowering-as "w4.ns/list" [:ul (list [a {}] [b {}])]))]
+                #(codec/as-element [:ul (list [a {:key {:id 1}}] [b {:key {:id 2}}])]))]
       (is (= 2 (count out)) "scanning past the first offender is what finds the second")))
-  (testing "one member head, two views — two sites"
+  (testing "one member head, two hazards — two sites"
     (let [row (named-view "w5.ns/row")
           out (warnings-during
-                (fn []
-                  (lowering-as "w5.ns/one" [:ul (list [row {}])])
-                  (lowering-as "w5.ns/two" [:ul (list [row {}])])))]
+                #(codec/as-element [:ul (list [row {:key {:id 1}}] [row {:key [1 2]}])]))]
       (is (= 2 (count out))))))
 
-(deftest a-key-that-computed-nil-warns-because-the-emitted-element-is-keyless
-  (testing "`:key nil` and an absent `:key` mint the same keyless element, so
-            the check and the emission gate cannot disagree"
-    (let [row (named-view "w6.ns/row")
-          out (warnings-during
-                #(lowering-as "w6.ns/list" [:ul (list [row {:key nil :id 1}])]))]
-      (is (= 1 (count out)))
-      (is (re-find #"absent or nil" (first out))
-          "the author who DID write :key is pointed at the value")))
-  (testing "the conditional-key idiom that yields no key at all"
-    (let [row (named-view "w7.ns/row")
-          out (warnings-during
-                #(lowering-as "w7.ns/list"
-                              [:ul (list [row (when false {:key 1})])]))]
-      (is (= 1 (count out))))))
-
-(deftest a-mixed-seq-names-the-first-unkeyed-member
+(deftest a-mixed-seq-names-the-first-entity-keyed-member
   (let [row (named-view "w8.ns/row")
         out (warnings-during
-              #(lowering-as "w8.ns/list"
-                            [:ul (list [row {:key 0}] [row {:key 1}]
-                                       [row {}] [row {:key 3}])]))]
+              #(codec/as-element
+                 [:ul (list [row {:key 0}] [row {:key 1}]
+                            [row {:key {:id 2}}] [row {:key 3}])]))]
     (is (= 1 (count out)))
     (is (re-find #"first at index 2" (first out))
         "keyed members are scanned past and never named")))
@@ -1359,11 +1215,12 @@
             its own CONTENT and an edit silently remounts the row"
     (let [row  (named-view "w9.ns/row")
           out  (warnings-during
-                 #(lowering-as "w9.ns/list"
-                               [:ul (list [row {:key {:id 1 :label "a"}}])]))
+                 #(codec/as-element [:ul (list [row {:key {:id 1 :label "a"}}])]))
           line (first out)]
       (is (= 1 (count out)))
-      (is (re-find #"w9\.ns/list" line))
+      (is (re-find #"^\[hicasso\] Entity-valued :key" line)
+          "the console prefix the erasure scan pins")
+      (is (re-find #"w9\.ns/row" line) "the member head")
       (is (re-find #"carries a map at :key" line))
       (is (re-find #"first at index 0" line))
       (is (re-find #":rf\.warning/hicasso-entity-key" line))
@@ -1373,8 +1230,7 @@
   (testing "a vector and a set are the same hazard, and two distinct sites"
     (let [row (named-view "w10.ns/row")
           out (warnings-during
-                #(lowering-as "w10.ns/list"
-                              [:ul (list [row {:key [1 2]}] [row {:key #{1}}])]))]
+                #(codec/as-element [:ul (list [row {:key [1 2]}] [row {:key #{1}}])]))]
       (is (= 2 (count out)))
       (is (re-find #"carries a vector at :key" (first out)))
       (is (re-find #"carries a set at :key" (second out))))))
@@ -1382,14 +1238,14 @@
 ;; ---------------------------------------------------------------------------
 ;; THE TOTALITY REPAIR
 ;;
-;; `check-member-key!`'s `cond` shipped with two arms and no `:else`, so every
-;; non-nil `:key` that was neither primitive nor a CLJS collection fell out of
-;; the check in silence. The foreign JS object is the shape that makes that a
-;; bug rather than a gap: every one of them string-coerces to the SAME
-;; `[object Object]`, so distinct rows share one key. The rows below pin the
-;; collision on our own lowering first, then the warning, then — just as
-;; load-bearing — the two shapes deliberately classified SAFE, because a
-;; warning that fires on a `uuid` key would teach authors to ignore it.
+;; `check-member-key!`'s classification once let every non-nil `:key` that was
+;; neither primitive nor a CLJS collection fall out of the check in silence.
+;; The foreign JS object is the shape that makes that a bug rather than a gap:
+;; every one of them string-coerces to the SAME `[object Object]`, so distinct
+;; rows share one key. The rows below pin the collision on our own lowering
+;; first, then the warning, then — just as load-bearing — the two shapes
+;; deliberately classified SAFE, because a warning that fires on a `uuid` key
+;; would teach authors to ignore it.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-foreign-object-key-collapses-distinct-children-onto-one-key
@@ -1410,11 +1266,9 @@
   (testing "and it warns, naming the shape without ever printing the value"
     (let [row  (named-view "w25.ns/row")
           out  (warnings-during
-                 #(lowering-as "w25.ns/list"
-                               [:ul (list [row {:key #js {:secret "s3cr3t"}}])]))
+                 #(codec/as-element [:ul (list [row {:key #js {:secret "s3cr3t"}}])]))
           line (first out)]
       (is (= 1 (count out)))
-      (is (re-find #"w25\.ns/list" line) "the enclosing view")
       (is (re-find #"w25\.ns/row" line) "the member head")
       (is (re-find #"carries a foreign object at :key" line))
       (is (re-find #"first at index 0" line))
@@ -1430,7 +1284,7 @@
           cyclic (js-obj "id" 1)]
       (unchecked-set cyclic "self" cyclic)
       (let [out (warnings-during
-                  #(lowering-as "w26.ns/list" [:ul (list [row {:key cyclic}])]))]
+                  #(codec/as-element [:ul (list [row {:key cyclic}])]))]
         (is (= 1 (count out)))
         (is (re-find #"carries a foreign object at :key" (first out)))))))
 
@@ -1443,8 +1297,7 @@
              ["js-array" #js [1 2]    #"carries a foreign object at :key"]]]
       (let [row (named-view (str "w27.ns/" label))
             out (warnings-during
-                  #(lowering-as (str "w27.ns/list-" label)
-                                [:ul (list [row {:key k}])]))]
+                  #(codec/as-element [:ul (list [row {:key k}])]))]
         (is (= 1 (count out)) (str "a " label " key must not fall through"))
         (is (re-find pattern (first out)) (str "a " label " key is named"))))))
 
@@ -1469,39 +1322,37 @@
             `plain-key?` already admits does"
     (let [row (named-view "w29.ns/row")]
       (is (= [] (warnings-during
-                  #(lowering-as "w29.ns/list"
-                                [:ul (list [row {:key 'a}] [row {:key 'ns/b}])])))))))
+                  #(codec/as-element [:ul (list [row {:key 'a}] [row {:key 'ns/b}])])))))))
 
 (deftest the-scope-line-holds-in-both-directions
   (testing "native-tag members are React's beat — there is no boundary head to name"
     (is (= [] (warnings-during
-                #(lowering-as "w11.ns/list" [:ul (for [i (range 3)] [:li i])])))))
-  (testing "host-headed members are silent in v1"
+                #(codec/as-element [:ul (for [i (range 3)] [:li {:key {:id i}} i])])))))
+  (testing "host-headed members are silent"
     (is (= [] (warnings-during
-                #(lowering-as "w12.ns/list" [:ul (list [a-host {}])])))))
+                #(codec/as-element [:ul (list [a-host {:key {:id 1}}])])))))
   (testing "strings, numbers and nils in a seq are not elements"
     (is (= [] (warnings-during
-                #(lowering-as "w13.ns/list" [:ul (list "a" 1 nil false)])))))
+                #(codec/as-element [:ul (list "a" 1 nil false)])))))
   (testing "a headless vector is somebody else's refusal — the check tolerates
             it silently and leaves `vec->element`'s loud error to speak"
     (is (= [] (warnings-during
-                #(try (lowering-as "w14.ns/list" [:ul (list [])])
+                #(try (codec/as-element [:ul (list [])])
                       (catch :default _ nil)))))))
 
 (deftest every-parent-class-reaches-the-check-through-the-one-site
   (testing "a fragment parent"
     (let [row (named-view "w15.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(lowering-as "w15.ns/list" [:<> (list [row {}])])))))))
+                        #(codec/as-element [:<> (list [row {:key {:id 1}}])])))))))
   (testing "a host parent — this is what the [:>] crossing will inherit"
     (let [row (named-view "w16.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(lowering-as "w16.ns/list" [a-host {} (list [row {}])])))))))
+                        #(codec/as-element [a-host {} (list [row {:key {:id 1}}])])))))))
   (testing "a nested seq is checked at its own level, one level at a time"
     (let [row (named-view "w17.ns/row")]
       (is (= 1 (count (warnings-during
-                        #(lowering-as "w17.ns/list"
-                                      [:ul (list (list [row {}]))]))))))))
+                        #(codec/as-element [:ul (list (list [row {:key {:id 1}}]))]))))))))
 
 (deftest the-crossing-into-a-boundary-warns-where-nothing-else-can
   (testing "`[a-view {} (for …)]` — realize-children flattens the seq into
@@ -1510,54 +1361,20 @@
     (let [outer (named-view "w18.ns/outer")
           row   (named-view "w18.ns/row")
           out   (warnings-during
-                  #(lowering-as "w18.ns/page"
-                                [outer {} (for [_ (range 3)] [row {}])]))]
+                  #(codec/as-element [outer {} (for [i (range 3)] [row {:key {:id i}}])]))]
       (is (= 1 (count out)))
-      (is (re-find #"w18\.ns/page" (first out))
-          "the owner slot is the body that WROTE the crossing seq")
       (is (re-find #"w18\.ns/row" (first out)))))
   (testing "a keyed crossing seq is silent"
     (let [outer (named-view "w19.ns/outer")
           row   (named-view "w19.ns/row")]
       (is (= [] (warnings-during
-                  #(lowering-as "w19.ns/page"
-                                [outer {} (for [i (range 3)] [row {:key i}])]))))))
+                  #(codec/as-element [outer {} (for [i (range 3)] [row {:key i}])]))))))
   (testing "a crossing seq of native members is silent — the presence fixture's
             own shape, and every `[presence {…} (for … [:div.toast {:key id}])]`
             the guide teaches"
     (let [tray (named-view "w20.ns/tray")]
       (is (= [] (warnings-during
-                  #(lowering-as "w20.ns/page"
-                                [tray {:timeout-ms 300}
-                                 (for [i (range 3)]
-                                   [:div.toast {:key i} "x"])])))))))
-
-(deftest the-owner-clause-is-dropped-rather-than-guessed-when-no-body-is-lowering
-  (let [row  (named-view "w21.ns/row")
-        out  (warnings-during
-               (fn []
-                 (codec/set-lowering-owner! nil)
-                 (codec/as-element [:ul (list [row {}])])))
-        line (first out)]
-    (is (= 1 (count out)))
-    (is (re-find #"^\[hicasso\] Unkeyed boundary children: " line)
-        "no owner clause at all, rather than a stale or invented one")
-    (is (re-find #"w21\.ns/row" line) "the member head still names itself")))
-
-(deftest an-unbalanced-owner-pair-is-pinned-on-the-console
-  (testing "setting a non-nil owner over a non-nil one says the pair is unbalanced"
-    (let [out (warnings-during
-                (fn []
-                  (codec/set-lowering-owner! "w22.ns/first")
-                  (codec/set-lowering-owner! "w22.ns/second")
-                  (codec/set-lowering-owner! nil)))]
-      (is (= 1 (count out)))
-      (is (re-find #"w22\.ns/first" (first out)))
-      (is (re-find #"unbalanced" (first out)))))
-  (testing "the set/clear/set the arm actually performs is silent"
-    (is (= [] (warnings-during
-                (fn []
-                  (codec/set-lowering-owner! "w23.ns/a")
-                  (codec/set-lowering-owner! nil)
-                  (codec/set-lowering-owner! "w23.ns/b")
-                  (codec/set-lowering-owner! nil)))))))
+                  #(codec/as-element
+                     [tray {:timeout-ms 300}
+                      (for [i (range 3)]
+                        [:div.toast {:key i} "x"])])))))))

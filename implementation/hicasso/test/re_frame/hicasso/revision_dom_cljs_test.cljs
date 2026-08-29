@@ -374,8 +374,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-revision-on-a-non-controlled-element-is-refused
-  (testing "spec §5 e / §3.5. Per-render, in the codec's error shape, on
-           the same cost shape as `check-ref!`. The acceptance predicate is
+  (testing "spec §5 e / §3.5. Per-render, in the codec's error shape, one
+           branch on the walk it already makes. The acceptance predicate is
            `controlled-text-tag?` — the one that already chooses the shadow
            component, reused rather than duplicated."
     (doseq [[what hiccup]

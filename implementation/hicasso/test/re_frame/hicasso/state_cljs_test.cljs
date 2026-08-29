@@ -195,7 +195,7 @@
   (let [f (frame! ::bad-read)]
     (testing "nil — what a missing prop, a mistyped destructure and a
              forgotten argument all evaluate to"
-      (is (refused? :rf.error/hicasso-state-bad-key ::open?
+      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
                     #(read* f [::open? nil]))))
     (testing "a map — a whole entity handed over where its id was meant.
              Read ONCE, and every claim about it taken off that one read:
@@ -203,68 +203,65 @@
              second read of the same query is served from the cache and
              fans nothing. Each bad key below therefore appears exactly
              once in this file."
-      (let [d (refusal :rf.error/hicasso-state-bad-key
+      (let [d (refusal :rf.error/hicasso-state-bad-argument
                        #(read* f [::open? {:id 1}]))]
         (is (some? d) "the read refused")
         (is (= ::open? (:concern d)) "and NAMED the concern")
         (is (= {:id 1} (:instance-key d)) "and carried the offending key")
         (is (= :read (:op d)) "and the side it fired on")))
     (testing "and a missing key altogether"
-      (is (refused? :rf.error/hicasso-state-bad-key ::open?
+      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
                     #(read* f [::open?]))))))
 
 (deftest a-bad-instance-key-is-refused-at-the-write-naming-the-concern
   (state/reg-state ::open? {:default false})
   (let [f (frame! ::bad-write)]
-    (is (refused? :rf.error/hicasso-state-bad-key ::open?
+    (is (refused? :rf.error/hicasso-state-bad-argument ::open?
                   #(send! f [::open? nil true])))
-    (is (refused? :rf.error/hicasso-state-bad-key ::open?
+    (is (refused? :rf.error/hicasso-state-bad-argument ::open?
                   #(send! f [::open? {:id 1} true])))
     (testing "and nothing was written"
       (is (= {} (db-of f))
           "a refused write is a refused write — the read-side check alone
            would have left this entry in the db"))
     (testing "the refusal names the side it fired on"
-      (is (= :write (:op (refusal :rf.error/hicasso-state-bad-key
+      (is (= :write (:op (refusal :rf.error/hicasso-state-bad-argument
                                   #(send! f [::open? nil true])))))))
 
   (testing "clear refuses a bad key too — it is a write"
     (state/reg-state ::open? {:default false})
     (let [f (frame! ::bad-clear)]
-      (is (refused? :rf.error/hicasso-state-bad-key ::open?
+      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
                     #(send! f [state/clear-event-id ::open? nil]))))))
 
 (deftest registration-refuses-an-unqualified-concern
-  (is (refused? :rf.error/hicasso-state-bad-concern :open?
+  (is (refused? :rf.error/hicasso-state-bad-argument :open?
                 #(state/reg-state :open? {:default false})))
-  (is (refused? :rf.error/hicasso-state-bad-concern "open?"
+  (is (refused? :rf.error/hicasso-state-bad-argument "open?"
                 #(state/reg-state "open?" {:default false}))))
 
 (deftest registration-refuses-an-unknown-option
   (testing "an option that is quietly ignored is a setting its author
            believes is in force"
-    (is (refused? :rf.error/hicasso-state-bad-option ::typo
+    (is (refused? :rf.error/hicasso-state-bad-argument ::typo
                   #(state/reg-state ::typo {:default false :defualt true})))
-    (is (refused? :rf.error/hicasso-state-bad-option ::not-a-map
+    (is (refused? :rf.error/hicasso-state-bad-argument ::not-a-map
                   #(state/reg-state ::not-a-map [:default false])))
     (testing "and the refusal names what it did not recognise"
       (is (= [:defualt]
-             (:unknown (refusal :rf.error/hicasso-state-bad-option
+             (:unknown (refusal :rf.error/hicasso-state-bad-argument
                                 #(state/reg-state ::typo2 {:defualt true}))))))))
 
-(deftest re-registering-is-a-refresh-only-when-the-default-agrees
+(deftest re-registering-replaces-the-registration-and-the-last-default-wins
   (testing "a namespace reload re-runs the same call, and that must work"
     (is (= ::reloaded (state/reg-state ::reloaded {:default 0})))
     (is (= ::reloaded (state/reg-state ::reloaded {:default 0}))))
-  (testing "a DIFFERENT default refuses — the stricter of the two
-           behaviours the ruling allowed. Every un-set instance of a live
-           widget would otherwise start reading a different value with
-           nothing on screen to say why."
-    (is (refused? :rf.error/hicasso-state-redefined ::reloaded
-                  #(state/reg-state ::reloaded {:default 1})))
-    (testing "and the first registration is still the one in force"
-      (let [f (frame! ::reg-twice)]
-        (is (= 0 (read* f [::reloaded :a])))))))
+  (testing "a DIFFERENT default is the ordinary hot-reload edit: the new
+           registration replaces the old, and every un-set instance reads
+           the new default"
+    (is (= ::reloaded (state/reg-state ::reloaded {:default 1})))
+    (let [f (frame! ::reg-twice)]
+      (is (= 1 (read* f [::reloaded :a]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Instance keys as values

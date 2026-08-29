@@ -159,9 +159,8 @@
   id.** `codec/vector-kind` is the preflight and not merely the head
   discrimination, so an empty vector raises
   `:rf.error/hicasso-empty-vector` and a malformed escape — `[:>]`,
-  `[:> nil]`, `[:> :div]` — raises `:rf.error/hicasso-raw-no-component`
-  or `:rf.error/hicasso-raw-not-a-component`, each carrying the runtime's
-  reason rather than one of this namespace's. **Opacity is a claim
+  `[:> nil]` — raises `:rf.error/hicasso-raw-not-a-component`, carrying
+  the runtime's reason rather than one of this namespace's. **Opacity is a claim
   about a form L2 cannot read, and it is honest only where the runtime
   CAN read it**: a second audit found `[:> :div]` answered with a
   pointer to L3, which tells the programmer to mount, in a browser,

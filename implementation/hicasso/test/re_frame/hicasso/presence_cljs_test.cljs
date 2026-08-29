@@ -148,21 +148,19 @@
          (presence/phases (presence/step presence/initial
                                          [(toast 1 "a") nil false]
                                          0 timeout-ms))))
-  (is (thrown-with-msg? js/Error #"no :key"
+  (is (thrown-with-msg? js/Error #"with a :key"
                         (presence/step presence/initial [[:div.toast "x"]] 0 timeout-ms)))
-  (is (thrown-with-msg? js/Error #"keyed hiccup vector"
+  (is (thrown-with-msg? js/Error #"with a :key"
                         (presence/step presence/initial ["a string"] 0 timeout-ms)))
-  (testing "each refusal carries ITS OWN id, recovery and offending child —
-            the discriminator a tool branches on, which the message rows
-            above cannot hold apart: swapping the two ids between the
-            complaints would leave both regexes green"
+  (testing "one id for both — presence cannot identify the child — carrying
+            the offending child, which is what a tool branches on"
     (let [unkeyed (refusal-data
                     #(presence/step presence/initial [[:div.toast "x"]] 0 timeout-ms))]
       (is (= :rf.error/hicasso-presence-child-unkeyed (:rf.error/id unkeyed)))
       (is (= [:div.toast "x"] (:child unkeyed))))
     (let [not-hiccup (refusal-data
                        #(presence/step presence/initial ["a string"] 0 timeout-ms))]
-      (is (= :rf.error/hicasso-presence-child-not-hiccup (:rf.error/id not-hiccup)))
+      (is (= :rf.error/hicasso-presence-child-unkeyed (:rf.error/id not-hiccup)))
       (is (= "a string" (:child not-hiccup))))))
 
 (deftest timeout-ms-is-mandatory-and-positive
@@ -257,12 +255,12 @@
         (is (not (contains? names "unmounting")) (str "at " phase)))))
 
   (testing "and the same child written where NO tray can reach it is
-            refused by the codec's walk rather than emitted, which is the
+            skipped by the codec's walk rather than emitted, which is the
             other half of the sentence: between the two there is no route
             to the DOM"
-    (is (thrown-with-msg?
-          js/Error #"no presence tray can reach"
-          (codec/as-element [:div {:re-frame.hicasso.motion/mounting {:class "toast--enter"}}])))))
+    (let [names (set (js/Object.keys (.-props (codec/as-element
+                                                 [:div {:re-frame.hicasso.motion/mounting {:class "toast--enter"}}]))))]
+      (is (not (contains? names "mounting"))))))
 
 (deftest a-boundary-child-takes-the-phase-as-an-ordinary-prop
   (let [card (codec/mark-boundary! (fn [_] nil))]
@@ -270,14 +268,12 @@
            (presence/with-phase [card {:key 1 :toast {:id 1}}] :unmounting))
         "it appears in a structural test's props map, it cannot be read from
          the wrong render scope, and a headless test can supply it")
-    (testing "and an attribute override written on a VIEW head is a loud
-              error naming the prop, because the boundary cannot see inside
-              an opaque child and dropping the map silently is the class of
-              failure this ruling deletes"
-      (is (thrown-with-msg?
-            js/Error #":rf/phase"
-            (presence/with-phase [card {:key 1 :re-frame.hicasso.motion/unmounting {:class "x"}}]
-                                 :unmounting))))))
+    (testing "and an attribute override written on a VIEW head is dropped —
+              the boundary cannot see inside an opaque child — and the view
+              receives the phase prop to branch on instead"
+      (is (= [card {:key 1 :rf/phase :unmounting}]
+             (presence/with-phase [card {:key 1 :re-frame.hicasso.motion/unmounting {:class "x"}}]
+                                  :unmounting))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The census-real screen, ported both ways
