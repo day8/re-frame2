@@ -436,6 +436,51 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-30 — a named value crosses a host prop WHOLE, and the
+> HTML-attribute slots are the one exception (`rf2-vrvv9`; recorded here from
+> `impl/codec.cljs`'s `host-prop-value` docstring under `rf2-76hbj`).**
+> `host-prop-value` — the shallow conversion every undeclared host and `[:>]`
+> prop takes after the position classifier — hands a keyword or symbol to the
+> foreign component BY IDENTITY, not by `name`. Stock Reagent's rule, `(name v)`
+> for every named value at every host prop, was deliberately not taken: it
+> deletes half of a namespaced keyword's identity at the one crossing where that
+> identity is most often the point — `[provider {:value :theme/dark}]` and
+> `:other/dark` both reach the provider as `"dark"`, every consumer below reads
+> a plausible string that two distinct values share, and nothing throws. A
+> crossing that answers two inputs with one output is a collision, not a
+> conversion; and it is the same guess the shallow default already refuses to
+> make about a nested map, made silently on the value an author most often
+> means literally. An author who wants `"contained"` writes `"contained"`, or
+> `(name :contained)`, at the call site where the intent is legible.
+>
+> The exception is a roster of slots, not of taste: at `className`, `id`,
+> `role` and the `data-*` / `aria-*` families the value is bound for an HTML
+> attribute wherever the component passes it on, whose only representation is
+> a string, so those keep `(name v)` — the answer the native walk
+> (`convert-prop-value`) and the server serializer give at the same names, so
+> the two crossings agree on every attribute both can carry. The roster is the
+> one `reagent-slim` narrowed the same seam to
+> (`implementation/adapters/reagent-slim/IMPL-SPEC.md` §7.2). `className` is
+> on it although the class slot is taken by `class-names` ahead of the
+> conversion, because the roster states which slots are attribute-bound.
+>
+> **No dev warning accompanies this.** `reagent-slim` warns once per non-HTML
+> keyword prop because it narrowed the rule underneath an installed Reagent
+> codebase and the warning is that migration's safety net; Hicasso has no such
+> codebase, and a keyword at a host prop is the taught spelling of this
+> decision's flagship case, so warning on the happy path would be a nag. The
+> guide teaches the rule instead (`docs/core/hicasso/09-interop.md`, "provide
+> that value explicitly"), and the Reagent-side hazard is the codemod's
+> ([the codemod against the landed escape](studio/reagent-codemod-against-the-landed-escape.md)).
+
+> **Amended 2026-08-30, recording `rf2-6c12m.11` (PR #8772, merged
+> 2026-08-29).** The `[:>]` Component-slot roster in the 2026-08-07 addendum
+> below is collapsed: `raw-component` refuses `nil` and a `defview`/`defhost`
+> head on one id, `:rf.error/hicasso-raw-not-a-component`, and hands everything
+> else — strings and keywords included — to React, which refuses at fiber
+> creation what it cannot mint a fiber for. `:rf.error/hicasso-raw-no-component`
+> is retired. The three-narrowing roster stands below as the dated record.
+
 > **Addendum, 2026-08-29 — a callback contract is INFERRED from the prop's
 > position, and `:callbacks` survives only as a two-value override
 > (`rf2-6c12m.2`, executed by `rf2-6c12m.24`).** This amends the 2026-08-06
