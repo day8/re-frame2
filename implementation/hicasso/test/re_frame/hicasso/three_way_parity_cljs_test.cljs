@@ -19,9 +19,8 @@
   decides what a crossing costs, and UIx is measured against it rather
   than against itself.
 
-  The file keeps its name because `implementation/hicasso/spec/budgets.md`
-  rows D14 and D16 name it as their witness and `check_budget_ledger.py`
-  reds on a witness that does not exist.
+  The file keeps its name because `docs/design/hicasso/product/budgets.md`
+  rows D14 and D16 name it as their witness.
 
   ## The corpus, and why the rows are thunks
 

@@ -17,7 +17,7 @@
   reader, memoised on the whole of `app-db` rather than on the address it
   goes on to read, so a keystroke re-runs all TEN of this form's cells and
   the equality gate then stops nine of them from notifying anything.
-  Measured by `examples.per-keystroke-dom-cljs-test` and published in
+  Measured by the per-keystroke census and published in
   `docs/design/hicasso/product/per-keystroke.md`: one changed subscription
   out of ten recomputed, which is a distinction the body count cannot
   make and the budget does not rest on.

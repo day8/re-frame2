@@ -32,13 +32,14 @@
 
   ## Both arms on ONE instrument, in one file
 
-  [[per-keystroke/with-counted-subs]] is the census's own counter, made
-  public for this file rather than copied into it. Both arms are measured
-  here — the application's layer-1 spelling AND the layer-2 restatement —
-  so the contrast is a reading rather than an arithmetic comparison
-  between two instruments run in two places. The census's published
-  figures (111 at 10x10, 31 at 5x5) are then a CROSS-CHECK on this file's
-  layer-1 arm rather than one half of its subtraction.
+  [[with-counted-subs]] is the per-keystroke census's counter, kept here
+  since the census suite retired with its budget gate (2026-08-29,
+  rf2-6c12m.8). Both arms are measured with it — the application's
+  layer-1 spelling AND the layer-2 restatement — so the contrast is a
+  reading rather than an arithmetic comparison between two instruments
+  run in two places. The census's published figures (111 at 10x10, 31 at
+  5x5, `per-keystroke.md`) are then a CROSS-CHECK on this file's layer-1
+  arm rather than one half of its subtraction.
 
   ## What the layer-2 spelling costs the author, and it is not nothing
 
@@ -73,8 +74,8 @@
             [re-frame.hicasso.examples.grid.events :as events]
             [re-frame.hicasso.examples.grid.subs :as subs]
             [re-frame.hicasso.examples.grid.views :as views]
-            [re-frame.hicasso.examples.per-keystroke-dom-cljs-test :as census]
             [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.registrar :as registrar]
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -155,6 +156,47 @@
 (defn- skip! [why]
   (is true (str "a mounted React root needs a real DOM — " why)))
 
+(defn- with-counted-subs
+  "Install a counting wrapper on each of `sub-ids`' registered
+  `:handler-fn`, call `(f read-counts reset-counts)`, and restore every
+  registration in a `finally`.
+
+  It counts invocations of the AUTHOR'S OWN computation fn — the body
+  inside the memo wrapper, not the wrapper — and is installed before the
+  mount because `re-frame.subs` resolves `:handler-fn` off the
+  registration once, at cache-entry build time; a wrapper installed
+  afterwards would be counted by nothing. The fixture's registrar
+  snapshot is the second net.
+
+  `read-counts` answers `{sub-id n}` for the wrappers that ran;
+  `reset-counts` zeroes them, which is what lets one mount take a
+  baseline at mount and a reading per keystroke. The wrapper is variadic
+  and applies the original, so it is invocation-shape-agnostic: a
+  layer-1 body is called as `(body-fn db query-v)` and a layer-n body
+  with its own arity, and this counter has no opinion about which."
+  [sub-ids f]
+  (let [!counts   (atom {})
+        originals (reduce (fn [m id] (assoc m id (registrar/lookup :sub id)))
+                          {}
+                          sub-ids)]
+    (doseq [[id meta] originals]
+      (let [orig (:handler-fn meta)]
+        (registrar/register! :sub id
+          (assoc meta :handler-fn
+                 (fn [& args]
+                   (swap! !counts update id (fnil inc 0))
+                   (apply orig args))))))
+    (try
+      (f (fn [] @!counts) (fn [] (reset! !counts {})))
+      (finally
+        (doseq [[id meta] originals]
+          (registrar/register! :sub id meta))))))
+
+(defn- total
+  "The census's one number, summed over the per-sub attribution."
+  [counts]
+  (reduce + 0 (vals counts)))
+
 (def ^:private counted-sub-ids
   "Both arms count the same four ids, so an arm that never ran its own
   total shows up as an ABSENT key rather than as a smaller sum."
@@ -185,7 +227,7 @@
   produced the new number. A total that did not move would make the count
   a measure of a dead subscription."
   [form dimensions]
-  (census/with-counted-subs counted-sub-ids
+  (with-counted-subs counted-sub-ids
     (fn [sub-runs reset-subs!]
       (let [m (hm/mount! form {:initial-events (app/initial-events dimensions)})
             n (grid-node m 3 4)]
@@ -195,7 +237,7 @@
           (let [bodies (hm/bodies-run (fn [] (type-into! n "1") (hm/settle! m)))
                 runs   (sub-runs)]
             (try
-              {:sub-runs     (census/total runs)
+              {:sub-runs     (total runs)
                :by-sub       runs
                :bodies       bodies
                :total-before before
@@ -266,10 +308,10 @@
         (is (= {::subs/cell 100 ::subs/row-total 10 ::subs/dimensions 1}
                (:by-sub l1-100))
             "10x10: every mounted cell, every row total, and the
-             dimensions cell that nothing moved. Identical to
-             `examples.per-keystroke-dom-cljs-test`'s attribution, taken
-             on the same counter — so this file's subtraction is between
-             two readings it took itself")
+             dimensions cell that nothing moved. Identical to the
+             per-keystroke census's published attribution, taken on the
+             same counter — so this file's subtraction is between two
+             readings it took itself")
         (is (= 111 (:sub-runs l1-100)))
         (is (= {::subs/cell 25 ::subs/row-total 5 ::subs/dimensions 1}
                (:by-sub l1-25)))
