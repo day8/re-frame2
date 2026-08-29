@@ -380,10 +380,12 @@ function band(xs) {
  * instrument, and it is worth being precise about why, because the reasoning
  * that put it here was sound and is not what failed.
  *
- * The rule was chosen against `lane/control-verdict`'s overlap defect
- * (rf2-egdaq): a control whose worst block is wrong HAS caught something, and
- * letting a good block vouch for a bad one is how an instrument stops being
- * one. True, and it says nothing about how many blocks a run has. THE
+ * The rule was chosen against `lane/control-verdict`'s overlap rule — the
+ * disagreement rf2-egdaq was filed over, since settled as a SPLIT: heap arm
+ * strict, clock arm keeping overlap for clamp-limited legs — because a control
+ * whose worst block is wrong HAS caught something, and letting a good block
+ * vouch for a bad one is how an instrument stops being one. True, and it says
+ * nothing about how many blocks a run has. THE
  * ARITHMETIC IS `p^n`. A control that fully MEETS its premise — the same
  * three-point statistic on `LayoutDuration`, whose centre is right, whose
  * conditioning is healthy and whose sign gate never fired in 756 blocks — puts
@@ -862,9 +864,11 @@ function ctl3SelfTest() {
     ok: !dead.premiseMet && !Number.isFinite(dead.measured.mean),
   });
   // 6b. THE STRICT RULE IS PER BLOCK. Eight clean blocks must not vouch for
-  //     a ninth that is wrong — that is `lane/control-verdict`'s recorded
-  //     overlap defect (rf2-egdaq), and it is the reason this control is
-  //     adjudicated block by block rather than on a pooled mean. Note that a
+  //     a ninth that is wrong — that is the case rf2-egdaq was filed over
+  //     against `lane/control-verdict`'s overlap rule (settled as a SPLIT:
+  //     heap arm strict, clock arm keeping overlap for clamp-limited legs),
+  //     and it is the reason this control is adjudicated block by block
+  //     rather than on a pooled mean. Note that a
   //     block-wide SCALING would not do as a fixture here: it cancels in the
   //     quotient by design, so the one bad block has to be bad in SHAPE.
   const oneBad = ctl3Verdict(
