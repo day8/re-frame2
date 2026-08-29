@@ -294,7 +294,7 @@
  * question — does every control type `specification.md` §4.2 names have a
  * support-or-refusal policy that holds in three engines, with none of them
  * silently unsupported — and adds twelve sections, one per row of
- * `implementation/hicasso/spec/dispositions.md` §2.3 that it owns.
+ * `docs/design/hicasso/product/dispositions.md` §2.3 that it owns.
  *
  * That table is the deliverable; this gate is what keeps it true. Its
  * Witness column cites these sections by name, and `REQUIRED_SECTIONS`

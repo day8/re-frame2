@@ -3,7 +3,7 @@
 > **THE SESSION WAS NOT RUN, AND WILL NOT BE** (operator ruling, 2026-08-13). It was attempted and abandoned —
 > switching the machine's OS to Japanese proved impractical — and rather than hold a P1 programme on a session that
 > will not happen, the operator ruled the Firefox and WebKit native-IME cells of
-> [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**
 > and closed `rf2-hic-016` on that ruling. **Nothing in this document is outstanding, owed, or scheduled.** It is the
 > checklist as it was written — the record of a bounded session sanctioned twice, attempted once, and then ruled
 > unnecessary — rather than an instruction to run one. Read §5 for what each of the eight checks *means*, which field
@@ -27,7 +27,7 @@
 > this note the 2026-08-13 ruling leaves fully operative.
 
 A checklist written for a single operator session. It was to be run **once**, by hand, with its results written into
-[`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions); the
+[`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions); the
 2026-08-13 ruling filled those cells instead. It was never a gate, it never ran in CI, and nothing here was ever
 scheduled to repeat.
 
@@ -267,7 +267,7 @@ Tick both engines for each check. A cross is as valuable as a tick — it is the
 **The table below was never filled, and no later reader should expect it to be.** Its boxes are empty because the
 session was abandoned and then retired by the 2026-08-13 ruling, not because it is waiting on anyone. The disposition
 those boxes were to feed is settled in
-[`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions).
+[`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions).
 
 | # | Check | Firefox | WebKit | Note |
 |---|---|---|---|---|
@@ -285,7 +285,7 @@ Session date: ______________  Firefox build: ______________  WebKit build: _____
 ## 7. What to do with the results
 
 1. Write the outcome into
-   [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions), in the
+   [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions), in the
    native-IME block appended there, with the date and both engine builds.
 2. **Anything strange becomes a bead** — per the ruling. One bead per finding, with the engine name on it. A cross in
    the table is not a reason to re-run the session until it passes; it is a defect report with an engine name on it.

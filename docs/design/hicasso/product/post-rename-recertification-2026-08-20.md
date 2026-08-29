@@ -123,7 +123,7 @@ and the two steps do not point the same way.**
 says of family 5: *"what family 5 would be if it existed: a **clock** estimand."* That sentence does not
 survive a read of the row's own registry.
 
-- [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md)'s §9.2 states `C1`'s blocker in as many words: *"`C1` compares a reading
+- [`budgets.md`](budgets.md)'s §9.2 states `C1`'s blocker in as many words: *"`C1` compares a reading
   against the pinned ordinary-Hicasso benchmark … **Until the ladder is re-pinned**, 'the same
   instrument' names nothing."* The instrument `C1` is registered on is **the ladder**.
 - The same section's roster of what each not-green row waits on separates the two kinds explicitly: *"The

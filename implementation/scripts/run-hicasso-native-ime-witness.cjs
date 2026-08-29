@@ -1505,7 +1505,7 @@ async function main() {
     }
 
     console.log(
-      '\nRecord the cells above in implementation/hicasso/spec/dispositions.md §2.3\n' +
+      '\nRecord the cells above in docs/design/hicasso/product/dispositions.md §2.3\n' +
       '(native-IME block), and file ONE BEAD PER CROSS with the engine name on it.\n' +
       'A cross is a finding, not a reason to re-run until it passes.');
     if (incomplete > 0) {

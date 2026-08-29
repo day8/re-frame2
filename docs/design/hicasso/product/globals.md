@@ -1,6 +1,6 @@
 # The mutable-global ledger
 
-Every module-level mutable owner in the Hicasso runtime, enumerated with its disposition. `rf2-hic-017` owns this page; [`invariants.md`](../../../../implementation/hicasso/spec/invariants.md) I5 and the [adversarial-risks lane](lanes/adversarial-risks.md)'s *Process-global ownership* row are what it answers to.
+Every module-level mutable owner in the Hicasso runtime, enumerated with its disposition. `rf2-hic-017` owns this page; [`invariants.md`](invariants.md) I5 and the [adversarial-risks lane](lanes/adversarial-risks.md)'s *Process-global ownership* row are what it answers to.
 
 The goal the bead states is *no unexplained global survives*, and it allows two ways to satisfy it: scope the owner, or write down why it is correct where it is. **Both are real answers.** Root-scoping something that does not need it buys indirection and spends clarity, so a global that is genuinely process-wide — a build-lifetime intern cache, a monotone counter, a page-wide id namespace — is recorded here rather than wrapped in a root it has no relationship to.
 

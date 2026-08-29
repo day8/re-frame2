@@ -3,7 +3,7 @@
 > **AND THE MANUAL SESSION THIS DOCUMENT HANDS ACCEPTANCE BACK TO WAS ITSELF RETIRED** (operator ruling, 2026-08-13).
 > The session was attempted and abandoned — switching the machine's OS to Japanese proved impractical — and the
 > operator ruled the Firefox and WebKit native-IME cells of
-> [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**,
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**,
 > closing `rf2-hic-016` on that ruling. So where this document says acceptance goes back to the manual session — the
 > 2026-08-12 note immediately below, [§1](#1-read-this-before-you-quote-it-as-coverage), [§9](#9-recording-the-results),
 > [§11.5](#115-where-acceptance-goes) — read it as the disposition of **2026-08-12**, superseded the next day: there is
@@ -244,7 +244,7 @@ testbed app is unmodified: the same bundle a human would open, and the trace tab
 > [§11.5](#115-where-acceptance-goes).
 
 1. The run prints, per engine, a ready-made cell for
-   [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) with the
+   [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with the
    engine build and the date. It says **Witness-verified** only when every check on the roster reached a definite
    verdict and none crossed; a crossed run reads **Divergence** and an undecided one reads **Not established**. Across
    three armed runs it printed no such cell, because no run was ever complete.
@@ -390,7 +390,7 @@ Playwright shell will not accept Windows IME input is a recorded cross and a bea
 The close rule as amended on 2026-08-12 — **which is not the rule the bead closed under**:
 
 > `rf2-hic-016` closes when the operator's **manual session** results for **Firefox and WebKit** are recorded in
-> [`product/dispositions.md` §2.3](../../../implementation/hicasso/spec/dispositions.md#23-per-control-and-dom-conformance-dispositions) with
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with
 > **date and engine builds**. **Chromium stays the witnessed control.** Any oddity is **one bead per finding, with the
 > engine name on it.**
 

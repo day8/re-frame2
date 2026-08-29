@@ -97,7 +97,7 @@ it. The tier is exercised by its own witness suites, the benches and the testbed
 and are not counted here.
 
 **One independent corroboration, found rather than sought.**
-[`budgets.md`](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger) states, for a different purpose
+[`budgets.md`](budgets.md#9-the-budget-line-reconciliation-ledger) states, for a different purpose
 entirely, that *"The one `h/as-element` call in the shipped example applications is exactly that one —
 `examples/ledger/views.cljs`"*. That is the same population arrived at by a different route, and it agrees.
 
@@ -139,7 +139,7 @@ until a better rig is free. It is a measured result with three independent legs,
   **336 of 336** measured windows.
 
 The tree already records the non-claim in four places and they agree —
-[`budgets.md` §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger)'s `S7` row (*no publishable claim*,
+[`budgets.md` §9](budgets.md#9-the-budget-line-reconciliation-ledger)'s `S7` row (*no publishable claim*,
 `UNPINNED` rather than `UNRESOLVED`, because nothing crossed a line since nothing reached one),
 [`evidence-baseline.md`](lanes/evidence-baseline.md)'s Warm allocation row (*Publish no allocation claim
 yet*), [`decision-brief.md`](decision-brief.md), and §6 itself. What was missing was anything that would
@@ -210,7 +210,7 @@ together.
 
 The [native-boundary law](lanes/design-laws.md#native-boundary)'s clause 6 requires that *an interpreted-only
 production dependency graph and bundle contain neither native-tier runtime nor UIx code*, and
-[`invariants.md`](../../../../implementation/hicasso/spec/invariants.md) states the parallel clause for optional libraries: *zero reachable production
+[`invariants.md`](invariants.md) states the parallel clause for optional libraries: *zero reachable production
 code when absent*. Two instruments answer it, and — as `check_bundle_isolation.cjs`'s own docstring says —
 neither can answer the other's question. The dependency graph is a property of the source; the bundle is a
 property of the compiler and the linker.
@@ -298,7 +298,7 @@ at **1,024 B**.
 breach was carried red and the line was not re-registered.
 
 **That disposition still holds at this merge base, and it has not been normalized.** Re-read from
-[`budgets.md` §9](../../../../implementation/hicasso/spec/budgets.md#9-the-budget-line-reconciliation-ledger):
+[`budgets.md` §9](budgets.md#9-the-budget-line-reconciliation-ledger):
 
 | Row | Line | Reading | Status |
 |---|---|---|---|

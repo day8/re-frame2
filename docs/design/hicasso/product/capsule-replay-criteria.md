@@ -72,7 +72,7 @@ The design says *one-shot, commit-owned*, finalised only on the render whose lay
 
 Four facts this programme has landed witnesses for are named here, in advance, so the verdict cannot discover a convenient subset:
 
-1. **Frame incarnation.** A frame's public keyword names an address, not an object; where a delayed operation lands is fixed when it is minted, never when it is invoked, and an operation minted against a dead incarnation writes nothing and refuses with `:rf.error/frame-destroyed` ([`invariants.md`](../../../../implementation/hicasso/spec/invariants.md), and `re-frame.hicasso.reincarnation-routing-cljs-test`).
+1. **Frame incarnation.** A frame's public keyword names an address, not an object; where a delayed operation lands is fixed when it is minted, never when it is invoked, and an operation minted against a dead incarnation writes nothing and refuses with `:rf.error/frame-destroyed` ([`invariants.md`](invariants.md), and `re-frame.hicasso.reincarnation-routing-cljs-test`).
 2. **Suspense.** A fallback leaves the primary tree's passive effects mounted, so a `useSyncExternalStore` subscription survives and the retry's registration is `identical?` to the pre-suspension one (`re-frame.hicasso.activity-suspense-dom-cljs-test`).
 3. **`useId`.** React derives an id from the prefix *and* from tree position, so a capsule that records or replays one is recording a value of the tree it was recorded in (`re-frame.hicasso.identifier-prefix-ssr-dom-cljs-test`).
 4. **The substrate is the React-hook spine**, and I9 freezes an ordinary boundary's shell at exactly two React hooks ([`substrate-decision.md`](substrate-decision.md)).

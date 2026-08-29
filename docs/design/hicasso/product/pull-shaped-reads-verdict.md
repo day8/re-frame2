@@ -32,9 +32,9 @@ Arms C and P must produce values that are `=`, and arm F's leaves must agree wit
 
 ### What is measured, and what is not
 
-Every figure below is a **count**, taken on the CLJS Node lane. Counts are deterministic, carry no hardware profile, and can sit beside the deterministic rows of [budgets.md §3](../../../../implementation/hicasso/spec/budgets.md) rather than the distributional rows of §4. That is also their limit, and it is stated here rather than discovered later: **they say what work each arm does, never how long that work takes.**
+Every figure below is a **count**, taken on the CLJS Node lane. Counts are deterministic, carry no hardware profile, and can sit beside the deterministic rows of [budgets.md §3](budgets.md) rather than the distributional rows of §4. That is also their limit, and it is stated here rather than discovered later: **they say what work each arm does, never how long that work takes.**
 
-No wall clock is taken. The bead's acceptance names *clock + heap on pinned runs*, and a duration cannot be attributed on a machine that may be carrying another worker's compile — the standard `rf2-hic-033` set and `rf2-5yn9` inherited. Retention is likewise read as **live subscription-cache entries**, a count, and not as retained bytes: the `D9`/`S5` distinction in [budgets.md §3](../../../../implementation/hicasso/spec/budgets.md) governs, and a comparator that conflated them would be claiming a heap result it did not take.
+No wall clock is taken. The bead's acceptance names *clock + heap on pinned runs*, and a duration cannot be attributed on a machine that may be carrying another worker's compile — the standard `rf2-hic-033` set and `rf2-5yn9` inherited. Retention is likewise read as **live subscription-cache entries**, a count, and not as retained bytes: the `D9`/`S5` distinction in [budgets.md §3](budgets.md) governs, and a comparator that conflated them would be claiming a heap result it did not take.
 
 Every figure carries a **control that moves it**. The control is the row count: the witness is built at `R = 4` and again at `R = 16`, the same quadrupling `D1`–`D4` used to give the narrow-update row its meaning. A figure that does not move when it is predicted to move, or moves when it is predicted to stay flat, fails the comparator rather than the arm.
 
@@ -61,7 +61,7 @@ The bead states it as a hard stop: *any drift toward a per-leaf dependency ledge
 
 **GRADUATE to a feature bead** if and only if all three hold:
 
-- **(a) cost approaches the hand-coarse arm.** `G4(P) = G4(C)`, `G6(P) = G6(C)`, and `(G5 + G5b)(P) ≤ 1.25 × G5(C)` at **both** row counts. The `1.25×` ceiling is not invented here: it is the factor [budgets.md §4](../../../../implementation/hicasso/spec/budgets.md) records as the programme's `S6` cold-mount *proposal*, reused as the largest overhead this programme has ever entertained in exchange for an ergonomic win. It is a **proposal only** there and is borrowed as one here — nothing in this record ratifies it.
+- **(a) cost approaches the hand-coarse arm.** `G4(P) = G4(C)`, `G6(P) = G6(C)`, and `(G5 + G5b)(P) ≤ 1.25 × G5(C)` at **both** row counts. The `1.25×` ceiling is not invented here: it is the factor [budgets.md §4](budgets.md) records as the programme's `S6` cold-mount *proposal*, reused as the largest overhead this programme has ever entertained in exchange for an ergonomic win. It is a **proposal only** there and is borrowed as one here — nothing in this record ratifies it.
 - **(b) no independent-churn regression.** `G3(P) = G3(C) = G3(F) = 0`.
 - **(c) ergonomics approach the fine arm.** `G7(P)` does not grow with `R`, and adding one field to the screen touches strictly fewer source sites in P than in either C or F.
 
@@ -146,6 +146,6 @@ What would *not* change the verdict is more implementation. Compiling the query 
 
 Written 2026-08-12 for `rf2-hic-058`, under the operator ruling `rf2-xpq9` of the same day.
 
-**Figures, and their tree.** `G1`–`G7` are new readings taken by the comparator named above and pinned by it; they are **bench readings of this spike**, not package budget rows, and no row is added to [budgets.md](../../../../implementation/hicasso/spec/budgets.md). The `1.25×` ceiling in the pre-registration is borrowed from `budgets.md` §4's `S6` cold-mount *proposal*, which is a proposal there and is borrowed as one here — nothing in this record ratifies it.
+**Figures, and their tree.** `G1`–`G7` are new readings taken by the comparator named above and pinned by it; they are **bench readings of this spike**, not package budget rows, and no row is added to [budgets.md](budgets.md). The `1.25×` ceiling in the pre-registration is borrowed from `budgets.md` §4's `S6` cold-mount *proposal*, which is a proposal there and is borrowed as one here — nothing in this record ratifies it.
 
 **Pre-registration.** The first commit on `worker/pull-hic058`, which touches this file alone and leaves the verdict section empty. Named by position rather than by hash, because the hash does not survive a rebase and the position does.

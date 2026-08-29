@@ -1,7 +1,7 @@
 # Naming findings — Checkpoint 3 fragment
 
 Every naming question Checkpoint 3 (`rf2-hic-038`) met, written here rather than into
-[`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) so that concurrent checkpoints cannot collide in one table.
+[`naming-ledger.md`](naming-ledger.md) so that concurrent checkpoints cannot collide in one table.
 **`rf2-hic-065` consolidates fragments into the ledger and publishes the packet**; nothing here is
 applied, and prototype spellings stay in use everywhere until that sitting.
 
