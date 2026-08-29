@@ -13,7 +13,7 @@ The naming ledger is live and appended-to by beads (see rf2-hic-065), and it now
 | Document | What it owns | Its gate |
 |---|---|---|
 | [`dispositions.md`](../../../../implementation/hicasso/spec/dispositions.md) | the coverage classification, and the per-surface server/hydration inventory that mints every surface's permanent id | `check_facade_inventory.py` |
-| [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) | the register of every diagnostic id by status — live, reserved, pending-retirement, tombstoned | `check_complaint_catalogue.py` |
+| [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) | the index of every diagnostic id the package raises, with the guide chapter that teaches how not to hit it — **[amended 2026-08-29: it was *the register by status — live, reserved, pending-retirement, tombstoned* until PR #8753 cut those sections; Spec 009's rows are now the single record of which ids exist and which are retired]** | none of its own since PR #8753 retired `check_complaint_catalogue.py`; the repo-wide `scripts/check_keyword_catalogue_drift.py` reconciles its ids against Spec 009 and the emitters |
 | [`invariants.md`](../../../../implementation/hicasso/spec/invariants.md) | every invariant the product commits to, every capability and the rent it pays, and the provisional `h` and `n` facades | `check_optional_module_reachability.py` |
 | [`naming-ledger.md`](../../../../implementation/hicasso/spec/naming-ledger.md) | every public name in the package, with its naming question and disposition | `check_naming_census.py` |
 | [`budgets.md`](../../../../implementation/hicasso/spec/budgets.md) | the reference profiles, the pinned baselines, and §9's reconciliation ledger | `check_budget_ledger.py` |

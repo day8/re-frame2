@@ -14,6 +14,8 @@ The criteria this applies were frozen before any capsule existed: [`capsule-repl
 | Lane | `npm run test:cljs` — the always-on `:node-test` build, whose `cljs-test$` ns-regexp selects the witness. No new build, no `:source-paths` entry |
 | Scope of the claim | The Spec 004B structural tree one boundary body produced. Nothing else |
 
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The three doors this record names on the collector — `collector/reads-of`, `collector/body-runs` and `collector/shell-hook-ledger` — moved to the test kit's runtime door in PR #8745 and are `re-frame.hicasso.test.runtime`'s `reads-of`, `body-runs` and `shell-hook-ledger` now; the witness reads them there, while `render-body` and `commit-boundary!` stay on the collector as the runtime's own seam. The measurement text below keeps the names it was taken under.
+
 ## What a capsule records, and what it cannot
 
 A capsule is `{:view :props :reads :expectation :build :opacity}` — the props the call site passed, the read set the render *resolved* with each key's value, the tree the body produced on the live frame, and a record of what could not be held.
