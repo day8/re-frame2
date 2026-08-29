@@ -29,7 +29,11 @@
                 "../../implementation/hicasso/src"
                 "../../implementation/hicasso/test"
                 "../../implementation/hicasso/test_kit/src"
+                "../../implementation/http/src"
+                "../../implementation/resources/src"
+                "../../implementation/resources/test"
                 "../../implementation/routing/src"
+                "../../implementation/schemas/src"
                 "../../implementation/ssr/src"
                 "../../implementation/spec-resource/src"
                 "../../spec"]
