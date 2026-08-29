@@ -17,9 +17,9 @@
 
   Nothing under `re-frame.hicasso.impl.*`, nothing under
   `re-frame.bench.*`, nothing under `tools/`, and no test-kit namespace.
-  `re-frame.hicasso.examples.slice.surface-cljs-test` asserts that off
-  the ClojureScript ANALYZER's own dependency graph rather than off a
-  reading of this list.
+  `re-frame.hicasso.examples.fence-cljs-test` asserts that off every `ns`
+  form under `examples/`, on every run, rather than off a reading of this
+  list.
 
   ## Why the adapter, and why UIx
 
