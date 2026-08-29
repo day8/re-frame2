@@ -113,11 +113,15 @@ control slots. Merge the caller map first and the owned entries last:
         :placeholder "Todo title"}]
 ```
 
-Literal owned keys win by presence. A caller cannot replace the field's value,
-checked state, handler, key, or revision by supplying an alternative spelling
-such as `:onInput` or `"value"`; the controlled contract binds to the React
-slot reached by the authored literal. When callers should own a slot, do not
-write that literal in the wrapper.
+Literal owned keys win by presence: `:value`, `:disabled`, and `:on-input` are
+merged last, so a caller's entries under those same keys are replaced. That
+protection is per map key, not per React slot. A caller's `:onInput` or
+`"value"` is a different key, so it survives the merge and lands on the same
+React slot as the owned literal, and which of the two wins is decided by map
+iteration order. Forward maps in the same kebab-keyword spelling as Hiccup, as
+[chapter 02](02-views-and-reads.md#forward-attributes-with-owned-keys-last)
+says, or `dissoc` the alternate spellings before merging. When callers should
+own a slot, do not write that literal in the wrapper.
 
 Put the wrapper's own classes on the Hiccup tag so they compose with a caller's
 `:class`. Do not forward `:key` or [`::h/revision`](glossary.md#hrevision): both
