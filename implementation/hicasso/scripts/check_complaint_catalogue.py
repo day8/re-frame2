@@ -279,6 +279,18 @@ EMIT_ROOTS = [
     os.path.join(PACKAGE_ROOT, "test_kit", "src"),
 ]
 
+# …with ONE exception to "at all": the bench lane.  Its `front/` and `arm1/`
+# files are the FROZEN donors the package was copied out of — `check_freeze.py`
+# pins them by digest, so they cannot follow a retirement — and the lane is a
+# measurement harness rather than a surface a consumer reaches.  A refusal
+# retired from src therefore stays emitted by its frozen donor forever, and
+# an R3/R4 scan that read the donors would make the register's own tombstone
+# convention unusable for exactly the ids the donors carry (rf2-6c12m.20 met
+# this on the first such retirement).  So R3/R4 read the package MINUS the
+# lane.  The keyword-drift gate draws the same line, by excluding `test/`
+# trees from its CHECK A/C scan.
+FROZEN_LANE = os.path.join(PACKAGE_ROOT, "test", "re_frame", "bench")
+
 SOURCE_EXTS = (".clj", ".cljc", ".cljs")
 
 STATUSES = ("live", "reserved", "pending-retirement", "retired")
@@ -380,18 +392,22 @@ def mask(text, strings_as_atoms=False):
     return "".join(out)
 
 
-def _source_files(roots):
+def _source_files(roots, prune=()):
+    """Every Clojure source file under `roots`, never descending into a
+    directory named in `prune` (absolute paths — the frozen bench lane)."""
     for root in roots:
-        for dirpath, _dirnames, filenames in os.walk(root):
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames
+                           if os.path.join(dirpath, d) not in prune]
             for name in sorted(filenames):
                 if name.endswith(SOURCE_EXTS):
                     yield os.path.join(dirpath, name)
 
 
-def read_ids(roots):
+def read_ids(roots, prune=()):
     """`{id: [relative path, …]}` for every masked `:rf.error/…` literal."""
     found = {}
-    for path in _source_files(roots):
+    for path in _source_files(roots, prune):
         with open(path, encoding="utf-8") as fh:
             code = mask(fh.read())
         for match in sorted(set(_ERROR_ID_RE.findall(code)) - NOT_A_COMPLAINT):
@@ -1121,7 +1137,7 @@ def report(failures):
 def read_all():
     register = read_register(REGISTER)
     emitted = read_ids(EMIT_ROOTS)
-    package_ids = read_ids([PACKAGE_ROOT])
+    package_ids = read_ids([PACKAGE_ROOT], prune=(FROZEN_LANE,))
     spec_active, spec_retired = read_spec_ids(SPEC_009)
     cited = set()
     for status in STATUSES:
@@ -1205,6 +1221,17 @@ def self_test():
     emitted = inputs["emitted"]
     package_ids = inputs["package_ids"]
     spec_active = inputs["spec_active"]
+
+    # The R3/R4 scan stops at the frozen bench lane, and the prune is proved
+    # on the real tree rather than assumed: the lane carries retired emitters
+    # by construction, so one path from it in `package_ids` is R4 reading the
+    # donors again.
+    bench_rel = os.path.relpath(FROZEN_LANE, REPO_ROOT).replace(os.sep, "/") + "/"
+    assert not [path for paths in package_ids.values() for path in paths
+                if path.startswith(bench_rel)], \
+        "R3/R4 must not read the frozen bench lane"
+    assert os.path.isdir(FROZEN_LANE), \
+        "the prune names a directory that exists — otherwise it prunes nothing"
     chapters = inputs["chapter_text"]
     index_entries = inputs["index_entries"]
     index_recoveries = inputs["index_recoveries"]

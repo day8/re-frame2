@@ -145,9 +145,6 @@
   context for its own invocation, out of what it captured when it was
   lowered, so a row built inside a foreign `renderRow` belongs to the
   boundary that SUPPLIED the callback — the only frame that can own it.
-  The render-position refusal is scoped to the invocation and not to
-  everything the invocation lowered: poison while the call is running,
-  forward to the owner after it returns.
 
   ## The marker roster and its one pure materializer
 
@@ -220,7 +217,7 @@
   `=` can see it, a closed grammar — [[unwrap-navigate]] is the whole of
   it, and it asserts the map's EXACT key set ([[navigate-keys]]) rather
   than the presence of the keys it happens to know — classified once at
-  lowering, loud on every malformed form. The
+  lowering, loud on every malformed form in a dev build. The
   click LAW is not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
   decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
@@ -598,110 +595,39 @@
 (defn- render-callback
   "**Render position.** The callback is invoked by whatever holds it —
   a slot, a foreign component's render prop — DURING a render, so its
-  return is the render output and is emphatically not an intent. What is
-  forbidden is dispatching from inside it, and the diagnostic names the
-  POSITION rather than the form the author chose, because under one form
-  the form is never the answer to \"what did I get wrong?\".
-
-  **Enforcement is INVOCATION-SCOPED: poison while the call is running,
-  forward to the owner once it has returned.** Poisoning the ambient
-  dispatch for the call's dynamic extent and leaving it at that conflates
-  two different things, because lowering captures the same var the poison
-  replaced. The row a `renderRow` prop exists to build —
-
-      [:li {:on-click [:row/pick (:id row)]} (:title row)]
-
-  — closes over the poison and raises at the USER'S CLICK, for a click:
-  a legitimate event position that merely happened to be LOWERED during a
-  render. The law is \"dispatching from inside the call\",
-  and a closure that will dispatch later is not that.
-
-  **The row above is written as hiccup, and hiccup is not what this
-  position returns.** This function ends in a bare `(apply f args)`, so a
-  `:render` return crosses UNCONVERTED: a string renders, a vector reaches
-  React and is refused there. Something has to turn the row into an
-  element, and the something is
-  [[re-frame.hicasso.impl.codec/as-element]] — **exported as
-  `h/as-element`**, so the recovery this paragraph describes is one an
-  author writes:
+  return is the render output and is not an intent: it crosses back
+  UNCONVERTED, and a row written as hiccup is turned into an element by
+  the author, with [[re-frame.hicasso.impl.codec/as-element]] (exported
+  as `h/as-element`):
 
       (h/event [i]
         (h/as-element
           [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
 
-  It lowers under the frame of the boundary currently rendering, which
-  under this wrapper is the SUPPLYING boundary's — so the row's own
-  intent obeys the same temporal law the paragraph above states, and the
-  conversion stays a thing the author asked for rather than a guess about
-  what a returned vector meant.
+  The wrapper captures the ambient frame AND dispatch at LOWERING time —
+  the supplying boundary's, because it is minted during that boundary's
+  eager `with-frame` + `as-element` walk — and rebinds both for each
+  invocation. That is what makes the row above belong to the boundary
+  that SUPPLIED the callback: its `:on-click` lowers under the owner's
+  frame-locked dispatch and a
+  [[re-frame.hicasso.impl.route-link/route-link]] in it pins its
+  navigation to the owner's frame. Nothing else could own it — the
+  foreign component has no frame of its own, and frames are isolated
+  contexts.
 
-  This docstring is the upstream source of truth for that spelling, and
-  design documents copy it from here.
-
-  So the wrapper captures the ambient dispatch AND frame at LOWERING
-  time — the supplying boundary's, because the wrapper is minted during
-  that boundary's eager `with-frame` + `as-element` walk — and each
-  invocation mints a fresh GATE over them, binds it as [[*dispatch*]] for
-  the call, and arms it in a `finally`. Call-active, the gate raises;
-  call-complete, it forwards to the owner. That is a TEMPORAL
-  discrimination, which is the law's own line, rather than a second
-  \"capturable\" binding — which would let the synchronous
-  lower-and-fire-NOW case succeed silently and weaken the law it was
-  meant to preserve.
-
-  [[require-dispatch]], [[intent-handler]] and [[event-callback]] are
-  UNCHANGED: they still capture [[*dispatch*]], which inside a callback is
-  now the gate, and that one substitution is the whole of the repair.
-
-  [[*frame*]] is rebound to the owner's for the same extent, so a
-  [[re-frame.hicasso.impl.route-link/route-link]] in a row body
-  pins its navigation to the boundary that SUPPLIED the callback. That is
-  the only frame that can own it: the foreign component has no frame of
-  its own, and frames are isolated contexts.
-
-  A callback lowered with no owner in scope at all still poisons while it
-  runs, and a handler lowered inside it raises the ordinary
-  `:rf.error/hicasso-intent-outside-boundary` when it fires — loud, never
-  a silently inert handler. `.preventDefault`-style side effects are
-  untouched."
-  [k f]
+  Dispatching from INSIDE the call is not policed. It is a render, and a
+  programmer does not plausibly write a render prop that dispatches
+  while it runs; where one does, React's own render-phase warnings are
+  the report. A callback lowered with no owner in scope at all rebinds
+  `nil`, so a handler lowered inside it raises the ordinary
+  `:rf.error/hicasso-intent-outside-boundary` — loud, never a silently
+  inert handler. `.preventDefault`-style side effects are untouched."
+  [_k f]
   (let [owner-dispatch *dispatch*
         owner-frame    *frame*]
     (fn hicasso-render-callback [& args]
-      ;; `armed?` is false for the call's dynamic extent and set in the
-      ;; `finally` below, so ARMED means the invocation has RETURNED and
-      ;; the gate now forwards rather than raises.
-      (let [armed? (volatile! false)
-            gate   (fn hicasso-render-gate [event]
-                     (cond
-                       (not @armed?)
-                       (fail! :rf.error/hicasso-dispatch-in-render-position
-                              're-frame.hicasso.impl.intent/lower-prop
-                              (str "A callback at " (pr-str k) " dispatched " (pr-str event)
-                                   " while it was running. " (pr-str k) " is a RENDER "
-                                   "position: it is invoked during a render, so it must be "
-                                   "pure. Move the dispatch to an event position, or to an "
-                                   "event handler that owns the work.")
-                              :dispatch-from-an-event-position
-                              {:position k :event event})
-
-                       owner-dispatch (owner-dispatch event)
-
-                       :else
-                       (fail! :rf.error/hicasso-intent-outside-boundary
-                              're-frame.hicasso.impl.intent/lower-prop
-                              (str "A handler lowered inside the callback at " (pr-str k)
-                                   " dispatched " (pr-str event) " after the render "
-                                   "returned, but the callback itself was lowered with no "
-                                   "frame-locked dispatch in scope. A render callback's "
-                                   "handlers fire into the frame of the boundary that "
-                                   "SUPPLIED it, and there was none.")
-                              :lower-intents-inside-a-boundary-render
-                              {:position k :event event})))]
-        (binding [*frame* owner-frame *dispatch* gate]
-          (try
-            (apply f args)
-            (finally (vreset! armed? true))))))))
+      (binding [*frame* owner-frame *dispatch* owner-dispatch]
+        (apply f args)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The argument law — the vector spelling is EVENT-FIRST (HD-024)
@@ -1048,58 +974,60 @@
   #{:frame :payload :native? :veto})
 
 (defn- unwrap-navigate
-  "CLASSIFY AND UNWRAP the navigate decorator. `[::h/navigate {…}]` —
-  exactly two forms, the second a map whose keys are EXACTLY
-  [[navigate-keys]]: `:frame` (a keyword), `:payload` (a non-empty
-  vector), `:native?` (a boolean), and `:veto` (the [[lower-veto]]
-  roster, `nil` included — which is why its presence is asked and its
-  value never is). Everything else is
-  `:rf.error/hicasso-malformed-navigate`, named at the position. Answers
-  the validated map; like [[unwrap-prevent]] it is not a walker — the
-  payload stays ordinary data all the way to routing.
+  "UNWRAP the navigate decorator — `[::h/navigate {…}]`, exactly two
+  forms, the second a map whose keys are EXACTLY [[navigate-keys]]:
+  `:frame` (a keyword), `:payload` (a non-empty vector), `:native?` (a
+  boolean), and `:veto` (the [[lower-veto]] roster, `nil` included —
+  which is why its presence is asked and its value never is). Answers
+  the map; like [[unwrap-prevent]] it is not a walker — the payload
+  stays ordinary data all the way to routing.
 
-  The key check RUNS ONCE PER LINK PER RENDER, so it allocates nothing:
-  the count closes the roster that the four `contains?` open, admitting
-  exactly what [[navigate-keys]] as a set admits. The set itself is built
-  only in the failure branch, where it names what the author actually
-  wrote."
+  **The grammar is checked under `goog.DEBUG` only.** `route-link`
+  mints this form, so a production render pays nothing per link to
+  re-validate a map the library itself constructed; a hand-written one
+  outside the grammar is `:rf.error/hicasso-malformed-navigate` in a dev
+  build, named at the position. The count closes the roster that the
+  four `contains?` open, admitting exactly what [[navigate-keys]] as a
+  set admits; the set itself is built only in the failure branch, where
+  it names what the author actually wrote."
   [k v]
-  (let [m  (nth v 1 nil)
-        {:keys [frame payload native?]} m]
-    (when-not (and (= 2 (count v))
-                   (map? m)
-                   (== 4 (count m))
-                   (contains? m :frame)
-                   (contains? m :payload)
-                   (contains? m :native?)
-                   (contains? m :veto)
-                   (keyword? frame)
-                   (vector? payload)
-                   (seq payload)
-                   (boolean? native?))
-      (let [ks (when (map? m) (set (keys m)))]
-        (fail! :rf.error/hicasso-malformed-navigate
-               're-frame.hicasso.impl.intent/lower-prop
-               (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
-                    " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
-                    "(a non-empty event vector), :native? (a boolean) and :veto — "
-                    "those four keys and no others; this one "
-                    (cond
-                      (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
-                      (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
-                      (not= navigate-keys ks)
-                      (str "carries " (pr-str (vec (sort ks)))
-                           (when-some [missing (seq (sort (remove ks navigate-keys)))]
-                             (str ", so it is missing " (pr-str (vec missing))))
-                           (when-some [extra (seq (sort (remove navigate-keys ks)))]
-                             (str ", and nothing reads " (pr-str (vec extra)))))
-                      (not (keyword? frame))  "names no :frame keyword"
-                      (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
-                      :else               "answers no boolean at :native?")
-                    ". route-link mints this form; hand-written ones must carry all "
-                    "four slots and nothing else.")
-               :carry-frame-payload-native-and-veto
-               {:position k :form v})))
+  (let [m (nth v 1 nil)]
+    (when ^boolean js/goog.DEBUG
+      (let [{:keys [frame payload native?]} m]
+        (when-not (and (= 2 (count v))
+                       (map? m)
+                       (== 4 (count m))
+                       (contains? m :frame)
+                       (contains? m :payload)
+                       (contains? m :native?)
+                       (contains? m :veto)
+                       (keyword? frame)
+                       (vector? payload)
+                       (seq payload)
+                       (boolean? native?))
+          (let [ks (when (map? m) (set (keys m)))]
+            (fail! :rf.error/hicasso-malformed-navigate
+                   're-frame.hicasso.impl.intent/lower-prop
+                   (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
+                        " wraps EXACTLY ONE map carrying :frame (a keyword), :payload "
+                        "(a non-empty event vector), :native? (a boolean) and :veto — "
+                        "those four keys and no others; this one "
+                        (cond
+                          (not= 2 (count v))  (str "carries " (dec (count v)) " forms after the head")
+                          (not (map? m))      (str "wraps " (pr-str m) ", which is not a map")
+                          (not= navigate-keys ks)
+                          (str "carries " (pr-str (vec (sort ks)))
+                               (when-some [missing (seq (sort (remove ks navigate-keys)))]
+                                 (str ", so it is missing " (pr-str (vec missing))))
+                               (when-some [extra (seq (sort (remove navigate-keys ks)))]
+                                 (str ", and nothing reads " (pr-str (vec extra)))))
+                          (not (keyword? frame))  "names no :frame keyword"
+                          (not (and (vector? payload) (seq payload))) "carries no :payload event vector"
+                          :else               "answers no boolean at :native?")
+                        ". route-link mints this form; hand-written ones must carry all "
+                        "four slots and nothing else.")
+                   :carry-frame-payload-native-and-veto
+                   {:position k :form v})))))
     m))
 
 (defn- navigate-handler
@@ -1243,8 +1171,8 @@
                      "nothing from it, so a carrier whose entire content is a "
                      "dispatch has no meaning at that contract. ")
                 (str ":render is a PURE position — it is invoked during the "
-                     "foreign component's own render, where dispatching is "
-                     ":rf.error/hicasso-dispatch-in-render-position. "))
+                     "foreign component's own render, and its return is the "
+                     "render output, so nothing there is dispatched. "))
               "Declare " (pr-str k) " :event if what happens there is an "
               "event, or write an h/event that does the " (pr-str contract)
               " work. The contract comes from the position, so the value "

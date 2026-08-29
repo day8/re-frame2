@@ -96,7 +96,6 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
 | `:rf.error/hicasso-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
 | `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
-| `:rf.error/hicasso-dispatch-in-render-position` | dispatched from a render callback while it was running | ch03, ch09 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-file-input-value-marker` | read `::h/value` off a file input, where `.value` is the `C:\fakepath\` fiction and the first file's name — not the files | — |
 | `:rf.error/hicasso-file-input-value-prop` | put a non-empty `:value` on a file input, which the platform refuses and React writes anyway | — |
@@ -214,6 +213,7 @@ Spellings that are dead.
 | Retired | Was | Why it is dead |
 |---|---|---|
 | `:rf.error/hicasso-test-residue-after-quiescence` | reserved for a raising clean-state assertion on the mounted test facade. Never minted and never raised, so no stored error, monitor grouping or page of prose carries it | The facade landed (rf2-hic-027) and deliberately reports instead: `assert-clean!` files residue through `cljs.test/do-report`, because residue is a **test failure** rather than a refusal of the instrument — a throw would make the tool that detects a leak indistinguishable from the tool breaking, and would abort the run at the first finding instead of reporting all of them. So the reservation named a refusal its own surface decided not to have. It is tombstoned rather than left standing because a reserved row claims *a surface that is not built yet*, which stopped being true, and no rule above catches a reservation whose surface shipped without it. A later refusal on that surface — a fixture that cannot establish a baseline at all — is a different refusal under rule 1 and mints its own spelling |
+| `:rf.error/hicasso-dispatch-in-render-position` | raised by a render callback that dispatched while it was running — an armed gate minted per invocation of every render prop | Retired 2026-08-29 (rf2-6c12m.20). The gate policed a case a programmer does not plausibly write and one React already warns on, at the price of a volatile, a closure and a three-var binding on every invocation of every render prop. The useful half of the wrapper — rebinding the supplying boundary's frame and dispatch for the call — stays; a handler lowered inside a callback with no owner raises `:rf.error/hicasso-intent-outside-boundary` as it always did. The frozen bench donor `front/intent.cljs` still carries the emitter, which is why the register gate's R3/R4 scan stops at the bench lane |
 
 ## Rulings this catalogue owns
 

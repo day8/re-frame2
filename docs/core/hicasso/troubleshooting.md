@@ -238,16 +238,6 @@ Recovery: `:lower-intents-inside-a-boundary-render`.
 
 Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md).
 
-<a id="hicasso-dispatch-in-render-position"></a>
-#### `:rf.error/hicasso-dispatch-in-render-position`
-
-You dispatched from a render callback while it was running.
-
-Recovery: `:dispatch-from-an-event-position` — move the dispatch to an event
-position, or to an event handler that owns the work.
-
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
-
 <a id="hicasso-intent-at-a-non-event-contract"></a>
 #### `:rf.error/hicasso-intent-at-a-non-event-contract`
 

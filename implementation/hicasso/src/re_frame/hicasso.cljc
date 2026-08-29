@@ -295,7 +295,7 @@
   |---|---|
   | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
   | a `defhost` `:callbacks` entry | **as declared** — `:event`, `:handler` or `:render`, never inferred from an `on*` spelling |
-  | any other walked prop | **render** — pure; the return is the render output and is NOT dispatched, and dispatching from inside the call raises `:rf.error/hicasso-dispatch-in-render-position`, named at the position |
+  | any other walked prop | **render** — pure; the return is the render output and is NOT dispatched. Handlers lowered inside the call belong to the boundary that supplied it |
 
   [[re-frame.hicasso.impl.intent]] carries the full table, including the
   two rows that are not contracts at all — `:ref`, which is React's own
