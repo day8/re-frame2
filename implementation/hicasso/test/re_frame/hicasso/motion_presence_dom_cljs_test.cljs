@@ -356,16 +356,20 @@
                    painted, which is exactly the shape `::motion/mounting` took"))
             (finally (mount/release! handle)))))
 
-      (testing "and the override key itself is REFUSED before any element
-                exists, so nothing carries it to the DOM by that route"
-        (let [container (mount/fresh-container!)]
-          (is (thrown-with-msg?
-                js/Error #"no presence tray can reach"
-                (mount/root! container frame-kw
-                             [:div.probe {:re-frame.hicasso.motion/mounting {:class "in"}}])))
-          (is (zero? (.-length (.querySelectorAll container "[mounting]")))
-              "and the container is empty of it — the refusal is not a
-               second write that undoes a first")))
+      (testing "and the override key itself is SKIPPED by the walk, so the
+                node paints and nothing carries the key to the DOM by that
+                route"
+        (let [container (mount/fresh-container!)
+              handle    (mount/root! container frame-kw
+                                     [:div.probe {:re-frame.hicasso.motion/mounting {:class "in"}}])]
+          (try
+            (mount/settle!)
+            (let [node (.querySelector container ".probe")]
+              (is (some? node) "the element painted — nothing refused it")
+              (is (nil? (.getAttribute node "mounting"))
+                  "and the private key is not on it")
+              (is (zero? (.-length (.querySelectorAll container "[mounting]")))))
+            (finally (mount/release! handle)))))
 
       (testing "while the LEGAL placement paints the override as appearance
                 and as nothing else: the merged class is on the node, and
