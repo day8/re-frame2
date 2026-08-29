@@ -267,12 +267,12 @@
 (h/defview key-hiccup-arm
   [{:keys [id]}]
   [:div {:class "tags"}
-   (for [t (h/sub [:dr/tags id])] [tag-row {:label t}])])
+   (for [t (h/sub [:dr/tags id])] [tag-row {:key {:tag t} :label t}])])
 
 (h/defview key-direct-arm
   [{:keys [id]}]
   (react/createElement "div" #js {:className "tags"}
-    (into-array (map (fn [t] (react/createElement react-tag-row #js {:label t}))
+    (into-array (map (fn [t] (react/createElement react-tag-row #js {:key #js {:tag t} :label t}))
                      (h/sub [:dr/tags id])))))
 
 ;; ---------------------------------------------------------------------------
@@ -422,18 +422,17 @@
   (let [hiccup-warned (warnings-of key-hiccup-arm)
         direct-warned (warnings-of key-direct-arm)]
 
-    (testing "CONTROL — the hiccup arm's unkeyed boundary members draw
-              Hicasso's warning, naming the view that lowered them, so
-              the channel is live and the fixture does carry the
-              population"
+    (testing "CONTROL — the hiccup arm's entity-keyed boundary members draw
+              Hicasso's warning, naming the member head, so the channel is
+              live and the fixture does carry the population"
       (is (= 1 (count hiccup-warned)))
-      (is (re-find #"direct-return-cljs-test/key-hiccup-arm" (first hiccup-warned)))
       (is (re-find #"direct-return-cljs-test/tag-row" (first hiccup-warned))))
 
-    (testing "the same members built with `react/createElement` draw none. React's own key
-              warning fires for BOTH arms on its own channel — a
-              `console.error` — and that is the point: whether React wants
-              a key here is React's affair, and Hicasso has not looked"
+    (testing "the same members built with `react/createElement` draw none.
+              React's own duplicate-key warning fires for BOTH arms on its
+              own channel — a `console.error` — and that is the point:
+              whether React likes the key here is React's affair, and
+              Hicasso has not looked"
       (is (= [] direct-warned)))
 
     (testing "and the key pair is a pair — same DOM, so the two rows above
