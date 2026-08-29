@@ -535,10 +535,13 @@ longer what the row carries** — the change of basis set out in this section's
 `S8` note replaced it, and every figure in this paragraph is history from here
 down. Run 2's positive control
 predicted `4.000` with a ±25% band of `[3.000–5.000]` and its rounds reach
-`5.150`, so it refuses under the strict every-round-inside rule —
-`lane/control-verdict`'s own docstring names its overlap `:ok?` rule the lane's
-known defect and the strict rule the right one, and an ensemble whose control
-refuses cannot contribute to a published figure. On run 1 the arm-order guard
+`5.150`, so it refuses under the strict every-round-inside rule — the rule that
+binds these legs, twenty-plus quanta clear of the clock, under the `rf2-egdaq`
+split (settled 2026-08-21: the heap arm went strict and its ten published
+figures pass re-adjudicated; the clock arm keeps `lane/control-verdict`'s
+overlap `:ok?` rule only for clamp-limited legs, under the 2026-07-31 ruling) —
+and an ensemble whose control refuses cannot contribute to a published figure.
+On run 1 the arm-order guard
 returned `reportable`, the positive control predicted `4.500` and measured
 `4.300` `[3.950–4.950]` — every round inside `[3.375–5.625]` — and all 225 of
 its measured mounts were read back out of the document at their own far end.
@@ -1831,9 +1834,10 @@ or `C5` changes with it.
   published, none of which moves its status. The figure is **run 1 alone**,
   because run 2's positive control predicted `4.000` against a ±25% band of
   `[3.000–5.000]` and its rounds reach `5.150` — a refusal under the strict
-  every-round-inside rule that `lane/control-verdict`'s own docstring says is
-  the right one — and a pooled figure that includes a control-refused ensemble
-  is not a published figure. The interval is an **observed range across
+  every-round-inside rule, which is the rule the `rf2-egdaq` split leaves in
+  force for legs clear of the clock quantum (`lane/control-verdict`'s overlap
+  rule stands only for clamp-limited legs) — and a pooled figure that includes
+  a control-refused ensemble is not a published figure. The interval is an **observed range across
   per-round ratios, not a confidence interval**, and §4 now says so where the
   row is stated. And C8's `≥ 2 ms p95` disjunct is **UNASSESSED at this
   witness** rather than missed: the instrument computes no `p95`, so the

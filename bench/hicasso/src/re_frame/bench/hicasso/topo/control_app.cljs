@@ -285,7 +285,9 @@
 
   - **in band**, round-wise rather than pooled, so one bad round refuses
     instead of being averaged away (`census_clock_run/controlVerdict`'s
-    rule, and the stricter half of `lane/control-verdict`'s known defect);
+    rule, and the strict side of the rf2-egdaq split, which kept
+    `lane/control-verdict`'s overlap rule only for clamp-limited clock
+    legs);
   - **positive in sign**, which is PR #7634's fix — a band alone admits a
     control certifying that more work reads faster;
   - **verified**, which is the audit obligation on this file: `0

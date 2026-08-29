@@ -802,13 +802,16 @@
   ## Why EVERY ROUND and not an overlap
 
   `lane/control-verdict` passes a control whose measured range merely
-  OVERLAPS the band, and its own docstring records that as a KNOWN DEFECT
-  against `hd8-rows/positive-control!`'s every-round-inside rule, needing
-  an operator ruling because tightening it re-adjudicates a published
-  row. This control is NEW, so it has no published row to re-adjudicate
-  and inherits none of that: it takes the stricter rule from birth, the
-  way `hd8-rows` did and for the reason `hd8-rows` gives — a control
-  whose worst round is wrong has caught something.
+  OVERLAPS the band. Its disagreement with `hd8-rows/positive-control!`'s
+  every-round-inside rule was rf2-egdaq, settled on 2026-08-21 as a
+  SPLIT: the heap arm's ten published figures were re-adjudicated strict
+  and all ten pass; the clock arm REFUSED strict for legs sitting on
+  Chrome's 100 µs quantum, under the 2026-07-31 ruling, and that refusal
+  stands there. This control inherits neither side of that: it is NEW,
+  so it had no published row to re-adjudicate, and its windows are
+  whole-page walks well clear of the quantum. It takes the stricter rule
+  from birth, the way `hd8-rows` did and for the reason `hd8-rows` gives
+  — a control whose worst round is wrong has caught something.
 
   ## Why a floor of zero or below REFUSES (rf2-1huc, merged-PR audit #8149)
 
