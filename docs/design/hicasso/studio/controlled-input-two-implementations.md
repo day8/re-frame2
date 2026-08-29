@@ -422,3 +422,39 @@ element path — a UIx consumer is not on that path and does not get it.
   2026-08-03, in Arm 1 only. And nothing here reaches a UIx consumer's
   `:input`: the carve-out is the element path's, so a UIx consumer's
   composition is still React's to abort.
+
+## The type fold, priced (2026-08-14; recorded here 2026-08-30 under `rf2-6c12m.4`)
+
+`impl.controlled/caret-type?` reads the `<input>` `type` off the props object —
+the author's spelling, which the codec hands on unchanged from both the string
+and the keyword door — and HTML matches that enumerated attribute ASCII
+case-insensitively. An exact compare therefore read `<input type="TEXT">` as
+having no caret: the converge was never installed, the field fell through to
+React's own end-of-event restore, and the value converged one beat later with
+the caret thrown to the end of the control. No throw, no id, no warning. The
+repair folds the type to lower case at the comparison and nowhere else, so the
+attribute that ships stays the author's; a `string?` guard makes it total,
+since `:type 0` survives the codec as a number with no `toLowerCase`. Landed on
+main as `0c111a24329fb911d0f3f13b6d6a55f482f9da83`; pinned by
+`controlled-dom-cljs-test/every-spelling-of-a-caret-type-is-the-same-control`,
+`a-shouted-type-converges-in-turn-with-the-caret-where-the-edit-left-it` and
+`the-element-type-does-not-move-when-the-type-is-shouted`.
+
+**What the fold costs.** Chromium 147.0.7727.15, medians of seven runs of
+10^6 calls, taken twice (before the fold and after) across four type
+spellings: the fold is **~8 ns per call** over the exact compare (6.2–8.9 ns
+across the eight readings); the loop overhead cancels because only the delta is
+claimed. The predicate is reached twice per controlled field per render — once
+from `install!` at codec time, once from the shadow component's own body — so
+~16 ns per field per render against a measured **13 µs** for React to render
+and commit one such field: about **0.1%**, which is why a whole-render
+measurement could not resolve it (the run-to-run spread on that path was two
+orders of magnitude larger than the effect). It sits behind
+`controlled-text-tag?`, so a page with no controlled inputs pays nothing for it.
+
+**A fold-on-miss variant was measured and rejected.** Folding only when the
+exact compare misses is cheaper for an already-lowercase caret type
+(23.6–24.7 ns against the fold's 27.5–27.6) and roughly twice the cost for
+every other type (53–71 ns against 28–30), because a miss then pays a set
+lookup, a fold and a second lookup — more code, and slower on exactly the
+controlled fields that are not text fields.

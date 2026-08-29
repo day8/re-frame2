@@ -1,332 +1,46 @@
 (ns re-frame.hicasso.impl.controlled
-  "THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
-  it, and a live IME composition carved out of it.
+  "The controlled-element converge: a store-backed `<input>` / `<textarea>`
+  converges to its model in the same discrete event with the caret where
+  the edit left it, and a live IME composition is carved out of that.
 
-  Neither shipped path gives a store-backed field both halves of what it
-  owes its user. React converges inside the discrete event and throws the
-  caret to the end of the control; UIx's port of Reagent's workaround
-  keeps the caret and arrives one animation frame late. The matrix is on
-  `docs/design/hicasso/studio/controlled-input-two-implementations.md`.
+  It lives in the element path, not in a component. `install!` is called
+  from `re-frame.hicasso.impl.codec/native-element` and wraps the change
+  handler the author wrote, so the view stays an ordinary `:value` /
+  `:on-input` pair and the boundary shell gains no hook. At the end of
+  that handler — still ahead of React's own end-of-event restore — it
+  `flushSync`es, writes the value the element last rendered if the field
+  disagrees (which makes React's later write a no-op, and a no-op there is
+  what lets the caret survive), and puts the caret back by offset from
+  the END of the string. The value the element last rendered is read off
+  `node.defaultValue`, which React mirrors the committed `value` prop into
+  on every commit, so the per-instance record costs no ref, no map and no
+  hook. Only the synchronous door reaches it: a queued dispatch has not
+  moved the model by the end of the handler, so the wrapper is a no-op
+  there and the field converges one macrotask later as it always did.
 
-  This is the third behaviour, and it lives in **the element path**
-  rather than in a component — which is the whole reason it is cheap.
-  [[install!]] is called from
-  [[re-frame.hicasso.impl.codec/native-element]] on the elements
-  it applies to, and wraps the change handler the author already wrote.
-  The view is unchanged: an ordinary `:value` / `:on-input` pair, no
-  ref, no effect, no escape hatch, and **nothing added to the boundary
-  shell**, so HD-020's ≤2-hook budget is untouched.
+  The composition carve-out is two halves because two writes can destroy
+  a live composition and only one of them is ours: this converge, which
+  `composing-input?` suppresses; and React's own restore, which
+  `shadow-component` makes a no-op by rendering the live DOM draft as the
+  value while a composition is held. The shadow is one internal component
+  with one `useState`, in front of every controlled `input` / `textarea`;
+  the field converges once, at `compositionend`, so on a refusing or
+  normalising field this runtime deliberately diverges from plain React
+  and the refusal lands whole rather than mid-composition.
 
-  One thing is *not* in the element path, and [[shadow-component]] says
-  why: React's own end-of-event restore is not ours to skip, so the
-  composition carve-out needs a fiber of its own. It is one internal
-  component carrying one `useState`, standing in front of controlled
-  `input`/`textarea` elements and nowhere else — still not the boundary
-  shell, and still not the author's to know about. UIx's answer to the
-  *caret* problem is a wrapper component per input carrying three hooks
-  (`uix/compiler/input.cljs:132-143`); this one is not that wrapper, and
-  the caret half of the mechanism is still the element path's.
+  `::h/revision` re-baselines the field on an explicit caller revision
+  change, never on value equality, and costs this file one
+  `unchecked-get`: the codec mints fresh props per render and React's
+  per-commit controlled re-assert carries the reset, so there is no third
+  `flushSync` site. Mid-composition it defers to the exchange's close;
+  mid-adoption it is absorbed.
 
-  **That hook is priced rather than asserted away.**
-  `shapes/hook_budget_dom_cljs_test` counts every hook React is asked for
-  across each tier-1 shape and separates the two questions: the shell
-  budget is still `2 × boundaries` in the declared order, and the
-  shadow's `useState` is counted per controlled TEXT FIELD from a number
-  the file declares. It also asserts that no hook is ever interleaved
-  into a shell's pair, which is what makes \"not in the shell\" a
-  measurement. A page with no controlled input pays nothing.
-
-  ## What runs, and when
-
-  At the end of the change handler — still inside the discrete event,
-  and still **ahead of React's own end-of-event restore** — unless the
-  event arrived mid-composition, which is [[composing-input?]]'s
-  question and the whole of the carve-out's first half:
-
-  1. `flushSync`, so the synchronous door's commit lands now rather than
-     in the `finally` of React's `batchedUpdates$1`;
-  2. if the field still disagrees with what the element renders, write
-     the rendered value — which also makes React's later `updateInput` a
-     no-op, because it only assigns when the two differ
-     (`react-dom-client.development.js:1661-1667`), and a no-op there is
-     what lets the caret survive;
-  3. put the caret back **by offset from the END of the string** —
-     Reagent's own algorithm, because the offset is what a
-     normalisation that changes the length preserves, where an absolute
-     position does not.
-
-  ## The trap, which is measured rather than assumed
-
-  Step 2 has to know what the element renders **now**, and neither
-  obvious source answers it.
-
-  The handler's own closure carries the value from the render that
-  *minted* it. That value is correct at the instant the handler is
-  invoked — React dispatches to the props it last committed — and
-  **stale the moment step 1 commits a new one**. Writing it back is not
-  a missing improvement, it is a regression: on a keystroke the model
-  took verbatim it wipes the character the user just typed.
-  `re-frame.hicasso.controlled-dom-cljs-test` reproduces exactly that,
-  by handing [[converge-to!]] the closure's value instead of the
-  record's — one argument different, and the accepted keystroke
-  disappears.
-
-  Comparing the field against what the handler saw does not answer it
-  either. `(= (.-value node) dom-value)` is **true in both cases**: on a
-  refusal nothing re-rendered, so the field still shows the typed value;
-  on a keystroke the model took verbatim the field shows the typed value
-  *because that is what was committed*. The same reading, two opposite
-  obligations.
-
-  ## Where the per-instance record lives, and why it costs nothing
-
-  The record is `node.defaultValue`, and **React already maintains it**.
-  Whenever an `<input>` or `<textarea>` is genuinely controlled, every
-  commit mirrors the committed `value` prop into the element's default
-  value:
-
-  | line (`react-dom@19.2.0`, `cjs/react-dom-client.development.js`) | what happens |
-  |---|---|
-  | `1671-1672` | `updateInput`: `null != value` → `setDefaultValue(element, type, value)` |
-  | `1737-1741` | `setDefaultValue` assigns `node.defaultValue` unless it already matches |
-  | `1721` | `initInput` sets it on mount, so the record exists before the first event |
-  | `1842-1851` | `updateTextarea` does the same, when no `defaultValue` prop was written |
-
-  It is the element's own bookkeeping — the value a `form.reset()` would
-  return the field to — and it is exactly *the value the element last
-  rendered*, per instance, on the node, with no `ref`, no `WeakMap`, no
-  prop and no hook to keep it. Typing does not disturb it: the `value`
-  IDL setter sets the value and the dirty flag, never the content
-  attribute `defaultValue` reflects.
-
-  **So the price the option was quoted at is not charged here.** What
-  remains is the dependency, and [[last-rendered]] is the one place that
-  names it. `arm1_controlled_grid_dom_cljs_test` asserts the invariant
-  directly, on a live element, across a re-render that moves the value —
-  so if React ever stopped mirroring, a row named for the invariant goes
-  red rather than five rows going subtly wrong.
-
-  ## What [[install!]] refuses, and why each refusal is the record's
-
-  Every guard below exists to keep [[last-rendered]] honest. Read them
-  as *the conditions under which React's mirror is the rendered value*:
-
-  - **`input` and `textarea` only.** A `select` has no text cursor to
-    restore and no `defaultValue` mirror; nothing here applies to it.
-  - **A `value` prop that is present and non-nil.** Absent, the element
-    is uncontrolled, React writes no mirror, and there is nothing to
-    converge *to*.
-  - **No `defaultValue` prop of the author's.** On a `<textarea>` React
-    honours it over the mirror (`:1852-1853`), so the record would be
-    the author's constant rather than the rendered value.
-  - **A type whose text cursor exists** — `text`, `search`, `url`,
-    `tel`, `password`, or no `:type` at all, which is `text`. Read at
-    the PLATFORM's spelling rather than the author's, which is the fold
-    [[caret-type?]] carries for the
-    same attribute. `setSelectionRange` is not applicable to the others, and
-    `setDefaultValue` deliberately skips a focused `number` field
-    (`:1738`), so the two exclusions are the same exclusion. React's own
-    restore still converges the *value* on those types; there was never
-    a caret there to lose.
-  - **A change handler to run after.** No handler, no end of a handler
-    to converge at.
-
-  A guard that does not hold means no wrapper at all — not a wrapper
-  that quietly does less. The element then behaves exactly as it did
-  before this namespace existed.
-
-  ## The guard that has to be taken twice
-
-  Every condition above is read off the props that MINT a wrapper, and
-  those props are one render old the moment step 1 returns — because
-  step 1 *is* a render. A synchronous handler can re-render the same
-  `<input>` from `text` to `number`; React keeps the node and updates
-  the attribute, so a wrapper installed on a caret-bearing element
-  goes on running against one that is not.
-
-  So [[converge!]] asks the caret question again after the flush.
-  Answered no, it does nothing at all — which matters twice over:
-  `setSelectionRange` throws `InvalidStateError` on such a type, and
-  `setDefaultValue` skips a focused `number` field (`:1738`), leaving
-  the record holding what the *text* render wrote rather than what
-  the element now renders. The throw is the measured defect;
-  `arm1_controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
-  quotes it and reds by name without this reading.
-
-  **The same measurement is why [[shadow-component]] stands in front of
-  every controlled `input`/`textarea` rather than only the convergeable
-  ones.** That row asserts React kept the NODE across the type change —
-  a premise that holds only while the element's React *type* is stable,
-  and a component chosen by a predicate reading `:type` would flip from
-  the wrapper to the bare tag under exactly that keystroke, remounting
-  the field and taking the focus with it. So the component question is
-  the tag and the controlled `value`, and the `:type` question is asked
-  inside, where a wrong answer costs nothing.
-
-  ## The one handler, and the door
-
-  `onChange` when the author wrote one, `onInput` otherwise. React's
-  `SimpleEventPlugin` extracts `onInput` before `ChangeEventPlugin`
-  extracts `onChange`, so wrapping the later of the two is what puts the
-  converge after every handler the element has rather than between them.
-
-  **The synchronous door only**, and that is a property of re-frame2
-  rather than a limitation of this code: `dispatch` drains on a
-  macrotask (Spec 002 §Drain scheduling), so at the end of the change
-  handler the model has not moved, `flushSync` has nothing to flush, and
-  the record still reads what the element rendered before the keystroke.
-  The wrapper is a no-op there, correctly — a queued field converges one
-  macrotask later, as it always did.
-
-  An out-of-band correction — a server normalisation, a debounced
-  validation — fires no change event, so nothing here runs and React's
-  own restore is still what converges it. That is why a *range* selection
-  still collapses across such a write: this converge is not on that path,
-  and restoring two offsets is a different algorithm from the one it
-  runs.
-
-  ## The composition carve-out, and why it is two halves
-
-  A composing IME produces exactly the `input` events this wrapper runs
-  on. `bench/hicasso/ime_run.cjs` drives real CDP composition at it
-  beside plain React and the UIx port, and what it measured is the whole
-  reason the carve-out exists: on a field whose model **refuses or
-  normalises** the composition text, the value written back lands
-  mid-composition and **silently destroys the exchange** — no
-  `compositionend`, the in-flight kana gone, a fresh `compositionstart`
-  on the IME's next update. Plain React does it in the same turn through
-  its own restore; the UIx port does it one frame later.
-
-  The carve-out is HD-019's addendum: controlled-text convergence is
-  suppressed while a composition is live, and the field converges ONCE at
-  `compositionend` against the then-current model. A composition is a
-  browser-owned draft of the user's; destroying it silently is not a
-  parity target worth keeping. **On a refusing or normalising field this
-  runtime therefore diverges from plain React deliberately** — the
-  composition survives to its commit and the refusal lands whole,
-  visibly, at `compositionend`.
-
-  It takes two halves because **two different writes destroy the
-  exchange, and only one of them is ours**:
-
-  1. **This converge**, suppressed by [[composing-input?]] at the end of
-     the change handler. One reading, one branch.
-  2. **React's own end-of-discrete-event restore**, which is not ours to
-     skip. `ChangeEventPlugin` banks a restore target for every
-     controlled change; the `finally` of `batchedUpdates$1` flushes
-     pending sync work and then hands the committed props to
-     `updateInput`, which assigns `element.value` **whenever it differs
-     from the controlled value**. Skipping only half (1) falls through to
-     exactly the plain-React conduct the harness measured aborting the
-     exchange — which is why a bare `when-not composing` is proven
-     insufficient rather than merely incomplete.
-
-  [[shadow-component]] is half (2), and it is stated as a property
-  rather than as a trick: **while a composition is live, the value React
-  sees agrees with the live DOM draft**, so React's restore finds
-  nothing to write and its own `element.value !== value` guard is what
-  does the skipping. Nothing here reaches into React's internals, mutates
-  props React holds, or intercepts a value setter.
-
-  ## The shadow is released unconditionally, and that is the safety rider
-
-  The worst thing this could degrade to is a field stuck showing a draft
-  the model never agreed to. It cannot, because **every path out of a
-  composition releases the shadow** and there is no path that only
-  *some* of them cover:
-
-  - `compositionend` — the ordinary end, commit or cancel alike;
-  - a change event that is **not** composing — which is what recovers a
-    composition some *other* value write aborted silently, since the
-    abort itself fires nothing;
-  - `blur` — the composition the browser abandoned with the focus;
-  - unmount, for free: the shadow is this component's own `useState` and
-    cannot outlive the element that holds it. There is no registry, no
-    node property and no module-level record to strand.
-
-  A release is `set-shadow(nil)`, and a release when nothing is held is
-  free — React bails out of an update to an identical state. So the
-  degenerate outcome is a converge, which is exactly today's conduct.
-
-  The release also runs **before** the author's handler at every slot
-  that has one, so a handler that throws cannot strand a shadow either.
-  `arm1_controlled_grid_dom_cljs_test` §7 witnesses the blur, the
-  non-composing keystroke and the unmount paths in a real React tree.
-
-  ## The revision prop, and why it costs this file one read
-
-  `::h/revision` re-baselines the field to the model on an explicit
-  caller revision change, and NEVER on value equality — HD-019's reset
-  law, kept from D016. The whole of its delivery is
-  [[install!]]'s one `unchecked-get`: **zero new machinery**, because the
-  transport already exists. The codec mints a fresh props object per
-  element per render, React marks a host update on props identity, and
-  the commit's `updateInput` assigns whenever the DOM disagrees — so a
-  revision change re-runs the body, the re-run re-commits the element,
-  and the commit re-asserts the model over whatever draft was in the
-  field. No hook, no ref, no comparison record, no keyed re-render, and
-  **no third `flushSync` site**.
-
-  The last of those is worth stating as the mechanism clause rather than
-  as a tally, because this file already reads the caret twice and the two
-  are not in tension. HD-019 grants the `flushSync` exception to an
-  AUDITED MECHANISM, not to a count: [[converge!]] holds the one
-  `flushSync` expression in the namespace, it is reached from exactly two
-  call sites (the keystroke path and the `compositionend` path), at most
-  one fires per event, and the second caret read inside it is the same
-  element in the same exchange. The revision adds no call site to that
-  set. In-turn resets ride the keystroke converge; deferred resets ride
-  the `compositionend` site; out-of-band resets ride ordinary commits.
-
-  ### Mid-composition, the reset defers to the exchange's close
-
-  Not a new deferral — the carve-out's own, inherited, with no new
-  machinery and no revision-comparison state. The argument is mechanical
-  before it is philosophical: **there is no cancel primitive to build an
-  immediate variant from.** The only immediate write available is
-  `element.value`, and mid-composition that write silently aborts the
-  exchange — no `compositionend`, a fresh `compositionstart` on the IME's
-  next update — which on a normalising field corrupts the commit, the
-  measured `SSHSH` row. So a revision arriving mid-composition lands at
-  the close, through every release path this file already has:
-  `compositionend`, a non-composing change, blur, unmount.
-
-  **The honest limit, stated rather than overclaimed.** The deferral
-  cannot STRAND the field — every exit converges it to the then-current
-  model. It cannot promise the reset survives: on an accepting field the
-  model keeps taking every composing update while the shadow is held, so
-  a post-bump dispatch — including the composition's own final input
-  event — supersedes the reset by ordinary event order, exactly as it
-  would at rest, and discarded pre-reset content can ride back in through
-  the draft echo. \"The reset cannot be lost\" is false; \"the deferral
-  cannot strand the field\" is what is true.
-
-  ### Mid-hydration, the reset is ABSORBED by the adoption — measured
-
-  The design claimed a mid-adoption revision would land on the first
-  post-adoption commit, on the SERVER's node. That is not a claim this
-  prop can make either way: the revision is consumed at the codec before
-  emission, so React is handed a prop-identical element whether it moved
-  or not, and nothing on React's side can branch on a value it was never
-  given.
-
-  What does happen is measured on the hydration harness rather than on a
-  hand-rolled `hydrateRoot`, because hand-rolled hydration harnesses
-  disagree about node identity in opposite directions on consecutive runs:
-  `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption* is a fact rather
-  than a wait — `hydrate-root!` returns before the tree is adopted, so a
-  synchronous dispatch on the next line cannot be raced.
-
-  **The revision is ABSORBED, not deferred.** The write reaches no
-  committed boundary, so it notifies nothing and the already-scheduled
-  adoption render simply reads it as the field's FIRST revision — a change
-  with no predecessor to be a change from. And hydration is a MOUNT rather
-  than an update, so the per-commit re-assert that carries the whole reset
-  never runs. Measured: the server's node survives, React reports on
-  neither channel, one body runs, and the draft is still in the field
-  afterwards. The next revision change after the window shuts does reset
-  it, on the server's own node and without remount — so the field is never
-  stranded, but the reset is the caller's to send again."
+  Design record: docs/design/hicasso/decisions.md HD-019 and its addendum
+  (the flushSync exception, the carve-out, the shadow's hook priced);
+  docs/design/hicasso/studio/controlled-input-two-implementations.md (the
+  matrix, the trap, why the record is React's own, the IME measurements);
+  docs/design/hicasso/studio/revision-prop-spec.md (the revision prop,
+  the mid-composition deferral, the mid-adoption absorption)."
   (:require [re-frame.hicasso.impl.error :refer [fail!]]
             ["react" :as react]
             ["react-dom" :as react-dom]))
@@ -338,20 +52,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn last-rendered
-  "**The value this element's last render put on it**, per instance, read
-  off the node.
-
-  React's mirror of the committed `value` prop — see the table in the
-  namespace docstring for the four lines of `react-dom` that maintain
-  it. The one place this namespace depends on that behaviour, so it is
-  the one place a row has to pin, and
-  `arm1_controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
-  pins it.
-
-  `js/undefined` on anything that is not a live form control — a
-  synthetic target in a unit test, an element React never controlled —
-  which is what makes [[converge!]] inert there rather than defensive
-  about it."
+  "The value this element's last render put on it, read off the node:
+  React's mirror of the committed `value` prop in `node.defaultValue`,
+  maintained on every commit of a genuinely controlled `<input>` or
+  `<textarea>` and undisturbed by typing. The one place this namespace
+  depends on that behaviour, so it is the one place a row pins it —
+  `arm1/controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
+  (`bench/hicasso`). `js/undefined` on anything that is not a live form
+  control, which is what makes `converge!` inert there."
   [node]
   (.-defaultValue node))
 
@@ -361,23 +69,14 @@
 
 (defn composing-input?
   "Did this change event arrive in the middle of a live IME composition?
-
-  Read off the **native** event, for the reason
-  [[re-frame.hicasso.impl.intent/composing?]] states at length:
-  React hands a handler a synthetic event built by copying an enumerated
-  interface, and what is not on the list is not on the event.
-
-  This is deliberately **not** that gate, and not a second spelling of
-  it. The key-map's gate answers a KEY event, and it needs the legacy
-  keyCode-229 signal because that is all some IMEs send on a keydown. An
-  `input` event has no `keyCode` to read, and every browser that fires
-  composition events at all sets `isComposing` on the input events a
-  composition produces. Two different events, two readings; folding them
-  together would put a key signal on a path that cannot produce one.
-
-  A raw DOM event has no `nativeEvent`, and a synthetic `#js {:target …}`
-  from a node-side row has neither — so both read *not composing*, which
-  is what keeps every row written before the carve-out reading as it did."
+  Read off the NATIVE event's `isComposing` — React's synthetic event
+  copies an enumerated interface, and what is not on the list is not on
+  the event. Deliberately not `impl.intent/composing?`, the key-map's
+  gate: that one answers a KEY event and needs the legacy keyCode-229
+  signal, while an `input` event has no `keyCode` and every browser that
+  fires composition events sets `isComposing` on it. A raw DOM event or a
+  synthetic `#js {:target …}` has no `nativeEvent` and reads *not
+  composing*."
   [e]
   (true? (some-> (.-nativeEvent e) (.-isComposing))))
 
@@ -386,25 +85,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn converge-to!
-  "Make `node` show `rendered`, and put the caret back by offset from the
-  END of the string.
-
-  Split out from [[converge!]] because `rendered` is the whole of the
-  design: hand it [[last-rendered]] and every row of the family lands;
-  hand it the change handler's own closure value and an accepted
-  keystroke is wiped off the screen. The test that reproduces the trap
-  calls this function twice with one argument different, which is the
-  shortest true statement of it.
-
+  "Make `node` show `rendered` and put the caret back by offset from the
+  END of the string. `rendered` is the whole of the design: hand it
+  `last-rendered` and every row lands; hand it the change handler's own
+  closure value — correct when the handler was invoked and stale the
+  moment the flush commits — and an accepted keystroke is wiped off the
+  screen
+  (`controlled-dom-cljs-test/the-closure-value-wipes-a-keystroke-the-model-took-verbatim`).
   The offset is taken from the end because that is the half a
-  normalisation preserves. `\"1,234\"` + `5` becomes `\"12,345\"` — one
-  character longer than what was typed — and the caret belongs after the
-  `5`, which is `0` from the end in both strings and `6` in neither.
-
-  Writing the value only when it differs is not a micro-optimisation:
-  assigning `value` moves the cursor to the end of the control, so a
-  write that changed nothing would undo the caret this function is here
-  to restore."
+  normalisation preserves: `\"1,234\"` + `5` becomes `\"12,345\"`, and the
+  caret belongs after the `5`, which is `0` from the end in both strings.
+  The value is written only when it differs, because assigning `value`
+  moves the cursor to the end of the control."
   [node dom-value caret-was rendered]
   (when-not (= (.-value node) rendered)
     (set! (.-value node) rendered))
@@ -414,55 +106,28 @@
   nil)
 
 (defn converge!
-  "Converge `node` against the model, inside the discrete event.
+  "Converge `node` against the model, inside the discrete event: read the
+  field's value and caret FIRST (the flush may write both), `flushSync`,
+  then `converge-to!` the rendered value. Inert rather than wrong where it
+  does not apply: a caret that is not a number is not a text-entry
+  control, and a record that is not a string is an element React never
+  mirrored.
 
-  `dom-value` and the caret are read FIRST, because step 1 may write
-  both: they are what the user's edit left behind, and the caret is
-  only meaningful as an offset into that string.
+  The caret is read a SECOND time after the flush because the flush is a
+  render. `install!` judged the element caret-bearing from the props that
+  minted this wrapper, and a synchronous handler may re-render the same
+  `<input>` from `text` to `number` — React keeps the node — so the
+  wrapper from the text render runs against an element with no caret,
+  where `setSelectionRange` throws `InvalidStateError` and the mirror is
+  stale (`setDefaultValue` skips a focused `number` field). Answered no,
+  the element is left as React leaves it
+  (`arm1/controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`,
+  `bench/hicasso`).
 
-  Three readings make this inert rather than wrong where it does not
-  apply. A caret that is not a number is not a text-entry control — a
-  synthetic target in a unit test, or a type whose selection is not
-  applicable. A record that is not a string is an element React never
-  wrote a mirror for. And the caret is read a SECOND time, after the
-  flush, because the flush is a render.
-
-  ## Why the caret is read twice
-
-  [[install!]] decided this element was caret-bearing from the props
-  that minted *this* wrapper, and those props are one render old the
-  moment `flushSync` returns. A synchronous handler may re-render the
-  same `<input>` from `text` to `number` — React keeps the node and
-  updates the attribute, so the wrapper from the text render is still
-  the one running, against an element that no longer has a caret.
-
-  Both halves of the converge are wrong there. `setSelectionRange`
-  throws `InvalidStateError` on a type whose selection is not
-  applicable — that is the measured failure, and it is the whole of
-  why this is a correctness fix rather than a tidy-up. And the record
-  is stale rather than merely unused: `setDefaultValue` deliberately
-  skips a focused `number` field (`react-dom@19.2.0:1738`), so
-  `defaultValue` still holds what the *text* render put there. The
-  converge would write that over the field mid-event; React's own
-  end-of-event restore happens to put the committed value back
-  afterwards, so the field survives — but only by accident, and the
-  write was never this code's to make.
-
-  So the post-flush reading is not a guard bolted onto the caret
-  restore; it is the same question [[install!]] asked, asked again at
-  the only other moment it can change. Answered no, the element is
-  left exactly as React leaves it — which is what it would have been
-  had it been minted as a `number` field to begin with.
-
-  ## The two call sites, and why they are one behaviour
-
-  This runs at the end of a change handler that is
-  **not** composing, and again once at `compositionend`. HD-019 grants
-  the `flushSync` exception to an audited call site rather than to a
-  count, and its addendum audits the second: same element, same
-  namespace, same door, and at most one of them per event. The
-  composition path is the keystroke path with its convergence deferred
-  to the end of the exchange — not a second mechanism."
+  This is the one `flushSync` expression in the namespace, reached from
+  two call sites — the non-composing keystroke and `compositionend` — of
+  which at most one fires per event; HD-019 grants the exception to that
+  audited mechanism, not to a count."
   [node]
   (let [dom-value (.-value node)
         caret-was (.-selectionStart node)]
@@ -480,11 +145,9 @@
 
 (def ^:private caret-types
   "The `<input>` types with a text entry cursor — the ones
-  `setSelectionRange` applies to. Everything else has no caret to lose,
-  and React's own restore already converges its value.
-
-  Spelled as the PLATFORM spells them, which is why [[caret-type?]] folds
-  a prop before asking rather than widening this set."
+  `setSelectionRange` applies to — spelled as the platform spells them,
+  which is why `caret-type?` folds a prop before asking rather than
+  widening this set."
   #{"text" "search" "url" "tel" "password"})
 
 (defn- convergeable-tag?
@@ -497,52 +160,21 @@
 
 (defn- caret-type?
   "Does this element have a text cursor? A `<textarea>` always does; an
-  `<input>` does for the five applicable types, and for no `:type` at
-  all, which is `text`.
+  `<input>` does for the five `caret-types` and for no `:type` at all,
+  which is `text`.
 
-  **The type is folded before it is compared.** An
-  HTML `type` is an enumerated attribute the platform matches ASCII
-  case-insensitively, and this predicate reads the PROPS object — the
-  author's spelling, which
-  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged
-  from both the string and the keyword door. So `<input type=\"TEXT\">`
-  is a text field with a caret to the engine, and an exact compare says
-  it is not: [[convergeable?]] answers no, [[install!]] wraps nothing,
-  and the field falls through to React's own end-of-event restore. The
-  value still converges — one beat later, with the caret thrown to the
-  end of the control. No throw, no id, no warning; a subtly worse cursor
-  and nothing to attribute it to, which is the hardest class of report to
-  act on.
-
-  ONE reading of `type` in this namespace, then, rather than two — and
-  the fold is at the COMPARISON here as well, because `js-props` is what
-  React consumes and the attribute that ships must stay the attribute
-  the author wrote. The `string?` guard is what makes it total:
-  `:type 0` survives `convert-prop-value` as a number, which has no
-  `toLowerCase`, so without the guard a silent miss becomes a thrown
-  render.
-
-  **What it costs, measured rather than assumed** — Chromium 147.0.7727.15,
-  medians of seven runs of 10^6 calls, taken twice (before the fold and
-  after) across four type spellings. The fold is **~8 ns per call** over
-  the exact compare (6.2–8.9 ns across the eight readings), and the loop
-  overhead cancels because only the delta is claimed.
-
-  This predicate is reached TWICE per controlled field per render — once
-  from [[install!]] at codec time, once from [[shadow-component]]'s own
-  body — so ~16 ns per field per render, against a measured **13 µs** for
-  React to render and commit one such field: about **0.1%**, which is why
-  the whole-render measurement could not resolve it at all (the run-to-run
-  spread on that path was two orders of magnitude larger than the effect).
-  And it sits behind [[controlled-text-tag?]], so a page with no
-  controlled inputs still pays nothing for it.
-
-  A variant that folded only ON A MISS was measured and REJECTED. It is
-  cheaper only for an already-lowercase caret type (23.6–24.7 ns against
-  the fold's 27.5–27.6) and roughly TWICE the cost for every other type
-  (53–71 ns against 28–30), because a miss then pays a set lookup, a fold
-  and a second lookup. More code, and slower on exactly the controlled
-  fields that are not text fields."
+  The type is folded to lower case at the comparison, because HTML
+  matches that enumerated attribute ASCII case-insensitively while this
+  predicate reads the author's own spelling (the codec hands it on
+  unchanged): an exact compare would read `<input type=\"TEXT\">` as
+  having no caret, install nothing, and hand the field to React's own
+  restore with the caret thrown to the end — no throw, no id, no warning.
+  The attribute that ships stays the author's. The `string?` guard makes
+  it total: `:type 0` survives the codec as a number with no
+  `toLowerCase`. The fold costs ~8 ns per call, about 0.1% of one field's
+  render, and a fold-on-miss variant was measured and rejected —
+  docs/design/hicasso/studio/controlled-input-two-implementations.md,
+  §The type fold, priced."
   [tag js-props]
   (or (identical? "textarea" tag)
       (let [t (unchecked-get js-props "type")]
@@ -550,8 +182,10 @@
             (and (string? t) (contains? caret-types (.toLowerCase t)))))))
 
 (defn- change-slot
-  "The slot whose handler runs LAST for one keystroke, or nil when the
-  element has no change handler and so nothing to converge after."
+  "The slot whose handler runs LAST for one keystroke — `onChange` when
+  the author wrote one, else `onInput`, since React extracts `onInput`
+  before `onChange` — or nil when there is no change handler and so
+  nothing to converge after."
   [js-props]
   (cond
     (fn? (unchecked-get js-props "onChange")) "onChange"
@@ -559,25 +193,26 @@
     :else                                     nil))
 
 (defn- controlled-text-tag?
-  "Is this a form control React mirrors a controlled `value` onto?
-
-  **The `:type` is deliberately not asked**, and that omission is the
-  whole difference between this and [[convergeable?]]. This predicate
-  chooses a React element TYPE, and an element type that changed under a
-  live field would remount it — losing the focus, the selection and any
-  composition in flight — where the attribute change React actually
-  performs loses nothing. The type-flip row in
-  `arm1_controlled_grid_dom_cljs_test` measures precisely that node
-  identity, and a `text` → `number` keystroke is the case it measures."
+  "Is this a form control React mirrors a controlled `value` onto: an
+  `input` or `textarea` with a non-nil `value`? The `:type` is deliberately
+  not asked, and that is the whole difference from `convergeable?`: this
+  predicate chooses a React element TYPE, and an element type that changed
+  under a live field would remount it — losing focus, selection and any
+  composition — where the attribute change React performs on a `text` →
+  `number` keystroke loses nothing
+  (`controlled-dom-cljs-test/the-element-type-does-not-move-when-the-input-type-does`)."
   [tag js-props]
   (and (convergeable-tag? tag)
        (some? (unchecked-get js-props "value"))))
 
 (defn- convergeable?
-  "Is this element one whose rendered value React records on the node,
-  and which has a handler to converge at the end of? See the namespace
-  docstring — each clause is a condition on the record, not a taste
-  about which elements deserve the behaviour."
+  "Is this an element whose rendered value React records on the node, with
+  a handler to converge at the end of? Each clause is a condition on the
+  record: a `controlled-text-tag?` (uncontrolled, there is no mirror); no
+  author `defaultValue` (on a `<textarea>` React honours it over the
+  mirror); a caret type (`setSelectionRange` is not applicable to the
+  others, and React's own restore already converges their value); and a
+  change handler. A guard that does not hold means no wrapper at all."
   [tag js-props]
   (and (controlled-text-tag? tag js-props)
        (nil? (unchecked-get js-props "defaultValue"))
@@ -589,58 +224,37 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private native-tag-key
-  "Where [[shadow-component]] records the tag it renders, so
-  [[element-tag]] can answer for an emitted element without knowing
-  this namespace exists."
+  "Where `shadow-component` records the tag it renders, so `element-tag`
+  can answer for an emitted element without knowing this namespace."
   "hicassoNativeTag")
 
 (def revision-slot
-  "The private slot [[re-frame.hicasso.impl.codec/native-element]]
-  stashes a `::h/revision` on, and [[install!]] deletes as it reads.
-
-  It exists for exactly the length of one `install!` call. The codec
-  reads the revision off the author's own pre-merge map and has nowhere
-  to put it except the object it is already building; this namespace owns
-  the name so the codec cannot drift from it, and the delete is what
-  makes \"never a DOM attribute\" true by construction rather than by a
-  strip at each of the three exits (React, the DOM, the server bytes)."
+  "The private slot `re-frame.hicasso.impl.codec/native-element` stashes a
+  `::h/revision` on, and `install!` deletes as it reads. It exists for the
+  length of one `install!` call; this namespace owns the name so the codec
+  cannot drift from it, and the delete is what makes *never a DOM
+  attribute* true by construction."
   "hicassoRevision")
 
 (defn- shadowed-props
-  "The props the native tag is rendered with while `shadow` is held —
-  the author's, with the value and three handlers replaced.
+  "The props the native tag renders with while `shadow` is held: the
+  author's, with the value and three handlers replaced. While a
+  composition is live the value React sees is the live DOM draft, so
+  React's restore — which assigns `element.value` only when it differs
+  from the controlled value — finds nothing to write. Nothing here reaches
+  React's internals.
 
-  `shadow` is `nil` when no composition is live, and the value the
-  element renders is then the author's own; while it is held, **the
-  value React sees is the live DOM draft**, which is the entire
-  mechanism: React's restore assigns `element.value` only when it
-  differs from the controlled value, so agreeing with the draft is what
-  makes the restore a no-op. See the namespace docstring.
-
-  Three slots, and each is a release or a hold. **The hold or release
-  happens FIRST at every one of them**, before the handler the author
-  wrote — not for ordering's sake but because that is what makes the
-  release unconditional: a handler of the author's that throws must not
-  be able to strand a shadow, and the worst it can then leave behind is
-  a converge.
-
-  - the **change slot** — [[install!]]'s converging handler, wrapped.
-    Composing, the live draft is held and the converge inside has
-    already declined to run; not composing, the shadow is released, and
-    releasing *before* the inner handler means the release renders
-    inside the converge's own `flushSync` — one flush, both jobs.
-  - **`onCompositionEnd`** — release, then converge once against the
-    then-current model, which is why the converge is the one thing here
-    that runs after the author (their handler may move the model, and
-    the model this converges against is the one it leaves behind). This
-    is where a refusal lands, whole and visible, on a field whose model
-    would have destroyed the exchange to say so.
-  - **`onBlur`** — release, and nothing else. A blurred field has no
-    caret worth restoring; the release alone re-renders the model's
-    value and React's own commit writes it.
-
-  The author's handler at each slot is preserved and called; an element
-  with no handler at a slot simply has one now, which is invisible."
+  Three slots, and at each the hold or release happens FIRST, before the
+  author's handler, so a handler that throws cannot strand a shadow: the
+  change slot holds the draft while composing and releases otherwise
+  (the release renders inside the converge's own `flushSync` — one flush,
+  both jobs); `onCompositionEnd` releases, runs the author, then converges
+  once against the model the author left behind, which is where a refusal
+  lands; `onBlur` releases and nothing else, since a blurred field has no
+  caret worth restoring. A release when nothing is held is free — React
+  bails out of an update to an identical state — so the degenerate
+  outcome is a converge. The author's handler at each slot is preserved
+  and called."
   [props shadow set-shadow]
   (let [out      (js/Object.assign #js {} props)
         release! (fn [] (set-shadow nil))
@@ -672,23 +286,14 @@
     out))
 
 (defn- shadow-component
-  "The internal component that holds the composition shadow for `tag`.
-
-  ONE `useState`, no ref, no effect, and no props of its own: the author
-  writes `[:input {:value … :on-input …}]` and the element path decides
-  this stands in front of it. It is a *public-React* mechanism on
-  purpose — the ruling's preference and this file's — because the only
-  supported way to change what React's controlled restore compares
-  against is to change what React rendered.
-
-  **It stands in front of every controlled `input`/`textarea`, not only
-  the convergeable ones**, and asks [[convergeable?]] again inside. A
-  component chosen by a predicate that reads `:type` would flip to the
-  bare tag the moment a synchronous handler re-rendered the field from
-  `text` to `number` — remounting the element React would otherwise have
-  kept, which is a strictly worse outcome than the inert render this
-  costs. Where the answer is no the props go through **by identity**: no
-  copy, no closures, nothing but the fiber and its one hook cell."
+  "The internal component that holds the composition shadow for `tag`:
+  one `useState`, no ref, no effect, no props of its own. It stands in
+  front of EVERY controlled `input` / `textarea`, not only the
+  convergeable ones, and asks `convergeable?` again inside — a component
+  chosen by a predicate reading `:type` would flip to the bare tag when a
+  handler re-rendered the field from `text` to `number`, remounting an
+  element React would have kept. Where the answer is no the props go
+  through by identity."
   [tag]
   (let [component (fn [props]
                     (let [hook       (react/useState nil)
@@ -709,12 +314,8 @@
 (defn element-tag
   "The native tag `e` will render — `\"input\"` for a controlled field
   whose element type is the shadow component, and `(.-type e)` for
-  everything else.
-
-  The one reader an element-tree test needs, so that walking what the
-  codec emitted stays a question about the DOM rather than about this
-  namespace. `re-frame.hicasso.controlled-dom-cljs-test` reads every
-  emitted element's tag through it."
+  everything else. The one reader an element-tree test needs, so walking
+  what the codec emitted stays a question about the DOM."
   [e]
   (let [t (.-type e)]
     (or (when (fn? t) (unchecked-get t native-tag-key))
@@ -725,50 +326,29 @@
 ;; ---------------------------------------------------------------------------
 
 (defn install!
-  "Prepare `js-props` and answer **what to render them as**.
+  "Prepare `js-props` — the object the codec has just built and is about
+  to hand to `createElement` — and answer what to render them as: the tag
+  itself for everything that is not a controlled `input` / `textarea`,
+  and the shadow component otherwise.
 
-  Mutates the props object the codec has just built and is about to hand
-  to `createElement`, and returns the component for it: the tag itself
-  for everything that is not a controlled `input`/`textarea`, and
-  [[shadow-component]]'s otherwise.
+  Where the element is `convergeable?` the change handler is wrapped so
+  the field converges in-turn with the caret intact, unless the event
+  arrived mid-composition. The wrapper closes over the author's handler
+  and deliberately NOT over the value — the stale reading `converge-to!`
+  exists to keep out of the write.
 
-  Where the element is [[convergeable?]] the change handler is wrapped
-  so the field converges in-turn with the caret intact — unless the
-  event arrived mid-composition, which is the carve-out's first half and
-  is one reading of the native event. A fresh wrapper per render is the
-  same shape the codec already has for every lowered intent, and it
-  closes over nothing but the author's handler — deliberately **not**
-  over the value, which is the stale reading [[converge-to!]] exists to
-  keep out of the write.
-
-  ## The revision marker, read and deleted
-
-  One `unchecked-get` on every native element, which is what the reset
-  trigger costs an element that does not carry one. Present, it is
-  deleted before anything else can see it — the delete is the whole of
-  \"never a DOM attribute\" — and the element is REFUSED if it is not a
-  [[controlled-text-tag?]]. Nothing else happens, because nothing else
-  needs to: the reset rides React's own per-commit controlled re-assert
-  off the fresh props object the codec mints per render, so there is no
-  hook, no ref, no comparison record and **no third `flushSync` site**
-  here. See [[re-frame.hicasso.impl.codec/revision-key]].
-
-  The acceptance predicate is [[controlled-text-tag?]] — the one that
-  already chooses the shadow component, reused rather than duplicated —
-  and it is deliberately type-blind, so state the coverage honestly
-  rather than overstating it. A `:div`, a `select`, a value-less
-  `<input>` and a checkbox written idiomatically with `:checked` and no
-  `:value` are all refused. A checkbox carrying a form-submission
-  `value=\"yes\"` is ACCEPTED, and the revision is simply inert there; an
-  `<input type=\"number\">` is likewise accepted, with caret semantics
-  that do not apply to it. \"A checkbox is refused\" is the wrong
-  sentence; \"a value-less checkbox is refused\" is the right one.
-
-  A non-empty `:value` on a file input is left to the platform: React's
-  controlled mirror reaches `element.value = …` and the engine throws
-  `InvalidStateError`, which is the report. The other half of that
-  control — reading `::h/value` off it — is
-  `re-frame.hicasso.impl.intent/target-value`'s refusal."
+  The revision marker (`revision-slot`) is read and deleted on every
+  native element, one `unchecked-get`. Present, the element is REFUSED
+  with `:rf.error/hicasso-revision-not-controlled` unless it is a
+  `controlled-text-tag?`; nothing else happens, because the reset rides
+  React's per-commit re-assert off the fresh props the codec mints per
+  render. The predicate is type-blind, so state the coverage exactly: a
+  `:div`, a `select`, a value-less `<input>` and a checkbox written with
+  `:checked` and no `:value` are refused; a checkbox carrying
+  `value=\"yes\"` is accepted with the revision inert, and an
+  `<input type=\"number\">` is accepted with caret semantics that do not
+  apply. A non-empty `:value` on a file input is left to the platform,
+  whose `InvalidStateError` is the report."
   [tag js-props]
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
