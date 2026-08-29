@@ -1,0 +1,86 @@
+;; THE HICASSO BENCH LANE — its own shadow-cljs project (rf2-6c12m.1).
+;;
+;; This tree is the measurement harness the Hicasso programme's numbers were
+;; taken on. It lived inside implementation/hicasso/test until rf2-6c12m.1
+;; moved it here, off the package classpath and off every per-PR lane: its
+;; suites exercise LOCAL COPIES of the runtime (see README.md), so running
+;; them on every PR could not catch a regression in the shipped one. The lane
+;; is hand-run — `npm run check` compiles every namespace warnings-fatal and
+;; runs the harness self-tests; `npm run bench` drives the P0 arms.
+;;
+;; The implementation roots below are the ones the lane's require closure
+;; reaches — derived from the compile, and re-derived the same way whenever
+;; an arm starts requiring something new. `core/test` is here for the shared
+;; bench helpers that stayed in the package (`re-frame.bench.calibration`,
+;; `order-guard`, `p0-fixture`, `p0-workcount`) and `re-frame.test-support`;
+;; `hicasso/test` for the witness applications under
+;; `re-frame.hicasso.examples.*` that the slice and ledger clocks drive.
+;;
+;; No `node_modules` of its own. `package.json` beside this file declares the
+;; shadow-cljs pin so the CLI does not warn; the CLI is spawned from the
+;; implementation install by `lane_build.cjs`, and `:node-modules-dir` points
+;; npm resolution at the same place, so the lane reuses one install of react.
+{:source-paths ["src"
+                "../../implementation/core/src"
+                "../../implementation/core/test"
+                "../../implementation/adapters/reagent/src"
+                "../../implementation/adapters/reagent-slim/src"
+                "../../implementation/adapters/uix/src"
+                "../../implementation/hicasso/src"
+                "../../implementation/hicasso/test"
+                "../../implementation/hicasso/test_kit/src"
+                "../../implementation/routing/src"
+                "../../implementation/ssr/src"
+                "../../implementation/spec-resource/src"
+                "../../spec"]
+
+ :dependencies [[reagent            "2.0.1"]
+                [metosin/malli      "0.20.1"]
+                [com.pitch/uix.core "1.4.4"]
+                [com.pitch/uix.dom  "1.4.4"]]
+
+ :builds
+ {;; ONE build id for the whole lane, deliberately (HD-017). Every arm rides
+  ;; it by MERGING its own entry — `run.cjs` and its siblings pass
+  ;; `--config-merge {:output-dir … :modules {:main {:init-fn …}}}` — so a
+  ;; sibling arm needs no edit here. shadow-cljs keys the build cache on the
+  ;; id alone, before any merge, so every rider clears
+  ;; `.shadow-cljs/builds/hicasso-bench` first (`lane_cache.cjs`, rf2-2rtt6.20)
+  ;; and `lane_cache_wiring.test.cjs` holds them to it.
+  ;;
+  ;; `:advanced` with goog.DEBUG false, because HD-012 makes every bar number a
+  ;; browser number taken from the artefact a consumer ships: the Spec 009
+  ;; instrumentation seam, schema validation and trace emission are all
+  ;; `goog.DEBUG`-gated and sit on the subscription path the bulk row
+  ;; measures. A plain `:browser` module with an `:init-fn` rather than a test
+  ;; build, since `:advanced` cannot compile `:browser-test`. No `:dev-http`
+  ;; — compiled and driven, never served.
+  :hicasso-bench
+  {:target     :browser
+   :output-dir "out/hicasso-bench"
+   :asset-path "."
+   :js-options {:node-modules-dir "../../implementation/node_modules"}
+   :compiler-options {:optimizations   :advanced
+                      :infer-externs   :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
+
+  ;; THE SAME LANE'S NODE PROGRAM ID. Two drivers need a program under Node:
+  ;; `ssr/driver.cjs` (`renderToString` resolves `react-dom/server` through
+  ;; Node's conditional exports, which a `:browser` build does not take) and
+  ;; `keywarn_clock_run.cjs` (times the key warning's DEV pre-pass, which
+  ;; exists only where `goog.DEBUG` is true). Each supplies its own `:main`
+  ;; and `:output-to` through `--config-merge` and clears the cache first, as
+  ;; above; the defaults are the SSR entry so a bare compile builds something
+  ;; real.
+  ;;
+  ;; `:infer-externs false`, MEASURED: a `:node-script` build has no browser
+  ;; externs, so with `:auto` merged over it the build raised eight
+  ;; `:infer-warning`s — four in core's spine.cljs, four in the lane's own
+  ;; front/arm1 files — and `lane_build.cjs` is warnings-fatal.
+  :hicasso-bench-node
+  {:target    :node-script
+   :main      re-frame.bench.hicasso.ssr.node/-main
+   :output-to "out/hicasso-bench-node.js"
+   :js-options {:node-modules-dir "../../implementation/node_modules"}
+   :compiler-options {:infer-externs false}}}}

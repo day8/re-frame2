@@ -45,19 +45,19 @@ const path = require('node:path');
 // `page.goto` with no `timeout:` takes Playwright's 30s default — a second
 // budget this driver's own 20-minute sentinel cannot reach, whose failure
 // line reads exactly like the bench timeout it is not.
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // The lane's ONE build door. shadow-cljs exits 0 on warnings, so a status
 // check is not a gate (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.HICASSO_OUT_DIR || 'out/hicasso-bench';
 const INIT_FN = process.env.HICASSO_INIT_FN || 're-frame.bench.hicasso.p0-reagent-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HICASSO_PORT || 8131);
 
 // The page's own budget. Six rounds of four arms with warm-up is minutes,
@@ -74,7 +74,7 @@ const CONFIG_MERGE =
 function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[hicasso] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[hicasso] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
@@ -86,7 +86,7 @@ function build() {
   // renamed def left two `:undeclared-var` uses, and this driver printed a
   // full table and exited 0 (rf2-2rtt6.73).
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

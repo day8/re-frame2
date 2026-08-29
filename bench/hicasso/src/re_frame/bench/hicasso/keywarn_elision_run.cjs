@@ -61,9 +61,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 const BUILD_ID = 'hicasso-bench';
 const INIT_FN = 're-frame.bench.hicasso.jsfb-hicasso-app/-main';
 const TAG = 'keywarn-elision';
@@ -113,7 +113,7 @@ function build(leg, debug, outputDir) {
   // remove the same directory, but the helper carries the Windows retry loop: a
   // scanner or a just-exited JVM can hold a handle for a moment, and a bare
   // `rmSync` throws where the helper waits. One rule, one implementation.
-  resetLaneBuildCache(IMPL, BUILD_ID);
+  resetLaneBuildCache(PROJECT, BUILD_ID);
   // EDN, and ONE LINE: shadow-cljs's CLI re-splits `--config-merge` on
   // whitespace once the data contains a newline, then reports `EOF while
   // reading` from a fragment. JSON is not accepted at all.
@@ -123,13 +123,13 @@ function build(leg, debug, outputDir) {
     `:modules {:main {:init-fn ${INIT_FN}}}}`;
   console.log(`[${TAG}] building ${leg} (goog.DEBUG=${debug}) -> ${outputDir}`);
   const verdict = shadowBuildVerdict({
-    impl: IMPL, mode: 'release', buildId: BUILD_ID, configMerge: merge,
+    project: PROJECT, mode: 'release', buildId: BUILD_ID, configMerge: merge,
   });
   if (!verdict.ok) {
     reportRefusal(TAG, verdict);
     process.exit(1);
   }
-  const bundle = path.join(IMPL, outputDir, 'main.js');
+  const bundle = path.join(PROJECT, outputDir, 'main.js');
   const blob = fs.readFileSync(bundle, 'utf8');
   // The FILE's size and not `blob.length` (rf2-2rtt6.121). `blob` is a
   // decoded string, so `.length` counts UTF-16 code units — and an

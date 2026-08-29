@@ -95,9 +95,10 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
-const OUT = path.join(IMPL, 'out', 'hicasso-narrow');
+const OUT = path.join(PROJECT, 'out', 'hicasso-narrow');
 const PORT = Number(process.env.HN_PORT || 8141);
 
 // THE LANE'S ONE CACHE RULE (rf2-2rtt6.20, applied here by rf2-2rtt6.22).
@@ -217,7 +218,7 @@ const CONFIG_MERGE =
 
 function build() {
   // Before anything reads the cache — see the note beside the require.
-  if (resetLaneBuildCache(IMPL, BASE_BUILD)) {
+  if (resetLaneBuildCache(PROJECT, BASE_BUILD)) {
     console.error(`[hn] cleared .shadow-cljs/builds/${BASE_BUILD} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error(`[hn] building :advanced bundle from template :${BASE_BUILD} ...`);
@@ -225,7 +226,7 @@ function build() {
   const r = spawnSync(
     process.execPath,
     [runner, 'release', BASE_BUILD, '--config-merge', CONFIG_MERGE],
-    { cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] }
+    { cwd: PROJECT, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
     console.error(`[hn] build failed with status ${r.status}`);

@@ -104,11 +104,12 @@ artefacts=(
   # `jvm-test-quiet` PR-CI job (test.yml).
   implementation/test-quiet
   # rf2-ipx7h — the Hicasso view substrate, and the ONE thing it runs on the
-  # JVM: `re-frame.bench.hicasso.front.slot-cljs-test`, the `.cljc` equivalence
-  # pin for the canonical slot rule (rf2-ani6y). Measured here: 3 tests, 92
-  # assertions, ~5s.
+  # JVM: `re-frame.hicasso.slot-cljs-test`, the `.cljc` equivalence pin for
+  # the canonical slot rule (rf2-ani6y), retargeted onto the package's own
+  # `impl/slot.cljc` when the bench tree left (rf2-6c12m.1). Measured here:
+  # 3 tests, 92 assertions, ~5s.
   #
-  # THE PIN IS THE WHOLE REASON THE LANE EXISTS. `front/slot.cljc` has exactly
+  # THE PIN IS THE WHOLE REASON THE LANE EXISTS. `impl/slot.cljc` has exactly
   # one definition of `prop-name`, and the two ways one definition still answers
   # two things — a `#?(:clj …:cljs …)` reader conditional inside it, and a
   # host-differing primitive like the JVM's locale-sensitive `str/upper-case` —

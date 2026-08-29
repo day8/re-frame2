@@ -73,7 +73,7 @@ if (SPIN_MS > 0) {
 // --- the parent ------------------------------------------------------------
 
 const HERE = __dirname;
-const IMPL = path.resolve(HERE, '../../../../..');
+const PROJECT = path.resolve(HERE, '../../../..');
 const CORES = os.cpus().length;
 const CAP = Math.max(0, CORES - 4);
 
@@ -135,7 +135,7 @@ const r = spawnSync(
   process.execPath,
   [path.join(HERE, 'clock_run.cjs'), '--no-build'],
   {
-    cwd: IMPL,
+    cwd: PROJECT,
     stdio: ['ignore', 'inherit', 'inherit'],
     env: {
       ...process.env,

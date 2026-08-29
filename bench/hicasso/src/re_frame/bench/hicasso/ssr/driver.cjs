@@ -61,13 +61,13 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { shadowBuild } = require('../lane_build.cjs');
-const { resetLaneBuildCache } = require('../../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'hicasso-bench-node';
 const OUTPUT_TO = 'out/hicasso-ssr-node.js';
-const BUNDLE = path.join(IMPL, OUTPUT_TO);
-const BAKE_DIR = path.join(IMPL, 'out', 'hicasso-ssr-fixtures');
+const BUNDLE = path.join(PROJECT, OUTPUT_TO);
+const BAKE_DIR = path.join(PROJECT, 'out', 'hicasso-ssr-fixtures');
 const TAG = 'hicasso-ssr';
 
 // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
@@ -77,13 +77,13 @@ const CONFIG_MERGE =
   `{:main re-frame.bench.hicasso.ssr.node/-main :output-to "${OUTPUT_TO}"}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(
       `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs (rf2-2rtt6.20)`,
     );
   }
   console.error(`[${TAG}] building the SSR node entry -> ${OUTPUT_TO}`);
-  shadowBuild({ impl: IMPL, mode: 'compile', buildId: BUILD_ID, configMerge: CONFIG_MERGE, tag: TAG });
+  shadowBuild({ project: PROJECT, mode: 'compile', buildId: BUILD_ID, configMerge: CONFIG_MERGE, tag: TAG });
 }
 
 /** The API the compiled bundle publishes. Requiring it IS the boot. */
@@ -210,7 +210,7 @@ function bake(api) {
       if (claimed !== onDisk) {
         console.error(
           `\n[${TAG}] REFUSED — ${id}'s ${field} claims ${claimed} but ` +
-            `${path.relative(IMPL, file)} is ${onDisk} bytes on disk.`,
+            `${path.relative(PROJECT, file)} is ${onDisk} bytes on disk.`,
         );
         console.error(
           `[${TAG}] A size figure that disagrees with its own file is the ` +
@@ -250,7 +250,7 @@ function bake(api) {
     'utf8',
   );
 
-  console.error(`[${TAG}] ok — ${rows.length} fixtures baked to ${path.relative(IMPL, BAKE_DIR)}`);
+  console.error(`[${TAG}] ok — ${rows.length} fixtures baked to ${path.relative(PROJECT, BAKE_DIR)}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -75,14 +75,11 @@
                  "epoch/test"
                  ;; rf2-p10npe — Resources artefact test tree.
                  "resources/test"
-                 ;; rf2-0yp7w P0 — the Hicasso artefact test tree, which since
-                 ;; the bench re-home also carries the hicasso BENCHMARK
-                 ;; harness (`re-frame.bench.hicasso.*`, under
-                 ;; hicasso/test/re_frame/bench/hicasso/). It measures hicasso,
-                 ;; so it lives beside it.
-                 ;; Listed so ad-hoc REPL work keeps the harness on the
-                 ;; classpath — this alias is REPL convenience, and production
-                 ;; CI still runs each artefact's own :test alias separately.
+                 ;; The Hicasso artefact test tree — package tests only since
+                 ;; rf2-6c12m.1 moved the benchmark harness out to
+                 ;; bench/hicasso/, its own project off this classpath.
+                 ;; This alias is REPL convenience; production CI still runs
+                 ;; each artefact's own :test alias separately.
                  "hicasso/test"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example

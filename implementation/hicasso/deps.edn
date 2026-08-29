@@ -8,11 +8,11 @@
 ;; else is `re-frame.hicasso.impl.*` and is not a consumer surface.
 ;;
 ;; rf2-hic-001 established this artefact by copying the measured
-;; prototype out of the benchmark tree
-;; (implementation/freehand/test/re_frame/bench/hicasso/{front,arm1}/)
-;; with namespaces renamed and nothing else changed. `frozen-sources.edn`
-;; beside `src/` pins each donor file by digest so that claim stays true;
-;; `scripts/check_freeze.py` is what checks it.
+;; prototype out of the benchmark tree with namespaces renamed and nothing
+;; else changed. That tree is kept as evidence at bench/hicasso/ (repo
+;; root), its own hand-run project off this classpath (rf2-6c12m.1);
+;; nothing here may require it, and
+;; `scripts/check_optional_module_reachability.py` is what checks that.
 ;;
 ;; DEPENDENCIES. Core, plus ssr for the server module alone. Every substrate
 ;; namespace the RUNTIME reaches for — `re-frame.adapter.context`,
@@ -104,12 +104,12 @@
  ;; "if a JVM-runnable suite ever lands in `test/`, drop `--probe` and take the
  ;; floor".
  ;;
- ;; ONE HAS. rf2-0yp7w P0 re-homed the hicasso BENCHMARK harness into
- ;; `test/re_frame/bench/hicasso/`, and it brings `front/slot_cljs_test.cljc`
- ;; with it — the `.cljc` equivalence pin for the canonical slot rule, asserted
- ;; once in Node and once on the JVM against ONE implementation. So `--probe`
- ;; is gone and the floor applies: 3 tests, and the runner refuses if that ever
- ;; becomes 0.
+ ;; ONE HAS. `test/re_frame/hicasso/slot_cljs_test.cljc` is the `.cljc`
+ ;; equivalence pin for the canonical slot rule, asserted once in Node and
+ ;; once on the JVM against ONE implementation (`impl/slot.cljc`). It arrived
+ ;; with the benchmark harness under rf2-0yp7w P0 and stayed in the package
+ ;; when rf2-6c12m.1 moved the harness out. So `--probe` is gone and the
+ ;; floor applies: 3 tests, and the runner refuses if that ever becomes 0.
  ;;
  ;; THE JVM ARM IS GATED, ON EVERY PR. It was not, for one hour and forty-two
  ;; minutes: this alias landed ungated because `check_jvm_lane_rosters.py` R1

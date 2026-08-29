@@ -999,10 +999,11 @@ const CODEMOD_LANE = {
   sharedRule: 'implementation/hicasso/src/re_frame/hicasso/impl/slot.cljc',
   // rf2-0yp7w P0 re-homed the harness, so the twin moved with it — this was
   // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`
-  // when rf2-r4j91 wrote it, and that path no longer exists. Pointing a live
-  // assertion at a deleted file is the failure mode this constant was
-  // extracted to avoid, so it follows the file.
-  twinSharedRule: 'implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc',
+  // when rf2-r4j91 wrote it, and rf2-6c12m.1 then moved the whole harness
+  // out of the package to bench/hicasso/. Pointing a live assertion at a
+  // deleted file is the failure mode this constant was extracted to avoid,
+  // so it follows the file.
+  twinSharedRule: 'bench/hicasso/src/re_frame/bench/hicasso/front/slot.cljc',
   // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
   // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
@@ -4563,9 +4564,9 @@ test('implementation/hicasso/** arms cljs_node_test (rf2-8a6s)', () => {
       result.cljs_node_test,
       'true',
       `${file} must arm cljs_node_test — it is the ONLY output whose job runs `
-        + 'anything covering this artefact (the :node-test smoke, the freeze '
-        + 'gate, the bench-lane compile), and without it a hicasso-only PR '
-        + 'runs none of them',
+        + 'anything covering this artefact (the :node-test smoke, the '
+        + 'invariants gate, the modules compile), and without it a '
+        + 'hicasso-only PR runs none of them',
     );
   }
 });
@@ -4636,7 +4637,7 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
 // ---------------------------------------------------------------------------
 // rf2-ipx7h — the hicasso JVM lane, and why it carries no surface gate.
 //
-// `implementation/hicasso/test/re_frame/bench/hicasso/front/slot_cljs_test.cljc`
+// `implementation/hicasso/test/re_frame/hicasso/slot_cljs_test.cljc`
 // is the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y): one
 // corpus asserted twice against ONE implementation, once by `npm run test:cljs`
 // in Node and once by `clojure -M:test` on the JVM. Both arms or no mechanism —
@@ -4672,26 +4673,49 @@ test('the hicasso JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)
 });
 
 test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () => {
-  // The pin and its subject DO measure true — but through
-  // `is_route_path_census_input`, a predicate that exists for the routing
-  // route-path census and matches `implementation/hicasso/test/*` `.cljs`/
-  // `.cljc`. The `.clj` control below is what makes that legible: same tree,
-  // same artefact, FALSE, because the census filters on the extensions IT
-  // cares about. So the arm belongs to another gate's roster and could
-  // narrow with it — a second reason this job takes no gate at all.
-  for (const file of [
-    'implementation/hicasso/test/re_frame/bench/hicasso/front/slot_cljs_test.cljc',
-    'implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc',
-  ]) {
-    assert.equal(classify(file).implementation_jvm, 'true');
-  }
+  // The pin DOES measure true — but through `is_route_path_census_input`, a
+  // predicate that exists for the routing route-path census and matches
+  // `implementation/hicasso/test/*` `.cljs`/`.cljc`. The `.clj` control below
+  // is what makes that legible: same tree, same artefact, FALSE, because the
+  // census filters on the extensions IT cares about. So the arm belongs to
+  // another gate's roster and could narrow with it — a second reason this
+  // job takes no gate at all. (The pin's SUBJECT, `impl/slot.cljc`, sits
+  // under `src/` and measures false like the rest of the package — the
+  // rf2-8a6s block above pins that; since rf2-6c12m.1 the pin requires the
+  // package rule directly rather than the bench tree's twin.)
   assert.equal(
-    classify('implementation/hicasso/test/re_frame/bench/hicasso/arm1/lang.clj')
+    classify('implementation/hicasso/test/re_frame/hicasso/slot_cljs_test.cljc').implementation_jvm,
+    'true',
+  );
+  assert.equal(
+    classify('implementation/hicasso/test/re_frame/hicasso/expansion_probe.clj')
       .implementation_jvm,
     'false',
     'the .clj control must measure false — the arm is the census predicate, '
       + 'not a hicasso JVM arm',
   );
+});
+
+test('a bench-lane diff is CLASSIFIED to no gate, not left unclassified (rf2-6c12m.1)', () => {
+  // The Hicasso bench lane is a hand-run shadow-cljs project off every per-PR
+  // lane by ruling: its suites exercise LOCAL COPIES of the runtime, so
+  // running them per PR could not catch a regression in the shipped one. The
+  // classifier carries an explicit `bench/*` arm that sets NOTHING, so the
+  // silence is stated rather than a hole (TESTING.md §Changed-surface
+  // classifier). This pins every output false for the shapes a bench-only
+  // diff takes; the tree's own gate is `npm run check` from bench/hicasso/.
+  for (const file of [
+    'bench/hicasso/src/re_frame/bench/hicasso/lane.cljs',
+    'bench/hicasso/src/re_frame/bench/hicasso/run.cjs',
+    'bench/hicasso/src/re_frame/bench/hicasso/data/alloc-c4hhk/run01.json',
+    'bench/hicasso/shadow-cljs.edn',
+  ]) {
+    const result = classify(file);
+    assert.ok(Object.keys(result).length > 0, `${file} produced no outputs at all`);
+    for (const [key, value] of Object.entries(result)) {
+      assert.equal(value, 'false', `${file} must arm nothing, but ${key} read ${value}`);
+    }
+  }
 });
 
 test('jvm-hicasso is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
@@ -4737,21 +4761,22 @@ test('jvm-hicasso is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
 
 test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6s)', () => {
   // The gate half of the classifier rule. The arm above is worthless if the
-  // job it lights stops running the artefact's checks, and the freeze gate in
-  // particular has no other scheduled home — before rf2-8a6s it ran only by
-  // hand.
+  // job it lights stops running the artefact's checks, and the invariants
+  // gate in particular has no other scheduled home — before rf2-8a6s it ran
+  // only by hand.
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   assert.match(
     block,
     /run: npm run test:hicasso-invariants$/m,
-    'the cljs job must run the hicasso invariants gate (FROZEN donor digests, '
-      + 'the no-bench-import seal, optional-module reachability and the '
-      + 'complaint-catalogue round trip); it runs nowhere else',
+    'the cljs job must run the hicasso invariants gate (optional-module '
+      + 'reachability with its no-bench-import row, the complaint-catalogue '
+      + 'round trip and the other static reads chained there); it runs nowhere else',
   );
   assert.match(
     block,
     /run: npm run test:hicasso-compile$/m,
-    'the cljs job must keep running the hicasso bench-lane compile (rf2-2rtt6.73)',
+    'the cljs job must keep running the hicasso modules compile (rf2-2rtt6.73, '
+      + 're-homed into the package by rf2-6c12m.1)',
   );
 });
 

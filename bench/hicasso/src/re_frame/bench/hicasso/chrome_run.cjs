@@ -64,19 +64,19 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
-const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
+const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
 
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.CHROME_OUT_DIR || 'out/hicasso-chrome';
 const INIT_FN = 're-frame.bench.hicasso.chrome-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.CHROME_PORT || 8147);
 const ROUNDS = Number(process.env.CHROME_ROUNDS || 10);
 const WARMUP = Number(process.env.CHROME_WARMUP || 3);
@@ -100,12 +100,12 @@ const CONFIG_MERGE =
   `:modules {:main {:init-fn ${INIT_FN}}}}`;
 
 function build() {
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[chrome] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs`);
   }
   console.error(`[chrome] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

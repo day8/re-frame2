@@ -117,7 +117,7 @@
 //
 //     implementation/scripts/check-examples-compile.cjs   :examples/* + :testbeds/*
 //     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
-//     hicasso/test/re_frame/bench/hicasso/lane_build.cjs  :hicasso-bench
+//     bench/hicasso/src/re_frame/bench/hicasso/lane_build.cjs  :hicasso-bench (repo root)
 //
 // THE COUNT WAS STILL THE WRONG TRIGGER, so it is replaced rather than
 // incremented.  MEASURED at three, against the live parsers: no single pattern

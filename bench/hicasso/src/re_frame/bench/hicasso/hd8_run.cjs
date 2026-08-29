@@ -72,18 +72,19 @@ const path = require('node:path');
 // Both shared with the freehand bench tree, and reached the same way
 // rf2-2rtt6.2's own driver reaches `navigate`: one navigation helper and one
 // arm-order guard for the repository, never a second copy per lane.
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
-const guard = require('../../../../../core/test/re_frame/bench/order_guard.cjs');
-const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
+const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
+const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 // This driver is where the fault was found: run the P0 lane, then run HD-008,
 // and the page died before taking a sample.
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');
 
-const IMPL = path.resolve(__dirname, '../../../../..');
+const PROJECT = path.resolve(__dirname, '../../../..');
+const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
 // rf2-2rtt6.2's lane, reused rather than re-minted: ONE build id serves the
 // whole programme, and HD-017 makes a new one a hot-zone edit of
@@ -93,7 +94,7 @@ const REPO = path.resolve(IMPL, '..');
 const BUILD_ID = 'hicasso-bench';
 const OUT_DIR = process.env.HD8_OUT_DIR || 'out/hd8-donor';
 const INIT_FN = 're-frame.bench.hicasso.hd8-app/-main';
-const OUT = path.join(IMPL, OUT_DIR);
+const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HD8_PORT || 8129);
 
 // The three runs. One adapter per process is Spec 006's rule, and the two
@@ -241,7 +242,7 @@ function revision() {
 function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
-  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+  if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(`[hd8] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
   console.error('[hd8] building :advanced bundle (goog.DEBUG false) ...');
@@ -250,7 +251,7 @@ function build() {
   // the other way the config-merge EDN gets torn in half) lives in
   // `lane_build.cjs` now, together with the warning verdict.
   shadowBuild({
-    impl: IMPL,
+    project: PROJECT,
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,

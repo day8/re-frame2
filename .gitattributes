@@ -49,7 +49,7 @@ tools/re-frame2-pair-mcp/tool-descriptors.edn text eol=lf
 # digest is the artefact and any re-writing destroys it. A Windows
 # (core.autocrlf=true) checkout would CRLF-rewrite them and a reader there
 # would compute a different hash from the one the page names. Pin LF.
-implementation/hicasso/test/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
+bench/hicasso/src/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
 
 # The Reagent-to-Hicasso codemod's GOLDEN CORPUS (rf2-2rtt6.143). Each case
 # asserts its rewritten output BYTE FOR BYTE, so the fixture bytes must not
