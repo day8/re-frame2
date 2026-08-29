@@ -105,9 +105,12 @@
   (atom {}))
 
 (h/defview phase-probe
-  "A presence child that is a BOUNDARY, so the machine hands it its phase
-  as the ordinary prop `:rf/phase` (`impl.presence/with-phase`) instead of
-  merging attribute overrides into a node.
+  "A presence child that is a BOUNDARY, so the machine merges the phase's
+  override map into its PROPS (`impl.presence/with-phase`, HD-030)
+  instead of into a node's attributes. The tray below declares
+  `{:phase …}` under each override key, so this body reads the phase
+  back as an ordinary prop, defaulting to `:present` — the phase with no
+  override.
 
   **That prop is why this row has an observable at all.** A NATIVE
   presence child wears its phase as `::motion/mounting` attributes, which React
@@ -121,10 +124,9 @@
 
   Recorded as a sequence rather than a last-value, so a body that runs
   twice cannot turn a `:mounting` first render into a `:present` one."
-  [{:keys [tag] :as props}]
-  (let [phase (:rf/phase props)]
-    (swap! !phases update tag (fnil conj []) phase)
-    [:span.probe (name phase)]))
+  [{:keys [tag phase] :or {phase :present}}]
+  (swap! !phases update tag (fnil conj []) phase)
+  [:span.probe (name phase)])
 
 (h/defview tray-screen
   "A screen with a presence tray in it. Reads the label subscription as
@@ -134,7 +136,10 @@
   [:div.screen
    [:p.value (h/sub label-q)]
    [motion/presence {:timeout-ms 50}
-    [phase-probe {:key "one" :tag tag}]]])
+    [phase-probe {:key                 "one"
+                  :tag                 tag
+                  ::motion/mounting    {:phase :mounting}
+                  ::motion/unmounting  {:phase :unmounting}}]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness

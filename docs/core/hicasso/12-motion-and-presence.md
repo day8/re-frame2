@@ -122,36 +122,35 @@ Prefer CSS insertion animations or `@starting-style` for simple entrances.
 Use `::motion/mounting` when the node must carry attributes such as `:inert`
 until it settles.
 
-### Phase prop on views
+### Phase overrides on views
 
-Presence cannot merge attributes into an opaque [`h/defview`](glossary.md#defview)
-head. When the child is a view, Presence passes an ordinary prop:
+The same markers work on a [`h/defview`](glossary.md#defview) head, and mean the
+same thing: while the child is in that phase, Presence merges the map into the
+view's props. The view branches on whatever prop it declared:
 
 ```clojure
-(h/defview toast-item [{:keys [id message rf/phase]}]
-  (let [exiting? (= phase :unmounting)]
-    [:div.toast
-     {:class (cond-> "toast" exiting? (str " toast--exit"))
-      :inert       exiting?
-      :aria-hidden exiting?}
-     message
-     (when-not exiting?
-       [:button {:on-click [:toasts/dismiss id]} "×"])]))
+(h/defview toast-item [{:keys [id message exiting?]}]
+  [:div.toast
+   {:class (cond-> "toast" exiting? (str " toast--exit"))
+    :inert       exiting?
+    :aria-hidden exiting?}
+   message
+   (when-not exiting?
+     [:button {:on-click [:toasts/dismiss id]} "×"])])
 
 (h/defview toast-tray [_]
   [motion/presence {:timeout-ms 300}
    (for [t (h/sub [:toasts/visible])]
-     [toast-item {:key     (:id t)
-                  :id      (:id t)
-                  :message (:message t)}])])
+     [toast-item {:key                (:id t)
+                  :id                 (:id t)
+                  :message            (:message t)
+                  ::motion/unmounting {:exiting? true}}])])
 ```
 
-`:rf/phase` is one of `:mounting`, `:present`, or `:unmounting`. Tests can pass
-the prop directly without arming timers.
-
-Putting `::motion/unmounting` on a view head does nothing: Presence cannot see
-inside a view, so the override is dropped and the view receives `:rf/phase`
-instead.
+A view never sees the phase as a value; it sees the props its author declared
+for that phase, under names the author chose. So a test renders the exiting
+shape by passing `{:exiting? true}` directly, with no timer armed and no
+reserved key to know about.
 
 ## Rules that matter in production
 
@@ -167,9 +166,10 @@ instead.
 - **SSR.** A presence-managed server node hydrates as already present. The
   server HTML does not carry entry-phase attributes
   ([SSR and hydration](18-ssr-and-hydration.md)).
-- **Accessibility.** While unmounting, set `:inert` and `:aria-hidden` (or the
-  equivalent on a view via `:rf/phase`) so a fading node does not keep focus or
-  announce itself ([Accessibility](22-accessibility.md)).
+- **Accessibility.** While unmounting, set `:inert` and `:aria-hidden` — under
+  `::motion/unmounting` on an element, or from the prop a view declares there —
+  so a fading node does not keep focus or announce itself
+  ([Accessibility](22-accessibility.md)).
 
 ## What Presence does not do
 
@@ -186,8 +186,8 @@ instead.
 | --- | --- | --- |
 | Dismissed item vanishes immediately | Children are not under Presence, or keys are missing | Wrap the keyed sequence in `motion/presence` and give every child a stable `:key` |
 | Node stays forever after dismiss | `:timeout-ms` omitted or far longer than the CSS | Set `:timeout-ms` to at least the CSS duration; it is required |
-| Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` (or via `:rf/phase` on a view) |
-| Override on a view head has no effect | Presence cannot merge into a boundary head; the override is dropped | Branch on `:rf/phase` inside the view |
+| Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
+| Override on a view head has no visible effect | The map was merged into the view's props, and the view's body does not read the prop it names | Destructure the prop in the view and branch on it |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
 | Bundle still contains motion code when unused | Something required the module | Require `re-frame.hicasso.motion` only where Presence is used |
 

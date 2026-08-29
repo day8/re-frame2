@@ -183,8 +183,9 @@
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for
-  `:timeout-ms`, and applies each child's own `::motion/mounting` /
-  `::motion/unmounting` attribute overrides while it is in that phase.
+  `:timeout-ms`, and merges each child's own `::motion/mounting` /
+  `::motion/unmounting` override map into it — an element's attributes
+  or a view's props — while it is in that phase (HD-030).
 
       [presence {:timeout-ms 300}
        (for [t (collector/sub [:toasts/visible])]

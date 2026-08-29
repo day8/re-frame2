@@ -187,9 +187,9 @@ but its DOM node may need a short exit animation. That gap is **not**
 ephemeral application state — it is paint retention.
 
 Use the optional [`re-frame.hicasso.motion`](12-motion-and-presence.md) module
-and `motion/presence`. That chapter owns the API, phase markers
-(`::motion/mounting` / `::motion/unmounting`), the view `:rf/phase` prop, SSR behaviour,
-and accessibility attributes for exiting nodes.
+and `motion/presence`. That chapter owns the API, the phase markers
+(`::motion/mounting` / `::motion/unmounting`, on elements and views alike), SSR
+behaviour, and accessibility attributes for exiting nodes.
 
 ## Common state and its owner
 

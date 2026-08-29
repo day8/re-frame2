@@ -262,17 +262,30 @@
                                                  [:div {:re-frame.hicasso.motion/mounting {:class "toast--enter"}}]))))]
       (is (not (contains? names "mounting"))))))
 
-(deftest a-boundary-child-takes-the-phase-as-an-ordinary-prop
+(deftest a-boundary-child-takes-the-override-map-as-ordinary-props
   (let [card (codec/mark-boundary! (fn [_] nil))]
-    (is (= [card {:key 1 :toast {:id 1} :rf/phase :unmounting}]
-           (presence/with-phase [card {:key 1 :toast {:id 1}}] :unmounting))
-        "it appears in a structural test's props map, it cannot be read from
-         the wrong render scope, and a headless test can supply it")
-    (testing "and an attribute override written on a VIEW head is dropped —
-              the boundary cannot see inside an opaque child — and the view
-              receives the phase prop to branch on instead"
-      (is (= [card {:key 1 :rf/phase :unmounting}]
-             (presence/with-phase [card {:key 1 :re-frame.hicasso.motion/unmounting {:class "x"}}]
+    (is (= [card {:key 1 :toast {:id 1} :exiting? true}]
+           (presence/with-phase [card {:key 1 :toast {:id 1}
+                                       :re-frame.hicasso.motion/unmounting {:exiting? true}}]
+                                :unmounting))
+        "the same merge an element gets (HD-030): the phase's map lands in
+         the view's props under the names its author chose, it appears in a
+         structural test's props map, and a headless test can supply it")
+    (testing "and in a phase the child declared nothing for, the view is
+              handed exactly what it was written with — no phase value, no
+              reserved key"
+      (is (= [card {:key 1 :toast {:id 1}}]
+             (presence/with-phase [card {:key 1 :toast {:id 1}
+                                         :re-frame.hicasso.motion/unmounting {:exiting? true}}]
+                                  :present))))
+    (testing "a view that declares no override comes back untouched, by
+              identity, like an element"
+      (let [plain [card {:key 1 :toast {:id 1}}]]
+        (is (identical? plain (presence/with-phase plain :unmounting)))))
+    (testing "and an override on a view head cannot reach `:key` either"
+      (is (= [card {:key 1 :exiting? true}]
+             (presence/with-phase [card {:key 1 :re-frame.hicasso.motion/unmounting
+                                         {:key "stolen" :exiting? true}}]
                                   :unmounting))))))
 
 ;; ---------------------------------------------------------------------------
@@ -281,23 +294,26 @@
 
 (defn- toast-card-body
   "BEFORE — the predecessor's shape, minus its trap. The child view exists
-  only so a per-child phase can be read; here the phase at least arrives
-  as a prop rather than as an ambient read, so this rendering is already
-  strictly safer than the one the guide teaches. The three
-  `(when exiting? …)` attributes are the part HD-025 is about."
-  [{:keys [message] phase :rf/phase}]
-  (let [exiting? (= :unmounting phase)]
-    [:div.toast {:class       (when exiting? "toast--exit")
-                 :inert       (when exiting? true)
-                 :aria-hidden (when exiting? true)}
-     message]))
+  only so a per-child exiting flag can be read; here the flag at least
+  arrives as a prop the tray merged rather than as an ambient read, so
+  this rendering is already strictly safer than the one the guide
+  teaches. The three `(when exiting? …)` attributes are the part HD-025
+  is about."
+  [{:keys [message exiting?]}]
+  [:div.toast {:class       (when exiting? "toast--exit")
+               :inert       (when exiting? true)
+               :aria-hidden (when exiting? true)}
+   message])
 
 (def ^:private toast-card (codec/mark-boundary! toast-card-body))
 
 (defn- child-view-tray
-  "BEFORE — a keyed child view per toast."
+  "BEFORE — a keyed child view per toast, declaring the one prop it
+  branches on under the same override key an element would carry."
   [toasts]
-  (mapv (fn [t] [toast-card {:key (:id t) :message (:message t)}]) toasts))
+  (mapv (fn [t] [toast-card {:key (:id t) :message (:message t)
+                             :re-frame.hicasso.motion/unmounting {:exiting? true}}])
+        toasts))
 
 (defn- inline-tray
   "AFTER — no child view at all, and the three attributes are one map."

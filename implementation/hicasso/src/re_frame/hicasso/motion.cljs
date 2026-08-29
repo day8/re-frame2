@@ -81,16 +81,17 @@
   from `impl.presence`, so the two files stay put.
 
   **The override keys are `::motion/mounting` and `::motion/unmounting`**,
-  as the example above shows — this namespace's own spellings. Naming-ledger
-  row 31 ruled the respelling from the prototype's `::h/…` (operator,
+  as the example above shows — this namespace's own spellings, and the
+  whole of its vocabulary: a view child takes the same map, merged into
+  its props (docs/design/hicasso/decisions.md HD-030). Naming-ledger row
+  31 ruled the respelling from the prototype's `::h/…` (operator,
   2026-08-11), and the vocabulary now matches the row (rf2-hg3q)."
   (:require [re-frame.hicasso.impl.presence-react :as impl-presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
-  `:timeout-ms`, applying each child's own `::motion/mounting` /
-  `::motion/unmounting` attribute overrides while it is in that phase, and
-  handing a child that is itself a boundary the ordinary `:rf/phase`
-  prop instead (HD-025).
+  `:timeout-ms`, merging each child's own `::motion/mounting` /
+  `::motion/unmounting` override map into it while it is in that phase —
+  an element's attributes, or a view's props (HD-025, HD-030).
 
   It inserts no wrapper node and stamps no `data-*`; every child it
   renders is the author's own node with the author's own attributes
