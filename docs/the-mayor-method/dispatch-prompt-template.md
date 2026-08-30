@@ -263,6 +263,14 @@ Hot-zone files — anything sequential, where two concurrent editors conflict by
 not edit. **A citation is not permission**: briefs routinely cite a specification section as
 context, and a worker can read that as licence to edit it.
 
+**A GENERATED file is the one same-file overlap that sequencing does not fix.** A manifest or
+export regenerated from the tree is touched by every change that moves what it derives from, and
+serialising those changes serialises the fleet for nothing: two regenerations of the same file
+conflict textually and agree semantically. Brief every toucher instead — regenerate after
+rebasing, never hand-merge, and where a job diffs the committed file against a fresh generation,
+run exactly that job locally. Three concurrent changes regenerated one manifest here with no
+sequence between them.
+
 **But a gate that reconciles two surfaces couples them into ONE change, and sequencing those
 deadlocks.** The one-toucher rule reasons about files, and it is right about files. Some checkers,
 though, hold one surface against another in both directions — a catalogue against the emitters it
@@ -366,6 +374,16 @@ items and the ready queue. Per item decide: add to an in-flight cluster; form a 
 or more items on a shared non-hot-zone surface); solo (correctness, large, decision-resolved or
 cross-cutting); or defer. Output the net next-dispatch shape in two or three sentences. **Do not
 change tracker state.**
+
+**When items arrive faster than the mayor can read them, ask this shape for the brief inputs as
+well**, per item: the premise check at the current tip (each cited line holds, drifted to what,
+or does not hold; every asserted count re-run), the surfaces it would edit and which are hot-zone,
+same-file collisions against the live and queued sets, the gates by exact command with the
+heavyweight ones marked, and each ambiguity a worker would otherwise improvise, with a
+recommendation. That is the part of a brief the mayor cannot write without reading the tree, and
+the part that goes stale first. Measured: three such passes over twenty-six items in one evening,
+each returning premise drifts — a cited file that did not exist, an alias at another line, a flag
+the toolchain already supplied — before any worker was dispatched.
 
 **Shape 5 — Fix a failing check.** The failing check name and log lines; two or three root-cause
 hypotheses; a worktree off the **existing** branch, not a new one; the boundary block; **run the
