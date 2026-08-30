@@ -43,7 +43,7 @@
   (`shell/shell-view`). Per rf2-1w07r the chrome cell threads the
   Story per-variant frame into `[shell/shell-view {:frame-id …}]`, so
   the shell's app-db lives in the VARIANT frame — N chrome cells in one
-  workspace are fully isolated and each variant's `:events` seed THAT
+  workspace are fully isolated and each variant's `:setup` seed THAT
   frame directly. (Pre rf2-1w07r the shell hardcoded a scope-only
   `[frame-provider {:frame :rf/xray}]`, so every cell's reads
   collided on the one global `:rf/xray` app-db regardless of the
@@ -189,7 +189,7 @@
                       :font-size "12px"}}
         "No fixture seeded into "
         [:code ":panel-gallery.edn-inspector/fixture"]
-        " — variant `:events` did not run, or this view is mounted
+        " — variant `:setup` did not run, or this view is mounted
         outside a variant frame."])]))
 
 ;; ---- full chrome wrapper -------------------------------------------------
@@ -207,7 +207,7 @@
   …}]` so the shell's app-db (focused epoch, selected tab, theme, modal
   open-state) lives in the VARIANT frame — each chrome cell in a
   `:variants-grid` workspace is then fully isolated, and the variant's
-  `:events` seed THAT frame directly. (Pre rf2-1w07r the shell
+  `:setup` seed THAT frame directly. (Pre rf2-1w07r the shell
   hardcoded `[frame-provider {:frame :rf/xray}]`, so every cell
   collided on the one `:rf/xray` app-db — driving one drove all; the
   gallery had to serialise rendering with a `:tabs` workspace + a

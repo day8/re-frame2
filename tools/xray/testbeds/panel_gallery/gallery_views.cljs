@@ -240,7 +240,7 @@
   (story/reg-variant :story.xray.reactive/empty
     {:doc        "No epochs in history. Panel renders the
                  no-cascade empty-state."
-     :events     [[:rf.xray/sync-epoch-history (empty-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -249,7 +249,7 @@
                  re-rendered caused by that sub. Pins the
                  resting-density render — the view node reads
                  `← :cart/state`."
-     :events     [[:rf.xray/sync-epoch-history (sparse-cascade-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (sparse-cascade-buffer)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -258,7 +258,7 @@
                  3 views re-rendered. The view nodes exercise the full
                  render-cause taxonomy (rf2-bhi3t) — two `← :sub-id`
                  causes + one `← props` re-render."
-     :events     [[:rf.xray/sync-epoch-history (dense-cascade-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (dense-cascade-buffer)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
@@ -270,7 +270,7 @@
                  a PROPS-driven re-render (`← props`, its derefed sub
                  held value so the cause is the orthogonal props
                  channel)."
-     :events     [[:rf.xray/sync-epoch-history (render-cause-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (render-cause-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -280,7 +280,7 @@
                  unmount + two subs dispose. Exercises the UNMOUNTED
                  VIEWS + DESTROYED SUBSCRIPTIONS sections (spec/021
                  §3.2) beneath the live cascade graph."
-     :events     [[:rf.xray/sync-epoch-history (teardown-cascade-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (teardown-cascade-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -288,7 +288,7 @@
     {:doc        "Sparse case from spec/021 §3.2 — the epoch's db
                  change touched no subscribed paths. Panel shows
                  the 'no reactive cascade' empty body."
-     :events     [[:rf.xray/sync-epoch-history (silent-cascade-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (silent-cascade-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

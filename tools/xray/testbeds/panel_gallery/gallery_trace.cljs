@@ -73,7 +73,7 @@
     {:doc        "Focused epoch carries an empty :trace-events slice.
                  Panel renders the :no-events empty-state ('No
                  events.')."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/empty-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/empty-trace-history)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -83,7 +83,7 @@
                  is ten events spanning every canonical op-type. One
                  row per event, oldest-first, each carrying its STAGE
                  column + colour-coded left edge."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/short-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/short-trace-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -93,7 +93,7 @@
                  all four op-types. The flat list renders every row
                  (no row cap, rf2-aqusw); exercises the panel under a
                  mid-density epoch with the full stage taxonomy."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/medium-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/medium-trace-history)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
@@ -103,7 +103,7 @@
                  renders the whole epoch's trace in fire order
                  (oldest-first); exercises the panel + the shared
                  resizable-table under a deep epoch."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/long-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/long-trace-history)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
@@ -115,7 +115,7 @@
                  left EDGE rides the severity colour over the stage
                  colour and the Δt leads with `!` so a failure stands
                  out (spec/023 §7)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/errors-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/errors-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -130,7 +130,7 @@
                  view render — the panel renders the flow op-type
                  alongside the dominoes. A prior counter epoch sits
                  behind it in the ring."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/flows-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/flows-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -142,7 +142,7 @@
     {:doc        "Focused epoch whose trail mixes event + fx op-types.
                  The feed renders every row (no chip-filtering
                  post-rf2-gkczt)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/mixed-op-types-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/mixed-op-types-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -154,7 +154,7 @@
                  event vector with the marker verbatim per Spec 009
                  §Privacy; clicking the row opens the edn-inspector on
                  the raw trace MAP (the marker survives there too)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/redacted-trace-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/redacted-trace-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -163,7 +163,7 @@
     {:doc        "Focused epoch whose trail spans three frames evenly.
                  The per-row frame projection surfaces the frame on
                  every event. Panel-specific axis."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/cross-frame-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/cross-frame-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -174,7 +174,7 @@
                  open-in-editor glyph rides the end of the
                  target/detail column with the accent colour and is
                  clickable. Panel-specific axis: jump-to-editor."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/source-coord-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/source-coord-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

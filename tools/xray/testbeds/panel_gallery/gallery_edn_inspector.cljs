@@ -110,28 +110,28 @@
                  booleans, ints, floats, strings (with escape),
                  simple + qualified keywords, plain + qualified
                  symbols. Pins the syntax-highlight palette."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/scalar-mix)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/scalar-mix)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
   ;; ----- maps ---------------------------------------------------------
   (story/reg-variant :story.xray.edn-inspector/map-small
     {:doc        "Three-key map. Inline-preview territory."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-small)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-small)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/map-medium
     {:doc        "Twelve-key flat map. Wide enough to force
                  expansion past `:max-inline-width`."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-medium)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-medium)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/map-large
     {:doc        "Fifty-key flat map. Exercises the expanded-body
                  scroll behaviour."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
@@ -139,7 +139,7 @@
     {:doc        "Six-level nested map. Exercises the depth ceiling
                  — deeper nodes render `▸ {…N keys}` summaries
                  (rf2-kbdk8)."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-nested)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-nested)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -147,7 +147,7 @@
     {:doc        "Single-key map carrying the `:rf.size/large-elided`
                  sentinel (Spec 015). Widget routes through the
                  sentinel chip renderer."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large-elided)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-large-elided)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -155,28 +155,28 @@
   (story/reg-variant :story.xray.edn-inspector/vector-mixed
     {:doc        "Vector of mixed-scalar elements + a nested map.
                  Pins the `[ ]` bracket pair colour."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/vector-mixed)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/vector-mixed)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/list-of-events
     {:doc        "List of event vectors. Pins the `( )` bracket
                  pair colour."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/list-of-events)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/list-of-events)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/lazy-seq-fib
     {:doc        "Realised prefix of an infinite fib lazy-seq.
                  Widget walks a finite seq — no force-of-tail."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/lazy-seq-fib)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/lazy-seq-fib)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/set-of-tags
     {:doc        "Eight-element keyword set. Pins the `#{ }`
                  bracket pair + unordered-iteration path."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/set-of-tags)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/set-of-tags)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -184,7 +184,7 @@
   (story/reg-variant :story.xray.edn-inspector/record-instance
     {:doc        "Single `GalleryUser` defrecord. Header renders
                  `#…GalleryUser{…}`; slots lay out below."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/record-instance)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/record-instance)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -193,7 +193,7 @@
     {:doc        "Single random UUID. Default formatter (rf2-x16b1)
                  renders compact `#uuid \"…<last-8>\"` header with
                  full canonical form on hover + expand."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/uuid-instance)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/uuid-instance)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -201,7 +201,7 @@
     {:doc        "Five insts spanning the default formatter's
                  relative-time bucketing — just-now, mins ago,
                  hours ago, days ago, ISO fallback (>30d), future."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/inst-instances)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/inst-instances)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -213,7 +213,7 @@
                  (`:legacy-flag`), `:same` (untouched `:user/id`).
                  Pins the gutter-glyph + colour ladder under
                  rf2-zuh1e's `children-of-pair` walk."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-map-mixed-ops)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-map-mixed-ops)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -221,7 +221,7 @@
     {:doc        "Diff on a vector — `:added` tail, `:modified`
                  middle element, `:same` head. Pair-walk respects
                  position."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-element-changes)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-element-changes)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -229,7 +229,7 @@
     {:doc        "Deep diff: change sits six levels down. Ancestor
                  chain force-expands; intermediate maps paint the
                  `◴` children-changed glyph in the gutter."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-deep-children-changed)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-deep-children-changed)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -238,35 +238,35 @@
     {:doc        "`:zoomable? true` (rf2-h71e0; gesture rf2-zl4rs) —
                  double-click a container (or press Enter while it is
                  focused) to re-root the inspector onto it. No glyph."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-zoomable)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-zoomable)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/opts-popup-affordance
     {:doc        "`:popup-affordance? true` (rf2-l4625) — `↗` icon
                  button sits at the widget's top-right corner."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-popup-affordance)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-popup-affordance)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/opts-card
     {:doc        "`:card? true` (rf2-63ie5) — outer container picks
                  up inspector-card chrome (bg, border, radius)."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-card)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-card)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/opts-header
     {:doc        "`:header \"…\"` (rf2-okq7p) — three-shade card
                  chrome with a string ribbon label."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.xray.edn-inspector/opts-header-hiccup
     {:doc        "`:header [:span …]` (rf2-okq7p) — composed
                  hiccup ribbon (label + code chip)."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header-hiccup)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header-hiccup)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
@@ -274,7 +274,7 @@
     {:doc        "`:site-id` (rf2-pvsxs) — stable site-id survives
                  a remount. Visually identical to the unkeyed
                  mount; the difference shows on remount cadence."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-site-id)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-site-id)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
@@ -282,7 +282,7 @@
     {:doc        "`:default-expanded-depth 1` (rf2-kbdk8) — legacy
                  depth-driven behaviour. Depth ≥ 1 renders
                  `▸ {…N keys}` collapsed summaries."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-shallow-depth)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-shallow-depth)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
@@ -290,7 +290,7 @@
     {:doc        "Composed opts — `:header` + `:popup-affordance?`
                  + `:zoomable?` together. Pins the affordance
                  layout when all three coexist."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-combined)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-combined)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
@@ -307,7 +307,7 @@
                  :c}` → `#{:a :b :d}`. Sets have no positional
                  identity — `:c` paints `−`, `:d` paints `+`, both
                  from the key-side glyph treatment."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-mixed)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-mixed)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -316,7 +316,7 @@
                  `{:enabled? false}`. Pins the `~` glyph + `←
                  was true` suffix for the boolean leaf
                  case."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-boolean-toggle)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-boolean-toggle)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -326,7 +326,7 @@
                  8}]`. The canonical app-db rows-of-records shape;
                  verifies per-element walk against per-vector-
                  index diff."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-of-maps)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-vector-of-maps)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -338,7 +338,7 @@
                  discriminator — not `(some? (get m k))` — so the
                  engine paints `−` for the removed key and `+` for
                  the newly-present-but-nil key."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-nil-vs-missing)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-nil-vs-missing)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -348,7 +348,7 @@
                  floats into `:same`; the `:x` row paints `~` +
                  the full `← was 1.0` suffix. `:y` stays
                  untouched as a control."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-numeric-near-equal)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-numeric-near-equal)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -360,7 +360,7 @@
                  with deep nesting; ancestors paint `◴` children-
                  changed; the leaf carries `← was redacted`
                  without printing the sentinel."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-redacted-context)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-redacted-context)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -379,7 +379,7 @@
                  only `:c` is new and nothing is removed, so the
                  engine paints a single `+` glyph cleanly without
                  the remove signal cluttering the per-member walk."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-add)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-set-add)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -393,7 +393,7 @@
                  rendering, and the `← was \"short\"`
                  suffix must coexist without one clobbering the
                  other."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-long-string-truncation)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-long-string-truncation)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -407,7 +407,7 @@
                  old-handler` suffix must render against the
                  symbol palette without falling back to the
                  keyword or string token."
-     :events     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-symbol-value)]]
+     :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-symbol-value)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

@@ -27,7 +27,7 @@
   fixture surface, so any future panel projection change has one place
   to drive variant seeds from.
 
-  Builders return plain vectors; the variant `:events` slot wraps each
+  Builders return plain vectors; the variant `:setup` slot wraps each
   in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch.")
 
 ;; ---- domino-row builders ------------------------------------------------
@@ -425,7 +425,7 @@
 (defn event-lens-with-interceptors-buffer
   "Event lens fixture with a user interceptor on the chain. Note: the
   INTERCEPTORS section reads handler-meta off the registry at render
-  time, so this fixture pairs with a variant `:events` slot that
+  time, so this fixture pairs with a variant `:setup` slot that
   registers a real handler with the desired interceptor chain."
   []
   (event-lens-simple-buffer))

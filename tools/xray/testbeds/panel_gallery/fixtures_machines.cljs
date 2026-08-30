@@ -18,7 +18,7 @@
   These exist precisely for gallery / test fixtures — the production
   path reads through `(rf/machines)` + `(rf/machine-meta id)` +
   the runtime-db's `[:rf.runtime/machines :snapshots]` subtree. Variant
-  `:events` dispatch the override events to seed each slot.
+  `:setup` dispatch the override events to seed each slot.
 
   ## Machine-definition shape (per Spec 005)
 

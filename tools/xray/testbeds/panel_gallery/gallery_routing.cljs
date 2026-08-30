@@ -63,7 +63,7 @@
                  the silent empty-state — terse one-liner, no list,
                  no search, no Simulate-URL. Honours silent-by-
                  default per rf2-g3ghh."
-     :events     [[:rf.xray/set-registered-routes-override-for-test {}]
+     :setup     [[:rf.xray/set-registered-routes-override-for-test {}]
                   [:rf.xray/set-current-route-slice-override-for-test nil]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
@@ -75,7 +75,7 @@
                  the ◆ HERE marker — orientation only. Metadata
                  badges (M / L / T / P) decorate routes carrying
                  :on-match / :can-leave / :tags / :parent."
-     :events     [[:rf.xray/set-registered-routes-override-for-test
+     :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
                   [:rf.xray/set-current-route-slice-override-for-test
                    fixtures/cart-slice]
@@ -91,7 +91,7 @@
                  the panel renders ◆ FROM on the prior route and
                  ◆ TO on the destination. Params/query for the
                  destination surface below the catalogue."
-     :events     [[:rf.xray/set-registered-routes-override-for-test
+     :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
                   ;; Live slice is the post-nav value (confirm). FROM is
                   ;; read off the event-bundle's :rf.route/deactivated emit
@@ -110,7 +110,7 @@
                  populated — only routes whose route-id / path / doc
                  contains `api` render. Demonstrates the substring
                  filter contract per `routing-helpers/filter-rows`."
-     :events     [[:rf.xray/set-registered-routes-override-for-test
+     :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/docs-routes]
                   [:rf.xray/set-current-route-slice-override-for-test
                    fixtures/docs-api-detail-slice]
@@ -128,7 +128,7 @@
                  and highlights the winner. The load-bearing
                  interactive surface that exposes the structural
                  match contract per spec/012 §Route ranking algorithm."
-     :events     [[:rf.xray/set-registered-routes-override-for-test
+     :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/docs-routes]
                   [:rf.xray.routing/set-sim-url "/blog/post"]
                   [:rf.xray/sync-trace-buffer

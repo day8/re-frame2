@@ -73,7 +73,7 @@
   (story/reg-variant :story.xray.machines/no-machines
     {:doc        "No machines registered. Panel renders the
                  :no-machines empty-state copy."
-     :events     [[:rf.xray/set-registered-machines-override-for-test []]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test []]
                   [:rf.xray/set-machine-snapshots-override-for-test {}]
                   [:rf.xray/set-machine-definitions-override-for-test {}]
                   [:rf.xray/sync-trace-buffer (fixtures/no-transitions-buffer)]]
@@ -86,7 +86,7 @@
                  definition but NO live snapshot. The panel surfaces
                  the picker with the definition chart (Mode A) — the
                  chart renders the static state graph."
-     :events     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
                   [:rf.xray/set-machine-snapshots-override-for-test {}]
                   [:rf.xray/set-machine-definitions-override-for-test
                    {:loader fixtures/loader-definition}]
@@ -102,7 +102,7 @@
                  panel renders the chart in Mode B — current state
                  highlight overlays the static graph; the picker
                  surfaces the current state."
-     :events     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
                   [:rf.xray/set-machine-snapshots-override-for-test
                    {:loader (fixtures/snapshot :loaded
                               {:result :data :attempts 1 :error nil})}]
@@ -120,7 +120,7 @@
                  definition. The picker offers all three; the
                  default selection is the alphabetically-first row
                  (`:auth`)."
-     :events     [[:rf.xray/set-registered-machines-override-for-test
+     :setup     [[:rf.xray/set-registered-machines-override-for-test
                    (fixtures/registered-machines-multi)]
                   [:rf.xray/set-machine-snapshots-override-for-test
                    (fixtures/machine-snapshots-multi)]
@@ -136,7 +136,7 @@
                  (mixed outer + microstep) in the trace buffer. Pins
                  the transition-history ribbon at scroll depth +
                  exercises microstep rendering."
-     :events     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
                   [:rf.xray/set-machine-snapshots-override-for-test
                    {:loader (fixtures/snapshot :loaded {:result :ok})}]
                   [:rf.xray/set-machine-definitions-override-for-test
@@ -159,7 +159,7 @@
                  :loading. The side rail renders an event picker +
                  Step / Reset buttons + the audit trail; the chart
                  tints amber."
-     :events     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
                   [:rf.xray/set-machine-snapshots-override-for-test
                    {:loader (fixtures/snapshot :idle
                               {:result nil :attempts 0 :error nil})}]
@@ -186,7 +186,7 @@
   ;; Step button is primed but not yet pressed.
   ;;
   ;; Approach (b) per rf2-cujgr — uses the existing sim API instead of
-  ;; bypass-writing app-db. Deterministic because the variant `:events`
+  ;; bypass-writing app-db. Deterministic because the variant `:setup`
   ;; vector is dispatched in order at boot, the same order the existing
   ;; `uc1-sim-mid-step` variant already relies on.
   (story/reg-variant :story.xray.machines/uc1-sim-pending-input
@@ -196,7 +196,7 @@
                  a sample EDN map. The snapshot stays at `:idle` — the
                  user has typed but not yet pressed Step. Renders the
                  side rail + amber tint with the inputs primed."
-     :events     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
+     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
                   [:rf.xray/set-machine-snapshots-override-for-test
                    {:loader (fixtures/snapshot :idle
                               {:result nil :attempts 0 :error nil})}]

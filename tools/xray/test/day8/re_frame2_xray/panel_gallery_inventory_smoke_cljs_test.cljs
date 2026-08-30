@@ -91,7 +91,7 @@
       (let [vid (keyword "story.cascade-a.smoke" (name state-tag))]
         (story/reg-variant vid
           {:doc    (str "Variant carrying " (pr-str state-tag))
-           :events []
+           :setup []
            :tags   #{:dev state-tag}})
         (is (story/registered? :variant vid)
             (str "variant for " (pr-str state-tag)
@@ -126,7 +126,7 @@
     (doseq [tag schemas/canonical-state-tags]
       (story/reg-variant (keyword "story.smoke.parent" (name tag))
         {:doc    (str "Variant carrying " (pr-str tag))
-         :events []
+         :setup []
          :tags   #{:dev tag}}))
     (let [variants (story/variants-of :story.smoke.parent)]
       (is (seq variants) "registrar's variants-of reports non-empty")
