@@ -439,3 +439,30 @@
                                           @traces)]
           (is (empty? boundary-violations)
               "no :source :boundary trace fired — only the dev-mode step-1 trace ran"))))))
+
+;; ---- rf2-tiymn — the humanizer is published in development builds --------
+;;
+;; The Malli adapter publishes `malli.error/humanize` under
+;; `:schemas/humanize-explain!` only when `interop/debug-enabled?` is true.
+;; `:node-test` compiles with `goog.DEBUG=true`, so here the hook is bound
+;; and a failure trace carries the real `:explain-humanized` payload. The
+;; dual — the hook UNBOUND under `:advanced` + `goog.DEBUG=false` — is
+;; pinned in `schemas_boundary_prod_test.cljs`; the bundle-shaped proof
+;; (the keyword never survives into the production probe) is
+;; `scripts/check-schemas-bundle.cjs`.
+
+(deftest humanizer-published-in-dev-cljs
+  (testing "rf2-tiymn — under goog.DEBUG=true the adapter has published the
+            humanizer, and an app-db failure carries :explain-humanized"
+    (is (fn? (late-bind/get-fn :schemas/humanize-explain!))
+        "the humanize hook is bound in a development build")
+    (rf/reg-app-schema [:auth :token] [:string])
+    (with-trace-recorder! [traces]
+      (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "a validation-failure trace fired")
+        (is (contains? (:tags v) :explain-humanized)
+            ":explain-humanized is present alongside :explain")
+        (is (= ["should be a string"] (-> v :tags :explain-humanized))
+            ":explain-humanized is Malli's humanized payload for the failing slot")))))

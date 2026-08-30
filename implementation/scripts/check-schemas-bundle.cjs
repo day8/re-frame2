@@ -56,8 +56,20 @@
  * stopped publishing the humanizer in production builds:
  *
  *   schemas-bundle-control      86851 B gzipped (84.8 KB)
- *   schemas-bundle-probe       127696 B gzipped (124.7 KB)
- *   margin                      40845 B gzipped (39.9 KB)
+ *   schemas-bundle-probe       127736 B gzipped (124.7 KB)
+ *   margin                      40885 B gzipped (39.9 KB)
+ *
+ * Five builds of that tree on the same box gave 127696 B once and
+ * 127736 B four times, with the raw byte count identical every time —
+ * Closure's output is not byte-stable across runs here, so read the
+ * last two digits of any figure in this file as noise.
+ *
+ * Both directions of the humanizer assertion were made to fire before
+ * it was wired: ungating the adapter's publication puts the keyword back
+ * (probe 128485 B, margin 41634 B, exit 1), and an application that
+ * calls `malli.error/humanize` itself, the login example's posture, is
+ * left alone (keyword still absent, margin 41635 B — the app pays the
+ * same ~750 B the gate stopped charging everyone — exit 0).
  *
  * Composition of that margin, from `shadow.cljs.build-report` optimized
  * bytes (post-Closure, uncompressed): Malli 120.0 KB (`malli.core` 88.6,
@@ -154,7 +166,7 @@ const BUNDLES = [
 // ----- the margin contract ---------------------------------------------------
 
 // Both bounds are set from the second matched A/B run recorded in the
-// header (40845 B / 39.9 KB), per the rf2-kybsf ruling: numbers from the
+// header (40885 B / 39.9 KB), per the rf2-kybsf ruling: numbers from the
 // measurement, never inherited from a prior constant. The first run set
 // them at 45 / 20 KB from 41570 B; rf2-tiymn re-derived them from its own
 // measurement by the same rule, and the ceiling moved with the margin.
@@ -172,10 +184,10 @@ const BUNDLES = [
 // Closure DCEs a merely-required namespace, which is Spec 010's own
 // "inter-namespace DCE works" claim holding. Add a call to
 // `malli.transform/json-transformer` and the namespace becomes reachable:
-// +5.5 KB gzipped on top of the already-present `malli.core` (measured
-// 2026-08-05 at margin 47201 B against the 45 KB ceiling, and re-measured
-// 2026-08-30 against this one — see the header's second run), exit 1. So
-// the headroom is tight enough for the smallest of the two heavy
+// +5.5 KB gzipped on top of the already-present `malli.core`: measured
+// 2026-08-05 at margin 47201 B against the 45 KB ceiling, and again
+// 2026-08-30 at 46550 B (45.5 KB) against this one, 1.5 KB over, exit 1.
+// So the headroom is tight enough for the smallest of the two heavy
 // restrict-list namespaces, and `malli.generator` (heavier still, carries
 // test.check) reds by more. Note the list's per-namespace figures are
 // STANDALONE weights — the incremental cost when `malli.core` is already
