@@ -1,6 +1,8 @@
 ;; Conformance fixture: machine/transition
 ;; A pure machine-transition: given a definition, snapshot, and event,
-;; returns [next-snapshot effects]. JVM-runnable; no re-frame frame needed.
+;; returns {:status :ok :snapshot ... :fx [...]} / {:status :error :error {...}}.
+;; JVM-runnable; no re-frame frame needed. The :expect-next-snapshot /
+;; :expect-effects fields pin the :ok branch's :snapshot / :fx.
 
 {:fixture/id           :rf.machine/transition
  :fixture/spec-version "1.0"

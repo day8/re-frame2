@@ -531,17 +531,20 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 - **Default to registered guards and actions.** Inline fns are an escape hatch for trivial logic, not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
 - Action and guard slots are **single fn or single registered id** — no `:actions [a1 a2 a3]` vector form, no `{:and [...]}` compound-guard data form. Multi-step composition is fn composition; reused composition is registered with a meaningful name.
 - Action signature: `(fn [{:keys [data event state meta]}] {:data {...} :fx [...]})` — single context-map argument. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
-- `machine-transition` is a **pure function** — `(definition, snapshot, event) → [next-snapshot, effects]`. JVM-runnable, headless-testable.
+- `machine-transition` is a **pure function** — `(definition, snapshot, event) → {:status :ok :snapshot … :fx […]}` on success, `{:status :error :error {…}}` on an engine-reported failure (the one shape under [005 §Level 1 — pure `machine-transition`](005-StateMachines.md#level-1--pure-machine-transition)). JVM-runnable, headless-testable; owned by `re-frame.machines`.
 - The actor system boundary is the frame; cross-machine messages within a frame settle via run-to-completion drain.
 
 **Headless tests — three levels:**
 
 ```clojure
 ;; Level 1 — pure transition function (fastest; FSM logic only).
+;; Owned by re-frame.machines: (:require [re-frame.machines :as machines])
 (deftest auth-login-happy-path-l1
-  (let [snap   {:state :idle :data {:attempts 0 :error nil}}
-        [s1 _] (rf/machine-transition auth-login-table snap [:submit {:email "..."}])]
-    (is (= :submitting (:state s1)))))
+  (let [snap {:state :idle :data {:attempts 0 :error nil}}
+        {:keys [status snapshot]}
+        (machines/machine-transition auth-login-table snap [:submit {:email "..."}])]
+    (is (= :ok status))
+    (is (= :submitting (:state snapshot)))))
 
 ;; Level 2 — unregistered handler fn (handler-level wiring; still no test frame).
 ;; Possible because make-machine-handler is a pure factory.

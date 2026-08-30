@@ -175,12 +175,16 @@ The `destroy-frame!` + re-`make-frame` composition (per [002 §Resetting a frame
 For testing state machine transitions, skip the frame entirely:
 
 ```clojure
+(require '[re-frame.machines :as machines])   ;; the fn's owning namespace
+
 (deftest auth-machine-transitions
   (let [snap-1 {:state :idle :data {}}
-        [snap-2 effects] (rf/machine-transition auth-machine-table snap-1
-                                                [:auth/login-pressed])]
-    (is (= :validating (:state snap-2)))
-    (is (= [[:dispatch [:auth/check-credentials]]] effects))))
+        {:keys [status snapshot fx]}
+        (machines/machine-transition auth-machine-table snap-1
+                                     [:auth/login-pressed])]
+    (is (= :ok status))
+    (is (= :validating (:state snapshot)))
+    (is (= [[:dispatch [:auth/check-credentials]]] fx))))
 ```
 
 `machine-transition` is a pure function — no frame, no `app-db`, no router. Test the logic in isolation; integration tests cover the wiring. See [005 §Testing](005-StateMachines.md#testing) for the full three-level test pyramid (pure `machine-transition`, unregistered handler fn from `make-machine-handler`, registered in test frame).
