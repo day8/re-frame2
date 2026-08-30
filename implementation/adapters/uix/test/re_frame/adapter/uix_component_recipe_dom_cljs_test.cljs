@@ -55,7 +55,9 @@
 ;; declare itself. It is on while the test drives React through
 ;; `flush-views!`, and stood down while the test waits for an update that
 ;; arrives on React's own schedule (`wait-for` below) — the discipline
-;; Testing Library's `waitFor` follows.
+;; Testing Library's `waitFor` follows. The flag is a global, so `mount!`
+;; captures the value it finds and `unmount!` puts that value back — the
+;; recipe leaves the suite's act environment exactly as it found it.
 
 (defn- act-environment! [on?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) on?))
@@ -70,21 +72,24 @@
 
 (defn- mount!
   "Render `element` under `:rf/default` into a fresh node on the page, inside
-   `flush-views!`, so the tree is committed when this returns."
+   `flush-views!`, so the tree is committed when this returns. Captures the
+   act-environment flag as it stood; `unmount!` restores it."
   [element]
-  (let [node (.createElement js/document "div")
-        root (uix-dom/create-root node)]
+  (let [act-prev (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+        node     (.createElement js/document "div")
+        root     (uix-dom/create-root node)]
     (.appendChild js/document.body node)
     (act-environment! true)
     (uix-adapter/flush-views!
       #(uix-dom/render-root
          ($ uix-adapter/frame-provider {:frame :rf/default} element)
          root))
-    {:node node :root root}))
+    {:node node :root root :act-prev act-prev}))
 
-(defn- unmount! [{:keys [node root]}]
+(defn- unmount! [{:keys [node root act-prev]}]
   (uix-adapter/flush-views! #(uix-dom/unmount-root root))
-  (.remove node))
+  (.remove node)
+  (act-environment! act-prev))
 
 (defn- by-testid [node id]
   (.querySelector node (str "[data-testid=\"" id "\"]")))
@@ -123,4 +128,9 @@
             (.catch (fn [e] (is false (str "the +1 click never reached the DOM: " e))))
             (.finally (fn []
                         (unmount! mounted)
+                        ;; The restore is part of the recipe's contract: the
+                        ;; suite sees the act flag this test found on entry.
+                        (is (= (:act-prev mounted)
+                               (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+                            "unmount! restores the act-environment flag mount! captured")
                         (done))))))))
