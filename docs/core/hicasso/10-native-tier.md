@@ -157,7 +157,7 @@ is a plain function, and it carries the frame by capturing it:
 
 (h/defview quote-row [{:keys [sym]}]
   (let [{:keys [px up?]}   (h/sub [:quotes/row sym])
-        {:keys [dispatch]} (rf/capture-frame (h/hframe))]
+        {:keys [dispatch]} (rf/capture-frame)]
     (react/createElement "tr"
       #js {:className (if up? "quote up" "quote down")
            :onClick   (fn [_] (dispatch [:watchlist/select sym]))}
@@ -225,7 +225,7 @@ React descendants.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | The component mounted outside a Hicasso frame provider | Mount it under the application root, or use the test kit's provider |
-| A click inside an island or a directly returned element does nothing | An event vector or `h/event` at a raw React prop; nothing lowers it there | Dispatch from `n/use-frame` in an island, or from `(rf/capture-frame (h/hframe))` in a view body |
+| A click inside an island or a directly returned element does nothing | An event vector or `h/event` at a raw React prop; nothing lowers it there | Dispatch from `n/use-frame` in an island, or from `(rf/capture-frame)` in a view body |
 | A `defui` mounted through `h/defhost` sees empty props | UIx reads props from its own carrier, which only `$` builds | Cross through a plain function that calls `$` with the JavaScript props |
 | Local island state resets after each code save | Hot reload allocates a new component and React remounts it | Expected; move persistent state to app-db |
 | The React rewrite does not improve the measurement | Construction was not the actual cost owner | Remove the escape and return to topology and event attribution |

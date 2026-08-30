@@ -225,27 +225,6 @@ body must call browser methods such as `.preventDefault`.
 Related: [Events as data](03-events-as-data.md),
 [Interop](09-interop.md).
 
-<a id="hframe"></a>
-### `h/hframe`
-
-Returns the frame **id keyword** of the Hicasso boundary currently rendering.
-Legal only during a boundary body or a render callback that boundary supplied.
-Not a tracked subscription. The spelling is provisional — a bare `frame` would
-shadow on a `:refer` — and it is what ships today.
-
-The carry spelling is composition with core:
-
-```clojure
-(let [{:keys [dispatch]} (rf/capture-frame (h/hframe))]
-  …)
-```
-
-Zero-arity ambient `(rf/capture-frame)` refuses under Hicasso's body
-discipline. Prefer effects for application async work; use this at foreign
-edges that retain a dispatching closure.
-
-Related: [Events as data](03-events-as-data.md).
-
 <a id="hvalue"></a>
 <a id="hchecked"></a>
 ### `::h/value` and `::h/checked`

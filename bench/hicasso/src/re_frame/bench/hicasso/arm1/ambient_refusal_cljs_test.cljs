@@ -327,33 +327,29 @@
   (:rf.error/id
     (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
 
-(deftest a-carry-inside-a-body-refuses-exactly-as-a-read-does
-  (testing "`(rf/capture-frame)` in a body is the platform keystone
-           resolving ambiently, so the extent refuses it — under the same
-           context publication that makes the read rows non-vacuous, and
-           with the operation naming the carry rather than a read"
-    (let [f (make-frame!)]
+(deftest a-carry-inside-a-body-is-admitted-while-a-read-refuses
+  (testing "FLIPPED under rf2-t32wg, which admits the pure doors: this row
+           asserted that `(rf/capture-frame)` in a body refuses with the same
+           id a read does, and the shipped core no longer does that. The
+           prototype's `with-frame` declares `:extent-frame`, so core answers
+           the carry that frame — under the same context publication that
+           makes the read rows non-vacuous, and one line from a read that
+           still refuses"
+    (let [f    (make-frame!)
+          held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
+          (let [data   (outcome #(rt/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
                 anchor (refusal-id f)]
-            ;; The `some?` is not padding. Comparing two ids without it is
-            ;; green when NEITHER refuses — measured: with the fence
-            ;; removed from `intent/with-frame`, every other assertion in
-            ;; this row went red and the comparison alone stayed green,
-            ;; both sides nil.
             (is (some? anchor)
-                "precondition: an ambient READ refuses here, and its id is
-                 what this row compares against")
-            (is (= anchor (:rf.error/id data))
-                (str "a carry must refuse with the SAME id a read does; got "
+                "precondition: an ambient READ still refuses here, so the
+                 admission below is a distinction between operations and not
+                 a fence that has gone")
+            (is (vector? data)
+                (str "a carry must be admitted rather than refused; got "
                      (pr-str data)))
-            (is (= :capture-frame (:operation data))
-                "and the payload must say which door was tried, or the advice
-                 cannot be read against the right recovery")
-            (is (= :hicasso (:substrate data)))
-            (is (= 'hicasso/boundary-render (:extent data)))
-            (is (= 're-frame.core/capture-frame (:where data)))))))))
+            (is (= f (:frame @held))
+                "and locked to the extent's DECLARED frame")))))))
 
 (deftest the-refusal-never-consults-the-adapter-which-is-why-it-is-adapter-independent
   (testing "the claim 'it refuses under EVERY adapter' cannot be settled by
@@ -387,16 +383,18 @@
                  being withdrawn, not a hook that is never called")))
         (finally (late-bind/set-fn! :adapter/current-frame original))))))
 
-(deftest the-refusal-tells-a-carry-what-to-write
-  (testing "rf2-hnrww's first half. The advice was written for a read and a
-           dispatch — 'read through the collector, dispatch through an
-           intent' — and an author who arrived through `rf/capture-frame`
-           is doing neither, so it named nothing they could write. A carry
-           is a third thing and the sentence has to say so"
+(deftest the-prototypes-refusal-sentence-still-names-the-carry
+  (testing "rf2-hnrww's first half, on the FROZEN prototype's own sentence.
+           The advice was written for a read and a dispatch, and this arm's
+           reason names the carry as a third thing. The shipped core admits
+           the carry (rf2-t32wg), so the sentence can no longer be read off a
+           refused capture; it is read off a refused READ here, which carries
+           the identical text. The text is the prototype's and is not
+           maintained against the shipped runtime's advice"
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rt/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
+          (let [data   (outcome #(rt/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
                 reason (:reason data)]
             (is (string? reason))
             (is (re-find #"CARRYING" reason)

@@ -69,7 +69,7 @@ bill.
 | At and past | Semantic tests | Tools | Server rendering | Frame carriage |
 | --- | --- | --- | --- | --- |
 | Performance rung 2 | unchanged | unchanged | unchanged | unchanged |
-| Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame (h/hframe))` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
+| Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame)` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
 | A declared host | the crossing is opaque to L2; assert it at L3 | Xray names and times the crossing, not its interior | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | an `h/event` or intent vector at an `on*` prop carries the frame; a plain function does not |
 | The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | contracts are inferred from the spelling as on a declared host; there is no override and no slot |
 

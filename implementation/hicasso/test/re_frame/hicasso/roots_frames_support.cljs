@@ -66,8 +66,7 @@
   The third's prototype was `arm1/hframe_dom_cljs_test`, and that suite
   is no longer in the bench tree to point at: executing a PORT verdict
   MOVES a suite rather than copying it. Its landed form is the sibling
-  [[re-frame.hicasso.hframe-dom-cljs-test]] — a wiki-link rather than a
-  citation, because it is now a file in this package."
+  `re-frame.hicasso.frame-doors-dom-cljs-test`, a file in this package."
   (:require [cljs.test :refer-macros [is]]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]

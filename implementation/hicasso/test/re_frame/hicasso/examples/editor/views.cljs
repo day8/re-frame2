@@ -28,7 +28,7 @@
   controls, two buttons and a readout needed `defview`, `sub`, and the three
   markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
   `h/event` — every intent said what it meant as a vector — and no
-  `boundary`, `portal`, `as-element`, `as-component`, `defhost`, `hframe`,
+  `boundary`, `portal`, `as-element`, `as-component`, `defhost`,
   `route-link` or `reg-state`. **Six names and three keywords.**
 
   ## The one place the public door reads awkwardly

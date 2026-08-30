@@ -109,7 +109,7 @@
   slots per key, so `2` and `2` are a genuine cross-check rather than one
   number read twice."
   [{:keys [tag]}]
-  [:div.panel {:data-tag tag :data-frame (str (h/hframe))}
+  [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
    [:span.label (h/sub label-q)]
    [:span.count (str (h/sub count-q))]])
 

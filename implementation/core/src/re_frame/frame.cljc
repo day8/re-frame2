@@ -565,6 +565,17 @@
 ;; a substrate that names none is untouched, and a MATCHED stamp still
 ;; carries — refusing that would make `with-frame` and `{:frame …}` disagree,
 ;; which is worse than the bug.
+;;
+;; AND THE DECLARED FRAME IS ANSWERED TO THE PURE DOORS (rf2-t32wg). A
+;; refusing extent may still expose its declared frame to the identity and
+;; capture doors; stateful ambient operations remain refused. The fence
+;; exists to keep reads on the substrate's collector and dispatches
+;; frame-locked, and `current-frame-id` (identity only) and `capture-frame`'s
+;; 0-arity (a frame-locked api, no subscription or dispatch at capture time)
+;; do neither — no edge, no mutation — so refusing them protected nothing and
+;; forced a substrate to mint a frame verb of its own. One semantic
+;; distinction in core, keyed on the DECLARATION and checked AFTER the
+;; mismatch, not a configurable admit-set.
 
 (def ^:private default-ambient-refusal-reason
   "The sentence a refusing substrate is expected to replace with its own —
@@ -597,15 +608,30 @@
 
   `:extent-frame` — THE FRAME THIS EXTENT IS RENDERING (rf2-nqj22). The one
   key core READS rather than passes through, and the only one that changes
-  what the tier does. A substrate that names it declares \"a body of mine has
-  ONE frame\", and [[require-current-frame!]] then refuses a carried stamp
-  that names a DIFFERENT one — because a body whose ambient ops target `:b`
-  while its own reads, lowered intents and children target `:a` is two frames
-  in one body, and frames are ISOLATED contexts. Omit it (or leave it nil)
-  and the tier behaves exactly as it did before: the ambient FIND is refused
-  and any carried stamp wins, which is right for an extent that has no frame
-  of its own to be mismatched against."
+  what the tier does — in two ways. A substrate that names it declares \"a
+  body of mine has ONE frame\", and [[require-current-frame!]] then refuses
+  a carried stamp that names a DIFFERENT one — because a body whose ambient
+  ops target `:b` while its own reads, lowered intents and children target
+  `:a` is two frames in one body, and frames are ISOLATED contexts. And it
+  ANSWERS that frame to the pure doors (rf2-t32wg): `:current-frame-id` and
+  `:capture-frame` resolve to it when nothing is carried, because an
+  identity read and a capture make no edge and no mutation. Omit it (or
+  leave it nil) and the tier behaves exactly as it did before: the ambient
+  FIND is refused for every operation and any carried stamp wins, which is
+  right for an extent that has no frame of its own to be mismatched against
+  or to offer."
   nil)
+
+(def ^:private pure-frame-doors
+  "The two operations a refusing extent still answers with its DECLARED
+  frame (rf2-t32wg; Spec 002 §The refusal tier). `:current-frame-id` only
+  reports identity, and `:capture-frame` — the 0-arity — captures a
+  frame-locked api and performs no subscription or dispatch at capture
+  time, so neither makes the edge-less read or the render-phase mutation
+  the fence exists to prevent. A closed pair by design: this is one
+  semantic distinction in core, not a policy language for a substrate to
+  extend."
+  #{:current-frame-id :capture-frame})
 
 (defn call-with-ambient-frame-refused
   "**SUBSTRATE seam.** Run `thunk` with ambient frame resolution REFUSED for
@@ -629,7 +655,10 @@
   `with-frame` inside the extent still answers through `*current-frame*` —
   with the ONE exception a substrate opts into by naming `:extent-frame` on
   the refusal, which refuses a carried stamp that names a frame OTHER than
-  the one the extent is rendering (rf2-nqj22).
+  the one the extent is rendering (rf2-nqj22). Naming it also ADMITS the
+  pure doors: `current-frame-id` and 0-arity `capture-frame` answer the
+  declared frame inside the extent (rf2-t32wg), while `subscribe`,
+  `dispatch` and every other stateful ambient operation stay refused.
   Nesting is not tracked and does not need to be — React renders a child
   fiber only after the parent's render function has returned, so this
   binding has already unwound before any child component (an adapter
@@ -735,7 +764,15 @@
   its error payload off the fast path (rf2-a8bw0), so a check living only in
   the requiring primitive would have missed every ambient subscribe. Putting
   it in the reader makes every reader-first caller correct by construction
-  and leaves that optimisation intact."
+  and leaves that optimisation intact.
+
+  THE PURE-DOOR ADMISSION IS NOT HERE (rf2-t32wg). A reader never repairs
+  absence, and inside a refusing extent the honest answer is still that no
+  ambient frame was FOUND — so this reader keeps answering nil, and
+  `require-current-frame!` alone answers the extent's declared frame to
+  `current-frame-id` and `capture-frame`. Moving the admission into this
+  reader would hand the declared frame to every reader-first caller,
+  `subs/subscribe` included, which is the op the refusal exists for."
   []
   ;; Sticky hook — `:adapter/current-frame` is published
   ;; once per loaded React-shaped adapter at ns-load time and routed
@@ -1146,26 +1183,47 @@
   and `{:frame …}` disagree, which is strictly worse than the silence this
   closes.
 
+  AND THE PURE DOORS ARE ADMITTED (rf2-t32wg). When the reader answered nil
+  because nothing was carried — the ambient FIND was refused — and the
+  extent has DECLARED its frame, an `operation` in [[pure-frame-doors]]
+  (`:current-frame-id`, `:capture-frame`) is answered that declared frame
+  instead of refused: an identity read and a capture make no edge and no
+  mutation, so the fence has nothing to protect against them. The check is
+  ordered AFTER the mismatch, so an enclosing `with-frame` naming a
+  different frame is still refused rather than silently repaired to the
+  extent's own; and it is keyed on the declaration, so an extent naming no
+  frame offers nothing and refuses exactly as before. Every other operation
+  — `:subscribe`, `:dispatch`, and whatever else resolves ambiently — is
+  refused unchanged.
+
   The discrimination costs the ordinary path nothing: it is read only after
   resolution has already failed."
   ([operation] (require-current-frame! operation nil))
   ([operation extra]
    (or (resolve-current-frame)
        (if-some [refusal *ambient-frame-refusal*]
-         ;; Two refusals, one id. The reader answered nil either because
-         ;; nothing was carried at all (the ambient FIND was refused) or
-         ;; because what was carried is not this extent's frame — and only
-         ;; the second can name a stamp, so `:carried-frame` is what the
-         ;; payload builder discriminates on. Read here, on the failed path,
-         ;; rather than threaded down from the reader, so the ordinary
-         ;; resolution stays a single call returning a single value.
-         (let [payload (ambient-frame-refused-payload
-                         operation refusal
-                         (if-some [carried (frame-value->id (current-frame))]
-                           (assoc extra :carried-frame carried)
-                           extra))]
-           (emit-ambient-frame-refused! payload)
-           (throw (error/ex-info-from-data payload)))
+         ;; Two refusals, one id — and one admission between them. The
+         ;; reader answered nil either because nothing was carried at all
+         ;; (the ambient FIND was refused) or because what was carried is
+         ;; not this extent's frame. Only the second can name a stamp, so
+         ;; `carried` is what the payload builder discriminates on, and it
+         ;; is also what ORDERS the admission: a pure door is offered the
+         ;; declared frame only when nothing was carried, never over a
+         ;; mismatch. Read here, on the failed path, rather than threaded
+         ;; down from the reader, so the ordinary resolution stays a single
+         ;; call returning a single value.
+         (let [carried (frame-value->id (current-frame))]
+           (if (and (nil? carried)
+                    (contains? pure-frame-doors operation)
+                    (some? (:extent-frame refusal)))
+             (frame-value->id (:extent-frame refusal))
+             (let [payload (ambient-frame-refused-payload
+                             operation refusal
+                             (if (some? carried)
+                               (assoc extra :carried-frame carried)
+                               extra))]
+               (emit-ambient-frame-refused! payload)
+               (throw (error/ex-info-from-data payload)))))
          (let [payload (no-frame-context-payload operation extra)]
            (emit-no-frame-context! payload)
            (throw (error/ex-info-from-data payload)))))))

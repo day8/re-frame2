@@ -157,11 +157,6 @@ You wrote to app-db from a body, on four consecutive runs.
 
 A body that writes on every render cannot be fenced.
 
-<a id="hicasso-frame-outside-boundary"></a>
-#### `:rf.error/hicasso-frame-outside-boundary`
-
-You asked for the frame with no Hicasso render extent in scope.
-
 ### Frames
 
 A frame is carried, never inferred. When one of these fires, some value crossed

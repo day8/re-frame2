@@ -2,7 +2,7 @@
   "THE SHARED TO-DO FRAME the ported `arm1/*` witnesses read from.
 
   A boundary that reads nothing proves nothing about the read, so the
-  witnesses for `h/hframe`, the one callback form and the minted-key
+  witnesses for the frame doors, the one callback form and the minted-key
   warning all need a frame with rows in it. Each of them needs the same
   three things — a seeded frame, a narrow per-row write, and a
   per-row subscription that dirties when that write lands — so they are

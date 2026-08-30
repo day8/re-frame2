@@ -63,7 +63,7 @@ for one carries none of it.
 
 ;; reads — called inside a body
 (h/sub query-v)
-(h/hframe)
+;; the frame doors are core's: (rf/current-frame-id) and (rf/capture-frame)
 
 ;; roots
 (h/mount!   container config view)
@@ -104,7 +104,12 @@ for one carries none of it.
 | Name | Signature | What it is |
 | --- | --- | --- |
 | `h/sub` | `(h/sub query-v)` | The ambient collector. A plain function call, legal anywhere in a body — inside a `when`, a `for`, or an inlined helper — because the edge is recorded where the read happens. A branch not taken contributes no edge. |
-| `h/hframe` | `(h/hframe)` | The frame id keyword of the boundary currently rendering, for the core doors that take one. A loud error outside a render extent. Spelled `hframe` rather than `frame` because a bare `frame` would shadow on a `:refer`; the spelling is provisional, and it is what ships today. |
+
+The frame doors are core's own and are legal inside a body: `(rf/current-frame-id)`
+answers the rendering boundary's frame id keyword, and zero-arity
+`(rf/capture-frame)` captures a frame api locked to it. Neither reads nor
+dispatches, which is why the render discipline admits them; see
+[Events as data](03-events-as-data.md#frame-safe-callbacks).
 
 ### Roots
 

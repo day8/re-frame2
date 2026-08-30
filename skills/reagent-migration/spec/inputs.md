@@ -13,8 +13,8 @@ predecessor, this skill's primary input is the source itself, and reading it is
 the check rather than a polish pass.
 
 - **`implementation/hicasso/src/re_frame/hicasso.cljc`** — the public door, and
-  the whole of it. Three macros (`defview`, `event`, `defhost`) and thirteen vars
-  (`sub`, `use-subs`, `hframe`, `error-boundary`, `reg-state`, `portal`,
+  the whole of it. Three macros (`defview`, `event`, `defhost`) and the vars
+  (`sub`, `use-subs`, `error-boundary`, `reg-state`, `portal`,
   `route-link`, `as-element`, `as-component`, `root!`, `render!`, `unmount!`).
   Its docstrings are unusually load-bearing — the four handler shapes, the
   `defhost` option roster, the `root!` opts and the held-open absences are all

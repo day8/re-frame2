@@ -17,8 +17,8 @@
   | the one callback form, `h/event` (`callback`) | a wrapper whose contract the POSITION selects — event, render, or `:ref`'s own |
   | anything else | passed through untouched |
 
-  Owns the ambient render context (`*frame*`, `*dispatch*`, `with-frame`,
-  `hframe`); the one callback form and its two wrappers; the marker roster
+  Owns the ambient render context (`*frame*`, `*dispatch*`, `with-frame`);
+  the one callback form and its two wrappers; the marker roster
   (`::h/value`, `::h/checked`) and its one pure materializer; the two
   reserved heads (`::h/prevent`, and the navigate head `route-link` mints);
   the composition gate; and the lowering doors `lower-prop`,
@@ -38,8 +38,7 @@
 
   Design record: docs/design/hicasso/decisions.md HD-020, HD-024, HD-026
   and HD-027; the authoring surface in docs/design/hicasso/authoring.md
-  §Event intent as data; the frame read in
-  docs/design/hicasso/studio/hframe-design.md."
+  §Event intent as data."
   (:require [re-frame.frame :as frame]
             [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.late-bind :as late-bind]))
@@ -57,9 +56,9 @@
 (def ^:dynamic *frame*
   "The frame KEYWORD for the boundary currently rendering, bound for the
   render's dynamic extent beside `*dispatch*`; `nil` outside a render.
-  `hframe` and `re-frame.hicasso.impl.route-link/route-link` read it at
-  render time, because a browser click fires after the extent has unwound
-  and the frame must travel as data."
+  `re-frame.hicasso.impl.route-link/route-link` reads it at render time,
+  because a browser click fires after the extent has unwound and the
+  frame must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
@@ -67,14 +66,10 @@
   (`re-frame.frame/*ambient-frame-refusal*`). One module-level constant,
   built once at load; `with-frame` stamps the rendering boundary's frame
   onto a copy as `:extent-frame`, and that `assoc` is the whole
-  per-extent cost.
-
-  The reason names THREE recoveries, and the third must stay: a read goes
-  through the collector and a dispatch through an intent, but an author
-  who trips the refusal through zero-arity `rf/capture-frame` is
-  CARRYING, and the only advice they can act on is the 1-arity, which
-  never consults the resolver (docs/design/hicasso/studio/hframe-design.md
-  §9(4))."
+  per-extent cost. The reason names the two recoveries a refused
+  operation has — the collector for a read, an intent for a dispatch —
+  and says that a carry needs neither, because core admits the pure
+  doors to the declared frame (spec/002-Frames.md §The refusal tier)."
   {:substrate :hicasso
    :extent    'hicasso/boundary-render
    :recovery  :read-through-the-boundary-collector
@@ -88,14 +83,10 @@
                    "never re-renders when that subscription moves, which is HD-002 "
                    "clause (a)'s forbidden class. It used to succeed silently under "
                    "some adapters and throw under others; now it refuses under all "
-                   "of them. "
-                   "CARRYING a frame out of the render is a THIRD thing, and its "
-                   "recovery is neither of the above: `(rf/capture-frame)` resolves "
-                   "ambiently, so it refuses here, but `(rf/capture-frame <frame-id>)` "
-                   "never consults the resolver at all. Write "
-                   "`(rf/capture-frame (h/frame))` — h/frame is this substrate's own "
-                   "deterministic read of the rendering boundary's frame id, and the "
-                   "composition is refusal-immune by construction.")})
+                   "of them. Carrying the frame out of the render needs neither: "
+                   "`(rf/capture-frame)` and `(rf/current-frame-id)` answer this "
+                   "boundary's own frame inside a body, because a capture and an "
+                   "identity read make no edge and no mutation.")})
 
 (defn with-frame
   "Run `body-fn` with the boundary's render context bound ambiently. The
@@ -103,14 +94,17 @@
   runtime's door; the 2-arity binds the dispatch alone, for a lowering
   test that only drives closures, and anything frame-dependent it lowers
   stays a loud error rather than a silent guess. Both bind core's refusal
-  tier as well, so ambient `rf/subscribe`, `rf/dispatch` and zero-arity
-  `rf/capture-frame` refuse for the extent (HD-002 clause (a)), while an
-  explicitly carried frame — `{:frame <id>}`, an `rf/with-frame` naming
-  THIS frame — still answers: the refusal deletes the ambient FIND, not
-  the carrying. The 3-arity also declares its frame as `:extent-frame`,
-  so a carried stamp naming a DIFFERENT frame is refused too, because one
+  tier as well, so ambient `rf/subscribe` and `rf/dispatch` refuse for
+  the extent (HD-002 clause (a)), while an explicitly carried frame —
+  `{:frame <id>}`, an `rf/with-frame` naming THIS frame — still answers:
+  the refusal deletes the ambient FIND, not the carrying. The 3-arity
+  also declares its frame as `:extent-frame`, which does two things in
+  core: a carried stamp naming a DIFFERENT frame is refused, because one
   body would otherwise read against `:b` while its lowered intents target
-  `:a`; the 2-arity declares none and refuses no carry.
+  `:a`; and the pure doors — `rf/current-frame-id` and zero-arity
+  `rf/capture-frame` — answer the declared frame, because neither reads
+  nor dispatches. The 2-arity declares none, refuses no carry and admits
+  no door.
 
   The tier is fused into this `binding` rather than wrapped around the
   call because `binding` pushes its whole set once, so the fence costs no
@@ -153,49 +147,6 @@
                   "crossing instead — defhost with :callbacks {<the prop> :render} "
                   "— and the position owns the frame.")
              {:intent intent})))
-
-;; ---------------------------------------------------------------------------
-;; The author-facing frame read — `hframe`
-;; ---------------------------------------------------------------------------
-
-(defn hframe
-  "The frame id KEYWORD of the boundary currently rendering — exported as
-  `re-frame.hicasso/hframe`. A plain function call, legal anywhere in a
-  body and inside a render callback that body supplied, where it answers
-  the SUPPLYING boundary's frame; `:rf.error/hicasso-frame-outside-boundary`
-  anywhere else. Not a tracked read: one dynamic-var read, no collector
-  edge, no hook. The value is process-local identity carried in closures
-  and must never be placed in markup — two same-process SSR renders take
-  two gensyms, and the render-twice determinism witness would go red.
-
-  It exists so a body can compose the one carry primitive without the
-  ambient find this substrate's render discipline withdraws:
-  `(rf/capture-frame (hframe))` is refusal-immune because `capture-frame`'s
-  1-arity never consults the resolver, and `hframe` supplies the id the
-  carrying spellings presuppose. It reads `*frame*` rather than the
-  runtime's render slot because only the binding is rebound to the
-  supplying boundary during a render callback. Spelled `hframe` because a
-  bare `frame` would shadow the `re-frame.frame` alias this namespace
-  carries. Design record, rejections and witnesses:
-  docs/design/hicasso/studio/hframe-design.md; its retirement is the open
-  question at docs/design/hicasso/product/naming-ledger.md row 18."
-  []
-  (or *frame*
-      (fail! :rf.error/hicasso-frame-outside-boundary
-             're-frame.hicasso.impl.intent/hframe
-             (str "h/frame was called with no Hicasso render extent in scope. It "
-                  "answers the frame of the boundary currently rendering, so it is "
-                  "legal only during a boundary body — or inside a render callback "
-                  "that boundary supplied, where it answers the SUPPLYING "
-                  "boundary's frame. Where the call came from decides the fix. "
-                  "Hand-written async work belongs in the EVENT layer, which "
-                  "already has the frame: an fx handler receives it in its ctx, and "
-                  ":dispatch-later expresses the delay as data. An event handler is "
-                  "already running under its own frame and should take it from "
-                  "there rather than read it here. And code that already knows "
-                  "which frame it means should say so: (rf/capture-frame <frame-id>) "
-                  "needs no scope at all.")
-             {})))
 
 ;; ---------------------------------------------------------------------------
 ;; The one callback form (HD-024)
@@ -259,20 +210,28 @@
         (h/as-element
           [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
 
-  The wrapper captures `*frame*` and `*dispatch*` at lowering time — the
-  SUPPLYING boundary's, the only frame that can own the row — and rebinds
-  both per invocation, so an intent lowered inside fires into that frame.
-  Lowered with no owner in scope it rebinds nil, and a handler lowered
-  inside raises the ordinary `:rf.error/hicasso-intent-outside-boundary`.
-  A dispatch from INSIDE the call is not policed; React's render-phase
-  warnings are the report (rf2-6c12m.20). Design record:
-  docs/design/hicasso/decisions.md HD-024, its 2026-08-03 and 2026-08-30
-  addenda."
+  The wrapper captures the render context at lowering time — `*frame*`,
+  `*dispatch*` and core's refusal tier, the SUPPLYING boundary's, the
+  only frame that can own the row — and re-establishes all three per
+  invocation. So an intent lowered inside fires into that frame, and the
+  body's own discipline holds inside the callback exactly as in the body:
+  `rf/current-frame-id` and zero-arity `rf/capture-frame` answer the
+  supplying boundary's frame, while an ambient `rf/subscribe` refuses
+  rather than resolving the foreign component's context and contributing
+  no edge. Lowered with no owner in scope it rebinds nil for each, and a
+  handler lowered inside raises the ordinary
+  `:rf.error/hicasso-intent-outside-boundary`. A dispatch from INSIDE the
+  call is not policed; React's render-phase warnings are the report
+  (rf2-6c12m.20). Design record: docs/design/hicasso/decisions.md HD-024,
+  its 2026-08-03 and 2026-08-30 addenda."
   [_k f]
   (let [owner-dispatch *dispatch*
-        owner-frame    *frame*]
+        owner-frame    *frame*
+        owner-refusal  frame/*ambient-frame-refusal*]
     (fn hicasso-render-callback [& args]
-      (binding [*frame* owner-frame *dispatch* owner-dispatch]
+      (binding [*frame*                       owner-frame
+                *dispatch*                    owner-dispatch
+                frame/*ambient-frame-refusal* owner-refusal]
         (apply f args)))))
 
 ;; ---------------------------------------------------------------------------

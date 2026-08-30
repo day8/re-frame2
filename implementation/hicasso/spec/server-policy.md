@@ -68,4 +68,4 @@ HS-11 and HS-14 are held Client-only under an open operator question (`rf2-lau0u
 | HS-39 | Bounded Node/React SSR service | A deployable service, not a view surface; its contract is separate from every row above |
 | HS-40 | `h/route-link` | Render — the declined-`:prefetch` refusal fires during the server render |
 | HS-42 | `h/reg-state` | No policy — a load-time registration; its reads are HS-02's |
-| HS-43 | `h/hframe` | No policy — an ambient frame-id read; rendering the id into markup makes the document non-deterministic |
+| HS-43 | ~~`h/hframe`~~ | **Retired 2026-08-30 (`rf2-t32wg` ruling, executed as `rf2-6c12m.13`)** — the verb is deleted with no alias; the frame doors are core's `rf/current-frame-id` and zero-arity `rf/capture-frame`, legal inside a body. The policy the row carried holds for those doors unchanged: no policy — an ambient frame-id read; rendering the id into markup makes the document non-deterministic |

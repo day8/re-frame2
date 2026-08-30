@@ -97,7 +97,7 @@
   a single-frame row, which is why the rows below assert it against BOTH
   frames or not at all."
   [{:keys [tag]}]
-  [:div.panel {:data-tag tag :data-frame (str (h/hframe))}
+  [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
    [:span.label (h/sub label-q)]
    [:span.count (str (h/sub count-q))]
    [:button.bump {:on-click [::bump]} "bump"]])
@@ -125,7 +125,7 @@
   "[[panel]]'s tree with the charge attached. Same subscriptions, same
   intent, so the two roots stay comparable."
   [{:keys [tag]}]
-  [:div.panel {:data-tag tag :data-frame (str (h/hframe))}
+  [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
    [:span.label (h/sub label-q)]
    [:span.count (str (h/sub count-q))]
    [:button.bump {:on-click [::bump]} "bump"]
