@@ -14,8 +14,9 @@
   — so `probe - control` is the schemas opt-in and nothing else: both
   arms carry the same `cljs.core` and the same `re-frame.core`, and
   both cancel. `scripts/check-schemas-bundle.cjs` asserts that margin
-  TWO-SIDED — at most 45 KB gzipped, at least 20 KB. It asserts no
-  absolute size at all: a probe's absolute figure is mostly `cljs.core`
+  TWO-SIDED — at most 44 KB gzipped, at least 20 KB — and asserts that
+  the adapter's dev-only humanizer publication is absent from this
+  probe (rf2-tiymn). It asserts no absolute size at all: a probe's absolute figure is mostly `cljs.core`
   and `re-frame.core`, which the perf-bundle and bundle-isolation gates
   own, and an absolute ceiling here duly spent 83 days measuring their
   growth rather than the schemas artefact's (rf2-kybsf). The checker's
