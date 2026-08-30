@@ -1326,6 +1326,13 @@ reopens for a third. Two or three rounds converge.
 **Checkpoint tracker state on the heartbeat.** Many trackers auto-stage but never commit, so a long
 session's state strands locally. Commit and push it each cycle.
 
+**A checkpoint is two operations, and the harness can kill it between them.** The export contends
+with every worker's tracker writes, so under a full fleet a checkpoint that took seconds on an empty
+board can outrun a command cap. Measured twice in one session: one kill left the commit made and the
+push not, and the re-run reported *nothing to checkpoint* — true, and the remote was still behind.
+Verify the remote against the local head after every checkpoint; the script's message answers only
+the commit.
+
 **If your tracker exports a whole-database file, treat it as generated.** Never resolve a conflict in it
 by taking one side wholesale — both sides are full exports, so picking one discards every item the other
 recorded. Resolve, then **regenerate**. And never let a worker commit it: a worker branch carries a
