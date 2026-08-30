@@ -41,7 +41,7 @@
 
   - **determinism** — `server_render_ssr_dom_cljs_test`'s
     `two-renders-of-one-request-are-the-same-bytes` makes the byte-identity
-    claim on the package entry, and `hframe_ssr_cljs_test` supplies the
+    claim on the package entry, and `frame_doors_ssr_cljs_test` supplies the
     red control the prototype's own determinism row never had;
   - **the round trip through the real doors** — that suite's §5 drives
     `server/render`'s own `__rf_payload` script through `re-frame.ssr`'s

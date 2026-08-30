@@ -377,6 +377,83 @@
                 "and a genuine mismatch against a declared VALUE still refuses"))))
       (rf/destroy-frame! :valued))))
 
+;; ---- the PURE DOORS — identity and capture are admitted (rf2-t32wg) -------
+;;
+;; "A refusing render extent may still expose its declared frame to the pure
+;; identity and capture doors. Stateful ambient operations remain refused."
+;; (Spec 002 §The refusal tier.) `current-frame-id` only reports identity, and
+;; `capture-frame`'s 0-arity captures a frame-locked api without subscribing
+;; or dispatching, so neither can produce the edge-less read or the
+;; render-phase mutation the fence exists to prevent. Three things are
+;; load-bearing and each has a row: the admission lives in
+;; `require-current-frame!` ONLY (the reader still answers nil, so every
+;; reader-first path is untouched); it is keyed on the DECLARED frame, so an
+;; extent naming none offers nothing; and it runs AFTER the mismatch check,
+;; so an enclosing stamp naming a different frame is refused before the
+;; extent's own frame is offered.
+
+(deftest the-pure-doors-answer-the-extents-declared-frame
+  (testing "inside a refusing extent that declares its frame, identity and
+           capture resolve to it with nothing carried"
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+      (fn []
+        (is (nil? (frame/resolve-current-frame))
+            "the reader is unchanged: the ambient FIND is still withdrawn")
+        (is (= :app (frame/require-current-frame! :current-frame-id)))
+        (is (= :app (frame/require-current-frame! :capture-frame)))
+        (is (= :app (rf/current-frame-id)) "through the public identity door")
+        (is (= :app (:frame (rf/capture-frame))) "and through the public capture door"))))
+  (testing "a declared frame VALUE is answered as its id, as every reader does"
+    (let [f (rf/make-frame {:id :valued})]
+      (frame/call-with-ambient-frame-refused
+        {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
+        (fn [] (is (= :valued (frame/require-current-frame! :current-frame-id)))))
+      (rf/destroy-frame! :valued))))
+
+(deftest the-admission-is-the-declaration-not-the-refusal
+  (testing "an extent that names no frame has nothing to offer, so the pure
+           doors refuse there exactly as before"
+    (is (= :rf.error/ambient-frame-refused
+           (refused-id #(frame/call-with-ambient-frame-refused
+                          {:substrate :probe :reason "Use the probe's own reader."}
+                          (fn [] (frame/require-current-frame! :capture-frame))))))
+    (is (= :rf.error/ambient-frame-refused
+           (refused-id #(frame/call-with-ambient-frame-refused
+                          {:substrate :probe :reason "Use the probe's own reader."}
+                          (fn [] (frame/require-current-frame! :current-frame-id))))))))
+
+(deftest a-mismatched-stamp-is-refused-before-the-pure-door-is-admitted
+  (testing "the order is load-bearing: an enclosing `with-frame` naming a
+           DIFFERENT frame must not be answered with the extent's own frame,
+           or the ambiguity the extent declared its frame to catch would be
+           silently repaired"
+    (let [data (try (frame/call-with-ambient-frame-refused
+                      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+                      (fn []
+                        (binding [frame/*current-frame* :other]
+                          (frame/require-current-frame! :current-frame-id))))
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
+      (is (= :other (:carried-frame data)) "the stamp that was carried")
+      (is (= :app (:extent-frame data)) "and the frame the extent is rendering"))))
+
+(deftest stateful-ambient-operations-stay-refused-beside-an-admitted-door
+  (testing "same extent, one line apart: the capture is admitted and the read
+           and dispatch still refuse — the rule is a distinction between
+           operations, not a softening of the extent"
+    (frame/call-with-ambient-frame-refused
+      {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
+      (fn []
+        (is (= :app (frame/require-current-frame! :capture-frame)))
+        (is (= :rf.error/ambient-frame-refused
+               (refused-id #(frame/require-current-frame! :subscribe))))
+        (is (= :rf.error/ambient-frame-refused
+               (refused-id #(frame/require-current-frame! :dispatch))))
+        (is (= :rf.error/ambient-frame-refused
+               (refused-id #(rf/subscribe [:probe/v])))
+            "including subs/subscribe's inlined reader-then-require path")))))
+
 (deftest the-refusal-is-fail-closed-and-unwinds
   (testing "a nil detail map still refuses — a fence that disarms because
            its argument was nil is the trap class the tier deletes"

@@ -1,51 +1,48 @@
-(ns re-frame.hicasso.hframe-dom-cljs-test
-  "`h/frame` AGAINST A REAL REACT ROOT.
+(ns re-frame.hicasso.frame-doors-dom-cljs-test
+  "THE PURE FRAME DOORS AGAINST A REAL REACT ROOT.
 
-  The node sibling ([[re-frame.hicasso.hframe-cljs-test]]) settles what
-  the primitive does. Four claims are left over, and each is a claim
-  about REACT rather than about the read, which is why they are asserted
-  against a live `createRoot` rather than reasoned about:
+  The node sibling (`re-frame.hicasso.frame-doors-cljs-test`) settles what
+  the seam does. The claims left over are each about REACT rather than
+  about the doors, which is why they are asserted against a live
+  `createRoot` rather than reasoned about:
 
-  1. **It answers under the shell, and follows the frame** (W1). The
-     shell resolves its frame through `useContext`; `h/frame` reads not
-     the hook but the ambient the runtime binds — and that identity is
-     the thing worth pinning, because a shell that answered differently
-     would make the read a property of the shell.
+  1. **They answer under the shell, and follow the frame** (W1). The
+     shell resolves its frame through `useContext` and declares it to
+     core; `rf/current-frame-id` answers from that declaration, and a
+     shell that answered differently would make the door a property of
+     the shell.
   2. **The documented trap, made green, plus the isolation law** (W2).
      ONE reusable view, mounted under TWO frames, each instance building
-     `(rf/capture-frame (h/frame))` and firing it from a `setTimeout`
-     after its render has unwound. This is the case the primitive exists
-     for and the case nothing else can spell: `with-frame` and
-     `{:frame …}` both presuppose knowing the id, which a reusable view
-     does not.
-  3. **The hook ledger does not move** (W5's other half). Counted at
-     React's own dispatcher by the same probe the ≤2-hook budget uses, on
-     both shells. The ledger is a hard fence; a read that spent a hook
-     would be a finding rather than a price.
+     `(rf/capture-frame)` and firing it from a `setTimeout` after its
+     render has unwound. This is the case the seam exists for and the
+     case nothing else can spell: `with-frame` and `{:frame …}` both
+     presuppose knowing the id, which a reusable view does not.
+  3. **The hook ledger does not move**. Counted at React's own dispatcher
+     by the same probe the ≤2-hook budget uses. The ledger is a hard
+     fence; a read that spent a hook would be a finding rather than a
+     price.
   4. **StrictMode's double-invoke is not additive** (W6) — the same value
      on both runs, and no second edge, entry or registration.
   5. **The `[:>]` value-first door dispatches through a plain closure
-     over the capture** (W7). An intent vector or an `h/event` at an
-     `on*` prop of the escape now carries the frame for the author — the
-     contract is inferred from the spelling, as at a native tag — so the
-     plain closure is one door of three rather than the only one. It is
-     still the one this row measures: an ordinary function crosses by
-     identity and carries no frame of its own, which is the edge
-     `h/frame` names in its own docstring as the one it exists for:
-     *\"a value-first callback on a foreign component\"*.
+     over the capture** (W7). An ordinary function crosses by identity
+     and carries no frame of its own, so the frame has to be put into it
+     by hand, in the body, where `(rf/capture-frame)` knows it.
+  6. **A render callback invoked during a FOREIGN render answers the
+     supplying boundary** — and its discipline travels with it. The
+     foreign component renders under the boundary's own React context, so
+     an ambient read there would RESOLVE through tier 2 if the callback
+     did not re-establish the refusal; the refused read is what makes the
+     answered frame evidence of the wrapper rather than of the context.
 
   ## The mutation witness for W7
 
   Lock both captures to one frame — `(rf/capture-frame frame-a)` in
-  place of `(rf/capture-frame (h/frame))` in
-  [[escape-picker]] — and
-  [[the-escapes-value-first-door-dispatches-through-a-plain-closure-over-the-capture]]
+  place of `(rf/capture-frame)` in `escape-picker` — and
+  `the-escapes-value-first-door-dispatches-through-a-plain-closure-over-the-capture`
   goes red on the second click, which toggles the first frame back off
   and leaves the pair reading `false`/`false`. That is why the row
   clicks BOTH crossings: one click alone is green under a capture that
-  resolved one frame for both. Give the escape's roster a contract at
-  `:on-pick` and the premise rows go red before anything mounts; hand
-  the crossing a marked `h/event` that survives, and the second one does.
+  resolved one frame for both.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every claim degrades to a stated skip."
@@ -83,8 +80,8 @@
      :async?        true
      :init-fn       (fn [] (collector/reset-runtime!))}))
 
-(def ^:private frame-a ::hframe-dom-a)
-(def ^:private frame-b ::hframe-dom-b)
+(def ^:private frame-a ::doors-dom-a)
+(def ^:private frame-b ::doors-dom-b)
 
 (def ^:private todos 4)
 
@@ -96,6 +93,12 @@
                  "not evidence — fix "
                  (pr-str 're-frame.hicasso.hook-probe)
                  " rather than reading this as a pass.")))
+
+(defn- outcome
+  "The thrown ex-data, or `::no-throw` with the value."
+  [thunk]
+  (try [::no-throw (thunk)]
+       (catch :default e (ex-data e))))
 
 (defn- frames! []
   (support/leave-act-environment!)
@@ -110,11 +113,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- printing-body
-  "Prints the frame `h/frame` answered, and reads one subscription beside
-  it so the boundary is an ordinary reading boundary rather than a
-  degenerate one."
+  "Prints the frame `rf/current-frame-id` answered, and reads one
+  subscription beside it so the boundary is an ordinary reading boundary
+  rather than a degenerate one."
   [{:keys [id]}]
-  [:span.row {:data-frame (str (intent/hframe))
+  [:span.row {:data-frame (str (rf/current-frame-id))
               :data-done  (str (collector/sub [:hicasso.todo/done? id]))}])
 
 (h/defview context-row
@@ -126,10 +129,10 @@
   (some-> (.querySelector (:container handle) ".row") (.getAttribute "data-frame")))
 
 ;; ---------------------------------------------------------------------------
-;; W1 — the same answer under both shells
+;; W1 — the same answer under the shell, following the frame
 ;; ---------------------------------------------------------------------------
 
-(deftest the-frame-read-answers-under-both-shell-variants
+(deftest the-identity-door-answers-under-the-shell
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (do
@@ -147,10 +150,10 @@
                (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W5's other half — the hook ledger does not move
+;; The hook ledger does not move
 ;; ---------------------------------------------------------------------------
 
-(deftest the-frame-read-spends-no-hook-on-either-shell
+(deftest the-identity-door-spends-no-hook
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (if-not (probe/install!)
@@ -159,9 +162,10 @@
         (frames!)
         (testing "the ≤2-hook shell is a hard fence, so this is counted at
                  React's own dispatcher rather than declared. A boundary
-                 reading `h/frame` costs exactly what the ledger declares —
-                 the frame is render-constant per boundary and already
-                 resolved, so there is nothing for a hook to hold"
+                 reading `rf/current-frame-id` costs exactly what the
+                 ledger declares — the frame is render-constant per
+                 boundary and already declared to core, so there is
+                 nothing for a hook to hold"
           (let [handle (volatile! nil)
                 names  (probe/record!
                          (fn [] (vreset! handle
@@ -179,21 +183,22 @@
 
 (def ^:private !captures
   "Where each mounted instance parks the capture it built. Keyed by the
-  frame it believes it is in — so an instance that read the WRONG frame
+  frame it captured — so an instance that captured the WRONG frame
   overwrites its sibling's slot and the row goes red on the count before
   it ever gets to the dispatch."
   (atom {}))
 
 (h/defview reusable
-  "ONE view, mounted under N frames — the case the primitive exists for.
-  It does not know its own frame id, which is exactly why neither
-  `rf/with-frame` nor a `{:frame …}` opt can serve it: both presuppose the
-  id. `h/frame` supplies it, and `capture-frame`'s 1-arity — which never
-  consults the ambient resolver — carries it out of the render."
+  "ONE view, mounted under N frames — the case the seam exists for. It
+  does not know its own frame id, which is exactly why neither
+  `rf/with-frame` nor a `{:frame …}` opt can serve it: both presuppose
+  the id. `(rf/capture-frame)` — the same spelling every other adapter
+  writes — captures the boundary's declared frame and carries it out of
+  the render."
   [{:keys [id]}]
-  (let [f (intent/hframe)]
-    (swap! !captures assoc f (rf/capture-frame f))
-    [:span.row {:data-frame (str f)
+  (let [{:keys [frame] :as api} (rf/capture-frame)]
+    (swap! !captures assoc frame api)
+    [:span.row {:data-frame (str frame)
                 :data-done  (str (collector/sub [:hicasso.todo/done? id]))}]))
 
 (deftest a-capture-built-in-a-body-fires-into-its-own-frame-after-the-render
@@ -205,7 +210,7 @@
       (let [a (mount/root! (mount/fresh-container!) frame-a [reusable {:id 0}])
             b (mount/root! (mount/fresh-container!) frame-b [reusable {:id 0}])]
         (is (= #{frame-a frame-b} (set (keys @!captures)))
-            (str "two mounts of ONE view must have read two different frames; got "
+            (str "two mounts of ONE view must have captured two different frames; got "
                  (pr-str (keys @!captures))))
         (is (= (str frame-a) (frame-attr a)))
         (is (= (str frame-b) (frame-attr b)))
@@ -239,11 +244,11 @@
 (def ^:private !seen (atom []))
 
 (h/defview strict-reader
-  "Records the frame `h/frame` answered on EVERY body run, so the
-  double-invoke is a measured premise rather than an assumed one."
+  "Records the frame `rf/current-frame-id` answered on EVERY body run, so
+  the double-invoke is a measured premise rather than an assumed one."
   [{:keys [id]}]
   (swap! !runs inc)
-  (swap! !seen conj (intent/hframe))
+  (swap! !seen conj (rf/current-frame-id))
   [:span.row {:data-done (str (collector/sub [:hicasso.todo/done? id]))}])
 
 (defn- strict-root!
@@ -277,9 +282,9 @@
                    rather than inheriting a stale or half-unwound one"
             (is (= [frame-a frame-a] @!seen)))
           (testing "and the read adds nothing on the second pass: one entry,
-                   one boundary, one edge per read. `h/frame` appends no
-                   sub-key, so a double-invoke cannot double anything it
-                   contributes — because it contributes nothing"
+                   one boundary, one edge per read. The identity door
+                   appends no sub-key, so a double-invoke cannot double
+                   anything it contributes — because it contributes nothing"
             (let [{:keys [entries boundaries edges]} (runtime/stats)]
               (is (= 1 entries))
               (is (= 1 boundaries))
@@ -290,27 +295,25 @@
 ;; W7 — the `[:>]` value-first door, and the plain closure over the capture
 ;; ---------------------------------------------------------------------------
 ;;
-;; W2 proves the composition survives a macrotask. This row proves it is
-;; the ONLY thing that can serve the crossing HD-011 made the escape for.
-;; `[:>]` is `defhost` with the declaration erased, and a declaration is
-;; what a callback contract lives on — so `raw-crossing`'s roster is
-;; empty by construction and every slot at this crossing is UNCLAIMED.
-;; The consequence is not a nuance, it is the whole row: the two
-;; spellings that carry a frame FOR the author are both refused here, and
-;; what remains is a plain function, which carries nothing. The frame has
-;; to be put into it by hand, in the body, where it is knowable.
+;; W2 proves the capture survives a macrotask. This row proves it is the
+;; thing that serves the crossing HD-011 made the escape for. `[:>]` is
+;; `defhost` with the declaration erased, and a declaration is what a
+;; callback contract lives on — so `raw-crossing`'s roster is empty by
+;; construction and every slot at this crossing is UNCLAIMED. What remains
+;; is a plain function, which carries nothing. The frame has to be put
+;; into it by hand, in the body, where it is knowable.
 
 (def ^:private !built
   "The closure each mounted instance BUILT, keyed by the frame its body
-  read. The other half of [[!handed]]: two atoms rather than one because
-  the claim that the door is *value-first* is a claim that these are the
-  same object."
+  captured. The other half of `!handed`: two atoms rather than one
+  because the claim that the door is *value-first* is a claim that these
+  are the same object."
   (atom {}))
 
 (def ^:private !handed
   "The `onPick` prop each instance of the foreign component was HANDED,
   keyed by the label it was given — which is the frame its writing
-  boundary read. An instance that never crossed leaves this empty, so
+  boundary captured. An instance that never crossed leaves this empty, so
   neither the identity row nor the dispatch rows below can pass
   vacuously."
   (atom {}))
@@ -333,22 +336,21 @@
       "pick")))
 
 (h/defview escape-picker
-  "[[reusable]]'s body at the foreign edge: ONE view, mounted under N
+  "`reusable`'s body at the foreign edge: ONE view, mounted under N
   frames, that does not know its own frame id — and now has to hand a
   dispatching closure to a caller it does not control.
 
-  `(rf/capture-frame (h/frame))` is the whole answer, and each half is
-  load-bearing. `h/frame` supplies the id a reusable view cannot name;
-  `capture-frame`'s 1-arity never consults the ambient resolver, so the
-  handle it returns is still good when the foreign component calls back."
+  `(rf/capture-frame)` is the whole answer: it captures the boundary's
+  declared frame during the body, and the api it returns is still good
+  when the foreign component calls back, because every op on it is
+  frame-locked."
   [{:keys [id]}]
-  (let [f (intent/hframe)
-        d (rf/capture-frame f)
-        on-pick (fn [] ((:dispatch-sync d) [:hicasso.todo/toggle id]))]
-    (swap! !built assoc (str f) on-pick)
-    [:span.row {:data-frame (str f)
+  (let [{:keys [frame dispatch-sync]} (rf/capture-frame)
+        on-pick (fn [] (dispatch-sync [:hicasso.todo/toggle id]))]
+    (swap! !built assoc (str frame) on-pick)
+    [:span.row {:data-frame (str frame)
                 :data-done  (str (collector/sub [:hicasso.todo/done? id]))}
-     [:> foreign-picker {:label (str f) :on-pick on-pick}]]))
+     [:> foreign-picker {:label (str frame) :on-pick on-pick}]]))
 
 (defn- refusal-id [f]
   (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
@@ -427,3 +429,67 @@
                 (mount/release! b)
                 (done))))
           0)))))
+
+;; ---------------------------------------------------------------------------
+;; A render callback invoked during a FOREIGN render answers the supplier
+;; ---------------------------------------------------------------------------
+
+(def ^:private !callback-seen
+  "What each supplying boundary's render callback observed when the
+  foreign component invoked it during ITS render, keyed by the frame the
+  identity door answered. Keyed that way so a callback that answered the
+  wrong frame overwrites its sibling's slot and the count goes red."
+  (atom {}))
+
+(defn- foreign-list
+  "A stand-in for a virtualised list: it is handed a `renderRow` prop and
+  CALLS it during its own render. Written with `react/createElement`, as
+  `foreign-picker` is and for the same reason. This is the position that
+  makes the wrapper's refusal binding load-bearing: the foreign render
+  runs under the boundary's own React context, so an ambient read here
+  would RESOLVE through tier 2 if the callback did not re-establish the
+  body's discipline."
+  [^js props]
+  (let [render-row (.-renderRow props)]
+    (react/createElement "ul" #js {:className "list"} (render-row 0))))
+
+(h/defview supplier
+  "Supplies a render callback to a foreign component. Inside the callback
+  it reads both doors and tries an ambient read, and records all three."
+  [_]
+  [:div.host
+   [:> foreign-list
+    {:render-row (h/event [i]
+                   (let [id-seen (rf/current-frame-id)]
+                     (swap! !callback-seen assoc id-seen
+                            {:capture (:frame (rf/capture-frame))
+                             :read    (outcome #(rf/subscribe [:hicasso.todo/done? i]))})
+                     (h/as-element [:li.row {:data-frame (str id-seen)} (str i)])))}]])
+
+(deftest a-render-callback-invoked-by-a-foreign-render-answers-the-supplying-boundary
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (frames!)
+      (reset! !callback-seen {})
+      (let [a (mount/root! (mount/fresh-container!) frame-a [supplier {}])
+            b (mount/root! (mount/fresh-container!) frame-b [supplier {}])]
+        (try
+          (is (= #{frame-a frame-b} (set (keys @!callback-seen)))
+              (str "two suppliers under two frames must have answered two
+                    different frames inside the callback; got "
+                   (pr-str (keys @!callback-seen))))
+          (is (= (str frame-a) (frame-attr a)) "and the row rendered under the supplier's frame")
+          (is (= (str frame-b) (frame-attr b)))
+          (doseq [f [frame-a frame-b]]
+            (let [{:keys [capture read]} (get @!callback-seen f)]
+              (is (= f capture) (str "the capture inside the callback is locked to " f))
+              (is (= :rf.error/ambient-frame-refused (:rf.error/id read))
+                  (str "the ambient read inside the callback must REFUSE — it is
+                        what proves the doors answered from the re-established
+                        binding rather than from the React context the foreign
+                        render happens to be under; got " (pr-str read)))
+              (is (= f (:extent-frame read)) "naming the supplying boundary as the extent")))
+          (finally
+            (mount/release! a)
+            (mount/release! b)))))))

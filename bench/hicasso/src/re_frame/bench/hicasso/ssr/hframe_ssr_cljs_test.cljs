@@ -148,25 +148,22 @@
 ;; W11 — the ambient chain refuses on BOTH sides, for ONE reason
 ;; ---------------------------------------------------------------------------
 
-(deftest the-ambient-carry-refuses-server-side-for-the-substrates-own-reason
-  (testing "re-grounded (rf2-2rtt6.122). The designed row contrasted
-           `h/frame` answering against a renderer-specific server-side
-           throw; the arm's refusal now covers the server render extent
-           exactly as it covers the client's, so what the server reports is
-           the SUBSTRATE's refusal — same operation, same substrate, same
-           extent — and not a fact about `react-dom/server`"
+(deftest the-ambient-carry-is-admitted-server-side-to-the-requests-own-frame
+  (testing "FLIPPED under rf2-t32wg, which admits the pure doors. This row
+           asserted the arm's refusal for the carry; the shipped core now
+           answers `(rf/capture-frame)` the extent's declared frame, and the
+           arm's `with-frame` declares it over the server render extent
+           exactly as over the client's — so what the server reports is the
+           request's own frame, and not a fact about `react-dom/server`"
     (reset! !ambient ::unset)
-    (let [{:keys [document]} (entry/render (request [carrying {}]))
-          data               @!ambient]
-      (is (= :capture-frame (:operation data))
-          (str "expected the arm's refusal for the carry; got " (pr-str data)))
-      (is (= :hicasso (:substrate data))
-          "the substrate refused, not the renderer — which is what makes
-           this the same answer the browser gives")
-      (is (= 'hicasso/boundary-render (:extent data)))
+    (let [{:keys [document frame-id]} (entry/render (request [carrying {}]))
+          data                        @!ambient]
+      (is (vector? data)
+          (str "expected the carry to be admitted; got " (pr-str data)))
+      (is (= frame-id (:frame (second data)))
+          "locked to the request's own per-request frame")
       (is (str/includes? document "class=\"row\"")
-          "and the render completed: the refusal is the carry's, not the
-           page's")))
+          "and the render completed")))
 
   (testing "while `h/frame` answers in the same body — the contrast the
            design's W11 exists for, with its explanation updated"

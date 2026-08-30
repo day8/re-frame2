@@ -211,24 +211,26 @@ intent. The runtime performs this check centrally, including legacy browser
 signals described under [Advanced](#advanced).
 
 <a id="frame-safe-callbacks-and-hframe"></a>
-## Frame-safe callbacks and `h/hframe`
+<a id="frame-safe-callbacks"></a>
+## Frame-safe callbacks and `rf/capture-frame`
 
 Generated intent callbacks and `h/event` callbacks retain their view's frame.
 Application-owned async work should normally move to the event/effect layer,
 where an fx handler already receives the frame id in its context and
 `:dispatch-later` expresses delay as data.
 
-A Hicasso view body does **not** have ambient frame lookup. Zero-arity
-`(rf/capture-frame)` refuses under Hicasso's render discipline. The author-
-facing frame **read** is [`h/hframe`](glossary.md#hframe): a plain function,
-legal only during a boundary body (or a render callback that boundary
-supplied), that returns the current frame **id keyword**. It is not a tracked
-subscription. The spelling is provisional — a bare `frame` would shadow on a
-`:refer`, and the recommendation on record is to retire the verb once core's
-own frame doors are legal inside a body — but `h/hframe` is what ships, and it
-is what the samples below call.
+A Hicasso view body does **not** have ambient frame lookup: an ambient
+`rf/subscribe` or `rf/dispatch` written in a body refuses under Hicasso's render
+discipline, because a read there would contribute no edge and a dispatch there
+would run in the render phase. The two frame **doors** are core's own, and they
+are legal inside a body and inside a render callback the body supplied:
+`(rf/current-frame-id)` returns the rendering boundary's frame **id keyword**,
+and zero-arity `(rf/capture-frame)` captures a frame api locked to it. Neither
+is a tracked subscription, and neither reads nor dispatches, which is why the
+render discipline admits them. The spelling is the one every other adapter
+writes; Hicasso has no frame verb of its own.
 
-The carry spelling is composition with core's capture primitive:
+The carry spelling is core's capture primitive:
 
 ```clojure
 (ns app.map
@@ -237,7 +239,7 @@ The carry spelling is composition with core's capture primitive:
             [app.sdk :as sdk]))
 
 (h/defview map-panel [{:keys [id]}]
-  (let [{:keys [dispatch]} (rf/capture-frame (h/hframe))]
+  (let [{:keys [dispatch]} (rf/capture-frame)]
     [:div.map
      {:ref (fn [node]
              (when node
@@ -246,10 +248,9 @@ The carry spelling is composition with core's capture primitive:
                  #(dispatch [:map/marker-selected id %]))))}]))
 ```
 
-`(rf/capture-frame (h/hframe))` returns
-`{:frame :dispatch :dispatch-sync :subscribe}` bound to that frame. Prefer this
-at a foreign edge you do not control — an SDK attach ref, a value-first
-callback, a host slot that retains a closure.
+`(rf/capture-frame)` returns `{:frame :dispatch :dispatch-sync :subscribe}`
+bound to that frame. Prefer this at a foreign edge you do not control — an SDK
+attach ref, a value-first callback, a host slot that retains a closure.
 
 A captured handle remains valid for that frame incarnation. Destroying the
 frame and creating another under the same id does not revive the old handle;
@@ -258,14 +259,16 @@ Capture during the live render rather than keeping a global stash. Do not put
 the frame id into markup: on the server it is process-local identity and would
 break the determinism check (`re-frame.hicasso.test.server/render-twice`).
 
-Calling `h/hframe` outside a Hicasso render extent raises
-`:rf.error/hicasso-frame-outside-boundary`.
+Outside any scope at all, both doors raise core's `:rf.error/no-frame-context`.
+An enclosing `rf/with-frame` that names a frame other than the one the boundary
+renders raises `:rf.error/ambient-frame-refused`, naming both frames: one body
+has one frame, and the doors will not answer the wrong one.
 
 The practical rule is:
 
 - use an intent for an ordinary dispatching event
 - use an effect for application-owned async work
-- use `(rf/capture-frame (h/hframe))` for a closure retained by foreign code
+- use `(rf/capture-frame)` for a closure retained by foreign code
 
 A link whose job is navigation belongs to the routing module's route-link
 surface rather than a custom click handler.
@@ -278,8 +281,8 @@ surface rather than a custom click handler.
 | Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
 | A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
 | A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
-| Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame (h/hframe))` during rendering |
-| `h/hframe` raises `:rf.error/hicasso-frame-outside-boundary` | No Hicasso render extent | Call it only inside a view body or a render callback that body supplied |
+| Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame)` during rendering |
+| `(rf/capture-frame)` in a body raises `:rf.error/ambient-frame-refused` naming two frames | An enclosing `rf/with-frame` names a frame the boundary is not rendering | Drop the enclosing scope, or scope it to the boundary's own frame |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
 | A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |

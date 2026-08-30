@@ -636,7 +636,7 @@
   "`mount/root!`, wrapped in `React.StrictMode`. Written here rather than
   in the shared mount door because StrictMode is this row's variable and
   every other row in this file must keep measuring the ordinary tree —
-  the same reasoning `hframe-dom-cljs-test`'s W6 records for its copy."
+  the same reasoning `frame-doors-dom-cljs-test`'s W6 records for its copy."
   [container frame-kw hiccup]
   (let [root (react-dom-client/createRoot container)]
     (react-dom/flushSync

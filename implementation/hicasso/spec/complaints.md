@@ -83,7 +83,6 @@ rowed in Spec 009's main catalogue rather than in its Hicasso section.
 | `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-file-input-value-marker` | read `::h/value` off a file input, where `.value` is the `C:\fakepath\` fiction and the first file's name — not the files | — |
-| `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
 | `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |

@@ -56,10 +56,6 @@ view model is useful.
     Hicasso is pre-alpha, and this guide is written against what ships. Every
     namespace and verb it names is exported today, and a gate reads each
     verb in every fenced sample against the source that defines it, so a
-    sample here cannot name a spelling the door does not carry. One name is
-    provisional: `h/hframe` is spelled that way because a bare `frame` would
-    shadow on a `:refer`, and the recommendation on record is to retire the
-    verb once core's own frame doors are legal inside a body. Until then it is
-    what ships, and what the guide teaches. [SSR and
+    sample here cannot name a spelling the door does not carry. [SSR and
     hydration](18-ssr-and-hydration.md) describes shipped behaviour rather
     than an intended contract.

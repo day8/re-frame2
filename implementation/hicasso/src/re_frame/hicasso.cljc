@@ -14,11 +14,9 @@
   ## What this namespace is
 
   **The three authoring macros live HERE**, because this is the authoring
-  surface. `hframe` is provisional rather than settled: naming-ledger
-  row 18 retires the verb — in favour of core's `rf/current-frame-id`
-  and a zero-arity `rf/capture-frame` — and the retirement waits on a
-  seam, because zero-arity `rf/capture-frame` refuses inside a Hicasso
-  body.
+  surface. The frame doors are core's: `rf/current-frame-id` and
+  zero-arity `rf/capture-frame` answer the rendering boundary's frame
+  inside a body, and this door duplicates neither.
 
   **Every other var below is an ALIAS.** This namespace adds no
   behaviour: each `def` names a value `re-frame.hicasso.impl.*` owns.
@@ -32,7 +30,7 @@
 
   ## What this door does NOT carry — the optional modules
 
-  `presence` is [[re-frame.hicasso.motion/presence]], required
+  `presence` is `re-frame.hicasso.motion/presence`, required
   separately:
 
       (:require [re-frame.hicasso :as h]
@@ -62,7 +60,7 @@
      (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
                [re-frame.hicasso.impl.codec :as impl-codec]
                [re-frame.hicasso.impl.collector :as impl-collector]
-               [re-frame.hicasso.impl.intent :as impl-intent]
+               [re-frame.hicasso.impl.intent]
                [re-frame.hicasso.impl.mount :as impl-mount]
                [re-frame.hicasso.impl.portal :as impl-portal]
                [re-frame.hicasso.impl.route-link :as impl-route-link]
@@ -119,7 +117,7 @@
     have, which is why the key map is the spelling to reach for — the
     hand-written version yields an application that works and is wrong
     for every user who composes.
-  - **[[event]] (`h/event`) is the one callback form**, for when the event
+  - **`event` (`h/event`) is the one callback form**, for when the event
     itself is wanted. At an `on-*` position a returned vector is
     dispatched and any other return is ignored.
   - **A plain function is passed through untouched**, reaching React by
@@ -130,8 +128,8 @@
   from argument one, and a position whose invoker passes something else
   — a value-first foreign callback — refuses loudly at the position
   rather than doing nothing. Which contract a position imposes on a
-  callback, and what a [[defhost]] declaration changes about it, is
-  [[re-frame.hicasso.impl.intent]]'s position table.
+  callback, and what a `defhost` declaration changes about it, is
+  `re-frame.hicasso.impl.intent`'s position table.
 
   ## The fn this expands to is ANONYMOUS, and that is the contract
 
@@ -184,7 +182,7 @@
 
   The expansion opens a declaration extent around the mint, carrying the
   `:ns` / `:file` / `:line` / `:column` this macro read off its own form.
-  [[re-frame.hicasso.impl.error/fail!]] resolves it back by view name, so
+  `re-frame.hicasso.impl.error/fail!` resolves it back by view name, so
   every refusal raised while this boundary's body runs says WHERE the
   boundary was written without a single call site passing anything.
 
@@ -215,7 +213,7 @@
   an editor jumping to source — reaches the view they meant. It mints no
   runtime identity: a MOUNTED boundary is still keyed by its read set
   and still unnamed, and the tool tier
-  ([[re-frame.hicasso.tool]]) is unchanged. The refusals that say so are
+  (`re-frame.hicasso.tool`) is unchanged. The refusals that say so are
   NOT overturned by this, because they answer the BACKWARD question
   *which view is this runtime boundary?* and this answers the forward
   one, where the author already knows and is naming it in source.
@@ -232,7 +230,7 @@
   id — the registrar's own behaviour, with nothing added for it beyond
   the slot naming where its executable identity lives, so that the
   replacement a tool is told about is the one that happened.
-  [[re-frame.hicasso.impl.collector/publish-view-alias!]] carries the
+  `re-frame.hicasso.impl.collector/publish-view-alias!` carries the
   slot's shape and why it is written there rather than through
   `rf/reg-view*`."
      [sym & more]
@@ -300,7 +298,7 @@
   `{:callbacks {:on-render-item :render}}`, for the on*-named render
   props some vendors ship. `:ref` is React's own and is excluded from
   lowering; where Hicasso does not walk, this is a plain function whose
-  return is ignored ([[re-frame.hicasso.impl.intent]] carries the table).
+  return is ignored (`re-frame.hicasso.impl.intent` carries the table).
 
   Expands to nothing but a marked `fn`:
 
@@ -327,8 +325,8 @@
 
   **Callback contracts are inferred from the prop's spelling, exactly as
   at a native tag**: an `on*` prop is an event position (an intent
-  vector, a key-map or an [[event]] dispatches), any other prop that
-  takes an [[event]] is a render position (pure; the return is the
+  vector, a key-map or an `event` dispatches), any other prop that
+  takes an `event` is a render position (pure; the return is the
   render output, and an intent inside it fires into this boundary's
   frame), and a plain function crosses untouched anywhere. Two shapes:
 
@@ -369,12 +367,12 @@
   outside the two, a malformed `:slots` set, and any form after `opts`,
   which is dropped rather than merged. A policy set and never applied is
   the defect every one of these refusals exists to delete. The date-picker
-  callback above is an [[event]] rather than a vector because
+  callback above is an `event` rather than a vector because
   react-datepicker calls `onChange(date, event)`, VALUE-first; the vector
   spelling is EVENT-first and would raise
-  `:rf.error/hicasso-intent-needs-the-event`. Like [[defview]] this is
+  `:rf.error/hicasso-intent-needs-the-event`. Like `defview` this is
   not a compiler: it expands to a `def` of the head
-  [[re-frame.hicasso.impl.codec/mint-host!]] mints. Argument in
+  `re-frame.hicasso.impl.codec/mint-host!` mints. Argument in
   docs/design/hicasso/decisions.md, HD-011.
 
   Positional flexibility is deliberately NOT the repair. A docstring
@@ -427,15 +425,8 @@
   from anywhere inside a body, including inside a `when`, a `for` or an
   inlined helper. The edge is recorded where the read happens, so a branch
   not taken contributes no edge.
-  [[re-frame.hicasso.impl.collector/sub]]."}
+  `re-frame.hicasso.impl.collector/sub`."}
        sub impl-collector/sub)
-
-     (def ^{:doc "`h/frame` in the authoring surface — the frame id KEYWORD
-  of the boundary currently rendering, for the handful of core doors that
-  take one (`rf/capture-frame`, `rf/with-frame`). Spelled `hframe` because
-  a bare `frame` would shadow on a `:refer`.
-  [[re-frame.hicasso.impl.intent/hframe]]."}
-       hframe impl-intent/hframe)
 
      (def ^{:doc "`h/error-boundary` — the runtime's own error boundary
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
@@ -443,12 +434,12 @@
   Named for React's own term of art, which is also what the naming ledger
   rules (row 12). A bare `boundary` would be the wrong word twice over: every minted `defview` is already *a boundary* here,
   and React has a second kind — the Suspense boundary — that this one is
-  not. [[re-frame.hicasso.impl.boundary/boundary]]."}
+  not. `re-frame.hicasso.impl.boundary/boundary`."}
        error-boundary impl-boundary/boundary)
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
-  and nothing else. [[re-frame.hicasso.impl.state/reg-state]]."}
+  and nothing else. `re-frame.hicasso.impl.state/reg-state`."}
        reg-state impl-state/reg-state)
 
      (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
@@ -476,13 +467,13 @@
 
   The raw mechanism, for containers the application does not own.
   Anchoring, dismissal and focus conduct are the overlay module's.
-  [[re-frame.hicasso.impl.portal/portal]]."}
+  `re-frame.hicasso.impl.portal/portal`."}
        portal impl-portal/portal)
 
      (def ^{:doc "One real anchor, as data — href and click decision taken
   whole from routing's late-bound seams. A plain function, not a boundary:
   it mints no boundary and adds no hook.
-  [[re-frame.hicasso.impl.route-link/route-link]]."}
+  `re-frame.hicasso.impl.route-link/route-link`."}
        route-link impl-route-link/route-link)
 
      (def ^{:doc "`h/as-element` — **the one explicit hiccup→ReactNode
@@ -499,7 +490,7 @@
   **It exists because a `:render` return crosses UNCONVERTED.** A
   declared `:render` position is invoked by the foreign component during
   its own render, and the wrapper ends in a bare call
-  ([[re-frame.hicasso.impl.intent/render-callback]]) — so a string
+  (`re-frame.hicasso.impl.intent/render-callback`) — so a string
   renders and a returned hiccup vector reaches React, which refuses it
   (*\"Objects are not valid as a React child\"*). This is the spelling
   that turns the row into an element, and the row keeps its intents:
@@ -525,7 +516,7 @@
   the body supplied. Outside every extent it converts markup as usual,
   and an intent written in that markup stays the loud
   `:rf.error/hicasso-intent-outside-boundary` it is everywhere else.
-  [[re-frame.hicasso.impl.codec/as-element]]."}
+  `re-frame.hicasso.impl.codec/as-element`."}
        as-element impl-codec/as-element)
 
      (def ^{:doc "`h/as-component` — **the outward bridge**.
@@ -542,46 +533,22 @@
   Sits HERE rather than on the native tier because a UIx or JavaScript
   parent must not have to require the native namespace — and therefore
   ship it — to cross inward.
-  [[re-frame.hicasso.impl.codec/as-component]]."}
+  `re-frame.hicasso.impl.codec/as-component`."}
        as-component impl-codec/as-component)
 
      ;; ---- the root lifecycle: mount, re-render, tear down ----------------
      ;;
-     ;; Three doors, one handle, and every one of them ROOT-SCOPED — a page
-     ;; may hold as many roots as it likes and no call here reaches a root
-     ;; the caller did not name. That is the reason `release!` is not
-     ;; among them.
-     ;;
-     ;; **The HYDRATING door is HERE**, and it is only useful paired with a
-     ;; server-render door: a hydrating door adopts bytes something
-     ;; produced. `dispositions.md` HS-11 records what an improvised
-     ;; counterpart costs — the adoption closer rides as a SIBLING of the
-     ;; app subtree (`impl.mount/tree`), React derives a `useId` from tree
-     ;; POSITION as well as from the prefix, and bytes a consumer bakes by
-     ;; hand hydrate into a text mismatch.
-     ;;
-     ;; `re-frame.hicasso.server` is the matching entry, and it matches by
-     ;; CALLING `impl.mount/tree` — one function deciding the root's shape
-     ;; for both halves — so the counterpart emits the tree this door
-     ;; adopts, position for position.
-     ;;
-     ;; The DOOR NAMES are `mount!` and `hydrate!` over impl's `root!`
-     ;; and `hydrate-root!`, and the CONTRACT SHAPE is `(node config
-     ;; view)` with a config map — naming-ledger rows 13 and 20 carry the
-     ;; ruling and the argument, kept as the guide teaches.
-     ;;
-     ;; **`mount!` is a contract, not a respelling of `root!`.** The
-     ;; guide teaches `h/mount!` over row 20's config map carrying
-     ;; `:frame` AND `:initial-events`, where impl's `root!` takes the
-     ;; frame POSITIONALLY — so the door below takes the taught contract
-     ;; and `impl.mount/ensure-frame!` supplies the seeding behaviour by
-     ;; calling `rf/make-frame` exactly as a consumer's own boot line
-     ;; does. Row 20's ground: `:initial-events` is **borrowed from
-     ;; core's `frame-root` vocabulary rather than minted here**.
+     ;; Every door here is ROOT-SCOPED, which is why `release!` is not
+     ;; among them. `hydrate!` adopts the tree `impl.mount/tree` shapes,
+     ;; and `re-frame.hicasso.server` emits that same tree by CALLING it —
+     ;; React derives a `useId` from tree position as well as from the
+     ;; prefix, so a second function deciding the root's shape for either
+     ;; half hydrates into a text mismatch (docs/design/hicasso/product/
+     ;; dispositions.md HS-11).
 
      (def ^{:doc "`h/mount!` — **the root door**: ensure a frame,
   associate it with a DOM container and one root view, and answer the
-  handle [[render!]] and [[unmount!]] take. HD-021(b)'s whole execution
+  handle `render!` and `unmount!` take. HD-021(b)'s whole execution
   contract.
 
       (h/mount! (js/document.getElementById \"app\")
@@ -614,22 +581,22 @@
   every root from the same start, so a page mounting two roots gives them
   distinct prefixes or watches their generated ids collide. A page with
   one root names none. No default, no coercion, no validation: React owns
-  the option and this is a pass-through to it. [[hydrate!]] takes the same
+  the option and this is a pass-through to it. `hydrate!` takes the same
   key, and a hydrating root must be handed the SAME string its server
   render used.
 
   ## Why this is a `defn` where its siblings are aliases
 
-  [[hydrate!]]'s reason exactly, and the two doors are the same case seen
+  `hydrate!`'s reason exactly, and the two doors are the same case seen
   twice: `impl.mount/root!` is `(container frame-kw hiccup opts)` — the
   impl tier's positional shape — and row 20 keeps the guide's config map,
   because a config map is what lets `:initial-events` and
   `:identifier-prefix` join without an arity each. So the adaptation is
   three lines here and impl keeps one caller shape for its own witnesses
   to drive. `impl.mount/root!` keeps its own name for the same reason
-  [[hydrate!]]'s impl keeps `hydrate-root!`.
-  [[re-frame.hicasso.impl.mount/root!]],
-  [[re-frame.hicasso.impl.mount/ensure-frame!]]."}
+  `hydrate!`'s impl keeps `hydrate-root!`.
+  `re-frame.hicasso.impl.mount/root!`,
+  `re-frame.hicasso.impl.mount/ensure-frame!`."}
        mount!
        ;; `config` reaches `root!` as the opts map WHOLE, the arrangement
        ;; `hydrate!` below already has: impl reads the keys it owns and a
@@ -638,7 +605,7 @@
          (impl-mount/root! container (:frame config) hiccup config)))
 
      (def ^{:doc "`h/hydrate!` — **adopt a container's existing
-  server-rendered DOM** rather than replacing it; [[mount!]]'s hydrating
+  server-rendered DOM** rather than replacing it; `mount!`'s hydrating
   twin, and the client half of every SSR route:
 
       (h/hydrate! (js/document.getElementById \"app\")
@@ -647,7 +614,7 @@
 
   `(node config view)`, and the config carries `:frame` — the frame
   keyword this root scopes — and optionally `:identifier-prefix`.
-  Returns the handle [[render!]] and [[unmount!]] take, unchanged.
+  Returns the handle `render!` and `unmount!` take, unchanged.
 
   **State comes first, and it is a different door.** This adopts DOM;
   `re-frame.ssr/hydrate!` installs the server's app-db through
@@ -682,7 +649,7 @@
   `:identifier-prefix` join without a second arity. So the adaptation is
   three lines here rather than a second signature down in impl, and impl
   keeps one caller shape for its own witnesses to drive.
-  [[re-frame.hicasso.impl.mount/hydrate-root!]]."}
+  `re-frame.hicasso.impl.mount/hydrate-root!`."}
        hydrate!
        ;; `config` reaches `hydrate-root!` as the opts map WHOLE rather
        ;; than re-built from `:identifier-prefix` — impl reads the keys
@@ -697,15 +664,15 @@
         (h/render! @!root [app {}]))
 
   React reconciles the new tree against the one on the page, so the
-  reloaded view code meets its own DOM. Calling [[mount!]] again would
+  reloaded view code meets its own DOM. Calling `mount!` again would
   `createRoot` a second time and replace the tree instead, discarding
   every node, subscription and scrap of component state.
-  [[re-frame.hicasso.impl.mount/render!]]."}
+  `re-frame.hicasso.impl.mount/render!`."}
        render! impl-mount/render!)
 
-     (def ^{:doc "Take THIS root down — [[mount!]]'s inverse, and
+     (def ^{:doc "Take THIS root down — `mount!`'s inverse, and
   idempotent. Unmounts the root and leaves everything else exactly where
   it was: the sibling roots' subscriptions and frames, and the container
-  you handed [[mount!]], which React empties but does not remove.
-  [[re-frame.hicasso.impl.mount/unmount!]]."}
+  you handed `mount!`, which React empties but does not remove.
+  `re-frame.hicasso.impl.mount/unmount!`."}
        unmount! impl-mount/unmount!)))
