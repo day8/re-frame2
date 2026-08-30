@@ -59,10 +59,10 @@
  *   schemas-bundle-probe       127736 B gzipped (124.7 KB)
  *   margin                      40885 B gzipped (39.9 KB)
  *
- * Five builds of that tree on the same box gave 127696 B once and
- * 127736 B four times, with the raw byte count identical every time —
- * Closure's output is not byte-stable across runs here, so read the
- * last two digits of any figure in this file as noise.
+ * Six builds of that tree on the same box gave 127696 B, 127729 B and
+ * 127736 B (the last one four times), with the raw byte count identical
+ * every time — Closure's output is not byte-stable across runs here, so
+ * read the last two digits of any figure in this file as noise.
  *
  * Both directions of the humanizer assertion were made to fire before
  * it was wired: ungating the adapter's publication puts the keyword back
