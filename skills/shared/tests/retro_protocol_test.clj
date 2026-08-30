@@ -74,10 +74,6 @@
 (def ^:private issue-filing-md
   (delay (slurp-rel shared-root "issue-filing.md")))
 
-(def ^:private issue-template-md
-  (delay (slurp-rel skills-root
-                    "re-frame2-pair-retro/references/issue-template.md")))
-
 (def ^:private readme-md
   (delay (slurp-rel skills-root "README.md")))
 
@@ -410,34 +406,6 @@
              "prohibition has no constructive counterpart and the agent "
              "has nowhere safe to land."))))
 
-;; Post-dedup (rf2-mwd6tf): the template keeps its Pair-retro title PATTERNS
-;; (issue-filing.md §Shell-safety points here for them), and must keep the
-;; never-paste-evidence guard reachable from beside those patterns — but as a
-;; LINK to the shared owner, NOT a local restatement of the generic threat
-;; model. The full safe-alphabet enumeration lives once in
-;; ../../shared/issue-filing.md §Shell-safety.
-(deftest issue-template-title-safety-links-not-duplicates
-  (testing "issue-template.md §Title patterns keeps the patterns + a link to the shared title-safety rule, without re-inlining the generic threat model"
-    (let [s (section @issue-template-md "Title patterns")]
-      (is (str/includes? s "Improve <workflow>")
-          (str "the Pair-retro title patterns disappeared from §Title "
-               "patterns. issue-filing.md §Shell-safety points HERE for the "
-               "patterns, so they stay local while the shell-safety rule "
-               "lives in the shared leaf (rf2-mwd6tf)."))
-      (is (and (contains-any? s ["never paste" "never copy"])
-               (str/includes? s "../../shared/issue-filing.md"))
-          (str "§Title patterns no longer carries BOTH the never-paste-"
-               "evidence guard AND a link to the shared title-safety rule "
-               "beside the patterns. The patterns are the recipe an agent "
-               "fills in, so the guard must be reachable from beside them — "
-               "as a LINK to the shared owner, not a local restatement "
-               "(rf2-mwd6tf)."))
-      (is (not (str/includes? s "letters, digits"))
-          (str "§Title patterns re-inlines the generic safe-alphabet "
-               "enumeration ('letters, digits, …'). That threat model is "
-               "owned once by ../../shared/issue-filing.md §Shell-safety; the "
-               "template must LINK it, not copy it back (rf2-mwd6tf).")))))
-
 (deftest issue-filing-gates-create-on-user-approval
   (testing "gh issue create is gated on a fresh in-conversation yes"
     (is (contains-any? @issue-filing-md
@@ -476,13 +444,9 @@
 ;; lock the rule in the two owners of the recipe — the SHARED canonical
 ;; recipe (issue-filing.md) and the README §allowed-tools baseline: each MUST
 ;; NOT prescribe `/tmp/issue-body.md` as the `--body-file` target, and MUST
-;; name a per-filing OS-temp path (TMPDIR / $env:TEMP). The consumer template
-;; (re-frame2-pair-retro/issue-template.md) is NO LONGER an owner: post-dedup
-;; (rf2-mwd6tf) it LINKS the shared recipe rather than restating the mechanic,
-;; so its own assertion (`issue-template-omits-duplicated-filing-mechanics`
-;; below) checks the opposite — that the per-filing OS-temp recipe is ABSENT
-;; locally. The "never a fixed /tmp/issue-body.md" PROHIBITION strings are
-;; tolerated — the regression fires only on the prescriptive command form
+;; name a per-filing OS-temp path (TMPDIR / $env:TEMP). The "never a fixed
+;; /tmp/issue-body.md" PROHIBITION strings are tolerated — the regression
+;; fires only on the prescriptive command form
 ;; (`--body-file /tmp/issue-body.md`) or the prescriptive "compose
 ;; /tmp/issue-body.md" Write step, never on a prohibition that merely names
 ;; the banned literal.
@@ -541,44 +505,6 @@
              "'per-filing' and an OS-temp token). The canonical shape is "
              "what consumers copy; it must carry the positive rule."))))
 
-;; Post-dedup (rf2-mwd6tf): the consumer template no longer restates ANY of the
-;; generic filing mechanics owned by ../../shared/issue-filing.md — the body
-;; path (fixed OR per-filing OS-temp), the worked `gh issue create --body-file`
-;; command, and the worked `gh issue list --search` command all live once in
-;; the shared leaf. The template LINKS that leaf instead. This assertion gives
-;; the dedup teeth: re-inlining any of those mechanics fails the suite. (The
-;; SHARED-recipe / README assertions above still REQUIRE the per-filing OS-temp
-;; path, because the recipe itself is owned there.)
-(deftest issue-template-omits-duplicated-filing-mechanics
-  (testing "issue-template.md links the shared filing recipe instead of restating its generic mechanics"
-    (let [body @issue-template-md]
-      (is (str/includes? body "../../shared/issue-filing.md")
-          (str "issue-template.md no longer links ../../shared/issue-filing.md "
-               "— the shared owner of the filing mechanics it delegates. "
-               "Without the link the reader loses the recipe the template "
-               "stopped restating (rf2-mwd6tf)."))
-      (is (not (prescribes-fixed-body-path? body))
-          (str "issue-template.md prescribes the fixed `/tmp/issue-body.md` "
-               "again. The body-path mechanic is owned by "
-               "../../shared/issue-filing.md; the template links it "
-               "(rf2-mwd6tf; was rf2-de7pqw/ca5v9s)."))
-      (is (not (names-per-filing-os-temp-path? body))
-          (str "issue-template.md re-inlines the per-filing OS-temp body-path "
-               "recipe (a 'per-filing' + TMPDIR/$env:TEMP worked example). "
-               "That mechanic now lives ONCE in ../../shared/issue-filing.md; "
-               "the template links it rather than copying it back "
-               "(rf2-mwd6tf)."))
-      (is (not (str/includes? body "--body-file"))
-          (str "issue-template.md re-inlines the worked `gh issue create "
-               "--body-file` command. The body-file filing mechanic is owned "
-               "by ../../shared/issue-filing.md; keep only the link "
-               "(rf2-mwd6tf)."))
-      (is (not (str/includes? body "--search"))
-          (str "issue-template.md re-inlines the worked `gh issue list "
-               "--search` command. Search-before-file and the safe-alphabet "
-               "`--search` rule are owned by ../../shared/issue-filing.md; "
-               "keep only the link (rf2-mwd6tf).")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Lock 4d — Search-argument safety on the inline `gh issue list --search`
 ;; recipe
@@ -593,11 +519,8 @@
 ;; The title/body hardening closed `--title`/`--body`; this lock keeps the
 ;; `--search` clause from drifting back out. EVERY corpus site that shows
 ;; the search recipe must carry (or link) the agent-authored-keywords /
-;; never-paste-evidence rule next to it. Post-dedup (rf2-mwd6tf) the consumer
-;; template stopped SHOWING the search recipe (it links the shared owner), so
-;; only issue-filing.md and retro-protocol.md are checked here; the template's
-;; `issue-template-omits-duplicated-filing-mechanics` assertion above holds it
-;; to the "no local `--search` recipe" side of the same rule.
+;; never-paste-evidence rule next to it — today that is issue-filing.md and
+;; retro-protocol.md.
 ;; ---------------------------------------------------------------------------
 
 (defn- search-recipe-has-safety-clause?
@@ -632,41 +555,13 @@
              "carries the agent-authored / never-paste-evidence `--search` "
              "rule beside it (rf2-7g9htq.1)."))))
 
-;; Post-dedup (rf2-mwd6tf): with the generic mechanics linked out, the template
-;; must still RETAIN its Pair-retro-specific content — the routing decision, the
-;; domain issue-body skeleton, and the target/optional-label policy — so the
-;; dedup collapses the copy without gutting what only the consumer owns. Several
-;; other leaves point HERE for exactly these (issue-filing.md §Shell-safety →
-;; title patterns; §Body shape → the body skeleton; SKILL.md §Filing
-;; improvements + analysis-lenses.md → routing + the optional-label degrade).
-(deftest issue-template-retains-pair-retro-content
-  (testing "issue-template.md keeps its Pair-retro-specific routing, body skeleton, and target/optional-label policy"
-    (let [body @issue-template-md]
-      (is (and (str/includes? body "pair-tool friction")
-               (str/includes? body "framework friction"))
-          (str "issue-template.md dropped the pair-tool-vs-framework routing. "
-               "That routing is Pair-retro-specific and stays local — SKILL.md "
-               "§Filing improvements and analysis-lenses.md both point here "
-               "for it (rf2-mwd6tf)."))
-      (is (and (str/includes? body "## Problem")
-               (str/includes? body "## Why re-frame2-pair was not enough"))
-          (str "issue-template.md dropped the domain issue-body skeleton "
-               "(Problem / … / Why re-frame2-pair was not enough / …). The "
-               "body shape is consumer-specific and owned here — "
-               "issue-filing.md §Body shape points here for it (rf2-mwd6tf)."))
-      (is (and (str/includes? body "pair-mcp")
-               (str/includes? body "gh label list"))
-          (str "issue-template.md dropped the target/optional-label policy "
-               "(the `pair-mcp` / `upstream-from-re-frame2-pair` labels and "
-               "the `gh label list` degrade). That policy is Pair-retro-"
-               "specific and remains local; SKILL.md §Filing improvements "
-               "points here for the operational degrade steps (rf2-mwd6tf).")))))
-
 ;; ---------------------------------------------------------------------------
-;; Cross-consumer adoption — both consuming skills must actually load
-;; the shared leaf. A future edit that decouples a consumer (dropping
-;; the link, copy-pasting the prose inline, …) breaks the single-source
-;; assumption.
+;; Cross-consumer adoption — the consuming skill must actually load the
+;; shared leaf. A future edit that decouples a consumer (dropping the
+;; link, copy-pasting the prose inline, …) breaks the single-source
+;; assumption. (re-frame2-pair-retro is deliberately NOT a consumer: it
+;; is self-contained and read-only — see the pair-retro frontmatter lock
+;; below.)
 ;; ---------------------------------------------------------------------------
 
 (deftest improver-loads-shared-protocol
@@ -759,32 +654,17 @@
                       "Don't reduce every finding to \"read the spec\". The finding must stand on its own."))
         "the detector false-positives on the legitimate 'every finding' non-gate bullet.")))
 
-(deftest pair-retro-loads-shared-protocol
-  (testing "re-frame2-pair-retro/SKILL.md links to ../shared/retro-protocol.md"
-    (is (str/includes? @pair-retro-skill-md "../shared/retro-protocol.md")
-        (str "re-frame2-pair-retro no longer links to the shared "
-             "retro-protocol. If a copy-paste was deliberate, the "
-             "single-source assumption is broken and this regression "
-             "suite no longer covers the consumer."))))
-
-(deftest pair-retro-loads-shared-issue-filing
-  (testing "re-frame2-pair-retro/SKILL.md links to ../shared/issue-filing.md"
-    (is (str/includes? @pair-retro-skill-md "../shared/issue-filing.md")
-        (str "re-frame2-pair-retro no longer links to the shared "
-             "issue-filing recipe. That leaf is the single home for the "
-             "shell-safe Write-tool + --body-file filing pattern; a "
-             "decoupled consumer can drift from the security boundary."))))
-
 ;; ---------------------------------------------------------------------------
-;; Pair-retro frontmatter — pin the `allowed-tools` contract to the shared
-;; issue-filing recipe. The recipe (`issue-filing.md` §Shell-safety) makes the
-;; `Write` tool + `gh issue create --body-file` pair the no-shell-interpolation
-;; boundary for transcript-derived issue bodies. The skill therefore needs
-;; `Write` and `Bash(gh issue create *)` PRESENT, and must NOT carry `Edit`
-;; (it never rewrites source) or `Bash(bd *)` (the monorepo's internal tracker
-;; has no place in a published skill — see `skills/README.md` §Published-skill
-;; allowed-tools baseline). This test fails loudly if an edit removes
-;; `Write`/`gh issue create` or smuggles in `Edit`/`Bash(bd *)`.
+;; Pair-retro frontmatter — pin the READ-ONLY `allowed-tools` contract.
+;; re-frame2-pair-retro is transcript-shaped and self-contained: it drafts a
+;; copy-pasteable GitHub issue in the conversation and the USER files it, so
+;; the frontmatter must never grow a mutation surface — no `Write`, no `Edit`,
+;; no `Bash(gh issue create *)`, no `Bash(gh label *)`, no MCP grant, and no
+;; `Bash(bd *)` (the monorepo's internal tracker has no place in a published
+;; skill — see `skills/README.md` §Published-skill allowed-tools baseline).
+;; The only shell surface is read-only duplicate search
+;; (`gh issue list` / `gh issue view`). This test fails loudly if an edit
+;; smuggles any mutation grant back in.
 ;; ---------------------------------------------------------------------------
 
 (defn- frontmatter
@@ -794,46 +674,35 @@
   (let [m (re-find #"(?ms)\A---\r?\n(.*?)\r?\n---" md)]
     (if m (second m) md)))
 
-(deftest pair-retro-frontmatter-grants-write
-  (testing "allowed-tools grants Write for the --body-file shell-safety path"
+(deftest pair-retro-frontmatter-read-only
+  (testing "allowed-tools stays read-only: no Write / Edit / gh issue create / gh label / MCP / bd grant"
     (let [fm (frontmatter @pair-retro-skill-md)]
-      (is (re-find #"(?m)^\s*-\s*Write\s*$" fm)
-          (str "re-frame2-pair-retro's allowed-tools no longer grants "
-               "`Write`. `Write` is required SOLELY to compose a fresh, "
-               "per-filing OS-temp body file so `gh issue create "
-               "--body-file` reads the transcript-derived body verbatim "
-               "(no shell expansion). Removing it breaks the only "
-               "documented no-shell-interpolation filing path — see "
-               "../issue-filing.md §Shell-safety.")))))
-
-(deftest pair-retro-frontmatter-grants-gh-issue-create
-  (testing "allowed-tools grants Bash(gh issue create *)"
-    (let [fm (frontmatter @pair-retro-skill-md)]
-      (is (str/includes? fm "Bash(gh issue create *)")
-          (str "re-frame2-pair-retro's allowed-tools no longer grants "
-               "`Bash(gh issue create *)`. This is the approval-gated "
-               "filing surface (L2); without it the skill can draft but "
-               "never file.")))))
-
-(deftest pair-retro-frontmatter-omits-edit
-  (testing "allowed-tools does NOT grant Edit"
-    (let [fm (frontmatter @pair-retro-skill-md)]
+      (is (not (re-find #"(?m)^\s*-\s*Write\s*$" fm))
+          (str "re-frame2-pair-retro's allowed-tools grants `Write` again. "
+               "The skill is read-only — the issue draft is copy-pasteable "
+               "text in the conversation, never a file (design.md L2)."))
       (is (not (re-find #"(?m)^\s*-\s*Edit\s*$" fm))
-          (str "re-frame2-pair-retro's allowed-tools now grants `Edit`. "
-               "This skill never rewrites source in any repo — friction "
-               "routes to GitHub issues, not edits (design.md §9). Remove "
-               "`Edit` from the frontmatter.")))))
-
-(deftest pair-retro-frontmatter-omits-bd
-  (testing "allowed-tools does NOT grant Bash(bd *)"
-    (let [fm (frontmatter @pair-retro-skill-md)]
+          (str "re-frame2-pair-retro's allowed-tools grants `Edit`. This "
+               "skill never rewrites source in any repo (design.md L2)."))
+      (is (not (str/includes? fm "gh issue create"))
+          (str "re-frame2-pair-retro's allowed-tools grants `gh issue "
+               "create` again. The skill drafts; the user files "
+               "(design.md L2)."))
+      (is (not (str/includes? fm "gh label"))
+          (str "re-frame2-pair-retro's allowed-tools grants a `gh label` "
+               "surface again. With no filing path there is no label "
+               "policy to detect (design.md L2)."))
+      (is (not (str/includes? fm "mcp__"))
+          (str "re-frame2-pair-retro's allowed-tools grants an MCP tool. "
+               "The skill never probes a runtime — live work routes to "
+               "re-frame2-pair, and an unverifiable fact stays "
+               "unknown/incomplete (design.md L2/§8)."))
       (is (not (str/includes? fm "Bash(bd"))
-          (str "re-frame2-pair-retro's allowed-tools now grants a "
+          (str "re-frame2-pair-retro's allowed-tools grants a "
                "`Bash(bd ...)` surface. `bd` (beads) is the re-frame2 "
                "monorepo's internal tracker and has no place in a "
-               "published skill — skills file against the target repo's "
-               "GitHub issues via `gh issue create` (skills/README.md "
-               "§Published-skill allowed-tools baseline).")))))
+               "published skill (skills/README.md §Published-skill "
+               "allowed-tools baseline).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures present — the document-runnable behavioural scenarios live
@@ -953,7 +822,7 @@
                "release / checklist gate (rf2-1inyqr finding 2).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Pair-retro production/probe/filing drift
+;; Pair-retro production/probe drift
 ;;
 ;; - the production-elision known-friction must not claim "every Tool-Pair
 ;;   surface elides"; the dev-gated surfaces (trace / epoch / schema /
@@ -964,8 +833,6 @@
 ;;   diagnostic ladder (:nrepl-unreachable / :build-not-running /
 ;;   :no-runtime-connected / :runtime-loaded-but-preload-missing), with the
 ;;   blanket :runtime-not-preloaded framed only as the fallback reason.
-;; - the README routing index must carry the optional-label / fail-open
-;;   filing model, not a mandatory `pair-mcp` label.
 ;; ---------------------------------------------------------------------------
 
 (deftest pair-retro-production-elision-not-blanket
@@ -1020,189 +887,6 @@
                "non-preload ladder reason (:no-runtime-connected / "
                ":build-not-running / :nrepl-unreachable). At least one "
                "non-preload rung must be represented (rf2-dhnixf finding 2).")))))
-
-(deftest readme-routing-uses-optional-label-model
-  (testing "skills/README.md routing index carries the optional-label / fail-open filing model (rf2-dhnixf finding 3)"
-    (let [body @readme-md]
-      (is (str/includes? body "Labels are optional taxonomy")
-          (str "skills/README.md §Routing no longer states labels are "
-               "optional taxonomy, not a filing precondition. An agent "
-               "following the index could call `gh issue create --label "
-               "pair-mcp` as mandatory and fail filing on a repo without "
-               "that label (rf2-dhnixf finding 3)."))
-      (is (contains-any? body ["gh label list"])
-          (str "skills/README.md §Routing must reference `gh label list` "
-               "as the precondition for adding a `--label`, matching the "
-               "pair-retro filing contract (rf2-dhnixf finding 3)."))
-      (is (not (re-find #"(?m)\*\*with\*\* the `pair-mcp` label" body))
-          (str "skills/README.md §Routing still mandates filing **with** the "
-               "`pair-mcp` label. Align with the optional-label model: the "
-               "title/body carry the distinction; the label is optional "
-               "(rf2-dhnixf finding 3)."))
-      (is (str/includes? body "re-frame2-pair-retro/SKILL.md#filing-improvements")
-          (str "skills/README.md §Routing should point at re-frame2-pair-"
-               "retro's filing section rather than restate the operational "
-               "label rules (rf2-dhnixf finding 3).")))))
-
-;; ---------------------------------------------------------------------------
-;; Pair-retro session-evidence contract — bind a retrospective to ONE
-;; causally-ordered session (SKILL.md §Session-evidence contract).
-;;
-;; Without an evidence boundary + causal-attribution rule, an agent can merge
-;; two builds / two sessions into one retry loop, count a delayed background
-;; result as a late regression, attribute unrelated CI/worker/code-review/
-;; app-authoring activity to the pair session, present a superseded tool result
-;; as the current state, or upgrade a missing result into an inferred tool
-;; failure — corrupting the retro's primary output (observed friction, root
-;; cause, priority, and any drafted issue body). These assertions pin the
-;; load-bearing phrasings of the contract so a silent prose-weakening is caught
-;; by `bb`; the executable behavioural counterpart is the pair-retro
-;; session-evidence eval (scored by
-;; `re-frame2-pair-retro/evals/score-session-evidence-eval.clj`, whose
-;; --self-test the final assertion below runs as an always-on guard).
-;; ---------------------------------------------------------------------------
-
-(defn- session-evidence-section []
-  (section @pair-retro-skill-md "Analysis workflow and output shape"))
-
-(deftest pair-retro-session-evidence-contract-present
-  (testing "SKILL.md carries a §Session-evidence contract in the analysis workflow"
-    (is (str/includes? @pair-retro-skill-md "Session-evidence contract")
-        (str "re-frame2-pair-retro/SKILL.md dropped the §Session-evidence "
-             "contract. Without it the skill has no rule for bounding a "
-             "retrospective to one session, so an agent can merge unrelated "
-             "activity (other workers, CI, shell, code-review, app-authoring) "
-             "into a pair-session retro."))
-    (is (contains-any? (session-evidence-section)
-                       ["one causally-ordered session"])
-        (str "the §Session-evidence contract no longer frames the boundary as "
-             "ONE causally-ordered session — the cardinal phrasing that "
-             "distinguishes a causal ledger from a transcript-order list."))))
-
-(deftest pair-retro-session-evidence-one-envelope-and-ask
-  (testing "rule 1 — one evidence envelope, ask when two are plausible"
-    (let [s (session-evidence-section)]
-      (is (contains-any? s ["evidence envelope"])
-          "the single-evidence-envelope rule (contract rule 1) is missing.")
-      (is (contains-any? s ["ask which session"])
-          (str "the ask-when-ambiguous rule is missing — when two plausible "
-               "envelopes are present the skill must ask which session to "
-               "review rather than merging them (contract rule 1).")))))
-
-(deftest pair-retro-session-evidence-causal-ledger
-  (testing "rule 2 — causal ledger with provenance, not transcript order"
-    (let [s (session-evidence-section)]
-      (is (contains-any? s ["causal ledger"])
-          "the causal-ledger rule (contract rule 2) is missing.")
-      (is (contains-any? s ["initiating call"])
-          (str "the causal ledger no longer binds each result to its "
-               "initiating call — arrival order would then be mistaken for "
-               "causal order (contract rule 2)."))
-      (is (and (str/includes? s "build id")
-               (str/includes? s "frame id")
-               (contains-any? s ["runtime-instance" "freshness token"]))
-          (str "the causal ledger no longer names the provenance tokens it "
-               "must retain (build id / frame id / runtime-instance or "
-               "freshness token) (contract rule 2)."))
-      (is (and (contains-any? s ["native conversation turns" "native turns"])
-               (str/includes? s "user recap"))
-          (str "the causal ledger no longer distinguishes native conversation "
-               "turns from a user recap as evidence provenance (contract "
-               "rule 2).")))))
-
-(deftest pair-retro-session-evidence-excludes-unrelated-activity
-  (testing "rule 3 — exclude unrelated worker / CI / shell / code-review / app-authoring"
-    (let [s (session-evidence-section)]
-      (is (contains-any? s ["Exclude unrelated"])
-          "the exclude-unrelated-activity rule (contract rule 3) is missing.")
-      (is (and (str/includes? s "worker")
-               (str/includes? s "CI")
-               (str/includes? s "shell")
-               (str/includes? s "code-review")
-               (str/includes? s "app-authoring"))
-          (str "the exclusion rule no longer enumerates the unrelated activity "
-               "classes (worker / CI / shell / code-review / app-authoring) "
-               "that are out of scope by default (contract rule 3)."))
-      (is (contains-any? s ["unless the user"])
-          (str "the exclusion rule no longer carries the 'unless the user "
-               "explicitly names it as pair-session friction' carve-out "
-               "(contract rule 3).")))))
-
-(deftest pair-retro-session-evidence-supersession-and-unknown
-  (testing "rules 4-5 — supersession, and unknown over inferred"
-    (let [s (session-evidence-section)]
-      (is (contains-any? s ["supersed"])
-          (str "the supersession rule is missing — a later successful retry / "
-               "target switch supersedes the earlier state (contract rule 4)."))
-      (is (contains-any? s ["current / final tool state" "current/final tool state"
-                            "final tool state"])
-          (str "the supersession rule no longer forbids presenting a "
-               "superseded failure as the current/final tool state (contract "
-               "rule 4)."))
-      (is (contains-any? s ["unknown/incomplete" "unknown / incomplete"])
-          (str "the unknown-over-inferred rule is missing — a missing / "
-               "truncated / unmatched / still-running result is "
-               "unknown/incomplete (contract rule 5)."))
-      (is (and (contains-any? s ["never"])
-               (str/includes? s "success")
-               (str/includes? s "failure"))
-          (str "the unknown-over-inferred rule no longer forbids scoring a "
-               "partial result as a success or a failure (contract rule 5).")))))
-
-(deftest pair-retro-session-evidence-attribution
-  (testing "rule 6 — recap attribution, never invent turn ids / payload fields"
-    (let [s (session-evidence-section)]
-      (is (contains-any? s ["never invent"])
-          (str "the attribution rule no longer forbids inventing evidence "
-               "(contract rule 6)."))
-      (is (and (str/includes? s "turn")
-               (str/includes? s "payload"))
-          (str "the attribution rule no longer names turn numbers and "
-               "tool-payload fields as the things the skill must not invent "
-               "(contract rule 6).")))))
-
-(deftest pair-retro-session-evidence-scorer-self-tests
-  (testing "score-session-evidence-eval.clj exists and its --self-test passes"
-    (let [scorer (io/file skills-root
-                          "re-frame2-pair-retro/evals/score-session-evidence-eval.clj")]
-      (is (.exists scorer)
-          (str "re-frame2-pair-retro/evals/score-session-evidence-eval.clj "
-               "disappeared. It is the executable scorer that turns a captured "
-               "transcript into a pass/fail artifact for the session-evidence "
-               "contract — without it the contract reverts to eyeball-only."))
-      (when (.exists scorer)
-        (let [{:keys [exit out err]}
-              (shell/sh "bb" (.getPath scorer) "--self-test")]
-          (is (zero? exit)
-              (str "score-session-evidence-eval.clj --self-test failed (exit "
-                   exit "). The manifest is malformed or a scorer predicate "
-                   "stopped firing.\nstdout: " out "\nstderr: " err)))))))
-
-(deftest pair-retro-session-evidence-manifest-and-fixture-present
-  (testing "the session-evidence eval manifest + fixture are present and well-formed"
-    (let [manifest (io/file skills-root
-                            "re-frame2-pair-retro/evals/session-evidence-evals.json")
-          fixture  (io/file skills-root
-                            "re-frame2-pair-retro/evals/fixtures/session-evidence-scoping.md")]
-      (is (.exists manifest)
-          "re-frame2-pair-retro/evals/session-evidence-evals.json disappeared.")
-      (is (.exists fixture)
-          (str "the session-evidence fixture "
-               "(evals/fixtures/session-evidence-scoping.md) disappeared."))
-      (when (.exists manifest)
-        (let [m (json/parse-string (slurp manifest) true)]
-          (is (= "behavioral" (:eval_kind m))
-              "session-evidence-evals.json :eval_kind is no longer \"behavioral\".")
-          (is (= 2 (count (:evals m)))
-              (str "session-evidence-evals.json no longer has exactly 2 evals "
-                   "(the scoping scenario + the ask-when-ambiguous scenario)."))
-          (let [blob (slurp manifest)]
-            (is (str/includes? blob "supersed")
-                "manifest no longer scores the supersession rule.")
-            (is (str/includes? blob "unknown")
-                "manifest no longer scores the unknown-over-inferred rule.")
-            (is (contains-any? blob ["which session" "which of the two"])
-                "manifest no longer scores the ask-when-ambiguous rule.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
