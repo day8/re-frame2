@@ -179,65 +179,11 @@ MAPPINGS: list[Mapping] = [
     # so the gate only fires when the canonical owner forgets a tool.
     # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
     # entries (the MCP server's advertised name).
-    Mapping(
-        # rf2-ia7qf finding 3: re-frame2-pair-retro is transcript-first and
-        # grants exactly ONE re-frame2-pair MCP tool — the read-only
-        # `discover-app` — use-gated to its opt-in live-runtime probe
-        # (SKILL.md §Guard rails + references/known-frictions.md
-        # §Tool-catalogue). Every OTHER pair-mcp tool is intentionally NOT
-        # consumed by this skill (deeper live work routes to the
-        # re-frame2-pair skill instead). Marking them server-only here turns
-        # the MCP axis into the structural check finding 3 asks for: the
-        # MISSING-IN-SERVER direction fails if the skill ever allow-lists a
-        # phantom (e.g. names an opt-in tool the server dropped), and the
-        # MISSING-IN-SKILL direction is silenced ONLY for the deliberately
-        # un-consumed tools — so adding a new opt-in tool to the prose
-        # without allow-listing it surfaces as drift the moment it is also
-        # dropped from this set.
-        name="re-frame2-pair-mcp <-> re-frame2-pair-retro",
-        server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
-        host_prefix="re-frame2-pair",
-        skill_md=REPO_ROOT / "skills" / "re-frame2-pair-retro" / "SKILL.md",
-        intentional_server_only=frozenset({
-            # Everything except the single opt-in read-only probe
-            # `discover-app`. This skill operates on a transcript / recap;
-            # all live-operation tools belong to the re-frame2-pair skill.
-            "orient",
-            "describe-image",
-            "eval-cljs",
-            "dispatch",
-            "dispatch-dry-run",
-            "restore-epoch",
-            "replace-app-db",
-            "trace-window",
-            "watch-epochs",
-            "tail-build",
-            "snapshot",
-            "get-path",
-            "read-sub",
-            "read-dom",
-            "read-ui",
-            # The Hicasso evidence door — live view work routes to the
-            # re-frame2-pair skill, same as read-sub/read-dom/read-ui above.
-            "read-mounted-boundaries",
-            "read-read-attribution",
-            "explain-render",
-            "record",
-            "read-recording",
-            "watch-until",
-            "subscribe",
-            "unsubscribe",
-            "list-subscriptions",
-            "list-streams",
-            "get-stream-controls",
-            "handler-meta",
-            "list-handlers",
-            "set-operating-frame",
-            "reset-operating-frame",
-            "get-operating-frame",
-            "get-re-frame2-pair-instructions",
-        }),
-    ),
+    # NOTE: re-frame2-pair-retro carries NO mapping here by design. The
+    # skill is transcript-shaped and fully read-only — its allowed-tools
+    # grant no MCP tool at all (the former opt-in read-only `discover-app`
+    # probe was retired with the rest of its mutation surface), so there is
+    # no skill<->server tool axis left to keep in sync.
     Mapping(
         name="story-mcp <-> re-frame2",
         server_src=_STORY_MCP_LEAVES,
@@ -744,14 +690,10 @@ def _all_markers_present(text: str, marker_groups: tuple[tuple[str, ...], ...]) 
 
 
 TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
-    # re-frame2-pair-retro — links the shared leaf from its SKILL.md
-    # (§Filing improvements / Reference files). Satisfied by the
-    # link-presence branch; the retro_protocol_test.clj suite separately
-    # pins its local title clauses.
-    TitleSafetyRule(
-        consumer="re-frame2-pair-retro",
-        docs=(REPO_ROOT / "skills" / "re-frame2-pair-retro" / "SKILL.md",),
-    ),
+    # NOTE: re-frame2-pair-retro is deliberately absent. The skill is
+    # read-only — it grants no `gh issue create` and produces only a
+    # copy-pasteable draft in the conversation — so there is no filing
+    # surface for the title-safety backstop to enforce.
     # re-frame-migration — cardinal-rule recipe links the shared leaf
     # (SKILL.md §Recipes). Satisfied by link-presence.
     TitleSafetyRule(
