@@ -183,7 +183,7 @@ For narrative coverage and the substrate decision set, see [Use UIx or reagent-s
   (flush-views!)
   (flush-views! f)
   ```
-- **Description**: Wraps React's `act()` for tests. Flushes pending renders synchronously and returns nil.
+- **Description**: Wraps React's `act()` for tests. Flushes pending renders synchronously and returns nil. It settles what the test drives — a mount, or a `dispatch-sync` run inside it — not a real DOM event whose `dispatch` queues on the router; that settles with `poll-until`. The complete component test — mount, click, settle, assert, unmount — is [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real).
 - **Example**:
   ```clojure
   ;; Test-only: flush pending renders synchronously, returns nil.

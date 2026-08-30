@@ -274,6 +274,19 @@ picks up every `*_test.cljs` namespace under `test/` and runs it via
 reactive substrate (no DOM needed). Add more `*_test.cljs` files
 alongside it as your app grows.
 
+That DOM-free shape is the default on purpose: events and subscriptions
+are pure functions, and that is where most of your tests belong. The
+view is the one part it does not reach. A Reagent view is a function
+returning hiccup — call it and walk the tree, per
+[Test a view](https://github.com/day8/re-frame2/blob/main/docs/core/testing/views.md).
+A UIx `defui` calling `use-subscribe` / `use-frame` is a React hook
+component, so testing it means mounting it in a browser; the
+copy-complete recipe — mount inside a frame boundary, click, settle with
+`flush-views!`, assert on the DOM, unmount — is
+[Test a view §4](https://github.com/day8/re-frame2/blob/main/docs/core/testing/views.md#4-uix-hook-components-mount-it-for-real).
+It needs a shadow-cljs `:browser-test` target, which this scaffold leaves
+as an opt-in.
+
 **Windows note:** shadow-cljs's `node_modules` resolution can rely on
 filesystem symlinks. Symlink creation on Windows requires either
 **Developer Mode** enabled (Settings → For developers → Developer
