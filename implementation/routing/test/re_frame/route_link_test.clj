@@ -19,14 +19,21 @@
     the `:rf/route` slice end-to-end. This pins the click→event pipeline
     at the JVM layer; CLJS tests cover the click handler's modifier-key
     branching.
+  - server-frame `:url-strategy` (rf2-skr1c) — a `:platform :server` frame
+    declaring `with-base-path` / the hash strategy renders the ENCODED href
+    through the registered `:route/link` view and the SSR emitter, while
+    the navigation payload stays path-form. The cross-host half (the same
+    hrefs on CLJS) is `route_link_ssr_parity_cljs_test.cljc`.
 
   Per Spec 012 §Linking from views — plain-anchor semantics and API.md
   `route-link` row."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
+            [re-frame.routing.link :as link]
             [re-frame.routing-test-support :as rts]))
 
 ;; rf2-6qclsc: use the shared `reset-runtime` fixture directly rather than a
@@ -115,6 +122,74 @@
       (is (nil? (:query attrs)) ":query is consumed")
       (is (nil? (:fragment attrs)) ":fragment is consumed")
       (is (= "Home" children) "children pass through"))))
+
+;; ---- server-frame :url-strategy (rf2-skr1c) --------------------------------
+;;
+;; The SSR pipeline pins the per-request frame with `rf/with-frame` around
+;; its render walk (ssr-ring `build-full-response*`), so the registered
+;; `:route/link` view renders INSIDE a frame scope on the server exactly as it
+;; does on the client. Both JVM link doors used to hard-code `identity` as the
+;; encoder, so a `/demos`-based server frame rendered `/active` where the
+;; hydrated client rendered `/demos/active` — a link that left the deployment
+;; mount if followed before hydration, and a Spec 011 hydration mismatch.
+
+(defn- server-frame!
+  "Seat a `:platform :server` frame — the shape the SSR pipeline constructs
+  per request — declaring `strategy`. `:url-bound?` is what a real URL-owning
+  server frame declares; on the JVM it installs no listener (the install is
+  CLJS-only), so the declaration costs nothing here."
+  [id strategy]
+  (rf/make-frame {:id id :platform :server :url-bound? true :url-strategy strategy}))
+
+(deftest route-link-ssr-honours-the-server-frames-url-strategy
+  (rf/reg-route :route/active {} "/active")
+  (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+  (server-frame! :ssr/history-base
+                 (routing/with-base-path routing/history-url-strategy "/demos"))
+  (server-frame! :ssr/hash routing/hash-url-strategy)
+  (server-frame! :ssr/hash-base
+                 (routing/with-base-path routing/hash-url-strategy "/demos"))
+
+  (testing "the SSR emitter renders the based href for a with-base-path server
+            frame — the production path: `[rf/route-link …]` in a render tree,
+            walked by `render-to-string` inside the frame's scope"
+    (let [html (rf/with-frame :ssr/history-base
+                 (rf/render-to-string [rf/route-link {:to :route/active} "Active"]))]
+      (is (str/includes? html "href=\"/demos/active\"")
+          (str "the emitted <a> carries the base-prefixed href, got: " html))
+      (is (not (str/includes? html "href=\"/active\""))
+          "the path-form href no longer reaches the server shell")))
+
+  (testing "the registered :route/link view (what the emitter resolves) yields
+            the encoded href for every strategy shape a server frame can declare"
+    (let [view (rf/view :route/link)]
+      (is (fn? view) ":route/link resolves to its registered render fn")
+      (is (= "/demos/active"
+             (:href (second (rf/with-frame :ssr/history-base (view {:to :route/active})))))
+          "with-base-path history: /demos/active")
+      (is (= "/demos/articles/intro"
+             (:href (second (rf/with-frame :ssr/history-base
+                              (view {:to :route/article :params {:id "intro"}})))))
+          "with-base-path history: params ride inside the based href")
+      (is (= "#/active"
+             (:href (second (rf/with-frame :ssr/hash (view {:to :route/active})))))
+          "hash: #/active on the server too")
+      (is (= "/demos#/active"
+             (:href (second (rf/with-frame :ssr/hash-base (view {:to :route/active})))))
+          "with-base-path hash: base OUTSIDE the fragment on the server too")))
+
+  (testing "the :routing/link-model seam agrees, and its navigation payload stays
+            path-form — only the rendered href is encoded"
+    (let [model (link/link-model {:to :route/active} :ssr/history-base)]
+      (is (= "/demos/active" (:href model)))
+      (is (= [:rf.route/url-requested {:url "/active" :to :route/active}]
+             (:payload model))
+          "the cascade is path-form throughout; the base never enters the payload"))
+    (is (= "/demos#/active" (:href (link/link-model {:to :route/active} :ssr/hash-base)))))
+
+  (testing "a bare call outside any frame scope still renders path-form (the
+            direct-call ergonomics above do not regress)"
+    (is (= "/active" (:href (second (routing/route-link-render-ssr {:to :route/active})))))))
 
 ;; ---- missing route ------------------------------------------------------
 

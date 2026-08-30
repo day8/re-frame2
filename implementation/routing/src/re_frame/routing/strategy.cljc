@@ -52,10 +52,14 @@
 
   SSR does not execute strategy side effects. On the server there is no
   address bar: the request URL is fed in path-form via
-  `:rf.route/handle-url-change`, the view renders against the slice, and
-  `route-link` emits its path-form `<a href>` shell. A hash never reaches the
-  server. The pure `:encode` and fallback `:decode` functions remain present
-  on the JVM; `:push!`, `:replace!`, and `:install-listener!` are CLJS-only.
+  `:rf.route/handle-url-change`, the view renders against the slice, and a
+  hash never reaches the server — so `:push!`, `:replace!` and
+  `:install-listener!` are CLJS-only and the JVM `:decode` falls back to
+  `/`. The pure `:encode` DOES run on the JVM: `route-link` encodes its
+  `<a href>` through the rendering frame's strategy on both hosts, so the
+  server shell carries the same href the hydrated client renders (Spec 011's
+  structural-equivalence rule; rf2-skr1c). SSR skips the side effects, never
+  the encoding.
 
   Internal namespace; the public facade is `re-frame.routing`, which
   re-exports the two shipped strategies."
@@ -122,7 +126,7 @@
   A frame that declares no `:url-strategy` uses this. Per Spec 012 §URL
   strategies. The `:push!` / `:replace!` / `:install-listener!` keys are
   present on CLJS only; on the JVM the map carries just `:encode` / `:decode`
-  (SSR ignores strategies — see the namespace docstring)."
+  (SSR skips the side effects, not `:encode` — see the namespace docstring)."
   (merge {:encode history-encode
           :decode history-decode}
          #?(:cljs {:push!             history-push!
@@ -212,7 +216,9 @@
   to `#/active` at the `route-link` href and the history fxs, and `:decode`s
   `window.location.hash` back to `/active` for the URL-change listener. The
   rest of routing is unchanged. Per Spec 012 §URL strategies. `:push!` /
-  `:replace!` / `:install-listener!` are CLJS-only (SSR ignores strategies)."
+  `:replace!` / `:install-listener!` are CLJS-only (SSR runs no browser side
+  effects); the pure `:encode` still renders the server-side `route-link`
+  href, so a hash frame's server shell carries `#/active` too."
   (merge {:encode hash-encode
           :decode hash-decode}
          #?(:cljs {:push!             hash-push!
@@ -303,7 +309,9 @@
   side-effecting keys is wrapped (base-stripping ingress); `:push!` /
   `:replace!` pass through unwrapped from the inner strategy, since `:encode`
   already carries the base outbound. The wrapped `:install-listener!` is
-  CLJS-only, mirroring the two shipped strategies (SSR ignores strategies).
+  CLJS-only, mirroring the two shipped strategies (SSR runs no listener); the
+  wrapped `:encode` runs on both hosts, so a server-rendered `route-link`
+  carries the base too (`/demos/active` in the shell, not `/active`).
 
   Declare on the URL-owning frame:
 
@@ -367,7 +375,9 @@
 (def ^:private url-strategy-required-legs
   "The CALLABLE legs a custom `:url-strategy` must carry, per host. `:encode`
   / `:decode` are pure and host-agnostic and required on BOTH hosts (SSR
-  `route-link` renders through `:encode`). The three side-effecting browser
+  `route-link` renders through `:encode` — a sentence the link doors
+  contradicted by hard-coding `identity` until rf2-skr1c; the JVM requirement
+  was always right). The three side-effecting browser
   legs `:push!` / `:replace!` / `:install-listener!` are required on CLJS but
   are reader-conditionally ABSENT from the shipped JVM strategies (SSR never
   executes them), so JVM validation does NOT require them (Spec 012 §URL
