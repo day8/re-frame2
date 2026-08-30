@@ -271,6 +271,13 @@ rebasing, never hand-merge, and where a job diffs the committed file against a f
 run exactly that job locally. Three concurrent changes regenerated one manifest here with no
 sequence between them.
 
+**And N changes that each touch ONE LINE of one shared index are the second exception.** A
+catalogue, a roster, a table of rows: eight items each editing a different row of it are not a
+collision worth a sequence, and one-toucher would serialise the fleet for one-line hunks. Brief
+every worker to isolate that edit as its own final commit, merge in landing order, and let each
+later change rebase — the conflict, when it comes, is one line in one commit. Write the lane rule
+on every item that shares the file, in the same words, so no worker discovers it at rebase time.
+
 **But a gate that reconciles two surfaces couples them into ONE change, and sequencing those
 deadlocks.** The one-toucher rule reasons about files, and it is right about files. Some checkers,
 though, hold one surface against another in both directions — a catalogue against the emitters it
