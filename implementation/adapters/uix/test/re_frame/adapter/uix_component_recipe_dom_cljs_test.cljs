@@ -17,24 +17,25 @@
 
 ;; -- The app under test ------------------------------------------------------
 ;; In your project these live in your events / subs / views namespaces —
-;; require those instead.
+;; require those instead. The ids carry a prefix of their own so this file can
+;; sit in a test bundle beside other apps without colliding with theirs.
 
-(rf/reg-event :counter/init
-  (fn [_ _] {:db {:counter/value 0}}))
+(rf/reg-event :recipe.counter/init
+  (fn [_ _] {:db {:recipe.counter/value 0}}))
 
-(rf/reg-event :counter/inc
-  (fn [{:keys [db]} _] {:db (update db :counter/value inc)}))
+(rf/reg-event :recipe.counter/inc
+  (fn [{:keys [db]} _] {:db (update db :recipe.counter/value inc)}))
 
-(rf/reg-sub :counter/value
-  (fn [db _] (:counter/value db)))
+(rf/reg-sub :recipe.counter/value
+  (fn [db _] (:recipe.counter/value db)))
 
 (defui counter []
-  (let [n                  (uix-adapter/use-subscribe [:counter/value])
+  (let [n                  (uix-adapter/use-subscribe [:recipe.counter/value])
         {:keys [dispatch]} (uix-adapter/use-frame)]
     ($ :div
        ($ :span {:data-testid "counter-value"} n)
        ($ :button {:data-testid "counter-inc"
-                   :on-click     #(dispatch [:counter/inc])}
+                   :on-click     #(dispatch [:recipe.counter/inc])}
           "+1"))))
 
 ;; -- Fixture -----------------------------------------------------------------
@@ -46,7 +47,7 @@
 (use-fixtures :each
   (ts/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter
-     :init-fn #(rf/dispatch-sync [:counter/init])
+     :init-fn #(rf/dispatch-sync [:recipe.counter/init])
      :async?  true}))
 
 ;; -- Local helpers -----------------------------------------------------------
@@ -102,7 +103,7 @@
         ;; Drive the dataflow and settle React in one step: `dispatch-sync`
         ;; runs the event now, and act() commits the re-render before
         ;; `flush-views!` returns.
-        (uix-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))
+        (uix-adapter/flush-views! #(rf/dispatch-sync [:recipe.counter/inc]))
         (is (= "1" (text node "counter-value")))
         (finally
           (unmount! mounted))))))
