@@ -815,7 +815,6 @@ Under [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) the public interc
 |---|---|---|---|
 | `[:rf.interceptor/path <path-vector>]` | interceptor **reference** (the one standard interceptor; the canonical `:factory` consumer) | front-porch | Focus a handler on an `app-db` sub-slice: `:before` stages the focused slice as `:db`, `:after` widens the returned slice back into full app-db. Preserves the frame-commit `identical?` no-op — an unchanged focused slice widens back to the original app-db object, not an `assoc-in` allocation ([002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)). A non-vector/malformed path arg is `:rf.error/path-interceptor-bad-path`. |
 | `reg-interceptor` | M (registrar) | front-porch | The public application-authoring form for any non-standard interceptor — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, queryable, and referenced by id from chains. Rowed in [§Registration](#registration). |
-| `->interceptor*` | Fn (internal lowering constructor) | advanced | The framework-internal constructor that lowers a descriptor into an executable chain entry (`(->interceptor* & {:keys [id before after source-coord]})`). **NOT a public application-authoring API** and MUST NOT appear in a public event/frame chain (EP-0022). |
 
 The retired v1 public interceptor-authoring helpers and their replacements:
 
@@ -823,7 +822,7 @@ The retired v1 public interceptor-authoring helpers and their replacements:
 |---|---|
 | `path` (public value constructor) | the standard reference `[:rf.interceptor/path <path-vector>]` (EP-0022) |
 | `unwrap` | handler destructuring (the M-19 canonical map-payload form), or a project-registered interceptor for intentional chain-wide event reshaping (EP-0022 — no standard `unwrap`) |
-| `->interceptor` (public authoring macro) | `reg-interceptor` (`->interceptor` survives only as the internal lowering constructor) |
+| `->interceptor` (public authoring macro) | `reg-interceptor` (the lowering constructor is `re-frame.interceptor/->interceptor*`, framework-internal) |
 | `debug` | Trace surface ([009](009-Instrumentation.md)) + 10x / re-frame-pair |
 | `trim-v` | Canonical map-payload call shape ([M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)) |
 | `on-changes` | Flows ([Spec 013](013-Flows.md)) |
