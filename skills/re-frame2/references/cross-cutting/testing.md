@@ -1,6 +1,6 @@
 # Writing re-frame2 tests
 
-Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. The skill stops at writing the test; the author runs the suite, so name the nearest relevant gate concretely (see [§Discovering a project's gates](#discovering-a-projects-gates)) for the hand-off.
+Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. Then run the nearest relevant gate ([§Discovering a project's gates](#discovering-a-projects-gates)).
 
 ## The single import
 
@@ -354,14 +354,14 @@ Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so
 
 ## Discovering a project's gates
 
-Find the project's *actual* gate commands — don't guess names — and name the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
+Find the project's *actual* gate commands — don't guess names — and run the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
 
 - **`deps.edn` `:aliases`** — the `:test` alias is the per-artefact runner (`clojure -M:test` from that artefact's dir). A consumer monorepo often has one `deps.edn` per artefact; name the alias for the dir whose source you changed.
 - **`shadow-cljs.edn`** — `:builds` keys and any `:test` build id reveal the CLJS compile/test targets (`npx shadow-cljs compile <id>`, or the project's test build).
 - **`package.json` `scripts`** — the `test:*` family (e.g. `test:cljs`, `test:browser`) is the canonical entry-point set for shadow-cljs projects; prefer the one scoped to your change.
 - **The nearest `README.md`** — examples and feature dirs often note their gate commands inline ("run `npm run test:foo`"). An example app's README is the authority for that example's gate.
 
-Pick the tightest match and name it for the author. A green slice on the changed path is the signal; reach for a wider gate only when the change genuinely spans artefacts. If no gate exists for the surface you touched, say so and describe the gate the author should add.
+Pick the tightest match, run it from the directory that declares it, and report the exact command and result. A green slice on the changed path is the signal; reach for a wider gate only when the change genuinely spans artefacts. Declared and noninteractive only — no install, no watch server, no browser. If no gate exists for the surface you touched, say so and describe the one the author should add.
 
 ## Checklist before declaring a test done
 
@@ -371,7 +371,7 @@ Pick the tightest match and name it for the author. A green slice on the changed
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `(subscribe [:rf/machine id])` / `(subscribe [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
-- **Gate named for the author** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) is named concretely so the author can run it; the skill writes the test, the author runs the suite.
+- **Gate run** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) was run and its exact command and result reported, or the hand-off reason named.
 
 ---
 

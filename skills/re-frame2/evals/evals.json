@@ -5,7 +5,8 @@
   "dimensions": [
     "discovery — does the skill trigger from frontmatter alone on prompts that don't name re-frame2?",
     "recipe-correctness — does the produced code match the canonical idioms in the relevant leaf (verified by grepping the output for required tokens)?",
-    "routing-correctness — does the agent redirect to SKILL-REDIRECT.md (deep dives, v1 migration) or to the re-frame2-setup skill (greenfield scaffolding) when the prompt calls for it, instead of authoring application source?"
+    "routing-correctness — does the agent redirect to SKILL-REDIRECT.md (deep dives, v1 migration) or to the re-frame2-setup skill (greenfield scaffolding) when the prompt calls for it, instead of authoring application source?",
+    "gate-execution — on an EXISTING project (a checked-in fixture under fixtures/), after an authoring change does the agent discover the project's own declared noninteractive gate from its files, run that exact gate itself, and report the real result — rather than handing the command to the user?"
   ],
   "evals": [
     {
@@ -190,6 +191,22 @@
         "The output does NOT reach for :cross-scope? true as the mixed-scope path (that is the audited scope-agnostic escape — it MUST carry :cause — not the ergonomic path when the scopes can be named).",
         "The output does NOT hand-edit the framework-owned resource cache (:rf.runtime/resources) or hand-roll optimistic writes against reserved mutation keys — the optimistic plan plus the runtime-recorded inverse is the mechanism.",
         "The optimistic mutation's request fn does NOT set :request-id / :on-success / :on-failure, and the output either names :on-conflict (default :invalidate) or notes optimistic plans are incompatible with :invalidate-timing :before-request."
+      ]
+    },
+    {
+      "id": 12,
+      "name": "gate-execution-existing-project-cart-total",
+      "dimension": "gate-execution",
+      "prompt": "This is an existing re-frame2 project. Add a :cart/total subscription that sums the line prices in the cart, and a test for it. Make sure it actually works before you hand it back.",
+      "expected_output": "The agent reads the fixture project (deps.edn, src/shop/cart.cljc, test/shop/cart_test.cljc), authors :cart/total in the canonical :<- chain shape over :cart/items, adds a compute-sub test, then — per SKILL.md workflow step 9 — discovers the project's declared gate from deps.edn (the :test alias) and RUNS `clojure -M:test` from the fixture directory itself, reporting the exact command and the real result (`Ran N tests containing M assertions. 0 failures, 0 errors.`, exit 0). It does not print the command for the user to run and paste back. The session runs in a re-frame2 clone with the fixture directory as the project root.",
+      "files": ["fixtures/existing-project/"],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked, and the fixture's deps.edn is read before any gate command is named.",
+        "The sub is registered with (rf/reg-sub :cart/total ...) reading :cart/items as an input (the :<- chain), and the new test asserts it through rf/compute-sub (or subscribe-once after a dispatch-sync) — the test does not hand-roll the sum or poke app-db internals.",
+        "The transcript shows a Bash call running the gate the project DECLARES — `clojure -M:test` from fixtures/existing-project — and not an invented one (no `lein test`, no `npm test`, no shadow-cljs build the project does not declare).",
+        "The agent's report quotes the gate's REAL outcome (the test / assertion counts and the exit status it observed); it does not print the command for the user to run and paste back, and does not claim a result it did not observe.",
+        "If the first run is red, the agent repairs the failure on its own path and re-runs, reporting both results; it does not declare done over a red gate.",
+        "The agent does not install dependencies, start a watch server, open a browser, or run anything outside the fixture's declared aliases."
       ]
     }
   ]

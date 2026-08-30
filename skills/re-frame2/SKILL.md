@@ -26,10 +26,13 @@ allowed-tools:
   - Write
   - Grep
   - Glob
-  # No Bash test/compile/lint surface: this is an authoring-only skill
-  # (Q14 lock — see spec/design.md L3). The skill stops at writing the
-  # code; the author runs the tests, the compiler, the app. Running gates
-  # is general software practice, not a re-frame2 binding the skill teaches.
+  # The project's own declared noninteractive gates (spec/design.md L3;
+  # skills/README.md §Published-skill allowed-tools baseline).
+  - Bash(clojure *)
+  - Bash(npm *)
+  - Bash(npx *)
+  - Bash(shadow-cljs *)
+  - Bash(clj-kondo *)
   # story-mcp author/refine tools only; the run-side tools (run-variant /
   # read-failures / record-as-variant / …) live in re-frame2-pair. Split
   # pinned by scripts/check_skill_mcp_drift.py; see references/tooling/story-mcp-loop.md.
@@ -141,6 +144,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 6. Schema only at boundaries.
 7. Use `reg-*` macros unless the macro shape can't express the need.
 8. Cut-test comments: would I write this same comment in a React / Vue / Elm app? If yes, cut it.
+9. Run the gate: discover the nearest declared noninteractive one ([`references/cross-cutting/testing.md` §Discovering a project's gates](references/cross-cutting/testing.md#discovering-a-projects-gates)), run it, fix what it finds, and report the exact command and result. Hand off only when it is interactive / visual, needs a live runtime (`re-frame2-pair`), does not exist, or the user said not to — and say which.
 
 ## Done checklist
 
@@ -150,7 +154,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 - [ ] Cut-test passed on comments.
 - [ ] Shape matches the canonical declaration in the leaf.
 - [ ] If a worked example exists, the new code's shape matches it.
-- [ ] Hand off the gate to run — name the nearest relevant one concretely (e.g. "run `clojure -M:test` in `src/app/`"). This skill writes the code; the author runs the tests, the compiler, the app.
+- [ ] Run the nearest relevant gate before declaring done — exact command + result reported, or the hand-off reason named (step 9).
 
 ## How re-frame2 differs from re-frame v1
 
