@@ -1333,6 +1333,13 @@ push not, and the re-run reported *nothing to checkpoint* — true, and the remo
 Verify the remote against the local head after every checkpoint; the script's message answers only
 the commit.
 
+**Long tracker text does not travel as a shell argument.** A batch of notes handed to the tracker
+CLI as quoted strings can fail to parse at the shell before a single note is written, and the
+failure names a line, not the character — and a quoted heredoc is not a cure, as one project's own
+memory had claimed. Write the text to a file with a tool that is not a shell, and drive the tracker
+from that file with a script: the transport then has no quoting to get wrong. Two batches of nine
+notes each died this way in one session; the third, through a file, wrote all nine.
+
 **If your tracker exports a whole-database file, treat it as generated.** Never resolve a conflict in it
 by taking one side wholesale — both sides are full exports, so picking one discards every item the other
 recorded. Resolve, then **regenerate**. And never let a worker commit it: a worker branch carries a
