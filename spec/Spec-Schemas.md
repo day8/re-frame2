@@ -4513,7 +4513,8 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
     {:optional true}
     [:vector
      [:multi {:dispatch :call}
-      ;; Pure machine-transition. Returns [next-snapshot effects].
+      ;; Pure machine-transition. Returns {:status :ok :snapshot … :fx […]} /
+      ;; {:status :error :error {…}}; the expect keys pin the :ok branch.
       [:machine-transition
        [:map
         [:call                 [:= :machine-transition]]
