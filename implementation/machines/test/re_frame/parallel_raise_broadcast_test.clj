@@ -25,8 +25,7 @@
   threads sequentially through regions in declaration order, so the log is
   the deterministic pure record of the broadcast/re-broadcast order)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines :as machines]))
 
 (defn- log!
   "Append `label` to the shared `:data :log`."
@@ -58,7 +57,7 @@
                     :states  {:waiting {:on {:ping {:target :ponged
                                                     :action :right-pong}}}
                               :ponged  {}}}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition spec
                                        {:state {:left :idle :right :waiting} :data {}}
                                        [:trigger])]
@@ -98,7 +97,7 @@
                                                    :guard  :token-set?
                                                    :action :admit}}}
                              :open   {}}}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition spec
                                        {:state {:auth :anon :gate :closed}
                                         :data  {:token nil}}
@@ -127,7 +126,7 @@
                    :states  {:a {:on {:start {:target :b :action :kick}}}
                              :b {:on {:again {:target :c :action :land}}}
                              :c {}}}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition spec
                                        {:state {:solo :a} :data {}}
                                        [:start])]
@@ -169,7 +168,7 @@
             :two {:initial :s
                   :states  {:s {:on {:go {:action :two-go}
                                      :q  {:action :two-q}}}}}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition spec
                                        {:state {:one :s :two :s} :data {}}
                                        [:go])]
@@ -210,13 +209,13 @@
       ;; writes, and every accumulated fx — is discarded. The lifecycle
       ;; handler short-circuits to `{}`, leaving the pre-event snapshot
       ;; committed in runtime-db.
-      (is (result/fail? r)
+      (is (= :error (:status r))
           "depth-exceeded yields a :fail (failed macrostep), not an :ok no-op")
-      (is (result/depth-abort? r)
-          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
-      (is (nil? (result/snap r))
+      (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
+          "the failure names the raise depth-exceeded category (a bounded-depth trip)")
+      (is (nil? (:snapshot r))
           "a :fail threads no snapshot — both regions' states stay uncommitted")
-      (is (nil? (result/fx r))
+      (is (nil? (:fx r))
           "a :fail threads no fx — no partial cascade or fx survives the abort"))))
 
 ;; ---- 6. region :always still fires on a re-broadcast transition ----------
@@ -244,7 +243,7 @@
                              :b {:on {:advance {:target :c :action :step}}}
                              :c {:always {:guard :ready? :target :done :action :auto}}
                              :done {}}}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition spec
                                        {:state {:flow :a} :data {:ready? false}}
                                        [:go])]
@@ -281,11 +280,11 @@
                                    :done  {}}}}}
         initial {:state {:left :idle} :data {}}]
     (testing "control: an EXTERNAL [:reset] fires the root :on"
-      (let [{snap ::result/snap} (machines/machine-transition spec initial [:reset])]
+      (let [{snap :snapshot} (machines/machine-transition spec initial [:reset])]
         (is (= :done (get-in snap [:state :left])) "root :on moved :left to :done")
         (is (true? (get-in snap [:data :root-fired])) "root :root-reset action ran")))
     (testing "a RAISED [:reset] declined by every region ALSO fires the root :on"
-      (let [{snap ::result/snap} (machines/machine-transition spec initial [:trigger])]
+      (let [{snap :snapshot} (machines/machine-transition spec initial [:trigger])]
         (is (= :done (get-in snap [:state :left]))
             "the raised [:reset] consulted the root :on (pre-fix: stuck at :fired)")
         (is (true? (get-in snap [:data :root-fired]))
@@ -318,7 +317,7 @@
                                    :region-done {}
                                    :root-done   {}}}}}
         initial {:state {:left :idle} :data {}}
-        {snap ::result/snap} (machines/machine-transition spec initial [:trigger])]
+        {snap :snapshot} (machines/machine-transition spec initial [:trigger])]
     (is (= :region-done (get-in snap [:state :left]))
         "the region handled the raised [:reset] locally — root suppressed")
     (is (nil? (get-in snap [:data :root-fired]))

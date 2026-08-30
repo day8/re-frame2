@@ -1608,14 +1608,13 @@
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
-  return a `re-frame.machines.result/Result` — either a `result/ok`
-  carrying the new snapshot and effects vector, or a `result/fail`
-  carrying diagnostic info if any action / `:data`-fn threw. Use
-  `result/ok?` / `result/fail?` to discriminate and the `::result/snap`
-  / `::result/fx` / `::result/info` keys to destructure (or the
-  `result/with-ok` macro for the pair-destructure-after-fail-check
-  pattern, and the plain `result/snap` / `result/fx` / `result/info`
-  fns for single-slot reads).
+  return the engine's `re-frame.machines.result` Result — `result/ok`
+  carrying the new snapshot and effects vector (plus the engine-internal
+  `::handled?` / `::microsteps` / `::cascade` riders the lifecycle handler
+  reads), or `result/fail` carrying diagnostic info if any guard / action
+  / `:data`-fn threw or a depth limit tripped. This is the engine seam;
+  the PUBLIC `re-frame.machines/machine-transition` wraps it and projects
+  the Result onto the plain Spec 005 §Level 1 map.
 
   Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
    1. Pick the matching transition for the event using deepest-wins

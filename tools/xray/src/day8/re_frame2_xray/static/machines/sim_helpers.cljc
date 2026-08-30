@@ -28,9 +28,9 @@
       and clicks Step.
     - The runtime calls `rf/machine-transition` (the public late-bind
       surface) with the cloned definition + current sim snapshot +
-      event vector. On `result/ok`, the snapshot advances and an
-      audit-trail row is appended. On `result/fail`, the snapshot stays
-      and an error surfaces.
+      event vector. On `:status :ok`, the snapshot advances and an
+      audit-trail row is appended. On `:status :error`, the snapshot
+      stays and an error surfaces.
     - Reset returns to the declared initial state.
     - Exit disposes the sim state (per-machine slot deleted).
 
@@ -58,10 +58,9 @@
                                      or nil on parse error
     5. `append-audit-row`          — push a step entry onto the trail
     6. `format-state-display`      — sim chart state-keyword resolver
-    7. `result-ok?` / `result-snap` / `result-info` — thin shims so
-       the CLJS panel can read Result values without importing the
-       machines artefact ns directly (Xray has no compile-time dep
-       on `re-frame.machines.result`).
+    7. `step-sim`                  — fold one `rf/machine-transition`
+                                     result (the Spec 005 §Level 1 map)
+                                     into the sim-state
     8. `last-transition` / `current-sim-state` / `edge-click->event`
        — on-chart binding algebra: the focused-edge lens
        inputs + active-state highlight + edge-click → step-event
@@ -274,55 +273,19 @@
         (catch #?(:clj Throwable :cljs :default) e
           {:error (str "EDN parse error: " (ex-message e))})))))
 
-;; ---- Result shims --------------------------------------------------------
-;;
-;; `rf/machine-transition` returns a `re-frame.machines.result/Result` —
-;; a map shaped `{:re-frame.machines.result/tag :ok|:fail ...}`. Xray
-;; has no compile-time dep on the machines artefact (the artefact may
-;; not be on the classpath at all if the host hasn't installed it). We
-;; shim the slot reads here via the literal qualified keywords so the
-;; sim code path stays artefact-agnostic — the keyword shape is part of
-;; the Result's public contract (per `result.cljc` docstring).
-
-(def ^:private result-tag-kw :re-frame.machines.result/tag)
-(def ^:private result-snap-kw :re-frame.machines.result/snap)
-(def ^:private result-fx-kw :re-frame.machines.result/fx)
-(def ^:private result-info-kw :re-frame.machines.result/info)
-
-(defn result-ok?
-  "True iff `r` is an `:ok` Result. Mirrors `result/ok?` without
-  requiring the artefact ns at compile time."
-  [r]
-  (and (map? r) (= :ok (get r result-tag-kw))))
-
-(defn result-fail?
-  "True iff `r` is a `:fail` Result."
-  [r]
-  (and (map? r) (= :fail (get r result-tag-kw))))
-
-(defn result-snap
-  "Read the post-transition snapshot off an `:ok` Result."
-  [r]
-  (get r result-snap-kw))
-
-(defn result-fx
-  "Read the emitted fx vector off an `:ok` Result. Sim renders these in
-  the audit trail entry but does NOT execute them — sim is hermetic."
-  [r]
-  (get r result-fx-kw))
-
-(defn result-info
-  "Read the diagnostic info map off a `:fail` Result."
-  [r]
-  (get r result-info-kw))
-
 ;; ---- step orchestrator (pure shape, runtime-callable) -------------------
+;;
+;; `rf/machine-transition` returns the Spec 005 §Level 1 map —
+;; `{:status :ok :snapshot … :fx …}` or `{:status :error :error {:kind …}}`
+;; — plain keys, so the sim reads it with no dependency on the machines
+;; artefact (which may not be on the host's classpath at all). The `:fx`
+;; ride into the audit-trail row but are NOT executed — sim is hermetic.
 
 (defn step-sim
   "Fold one engine call into a sim-state update. `runtime-fn` is a
   unary fn `(fn [event] result)` that closes over `(rf/machine-transition
   definition snapshot ...)`; the helper is shaped this way so the JVM
-  test target can substitute a stub Result without booting the machines
+  test target can substitute a stub result without booting the machines
   artefact (production CLJS passes the real fn).
 
   Returns the next `sim-state` — either with an advanced snapshot +
@@ -334,12 +297,12 @@
   (let [{:keys [snapshot]} sim-state
         prior-state        (:state snapshot)
         result             (runtime-fn event)]
-    (cond
-      (result-fail? result)
-      (record-error sim-state event (result-info result) "transition failed")
+    (case (when (map? result) (:status result))
+      :error
+      (record-error sim-state event (:error result) "transition failed")
 
-      (result-ok? result)
-      (let [new-snap (result-snap result)]
+      :ok
+      (let [new-snap (:snapshot result)]
         (-> sim-state
             clear-error
             (assoc :snapshot new-snap)
@@ -348,10 +311,9 @@
                :to     (:state new-snap)
                :event  event
                :data   (:data new-snap)
-               :fx     (result-fx result)})))
+               :fx     (:fx result)})))
 
-      :else
-      (record-error sim-state event nil "engine returned a non-Result value"))))
+      (record-error sim-state event nil "engine returned a non-result value"))))
 
 ;; ---- on-chart binding helpers -------------------------------------------
 ;;

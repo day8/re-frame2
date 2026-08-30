@@ -117,7 +117,7 @@
 
 (defn- trace-action-failure!
   "Emit `:rf.error/machine-action-exception` for a `result/fail` Result's
-  `::result/info` map. Returns `{}` so the handler short-circuits.
+  `:error` info map. Returns `{}` so the handler short-circuits.
 
   Privacy (AI/MCP egress + logs threat model): the
   `:event` slot is redacted by the marks projection's `project-event-tags`

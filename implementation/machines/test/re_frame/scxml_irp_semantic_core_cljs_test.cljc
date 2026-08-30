@@ -162,7 +162,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.machines :as machines]
-   [re-frame.machines.result :as result]
    [re-frame.machines.transition :as transition]))
 
 ;; ---------------------------------------------------------------------------
@@ -175,10 +174,10 @@
   emitted fx vector, and the snapshot's `:state` / `:data`."
   [machine snapshot event]
   (let [r (machines/machine-transition machine snapshot event)]
-    {:snapshot (result/snap r)
-     :fx       (vec (result/fx r))
-     :state    (:state (result/snap r))
-     :data     (:data (result/snap r))}))
+    {:snapshot (:snapshot r)
+     :fx       (vec (:fx r))
+     :state    (:state (:snapshot r))
+     :data     (:data (:snapshot r))}))
 
 (defn- order-recorder
   "Return `[log-atom mk]` where `(mk tag)` is an action/entry/exit fn that
@@ -436,7 +435,7 @@
              :states {:a {:on {:go :b}}
                       :b {:entry (fn [_] (throw (ex-info "onentry boom" {})))}}}
           r (machines/machine-transition m {:state :a :data {}} [:go])]
-      (is (result/fail? r)
+      (is (= :error (:status r))
           "a throwing :entry action produces a failure Result (no partial commit) — re-frame2's single-block divergence from SCXML 376/378 independent-block isolation"))))
 
 ;; ===========================================================================

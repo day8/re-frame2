@@ -154,13 +154,13 @@
   (merge (sim-rail-values) (sim-chart-values)))
 
 (def ^:private ok-result
-  {:re-frame.machines.result/tag :ok
-   :re-frame.machines.result/snap {:state :authing :data {:counter 1}}
-   :re-frame.machines.result/fx []})
+  {:status :ok
+   :snapshot {:state :authing :data {:counter 1}}
+   :fx []})
 
 (def ^:private fail-result
-  {:re-frame.machines.result/tag :fail
-   :re-frame.machines.result/info {:reason :no-matching-transition}})
+  {:status :error
+   :error {:reason :no-matching-transition}})
 
 ;; ---- (1) registry wiring ------------------------------------------------
 

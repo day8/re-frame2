@@ -45,6 +45,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    #?(:cljs [cljs.reader])
    [re-frame.machines :as machines]
+   [re-frame.machines.parallel :as parallel]
    [re-frame.machines.result :as result]
    [re-frame.machines.test-support :as mtest]))
 
@@ -68,8 +69,8 @@
   "Apply one macrostep; assert it succeeded; return the post snapshot."
   [machine snapshot event]
   (let [r (machines/machine-transition machine snapshot event)]
-    (is (result/ok? r) (str "transition ok for event " (pr-str event)))
-    (result/snap r)))
+    (is (= :ok (:status r)) (str "transition ok for event " (pr-str event)))
+    (:snapshot r)))
 
 (defn- seed [state] {:state state :data {}})
 
@@ -267,8 +268,8 @@
           snap (assoc (seed :away)
                       :rf/history {[:player] [:player :playing :gone]})
           r    (machines/machine-transition m snap [:resume])]
-      (is (result/ok? r) "dangling deep path is benign — no failure Result")
-      (is (= [:player :playing :at-start] (:state (result/snap r)))
+      (is (= :ok (:status r)) "dangling deep path is benign — no failure Result")
+      (is (= [:player :playing :at-start] (:state (:snapshot r)))
           "discarded the dead leaf ⇒ fell back to :default-target → :at-start")
       (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
           "no :rf.error/* trace for a dangling-at-runtime recording"))))
@@ -279,8 +280,8 @@
           ;; :ghost is not a child of :player in the current definition.
           snap (assoc (seed :away) :rf/history {[:player] :ghost})
           r    (machines/machine-transition m snap [:resume])]
-      (is (result/ok? r) "dangling shallow child is benign")
-      (is (= [:player :playing :at-start] (:state (result/snap r)))
+      (is (= :ok (:status r)) "dangling shallow child is benign")
+      (is (= [:player :playing :at-start] (:state (:snapshot r)))
           "discarded the dead child ⇒ fell back to :default-target → :at-start")
       (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
           "no :rf.error/* for a dangling shallow child"))))
@@ -414,7 +415,9 @@
   (testing "the history-driven :entry steps of a nested deep restore carry :source :recorded"
     (let [away (step nested (seed [:outer :b :b2]) [:leave])]
       (reset-capture!)
-      (let [r       (machines/machine-transition nested away [:return])
+      ;; The cascade rider is engine bookkeeping the public map does not
+      ;; carry, so this one assertion reads the engine seam's Result.
+      (let [r       (parallel/machine-transition nested away [:return])
             cascade (result/cascade r)
             entries (filterv #(= :entry (:kind %)) cascade)
             restored (history-events :rf.machine.history/restored)]

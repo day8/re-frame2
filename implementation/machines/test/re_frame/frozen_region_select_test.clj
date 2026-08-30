@@ -32,7 +32,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -281,9 +280,9 @@
   (testing "pure machine-transition is also declaration-order-independent"
     (let [initial-ab {:state {:a :idle :b :idle} :data {}}
           initial-ba {:state {:b :idle :a :idle} :data {}}
-          {snap-ab ::result/snap} (parallel/machine-transition
+          {snap-ab :snapshot} (parallel/machine-transition
                                     (order-machine [:a :b]) initial-ab [:go])
-          {snap-ba ::result/snap} (parallel/machine-transition
+          {snap-ba :snapshot} (parallel/machine-transition
                                     (order-machine [:b :a]) initial-ba [:go])]
       (is (= {:a :done :b :idle} (:state snap-ab)))
       (is (= {:a :done :b :idle} (:state snap-ba)))
@@ -295,10 +294,10 @@
             frozen pre-event :data in BOTH orders → same committed state
             (rf2-lq5yo3). Pre-fix, a-then-b leaked a's :x=1 into b's guard and
             b fired → the two orders diverged."
-    (let [{snap-ab ::result/snap} (parallel/machine-transition
+    (let [{snap-ab :snapshot} (parallel/machine-transition
                                     (data-order-machine [:a :b])
                                     {:state {:a :idle :b :idle} :data {:x 0}} [:go])
-          {snap-ba ::result/snap} (parallel/machine-transition
+          {snap-ba :snapshot} (parallel/machine-transition
                                     (data-order-machine [:b :a])
                                     {:state {:b :idle :a :idle} :data {:x 0}} [:go])]
       (is (= {:a :done :b :idle} (:state snap-ab))

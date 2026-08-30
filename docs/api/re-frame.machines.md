@@ -145,22 +145,25 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (re-frame.machines/machine-transition definition snapshot event) → result/Result
+  (re-frame.machines/machine-transition definition snapshot event)
+  → {:status :ok    :snapshot next-snapshot :fx [effect …]}
+  | {:status :error :error {:kind error-id …}}
   ```
-- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns a `re-frame.machines.result/Result`.
-    - The `Result` carries the new snapshot under `::result/snap` and the effects vector under `::result/fx`, or a *failure* value if a guard / action / `:data`-fn threw.
-    - Discriminate with `result/ok?` / `result/fail?`; destructure `::result/snap` / `::result/fx`.
-    - JVM-runnable; no live frame needed.
+- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns one plain map — the shape [Spec 005 §Level 1](../../spec/005-StateMachines.md#level-1--pure-machine-transition) settles.
+    - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`; an event no transition matches is `:ok` with the snapshot unchanged and `:fx []`.
+    - `:status :error` is the engine's failed macrostep — a guard / action / `:data` fn threw (`:kind :rf.error/machine-action-exception`, with `:exception` and the throwing ref) or a bounded-depth limit tripped (`:kind :rf.error/machine-always-depth-exceeded` / `:rf.error/machine-raise-depth-exceeded`). No snapshot rides a failure; the macrostep is atomic.
+    - Programmer-input errors (a malformed `:state`, a dangling guard / action ref) throw the same `:rf.error/*` `ex-info` the registration validators throw — they are not results.
+    - JVM-runnable; no live frame needed. `re-frame.machines` is the only namespace a caller requires.
 - **Worked example** — drive a transition and assert on the snapshot:
   ```clojure
-  (require '[re-frame.machines :as machines]
-           '[re-frame.machines.result :as result])
+  (require '[re-frame.machines :as machines])
 
-  (let [{snap ::result/snap fx ::result/fx}
+  (let [{:keys [status snapshot fx]}
         (machines/machine-transition login-flow
                                      {:state :idle :data {}}
                                      [:auth.login/submit {:email "a@b.com" :password "secret"}])]
-    (is (= :submitting (:state snap)))
+    (is (= :ok status))
+    (is (= :submitting (:state snapshot)))
     (is (= :rf.http/managed (ffirst fx))))   ;; the :submitting :entry fired the request
   ```
 

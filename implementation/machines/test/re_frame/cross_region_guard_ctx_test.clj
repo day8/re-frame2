@@ -35,7 +35,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -184,7 +183,7 @@
                                :open   {}}}}}
           initial {:state {:form :invalid :gate :closed}
                    :data  {} :tags #{:form/invalid}}
-          {snap ::result/snap} (parallel/machine-transition m initial [:go])]
+          {snap :snapshot} (parallel/machine-transition m initial [:go])]
       (is (= {:form :valid :gate :closed} (:state snap))
           "pure transition: :gate's guard read the FROZEN :form/invalid → blocked")
       (is (= #{:form/valid} (:tags snap))

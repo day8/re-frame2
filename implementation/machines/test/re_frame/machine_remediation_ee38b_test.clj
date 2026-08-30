@@ -28,7 +28,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
 

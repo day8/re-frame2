@@ -25,7 +25,6 @@
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
             [re-frame.frame :as frame]
-            [re-frame.machines.result :as result]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -864,7 +863,7 @@
       ;; Drives the transition table directly via machine-transition. No
       ;; frame, no app-db.
       (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-            {s1 ::result/snap fx1 ::result/fx}
+            {s1 :snapshot fx1 :fx}
             (machines/machine-transition login-flow s0
                                    [:walkthrough.login/submit
                                     {:email "a@b.com" :password "secret"}])]
@@ -872,7 +871,7 @@
         ;; Entering :submitting fires the :issue-request action's :fx.
         (is (= 1 (count fx1)) "one :rf.http/managed fx")
         (is (= :rf.http/managed (ffirst fx1)))
-        (let [{s2 ::result/snap} (machines/machine-transition login-flow s1
+        (let [{s2 :snapshot} (machines/machine-transition login-flow s1
                                                         [:walkthrough.login/success {:value {:token "t"}}])]
           (is (= :authed (:state s2))))))
 
@@ -883,7 +882,7 @@
       ;; rejects — the fallback candidate then runs :record-error too, so the
       ;; locking-out failure is counted (attempts → 3) and its message stored.
       (let [snapshot {:state :submitting :data {:attempts 2 :error nil}}
-            {s ::result/snap}
+            {s :snapshot}
             (machines/machine-transition login-flow snapshot
                                    [:walkthrough.login/failure
                                     {:error {:message "bad creds"}}])]

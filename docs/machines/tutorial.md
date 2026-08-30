@@ -319,33 +319,34 @@ A transition is a pure function of *(definition, snapshot, event)*. No browser, 
 (ns app.login-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :idle :data {:attempts 0 :error nil}}
-            [:auth.login/submit {:email "a@b.com"
-                                 :password "secret"}])]
-    (is (result/ok? r))
-    (is (= :submitting (:state (result/snap r))))
-    (is (= :rf.http/managed (ffirst (result/fx r)))))   ;; :entry ran :issue-request
+  (let [{:keys [status snapshot fx]}
+        (machines/machine-transition
+          login-flow
+          {:state :idle :data {:attempts 0 :error nil}}
+          [:auth.login/submit {:email "a@b.com"
+                               :password "secret"}])]
+    (is (= :ok status))
+    (is (= :submitting (:state snapshot)))
+    (is (= :rf.http/managed (ffirst fx))))   ;; :entry ran :issue-request
 
   ;; Two failures already recorded (:attempts 2); the third is terminal.
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :submitting :data {:attempts 2 :error nil}}
-            ;; Pure-table test: invent the failure shape the action expects.
-            ;; Live HTTP would append {:status :error :error …} instead.
-            [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (result/ok? r))
-    (is (= :locked-out (:state (result/snap r))))
-    (is (= 3 (get-in (result/snap r) [:data :attempts])))
-    (is (= "bad creds" (get-in (result/snap r) [:data :error])))))
+  (let [{:keys [status snapshot]}
+        (machines/machine-transition
+          login-flow
+          {:state :submitting :data {:attempts 2 :error nil}}
+          ;; Pure-table test: invent the failure shape the action expects.
+          ;; Live HTTP would append {:status :error :error …} instead.
+          [:auth.login/failure {:error {:message "bad creds"}}])]
+    (is (= :ok status))
+    (is (= :locked-out (:state snapshot)))
+    (is (= 3 (get-in snapshot [:data :attempts])))
+    (is (= "bad creds" (get-in snapshot [:data :error])))))
 ```
 
-Discriminate with `result/ok?`. Read the next snapshot and the effects vector with `result/snap` and `result/fx`. More on Result accessors and Xray: [Inspecting and testing](inspecting-machines.md).
+The result is a plain map: `:status` is `:ok` or `:error`, `:snapshot` is the next snapshot, `:fx` the effects vector. Nothing beyond `re-frame.machines` is required. More on the result, failures and Xray: [Inspecting and testing](inspecting-machines.md).
 
 ## Troubleshooting
 

@@ -101,7 +101,6 @@
    [clojure.set :as set]
    [re-frame.machines :as machines]
    [re-frame.machines.parallel :as parallel]
-   [re-frame.machines.result :as result]
    [re-frame.machines.transition :as transition]))
 
 ;; ---- a deterministic, host-portable PRNG ----------------------------------
@@ -415,10 +414,10 @@
     (if (empty? evs)
       acc
       (let [r     (machines/machine-transition machine snap (first evs))
-            snap' (if (result/ok? r) (result/snap r) snap)]
+            snap' (if (= :ok (:status r)) (:snapshot r) snap)]
         (recur snap' (rest evs)
-               (conj acc {:snap snap' :fx (when (result/ok? r) (result/fx r))
-                          :ok? (result/ok? r)}))))))
+               (conj acc {:snap snap' :fx (when (= :ok (:status r)) (:fx r))
+                          :ok? (= :ok (:status r))}))))))
 
 (defn- leaf-node?
   "True iff the node `n` is a real leaf — resolves and has no `:states`
@@ -593,19 +592,19 @@
           ;; Both calls MUST return (not hang / SOE). The harness running to
           ;; completion is the settle proof. An unbounded :always / :raise
           ;; cycle surfaces as a FAILED macrostep at the depth bound (XState
-          ;; v5 throws on such a runaway) — a `result/fail` carrying the
-          ;; `::depth-abort?` sentinel, NOT an :ok rollback no-op.
+          ;; v5 throws on such a runaway) — `:status :error` with the
+          ;; depth-exceeded `:kind`, NOT an :ok rollback no-op.
           r-always (machines/machine-transition
                      always-cycle (initial-snapshot always-cycle) [:noop])
           r-raise  (machines/machine-transition
                      raise-cycle (initial-snapshot raise-cycle) [:e0])]
-      (is (result/depth-abort? r-always)
+      (is (= :rf.error/machine-always-depth-exceeded (get-in r-always [:error :kind]))
           "always-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
-      (is (nil? (result/snap r-always))
+      (is (nil? (:snapshot r-always))
           "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
-      (is (result/depth-abort? r-raise)
+      (is (= :rf.error/machine-raise-depth-exceeded (get-in r-raise [:error :kind]))
           "raise-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
-      (is (nil? (result/snap r-raise))
+      (is (nil? (:snapshot r-raise))
           "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
       ;; And over the random corpus: every step of every drawn machine
       ;; returned (the loop below cannot complete if any macrostep hangs).
@@ -648,10 +647,10 @@
                                  {:why :nondeterministic :state (:state snap) :event ev}
                                  ;; no-partial-commit: a :fail's input snapshot
                                  ;; is what we carry forward, never a partial
-                                 (and (result/fail? r1) (result/fail? r2))
+                                 (and (= :error (:status r1)) (= :error (:status r2)))
                                  (recur snap (rest todo))
                                  :else
-                                 (recur (result/snap r1) (rest todo))))))]
+                                 (recur (:snapshot r1) (rest todo))))))]
                   [:purity m evs bad]
                   (recur (inc i) (lcg-next s2))))))]
       (is (nil? failure)
@@ -732,7 +731,7 @@
                                          :on    {:e1 :idle}}}}
             s0 (initial-snapshot spawner)
             r  (machines/machine-transition spawner s0 [:e0])]
-        (is (= 1 (reduce + 0 (vals (:rf/spawn-counter (result/snap r)))))
+        (is (= 1 (reduce + 0 (vals (:rf/spawn-counter (:snapshot r)))))
             "entering a :spawn state bumps the in-snapshot counter to 1")))))
 
 ;; ---- INVARIANT 6: spawned-actor lifecycle (entry spawn → exit destroy) ----
@@ -773,10 +772,10 @@
                     s0       (initial-snapshot m)
                     ;; enter the spawn state
                     r-enter  (machines/machine-transition m s0 [:e0])
-                    spawned  (spawn-invoke-ids (result/fx r-enter))
+                    spawned  (spawn-invoke-ids (:fx r-enter))
                     ;; exit the spawn state (→ :done)
-                    r-exit   (machines/machine-transition m (result/snap r-enter) [:e1])
-                    destroyed (destroy-invoke-ids (result/fx r-exit))]
+                    r-exit   (machines/machine-transition m (:snapshot r-enter) [:e1])
+                    destroyed (destroy-invoke-ids (:fx r-exit))]
                 (cond
                   (not= #{[:working]} spawned)
                   [:spawn-not-emitted extra spawned]
@@ -796,10 +795,10 @@
                                  :on    {:e1 :idle}}}}
           s0 (initial-snapshot m)
           r1 (machines/machine-transition m s0 [:e0])           ;; spawn #1
-          r2 (machines/machine-transition m (result/snap r1) [:e1]) ;; exit (destroy)
-          r3 (machines/machine-transition m (result/snap r2) [:e0])] ;; spawn #2
-      (is (= 1 (get-in (result/snap r1) [:rf/spawn-counter :child/worker])))
-      (is (= 2 (get-in (result/snap r3) [:rf/spawn-counter :child/worker]))
+          r2 (machines/machine-transition m (:snapshot r1) [:e1]) ;; exit (destroy)
+          r3 (machines/machine-transition m (:snapshot r2) [:e0])] ;; spawn #2
+      (is (= 1 (get-in (:snapshot r1) [:rf/spawn-counter :child/worker])))
+      (is (= 2 (get-in (:snapshot r3) [:rf/spawn-counter :child/worker]))
           "re-entering the spawn state allocates the NEXT id — counter monotone, never rewound"))))
 
 ;; ---- INVARIANT 7: replay determinism (same machine + sequence) ------------
@@ -1163,19 +1162,18 @@
             complete applied event set (NOT 'settles on the next event')"
     (let [m (watcher-machine [:rA :rB])
           r (machines/machine-transition m (initial-snapshot m) [:e0])]
-      (is (result/ok? r))
-      (is (= {:rA :s1 :rB :s2} (:state (result/snap r)))
+      (is (= :ok (:status r)))
+      (is (= {:rA :s1 :rB :s2} (:state (:snapshot r)))
           ":rB's :always read :rA's same-macrostep flag write and moved in THIS
            macrostep — one dispatch, no second event")
-      (is (true? (:flag-rA (:data (result/snap r)))))))
+      (is (true? (:flag-rA (:data (:snapshot r)))))))
   (testing "and it does so under EITHER declaration order — the region-local
             drain strands :rB at :s0 when :rB is declared first; parent-owned
             frozen rounds cannot, because the whole event set applies before
             any :always round selects"
     (let [final (fn [order]
                   (let [m (watcher-machine order)]
-                    (:state (result/snap
-                              (machines/machine-transition
+                    (:state (:snapshot (machines/machine-transition
                                 m (initial-snapshot m) [:e0])))))]
       (is (= {:rA :s1 :rB :s2} (final [:rA :rB])))
       (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))

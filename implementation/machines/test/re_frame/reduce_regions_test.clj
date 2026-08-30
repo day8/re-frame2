@@ -55,7 +55,7 @@
                     (result/ok region-snap []))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= [:a :b] @calls)
           "region :a fires before region :b — declaration order"))))
 
@@ -72,10 +72,10 @@
                              (result/ok region-snap []))))
           snap    (snapshot {:a :a/idle :b :b/idle} {:seed 1})
           r       (reduce-regions machine snap step)]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= {:seed 1 :written-by :a} @seen-data-by-b)
           ":b's step sees :a's :data write merged into the shared :data slot")
-      (is (= {:seed 1 :written-by :a} (:data (result/snap r)))
+      (is (= {:seed 1 :written-by :a} (:data (:snapshot r)))
           "merged snapshot carries the final :data after all regions ran"))))
 
 ;; ---- (3) :rf/spawn-counter threads in/out ----------------------------------
@@ -91,10 +91,10 @@
                              (result/ok (assoc region-snap :rf/spawn-counter {:ix 5 :iy 7}) []))))
           snap    (snapshot {:a :a/idle :b :b/idle} {} {})
           r       (reduce-regions machine snap step)]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= {:ix 5} @seen-counter-by-b)
           ":b's region-snap carries :a's bumped counter")
-      (is (= {:ix 5 :iy 7} (:rf/spawn-counter (result/snap r)))
+      (is (= {:ix 5 :iy 7} (:rf/spawn-counter (:snapshot r)))
           "merged snapshot carries the final counter after all regions ran")))
 
   (testing "absent :rf/spawn-counter stays absent (no defensive seeding)"
@@ -102,8 +102,8 @@
           step    (fn [_ region-snap] (result/ok region-snap []))
           snap    (snapshot {:a :a/idle :b :b/idle})            ;; no :rf/spawn-counter
           r       (reduce-regions machine snap step)]
-      (is (result/ok? r))
-      (is (not (contains? (result/snap r) :rf/spawn-counter))
+      (is (= :ok (:status r)))
+      (is (not (contains? (:snapshot r) :rf/spawn-counter))
           "no :rf/spawn-counter slot is fabricated when the input snapshot had none"))))
 
 ;; ---- (4) per-region fx prefix ---------------------------------------------
@@ -117,14 +117,14 @@
                                  [[:rf.machine/spawn {:rf/invoke-id [rn :child]}]])))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       ;; Each region's step emits a :rf/invoke-id starting with its own
       ;; region name; reduce-regions prepends the region name AGAIN
       ;; (the standard prefix-region-invoke-id rule) so the final fx
       ;; carries `[rn rn :child]`.
       (is (= [[:rf.machine/spawn {:rf/invoke-id [:a :a :child]}]
               [:rf.machine/spawn {:rf/invoke-id [:b :b :child]}]]
-             (result/fx r))
+             (:fx r))
           "per-region fx is prefixed with that region's name"))))
 
 ;; ---- (5) short-circuit on failure -----------------------------------------
@@ -141,8 +141,8 @@
                              (result/ok {:state :b/idle :data {}} []))))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
-      (is (result/fail? r))
+      (is (= :error (:status r)))
       (is (false? @b-ran?)
           "later region's step never runs when an earlier region fails")
-      (is (= :test-failure (-> (result/info r) :reason))
+      (is (= :test-failure (-> (:error r) :reason))
           "the failure propagates verbatim — caller sees the offending region's diagnostic"))))

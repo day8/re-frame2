@@ -863,9 +863,9 @@
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
 
-    ;; pure machine-transition call (fsm fixtures). Per rf2-aa2rw the engine
-    ;; returns a `machines.result/Result`; destructure `::snap`/`::fx` by
-    ;; keyword literal to avoid a static require on the result ns.
+    ;; pure machine-transition call (fsm fixtures). The public fn returns the
+    ;; Spec 005 §Level 1 map — `{:status :ok :snapshot … :fx …}` or
+    ;; `{:status :error :error {:kind …}}`.
     :machine-transition
     (let [actions-by-id  (or (:actions fixture-machines) {})
           guards-by-id   (or (:guards  fixture-machines) {})
@@ -876,16 +876,17 @@
                              (update :on-spawn-actions #(merge on-spawn-by-id %)))
           r             (try (machines/machine-transition definition (:snapshot call) (:event call))
                              (catch #?(:clj Throwable :cljs :default) e
-                               {:re-frame.machines.result/snap nil
-                                :re-frame.machines.result/fx   [:error (ex-message e)]}))
-          ;; rf2-y3jv8q — a bounded-depth abort returns a result/fail carrying
-          ;; the ::depth-abort? sentinel; project it onto the observable
+                               {:snapshot nil
+                                :fx   [:error (ex-message e)]}))
+          ;; rf2-y3jv8q — a bounded-depth abort is `:status :error` with a
+          ;; depth-exceeded `:kind`; project it onto the observable
           ;; atomic-rollback shape (input snapshot, empty effects).
-          depth-abort?  (and (= :fail (:re-frame.machines.result/tag r))
-                             (true? (get-in r [:re-frame.machines.result/info
-                                               :re-frame.machines.result/depth-abort?])))
-          snap-out      (if depth-abort? (:snapshot call) (:re-frame.machines.result/snap r))
-          fx-out        (if depth-abort? [] (:re-frame.machines.result/fx r))
+          depth-abort?  (and (= :error (:status r))
+                             (contains? #{:rf.error/machine-always-depth-exceeded
+                                          :rf.error/machine-raise-depth-exceeded}
+                                        (get-in r [:error :kind])))
+          snap-out      (if depth-abort? (:snapshot call) (:snapshot r))
+          fx-out        (if depth-abort? [] (:fx r))
           want-snap     (:expect-next-snapshot call)
           want-fx       (or (:expect-effects call) [])
           ok-snap?      (= want-snap snap-out)

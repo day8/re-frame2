@@ -30,7 +30,6 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
@@ -261,7 +260,7 @@
           :failed         {:on {:ws/connect {:target :connecting
                                              :action :reset-retry}}}}}
         step (fn [snap event]
-               (::result/snap (machines/machine-transition machine snap event)))]
+               (:snapshot (machines/machine-transition machine snap event)))]
     ;; Happy path: disconnected → connecting → authenticating → connected.
     (let [s1 (step {:state :disconnected :data {:retries 0 :max-retries 2}}
                    [:ws/connect])
@@ -304,12 +303,12 @@
                            :timeout {}}}]
     (testing "match → commit (timer fires with the carried epoch)"
       (let [s0 {:state :idle :data {}}
-            s1 (::result/snap (machines/machine-transition machine s0 [:fetch]))
+            s1 (:snapshot (machines/machine-transition machine s0 [:fetch]))
             ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
             captured-epoch (get-in s1 [:data :rf/after-epoch [:loading]])]
         (is (= :loading (:state s1)))
         (is (= 1 captured-epoch) "epoch advances on entry to :after-bearing state")
-        (let [s2 (::result/snap (machines/machine-transition
+        (let [s2 (:snapshot (machines/machine-transition
                           machine s1
                           [:rf.machine.timer/after-elapsed 5000 captured-epoch [:loading]]))]
           (is (= :timeout (:state s2)) "matching epoch → transition commits"))))
@@ -319,14 +318,14 @@
       ;; The original timer fires carrying epoch 1 against current epoch 3.
       (let [traces (atom [])
             s0 {:state :idle :data {}}
-            s1 (::result/snap (machines/machine-transition machine s0 [:fetch]))      ;; [:loading] epoch 1
+            s1 (:snapshot (machines/machine-transition machine s0 [:fetch]))      ;; [:loading] epoch 1
             captured 1
-            s2 (::result/snap (machines/machine-transition machine s1 [:cancel]))     ;; [:loading] epoch 2
-            s3 (::result/snap (machines/machine-transition machine s2 [:fetch]))]     ;; [:loading] epoch 3
+            s2 (:snapshot (machines/machine-transition machine s1 [:cancel]))     ;; [:loading] epoch 2
+            s3 (:snapshot (machines/machine-transition machine s2 [:fetch]))]     ;; [:loading] epoch 3
         (is (= :loading (:state s3)))
         (is (= 3 (get-in s3 [:data :rf/after-epoch [:loading]])))
         (rf/register-listener! :trace ::stale (fn [ev] (swap! traces conj ev)))
-        (let [s4 (::result/snap (machines/machine-transition
+        (let [s4 (:snapshot (machines/machine-transition
                           machine s3
                           [:rf.machine.timer/after-elapsed 5000 captured [:loading]]))]
           (rf/unregister-listener! :trace ::stale)
@@ -380,7 +379,7 @@
                    :yielding      {:after {0 :processing}}
                    :complete      {}}}
         step (fn [snap event]
-               (::result/snap (machines/machine-transition machine snap event)))]
+               (:snapshot (machines/machine-transition machine snap event)))]
     (let [s0 {:state :idle :data (:data machine)}
           ;; :start runs :start-job, enters :processing (chunk 1: items
           ;; 0..1 squared), :always → :checking-done → :yielding.

@@ -16,8 +16,7 @@
       names the registered TYPE; the allocated `:rf/spawned-id` is the live
       INSTANCE address (`<type>#<n>`) — never conflated."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines :as machines]))
 
 (deftest gensym-spawn-emits-distinct-type-instance-and-invoke-path
   (testing "rf2-ws5thu/rf2-0ggtr5 — a gensym spawn fx carries TYPE (:machine-id), INSTANCE (:rf/spawned-id) and invocation PATH (:rf/invoke-id) as distinct facts"
@@ -26,7 +25,7 @@
                 :states  {:idle    {:on {:go :working}}
                           :working {:spawn {:machine-id :idn/worker
                                             :data       {:k :v}}}}}
-          {fx ::result/fx} (machines/machine-transition spec {:state :idle :data {}} [:go])
+          {fx :fx} (machines/machine-transition spec {:state :idle :data {}} [:go])
           [[fx-id args]]   fx]
       (is (= :rf.machine/spawn fx-id))
       (is (= :idn/worker (:machine-id args))
@@ -53,7 +52,7 @@
                 :states  {:idle    {:on {:go :working}}
                           :working {:spawn {:machine-id     :idn/worker
                                             :fixed-actor-id :idn/pinned}}}}
-          {fx ::result/fx} (machines/machine-transition spec {:state :idle :data {}} [:go])
+          {fx :fx} (machines/machine-transition spec {:state :idle :data {}} [:go])
           [[_ args]]       fx]
       (is (= :idn/pinned (:rf/spawned-id args))
           "the explicit :fixed-actor-id is used verbatim as the instance address (no gensym, no #n)")
@@ -70,7 +69,7 @@
                           :working {:spawn {:machine-id :idn/worker}
                                     :on    {:back :idle}}}}
           ;; Snapshot positioned in :working so :back exits the :spawn-bearing state.
-          {fx ::result/fx} (machines/machine-transition spec {:state :working :data {}} [:back])
+          {fx :fx} (machines/machine-transition spec {:state :working :data {}} [:back])
           destroy (some (fn [[fx-id args]] (when (= :rf.machine/destroy fx-id) args)) fx)]
       (is (some? destroy) "exiting the :spawn-bearing state emits a :rf.machine/destroy fx")
       (is (= [:working] (:rf/invoke-id destroy))

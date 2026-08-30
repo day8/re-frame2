@@ -122,7 +122,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.machines :as machines]
-   [re-frame.machines.result :as result]
    [re-frame.machines.transition :as transition]
    [re-frame.machines.lifecycle-fx.finalize :as finalize])
   #?(:clj (:import [clojure.lang ExceptionInfo])))
@@ -144,11 +143,11 @@
   `:data` / `:tags`."
   [machine snapshot event]
   (let [r (machines/machine-transition machine snapshot event)]
-    {:snapshot (result/snap r)
-     :fx       (vec (result/fx r))
-     :state    (:state (result/snap r))
-     :data     (:data (result/snap r))
-     :tags     (:tags (result/snap r))}))
+    {:snapshot (:snapshot r)
+     :fx       (vec (:fx r))
+     :state    (:state (:snapshot r))
+     :data     (:data (:snapshot r))
+     :tags     (:tags (:snapshot r))}))
 
 (defn- order-recorder
   "Return `[log-atom mk]` where `(mk tag)` is an action/entry/exit fn that
@@ -988,7 +987,7 @@
              :actions {:boom (fn [_] (throw (ex-info "unknown event" {})))}
              :states  {:a {:on {:* {:target :a :action :boom}}}}}
           r (machines/machine-transition m {:state :a :data {}} [:surprise])]
-      (is (result/fail? r)
+      (is (= :error (:status r))
           "a throwing `:*` action produces a failure Result (no silent no-op)"))))
 
 ;; ===========================================================================
@@ -1009,7 +1008,7 @@
     (let [m {:initial :a :data {:k 1}
              :states  {:a {:on {:real :b}} :b {}}}
           r (machines/machine-transition m {:state :a :data {:k 1}} [:never-declared])]
-      (is (result/ok? r) "an unhandled event is NOT a failure")
+      (is (= :ok (:status r)) "an unhandled event is NOT a failure")
       (is (= :a (:state (step m {:state :a :data {:k 1}} [:never-declared])))
           "configuration is unchanged")
       (is (= {:k 1} (:data (step m {:state :a :data {:k 1}} [:never-declared])))

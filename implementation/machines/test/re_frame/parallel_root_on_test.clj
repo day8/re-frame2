@@ -31,7 +31,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -68,7 +67,7 @@
              :regions {:a {:initial :two :states {:one {} :two {}}}
                        :b {:initial :two :states {:one {} :two {}}}}}
           initial {:state {:a :two :b :two} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:reset-all])]
+          {snap :snapshot} (machines/machine-transition m initial [:reset-all])]
       (is (= {:a :one :b :one} (:state snap))
           "root :on fired and moved BOTH regions — NOT silently dropped"))))
 
@@ -82,7 +81,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:go-all])]
+          {snap :snapshot} (machines/machine-transition m initial [:go-all])]
       (is (= {:a :two :b :two} (:state snap))
           "root :on fired; both targeted regions moved (v5: GO -> {a:two,b:two})"))))
 
@@ -96,7 +95,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:one])]
+          {snap :snapshot} (machines/machine-transition m initial [:one])]
       (is (= {:a :two :b :one} (:state snap))
           "root :on moved :a; :b untargeted -> unchanged (v5: ONE -> {a:two,b:one})"))))
 
@@ -112,7 +111,7 @@
              :regions {:a {:initial :one :states {:one {:on {:go :two}} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:go])]
+          {snap :snapshot} (machines/machine-transition m initial [:go])]
       (is (= {:a :two :b :one} (:state snap))
           (str "region :a handled :go (deeper wins); the root :on was NOT merged "
                "in -> :b stays :one (v5: GO -> {a:two,b:one})")))))
@@ -135,7 +134,7 @@
                        :b {:initial :resting
                            :states  {:initial {} :resting {}}}}}
           initial {:state {:a :initial :b :resting} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:reset])]
+          {snap :snapshot} (machines/machine-transition m initial [:reset])]
       (is (= {:a :special :b :resting} (:state snap))
           (str "the WHOLE root RESET is suppressed because :a competed; :b stays "
                ":resting (NOT :initial). Broadcast decomposition would wrongly give "
@@ -152,7 +151,7 @@
                        :b {:initial :one :states {:one {} :y {}}}
                        :c {:initial :one :states {:one {}}}}}     ; untargeted
           initial {:state {:a :one :b :one :c :one} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:advance])]
+          {snap :snapshot} (machines/machine-transition m initial [:advance])]
       (is (= {:a :x :b :y :c :one} (:state snap))
           ":a and :b moved to their named targets; :c (untargeted) unchanged"))))
 
@@ -167,7 +166,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {:count 0}}
-          {snap ::result/snap} (machines/machine-transition m initial [:tick])]
+          {snap :snapshot} (machines/machine-transition m initial [:tick])]
       (is (= {:a :two :b :two} (:state snap)) "both regions moved")
       (is (= 1 (get-in snap [:data :count]))
           "root :action ran ONCE (not once per targeted region)"))))
@@ -183,7 +182,7 @@
              :regions {:a {:initial :one :states {:one {}}}
                        :b {:initial :one :states {:one {}}}}}
           initial {:state {:a :one :b :one} :data {:log []}}
-          {snap ::result/snap} (machines/machine-transition m initial [:ping])]
+          {snap :snapshot} (machines/machine-transition m initial [:ping])]
       (is (= {:a :one :b :one} (:state snap)) "no region moved (targetless)")
       (is (= [:noted] (get-in snap [:data :log])) "the root action ran once"))))
 
@@ -198,12 +197,12 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}]
       (testing "guard false -> root declines -> no move"
-        (let [{snap ::result/snap} (machines/machine-transition
+        (let [{snap :snapshot} (machines/machine-transition
                                      m {:state {:a :one :b :one} :data {:armed? false}}
                                      [:fire])]
           (is (= {:a :one :b :one} (:state snap)) "guard false -> root :on not selected")))
       (testing "guard true -> root fires"
-        (let [{snap ::result/snap} (machines/machine-transition
+        (let [{snap :snapshot} (machines/machine-transition
                                      m {:state {:a :one :b :one} :data {:armed? true}}
                                      [:fire])]
           (is (= {:a :two :b :two} (:state snap)) "guard true -> root :on moves both"))))))
@@ -221,7 +220,7 @@
                                      :done {:tags #{:a/done}}}}
                        :b {:initial :one :states {:one {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap ::result/snap} (machines/machine-transition m initial [:advance])]
+          {snap :snapshot} (machines/machine-transition m initial [:advance])]
       (is (= :done (get-in snap [:state :a]))
           ":a was moved to :mid by the root, then :always settled past to :done")
       (is (= :one (get-in snap [:state :b])) ":b unchanged")
@@ -377,7 +376,7 @@
           ;; root epoch 1 (as birth would seed) at the flat root slot.
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :two :b :two} (:state snap))
@@ -390,7 +389,7 @@
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 500 1 []])]
       (is (= {:a :two :b :one} (:state snap))
@@ -406,7 +405,7 @@
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one}
                    :data  {:fired 0 :rf/after-epoch {[] 1}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap)) "no region moved (action-only)")
@@ -422,7 +421,7 @@
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap))
@@ -446,7 +445,7 @@
           ;; in-flight timer carries the prior epoch 1 -> stale, must drop.
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 2}}}
-          {snap ::result/snap}
+          {snap :snapshot}
           (machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap))

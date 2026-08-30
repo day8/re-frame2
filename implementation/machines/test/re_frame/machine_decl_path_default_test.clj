@@ -24,7 +24,6 @@
   directly with a transition map carrying NO `:decl-path`, so it exercises the
   default. JVM-runnable from arguments alone."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines.result :as result]
             [re-frame.machines.transition :as transition]))
 
 ;; A deep compound machine. `:p` is a top-level compound (initial :q); `:q` and
@@ -69,8 +68,8 @@
           ;; NB: no :decl-path key — exercises the default.
           r        (transition/apply-transition-once
                      deep-machine snapshot [:go] {:target [:p :r :s]})]
-      (is (result/ok? r) "the transition applies cleanly")
-      (let [snap (result/snap r)]
+      (is (= :ok (:status r)) "the transition applies cleanly")
+      (let [snap (:snapshot r)]
         (is (= [:p :r :s] (:state snap))
             "the machine lands at the targeted deep leaf [:p :r :s]")
         (is (= [:exit-q :enter-r :enter-s] (get-in snap [:data :log]))
@@ -83,6 +82,6 @@
     (let [snapshot {:state [:p :q] :data {:log []}}
           r        (transition/apply-transition-once
                      deep-machine snapshot [:go] {:target [:p :r :s] :decl-path []})]
-      (is (result/ok? r))
-      (is (= [:exit-q :enter-r :enter-s] (get-in (result/snap r) [:data :log]))
+      (is (= :ok (:status r)))
+      (is (= [:exit-q :enter-r :enter-s] (get-in (:snapshot r) [:data :log]))
           "explicit root decl-path matches the defaulted-root geometry"))))
