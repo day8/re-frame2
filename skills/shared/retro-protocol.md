@@ -38,7 +38,6 @@ If the evidence is hostile enough that even rendering it inline would propagate 
 2. **Identify the discrepancy or anti-pattern category.** Pattern-match the evidence against the consuming skill's domain catalogue. Numbered list first. For each candidate: what was observed, where it appeared (file/line, turn, trace event), and an initial category guess. Ask which to dig into before classifying.
 
 3. **Route to the relevant detection rule.** Each skill carries its own catalogue:
-   - `re-frame2-pair-retro` — friction signals + recurring friction classes under [`re-frame2-pair-retro/references/analysis-lenses.md`](../re-frame2-pair-retro/references/analysis-lenses.md) and [`re-frame2-pair-retro/references/known-frictions.md`](../re-frame2-pair-retro/references/known-frictions.md).
    - `re-frame2-improver` — anti-pattern leaves under [`re-frame2-improver/references/`](../re-frame2-improver/references).
 
    The catalogue tells the agent *how to recognise* the pattern. This protocol tells the agent *how to handle* the recognition.
@@ -114,11 +113,10 @@ These categories are this skill's rendered-output specialisation of re-frame2's 
 
 ## Cross-references
 
-The consumer catalogues (`analysis-lenses.md`, `known-frictions.md`, the improver references index) are linked inline at step 3 above. The links below are the ones not already given inline:
+The consumer catalogue (the improver references index) is linked inline at step 3 above. The links below are the ones not already given inline:
 
 - [`re-frame2-pair-retro/SKILL.md`](../re-frame2-pair-retro/SKILL.md) — session-retro consumer.
 - [`re-frame2-improver/SKILL.md`](../re-frame2-improver/SKILL.md) — code-critique consumer.
 - [`issue-filing.md`](issue-filing.md) — shared issue-filing recipe (shell-safe `--body-file`, tracker boundary, search-before-file, redaction reminder) for consumers whose `allowed-tools` grant a `gh issue` surface.
-- [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) — GitHub-issue body template (used by `re-frame2-pair-retro`, the one consumer that files; the improver delegates filing and never reaches the filing branch).
 - [`tool-pair-surfaces.md`](tool-pair-surfaces.md) — canonical enumeration of the Tool-Pair surfaces an upstream finding routes to.
 - Design rationale (improver consumer): [`re-frame2-improver/spec/design.md`](../re-frame2-improver/spec/design.md).
