@@ -20,7 +20,7 @@ The inventory **enumerates** the items; those existing checks **classify** each 
 
 ## Step 1 — Inventory the v1 add-on libraries on the classpath
 
-Read the **full resolved dependency tree**, not just the top-level dep file — the breaking add-on is frequently a transitive (a git/source dep or a deeper edge), not a direct coord. Per cardinal rule 5 the **author** runs the tree command; the skill prints it and reads the pasted output:
+Read the **full resolved dependency tree**, not just the top-level dep file — the breaking add-on is frequently a transitive (a git/source dep or a deeper edge), not a direct coord. The skill runs the tree command for the project's build tool and reads the output (cardinal rule 5):
 
 - **tools.deps:** `clojure -Stree` (and `clojure -A:dev -Stree` / `:test` under each build alias).
 - **Leiningen:** `lein deps :tree` (and `lein with-profile +dev deps :tree`).
@@ -129,4 +129,4 @@ The whole point is the difference between *"I scanned for the surfaces I found"*
 
 ## What the plan unblocks
 
-With the table in hand the migrator runs M-0 + the React-19 bump, applies every **forced** PATCH/DROP/CONVERT in one sweep, and only then asks the author to compile. The expected result is the compile passes (or surfaces only genuinely-novel breakage) instead of marching one broken namespace at a time. The plan also becomes the spine of the Phase-6 report — every disposition is already written down.
+With the table in hand the migrator runs M-0 + the React-19 bump, applies every **forced** PATCH/DROP/CONVERT in one sweep, and only then compiles. The expected result is the compile passes (or surfaces only genuinely-novel breakage) instead of marching one broken namespace at a time. The plan also becomes the spine of the Phase-6 report — every disposition is already written down.
