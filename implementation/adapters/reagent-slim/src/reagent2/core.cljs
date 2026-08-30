@@ -22,7 +22,8 @@
     set-state         — Form-3 state mutator
     replace-state     — Form-3 state mutator
     force-update      — force re-render of `this` component
-    reaction          — function form sugar over make-reaction
+    reaction          — macro (src/reagent2/core.clj); stock body syntax,
+                        expands to make-reaction over (fn [] body...)
 
   Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7
   audit-confirmed zero usage): `track`, `track!`, `cursor`, `wrap`,
@@ -45,6 +46,7 @@
   adapter day8/re-frame2-reagent; the rewrite's commitment is
   to ship only the surfaces the audited codebases actually exercise."
   (:refer-clojure :exclude [atom])
+  (:require-macros [reagent2.core])
   (:require [reagent2.ratom :as ratom]
             [reagent2.impl.batching :as batching]
             [reagent2.impl.component :as component]
@@ -62,14 +64,12 @@
   to changes."
   ratom/atom)
 
-(defn reaction
-  "Construct a Reaction wrapping fn `f` (function form; the macro form
-  lives in `reagent2.ratom`). Sugar over `reagent2.ratom/make-reaction`.
-
-  Per IMPL-SPEC §14.2: ships the function form because Dash8 uses 25
-  sites of `r/reaction` and the rewrite preserves that surface."
-  [f]
-  (ratom/make-reaction f))
+;; `reaction` is a macro, defined in src/reagent2/core.clj and loaded
+;; through the `:require-macros` above: `(reaction body...)` expands to
+;; `(reagent2.ratom/make-reaction (fn [] body...))`, as stock
+;; `reagent.core/reaction` does. There is deliberately no thunk-taking
+;; function under this name — an explicit thunk goes straight to
+;; `reagent2.ratom/make-reaction` (rf2-b9l8o).
 
 ;; ---------------------------------------------------------------------------
 ;; Component-shape surface

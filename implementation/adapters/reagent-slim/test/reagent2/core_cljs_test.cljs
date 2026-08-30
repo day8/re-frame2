@@ -19,14 +19,25 @@
       cell, `set-state` MERGES while `replace-state` RESETS (a real,
       distinguishable invariant a key-swap bug would otherwise slip),
       and that the accessor wrappers route to the right impl fn. The
-      `reagent2.core` re-export `atom`, the `reaction` function form,
-      `create-class`, `current-component`, `after-render`, and
-      `as-element` keep their dedicated per-impl coverage
-      (ratom / component / template / batching).
+      `reagent2.core` re-export `atom`, `create-class`,
+      `current-component`, `after-render`, and `as-element` keep their
+      dedicated per-impl coverage (ratom / component / template /
+      batching).
+
+    - The `reaction` macro (rf2-b9l8o): stock Reagent's
+      `reagent.core/reaction` is a macro over the body, and so is this
+      one. Pinned here, from the consumer side, with only
+      `reagent2.core` required at the call site: the body is deferred
+      until the first deref, a reagent2 atom deref'd inside it is
+      captured and drives recomputation, and the expansion is
+      `(reagent2.ratom/make-reaction (fn [] body...))` — the shape a
+      thunk-taking function cannot have. `reagent2.ratom` is required
+      below only so the type assertion can name `Reaction`.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [reagent2.core :as r]))
+            [reagent2.core :as r]
+            [reagent2.ratom :as ratom]))
 
 ;; ---------------------------------------------------------------------------
 ;; force-update — 1-arity routes .forceUpdate on `this`
@@ -194,3 +205,46 @@
       (is (= [:a :b]
              (vec (r/children (fake-instance [render-fn :a :b]))))
           "no props map → children start right after the head"))))
+
+;; ---------------------------------------------------------------------------
+;; reaction macro (rf2-b9l8o)
+;;
+;; `reagent2.core/reaction` is a macro with stock Reagent's body syntax:
+;; `(r/reaction body...)` expands to
+;; `(reagent2.ratom/make-reaction (fn [] body...))`. Against the earlier
+;; thunk-taking function `(defn reaction [f] ...)` every test below is red:
+;; the body ran eagerly at the call site, its VALUE was handed to
+;; make-reaction as `f`, and the first deref tried to call that value.
+;; ---------------------------------------------------------------------------
+
+(deftest reaction-body-is-deferred-until-deref
+  (testing "(r/reaction body) does not run body at construction; the
+            first deref runs it once"
+    (let [runs (atom 0)
+          rx   (r/reaction (do (swap! runs inc) :computed))]
+      (is (zero? @runs) "body did not run at construction")
+      (is (= :computed @rx) "deref yields the body's value")
+      (is (= 1 @runs) "the first deref ran the body exactly once"))))
+
+(deftest reaction-captures-reagent2-atom-and-recomputes
+  (testing "a reagent2 atom deref'd inside the body is a dependency:
+            the Reaction recomputes after that atom changes"
+    (let [a  (r/atom 3)
+          rx (r/reaction (* @a @a))]
+      (is (instance? ratom/Reaction rx) "produces a reagent2.ratom/Reaction")
+      (is (= 9 @rx))
+      (reset! a 4)
+      (is (= 16 @rx) "recomputed against the new dependency value"))))
+
+(deftest reaction-expands-to-make-reaction-over-a-zero-arity-fn
+  (testing "(r/reaction body...) expands to
+            (reagent2.ratom/make-reaction (fn [] body...)) — the whole
+            body, verbatim, inside a zero-argument fn"
+    (let [[head thunk & more]          (macroexpand-1 '(r/reaction (+ 1 2) (* @a @a)))
+          [fn-sym params & fn-body]    thunk]
+      (is (= 'reagent2.ratom/make-reaction head))
+      (is (nil? more) "make-reaction receives the thunk and nothing else")
+      (is (= "fn" (name fn-sym)) "the thunk is a fn form")
+      (is (= [] params) "the fn takes zero arguments")
+      (is (= '((+ 1 2) (* @a @a)) fn-body)
+          "every body form is the fn body, in order"))))

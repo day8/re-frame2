@@ -38,8 +38,9 @@ implementation/adapters/reagent-slim/
 │   │       └── reagent_slim.cljs      ; adapter Var at re-frame.adapter.reagent-slim
 │   └── reagent2/
 │       ├── core.cljs                  ; user-facing compat surface
+│       ├── core.clj                   ; the core-spelled reaction macro (CLJS-only consumer)
 │       ├── ratom.cljs                 ; reactive primitives
-│       ├── ratom.clj                  ; the reaction macro (CLJS-only consumer)
+│       ├── ratom.clj                  ; the ratom-spelled reaction macro (CLJS-only consumer)
 │       ├── dom/
 │       │   ├── client.cljs            ; create-root / render / unmount / hydrate-root / flush-views!
 │       │   └── server.cljs            ; pure-CLJS render-to-static-markup
@@ -202,9 +203,11 @@ The `:adapter/current-frame` late-bind hook (currently set to `views/current-fra
 
 ### §2.2 `reagent2.core` — user-facing compat surface
 
-File: `src/reagent2/core.cljs`.
+Files:
+- `src/reagent2/core.cljs` — the Vars.
+- `src/reagent2/core.clj` — the `reaction` macro (see §14.2).
 
-Public Vars (the audit-binding fourteen surfaces, per Stage 2 §2.7):
+Public symbols (the audit-binding fourteen surfaces, per Stage 2 §2.7 — thirteen Vars in `core.cljs` plus the `reaction` macro in `core.clj`):
 
 | Symbol | Signature | Notes |
 |---|---|---|
@@ -221,7 +224,7 @@ Public Vars (the audit-binding fourteen surfaces, per Stage 2 §2.7):
 | `set-state` | `[this m]` | Form-3 state mutator. |
 | `replace-state` | `[this m]` | Form-3 state mutator. |
 | `force-update` | `[this]`, `[this true]` | Force re-render of `this` component. |
-| `reaction` | function `[f]` | Sugar over `make-reaction`; the **function** form (Dash8 uses 25 sites of `r/reaction` per rf2-kfpf §2). The macro form lives in `reagent2.ratom`. |
+| `reaction` | macro `[& body]` | Stock-shaped macro in `src/reagent2/core.clj`: `(reaction body...)` expands to `(reagent2.ratom/make-reaction (fn [] body...))`, exactly as stock `reagent.core/reaction` does — so the 25 Dash8 `r/reaction` sites (rf2-kfpf §2) compile unchanged after the §13.1 ns-rename. `reagent2.ratom/reaction` is the same expansion under the ratom spelling; a caller that already holds a thunk uses `reagent2.ratom/make-reaction`. |
 
 Internal helpers (private but load-bearing): none unique — this ns is mostly re-exports.
 
@@ -231,7 +234,7 @@ Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7 audit-co
 
 Files:
 - `src/reagent2/ratom.cljs` — type definitions + public Vars.
-- `src/reagent2/ratom.clj` — the `reaction` macro only (Stage 1 §1.6 marked both `reaction` and `run!` SHOULD; Stage 2 §2.6 ships `reaction` as a 5-line indirection over `make-reaction`). `run!` is not shipped — see the "Symbols not shipped" list below.
+- `src/reagent2/ratom.clj` — the `reaction` macro only (Stage 1 §1.6 marked both `reaction` and `run!` SHOULD; Stage 2 §2.6 ships `reaction` as a 5-line indirection over `make-reaction`). `src/reagent2/core.clj` carries the same macro under the `reagent2.core` spelling (§2.2). `run!` is not shipped — see the "Symbols not shipped" list below.
 
 Public Vars:
 
@@ -1043,7 +1046,7 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 
 | Namespace | Test file | Coverage |
 |---|---|---|
-| `reagent2.core` | `core_test.cljs` | All 14 public Vars (re-export integrity). |
+| `reagent2.core` | `core_cljs_test.cljs` | All 14 public surfaces (re-export integrity); the `reaction` macro from the consumer side — body deferred until the first deref, reagent2-atom dependency capture and recompute, and the expansion shape `(make-reaction (fn [] body...))`. |
 | `reagent2.ratom` | `ratom_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
 | `reagent2.dom.client` | `dom_client_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation. |
 | `reagent2.dom.server` | `dom_server_test.cljs` + `parity_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7. |
@@ -1126,7 +1129,7 @@ App author currently using `day8/re-frame2-reagent` (the thin bridge) wants to m
           [reagent2.ratom      :as ratom])
 ```
 
-A simple `s/reagent\./reagent2./g` ns-rename at the import site is sufficient for apps inside the bounded surface.
+A simple `s/reagent\./reagent2./g` ns-rename at the import site is sufficient for apps inside the bounded surface. That includes `r/reaction`: `reagent2.core/reaction` is a macro with stock's body syntax (§2.2, §14.2), so `(r/reaction (* @a @a))` means the same lazy Reaction on both sides of the rename.
 
 ### §13.2 Apps that used keys outside the 7-key Form-3 cap
 
@@ -1184,11 +1187,11 @@ Stage 4 ships `reagent2.impl.component/defview` as an optional Form-detection ma
 
 **Disposition (as shipped)**: resolved per the rf2-yfbx decision — `defview` is **not** shipped. The runtime Form-detection path is the canonical implementation; no separate `defview` macro exists (see `reagent2/impl/component.cljs:31` and `component.clj:10`: "No separate `defview` macro is shipped"). This matches the original recommendation (ship runtime detection, skip `defview`).
 
-### §14.2 The `reagent2.core/reaction` function vs `reagent2.ratom/reaction` macro
+### §14.2 `reagent2.core/reaction` and `reagent2.ratom/reaction` — both macros
 
-Dash8 uses 25 sites of `reagent.core/reaction` (the **function** form). rf8 uses both `reagent.core/reaction` (1 site) and the `reagent.ratom/reaction` **macro** (2 sites). The two surfaces co-exist in stock Reagent under different names but produce equivalent Reactions.
+Dash8 uses 25 sites of `reagent.core/reaction`; rf8 uses `reagent.core/reaction` (1 site) and `reagent.ratom/reaction` (2 sites). In stock Reagent 2.0.1 both spellings are macros with the same expansion: `reagent/core.clj` and `reagent/ratom.clj` each define `(defmacro reaction [& body] ...)` over `(reagent.ratom/make-reaction (fn [] ~@body))`, and `reagent/core.cljs` defines no `reaction` function at all.
 
-The rewrite ships `reagent2.core/reaction` (function) AND `reagent2.ratom/reaction` (macro). No filing needed; this is straightforward.
+Earlier revisions of this document read the core spelling as a "function form", and the rewrite shipped it as `(defn reaction [f] ...)` with no `core.clj` macro namespace. That turned every `(r/reaction (* @a @a))` into an eager call: the body ran at the call site, its value was passed as `f`, and the first deref tried to call that value — a silent semantic change on the audited path the §13.1 rename promises to preserve. Corrected under rf2-b9l8o: `reagent2.core/reaction` is a macro in `src/reagent2/core.clj` with stock's body syntax and expansion, `reagent2.ratom/reaction` is the same macro under its own spelling, and an explicit thunk goes through `reagent2.ratom/make-reaction`. No thunk-taking `reaction` function exists in stock Reagent, and none ships here.
 
 ### §14.3 Boolean-attribute set + void-tag set duplication
 
