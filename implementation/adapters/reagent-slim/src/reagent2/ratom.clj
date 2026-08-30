@@ -5,8 +5,9 @@
 
     - `reaction` ships as a 5-line indirection over `make-reaction`.
       Required for rf8 wizard/reports_util.cljs:158, 166 (rf2-kfpf §3).
-      Dash8 also uses the function form `reagent.core/reaction` (25
-      sites); that surface lives in `reagent2.core` (Stage 4-D).
+      `reagent2.core/reaction` (src/reagent2/core.clj) is the same macro
+      under the stock `reagent.core` spelling — the one Dash8's 25
+      `r/reaction` sites use.
 
     - `run!` is NOT shipped — audit-confirmed zero usage across re-com /
       10x / Dash8 / rf8 (per §2.3 \"Symbols not shipped\" list).
@@ -28,8 +29,8 @@
     (reset! first-name \"Bob\")
     @full-name  ;=> \"Bob Tan\"
 
-  Per IMPL-SPEC §2.3: 5-line indirection. The function form
-  `reagent2.core/reaction` (Stage 4-D) is equivalent but takes a
-  thunk argument explicitly."
+  Per IMPL-SPEC §2.3: 5-line indirection. `reagent2.core/reaction` has
+  the same expansion; a caller that already holds a thunk uses
+  `make-reaction` directly."
   [& body]
   `(reagent2.ratom/make-reaction (fn [] ~@body)))
