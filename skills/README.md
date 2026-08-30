@@ -198,7 +198,7 @@ family rule — single source below:
 | `re-frame2-implementor` | implementation driver (build the runtime) | the agent, narrowly | a per-EP slice gate from the **port's own** scripts, before calling an EP landed | acceptance criterion *is* spec-conformance; the slice gate operationalises it (the only skill carrying a per-EP gate — by design) |
 | `re-frame-migration` | migrate v1 code on an existing reference | the **author** in their own env | the author's own build / test / smoke | hard trust boundary — the skill bars the agent from running build/test/smoke in the author's app env |
 | `reagent-migration` | migrate Reagent views to Hicasso on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Hicasso moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
-| `re-frame2` (authoring) | emit authoring recipes | the **human** who pastes the recipe | the human's project gates | Pillar-4 / Q14 lock: no runtime the agent drives, no conformance corpus |
+| `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
 | `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | findings cross-linked to canonical idioms | review-only; proposes `Edit`s, runs no suite |
 | `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |
@@ -266,6 +266,7 @@ rather than theoretical attacks.
 
 - Wildcards on routine commands are fine. `Bash(npm *)`,
   `Bash(npx *)`, `Bash(clojure *)`, `Bash(shadow-cljs *)`,
+  `Bash(clj-kondo *)`, `Bash(lein *)`, `Bash(bb *)`,
   `Bash(rg *)`, `Bash(gh issue *)`, `Bash(gh pr *)`, `Bash(git *)`
   are all acceptable in published-skill frontmatter.
 - No `Bash(bd *)` in published skill frontmatter. `bd` (beads) is

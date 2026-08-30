@@ -1,0 +1,16 @@
+;; The fixture project for eval 12 (`gate-execution-existing-project-cart-total`)
+;; in ../../evals.json — a small EXISTING re-frame2 application the eval hands
+;; the agent, with one declared noninteractive gate: the `:test` alias below.
+;;
+;; `day8/re-frame2` is pinned to the monorepo's core artefact by `:local/root`
+;; so the fixture runs from any re-frame2 clone with nothing published; a
+;; consumer project carries an `:mvn/version` (or `:git/sha`) coordinate here.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../../../../../implementation/core"}}
+
+ :aliases
+ {;; The project's own test gate: `clojure -M:test` from this directory.
+  :test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}}}

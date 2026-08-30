@@ -10,7 +10,7 @@ Help an AI write working re-frame2 ClojureScript application code while spending
 
 ## 2. Pillars (locked)
 
-1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **Q14 lock applies: NO verification module** — no `references/verify.md`, no "verify before claiming done" hard rule. The author runs tests; the skill stops at writing the code.
+1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **No verification module** — no `references/verify.md`, no essay on why tests matter (Pillar 4: the AI already knows). What the skill does carry is one line of workflow: on an existing project the agent runs the project's own declared gate after it edits, and reports the result (L3).
 2. **Idiomaticness — verified against `implementation/**` + `examples/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
 3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~180 lines (well under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
 4. **Assume training knowledge — teach only the re-frame2 binding.** The AI already knows what WebSockets, FSMs, optimistic updates, and HTTP retry are. The skill's job is to bridge that to the specific re-frame2 features (`reg-machine`, `:rf.http/managed`, `:fsm/parallel-regions`, etc.). The **cut-test**: if a sentence could be written about React, Vue, or Elm unchanged, it belongs in training data, not this skill.
@@ -27,9 +27,13 @@ For every code snippet in a leaf, the surface (function name, arity, options key
 
 When a pattern has a worked example, the leaf points at it and matches its shape. The example reflects the implementation as currently shipped.
 
-### L3 — Q14 — NO verification module
+### L3 — The agent runs the project's declared gate; the skill ships no verification module
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule in SKILL.md. The AI applies the recipes; the author runs the tests, the compiler, the app. Running tests is general software practice — Pillar 4 says don't teach what the AI already knows.
+On an existing project, a tool-capable session **runs the nearest declared noninteractive compile / test / lint gate** after it edits — discovered from the project's own files (`deps.edn` `:aliases`, `shadow-cljs.edn` `:builds`, `package.json` `scripts`, the nearest README; the procedure is `references/cross-cutting/testing.md` §Discovering a project's gates) — repairs a relevant failure, and reports the exact command and result. It hands the gate to the programmer only when the gate is interactive or visual, needs a live runtime (that is `re-frame2-pair`'s), does not exist, or the user asked it not to run. `SKILL.md`'s frontmatter grants the routine wildcards the published-skill baseline blesses (`skills/README.md` §Published-skill `allowed-tools` baseline) and nothing wider: no `Bash(*)`, no dependency installation, no watch server or daemon, no browser.
+
+What stays locked is the **shape**: no `references/verify.md`, no verification framework, no policy essay — the rule is one workflow step and one done-checklist line in `SKILL.md`, because running a gate is general software practice (Pillar 4) and the only re-frame2-specific content is *which* gate and *that the agent runs it*.
+
+*History.* This lock was originally **Q14 — NO verification module** (the author runs the tests; the skill stops at writing the code), enforced by commit `d96a6026d0` and Rule 2 of `scripts/check_skill_re_frame2_drift.py`. It was unlocked on 2026-08-31 (rf2-g9k0g, a surface review): §1 says the output should compile and pass the author's tests while the posture forbade the agent from finding out, the testing leaf already taught the agent to discover the exact gate and then relay it, and the family baseline already trusts the explicit invoker with these commands. The drift guard's posture rules flipped in the same change.
 
 ### L4 — Two-level routing only
 
@@ -98,7 +102,7 @@ skills/re-frame2/
 │   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)
-├── evals/                       (eval harness inputs)
+├── evals/                       (eval harness inputs; fixtures/ holds the existing-project fixture eval 12 runs against)
 └── spec/
     ├── design.md                (this file)
     ├── inputs.md                (canonical inputs)
@@ -132,7 +136,7 @@ The `description` is "pushy" per Anthropic best practice — it lists every re-f
 
 ### OQ1 — Should the skill ship eval cases as part of `evals/`?
 
-A growing `evals/` set of input/output pairs would let the skill be regression-tested as the implementation evolves. Status: deferred — `evals/` is bootstrapped but not yet load-bearing.
+A growing `evals/` set of input/output pairs would let the skill be regression-tested as the implementation evolves. Status: deferred — `evals/` is bootstrapped but not yet load-bearing. One eval is a repeatable behavioural witness rather than a prompt/expectation pair: eval 12 hands the agent the checked-in fixture project (`evals/fixtures/existing-project/`, pinned `:local/root` to the monorepo) and grades that it discovers and runs the project's `:test` alias and reports the real result; the fixture's gate is exercised by hand, not by a runner.
 
 ### OQ2 — When to split per-feature skills out of this one?
 

@@ -38,22 +38,23 @@ A single `evals.json` file holds the eval list. Per Anthropic's schema:
   - `prompt` — the user message that exercises the skill
   - `expected_output` — a human-readable description of what success looks
     like (not parsed; it's there to make manual review fast)
-  - `files` — optional list of input files (empty here; every prompt is
-    self-contained)
+  - `files` — optional list of input files (eval 12 points at its fixture
+    project under `fixtures/`; every other prompt is self-contained)
   - `expectations` — a list of objectively verifiable statements. The
     grader (human or scripted) checks each one against the run's output and
     transcript. This is the field that produces the pass/fail signal.
 
 2 harness extensions on top of the base schema:
 
-- `dimension` — `discovery` | `recipe-correctness` | `routing-correctness`.
-  Lets coverage be measured even when an eval contributes to more than one.
+- `dimension` — `discovery` | `recipe-correctness` | `routing-correctness` |
+  `gate-execution`. Lets coverage be measured even when an eval contributes to
+  more than one.
 - `schema_version` — `"1"`. Bump when the eval shape changes in a way that
   breaks readers.
 
 ## Coverage
 
-11 evals, covering the 3 dimensions:
+12 evals, covering the 4 dimensions:
 
 | ID | Name | Dimension | What it probes |
 |---:|---|---|---|
@@ -68,11 +69,14 @@ A single `evals.json` file holds the eval list. Per Anthropic's schema:
 | 9 | `recipe-correctness-resource-scoped-read-lifecycle` | recipe-correctness | Tenant-scoped billing-summary read shared across three screens (`patterns/resources.md`). Does the output register it with `reg-resource` under a REQUIRED fail-closed `:scope` (a `reg-resource-scope` named resolver referenced `{:from-db …}`, NOT `:rf.scope/global`, never omitted), read it PASSIVELY via a `[:rf/resource …]` sub, and CAUSE the fetch from a route `:resources` entry / `[:rf.resource/ensure …]` (owner + cause) — never from a view — while clearing the old scope causally on tenant switch (`resolve-resource-scope` + `:rf.resource/clear-scope`, no `:snapshot-db`) and never hand-rolling the cache key (CEDN-1)? |
 | 10 | `recipe-correctness-mutation-reply-to-workflow` | recipe-correctness | Article-save flow with post-success navigate + toast + field-error folding, concurrent saves (`patterns/resources-mutations.md`). Does the output use `reg-mutation` via `[:rf.mutation/execute …]` keyed by `:instance`, and keep the two axes apart — cache consequences (`:invalidates` list / `:populates` detail) DECLARATIVE on `reg-mutation`, app workflow in a call-site `:reply-to` handler (a causal event target reading the appended `{:status :value :error}` reply map, NOT a callback, NOT registration-level) — rejecting workflow-on-`reg-mutation` and the component-watcher idiom? |
 | 11 | `recipe-correctness-mutation-optimistic-mixed-scope` | recipe-correctness | Optimistic favorite (instant heart/count, clean rollback) invalidating a global article fact AND the session-scoped feed (`patterns/resources-mutations.md`). Does the output declare an `:optimistic` / `:optimistic-tags` plan (params / old-data, NO `result` arg) relying on the runtime-recorded inverse (no hand-written rollback), express the mixed-scope invalidation as per-target DESCRIPTORS (`{:scope :rf.scope/global …}` + `{:scope {:from-db …} :tags #{[:feed]}}`) rather than `:cross-scope? true`, and never `assoc` into `:rf.runtime/resources`? |
+| 12 | `gate-execution-existing-project-cart-total` | gate-execution | The agent is handed an EXISTING project (`fixtures/existing-project/`) and asked to add a `:cart/total` sub plus a test and "make sure it actually works". Does it discover the project's declared gate from `deps.edn` (the `:test` alias), RUN `clojure -M:test` itself from the fixture directory, and report the real counts and exit — rather than printing the command for the user to run and paste back? Fails if it invents a gate the project does not declare, installs anything, or reports a result it did not observe. |
 
-3 is Anthropic's minimum. 11 gives 7 recipe-correctness evals
-and 2 each for discovery and routing-correctness, so every dimension keeps
-multi-eval coverage and any single eval can flake without the dimension going
-dark. The skew toward recipe-correctness reflects that dimension's higher defect
+3 is Anthropic's minimum. 12 gives 7 recipe-correctness evals,
+2 each for discovery and routing-correctness, and 1 gate-execution eval, so
+every prompt-graded dimension keeps multi-eval coverage and any single eval can
+flake without the dimension going dark (gate-execution is the exception on
+purpose: it is a behavioural fixture exercised by hand — see [§Fixtures](#fixtures)
+— not a prompt to grade three times). The skew toward recipe-correctness reflects that dimension's higher defect
 risk (idiom drift in produced code) — including the Resources/mutations recipe
 surface (evals 9–11), the most idiom-dense recipe area the skill teaches: the
 fail-closed mandatory `:scope`, the passive-view / causal-fetch split, call-site
@@ -85,6 +89,33 @@ guards and the Story authoring/run boundary eval 8 guards.
 > `scripts/check_skill_eval_docs.py` (run it after adding or renaming an eval).
 > The gate fails if the README count, the dimension tallies, or the set of eval
 > names drifts from the JSON — so a new eval cannot silently stale these docs.
+
+## Fixtures
+
+`fixtures/existing-project/` is the input to eval 12 — a small existing
+re-frame2 application (one event, one sub, two tests) whose `deps.edn` pins
+`day8/re-frame2` to the monorepo's core artefact by `:local/root` and declares
+one noninteractive gate, the `:test` alias. It runs from any re-frame2 clone
+with nothing published. The point of the fixture is that its gate is **real**:
+the agent under eval is graded on running `clojure -M:test` from that directory
+and reporting what it saw, so the fixture must be green at rest and must be
+able to go red.
+
+To exercise eval 12 by hand (there is no runner — see below):
+
+1. Open a session with the skill loaded, the fixture directory as the project
+   root, and give it the eval's `prompt`. Grade `expectations[]` against the
+   transcript — the load-bearing ones are the Bash call that runs
+   `clojure -M:test` and the report that quotes its real counts and exit.
+2. Prove the signal is non-vacuous. Plant a controlled wrong API shape in
+   `src/shop/cart.cljc` — a v1 registration the v2 surface removed, e.g.
+   register `:cart/clear` through the retired `reg-event-db` registrar — and
+   run the same gate: it must go red (the runtime's own
+   `:rf.error/reg-event-db-removed` message, non-zero exit). Remove the plant
+   and confirm it returns to green. A gate that stays green over the plant did
+   not read this fixture.
+3. Leave the fixture as you found it (`git status` clean under `fixtures/`);
+   `.cpcache/` is gitignored.
 
 ## How to run
 

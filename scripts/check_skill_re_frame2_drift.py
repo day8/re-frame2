@@ -25,19 +25,25 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      (authoring / internal context) and are out of scan scope; `evals/` is also
      out of scope (eval harness, not user-facing teaching).
 
-  2. **Verification-posture drift.** `spec/design.md` (Q14 / L3) is the
-     normative lock on the posture (the `spec/authoring-prompt.md` launcher and
-     `skills/README.md` both reference it, they do not re-hold it): this is
-     an authoring-only skill — the AUTHOR runs the tests, the compiler, the app;
-     the skill stops at writing the code. Running gates is general software
-     practice (Pillar 4), not a re-frame2 binding the skill teaches. The skill
-     had drifted to instruct the AGENT to run gates: a `Bash(clojure -M:test)`
-     allow-list, a "Verify what you changed" SKILL.md section, and a
-     testing-leaf "verifying is in scope" clause. This guard makes a
-     re-introduction of any of those shapes a build failure, so the shipped
-     contract and its rationale can't silently diverge again. (If Q14 is ever
-     unlocked by Mike, the design/index rationale flips first — and this guard's
-     posture rules are retired in the same change.)
+  2. **Verification-posture drift.** `spec/design.md` L3 is the normative
+     posture (the `spec/authoring-prompt.md` launcher and `skills/README.md`
+     both reference it, they do not re-hold it): on an existing project the
+     AGENT runs the project's own declared noninteractive compile / test / lint
+     gate after it edits and reports the exact command and result; it hands the
+     gate to the programmer only when the gate is interactive, needs a live
+     runtime, does not exist, or the user said not to. Until 2026-08-31 this
+     rule enforced the INVERSE — the Q14 lock, an authoring-only skill whose
+     author ran every gate, with a `Bash(clojure -M:test)` grant and a "run the
+     gate before declaring done" instruction as the drift shapes. Q14 was
+     unlocked by the rf2-g9k0g surface review (the skill's own §1 goal said the
+     output should compile and pass tests while the posture forbade the agent
+     from finding out; the family baseline already trusts the explicit invoker
+     with these commands), and the rule flipped in the same change. What it
+     now refuses is a slide BACK to the hand-off: (2a) `SKILL.md`'s frontmatter
+     must keep the routine gate-running wildcards the published-skill baseline
+     blesses (`Bash(clojure *)` / `Bash(npm *)` / `Bash(shadow-cljs *)`); (2b)
+     no user-facing leaf may tell the agent to hand a runnable gate to the
+     author ("the author runs the tests", "gate named for the author").
 
   3. **Launcher regrowth.** `spec/authoring-prompt.md` is a launcher, not a
      second normative source. It MUST point at both canonical files
@@ -218,24 +224,30 @@ def scanned_files() -> list[Path]:
 # longer token.
 BEADID_RE = re.compile(r"\brf2-[a-z0-9]+(?:\.[0-9]+)?\b")
 
-# --- Rule 2: verification-posture drift (Q14 / L3).
-# 2a — a Bash test/compile/lint allow-list entry (the agent-runs-gates surface).
-#      The skill's allowed-tools front-matter must not carry a Bash() entry that
-#      runs a test / compile / lint command. (Read/Edit/Write/Grep/Glob + the
-#      story-mcp authoring tools are fine; this rule only targets the
-#      gate-running Bash shapes that the Q14 lock forbids.)
-BASH_GATE_RE = re.compile(
-    r"^\s*-\s*Bash\(\s*(?:.*\b(?:clojure|shadow-cljs|clj-kondo)\b.*"
-    r"|npm\s+(?:run\s+)?test.*)\)",
-    re.IGNORECASE,
-)
-# 2b — body prose that instructs the AGENT to run a gate before declaring done.
-#      Fires on the "Verify what you changed" heading and the
-#      "run the nearest relevant gate before declaring done" instruction shape.
-VERIFY_PROSE_RE = re.compile(
-    r"^\s*#+\s*Verify what you changed\b"
-    r"|run the nearest relevant gate before declaring done"
-    r"|verifying\b.{0,40}\bis in scope",
+# --- Rule 2: verification-posture drift (L3 — the agent runs the gate).
+# 2a — the gate-running grants. `SKILL.md`'s allowed-tools front-matter must
+#      carry each routine family the agent needs to run a project's declared
+#      gate: the JVM alias (`clojure`), the npm script (`npm`), and the CLJS
+#      build (`shadow-cljs`). Checked over the whole SKILL.md body, one
+#      `- Bash(<family> …)` entry per family.
+GATE_GRANT_FAMILIES = ("clojure", "npm", "shadow-cljs")
+
+
+def _gate_grant_re(family: str) -> re.Pattern[str]:
+    return re.compile(rf"^\s*-\s*Bash\(\s*{re.escape(family)}\s", re.MULTILINE)
+
+
+# 2b — body prose that hands a RUNNABLE gate back to the author: the retired
+#      Q14 wording ("the author runs the tests / suite / compiler / app",
+#      "gate named for the author", "name it for the author", "hand off the
+#      gate"). A hand-off for a gate that is interactive, needs a live runtime,
+#      or does not exist is lawful and spelled differently ("hand off only
+#      when …", "the gate the author should add"), so it does not match.
+HANDOFF_RESIDUE_RE = re.compile(
+    r"\bthe author runs the (?:tests?|suite|compiler|gates?|app)\b"
+    r"|\bgate named for the author\b"
+    r"|\bname (?:it|the gate) for the author\b"
+    r"|\bhand(?:s|ed|ing)? off the gate\b",
     re.IGNORECASE,
 )
 
@@ -1017,23 +1029,36 @@ def beadid_problems(line: str) -> list[str]:
 
 
 def posture_problems(line: str) -> list[str]:
+    """Rule 2b — a line that hands a runnable gate back to the author."""
     problems: list[str] = []
-    if BASH_GATE_RE.search(line):
+    if HANDOFF_RESIDUE_RE.search(line):
         problems.append(
-            "VERIFY-POSTURE-BASH: this is an authoring-only skill (Q14 / L3 — "
-            "spec/design.md). The author runs the tests / compiler / app; the "
-            "skill stops at writing the code. Remove the gate-running Bash "
-            "allow-list entry. (If Q14 is unlocked, flip the design/index "
-            "rationale first, then retire this rule.)"
+            "VERIFY-POSTURE-HANDOFF: this line hands a runnable gate back to the "
+            "author — the retired Q14 posture. Per spec/design.md L3 the agent "
+            "RUNS the project's declared noninteractive gate after it edits and "
+            "reports the exact command and result; it hands off only a gate that "
+            "is interactive, needs a live runtime (re-frame2-pair), does not "
+            "exist, or that the user asked it not to run — and says which."
         )
-    if VERIFY_PROSE_RE.search(line):
-        problems.append(
-            "VERIFY-POSTURE-PROSE: this is an authoring-only skill (Q14 / L3 — "
-            "spec/design.md). Don't instruct the agent to run a gate before "
-            "declaring done; name the gate for the AUTHOR to run instead. "
-            "(If Q14 is unlocked, flip the design/index rationale first, then "
-            "retire this rule.)"
-        )
+    return problems
+
+
+def gate_grant_problems(text: str) -> list[str]:
+    """Rule 2a — SKILL.md's front-matter must keep every routine gate-running
+    grant family (`- Bash(clojure …)`, `- Bash(npm …)`, `- Bash(shadow-cljs …)`).
+    Takes the whole SKILL.md body so the self-test can pass fixtures directly."""
+    problems: list[str] = []
+    for family in GATE_GRANT_FAMILIES:
+        if not _gate_grant_re(family).search(text):
+            problems.append(
+                f"VERIFY-POSTURE-GRANT: SKILL.md's allowed-tools no longer carries "
+                f"a `Bash({family} *)` entry. Per spec/design.md L3 the agent runs "
+                "the project's declared gate itself, which needs the routine "
+                "wildcards skills/README.md §Published-skill allowed-tools "
+                "baseline blesses (clojure / npm / npx / shadow-cljs / clj-kondo). "
+                "Restore the grant; do not fall back to naming the gate for the "
+                "author."
+            )
     return problems
 
 
@@ -1045,6 +1070,11 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             "SETUP: skills/re-frame2/SKILL.md missing — the guard's scan anchor "
             "drifted from the skill layout."
         )
+    else:
+        # Rule 2a — the gate-running grants, checked over the whole front-matter.
+        rel = (SKILL_DIR / "SKILL.md").relative_to(REPO_ROOT)
+        for label in gate_grant_problems(_slurp(SKILL_DIR / "SKILL.md")):
+            problems.append(f"{rel}: {label}")
     for path in files:
         if not path.is_file():
             continue
@@ -1184,8 +1214,9 @@ def run(*, verbose: bool, ci: bool) -> int:
     if not problems:
         if verbose:
             print(
-                "re-frame2-drift: no bead-id leaks, no agent-run verification-"
-                "posture drift, no bare reg-event + make-machine-handler recipe, "
+                "re-frame2-drift: no bead-id leaks, the gate-running grants are "
+                "in the front-matter with no author-hand-off residue in the "
+                "leaves, no bare reg-event + make-machine-handler recipe, "
                 "no retired Managed-HTTP reply-contract teaching, the UIx/Helix "
                 "hooks leaves each carry a coherent defui/defnc + use-subscribe + "
                 "use-frame recipe with no residue shape (no :contextType "
@@ -1207,9 +1238,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(f"{err_prefix}{p}")
     print(
         f"\nre-frame2-drift: {len(problems)} drift issue(s) — keep internal "
-        "bead ids out of the user-facing leaves (L10), keep the "
-        "authoring-only verification posture (Q14 / L3: the author runs the "
-        "gates, the skill names them), author machines with reg-machine (not a "
+        "bead ids out of the user-facing leaves (L10), keep the run-the-gate "
+        "posture (L3: the agent runs the project's declared gate and reports; "
+        "the grants stay in the front-matter), author machines with reg-machine (not a "
         "bare reg-event + make-machine-handler recipe), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
         "retired co-located `:rf/reply` default), keep each UIx/Helix hooks "
@@ -1272,65 +1303,79 @@ def _self_test() -> int:
         dirty=False, label="B3 public PR ref is not a bead id",
     )
 
-    # --- Rule 2a: Bash gate allow-list entry. DRIFT fixtures.
-    expect(
-        posture_problems,
-        "  - Bash(clojure -M:test)",
-        dirty=True, label="C1 clojure test allow-list",
+    # --- Rule 2a: the gate-running grants, over a front-matter body.
+    #     `gate_grant_problems` takes the WHOLE SKILL.md body.
+    grants = (
+        "allowed-tools:\n  - Read\n  - Edit\n  - Bash(clojure *)\n"
+        "  - Bash(npm *)\n  - Bash(npx *)\n  - Bash(shadow-cljs *)\n"
+        "  - Bash(clj-kondo *)\n  - mcp__re-frame2-story-mcp__register-variant\n"
     )
     expect(
-        posture_problems,
-        "  - Bash(npm run test:*)",
-        dirty=True, label="C2 npm test allow-list",
+        gate_grant_problems, grants,
+        dirty=False, label="C1 front-matter carries every gate-grant family",
     )
     expect(
-        posture_problems,
-        "  - Bash(shadow-cljs compile *)",
-        dirty=True, label="C3 shadow-cljs compile allow-list",
+        gate_grant_problems, grants.replace("  - Bash(clojure *)\n", ""),
+        dirty=True, label="C2 clojure grant dropped",
     )
     expect(
-        posture_problems,
-        "  - Bash(clj-kondo --lint *)",
-        dirty=True, label="C4 clj-kondo lint allow-list",
-    )
-    # CLEAN — non-gate allow-list entries must NOT flag.
-    expect(
-        posture_problems,
-        "  - Read",
-        dirty=False, label="D1 Read tool entry",
+        gate_grant_problems, grants.replace("  - Bash(shadow-cljs *)\n", ""),
+        dirty=True, label="C3 shadow-cljs grant dropped",
     )
     expect(
-        posture_problems,
-        "  - mcp__re-frame2-story-mcp__register-variant",
-        dirty=False, label="D2 story-mcp authoring tool entry",
+        gate_grant_problems,
+        "allowed-tools:\n  - Read\n  - Edit\n  - Write\n  - Grep\n  - Glob\n",
+        dirty=True, label="C4 the retired Q14 front-matter (no Bash at all)",
+    )
+    # A grant for one family does not stand in for another: `npx` is not `npm`.
+    expect(
+        gate_grant_problems,
+        grants.replace("  - Bash(npm *)\n", ""),
+        dirty=True, label="C5 npm grant dropped (npx does not cover it)",
     )
 
-    # --- Rule 2b: agent-run verification prose. DRIFT fixtures.
+    # --- Rule 2b: author-hand-off residue. DRIFT fixtures — the exact retired
+    #     Q14 wording the leaves carried.
     expect(
         posture_problems,
-        "## Verify what you changed",
-        dirty=True, label="E1 verify-section heading",
+        "This skill writes the code; the author runs the tests, the compiler, the app.",
+        dirty=True, label="E1 author-runs-the-tests hand-off",
     )
     expect(
         posture_problems,
-        "run the nearest relevant gate before declaring done — do not hand off unverified changes.",
-        dirty=True, label="E2 run-gate-before-done instruction",
+        "- **Gate named for the author** — the nearest relevant gate is named concretely so the author can run it.",
+        dirty=True, label="E2 gate-named-for-the-author checklist line",
     )
     expect(
         posture_problems,
-        "It is not a tutorial. Verifying what you wrote is in scope: run the gate.",
-        dirty=True, label="E3 verifying-is-in-scope clause",
-    )
-    # CLEAN — the reconciled author-runs-it wording must NOT flag.
-    expect(
-        posture_problems,
-        "Name the nearest relevant gate concretely so the author can run it.",
-        dirty=False, label="F1 author-runs-it hand-off wording",
+        "Pick the tightest match and name it for the author.",
+        dirty=True, label="E3 name-it-for-the-author instruction",
     )
     expect(
         posture_problems,
         "The skill writes the test; the author runs the suite.",
-        dirty=False, label="F2 author-runs-suite wording",
+        dirty=True, label="E4 author-runs-the-suite wording",
+    )
+    # CLEAN — the run-the-gate wording, and the lawful hand-off shapes.
+    expect(
+        posture_problems,
+        "Run the nearest relevant gate before declaring done — exact command + result reported.",
+        dirty=False, label="F1 run-the-gate instruction",
+    )
+    expect(
+        posture_problems,
+        "Hand off only when the gate is interactive / visual, needs a live runtime, does not exist, or the user said not to.",
+        dirty=False, label="F2 bounded hand-off clause is lawful",
+    )
+    expect(
+        posture_problems,
+        "If no gate exists for the surface you touched, say so and describe the one the author should add.",
+        dirty=False, label="F3 'the gate the author should add' is not a hand-off",
+    )
+    expect(
+        posture_problems,
+        "  - Bash(clojure *)",
+        dirty=False, label="F4 a gate grant is not prose residue",
     )
 
     # --- Rule 3: launcher points at both canonical files without regrowing the
