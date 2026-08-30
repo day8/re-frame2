@@ -68,48 +68,27 @@ user-facing implementor docs and asserts:
      the reply map) can turn a conforming new port non-conforming. This rule is
      context-sensitive: legitimate INTERNAL `:rf/reply-to` descriptor mentions
      still pass.
-  7. **Frame-root lifecycle — two realizations kept present and distinct**
-     (rf2-vxgfnd.278). The merged frame-root/frame-provider split corrected the
-     synthesis but left the implementor guide universalizing the React
-     adapters' commit-owned two-pass `useLayoutEffect` ENSURE as THE frame-root
-     lifecycle. A **root door** runs ENSURE at **host preflight** — an ordinary
-     function call before `createRoot`, never a component and never at render —
-     a DIFFERENT lifecycle: no component creating a frame at render,
-     evidence-only commit reporting (`:committed` set at the host-commit
-     boundary and never by plan execution), `:mount-incomplete` on an aborted
-     host attempt, a surgical `:refresh` (not the React-adapter reconfigured
-     error) on a same-owner config change. That contract is owned normatively by
-     `spec/004C-Roots-and-Mount.md` §7.1 and realized in-tree by
-     `re-frame.hicasso`'s root door. This rule is a
-     positive-PRESENCE scan (not the per-line denylist above): it fails if either
-     realization disappears or collapses into the other, if a Spec-002 frame-root
-     / frame-provider heading link goes missing OR no longer resolves to a real
-     Spec-002 heading, if either frame boundary drops out of the OWNING core
-     artifact inventory row in `spec/Conventions.md`, or if the synthesis §8
-     reverts preflight to future work. (Adapter *status* — which adapters live on
-     and which are removed — is not scanned here: it is owned by
-     `scripts/check_adapter_disposition.py`, per rf2-vxgfnd.290. The
-     `[REACT-ADAPTERS]` token below is a lifecycle-PARTITION marker, not a
-     status label.)
-
-     THE TWO L5 SOURCE-BACKED ARMS ARE RETIRED (rf2-0yp7w.4). They read
-     `implementation/ui/`'s own source — the compiled client's per-function
-     preflight-before-render causality, and the compiled executor's
-     `execute-frame-plans!` / `finalize-preflight-attempt!` / `:mount-incomplete`
-     surface — and that tree was deleted with the artefact. The contracts are
-     dissolved rather than unguarded: nothing inherited the compiled
-     ENSURE-at-host-preflight lifecycle, so re-pointing had no target. See the
-     retirement record above `LIFECYCLE_ARM_SOURCES`.
-
-     Rule 7's arms are individually skippable — each reads a source file, and a
-     missing file used to leave its arm silently unevaluated behind a SETUP
-     error whose own text invited the edit that retires it ("update the *_FILE
-     constants"). A skipped assertion is not a passing one, so the arms are
-     declared in `LIFECYCLE_ARM_SOURCES` and the guard FAILS when any declared
-     arm did not run. Deleting a `*_FILE` constant therefore no longer buys
-     silence — it trades one loud failure for another. Retiring an arm is a
-     deliberate, self-documenting act: delete its row from
-     `LIFECYCLE_ARM_SOURCES` and record that the contract it held is unguarded.
+  7. RETIRED DELIBERATELY (2026-08 skill reduction). Rule 7 was a
+     positive-PRESENCE scan that pinned the frame-root lifecycle tokens
+     ("host preflight, never render", `:committed`, `:mount-incomplete`,
+     `[REACT-ADAPTERS]`, `useLayoutEffect`,
+     `:rf.error/frame-root-reconfigured`) and the two Spec-002 heading
+     anchors into the implementor guide's prose, plus the `day8/re-frame2`
+     core artifact inventory row in `spec/Conventions.md` (the L6 arm). The
+     reduction replaced the Phase-2 contract mirror with a compact EP index
+     that LINKS the owners — `spec/004C-Roots-and-Mount.md` §7.1 and
+     `spec/002-Frames.md` §frame-root / §frame-provider — instead of
+     restating them, so a guard requiring a second prose rendering of the
+     runtime contract is the exact failure mode the reduction removed
+     (rf2-ihw9q / rf2-hu5uz are the history: pinned prose kept dead porting
+     guidance alive behind a required checker). Per the retirement protocol
+     the old rule itself stated: every arm's row is deleted and the
+     contracts they held are recorded as unguarded BY THIS SCRIPT — the
+     frame-root lifecycle stays normatively owned by spec/004C §7.1 and
+     spec/002 and exercised by the adapter DOM tests; the Conventions
+     inventory row (L6) is guarded only by spec review now. Adapter *status*
+     was never scanned here — it is owned by
+     `scripts/check_adapter_disposition.py` (rf2-vxgfnd.290).
 
 Exit code:
     0  no drift detected
@@ -131,7 +110,6 @@ import argparse
 import os
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -150,10 +128,9 @@ SKILL_DIR = REPO_ROOT / "skills" / "re-frame2-implementor"
 SCANNED_FILES = [
     SKILL_DIR / "SKILL.md",
     SKILL_DIR / "references" / "phase-2-impl-order.md",
-    SKILL_DIR / "references" / "reference-impl-tour.md",
-    SKILL_DIR / "references" / "decision-record.md",
     SKILL_DIR / "references" / "phase-1-decisions.md",
     SKILL_DIR / "references" / "cardinal-rules.md",
+    SKILL_DIR / "references" / "conformance.md",
 ]
 
 
@@ -392,302 +369,15 @@ def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 7 — frame-root lifecycle realization guard (rf2-vxgfnd.278). A
-# positive-PRESENCE scan (distinct from the per-line denylist above): the two
-# frame-root lifecycles must stay present and distinct, their Spec-002 heading
-# links resolvable, and a small source-backed assertion holds that the compiled
-# client preflights BEFORE it renders the host root.
+# Rule 7 — RETIRED (2026-08 skill reduction; see item 7 in the module
+# docstring). The positive-presence frame-root lifecycle arms (L1/L2/L4 over
+# the implementor guide, L6 over spec/Conventions.md's core artifact inventory
+# row) and their ARM-NOT-RUN coverage floor were deleted with the contract
+# mirror they pinned. The lifecycle contract's normative owners are
+# spec/004C-Roots-and-Mount.md §7.1 and spec/002-Frames.md §frame-root /
+# §frame-provider; nothing in this script reads them any more, and that is
+# recorded here deliberately rather than left to be noticed.
 # ---------------------------------------------------------------------------
-
-PHASE2_FILE = SKILL_DIR / "references" / "phase-2-impl-order.md"
-CONVENTIONS_FILE = REPO_ROOT / "spec" / "Conventions.md"
-SPEC_002_FILE = REPO_ROOT / "spec" / "002-Frames.md"
-
-FRAME_ROOT_ANCHOR = "#frame-root--the-ensure-component-cljs-reference"
-FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-reference"
-
-# --- Rule 7 arm coverage (rf2-0dbvy) ----------------------------------------
-# Every Rule-7 assertion arm, and the source texts it needs in order to RUN.
-# An arm whose sources are all present is evaluated; an arm missing any source
-# is SKIPPED — and a skip is not a pass, so `lifecycle_realization_problems`
-# fails on any declared arm that did not run.
-#
-# This map is the requirement declaration, held SEPARATELY from the `*_FILE`
-# constants it depends on. That separation is the whole point: the old SETUP
-# error told the reader to "update the *_FILE constants", and deleting the two
-# `ui/` constants cleared the error AND retired the L5 causal assertion in one
-# stroke, with nothing left to notice (found by the F6e deletion probe).
-# Deleting a constant now trades the SETUP failure for an ARM-NOT-RUN failure.
-# Retiring an arm is a deliberate second edit — delete its row here, and record
-# that the contract it held is henceforth unguarded.
-LIFECYCLE_ARM_SOURCES: dict[str, tuple[str, ...]] = {
-    "L1-preflight-realization": ("phase2",),
-    "L2-react-adapters": ("phase2",),
-    "L4-spec002-links-present": ("phase2",),
-    "L4-spec002-links-resolve": ("phase2", "spec002"),
-    "L6-inventory-row": ("conventions",),
-}
-
-# RETIRED DELIBERATELY, rf2-0yp7w.4 — the two L5 arms and the contracts they held.
-#
-#   L5-client-preflight-causality  implementation/ui/src/re_frame/ui/client.cljs
-#   L5-frames-executor             implementation/ui/src/re_frame/ui/frames.cljc
-#
-# Both read the COMPILED substrate's own source, and that substrate is gone:
-# `implementation/ui/` was deleted with the artefact. The contracts they held
-# — that every host render in the compiled client is preceded by its own live
-# frame preflight, that the one-shot fresh mount preflights before `createRoot`,
-# and that the compiled executor keeps `execute-frame-plans!` /
-# `finalize-preflight-attempt!` / `:mount-incomplete` — are not unguarded, they
-# are DISSOLVED: there is no compiled client left to render, and no other
-# artefact inherited the ENSURE-at-host-preflight lifecycle. Re-pointing was the
-# other honest fix and it has no target. The remaining arms are unaffected: they
-# read the SKILL's prose, `spec/Conventions.md` and `spec/002-Frames.md`, whose
-# re-pointing is rf2-0yp7w.9's (R6) prose sweep and not this delete's.
-#
-# L1 WAS RE-POINTED, NOT RETIRED — and one of its three pinned tokens was
-# REPLACED rather than dropped. L1 reads the SKILL's prose, and the lifecycle it
-# asserts still has a normative owner: `spec/004C-Roots-and-Mount.md` §7.1 states
-# the plan-phase/host-phase split, the `:fresh`/`:live`/`:found-live` provenance
-# table, the settlement matrix, and `:committed` / `:mount-incomplete` /
-# `:preflight-attempt-failed` as PUBLISHED install-record fields. So L5's grounds
-# (contract dissolved, nothing left to read) never applied here — what was dead
-# was the ADDRESS, not the contract.
-#
-#   RETIRED TOKEN   `execute-frame-plans!`
-#   REPLACED BY     `:committed`
-#
-# `execute-frame-plans!` named the DELETED compiled executor's entry point, a
-# function that exists nowhere in the tree, and it pinned the guide to a worked
-# example whose files were removed. Its clause in the arm's own contract —
-# evidence-only commit reporting, i.e. a commit is recorded only at the host
-# boundary and never by plan execution — is NOT unguarded: it moved to
-# `:committed`, whose owner is 004C §7.1 ("Set ONLY at the client's host-commit
-# boundary ... never by plan execution"). The other two tokens keep their
-# subjects unchanged and simply gained a live address. Nothing here is a status
-# claim about which substrates ship — that is `check_adapter_disposition.py`'s.
-
-
-def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
-    """The declared arms whose every source text is present — i.e. the arms
-    that actually get evaluated for this input."""
-    return {
-        arm
-        for arm, sources in LIFECYCLE_ARM_SOURCES.items()
-        if all(texts.get(src) is not None for src in sources)
-    }
-
-
-def _spec_heading_slug(heading_text: str) -> str:
-    """GitHub-style heading slug (pymdownx.slugs.slugify, case=lower,
-    unicode=False) for a Spec-002 heading's text — enough to check the two
-    canonical fragments RESOLVE to a real heading rather than merely appearing as
-    literal strings in the guide. Bounded + lexical: ASCII-fold, drop chars that
-    are not word/whitespace/hyphen (an em-dash between spaces is dropped, leaving
-    the DOUBLE hyphen the published anchors carry), then whitespace → hyphen with
-    NO run-collapsing. Not a Markdown parser."""
-    text = unicodedata.normalize("NFKD", heading_text).encode("ascii", "ignore").decode("ascii")
-    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
-    return re.sub(r"\s", "-", text)
-
-
-def _spec_heading_slugs(spec_text: str) -> set[str]:
-    """The set of GitHub-style slugs of every ATX heading (`#`..`######`) in a
-    spec document — a lexical heading-line scan, not a parser."""
-    slugs: set[str] = set()
-    for line in spec_text.splitlines():
-        m = re.match(r"\s{0,3}#{1,6}\s+(.*\S)\s*$", line)
-        if m:
-            slugs.add(_spec_heading_slug(m.group(1)))
-    return slugs
-
-
-def _core_artifact_inventory_row(conventions_text: str) -> str | None:
-    """The `day8/re-frame2` CORE artifact inventory row from the Adapter-shipping
-    table — the OWNING row that inventories `frame-root` / `frame-provider` as core
-    surface. Matched by its exact first table cell so the `-reagent` / `-uix` /
-    `-helix` rows (which also mention the boundaries) can never stand in for it,
-    and so deleting a boundary from THIS row is caught even while unrelated
-    mentions survive elsewhere in the document. None if the row is gone."""
-    for line in conventions_text.splitlines():
-        cells = [c.strip() for c in line.split("|")]
-        # cells[0] is the empty pre-leading-pipe field; cells[1] is the first cell.
-        if len(cells) >= 2 and cells[1] == "`day8/re-frame2`":
-            return line
-    return None
-
-
-def lifecycle_realization_problems(
-    *,
-    phase2: str | None = None,
-    conventions: str | None = None,
-    spec002: str | None = None,
-) -> list[str]:
-    """Positive-presence assertions for the two frame-root lifecycles. Each arg
-    is the file's text, or None when that source could not be read — in which
-    case the arms depending on it do not run, and the ARM-NOT-RUN floor at the
-    end reports exactly which assertions were skipped. Returns drift labels
-    (empty only when every declared arm ran clean).
-
-    Every parameter defaults to None on purpose: deleting a `*_FILE` constant
-    (and its entry in `find_lifecycle_drift`'s `required` map) must not crash
-    with a TypeError, nor silently retire the arm — it must land on the
-    coverage floor with a message naming the assertion that stopped running."""
-    problems: list[str] = []
-
-    if phase2 is not None:
-        # L1 — root-door preflight realization present + timing distinct.
-        for token, label in (
-            (
-                "host preflight, never render",
-                'the preflight ENSURE-timing statement ("host preflight, never render")',
-            ),
-            (
-                ":committed",
-                "the evidence-only commit field `:committed` (set at the host-commit "
-                "boundary, never by plan execution)",
-            ),
-            (":mount-incomplete", "the aborted-attempt evidence `:mount-incomplete`"),
-        ):
-            if token not in phase2:
-                problems.append(
-                    "LIFECYCLE-COMPILED-COLLAPSED: phase-2-impl-order.md is missing "
-                    f"{label} — the root-door preflight frame-root realization must "
-                    "not disappear or collapse into the commit-owned React-adapter "
-                    "one (ENSURE at host preflight before `createRoot`, no component "
-                    "creating a frame at render, evidence-only commit, "
-                    "`:mount-incomplete` on abort, `:refresh` on same-owner reconfig). "
-                    "Its normative owner is spec/004C-Roots-and-Mount.md §7.1."
-                )
-        # L2 — `[REACT-ADAPTERS]` React-adapter realization present + distinct.
-        for token, label in (
-            ("[REACT-ADAPTERS]", "the `[REACT-ADAPTERS]` React-adapter label"),
-            ("useLayoutEffect", "the commit-owned `useLayoutEffect` two-pass timing"),
-            (":rf.error/frame-root-reconfigured", "the React-adapter reconfiguration error"),
-        ):
-            if token not in phase2:
-                problems.append(
-                    "LIFECYCLE-REACT-ADAPTERS-COLLAPSED: phase-2-impl-order.md is missing "
-                    f"{label} — the `[REACT-ADAPTERS]` Reagent / reagent-slim / UIx "
-                    "realization must not disappear or collapse into the compiled one "
-                    "(commit-owned two-pass layout-effect ENSURE, discarded-render zero "
-                    "writes, `:rf.error/frame-root-reconfigured` on mounted reconfig)."
-                )
-        # L4 — Spec-002 frame-root / frame-provider heading links present in the
-        # guide AND resolvable to a REAL Spec-002 heading (not merely a literal
-        # published fragment string). The anchor's fragment must slugify-match an
-        # ATX heading in spec/002-Frames.md.
-        spec_slugs = _spec_heading_slugs(spec002) if spec002 is not None else None
-        for anchor in (FRAME_ROOT_ANCHOR, FRAME_PROVIDER_ANCHOR):
-            if anchor not in phase2:
-                problems.append(
-                    "LIFECYCLE-SPEC002-LINK: phase-2-impl-order.md is missing the "
-                    f"Spec-002 heading anchor `{anchor}` — the frame-root / frame-"
-                    "provider component-contract links must stay present."
-                )
-            elif spec_slugs is not None and anchor.lstrip("#") not in spec_slugs:
-                problems.append(
-                    "LIFECYCLE-SPEC002-UNRESOLVED: phase-2-impl-order.md links "
-                    f"`{anchor}`, but no heading in spec/002-Frames.md slugifies to "
-                    f"`{anchor.lstrip('#')}` — the frame-root / frame-provider "
-                    "component-contract links must RESOLVE to a live Spec-002 "
-                    "heading, not merely appear as a literal fragment."
-                )
-
-    # L6 — the OWNING core artifact inventory row keeps BOTH frame boundaries.
-    # Scoped to the `day8/re-frame2` row so deleting a boundary from the row it
-    # inventories is caught even while unrelated mentions survive elsewhere.
-    if conventions is not None:
-        row = _core_artifact_inventory_row(conventions)
-        if row is None:
-            problems.append(
-                "LIFECYCLE-INVENTORY-ROW: spec/Conventions.md no longer has the "
-                "`day8/re-frame2` core artifact inventory row (Adapter-shipping "
-                "table) — the row that owns the frame-root / frame-provider "
-                "boundary inventory is gone."
-            )
-        else:
-            for token in ("frame-root", "frame-provider"):
-                if token not in row:
-                    problems.append(
-                        "LIFECYCLE-INVENTORY: spec/Conventions.md's "
-                        f"`day8/re-frame2` core artifact inventory row no longer "
-                        f"names `{token}` — neither frame boundary may disappear "
-                        "from the row that inventories it (unrelated mentions "
-                        "elsewhere do not count)."
-                    )
-
-    # --- ARM-NOT-RUN floor (rf2-0dbvy). Every arm above is conditional on a
-    # source text; a missing source means the assertion was never evaluated,
-    # and an unevaluated assertion guards nothing. Report it as a failure here
-    # rather than letting the caller's SETUP line be the only trace — because
-    # that SETUP line is exactly what a well-meaning edit deletes.
-    missing_arms = sorted(
-        set(LIFECYCLE_ARM_SOURCES)
-        - lifecycle_arms_run(
-            {
-                "phase2": phase2,
-                "conventions": conventions,
-                "spec002": spec002,
-            }
-        )
-    )
-    if missing_arms:
-        total = len(LIFECYCLE_ARM_SOURCES)
-        problems.append(
-            "LIFECYCLE-ARM-NOT-RUN: the frame-root lifecycle guard evaluated "
-            f"{total - len(missing_arms)} of {total} declared assertion arms; it "
-            f"did NOT evaluate {', '.join(missing_arms)}. A skipped assertion is "
-            "not a passing one — with the arm silent, the contract it holds is "
-            "unguarded and nothing else reports that. Either RE-POINT the arm's "
-            "source constant at the file that now owns the contract, so the "
-            "assertion keeps running; or RETIRE the arm deliberately by deleting "
-            "its row from LIFECYCLE_ARM_SOURCES and recording the contract as "
-            "unguarded."
-        )
-
-    return problems
-
-
-def find_lifecycle_drift() -> tuple[list[str], str]:
-    """Read the Rule-7 source-of-truth files and run the presence assertions,
-    reporting a missing REQUIRED file as a SETUP error (the spec + ui
-    sources are all repo-tracked, so a miss means the guard's paths drifted).
-
-    Returns (problems, coverage summary). The summary states how many declared
-    arms actually ran and the L5 scan's population, so a `--verbose` run cannot
-    claim an assertion "held" that never executed."""
-    problems: list[str] = []
-    texts: dict[str, str | None] = {}
-    required = {
-        "phase2": PHASE2_FILE,
-        "conventions": CONVENTIONS_FILE,
-        "spec002": SPEC_002_FILE,
-    }
-    for key, path in required.items():
-        if path.is_file():
-            texts[key] = _slurp(path)
-        else:
-            texts[key] = None
-            arms = sorted(
-                arm for arm, srcs in LIFECYCLE_ARM_SOURCES.items() if key in srcs
-            )
-            problems.append(
-                "SETUP: expected Rule-7 source file missing: "
-                f"{path.relative_to(REPO_ROOT)} — {', '.join(arms)} cannot run "
-                "against it. Two honest fixes, and only two: RE-POINT this "
-                "*_FILE constant at the source that now owns the contract, so "
-                "the assertion keeps running; or RETIRE the arm DELIBERATELY, "
-                "which means ALSO deleting its row from LIFECYCLE_ARM_SOURCES "
-                "and recording that the contract it held is now unguarded. "
-                "Deleting the constant alone does NOT quiet this guard — the "
-                "ARM-NOT-RUN floor then reports the assertion as never evaluated."
-            )
-    problems.extend(lifecycle_realization_problems(**texts))
-
-    arms_run = lifecycle_arms_run(texts)
-    summary = f"{len(arms_run)} of {len(LIFECYCLE_ARM_SOURCES)} assertion arms evaluated"
-    return problems, summary
 
 
 def run(*, verbose: bool, ci: bool) -> int:
@@ -703,9 +393,6 @@ def run(*, verbose: bool, ci: bool) -> int:
     beadid_problems, beadid_lines = find_beadid_drift(beadid_files)
     problems.extend(beadid_problems)
 
-    lifecycle_problems, lifecycle_coverage = find_lifecycle_drift()
-    problems.extend(lifecycle_problems)
-
     if verbose:
         print(
             f"implementor partition/HTTP/API-name guard: scanned "
@@ -715,9 +402,6 @@ def run(*, verbose: bool, ci: bool) -> int:
             f"implementor no-bead-ids guard: scanned {len(beadid_files)} "
             f"user-facing leaves ({beadid_lines} lines)."
         )
-        # State the POPULATION, not a claim: an arm that did not run says so
-        # here rather than hiding behind "assertion held" (rf2-0dbvy).
-        print(f"implementor frame-root lifecycle guard: {lifecycle_coverage}.")
 
     if not problems:
         if verbose:
@@ -900,150 +584,6 @@ def _self_test() -> int:
         "a fully-qualified public PR link day8/re-frame2#2863 is fine for an external reader.",
         leaked=False, label="D4 public PR ref is not a bead id",
     )
-
-    # Rule 7 — frame-root lifecycle realization presence. lifecycle_realization_
-    # problems() reads whole-file text (not per-line), so exercise it with in-
-    # memory good/bad content variants.
-    good_phase2 = (
-        "the root door ENSUREs its frame before `createRoot`, and `:committed` is "
-        "set only at the host-commit boundary. ENSURE is host preflight, never "
-        "render. An aborted "
-        "host attempt may leave `:mount-incomplete`. **`[REACT-ADAPTERS]` Reagent "
-        "/ reagent-slim / UIx** — ENSURE runs only from a client `useLayoutEffect`, and a "
-        "mounted reconfiguration fails loud with `:rf.error/frame-root-reconfigured`. "
-        "See [§frame-root](https://day8.github.io/re-frame2/spec/002-Frames/"
-        "#frame-root--the-ensure-component-cljs-reference) and "
-        "[§frame-provider](https://day8.github.io/re-frame2/spec/002-Frames/"
-        "#frame-provider--the-scope-only-component-cljs-reference)."
-    )
-    # A markdown Adapter-shipping table: the owning `day8/re-frame2` core row names
-    # BOTH boundaries; an unrelated `-uix` row also mentions them (so an
-    # inventory-row mutation must survive those unrelated mentions).
-    good_conv = (
-        "| Artefact | Contents |\n"
-        "|---|---|\n"
-        "| `day8/re-frame2` | Core: registry, drain, fx, dispatch, subscribe, "
-        "frame-root, frame-provider, trace, the substrate-adapter contract. |\n"
-        "| `day8/re-frame2-uix` | UIx adapter — the UIx-side frame-root / "
-        "frame-provider consuming the shared React context. |\n"
-    )
-    # A Spec-002 doc whose ATX headings slugify to the two canonical fragments.
-    good_spec002 = (
-        "### frame-provider — the SCOPE-only component (CLJS reference)\n"
-        "some prose\n"
-        "### frame-root — the ENSURE component (CLJS reference)\n"
-    )
-
-    base = dict(
-        phase2=good_phase2,
-        conventions=good_conv,
-        spec002=good_spec002,
-    )
-
-    def expect_lifecycle(overrides: dict, *, dirty: bool, label: str) -> None:
-        nonlocal failures
-        kwargs = {**base, **overrides}
-        got = bool(lifecycle_realization_problems(**kwargs))
-        if got != dirty:
-            print(
-                f"SELF-TEST FAIL ({label}): expected lifecycle dirty={dirty}, "
-                f"got {got}."
-            )
-            failures += 1
-
-    expect_lifecycle({}, dirty=False, label="G0 both realizations + links + source present")
-    expect_lifecycle(
-        {"phase2": good_phase2.replace(":committed", ":some-other-flag")},
-        dirty=True, label="G1 evidence-only commit field removed",
-    )
-    expect_lifecycle(
-        {"phase2": good_phase2.replace("host preflight, never render", "runs in a layout effect")},
-        dirty=True, label="G2 preflight timing collapsed into the React adapters'",
-    )
-    expect_lifecycle(
-        {"phase2": good_phase2.replace(":mount-incomplete", ":some-other-flag")},
-        dirty=True, label="G2b aborted-attempt evidence removed",
-    )
-    expect_lifecycle(
-        {"phase2": good_phase2.replace(":rf.error/frame-root-reconfigured", "some refresh")},
-        dirty=True, label="G3 React-adapter reconfiguration error removed",
-    )
-    expect_lifecycle(
-        {"phase2": good_phase2.replace("[REACT-ADAPTERS]", "current")},
-        dirty=True, label="G4 [REACT-ADAPTERS] label removed",
-    )
-    expect_lifecycle(
-        {"phase2": good_phase2.replace("#frame-root--the-ensure-component-cljs-reference", "#gone")},
-        dirty=True, label="G5 Spec-002 frame-root anchor missing from guide",
-    )
-    # G5b — anchor present in the guide but NO longer resolves to a Spec-002
-    # heading (the fragment is now a dangling literal). Must fail (unresolved).
-    expect_lifecycle(
-        {"spec002": good_spec002.replace(
-            "### frame-root — the ENSURE component (CLJS reference)",
-            "### frame-root moved elsewhere")},
-        dirty=True, label="G5b Spec-002 frame-root anchor no longer resolves",
-    )
-    # --- Rule 7 inventory-row scoping (conventions) — remove EACH boundary from
-    # the OWNING `day8/re-frame2` core row while leaving the unrelated `-uix`
-    # mention intact; every mutation must fail.
-    expect_lifecycle(
-        {"conventions": good_conv.replace(
-            "subscribe, frame-root, frame-provider, trace", "subscribe, frame-provider, trace")},
-        dirty=True, label="I1 frame-root dropped from core row (uix mention survives)",
-    )
-    expect_lifecycle(
-        {"conventions": good_conv.replace(
-            "subscribe, frame-root, frame-provider, trace", "subscribe, frame-root, trace")},
-        dirty=True, label="I2 frame-provider dropped from core row (uix mention survives)",
-    )
-    # I3 — the owning core row itself is gone.
-    expect_lifecycle(
-        {"conventions": (
-            "| Artefact | Contents |\n|---|---|\n"
-            "| `day8/re-frame2-uix` | UIx adapter — frame-root / frame-provider. |\n")},
-        dirty=True, label="I3 core artifact inventory row removed",
-    )
-
-    # --- Rule 7 ARM-NOT-RUN floor (rf2-0dbvy) — the F6e trap. A missing source
-    # used to make its arm SKIP silently: `find_lifecycle_drift` reported the
-    # file and passed None on, and `lifecycle_realization_problems` simply did
-    # not evaluate that arm. Clearing the SETUP error by deleting the *_FILE
-    # constant then retired the assertion outright with nothing left to notice.
-    # Every one of these was GREEN before the floor and must now be RED, and the
-    # message must NAME the arm that stopped running.
-    def expect_arm_not_run(overrides: dict, *, arm: str, label: str) -> None:
-        nonlocal failures
-        got = lifecycle_realization_problems(**{**base, **overrides})
-        floor = [p for p in got if p.startswith("LIFECYCLE-ARM-NOT-RUN")]
-        if not floor:
-            print(f"SELF-TEST FAIL ({label}): expected an ARM-NOT-RUN floor, got none.")
-            failures += 1
-        elif arm not in floor[0]:
-            print(f"SELF-TEST FAIL ({label}): floor does not name `{arm}`: {floor[0]!r}")
-            failures += 1
-
-    expect_arm_not_run(
-        {"conventions": None}, arm="L6-inventory-row",
-        label="L3 conventions gone — the inventory-row assertion stops running",
-    )
-    expect_arm_not_run(
-        {"spec002": None}, arm="L4-spec002-links-resolve",
-        label="L4 spec002 gone — anchors still checked PRESENT but never RESOLVED",
-    )
-    expect_arm_not_run(
-        {"phase2": None}, arm="L1-preflight-realization",
-        label="L5 phase2 gone — the guide realization arms stop running",
-    )
-    # Every source present ⇒ every declared arm runs, and no floor fires.
-    ran = lifecycle_arms_run(dict(base))
-    if ran != set(LIFECYCLE_ARM_SOURCES):
-        print(
-            f"SELF-TEST FAIL (L6 full coverage): expected all "
-            f"{len(LIFECYCLE_ARM_SOURCES)} arms to run, missing "
-            f"{sorted(set(LIFECYCLE_ARM_SOURCES) - ran)}."
-        )
-        failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
