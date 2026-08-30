@@ -13,7 +13,7 @@ The migration summary format. The shape from [`MIGRATION.md`](../../../migration
 - Required rules applied: <list of M-N rule IDs, or "none">
 - Dependencies changed (non-re-frame): <each non-re-frame dep bumped/added/removed, with the gate that justified it — Phase-0b floor gate (React/Reagent/component-lib), Check-4 toolchain (shadow-cljs/CLJS), or the Xray peer-deps; "none" if the coord swap was the whole diff>
 - Opt-in changes applied: <list of O-N rule IDs, or "none, not requested">
-- Verification: <compile/test/run results the AUTHOR ran (the skill does not invoke compile/test/smoke)>
+- Verification: <the exact compile / test commands the skill ran and their results; the boot smoke-test's status — driven clean through a connected runtime, or PENDING with the checklist handed to the programmer>
 
 ## Items flagged for human review
 

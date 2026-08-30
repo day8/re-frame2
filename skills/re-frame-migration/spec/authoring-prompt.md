@@ -10,7 +10,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *Read these first (in this order):*
 >
-> *1. `skills/re-frame-migration/spec/design.md` — the locked design decisions (L1 through L10). Q14 lock applies in its **refined** form (L3): the skill never *executes* builds/tests/smoke (cardinal rule 5 — the author runs them), but it DOES teach + gate "done" on a read-only boot smoke-test (live `app-db` introspection). Source of truth is `migration/from-re-frame-v1/README.md`.*
+> *1. `skills/re-frame-migration/spec/design.md` — the locked design decisions (L1 through L10). L3: the skill runs the project's own noninteractive install / compile / test gates itself (cardinal rule 5) and gates "done" on the boot smoke-test (live `app-db` introspection) — driven through a connected runtime, or handed over as one checklist and reported pending. Source of truth is `migration/from-re-frame-v1/README.md`.*
 > *2. `skills/re-frame-migration/spec/inputs.md` — the canonical inputs the skill leans on.*
 > *3. `migration/from-re-frame-v1/README.md` — the breaking-change spec the skill routes around. Part 1 has the rule corpus; Part 2 is the AI-agent execution procedure.*
 > *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/references/**` — the voice / density / load-bearing-rules style to mirror.*
@@ -35,7 +35,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *Locks to preserve verbatim:*
 >
-> *- **L3 — the skill never *executes* builds/tests/smoke (refined).** Cardinal rule 5 is the lock: the skill prints the build / test / smoke commands and the **author** runs them — never the skill (arbitrary-code-execution trust boundary). The lock does NOT forbid teaching verification: the skill DOES carry a Phase-4 boot smoke-test (`references/runtime-smoke-test.md`) and DOES gate "done" on it (a read-only live-`app-db` introspection loop), because "compiles" is not the done-bar. Preserve the cardinal-rule-5 invariant and the smoke-test done-bar together; see `design.md` §L3/§L4.*
+> *- **L3 — the skill runs the gates it discovers; the boot smoke-test is the done-bar.** Cardinal rule 5: the skill discovers the project's install / compile / test commands in its files, runs them, and records command + result — it never prints a command for the author to paste back, and it restates no execution taxonomy (the host agent's permissions and sandbox govern). The Phase-4 boot smoke-test (`references/runtime-smoke-test.md`) is driven through a connected runtime or handed over as one compact checklist and reported pending — "compiles" is not the done-bar. See `design.md` §L3/§L4.*
 > *- **L5 — `migration/from-re-frame-v1/README.md` Part 2 IS the migration prompt.** The kickoff prompt in `references/kickoff-prompt.md` wraps it; it doesn't replace it.*
 > *- **L7 — Reagent v2 is the default substrate target.** Substrate migration (O-13) is never part of a v1→v2 migration.*
 > *- **L9 — Smallest correct diff.** Opt-in modernisations (O-rules) are never auto-applied as part of a routine migration.*
@@ -50,7 +50,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *- Don't write `*.md` documentation outside `skills/re-frame-migration/`.*
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
-> *- Don't teach the skill to *run* the author's builds / tests / smoke-tests — it prints the commands; the author runs them (cardinal rule 5). (This is NOT a ban on the boot smoke-test itself: `references/runtime-smoke-test.md` is a kept leaf and the Phase-4 smoke-test is the done-bar — keep teaching it as a read-only, author-run live-introspection loop.)*
+> *- Don't restate the execution posture anywhere but cardinal rule 5 — no per-leaf "the author runs it" clauses, no paste loop, no interactive / orchestrated / CI taxonomy; the leaves point at rule 5. (Keep teaching the boot smoke-test as the done-bar: `references/runtime-smoke-test.md` is a kept leaf, and its seven steps double as the checklist handed over when no runtime is connected.)*
 > *- Don't duplicate `migration/from-re-frame-v1/README.md` content — reference it by rule id and link.*
 >
 > *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/core/25-from-re-frame-v1.md`, `docs/the-mayor-method/`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
@@ -65,7 +65,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 ## When to re-author
 
 - MIGRATION.md grows by >5 rules → the existing leaves' indices are stale; rebuild from scratch is easier than patching.
-- The Q14 lock changes → the design itself changes; this `spec/` folder needs updating first, then the skill.
+- L3 (the execution posture) changes → the design itself changes; this `spec/` folder needs updating first, then the skill.
 - Anthropic skill conventions change materially (e.g. SKILL.md size ceiling changes, frontmatter shape changes) → reauthor against the new conventions.
 
 Otherwise, edit the existing leaves directly; reauthoring from scratch is for major-version updates.

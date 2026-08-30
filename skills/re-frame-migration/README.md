@@ -17,9 +17,9 @@ This is the migration companion to the main [`re-frame2`](../re-frame2) skill (w
 0a. Pre-flight — inventory-and-plan — before everything, inventory the v1 re-frame add-on libraries (including transitives / git-source / vendored) and app features used, scan each add-on's source for removed/moved v2 surfaces (off-contract `re-frame.*`, the removed `re-frame.core/console`, a removed `re-frame.core/unwrap` `:refer` — v2 destination is handler destructuring or a project-registered interceptor, React-19 coupling, classpath collision), and produce a per-item migration plan (rule(s) + forced-vs-optional + disposition + replacement target + ordering). Collapses the "march the wall" whack-a-mole into one planned sweep; the umbrella that drives the floor gate, the off-contract-namespace principle, the add-on compile-gate, and the classpath-clean verification.
 0b. Pre-flight — the React-19 / Reagent-2 floor gate — before any dep edit, audit downstream React-coupled deps, confirm the UI component library supports React 19 (Reagent 2 if Reagent-based), scan for legacy `ReactDOM.render` call sites, check the CLJS/shadow-cljs/Closure toolchain for version skew (an older shadow-cljs breaks on the newer Closure with a cryptic `NoSuchFieldError` that looks like a migration bug — a known mechanical bump carried into the M-0 pass, not a stop), and make an explicit go/no-go. A component library with no declared React-19 release is not an automatic stop — it routes to a 4-option decision (wait / replace / vendor-or-patch / force React 19 and verify empirically at runtime); an empirical pass is a valid GO, and only a library with neither a declared release nor an empirical pass is a hard blocker, surfaced here rather than mid-compile.
 1. Orient — read the project's dep file; identify the substrate; skim `migration/from-re-frame-v1/README.md` for the rule index.
-2. Bump (M-0) — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact, carrying every Phase-0b GO-state bump into the same pass (React/Reagent, any component-lib, and the shadow-cljs/CLJS toolchain bump — an older shadow-cljs left behind detonates the first compile with a cryptic `NoSuchFieldError`). The skill makes the dep-file + `package.json` edits; the author runs the install. Try a compile. Most codebases require nothing more.
+2. Bump (M-0) — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact, carrying every Phase-0b GO-state bump into the same pass (React/Reagent, any component-lib, and the shadow-cljs/CLJS toolchain bump — an older shadow-cljs left behind detonates the first compile with a cryptic `NoSuchFieldError`). The skill makes the dep-file + `package.json` edits, runs the install, and compiles. Most codebases require nothing more.
 3. Apply the planned sweep — always carry forward the Phase-0a plan (forced blockers, silent-fail rules, M-70) whether or not Phase 2 compiled cleanly; if the compile also surfaced failures, additionally walk those M-rules in order. Apply Type A (mechanical) without asking; flag Type B (judgment-call) for the author.
-4. Verify — the author runs compile + tests plus a booted-app smoke-test (live `app-db` / machine-snapshot introspection). "Compiles" is not the done-bar: v2 moves a large class of v1 failures to runtime, so the planned silent-fail fixes apply whether or not the compile failed, and the smoke-test must come back clean. Iterate per surfaced failures.
+4. Verify — the skill runs the project's own compile + tests, then the booted-app smoke-test (live `app-db` / machine-snapshot introspection) — driven through a connected runtime, or handed to the programmer as one checklist and reported pending. "Compiles" is not the done-bar: v2 moves a large class of v1 failures to runtime, so the planned silent-fail fixes apply whether or not the compile failed, and the smoke-test must come back clean. Iterate per surfaced failures.
 5. Opt-in modernisations (only if requested) — walk the O-rules.
 6. Report — produce the migration summary per `migration/from-re-frame-v1/README.md` Part 2.
 
@@ -30,7 +30,7 @@ This is the migration companion to the main [`re-frame2`](../re-frame2) skill (w
 - live-runtime inspection of the running v2 app — that's `re-frame2-pair`
 - substrate migration (Reagent → UIx) — never part of a v1→v2 migration; opt-in via O-13
 - stylistic refactoring, naming changes, or any rewriting the author didn't ask for
-- running the author's tests — that's general software practice, not migration-specific (per the Q14 lock from the `re-frame2` skill design)
+- interactive / visual confirmation when no drivable runtime is connected — the skill hands over one checklist and reports the smoke as pending rather than claiming completion
 
 ## How the skill works
 
@@ -45,7 +45,7 @@ It does not duplicate `migration/from-re-frame-v1/README.md` content. Each rule 
 
 ## Status
 
-Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real v1 codebase migration. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `migration/from-re-frame-v1/README.md`, `docs/core/25-from-re-frame-v1.md`, and `docs/the-mayor-method/`'s paste-prompt pattern.
+Pre-alpha. The skill has been driven end to end against one substantial real v1 codebase; that run's friction harvest — roughly two dozen generic improvement candidates, the most valuable of them found only by reaching the live runtime — is the field evidence recorded in the skill's `spec/improving.md` meta-doc (repo-only; not shipped in the package), and its friction loop is the one every later improvement follows. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `migration/from-re-frame-v1/README.md`, `docs/core/25-from-re-frame-v1.md`, and `docs/the-mayor-method/`'s paste-prompt pattern.
 
 ## Layout
 

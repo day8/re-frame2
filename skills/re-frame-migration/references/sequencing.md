@@ -175,13 +175,13 @@ Apply all the Type A rewrites first, present the Type B batch second. The author
 
 If the sweep is interrupted mid-flight:
 
-1. **Ask the author** to run a clean compile and paste the output. The compile errors tell you which group you're stuck in. (The skill never runs the compile itself — see [`../SKILL.md`](../SKILL.md) cardinal rule 5.)
+1. **Run a clean compile** with the project's own command and read the errors — they tell you which group you're stuck in ([`../SKILL.md`](../SKILL.md) cardinal rule 5).
 2. Look up the symbol or pattern in `references/breaking-changes.md`. Find the rule id.
 3. Find the rule's group in this leaf — the groups before it should already be applied; the groups after it haven't started.
 4. Apply the rule. Continue with the rest of its group.
 
 The groups are self-contained — finishing a group before starting the next means each compile-and-test cycle is a meaningful checkpoint. Don't half-apply a group.
 
-## Verification is the author's loop
+## Verification is the skill's loop
 
-Every "compile + tests" and "boot smoke-test" arrow in the diagram above is **the author running** compile / tests / the booted-app smoke-test, not the skill. The skill prints the exact command for the project's build tool (`shadow-cljs compile <build>` / `clj -M:test` / `npm run test` / etc.) and the smoke-test loop (`re-frame2-pair` MCP / a shadow-cljs nREPL reading live `app-db`), then waits for the author to paste the output. See [`../SKILL.md`](../SKILL.md) cardinal rule 5 — the trust boundary that excludes arbitrary code execution from this skill's loop, even on a long-standing repo.
+Every "compile + tests" arrow in the diagram above is **the skill running** the project's own compile / test command (`shadow-cljs compile <build>` / `clj -M:test` / `npm run test` / etc.) and reading the result — [`../SKILL.md`](../SKILL.md) cardinal rule 5 — so a group closes on evidence, not on a pasted log. The "boot smoke-test" arrow is the one that may need the programmer: drive it through a connected runtime (`re-frame2-pair` MCP / a shadow-cljs nREPL reading live `app-db`) when there is one; otherwise hand over the checklist and report it pending ([`runtime-smoke-test.md`](runtime-smoke-test.md)).

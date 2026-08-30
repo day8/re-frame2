@@ -1,27 +1,55 @@
 {
   "skill_name": "re-frame-migration",
   "schema_version": "1",
-  "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md. Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
-  "notes": "Positives target v1->v2 migration prompts: explicit phrasing OR any v1 surface mention (re-frame.db, dispatch-with, reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha, re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys) OR a v1 add-on-lib fingerprint (http-fx / :http-xhrio, async-flow-fx / :async-flow). Negatives target greenfield, authoring on already-v2, live-runtime, and pure spec / EP questions.",
+  "convention": "anthropics/skills/skill-creator evals.json — two kinds, per references/schemas.md. `kind:\"trigger\"` fixtures carry `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy. `kind:\"behavioural\"` fixtures carry `expectations[]` asserting the skill's execution contract (SKILL.md cardinal rules 2, 4 and 5) holds on a described v1 project — graded against the transcript, not a codemod.",
+  "notes": "Trigger positives target v1->v2 migration prompts: explicit phrasing OR any v1 surface mention (re-frame.db, dispatch-with, reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha, re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys) OR a v1 add-on-lib fingerprint (http-fx / :http-xhrio, async-flow-fx / :async-flow). Trigger negatives target greenfield, authoring on already-v2, live-runtime, and pure spec / EP questions. The three behavioural fixtures (20-22) grade the outcome of one explicit migration request end to end: a Type-A-only migration proceeds through the project's own compile/test gates without a paste loop; a mixed Type-A/Type-B migration runs the safe work and pauses ONCE, on the batched semantic decisions; and no false completion is claimed when the interactive boot smoke has no runtime to drive. Their prompts describe the project in words (no fixture tree) so the grader reads the agent's plan, tool calls and report rather than a diff.",
   "evals": [
-    {"id": 1,  "name": "explicit-migrate",      "should_trigger": true,  "prompt": "Migrate my re-frame v1 app to re-frame2."},
-    {"id": 2,  "name": "explicit-upgrade",      "should_trigger": true,  "prompt": "Upgrade my codebase from re-frame to re-frame2."},
-    {"id": 3,  "name": "v1-to-v2",              "should_trigger": true,  "prompt": "What changes from v1 to v2? Walk me through what breaks."},
-    {"id": 4,  "name": "v1-surface-db",         "should_trigger": true,  "prompt": "I have a lot of code that imports re-frame.db directly. How does that work under re-frame2?"},
-    {"id": 5,  "name": "v1-surface-dispatch",   "should_trigger": true,  "prompt": "Our codebase uses dispatch-with and reg-global-interceptor heavily — what's the v2 equivalent?"},
-    {"id": 6,  "name": "v1-surface-flush-dom",  "should_trigger": true,  "prompt": "We rely on ^:flush-dom in a bunch of places. Is that still a thing in re-frame2?"},
-    {"id": 7,  "name": "v1-surface-test",       "should_trigger": true,  "prompt": "Our tests use re-frame-test extensively. What replaces it in v2?"},
-    {"id": 8,  "name": "v1-effect-map-keys",    "should_trigger": true,  "prompt": "Our handlers return {:db ... :dispatch [...] :dispatch-n [[...]]}. Does v2 still accept those top-level keys?"},
-    {"id": 9,  "name": "neg-greenfield",        "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
-    {"id": 10, "name": "neg-author-v2",         "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on an already-v2 project is re-frame2."},
-    {"id": 11, "name": "neg-live-pair",         "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
-    {"id": 12, "name": "neg-port-language",     "should_trigger": false, "prompt": "I want to port re-frame2 to F#.", "rationale": "Porting the framework is re-frame2-implementor."},
-    {"id": 13, "name": "neg-spec-question",     "should_trigger": false, "prompt": "What's the EP rationale for treating effects as data in v2?", "rationale": "Spec discussion belongs to SKILL-REDIRECT.md."},
-    {"id": 14, "name": "neg-xray-tour",         "should_trigger": false, "prompt": "Which Xray panel shows my schema violations?", "rationale": "Xray tour is its own skill."},
-    {"id": 15, "name": "neg-improver",          "should_trigger": false, "prompt": "Review events.cljs in my v2 project for anti-patterns.", "rationale": "Static critique is re-frame2-improver."},
-    {"id": 16, "name": "neg-vocab-migrate-db",  "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
-    {"id": 17, "name": "v1-addon-http-fx",      "should_trigger": true,  "prompt": "Our handlers use :http-xhrio (http-fx) everywhere — what's the v2 path?"},
-    {"id": 18, "name": "v1-addon-async-flow",   "should_trigger": true,  "prompt": "We orchestrate boot with async-flow-fx and :async-flow. Does that survive the move to re-frame2?"},
-    {"id": 19, "name": "v1-surface-signal-fn-reg-sub", "should_trigger": true,  "prompt": "We have lots of reg-sub calls with a signal function — (reg-sub id (fn [q] [(subscribe ...)]) (fn [inputs q] ...)). Does that still work in re-frame2?"}
+    {"id": 1,  "kind": "trigger", "name": "explicit-migrate",      "should_trigger": true,  "prompt": "Migrate my re-frame v1 app to re-frame2."},
+    {"id": 2,  "kind": "trigger", "name": "explicit-upgrade",      "should_trigger": true,  "prompt": "Upgrade my codebase from re-frame to re-frame2."},
+    {"id": 3,  "kind": "trigger", "name": "v1-to-v2",              "should_trigger": true,  "prompt": "What changes from v1 to v2? Walk me through what breaks."},
+    {"id": 4,  "kind": "trigger", "name": "v1-surface-db",         "should_trigger": true,  "prompt": "I have a lot of code that imports re-frame.db directly. How does that work under re-frame2?"},
+    {"id": 5,  "kind": "trigger", "name": "v1-surface-dispatch",   "should_trigger": true,  "prompt": "Our codebase uses dispatch-with and reg-global-interceptor heavily — what's the v2 equivalent?"},
+    {"id": 6,  "kind": "trigger", "name": "v1-surface-flush-dom",  "should_trigger": true,  "prompt": "We rely on ^:flush-dom in a bunch of places. Is that still a thing in re-frame2?"},
+    {"id": 7,  "kind": "trigger", "name": "v1-surface-test",       "should_trigger": true,  "prompt": "Our tests use re-frame-test extensively. What replaces it in v2?"},
+    {"id": 8,  "kind": "trigger", "name": "v1-effect-map-keys",    "should_trigger": true,  "prompt": "Our handlers return {:db ... :dispatch [...] :dispatch-n [[...]]}. Does v2 still accept those top-level keys?"},
+    {"id": 9,  "kind": "trigger", "name": "neg-greenfield",        "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
+    {"id": 10, "kind": "trigger", "name": "neg-author-v2",         "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on an already-v2 project is re-frame2."},
+    {"id": 11, "kind": "trigger", "name": "neg-live-pair",         "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
+    {"id": 12, "kind": "trigger", "name": "neg-port-language",     "should_trigger": false, "prompt": "I want to port re-frame2 to F#.", "rationale": "Porting the framework is re-frame2-implementor."},
+    {"id": 13, "kind": "trigger", "name": "neg-spec-question",     "should_trigger": false, "prompt": "What's the EP rationale for treating effects as data in v2?", "rationale": "Spec discussion belongs to SKILL-REDIRECT.md."},
+    {"id": 14, "kind": "trigger", "name": "neg-xray-tour",         "should_trigger": false, "prompt": "Which Xray panel shows my schema violations?", "rationale": "Xray tour is its own skill."},
+    {"id": 15, "kind": "trigger", "name": "neg-improver",          "should_trigger": false, "prompt": "Review events.cljs in my v2 project for anti-patterns.", "rationale": "Static critique is re-frame2-improver."},
+    {"id": 16, "kind": "trigger", "name": "neg-vocab-migrate-db",  "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
+    {"id": 17, "kind": "trigger", "name": "v1-addon-http-fx",      "should_trigger": true,  "prompt": "Our handlers use :http-xhrio (http-fx) everywhere — what's the v2 path?"},
+    {"id": 18, "kind": "trigger", "name": "v1-addon-async-flow",   "should_trigger": true,  "prompt": "We orchestrate boot with async-flow-fx and :async-flow. Does that survive the move to re-frame2?"},
+    {"id": 19, "kind": "trigger", "name": "v1-surface-signal-fn-reg-sub", "should_trigger": true,  "prompt": "We have lots of reg-sub calls with a signal function — (reg-sub id (fn [q] [(subscribe ...)]) (fn [inputs q] ...)). Does that still work in re-frame2?"},
+
+    {"id": 20, "kind": "behavioural", "name": "behav-type-a-only-runs-gates-no-paste-loop",
+     "prompt": "Migrate this project from re-frame v1 to re-frame2. It is a small Reagent app on deps.edn + shadow-cljs: deps.edn pins re-frame/re-frame 1.4.3 and declares a :test alias; package.json has `test` (the shadow-cljs :test build) and `build` scripts; every handler is reg-event-db / reg-event-fx and several return {:db ... :dispatch [...]}. No reg-sub-raw, no interceptors, no add-on libraries, React is already 19. The re-frame2 corpus is at ../re-frame2 pinned to <sha>; target version <v2-version>. Go.",
+     "expectations": [
+       "Runs Phase 0a (inventory-and-plan) and Phase 0b (the floor gate) BEFORE any dep edit, then applies M-0 and the Type-A rules the description implies (M-73 reg-event-db / reg-event-fx -> reg-event; M-8 top-level :dispatch -> :fx), each with a sweep-level announcement (rule id, matched file count, representative diff) — and PROCEEDS after announcing; it does not stop to ask whether it may continue (cardinal rule 4).",
+       "After the dep swap it RUNS the project's own install and compile / test commands, discovered from deps.edn and package.json (`npm install`, `clojure -M:test`, `npm test` / `npx shadow-cljs compile test`), through Bash, and reads the results — it never prints a command for the user to run and paste back (cardinal rule 5).",
+       "Runs only what the project declares: no invented gate, nothing destructive or deploy-shaped, no unrelated dependency bumps.",
+       "The Phase-6 report's Verification line quotes the exact commands it ran and their observed results (exit status, test counts).",
+       "With no re-frame2-pair MCP or nREPL connected, the report marks the boot smoke-test PENDING and hands over one compact checklist; it does not say the migration is complete."
+     ]},
+
+    {"id": 21, "kind": "behavioural", "name": "behav-mixed-type-a-b-pauses-once-on-batched-decisions",
+     "prompt": "Migrate this v1 app to re-frame2 (corpus at ../re-frame2 pinned to <sha>; target <v2-version>). deps.edn project with a :test alias. The handlers are reg-event-db with top-level :dispatch keys; there are two reg-sub-raw subscriptions whose bodies subscribe to a websocket stream; and one event handler calls dispatch-sync from inside its body.",
+     "expectations": [
+       "Applies the Type-A rules (M-73, M-8) after announcing each sweep, without waiting for a second acknowledgement, and then runs the discovered compile / test gate (`clojure -M:test`) itself and reports the result.",
+       "Identifies the two reg-sub-raw sites (M-18) and the in-handler dispatch-sync (M-3) as Type B: for each it names the site, explains the risk, and proposes the rewrite — presented as ONE batch after the Type-A sweep, not one interruption per site (cardinal rules 2 and 4; sequencing.md).",
+       "Does NOT rewrite the M-18 or M-3 sites before the author decides; the report lists them under 'Items flagged for human review'.",
+       "Runs compile / tests after the Type-A sweep and reports those results BEFORE presenting the Type-B batch, so the author decides against a known-green baseline."
+     ]},
+
+    {"id": 22, "kind": "behavioural", "name": "behav-no-false-completion-without-a-runtime",
+     "prompt": "Finish the migration and write the report. The compile is clean and all 47 tests pass — you ran them. There is no re-frame2-pair MCP and no nREPL attached to this session.",
+     "expectations": [
+       "Does NOT claim the migration complete: the report marks the boot smoke-test PENDING and gives one compact checklist for the programmer (boot the dev build; read the app-db seed slots; read each expected machine snapshot and confirm it left :initial; deref the first-screen subs; dispatch one event per feature surface and re-read the slot; exercise the async entry points installed outside a view; scan the boot trace for :rf.error/* / :rf.warning/*).",
+       "Does not fabricate smoke-test observations, and does not ask the programmer to paste compile / test output the agent already has.",
+       "Names what would close the smoke: a connected re-frame2-pair MCP or shadow-cljs nREPL the agent can drive, or the programmer's confirmation of the checklist.",
+       "The Verification line quotes the compile / test commands and results actually observed, and the Done checklist's smoke item is left unticked."
+     ]}
   ]
 }
