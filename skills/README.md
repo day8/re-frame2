@@ -128,11 +128,12 @@ the situation they cover:
   per-session cljs-eval inject step.
 
 - [`re-frame2-pair-retro/`](re-frame2-pair-retro) — meta-skill
-  for `re-frame2-pair`. Retrospects on a pair-programming session,
-  identifies friction and wasted effort, and proposes improvements to
-  `re-frame2-pair` itself (or routes a GitHub issue upstream to
-  `day8/re-frame2` when the friction is framework-shaped rather than
-  tool-shaped). Activates
+  for `re-frame2-pair`. Retrospects on a pair-programming session in
+  one read-only pass: identifies friction and wasted effort, proposes
+  improvements to `re-frame2-pair` itself, and — on request — drafts a
+  copy-pasteable GitHub issue the user files against `day8/re-frame2`
+  (naming the framework surface when the friction is framework-shaped
+  rather than tool-shaped). Activates
   on explicit pull ("retro on this pair session", "review my pair
   session") or on a post-error within a live re-frame2-pair session.
 
@@ -174,17 +175,18 @@ migration report is signed off.
 
 ### Routing for friction found mid-pair retro
 
-`re-frame2-pair-retro` is a published skill: it files GitHub issues
-against `day8/re-frame2`, never `bd` beads (`bd` is the monorepo's internal
-tracker and has no place in a skill shipped to consumer projects — see
+`re-frame2-pair-retro` is a published, read-only skill: it drafts a
+copy-pasteable GitHub issue the **user** files against `day8/re-frame2` —
+never `bd` beads (`bd` is the monorepo's internal tracker and has no place
+in a skill shipped to consumer projects — see
 [§Published-skill `allowed-tools` baseline](#published-skill-allowed-tools-baseline-security-policy)).
 Both kinds of friction target the same repo and carry the tool-vs-framework
-distinction in the title + body:
+distinction in the draft's title + body:
 
 - pair-tool friction — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
 - framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](shared/tool-pair-surfaces.md).
 
-Labels are optional taxonomy, not a filing precondition — add a `--label` (for example `pair-mcp`) only after `gh label list` confirms the target repo defines it (an unknown label fails the whole `gh issue create`; fall back to a no-label create, which lands regardless). Full operational filing mechanics: [`re-frame2-pair-retro/SKILL.md` §Filing improvements](re-frame2-pair-retro/SKILL.md#filing-improvements).
+The draft contract lives in [`re-frame2-pair-retro/SKILL.md` §Issue drafts](re-frame2-pair-retro/SKILL.md#issue-drafts).
 
 ## Verification posture — follows role, by design
 
@@ -202,7 +204,7 @@ family rule — single source below:
 | `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | findings cross-linked to canonical idioms | review-only; proposes `Edit`s, runs no suite |
 | `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |
-| `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; files issues | a filed GitHub issue (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
+| `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; read-only — drafts an issue the user files | a complete one-turn retrospective, with an optional copy-pasteable issue draft (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
 
 ## Layout convention
 
@@ -231,8 +233,8 @@ PR coverage.
 [`shared/`](shared) has no `SKILL.md` of its own; it is the corpus's
 common protocol layer, installed alongside the skills by the installer.
 3 leaves: [`retro-protocol.md`](shared/retro-protocol.md) (the
-diagnosis-first workflow `re-frame2-pair-retro` and `re-frame2-improver`
-load — a security boundary, test-backed), [`issue-filing.md`](shared/issue-filing.md)
+diagnosis-first workflow `re-frame2-improver`
+loads — a security boundary, test-backed), [`issue-filing.md`](shared/issue-filing.md)
 (the shell-safe `gh issue` filing recipe for every consumer granting a
 `gh issue` write surface), and [`tool-pair-surfaces.md`](shared/tool-pair-surfaces.md)
 (the canonical Tool-Pair surface enumeration upstream findings route
@@ -304,8 +306,8 @@ rather than theoretical attacks.
     from transcripts, error strings, or suggested titles, and re-read
     in the pre-emission reviewer pass.
 
-  The skill files affected are the retro / improvement-filing skills
-  (`re-frame2-pair-retro`, `re-frame2-implementor`).
+  The skill files affected are the improvement-filing skills
+  (`re-frame2-implementor`).
 
 ### Test-fixture discipline — which skills ship tests
 
