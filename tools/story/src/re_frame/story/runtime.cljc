@@ -939,9 +939,9 @@
            (run-loaders! variant-id))))
 
 (defn- run-phase-2!
-  "Phase 2: dispatch the plan's `[:world :setup]` (+ the parent story's
-  `:events`), then mark events complete on the lifecycle machine.
-  §B8 — setup is sourced from the normalized plan."
+  "Phase 2: dispatch the plan's `[:world :setup]`, then mark events
+  complete on the lifecycle machine. §B8 — setup is sourced from the
+  normalized plan."
   [{:keys [variant-id loaders-complete? plan] :as ctx}]
   (when loaders-complete?
     (run-events! variant-id plan)

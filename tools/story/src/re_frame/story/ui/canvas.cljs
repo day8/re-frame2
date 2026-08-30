@@ -182,7 +182,7 @@
   the proof that `run-loaders!` returned; pin the skeleton off so the
   view layer takes over.
 
-  The `events-only?` arm covers variants whose body declares only `:events` (no
+  The `events-only?` arm covers variants whose body declares only `:setup` (no
   `:loaders`, no `:frame-setup` decorators, no `:loaders-complete-
   when`). Their lifecycle takes the runtime's fast-path
   (`:pre-mount → :ready` on mount via `loaders/mount-ready!`), so by
