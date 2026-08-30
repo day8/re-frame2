@@ -1,6 +1,6 @@
 # re-frame2-pair-retro
 
-> ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
+> ↑ [`skills/`](..) — index of all re-frame2 skills.
 
 `re-frame2-pair-retro` is a Claude meta-skill for [`re-frame2-pair`](../re-frame2-pair). It reviews a user's `re-frame2-pair` session, identifies friction and wasted effort, and suggests how `re-frame2-pair` itself could be improved to become a better pair programmer.
 
@@ -11,51 +11,46 @@ It is designed for retrospectives like:
 - "What was frustrating about this re-frame2-pair session?"
 - "What took longer than it should have?"
 - "Which parts of this workflow should re-frame2-pair absorb?"
-- "Can you draft or file a GitHub issue for the best improvement idea?"
+- "Can you draft a GitHub issue for the best improvement idea?"
 
-It focuses on evidence from the session itself: retries, confusion, workarounds, stale or empty results, missing observability, brittle platform behaviour, hidden prerequisites, and trust gaps. It then proposes improvements at the right layer: `SKILL.md`, scripts/runtime ops, warnings/results, tests/fixtures, or — when the friction is caused by the framework rather than the pair tool — an upstream GitHub issue against `day8/re-frame2`.
+One explicit request over one clear session returns the complete retrospective in one response — the user's actual goal, the friction the session evidenced (retries, confusion, workarounds, stale or empty results, missing observability, brittle platform behaviour, hidden prerequisites, trust gaps), why `re-frame2-pair` was not enough, and the smallest credible change at the right owner: the pair tool itself, or — when the friction is caused by the framework's Tool-Pair contract rather than the tool — upstream `re-frame2`.
 
-It can draft a GitHub issue against `day8/re-frame2` — the monorepo where the pair tool ships, alongside the framework — but only if the user wants that. Tool-side vs upstream-framework friction is carried in the issue title and body; when the target repo defines them, an optional `pair-mcp` / `upstream-from-re-frame2-pair` label reinforces the distinction. Labels are best-effort taxonomy, never a precondition: filing falls back to a no-label `gh issue create` so the handoff lands even on a repo that has not defined those labels.
+The skill is **read-only**. On request it includes one focused, copy-pasteable GitHub issue draft against `day8/re-frame2` — the monorepo where the pair tool ships, alongside the framework — with the tool-vs-framework distinction carried in the draft's title and body. The user owns whether and how to file it: the skill never runs `gh issue create`, never writes files, never edits a repo, and never probes a live runtime (live inspection routes to `re-frame2-pair`). Its only shell surface is optional read-only duplicate search (`gh issue list` / `gh issue view`).
 
 It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file issues.
 
 ## Directory contents
 
-- `SKILL.md` — the skill itself
+- `SKILL.md` — the skill itself: entry modes, guard rails, the session-evidence invariants, the retrospective and issue-draft contract
 - `README.md` — this human-facing intro
-- `references/analysis-lenses.md` — friction taxonomy and prioritisation prompts (re-frame2-aware)
-- `references/known-frictions.md` — recurring classes of product friction to pattern-match against
-- `references/issue-template.md` — the Pair-retro issue structure (routing, title patterns, body skeleton, target/optional-label policy); it links [`../shared/issue-filing.md`](../shared/issue-filing.md) for the generic shell-safety filing mechanics rather than restating them
-- `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
-- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation, and — like `evals/` — excluded from the npm `files` array by design (repo-maintenance artifacts that run from a full clone, not material a packaged consumer re-runs; `npm pack --dry-run` lists no `spec/` or `evals/` files, mirroring the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills)
+- `references/known-frictions.md` — recurring classes of product friction to pattern-match against, loaded on demand when a session smells like a known class
+- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation, and — like `evals/` — excluded from the npm `files` array by design (repo-maintenance artifacts that run from a full clone, not material a packaged consumer re-runs)
 - `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, also excluded from the npm package `files` array
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
 
+Everything the skill loads during normal operation ships under this directory — `SKILL.md` plus the one on-demand `references/` leaf. There is no runtime dependency on any sibling directory.
+
 ## Relationship to other repos
 
-- [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — the pair tool this skill reviews. Sessions with that tool are this skill's input.
-- [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), GitHub issues route here, not to `re-frame2-pair`.
+- [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — the pair tool this skill reviews. Sessions with that tool are this skill's input, and live-runtime work of any kind routes back to it.
+- [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), the issue draft names the framework surface — and still targets this monorepo's GitHub issues, since the pair tool ships here too.
 - [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver) — the v1 sibling that targets v1 `re-frame-pair`.
 
-This skill does not depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool — the current surface-family enumeration (trace stream, registrar query API, epoch-history / restore, state injection (`replace-frame-state!`), schema reflection, source-coord annotation, direct reads, render-driving / dispatch-settle, view-plane reads, the signal recorder, the operating-frame trio) lives in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md), the single source an upstream finding names a surface from.
+This skill does not depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool; an upstream finding names the specific missing or under-specified surface in the draft.
 
 ## Typical output
 
-A good run of the skill produces:
+A good run of the skill produces, in one response:
 
-- the user's actual goal
-- the main friction points observed in the session
-- likely root causes
-- 2 to 5 high-leverage improvement ideas
-- optional GitHub-issue candidates (against `day8/re-frame2`; the `pair-mcp` label for tool-side friction is applied only when the repo defines it), with draft text or direct filing only after approval
+- the user's actual goal and the friction the session evidenced, each finding tied to a concrete moment
+- why `re-frame2-pair` was not enough, and the smallest credible change at the correct owner (pair tool vs upstream framework)
+- when asked — one focused, copy-pasteable GitHub issue draft the user can file, edit, combine, or discard
 
 ## Install
 
-`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is not published to npm or any plugin registry yet — the current install path is to link the skill from a full monorepo clone.
-
-> Link from a clone; do not copy, and do not depend on a standalone tarball. 2 reasons. (1) A `cp -r` copy silently drifts from the maintained source, and for this skill that drift is a security concern — the shared redaction / untrusted-evidence / shell-safe issue-filing boundary it loads is an active AI/off-box surface, so a stale copy can miss later hardening while still filing GitHub issues from sensitive pair-session recaps. (2) The skill loads 3 normal-operation leaves from a sibling directory — [`../shared/retro-protocol.md`](../shared/retro-protocol.md), [`../shared/issue-filing.md`](../shared/issue-filing.md), and [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — whose `../shared/` paths resolve only inside a full re-frame2 checkout. The npm tarball / plugin bundle deliberately do not carry `skills/shared/` (it is a single boundary owned once, not duplicated per consumer), so any install that does not bring `skills/shared/` alongside the skill hits broken links and silently loses the protocol. If you deliberately vendor a pinned snapshot, you own the update burden and must copy `skills/shared/` as a peer.
+`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is not published to npm or any plugin registry yet — the current install path is to link the skill from a full monorepo clone. Prefer linking over copying in any case: a `cp -r` copy snapshots the skill and silently drifts from the maintained source as the repo moves.
 
 Claude Code loads skills from `~/.claude/skills/<name>/`. The cross-platform installer at the repo root links every re-frame2 skill into place — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour. To link just this one skill:
 

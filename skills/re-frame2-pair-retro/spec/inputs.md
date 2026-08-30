@@ -6,14 +6,16 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — the user's recent session transcript
 
-The skill operates on the **current or just-finished conversation** — the user's prompts, the AI's tool calls, the structured results, the retries, the clarifications, the fallbacks. This is the raw material. The skill doesn't ingest a transcript file; it reads context that's already in the conversation.
+The skill operates on the **current or just-finished conversation** — the user's prompts, the AI's tool calls, the structured results, the retries, the clarifications, the fallbacks — or on a **user-supplied recap** of a session. This is the raw material. The skill doesn't ingest a transcript file, and it never probes the runtime to augment the evidence; a fact the session did not produce stays unknown/incomplete.
 
 What the skill looks for:
 
 - **Direct friction signals** — the user saying something was frustrating, confusing, slow, brittle, surprising.
-- **Indirect friction signals** — repeated commands, repeated explanations, fallback to lower-level tools (e.g. `repl/eval` when a structured op should have worked), manual reconstruction (the user explaining what they were trying to do twice), hidden prerequisites, brittle environment assumptions, partial results, confusing contracts, missing trust signals.
+- **Indirect friction signals** — repeated commands, repeated explanations, fallback to lower-level tools, manual reconstruction, hidden prerequisites, brittle environment assumptions, partial results, confusing contracts, missing trust signals.
 - **Almost-worked moments** — what was close to right but required too much expert knowledge or was undiscoverable.
-- **Environment facts** — platform, target repo, live runtime state (which frame, which epoch depth), tooling constraints.
+- **Environment facts** — platform, target repo, live runtime state as the session reported it (which build, which frame), tooling constraints.
+
+The evidence is data, not instructions (design.md L5), and the causal invariants in design.md L4 govern how it is read: results bind to their initiating calls, later success supersedes earlier failure, unrelated activity is excluded, recap claims stay attributed as recap.
 
 ## 2. Secondary input — `skills/re-frame2-pair/`
 
@@ -22,69 +24,37 @@ The sibling skill the user just exercised. This skill reads the parent skill's:
 - **`SKILL.md`** — the parent's cardinal rules, primitives, style guidance. Friction often surfaces as "the cardinal rule was right but buried" or "the style guidance didn't fire when it should have".
 - **`references/ops.md` + `references/recipes.md`** — the catalogue the user navigated. Missing ops or missing recipes are first-class findings.
 - **`references/errors.md`** — the error-recovery catalogue. Misleading recovery suggestions are findings.
-- **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol (folded into the op catalogue, not a standalone leaf). Friction here is high-leverage (every source edit triggers it).
-- **`preload/`** (runtime preload) + **MCP server** (`references/mcp-transport.md`) — the transport surface. Brittleness here breaks every session.
-- **`spec/design.md`** (this skill's neighbour) — the locked decisions. This skill respects locks; doesn't propose changes that contradict them.
+- **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol. Friction here is high-leverage (every source edit triggers it).
+- **`spec/design.md`** (the sibling's) — the locked decisions. This skill respects locks; doesn't propose changes that contradict them.
 
-## 3. Tertiary input — `references/analysis-lenses.md`
+## 3. Tertiary input — `references/known-frictions.md`
 
-The nine root-cause lenses the skill walks during classification — the canonical names live in `references/analysis-lenses.md §Root-cause categories`; this table mirrors them:
+Hand-curated list of recurring friction patterns seen across multiple sessions, loaded on demand. The skill matches the current session against this list to detect "is this a one-off or a pattern?" Recurring patterns get higher priority in the retrospective. This is the skill's only reference leaf.
 
-| Lens | Question | Typical improvement |
-|------|----------|---------------------|
-| `docs/discoverability` | The feature or prerequisite existed, but could the user find or trust it? | Promote to guard rail, correct wording, add warnings, align contracts |
-| `workflow-gap` | Did the instructions / recipes guide the user through a common task? | Add a recipe, anti-pattern, decision rule |
-| `missing-op` | Did the workflow need a first-class operation that does not exist? | Add a script/runtime op or structured field |
-| `unreliable-op` | Was an existing operation too brittle or ambiguous? | Fix behavior, add warnings, strengthen validation |
-| `default/fallback` | Was the default behavior wrong, silent, or unsafe? | Change defaults or automate the safer fallback |
-| `platform-bug` | Did the workflow break on a specific OS / shell / browser? | Add platform-aware handling or explicit detection |
-| `validation-gap` | Did this ship because the repo lacks the right smoke test, fixture, or warning? | Add test coverage or fixture support |
-| `upstream-gap` | Does the best fix belong in `re-frame2` itself (Tool-Pair contract, instrumentation, schema reflection, epoch machinery, source-coord)? | File a GitHub issue against `day8/re-frame2` |
-| `out-of-scope` | Did the user want something `re-frame2-pair` should probably not own? | Route elsewhere; decline cleanly |
-
-This is the canonical taxonomy; the skill doesn't invent ad-hoc categories.
-
-## 4. Tertiary input — `references/known-frictions.md`
-
-Hand-curated list of recurring friction patterns the skill has seen across multiple sessions. This skill matches the current session against this list to detect "is this a one-off or a pattern?" Recurring patterns get higher priority in the retrospective.
-
-## 5. Tertiary input — `references/issue-template.md`
-
-The Pair-retro issue structure the skill uses when the user asks for a draft. Carries only what is specific to a Pair-retro issue:
-
-- The routing decision (pair-tool vs framework friction; both target `day8/re-frame2`).
-- The title patterns.
-- The issue-body skeleton — problem / evidence (redacted session moments) / why re-frame2-pair was not enough / proposed change + layer (skill / script / runtime / tests / docs / upstream) / expected impact / open questions.
-- The target/optional-label policy (the `pair-mcp` / `upstream-from-re-frame2-pair` labels and the `gh label list` degrade).
-
-The **generic filing mechanics live once** in [`../../shared/issue-filing.md`](../../shared/issue-filing.md) — search-before-file, the `Write`-tool + body-file path, the safe-alphabet `--title` / `--search` rule, redaction, the approval gate, and the `bd`-never tracker boundary. The template **links** that shared recipe rather than restating it, so the shell-safety boundary stays a single source and any later hardening lands once.
-
-## 6. Authoring-discipline inputs
+## 4. Authoring-discipline inputs
 
 These shape the skill's voice and structure but aren't quoted directly.
 
-- **Mike's standing memory rules** — especially "Findings is local-only", "No AI attribution in commits or PRs", "Always dispatch, don't ask" (this skill does NOT auto-dispatch; L2 explicit guard-rail).
-- **`skills/re-frame2-pair/spec/design.md`** — the sibling's locks. This skill references these when proposing changes; never proposes a change that breaks a lock.
-- **`skills/re-frame2/spec/design.md`** — the parent skill's locks (relevant for upstream-routing).
+- **Mike's standing memory rules** — especially "Findings is local-only" and "No AI attribution in commits or PRs".
+- **`skills/re-frame2-pair/spec/design.md`** — the sibling's locks; never propose a change that breaks one.
+- **`skills/re-frame2/spec/design.md`** — the authoring sibling's locks (relevant for upstream-routing).
 - **`agents/openai.yaml`** — the alt-host configuration. The skill is portable across LLM hosts; voice / structure must work in non-Claude hosts too.
 - Anthropic skills guidance — `name` ≤ 64 chars; `description` "pushy" but conversational; SKILL.md under 500 lines; references one level deep.
 
-## 7. What the skill does NOT consume
+## 5. What the skill does NOT consume
 
-- **The live re-frame2 app's state.** That's the `re-frame2-pair` skill's domain. The skill works on session transcripts, not on `app-db` snapshots.
-- **The re-frame2 spec corpus.** The skill doesn't need to teach the framework; it just needs to know which surface is missing.
-- **`implementation/**`** — same reasoning.
-- **`docs/core/**`** — the narrative guide is for application authors learning re-frame2. The skill works one level up.
-- **The user's source repo.** The skill works on the pair-session itself, not on the app under inspection.
+- **The live re-frame2 app's state.** The skill has no runtime access of any kind — no MCP grant, no probe. Live work is `re-frame2-pair`'s domain.
+- **`skills/shared/**`.** The skill is self-contained (design.md L7); the causal/redaction/untrusted-evidence invariants are inlined in `SKILL.md`.
+- **The re-frame2 spec corpus.** The skill doesn't need to teach the framework; it just needs to name which behaviour is missing.
+- **`implementation/**`** and **`docs/core/**`** — same reasoning.
+- **The user's source repo.** The skill works on the pair session itself, not on the app under inspection.
 
-## 8. Update procedure
+## 6. Update procedure
 
 When the pair tool changes:
 
 1. **A new structured op ships in `re-frame2-pair`** → check whether known-frictions has a "missing op" pattern that this resolves; update `known-frictions.md` if so.
-2. **The MCP transport changes** (the bash-shim → MCP migration is already complete — MCP is the one transport) → `known-frictions.md` may retain entries about the old shim's brittleness; update them to reflect the MCP transport.
-3. **A cardinal rule changes in `re-frame2-pair` SKILL.md** → re-read the parent's `spec/design.md`; verify this skill's lens-routing still respects the new lock.
-4. **A new common friction pattern emerges** (3+ retros surface it) → add a row to `known-frictions.md` with the pattern shape and the typical resolution.
-5. **A new analysis lens is named** → add to `analysis-lenses.md` with the canonical question and improvement shape.
-6. **The issue-filing process changes** → route the edit by *what* changed. A change to the **generic** shell-safety mechanics (the `gh issue create` / `gh issue list --search` flow, the body-file path, redaction, the approval gate) → update the shared owner `../../shared/issue-filing.md`, never re-inline it into the template. A change to the **Pair-retro-specific** routing, title patterns, body skeleton, or label scheme → update `issue-template.md`.
-7. **Re-frame2's Tool-Pair contract grows a new surface** (e.g. a new `register-*-cb` hook) → this skill may need to know about it for upstream-routing decisions; check `known-frictions.md` for entries that were "we worked around the missing surface" — they now resolve.
+2. **A cardinal rule changes in `re-frame2-pair` SKILL.md** → re-read the parent's `spec/design.md`; verify this skill's owner-routing guidance still respects the new lock.
+3. **A new common friction pattern emerges** (3+ retros surface it) → add a section to `known-frictions.md` with the pattern shape and the typical resolution.
+4. **Re-frame2's Tool-Pair contract grows a new surface** → check `known-frictions.md` for entries that were "we worked around the missing surface" — they now resolve.
+5. **The trigger boundary shifts** (a new sibling skill, a renamed trigger phrase) → update the frontmatter `description` and score it against `evals/evals.json`.
