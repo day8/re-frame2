@@ -6,20 +6,18 @@ The design rationale and locked decisions for the `re-frame2-implementor` skill.
 
 ## 1. Goal
 
-Help an engineer **implement** the re-frame2 pattern in a different host language or substrate — not write applications on the existing CLJS reference, not migrate from re-frame v1, not bootstrap a fresh greenfield project on the reference. Build the runtime itself.
+Help an engineer **implement** the re-frame2 pattern in a different host language — not write applications on the existing CLJS reference, not migrate from re-frame v1, not bootstrap a fresh greenfield project on the reference. Build the runtime itself.
 
-The skill's success criterion: the engineer ends up with a port that claims a specific capability tag set from [`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) Part 1, has a written-down decision record covering every Phase 1 choice, and passes the matching subset of the [conformance corpus](https://day8.github.io/re-frame2/spec/conformance/) at `claimed-applicable / claimed-applicable`.
+The skill's success criterion: the engineer ends up with a port that claims a specific capability tag set, has a compact committed **port profile** covering every choice actually made, and passes the matching subset of the [conformance corpus](https://day8.github.io/re-frame2/spec/conformance/) at `claimed-applicable / claimed-applicable`.
 
-The skill is **guidance + workflow** layered on top of `spec/`. The skill does not duplicate the spec; it routes / sequences / operationalises consumption of it for the specific task of porting.
+The skill is **guidance + workflow** layered on top of `spec/`. The skill does not duplicate the spec; it routes / sequences / operationalises consumption of it for the specific task of porting. This was restated as a hard shape rule in the 2026-08 reduction (see §6): the pinned spec and the live fixtures are the working material; the skill's leaves are an index and a loop, never a second rendering of the contract.
 
-## 2. Pillars (locked, derived from `ai/findings/re-frame2-skill-design-v2.md`)
+## 2. Pillars
 
-The same four pillars as the application-side `re-frame2` skill, adapted to the implementor domain:
-
-1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. **Q14 lock applies: NO verification module** — the skill teaches no generic build/test mechanics (Pillar 4: don't teach what the AI already knows). It does, however, carry a narrow **per-EP slice gate** (L3): when the agent writes EP code and has local tool access, it runs the smallest relevant slice it can determine from the *port's own* scripts before calling the EP landed, or reports it couldn't. The engineer still owns the expensive/full conformance gates.
+1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. Verification posture per L3 below.
 2. **Idiomaticness** — verified against `spec/` + `spec/Implementor-Checklist.md` + `spec/conformance/`. The skill is downstream of the spec; if the spec is authoritative, the skill is correct by construction.
-3. **Context economy** — `SKILL.md` is a router; leaves are loaded on demand. The leaves point at spec sections by URL; they don't quote them.
-4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding** — which decisions are foundational, which EPs depend on which, what the conformance corpus is for.
+3. **Context economy** — `SKILL.md` is a router; four small leaves load on demand, each under the family's 16 KB ceiling. The leaves point at spec sections by URL and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
+4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding**: which choices are real, which EPs depend on which, how the conformance corpus grades a claim.
 
 ## 3. Locked decisions
 
@@ -27,97 +25,57 @@ These are not up for re-litigation. A future authoring pass MUST preserve these 
 
 ### L1 — `spec/` is the contract; `implementation/` is one worked example
 
-The skill does not treat the CLJS reference as normative. Every "the reference did X" framing in `references/reference-impl-tour.md` is explicitly tagged as descriptive. Engineers reading the tour are told repeatedly that the spec wins.
+The skill never treats the CLJS reference as normative. Per-EP "worked example" pointers name reference artefact directories descriptively; the spec wins on any disagreement. (The former dedicated reference-impl tour leaf was retired in the 2026-08 reduction — the reference tree itself, consulted directly at the pin, is the tour.)
 
-**Why**: re-frame2's stated goal is implementability from the spec alone. A skill that conflates the reference with the contract undercuts that goal.
+### L2 — Two-phase workflow, without ceremony
 
-### L2 — Two-phase workflow
+Phase 1 (the port profile) before Phase 2 (the EP loop), sequentially. The 2026-08 reduction removed the ceremony that had accreted around the split — the question-per-block interview, the 254-line fill-every-placeholder decision dossier, the per-EP session/commit/report mandates — while keeping the split itself: choices are recorded before code because they propagate through every line of it.
 
-Phase 1 locks decisions before any code is written. Phase 2 walks the EP corpus in dependency order. The phases are sequential — Phase 2 cannot start before Phase 1 produces a locked decision record.
+### L3 — Verification follows tool access; no generic build teaching
 
-**Why**: every Phase 1 decision propagates through every line of Phase 2 code. Engineers who skip Phase 1 to "just start coding" hit foundation-level rewrites halfway through. The phase split is operational, not advisory.
+The skill teaches no generic build/test mechanics (Pillar 4). But it is an **implementation driver**, so the agent runs the port's **discovered noninteractive gates** itself when it has tool access: the narrowest slice covering each loop step, and the full required-foundation / claimed-capability conformance passes when the engineer asked for an end-to-end implementation — always reporting exact commands, exit codes, and `passed / claimed-applicable`. Genuinely interactive/visual evidence remains a concise programmer handoff, and completion is never claimed while required evidence is pending. The agent uses the host session's normal permissions; there is no skill-local engineer/agent relay policy. (This supersedes the earlier narrower "per-EP slice only; full gates engineer-owned by default" posture: an explicitly-invoked, code-writing agent with tool access runs the gates it discovers.)
 
-### L3 — Q14 — NO verification module, but a narrow per-EP slice gate
-
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill teaches no generic verification mechanics — no `references/verify.md`, no generic-build tutorial — but it does NOT leave a code-writing skill with zero feedback loop. The implementor skill is an **implementation driver** (the kickoff prompt tells the session to write the EP code; each EP wrap-up reports tests + fixtures exercised), so the verification contract distinguishes **generic build mechanics** (not taught — Pillar 4) from the **skill-specific per-EP acceptance slice** (taught):
-
-- **When the agent writes EP code AND has local tool access:** before calling the EP landed, it runs the **smallest relevant slice gate it can determine from the *port's own* scripts** (the port's unit-test command for the EP's module, or a targeted conformance subset for the EP's capability tags) — NOT the full suite, NOT a build mechanic it had to invent. If it cannot determine or run a slice (no local tooling, no port script yet), it says so explicitly in the EP wrap-up with a not-run reason, rather than silently deferring all feedback to the human.
-- **The engineer still owns the expensive/full gates:** the full claimed-capability conformance pass (acceptance gate 2) and any release-sized suite stay engineer-driven. The agent surfaces and diagnoses scores there; it does not drive the engineer's toolchain for the heavy gates.
-
-The final EP wrap-up records exact commands/results or a clear not-run reason, not only a prose "tests pass" claim.
-
-**Why**: a code-writing skill that walks multi-day runtime changes and leaves the first real feedback to the human or a later full-suite gate is weaker workflow than the rest of the repo's worker discipline. The elegant path for a pre-alpha implementation guide is to teach the intended slice gate without becoming a generic testing tutorial.
-
-**Family-consistency note (resolved: verification posture follows role; the divergence is by design, not drift).** The original L3 cited cross-family consistency with the `re-frame2` and `re-frame-migration` skills (which also lock NO verification module). The slice gate stays **strictly scoped to `re-frame2-implementor`** — each skill occupies a different role cell, and posture follows role:
-
-- **`re-frame-migration`** carries a hard trust boundary (its cardinal rule bars the agent from running build / test / smoke in the author's app environment). Propagating the slice gate would *violate* that boundary.
-- **`re-frame2` authoring** is locked at Pillar 4 / Q14 to emit recipes a human pastes — there is no runtime the agent drives and no EP conformance corpus, so a slice gate is vacuous there (or manufactures the very violation Q14 prevents).
-- **`re-frame2-implementor`** is the only implementation driver whose acceptance criterion *is* spec-conformance, which the per-EP slice gate operationalises.
-
-Uniform wording across the family would buy incoherence of principle: under "posture follows role" these postures are correct, not inconsistent.
+**Family-consistency note (posture follows role).** `re-frame-migration` keeps its hard trust boundary (the agent never runs build/test/smoke in the author's app env); `re-frame2` authoring emits recipes a human pastes. Those postures are correct for their role cells; this skill's role is the only implementation driver whose acceptance criterion *is* spec-conformance.
 
 ### L4 — Substrate-agnostic phrasing throughout
 
-The reference impl is CLJS+Reagent — keywords, hiccup, Reagent ratoms, Closure DCE for elision. These are *choices the reference made*. The skill's voice never leaks them as universal. References to "the identity primitive", "the render-tree", "the reactive container", "the production-elision mechanism" stay generic; the CLJS bindings are surfaced only in `references/reference-impl-tour.md`, and that leaf is explicit about descriptive-not-normative framing.
+References to "the identity primitive", "the render-tree", "the reactive container" stay generic; CLJS bindings appear only as explicitly-descriptive worked-example pointers.
 
-**Why**: a TypeScript-port engineer reading the skill should never feel like they're "diverging from re-frame2" when they pick branded strings over keywords. They're not diverging; the keyword choice was never the contract.
+### L5 — Conformance corpus is the acceptance test — and the working loop
 
-### L5 — Conformance corpus is the acceptance test
-
-The skill frames `spec/conformance/` consistently as the **objective measure of "is this re-frame2?"** Not the spec's prose, not the EPs' narrative, not the reference impl's behaviour — the corpus. The leaf `references/conformance.md` walks the harness shape and the diagnosis algorithm (spec gap vs implementation bug).
-
-**Why**: without the corpus passing, no claim of "this is a re-frame2 implementation" is objectively verifiable. The corpus is the contract surface for downstream consumers.
+`spec/conformance/` is the objective measure of "is this re-frame2?", and since the 2026-08 reduction it is also the *working material*: fixture facts (capability tags, operator sets, spec versions, counts) are **derived at the pin** by the harness and the agent, never transcribed into skill prose where they age. The harness bootstraps before or alongside the first foundation slice, and fails loud on unknown spec versions, capabilities, DSL ops, and call ops.
 
 ### L6 — Spec gaps file GitHub issues, not silent extrapolations
 
-When implementing surfaces a spec gap — a missing surface, an inconsistency, an undocumented decision — the agent files a GitHub issue against `day8/re-frame2`. Does not silently invent an answer; does not extrapolate from the reference.
-
-**Tracker boundary**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via `gh`'s native `--body-file` flag (the body is `Write`-ten to a file first), never inline interpolation (shell-safety baseline in `skills/README.md`).
-
-**Why**: spec gaps are findings. The reference's prior solution to a spec gap was *one engineer's call at one moment*. Treating it as the contract retroactively conflates worked-example and contract — undercutting L1.
+Draft → show the engineer → explicit OK → `gh issue create` with `--body-file`, per the shell-safety recipe in `references/cardinal-rules.md` §8. `bd` is monorepo-internal and never invoked from a published skill.
 
 ### L7 — No bead-ids in user-facing skill content
 
-User-facing skill content (SKILL.md, README.md, the references/ leaves) carries no `rf2-XXXX` bead-id references. Bead ids are workflow-tracking; they're noise in the skill that the engineer is using. The skill's `spec/` folder may reference beads (workflow / authoring); user-facing leaves do not.
-
-**Why**: the bead-id sweep landed for `docs/`; same discipline applies here.
+SKILL.md, README.md, and the references/ leaves carry no `rf2-XXXX` tracker ids. This `spec/` folder may reference beads (authoring context); user-facing leaves do not.
 
 ### L8 — Findings stay local
 
-Per Mike's standing memory rule "Findings is local-only" — any exploration of the design happens in `ai/findings/`; never committed. This skill's commit contains only `skills/re-frame2-implementor/**` (plus the cross-link tweaks in the other skills and mkdocs).
+Exploration happens in `ai/findings/`; never committed.
 
 ### L9 — No AI attribution in commits or PRs
 
-Per Mike's standing memory rule — commits and PR titles/bodies read as Mike's own work. No Co-Authored-By, no "Generated with Claude Code" trailer.
+Commits and PR titles/bodies read as Mike's own work.
 
 ### L10 — Cross-link bidirectionally
 
-The new skill is cross-linked from:
-- `skills/re-frame2/SKILL.md` — one-liner pointing implementors here.
-- `skills/re-frame-migration/SKILL.md` — same.
-- `docs/skills/re-frame2-implementor.md` — new sub-page in the Skills nav.
-- `mkdocs.yml` — new entry in the Skills nav.
-
-Reverse cross-links (this skill → the application-side skills) live in SKILL.md's "When NOT to use this skill" table.
+`docs/skills/re-frame2-implementor.md` and `mkdocs.yml` carry the docs-side page; the application-side skills point implementors here; SKILL.md's "When NOT to use" routes back.
 
 ## 4. Audience and scope
 
 ### In scope
 
-- Engineers porting re-frame2 to one of the eight in-scope **JS-cross-compile-to-React+VDOM** hosts: ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS. These are the *only* implementation targets the spec commits to (per `spec/000-Vision.md` §scope footnote).
-- Engineers consuming `spec/Implementor-Checklist.md` and `spec/conformance/`.
+Engineers porting re-frame2 to one of the eight in-scope **JS-cross-compile-to-React+VDOM** hosts (per `spec/000-Vision.md` §scope footnote), consuming `spec/Implementor-Checklist.md` and `spec/conformance/`.
 
 ### Out of scope
 
-- **Non-cross-compile-to-JS hosts** (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) and **non-React substrates** (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit, native UI, terminal, server-only). These are out of scope by deliberate spec choice — not an oversight (`spec/000-Vision.md` Goal 8; `spec/Implementor-Checklist.md` §Scope). The skill surfaces the scope footnote and stops; it does not sequence an implementation track for them.
-- Writing application code on the CLJS reference — that's `skills/re-frame2/`.
-- Bootstrapping a greenfield app on the reference — that's `skills/re-frame2-setup/`.
-- Migrating a v1 codebase to the reference — that's `skills/re-frame-migration/`.
-- Live-runtime inspection of a running v2 app — that's `skills/re-frame2-pair/`.
-- Proposing a *different* pattern — re-frame2's pattern is specified; engineers proposing alternatives need a different conversation.
-- Editing `spec/` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches `spec/` inline.
+Non-cross-compile-to-JS hosts and non-React substrates (surface the scope footnote and stop); application authoring, greenfield bootstrap, v1 migration, live-runtime inspection (sibling skills); proposing a different pattern; editing `spec/` inline (gaps file upstream issues).
 
-## 5. File structure (locked)
+## 5. File structure (locked at the 2026-08 reduction)
 
 ```
 skills/re-frame2-implementor/
@@ -128,79 +86,51 @@ skills/re-frame2-implementor/
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── evals/evals.json (trigger-accuracy fixtures for the description)
 ├── references/
-│ ├── cardinal-rules.md (the eleven rules in prose + anti-pattern corollaries)
-│ ├── kickoff-prompt.md (paste-ready prompt)
-│ ├── phase-1-decisions.md (Phase 1 walkthrough)
-│ ├── decision-record.md (fill-in template)
-│ ├── phase-2-impl-order.md (EP-by-EP order)
-│ ├── reference-impl-tour.md (CLJS tour, descriptive)
-│ ├── conformance.md (harness shape, diagnosis)
-│ └── output-format.md (agent-output shape)
+│ ├── cardinal-rules.md (the eleven rules + anti-pattern corollaries)
+│ ├── phase-1-decisions.md (the port profile: defaults, spec pin, template)
+│ ├── phase-2-impl-order.md (the EP loop + the EP index)
+│ └── conformance.md (harness, capability derivation, scoring, diagnosis)
 └── spec/
  ├── design.md (this file)
  ├── inputs.md (canonical inputs)
  └── authoring-prompt.md (one-shot reauthor prompt)
 ```
 
-## 6. Why this leaf split
+Two filename constraints are load-bearing for repo tooling and MUST survive any re-authoring: `references/cardinal-rules.md` and `references/phase-1-decisions.md` are keyed by path in `scripts/check_skill_mcp_drift.py` (the spec-pin provenance and gh-issue title-safety rules), and `references/phase-2-impl-order.md` is on `scripts/check_adapter_disposition.py`'s scanned-authority roster.
 
-The eight reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical session loads:
+## 6. The 2026-08 reduction — why this leaf split
 
-- **Phase 1 walkthrough**: `phase-1-decisions.md` + `decision-record.md`. ~320 LoC.
-- **Phase 2, single EP**: `phase-2-impl-order.md` (one section) + maybe `reference-impl-tour.md` (one section) + maybe `conformance.md`. ~250-400 LoC.
-- **Conformance pass**: `conformance.md` + `output-format.md`. ~260 LoC.
-- **Full v1 ship**: every leaf. ~1,060 LoC.
+The previous shape shipped SKILL.md + eight reference leaves totalling ~290 KB / ~37K words, with a 119 KB Phase-2 leaf that mirrored the spec contract EP by EP; six leaves exceeded the family's 16 KB ceiling, and the copied catalogues (fixture counts, capability tables, op lists) aged against the corpus. The reduction replaced the dossier with the compact port profile, the contract mirror with an EP index + one uniform loop, and every copied catalogue with a derive-at-the-pin instruction. The shipped operational prose is now four leaves, each under 16 KB, ~40 KB total including SKILL.md — a net material reduction of roughly 85% — and the default route to begin work is SKILL.md plus one leaf (`phase-1-decisions.md`).
 
-Worst case is ~1,000 LoC, well under any reasonable context budget; the median Phase 2 step loads ~300 LoC.
+Typical session loads: profile session = SKILL.md + phase-1-decisions.md; an EP slice = SKILL.md + phase-2-impl-order.md (+ conformance.md at gates); the spec sections and fixtures the session actually reads are the pinned corpus's, not the skill's.
 
-## 7. Resolutions to the three open questions in the bead
+## 7. Resolutions worth keeping (amended at the reduction)
 
-The bead surfaced three open questions; the skill resolves them as follows.
-
-### OQ1 — Decision-tree vs prose-prompt for Phase 1
-
-**Resolved: prose walkthrough.** `phase-1-decisions.md` is a structured walkthrough — one section per decision block, each section with question / what's at stake / options / how to choose / where the spec speaks. Not a yes/no decision tree.
-
-**Why**: yes/no trees over-simplify the decisions (F1 identity primitive has 8+ options per host, not 2; D3 scope has 7 independent questions). A prose walkthrough that names the options + their trade-offs respects the engineer's expertise. The walkthrough is *structured* (consistent block shape per decision) so it's predictable, but the decision is made in prose, not by walking a binary tree.
-
-### OQ2 — Granularity of Phase 2 — one EP at a time, or clusters?
-
-**Resolved: one EP per session, with explicit acceptance gates between groups.** `phase-2-impl-order.md` is structured as one section per EP. Between the foundation cluster (001 / 002 / 006 / 004 / 009 / 015) and the optional EPs sits **acceptance gate 1** — the required-foundation gate, running every fixture applicable to the three v1-required families (`:core/*` + `:identity/*` + `:data-classification/*`), not `:core/*` alone. (015 Data Classification is v1-required, not optional — `spec/015-Data-Classification.md` marks it required and `spec/API.md` exposes the frame-owned `:sensitive`/`:large` classification + `project-egress` boundary as v1 per EP-0015 — so it sits inside the foundation cluster, riding the 009 emission boundary, ahead of the gate.) Between full claimed-capability implementation and v1 ship sits **acceptance gate 2** — full claimed-capability conformance pass.
-
-**Why**: per-EP sessions are tractable; per-EP commits are reviewable. The CLJS reference's largest EP (005 State Machines, ~2,900 spec lines) takes multiple sessions in any host, but those sessions are still about *one* EP — the unit is right. Clustering the foundation EPs into "do them all together" would lose the per-EP wrap-up checkpoint, which is where the engineer catches Phase 1 decisions that need revision.
-
-The acceptance gates are operational, not advisory: gate 1 between core + optional means a port can declare v1-core-complete with only the foundation EPs (001 / 002 / 006 / 004 / 009 / 015 — 015 is v1-required and inside the gate, so "core-complete" is never reachable without it) — and, because gate 1 runs every fixture applicable to all three v1-required families (`:core/*` + `:identity/*` + `:data-classification/*`), not `:core/*` alone, the identity/path and classification fixtures are graded before any optional EP begins. Gate 2 between optional + ship means the full claim is verified before public release.
-
-### OQ3 — How to annotate CLJS-specific framings when pointing at the reference impl
-
-**Resolved: a dedicated descriptive tour leaf with explicit framing.** `references/reference-impl-tour.md` is the only leaf that walks the CLJS implementation's structure. It's explicit at the top and bottom that the tour is **descriptive, not normative**; every "the reference did X" is paired with a "what's CLJS-specific" callout and a "what's pattern-required" framing. Engineers consult the tour when they want to see how someone solved a problem; they consult `spec/` and the other leaves when they want to know what's required.
-
-**Why**: separating descriptive (tour) from normative (spec) at the leaf level is the cleanest split. Annotating individual references in other leaves with "this is the CLJS shape; your $LANG will differ on…" would clutter every leaf with the disclaimer and bury the workflow signal. The tour is the place for descriptive framing; the rest of the skill stays in normative voice.
+- **Prose walkthrough over decision trees** for the profile's choices — the option matrices live in the Implementor-Checklist; the leaf frames the choice and links.
+- **Per-EP checkpoints without session/commit mandates.** The EP is the unit of the loop, and acceptance gates sit between the foundation cluster (001 / 002 / 006 / views / 009 / 015) and the optional EPs (gate 1 — all three v1-required families: `:core/*` + `:identity/*` + `:data-classification/*`), and between full claim and ship (gate 2). But one-EP-per-session, per-EP commits, and the three report templates were ceremony, not correctness — a competent implementor chooses granularity; a checkpoint reports changed decisions, code/result, exact command + outcome, conformance delta, blockers.
+- **Early feedback is structural.** Harness bootstrap is loop step 0, not an afterthought after five EPs — "no port script yet" is admissible only before the first foundation slice lands.
+- **Descriptive/normative split without a tour leaf.** Worked-example pointers ride the EP index rows; the reference source at the pin is read directly when wanted.
 
 ## 8. Where this design diverges from `re-frame2`
 
-- **No patterns/ directory.** Implementation is one workflow per EP, not a set of authoring recipes. The patterns from `Pattern-*.md` are for application authors, not implementors.
-- **No decision-trees/ directory.** Phase 1 is the entire decision tree, captured in `phase-1-decisions.md`. The other Phase 2 decisions are EP-internal and live in `phase-2-impl-order.md`.
-- **No examples-map.md.** The reference impl is the one example; `reference-impl-tour.md` covers it.
-- **The conformance leaf is unique.** The application-side skills don't have a conformance concept — applications run their tests, not a normative corpus. Implementors do.
-- **The kickoff prompt assumes a fresh repo, not an existing codebase.** Application-side skills (`re-frame2`, `re-frame-migration`) attach to an existing project. This skill attaches to a fresh port's repo (or an empty workspace) plus a clone of the re-frame2 repo for the spec.
+- No patterns/ directory (application patterns are for authors, not implementors).
+- The conformance leaf is unique to this skill — applications run their tests, not a normative corpus.
+- The kickoff shape assumes a fresh port repo plus a pinned re-frame2 clone; the paste-ready prompt is a short section of SKILL.md, not a leaf.
 
 ## 9. Anti-patterns the skill explicitly resists
 
-- **Treating the CLJS reference as normative.** Cardinal rule #1 in SKILL.md; L1 in this design.
-- **Skipping Phase 1.** Cardinal rule #2 in SKILL.md; the kickoff prompt is explicit about Phase 1 before Phase 2.
-- **Inventing surfaces when the spec is silent.** Cardinal rule #8 + the GH-issue-files-not-extrapolation rule in `reference-impl-tour.md` and `conformance.md`.
-- **Skipping the conformance corpus.** L5; the leaf `conformance.md` frames it as the acceptance test.
-- **Bundling CLJS-specific framings into normative voice.** L4; the tour leaf is the only place CLJS framings appear, and even there they're explicitly tagged as descriptive.
+- Treating the CLJS reference as normative (L1).
+- Skipping the profile, or interviewing for it (L2).
+- Inventing surfaces when the spec is silent (L6).
+- Landing EPs on "no port script yet" (L5 — the seam bootstraps first).
+- Re-growing contract mirrors: a leaf that quotes a fixture count, a capability catalogue, or an op list has already started to age — teach the derivation instead.
 
-## 10. Open questions (deferred to Mike)
+## 10. Open questions
 
-These remain open at authoring time:
+### OQ4 — Skill `name` — noun phrase vs gerund
 
-### OQ4 — Skill `name` — is `re-frame2-implementor` Anthropic-compliant?
+`re-frame2-implementor` matches the project-name pattern; Anthropic's gerund guidance is "consider", not "must". **Recommendation: keep.** Status: Mike's call.
 
-Anthropic's current best-practices doc says "consider using" gerund form. `re-frame2-implementor` is a noun phrase. Compliance is "consider," not "must"; the description does the discovery heavy lifting; the noun phrase matches the project-name pattern (`re-frame2`, `re-frame2-setup`, `re-frame-migration`, `re-frame2-pair`). **Recommendation: keep `re-frame2-implementor`.** Status: Mike's call.
+### OQ5 — Stale-detection against the spec corpus
 
-### OQ5 — Will the skill stale-detect against the spec corpus?
-
-The skill cites spec sections by URL. If the spec's section headings shift (a routine maintenance event), the skill's cross-references break. **Recommendation**: a periodic audit bead, like the one for `re-frame-migration` against `migration/from-re-frame-v1/README.md`. **Status**: deferred to v0.2; not blocking v0.1.
+The skill cites spec sections by URL; heading shifts break cross-references. Mitigated by the reduction (far fewer citations) and by the repo's link gates; a periodic audit bead remains the fallback. Status: deferred.

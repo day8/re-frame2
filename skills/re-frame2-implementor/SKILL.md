@@ -5,8 +5,9 @@ description: >
   eight in-scope JS-cross-compile-to-React+VDOM host languages —
   ClojureScript (the reference), TypeScript, Melange/ReScript/Reason,
   F# (Fable), Squint, Scala.js, PureScript, Kotlin/JS. Drives a two-phase
-  workflow (Phase 1: lock decisions; Phase 2: walk the spec corpus in
-  dependency order with the conformance corpus as the acceptance test).
+  workflow (Phase 1: record the port profile; Phase 2: one EP loop driven
+  by the pinned spec and live conformance fixtures, with the conformance
+  corpus as the acceptance test).
   Trigger on phrasing like "port re-frame2", "implement re-frame2 in
   <language>", "second re-frame2 implementation", "implementor checklist",
   "conformance corpus", or any prompt about building re-frame2 itself.
@@ -27,87 +28,60 @@ allowed-tools:
 
 # re-frame2-implementor
 
-This skill is **workflow + guidance** layered on the spec corpus at [`spec/`](../../spec). The spec is the contract; the reference impl under `implementation/` is one worked example, not normative.
+This skill is **workflow + guidance** layered on the pinned spec corpus at [`spec/`](../../spec). The spec is the contract; the conformance corpus is the acceptance test; the reference impl under `implementation/` is one worked example, not normative. The skill's job is to route you **into** the pinned spec and live fixtures — it does not mirror them.
 
 Two phases:
 
-1. **Phase 1** — lock the load-bearing decisions (target language, substrate, scope, identity primitive, persistent data, concurrency, schema mechanism, hot-reload).
-2. **Phase 2** — implement EPs in dependency order (001 → 002 → 006 → 009 → 015, then optional EPs per Phase 1 scope), validated by the conformance corpus.
+1. **Phase 1 — record the port profile** ([`references/phase-1-decisions.md`](references/phase-1-decisions.md)): one compact committed record of the spec pin and the choices the implementor actually made — host/toolchain, host mechanisms, capability claim, current score. No interview by default: a minimum-port request defaults every optional capability to no, picks host-idiomatic mechanisms, and asks only about a missing choice that materially changes the implementation. Fixed spec obligations are links, never confirmation fields.
+2. **Phase 2 — the EP loop** ([`references/phase-2-impl-order.md`](references/phase-2-impl-order.md)): per EP — read the owner at the pin, enumerate the applicable fixtures/operators from that same pin, implement the smallest vertical slice, run the narrowest gate that covers it, repair or diagnose, update the profile only if a real choice changed. The feedback seam (the smallest conformance harness) bootstraps before or alongside the first foundation slice, and fails loud on unknown spec versions, capabilities, DSL ops, and call ops.
 
 > **Term: EP** = **Extension Point**, a numbered per-area Spec — EP 001 = [`spec/001-Registration.md`](../../spec/001-Registration.md), EP 002 = [`spec/002-Frames.md`](../../spec/002-Frames.md), etc. The spec calls these "numbered Specs"; this skill uses "EP" because the walking order, dependency graph, and conformance-fixture families are all keyed off the numbers.
 
 ## When NOT to use this skill
 
-Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for authoring on the CLJS reference, greenfield bootstrap, v1→v2 migration, live-app inspection, or pattern-rationale reading.
+Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for authoring on the CLJS reference, greenfield bootstrap, v1→v2 migration, live-app inspection, or pattern-rationale reading. Non-React substrates and non-cross-compile-to-JS hosts are out of scope by deliberate spec choice — surface the [scope footnote](../../spec/000-Vision.md) and stop.
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** When `implementation/` and [`spec/`](../../spec) disagree, the spec wins. The kickoff prompt names a `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec and record the pin in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
-2. **Phase 1 before Phase 2.** Lock decisions in writing before writing code.
-3. **Dependency order.** EP 001 → 002 → 006 → 009 → 015 are the foundation; optional EPs sit downstream. (Spec 015 Data Classification is v1-required — it rides the 009 emission boundary, so it lands right after instrumentation.)
-4. **Substrate-agnostic phrasing.** Write to "the identity primitive", "the render-tree", "the reactive container" — not to hiccup / Reagent / keywords.
+1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile; when `implementation/` and `spec/` disagree, the spec wins.
+2. **Phase 1 before Phase 2.** Record the profile before implementing.
+3. **Dependency order.** EP 001 → 002 → 006 → 009 → 015 are the foundation (015 Data Classification is v1-required — it rides the 009 emission boundary); optional EPs sit downstream.
+4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.
 5. **No core.async equivalents.** Async effects ride host primitives; cross-frame work is run-to-completion-drained.
 6. **JVM-runnability for testing.** Pure transitions and pure sub computations must be callable from a non-substrate harness.
 7. **Conformance corpus is the acceptance test.** Score is `passed / claimed-applicable`; a fixture you can't make pass without outside sources is a *spec gap*.
-8. **Spec gap → search upstream issues, draft, ask before filing.** Don't paper, invent, extrapolate from the reference, or auto-file. Spec gaps reach maintainers via upstream `day8/re-frame2` GitHub issues — never via `bd`. Full workflow + shell-safety recipe (search-first, safe-alphabet title/keywords, `--body-file` filing, reviewer pass) in [`references/cardinal-rules.md` §8](references/cardinal-rules.md).
-9. **Per-issue approval gate for any cross-repo side effect.** Before `gh issue create` against a repo other than the engineer's, show the full draft and wait for explicit "yes" / "go" / "file it". Invoking the skill is consent to the workflow, not to each cross-repo write. See [`references/cardinal-rules.md` §9](references/cardinal-rules.md).
-10. **Honour the reserved `:rf/*` scheme — with the fixed three-fx unqualified carve-out.** Framework ids live under the single root `:rf/*`; user code MUST NOT register there. The fx-ids `:dispatch`, `:dispatch-later`, `:raise` are the carve-out — register/recognise as-is, don't namespace or reject. Full text (runtime-db partition, the `:rf.error/legacy-runtime-root` hard-error, error ids) in [`references/cardinal-rules.md` §10](references/cardinal-rules.md); reserved-surface catalogue [`spec/Conventions.md`](../../spec/Conventions.md), surface map [`spec/Ownership.md`](../../spec/Ownership.md).
-11. **One path algebra, one canonical identity — implement the shared foundation once** (`:rf/path` + CEDN-1, EP-0012). Every subsystem inherits one path+identity contract, not reinvented per-feature; semantics normative immediately, helpers internal at this slice. Full text [`references/cardinal-rules.md` §11](references/cardinal-rules.md); canonical statement [`references/phase-2-impl-order.md` §The shared path + identity foundation](references/phase-2-impl-order.md#the-shared-path--identity-foundation-ep-0012).
+8. **Spec gap → search upstream issues, draft, ask before filing.** Never paper, never extrapolate from the reference, never auto-file; spec gaps reach maintainers via upstream `day8/re-frame2` GitHub issues — never via `bd`. Full shell-safety recipe (search-first, safe-alphabet title/keywords, `--body-file` filing, reviewer pass) in [`references/cardinal-rules.md` §8](references/cardinal-rules.md).
+9. **Per-issue approval gate for any cross-repo side effect.** Show the full draft and wait for an explicit "yes" before `gh issue create`. See [`references/cardinal-rules.md` §9](references/cardinal-rules.md).
+10. **Honour the reserved `:rf/*` scheme** — with the fixed three-fx unqualified carve-out (`:dispatch`, `:dispatch-later`, `:raise`). See [`references/cardinal-rules.md` §10](references/cardinal-rules.md); catalogue in [`spec/Conventions.md`](../../spec/Conventions.md).
+11. **One path algebra, one canonical identity** (`:rf/path` + CEDN-1) — implement the shared foundation once; no subsystem keeps private overlap/canonicalization logic. See [`references/cardinal-rules.md` §11](references/cardinal-rules.md).
 
-## Phase 1 — lock the decisions
+## Verification — who runs what
 
-Walk [`references/phase-1-decisions.md`](references/phase-1-decisions.md) and produce a locked-decision record using the [`references/decision-record.md`](references/decision-record.md) template. Eight decision blocks (D1–D7 plus D5b), detailed there: D1 target language, D2 substrate, D3 scope, D4 always-required realisation decisions (Implementor-Checklist Part 2's F1–F6 / S1–S3 / Sub1–Sub2 / V1–V3 / T1–T3 / E1–E2, sub-numbered 1:1 with the checklist), D5 schema mechanism, D5b data classification (v1-required, not D3-gated), D6 integration story, D7 capability tag set. Canonical option matrices: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md).
+The agent runs the port's **discovered noninteractive gates** itself when it has tool access: the per-EP slice gate at every loop step, and the full required-foundation / claimed-capability conformance passes when the engineer asked for an end-to-end implementation — reporting exact commands, exit codes, and `passed / claimed-applicable`. Only genuinely interactive/visual evidence (a rendered surface with no drivable runtime) is handed off, concisely, to the programmer — and the port is never "complete" while required evidence is pending. The agent uses the session's normal permissions; there is no skill-local engineer/agent relay policy. (The skill's own allow-list covers only what it runs everywhere: `gh issue *` for spec-gap filing, and the read-only spec-pin provenance checks.)
 
-Output: a single dated decision record committed to the port's own repo.
+## Checkpoints
 
-## Phase 2 — walk the spec corpus
+Report at whatever granularity fits the work — no fresh-session, one-EP-per-session, per-EP-commit, or report-template mandate. A checkpoint carries: changed profile lines, what was built and what it showed, the exact test command + outcome, the conformance delta, and genuine blockers / spec gaps.
 
-With Phase 1 locked, walk [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) EP-by-EP. Per EP the leaf carries: what to read first, the contract to expose, how the CLJS reference realised it (**one** example, not normative), what the conformance fixtures check, common spec-gap traps.
+## Kickoff (optional paste-ready prompt)
 
-Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive substrate → 009 Instrumentation → 015 Data Classification**, then a first conformance pass — **the required-foundation gate** — against every fixture applicable to the three v1-required families (`:core/*` + `:identity/*` + `:data-classification/*`; the exact tags derive from the pinned corpus per [`references/conformance.md` §Capability tagging](references/conformance.md#capability-tagging)). (Who runs the gate: [`references/output-format.md` §Discipline](references/output-format.md) — the agent runs a per-EP slice when it can, the full pass stays engineer-owned.) **Spec 015 is v1-required, not optional** — it overlays the 009 emission boundary (and the MCP wire / Xray / log-sink consumers) with path-marked data classification, so it lands in the foundation right after 009. Optional EPs (010 Schemas, 008 Testing, 005 State machines, 012 Routing, 011 SSR, 013 Flows, 014 HTTP, 007 Stories, 016 Resources) follow in the order Phase 1 declared `yes`, each gated by its D3 question (Q1 machines, Q2 routing, Q3 SSR, Q4 schemas, Q5 stories, Q8 Flows, Q9 HTTP, Q10 Resources; Q6 Tool-Pair and Q7 AI-Audit gate the non-EP surfaces). Resources is post-v1 and rides Q9 Managed HTTP — its transport lowers onto `:rf.http/managed`.
+> *I'm implementing a new port of re-frame2 in this repo. Follow the `re-frame2-implementor` skill. The spec corpus is at `<path-to-re-frame2>/spec/`, pinned at `<sha-or-tag>` — verify the pin and origin per cardinal rule 1 before reading anything. Record the port profile (`references/phase-1-decisions.md`) — this is a minimum port: default every optional capability to no, pick host-idiomatic mechanisms, and ask me only about a choice that materially changes the implementation. Then walk the EP loop (`references/phase-2-impl-order.md`) from the foundation in order (001 → 002 → 006 → views → 009 → 015), bootstrapping the conformance seam alongside the first slice. Run the narrow slice gate after every slice and report exact commands and results. The spec is the contract; the CLJS reference is one worked example. Spec gaps: search upstream issues, draft, and ask me before filing.*
 
-## Source discipline
+## Done — "v1-complete against the claim"
 
-Three tiers, in priority order:
-
-1. **[`spec/`](../../spec)** — the contract. Read in numeric order.
-2. **[`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md)** — the decision-ordered companion.
-3. **`implementation/`** — a worked example. Useful for "how did *someone* solve X?" Never useful as a contract claim.
-
-If `implementation/` and `spec/` disagree, the spec wins.
-
-## Conformance
-
-The corpus at [`spec/conformance/`](../../spec/conformance) is host-agnostic data — the acceptance test for [Goal 2 — AI-implementable from the spec alone](https://day8.github.io/re-frame2/spec/000-Vision/#ai-implementable-from-the-spec-alone). Harness shape, the EDN-handler-body DSL, capability tagging, scoring, and the spec-gap-vs-implementation-bug distinction: [`references/conformance.md`](references/conformance.md).
-
-## Kickoff and output
-
-- [`references/kickoff-prompt.md`](references/kickoff-prompt.md) — paste-ready prompt for the engineer to drop into a fresh Claude session opened in the root of their port repo.
-- [`references/output-format.md`](references/output-format.md) — the standard agent-output shape: implementation summary, capability tags claimed, conformance score, decisions made, spec gaps filed.
-
-## Done — "v1-complete against `<capability tag set>`"
-
-- [ ] Phase 1 decision record committed to the port's repo.
-- [ ] **The shared path + canonical-identity foundation is implemented** (`:rf/path` algebra + CEDN-1, EP-0012), with no subsystem keeping private overlap / canonicalization / round-trip logic — full checklist in [`references/phase-2-impl-order.md` §The shared path + identity foundation](references/phase-2-impl-order.md#the-shared-path--identity-foundation-ep-0012).
-- [ ] All in-scope EPs have a working implementation.
-- [ ] **Spec 015 Data Classification is implemented** (v1-required) as a path-based, **fail-open** hygiene overlay — full obligation (four declaration surfaces, commit-plane fold, sensitive-wins-over-large, wire-marker-vs-display-sentinel split, fail-closed projection) in [`references/phase-2-impl-order.md` §EP 015 — Data Classification](references/phase-2-impl-order.md#ep-015--data-classification-sensitive--large).
-- [ ] The port exposes [`spec/API.md`](../../spec/API.md), adapted to host idiom.
-- [ ] **The composition substrate is built around `image → frame → event stream` (EP-0023)** — one registrar, `rf/image` / `rf/make-frame` (re-construction folds image hot-reload in — [`spec/002-Frames.md` §Resolved decisions](../../spec/002-Frames.md#resolved-decisions), "Frame-lifecycle facade collapse" — there is no separate `reload-images!` verb), process-local frame ids, frame-derived resolution; **no realm / app / module composition layer** to build or conformance-check. Full contract (and the negative list) in [`references/phase-2-impl-order.md` §Composition substrate](references/phase-2-impl-order.md#composition-substrate-image--frame--event-stream-ep-0023).
-- [ ] **Tooling-security obligations honoured** for any tooling the port ships (the conformance harness counts) — env-var write-path allowed-prefix constraint + `javascript:` / `data:` / `vbscript:` clickthrough rejection at both registration and click time. Spec-pinned MUSTs per [`spec/Implementor-Checklist.md` §Security obligations for implementation tooling](../../spec/Implementor-Checklist.md) and [`spec/Security.md`](../../spec/Security.md); Phase 2 detail in [`references/phase-2-impl-order.md` §Tooling-security obligations](references/phase-2-impl-order.md#tooling-security-obligations-any-port-that-ships-tooling).
-- [ ] Conformance score is `(claimed-applicable) / (claimed-applicable)`.
-- [ ] Non-spec-gap failures fixed in the port; spec-gap failures filed as GitHub issues against `day8/re-frame2`.
-- [ ] Port's README states claimed capability tags and conformance score.
+- [ ] Port profile committed and current (pin, choices, claim, score).
+- [ ] Foundation landed in order (001 → 002 → 006 → views → 009 → 015), on the shared path + identity foundation (EP-0012).
+- [ ] Acceptance gate 1 green: every fixture applicable to `:core/*` + `:identity/*` + `:data-classification/*` at the pin.
+- [ ] Optional EPs per the claim; acceptance gate 2 = `claimed-applicable / claimed-applicable`.
+- [ ] The port exposes [`spec/API.md`](../../spec/API.md), adapted to host idiom; tooling-security obligations honoured for any tooling shipped (the conformance harness counts).
+- [ ] Spec gaps filed upstream with approval; the port's README states the claimed tags, the score, and the corpus pin.
 
 ## Reference files (all one level deep)
 
 - [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries.
-- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — Phase 1 walkthrough, eight decision blocks (D1–D7 plus D5b).
-- [`references/decision-record.md`](references/decision-record.md) — fill-in template for the locked-decision record.
-- [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — EP-by-EP implementation order.
-- [`references/reference-impl-tour.md`](references/reference-impl-tour.md) — guided tour of the CLJS reference; what's substrate-specific vs pattern-required.
-- [`references/conformance.md`](references/conformance.md) — corpus harness, DSL, capability tagging, scoring.
-- [`references/kickoff-prompt.md`](references/kickoff-prompt.md) — fresh-session kickoff prompt.
-- [`references/output-format.md`](references/output-format.md) — agent-output shape.
+- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — the port profile: defaults, spec pin, template.
+- [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — the EP loop + the EP index.
+- [`references/conformance.md`](references/conformance.md) — harness, capability derivation, scoring, diagnosis.
 
 ---
 
