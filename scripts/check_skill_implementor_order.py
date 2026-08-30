@@ -4,8 +4,9 @@ inside the core-complete gate (rf2-708nm).
 
 The `re-frame2-implementor` skill walks a port author through Phase 2 in
 dependency order, and several entry points encode that order as a literal
-sequence — SKILL.md cardinal rule 3, the paste-ready kickoff prompt, the
-cardinal-rules leaf, README.md, and the skill's own re-authoring `spec/` notes.
+sequence — SKILL.md cardinal rule 3 and its §Kickoff prompt, the
+cardinal-rules leaf, README.md, the port-profile and EP-loop leaves, and the
+skill's own re-authoring `spec/` notes.
 The foundation cluster ends at **acceptance gate 1**: running the `:core/*`
 conformance fixtures, the point at which a port may declare "v1-core-complete".
 
@@ -108,9 +109,8 @@ SCANNED_FILES = [
     SKILL_DIR / "SKILL.md",
     SKILL_DIR / "README.md",
     SKILL_DIR / "references" / "cardinal-rules.md",
-    SKILL_DIR / "references" / "kickoff-prompt.md",
+    SKILL_DIR / "references" / "phase-1-decisions.md",
     SKILL_DIR / "references" / "phase-2-impl-order.md",
-    SKILL_DIR / "references" / "decision-record.md",
     SKILL_DIR / "spec" / "design.md",
     SKILL_DIR / "spec" / "authoring-prompt.md",
 ]
