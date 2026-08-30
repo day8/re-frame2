@@ -3,8 +3,9 @@
 
   Per Spec 010 §Default validator the CLJS reference's default validator
   delegates to Malli (`malli.core/validate` / `malli.core/explain`).
-  This namespace publishes Malli's `validate`, `explain`, and `humanize`
-  functions into the framework's late-bind hook table.
+  This namespace publishes Malli's `validate` and `explain` functions
+  into the framework's late-bind hook table in every build, and its
+  `humanize` function in development builds only.
   `re-frame.schemas.validator/default-malli-validate` and
   `re-frame.schemas.validator/default-malli-explain` consult the table
   at call time. An absent validator hook soft-passes; an absent explainer
@@ -29,9 +30,22 @@
       install a custom validator, or
     - Calls `(schemas/set-schema-validator! nil)` for a hard no-op.
 
+  `malli.error` is the one Malli namespace this adapter keeps off the
+  production path. The framework's only reader of the humanizer is the
+  `:explain-humanized` enrichment of `:rf.error/schema-validation-failure`
+  traces, and those emit bodies already sit behind
+  `interop/debug-enabled?`, so the humanizer is published under the same
+  gate. Under `:advanced` + `goog.DEBUG=false` the publication folds
+  away and Closure elides `malli.error` with it — the `:require` alone
+  retains nothing. `scripts/check-schemas-bundle.cjs` asserts that
+  absence on the matched probe build. An application that wants
+  humanized messages in its own production UI requires `malli.error`
+  itself and pays for it once, on purpose.
+
   See the `re-frame.schemas` namespace docstring for the bundle boundary."
   (:require [malli.core]
             [malli.error]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -50,5 +64,12 @@
 (late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
 (late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
 
-;; Consumers use the same humanize hook regardless of validator adapter.
-(late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize)
+;; Development only. `re-frame.schemas.validate` reads
+;; `:schemas/humanize-explain!` solely inside its
+;; `interop/debug-enabled?`-gated emit bodies, so a production build has
+;; no reader for this hook, and publishing it unconditionally rooted
+;; `malli.error` for nothing. Same gate here: `:advanced` +
+;; `goog.DEBUG=false` folds the form away and `malli.error` leaves the
+;; bundle. Consumers use the same hook regardless of validator adapter.
+(when interop/debug-enabled?
+  (late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize))
