@@ -8,8 +8,8 @@
   dialog as a `(reg-variant ... :script {...})` EDN snippet — the simple
   `gen-play-snippet` codegen, which wraps each captured event vector as
   a `[:dispatch-sync <event-vec>]` step. The emitted snippet uses the
-  PUBLIC `:script` authoring slot (spec/017 §Public vocabulary) rather
-  than the internal `:play-script` slot.
+  `:script` slot (spec/017 §Public vocabulary) — the same key the
+  registrar stores.
 
   The rich `:script` step DSL provides tagged steps
   (`[:dispatch ...]`, `[:wait ms]`, `[:assert-db ...]`,
@@ -129,7 +129,7 @@
     {:rf.cofx cofx}))
 
 (defn event->step
-  "Translate a single recorded event vector into a `:play-script` step.
+  "Translate a single recorded event vector into a `:script` step.
 
   - Assertion events (`:rf.assert/*` family) → `[:dispatch-sync evec]`.
   - Redacted placeholders (`[:rf/redacted]`) → nil (caller drops).
@@ -174,7 +174,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn entry->step
-  "Translate one rich `:entries` map into a `:play-script` step. Pure
+  "Translate one rich `:entries` map into a `:script` step. Pure
   data → data. Returns nil for entries the runner doesn't model
   (redacted placeholders, malformed shapes).
 
@@ -492,11 +492,10 @@
   pastes into source. `variant-id` defaults to
   `:story.recorded/play-export`; `alias` defaults to `\"story\"`.
 
-  The emitted body uses the PUBLIC `:script` authoring slot (spec/017
-  §Public vocabulary) rather than the internal `:play-script` slot, so
-  pasted recorder output reads the way the docs teach. The public
-  `:script` slot accepts the same `{:script … :auto-run?}` body shape
-  `render-script-body` produces.
+  The emitted body uses the `:script` slot (spec/017 §Public
+  vocabulary), so pasted recorder output reads the way the docs teach
+  and registers under the same key. The `:script` slot accepts the
+  `{:script … :auto-run?}` body shape `render-script-body` produces.
 
   Pure data → string. The form survives `read-string` round-trip and
   registers cleanly via `re-frame.story/reg-variant`."

@@ -167,7 +167,7 @@
     (is (= :rf.error/story-assert-in-setup
            (err-id #(plan/variant-plan
                       {:variant/id :story.bad/events-assert
-                       :events [[:assert [:rf.assert/no-warnings]]]}
+                       :setup [[:assert [:rf.assert/no-warnings]]]}
                       {}))))))
 
 ;; ===========================================================================

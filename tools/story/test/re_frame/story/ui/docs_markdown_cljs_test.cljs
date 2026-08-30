@@ -66,7 +66,7 @@
             full surface (the renderer itself is a pure projection)."
     (story/reg-story :story.md-prose {:doc "" :tags #{:dev}})
     (story/reg-variant :story.md-prose/v
-      {:doc "" :events []})
+      {:doc "" :setup []})
     (story/reg-workspace :Workspace.md-prose/notes
       {:layout  :prose
        :content [{:type :variant :id :story.md-prose/v}
@@ -88,7 +88,7 @@
             common docs shape (bulleted lists are the most-used
             markdown affordance in Story prose)"
     (story/reg-story :story.md-list {:doc "" :tags #{:dev}})
-    (story/reg-variant :story.md-list/v {:doc "" :events []})
+    (story/reg-variant :story.md-list/v {:doc "" :setup []})
     (story/reg-workspace :Workspace.md-list/notes
       {:layout  :prose
        :content [{:type :variant :id :story.md-list/v}

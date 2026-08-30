@@ -397,8 +397,8 @@
            (fn [{:keys [db]} _] (swap! seen conj :hit)
              {:db (update db :n (fnil inc 0))}))
          (story/reg-variant :story.runner/sync
-           {:events []
-            :play-script {:auto-run? false
+           {:setup []
+            :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]]}})
          (async/deref-blocking (story/run-variant :story.runner/sync) 5000)
@@ -444,8 +444,8 @@
          ;; The recorded envelope: a provided fact + a recorded (NOT current)
          ;; :rf/time-ms. Replay must re-present BOTH verbatim.
          (story/reg-variant :story.runner/cofx-replay
-           {:events []
-            :play-script {:auto-run? false
+           {:setup []
+            :script {:auto-run? false
                           :script [[:dispatch      [:rf2-l2cn5d/inc-by]
                                     {:rf.cofx {:rf/time-ms 1781078400123
                                                :rf2-l2cn5d.delta/v 4}}]
@@ -482,8 +482,8 @@
        ;; The bare 2-element step (no envelope) — the pre-fix recorder
        ;; behaviour. The provided fact is absent → the step must fail.
        (story/reg-variant :story.runner/cofx-missing
-         {:events []
-          :play-script {:auto-run? false
+         {:setup []
+          :script {:auto-run? false
                         :script [[:dispatch-sync [:rf2-l2cn5d/needs-token]]]}})
        (async/deref-blocking (story/run-variant :story.runner/cofx-missing) 5000)
        (let [final (run-blocking :story.runner/cofx-missing)]
@@ -500,8 +500,8 @@
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.runner/assert-db
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :loaded]]
                                     [:assert-db [:status] :loaded]
                                     [:assert-db [:status] :wrong]]}})
@@ -545,8 +545,8 @@
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/db-fail
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :idle]]
                                     [:assert-db [:status] :loaded]]}})
        (async/deref-blocking (story/run-variant :story.bridge/db-fail) 5000)
@@ -569,8 +569,8 @@
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/db-pass
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-status :loaded]]
                                     [:assert-db [:status] :loaded]]}})
        (async/deref-blocking (story/run-variant :story.bridge/db-pass) 5000)
@@ -590,8 +590,8 @@
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/result
-         {:events      []
-          :play-script {:script [[:dispatch-sync [:rt/set-status :idle]]
+         {:setup      []
+          :script {:script [[:dispatch-sync [:rt/set-status :idle]]
                                  [:assert-db [:status] :loaded]]}})
        (let [result (async/deref-blocking
                       (story/run-variant :story.bridge/result) 5000)]
@@ -625,8 +625,8 @@
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
        (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.rkd/redispatch
-         {:events      []
-          :play-script {:script [[:dispatch-sync [:rkd/a]]
+         {:setup      []
+          :script {:script [[:dispatch-sync [:rkd/a]]
                                   [:dispatch-sync [:rkd/c]]]}})
        (let [result (async/deref-blocking
                       (story/run-variant :story.rkd/redispatch) 5000)
@@ -671,8 +671,8 @@
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
        (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.rkd/hash
-         {:events      []
-          :play-script {:script [[:dispatch-sync [:rkd/a]]
+         {:setup      []
+          :script {:script [[:dispatch-sync [:rkd/a]]
                                   [:dispatch-sync [:rkd/c]]]}})
        (let [result    (async/deref-blocking
                          (story/run-variant :story.rkd/hash) 5000)
@@ -708,7 +708,7 @@
        (rf/reg-event :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
        (rf/reg-event :ml/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.ml/two-plays
-         {:events []
+         {:setup []
           :plays  [{:name "alpha" :auto-run? true
                     :script [[:dispatch-sync [:ml/a]]
                              [:dispatch-sync [:ml/b]]]}
@@ -745,8 +745,8 @@
               executor (no DOM → skipped), and the run is :cannot-run, not a
               false-green pass (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
        (story/reg-variant :story.bridge/dom-skip
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:assert-dom "div.foo" :visible]]}})
        (async/deref-blocking (story/run-variant :story.bridge/dom-skip) 5000)
        (let [final (run-blocking :story.bridge/dom-skip)
@@ -771,8 +771,8 @@
               assert-dom-skipped-on-jvm-is-cannot-run test discards the
               result and checks only run-blocking's run-state)."
        (story/reg-variant :story.bridge/dom-skip-unified
-         {:events      []
-          :play-script {:script [[:assert-dom "div.foo" :visible]]}})
+         {:setup      []
+          :script {:script [[:assert-dom "div.foo" :visible]]}})
        (let [result (async/deref-blocking
                       (story/run-variant :story.bridge/dom-skip-unified) 5000)]
          (is (= :cannot-run (:status result))
@@ -793,8 +793,8 @@
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred 'clojure.core/pos?]
                                     [:assert-db [:n] :pred 'clojure.core/neg?]]}})
@@ -817,8 +817,8 @@
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred-fn
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred pos?]
                                     [:assert-db [:n] :pred neg?]
@@ -843,8 +843,8 @@
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred-bogus
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/set-n 7]]
                                     [:assert-db [:n] :pred 'no.such.ns/missing-pred]]}})
        (async/deref-blocking (story/run-variant :story.runner/pred-bogus) 5000)
@@ -861,8 +861,8 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.runner/order
-         {:events []
-          :play-script
+         {:setup []
+          :script
           {:auto-run? false
            :script [[:dispatch-sync [:rt/touch]]
                     [:dispatch-sync [:rt/touch]]
@@ -895,8 +895,8 @@
        (rf/reg-event :vk/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.vkdam/rerun
-         {:events []
-          :play-script {:auto-run? false
+         {:setup []
+          :script {:auto-run? false
                         :script [[:dispatch-sync [:vk/touch]]
                                  [:dispatch-sync [:vk/touch]]
                                  [:dispatch-sync [:vk/touch]]]}})
@@ -905,7 +905,7 @@
        ;; First public run via `run!` (NOT the orchestrator).
        (run-blocking :story.vkdam/rerun)
        ;; `run-blocking` drives `run!`'s 2-arity form, which resolves to
-       ;; play-key nil (the `:play-script` variant's single default play) —
+       ;; play-key nil (the `:script` variant's single default play) —
        ;; `settle-boundaries` is keyed by `[frame-id play-key]` (rf2-m0cge5
        ;; finding 2), so reads pass that same nil.
        (let [after-first (count (re/settle-boundaries :story.vkdam/rerun nil))]
@@ -939,8 +939,8 @@
        (rf/reg-event :m0cge5/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.m0cge5/two-key
-         {:events []
-          :play-script {:auto-run? false :script []}})
+         {:setup []
+          :script {:auto-run? false :script []}})
        ;; Allocate the frame so `run!` has a live frame to dispatch into.
        (async/deref-blocking (story/run-variant :story.m0cge5/two-key) 5000)
        (let [spec-a {:name "A" :auto-run? false
@@ -990,8 +990,8 @@
          (rf/reg-event :re-eviction/set
            (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
          (story/reg-variant :story.runner/eviction
-           {:events []
-            :play-script {:script [[:dispatch-sync [:re-eviction/set 1]]
+           {:setup []
+            :script {:script [[:dispatch-sync [:re-eviction/set 1]]
                                    [:dispatch-sync [:re-eviction/set 2]]
                                    [:dispatch-sync [:re-eviction/set 3]]
                                    [:dispatch-sync [:re-eviction/set 4]]
@@ -1029,8 +1029,8 @@
    (deftest bare-vector-with-unknown-event-still-dispatches
      (testing "a bare event vector with no registered handler still dispatches; the play status does not fail because dispatch is a no-assertion step"
        (story/reg-variant :story.runner/bare-unknown
-         {:events []
-          :play-script {:auto-run? false
+         {:setup []
+          :script {:auto-run? false
                         :script    [[:does-not-exist :nope]]}})
        (async/deref-blocking (story/run-variant :story.runner/bare-unknown) 5000)
        (let [final (run-blocking :story.runner/bare-unknown)]
@@ -1041,10 +1041,10 @@
 
 #?(:clj
    (deftest variant-play-script-from-body
-     (testing "variant-play-script resolves the :play-script slot on a variant"
+     (testing "variant-play-script resolves the :script slot on a variant"
        (story/reg-variant :story.runner/resolved
-         {:events []
-          :play-script {:script [[:dispatch [:foo]]]
+         {:setup []
+          :script {:script [[:dispatch [:foo]]]
                         :auto-run? false
                         :name "named"}})
        (let [spec (re/variant-play-script :story.runner/resolved)]
@@ -1054,8 +1054,8 @@
 
 #?(:clj
    (deftest variant-play-script-missing
-     (testing "variants without :play-script resolve to an empty spec"
-       (story/reg-variant :story.runner/no-script {:events []})
+     (testing "variants without :script resolve to an empty spec"
+       (story/reg-variant :story.runner/no-script {:setup []})
        (let [spec (re/variant-play-script :story.runner/no-script)]
          (is (= [] (:script spec)))
          (is (true? (:auto-run? spec)))))))
@@ -1069,8 +1069,8 @@
          (rf/reg-event :rt/touch
            (fn [{:keys [db]} _] (swap! seen inc) {:db db}))
          (story/reg-variant :story.runner/no-auto
-           {:events []
-            :play-script {:auto-run? false
+           {:setup []
+            :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/touch]]]}})
          (async/deref-blocking (story/run-variant :story.runner/no-auto) 5000)
          (re/auto-run! :story.runner/no-auto)
@@ -1084,8 +1084,8 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.runner/reset
-         {:events []
-          :play-script {:auto-run? false
+         {:setup []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
                                     [:assert-db [:touches] 1]]}})
        (async/deref-blocking (story/run-variant :story.runner/reset) 5000)
@@ -1116,8 +1116,8 @@
                  (when (= :rf.story.play/step (:operation ev))
                    (swap! trace-events conj ev))))
              (story/reg-variant :story.runner/trace
-               {:events []
-                :play-script {:auto-run? false
+               {:setup []
+                :script {:auto-run? false
                               :script    [[:dispatch-sync [:rt/touch]]
                                           [:assert-db [:touches] 1]]}})
              (async/deref-blocking (story/run-variant :story.runner/trace) 5000)
@@ -1143,8 +1143,8 @@
               distinct THIRD status, not a fail or a silent pass
               (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
        (story/reg-variant :story.runner/dom
-         {:events []
-          :play-script {:auto-run? false
+         {:setup []
+          :script {:auto-run? false
                         :script    [[:click "button.foo"]
                                     [:assert-dom "div" :visible]]}})
        (async/deref-blocking (story/run-variant :story.runner/dom) 5000)
@@ -1179,7 +1179,7 @@
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/two
-         {:events []
+         {:setup []
           :plays  [{:name "happy"
                     :auto-run? false
                     :script    [[:dispatch-sync [:rt/inc]]
@@ -1197,10 +1197,10 @@
 
 #?(:clj
    (deftest variant-plays-wraps-legacy-play-script
-     (testing "variant-plays wraps a legacy :play-script body in a one-entry vector"
+     (testing "variant-plays wraps a legacy :script body in a one-entry vector"
        (story/reg-variant :story.multi/legacy
-         {:events []
-          :play-script {:name "lone" :script [[:dispatch [:a]]]}})
+         {:setup []
+          :script {:name "lone" :script [[:dispatch [:a]]]}})
        (let [plays (re/variant-plays :story.multi/legacy)]
          (is (= 1 (count plays)))
          (is (= "lone" (:name (first plays))))))))
@@ -1211,7 +1211,7 @@
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/keyed
-         {:events []
+         {:setup []
           :plays  [{:name "first"  :auto-run? false
                     :script [[:dispatch-sync [:rt/inc]]
                              [:assert-db [:n] 1]]}
@@ -1237,7 +1237,7 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/active
-         {:events []
+         {:setup []
           :plays  [{:name "alpha" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}
                    {:name "beta"  :auto-run? false
@@ -1252,7 +1252,7 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/select
-         {:events []
+         {:setup []
           :plays  [{:name "one" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]]}
                    {:name "two" :auto-run? false
@@ -1269,7 +1269,7 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/all
-         {:events []
+         {:setup []
           :plays  [{:name "a" :auto-run? false
                     :script [[:dispatch-sync [:rt/touch]]
                              [:assert-db [:n] 1]]}
@@ -1301,7 +1301,7 @@
        (rf/reg-event :rt/inc
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/auto
-         {:events []
+         {:setup []
           :plays  [{:name "first-default-true"
                     ;; :auto-run? omitted → first defaults to true
                     :script [[:dispatch-sync [:rt/inc]]
@@ -1335,13 +1335,13 @@
 
 #?(:clj
    (deftest mutual-exclusion-warning-emits-once
-     (testing "variants declaring BOTH :play-script and :plays warn ONCE per variant"
+     (testing "variants declaring BOTH :script and :plays warn ONCE per variant"
        ;; Bypass schema validation by writing directly into the side-table.
        (require '[re-frame.story.registrar :as registrar])
        (let [registrar (resolve 're-frame.story.registrar/kind->id->body)]
          (swap! @registrar assoc-in
                 [:variant :story.multi/both]
-                {:play-script [[:dispatch [:legacy]]]
+                {:script [[:dispatch [:legacy]]]
                  :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
          ;; First read warns; the call returns the :plays-derived plays vector.
          (let [out1 (with-out-str
@@ -1350,7 +1350,7 @@
                out2 (with-out-str
                       (binding [*err* *out*]
                         (re/variant-plays :story.multi/both)))]
-           (is (re-find #":play-script.*:plays" out1)
+           (is (re-find #":script.*:plays" out1)
                "first read prints the both-slots warning")
            (is (empty? out2)
                "subsequent reads stay silent — warning is one-shot per variant"))))))
@@ -1368,7 +1368,7 @@
        (let [registrar (resolve 're-frame.story.registrar/kind->id->body)]
          (swap! @registrar assoc-in
                 [:variant :story.multi/both-rearm]
-                {:play-script [[:dispatch [:legacy]]]
+                {:script [[:dispatch [:legacy]]]
                  :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
          (let [warn1 (with-out-str
                        (binding [*err* *out*]
@@ -1382,11 +1382,11 @@
                warn2  (with-out-str
                         (binding [*err* *out*]
                           (re/variant-plays :story.multi/both-rearm)))]
-           (is (re-find #":play-script.*:plays" warn1)
+           (is (re-find #":script.*:plays" warn1)
                "first read warns")
            (is (empty? silent)
                "second read before the clear stays silent — one-shot holds")
-           (is (re-find #":play-script.*:plays" warn2)
+           (is (re-find #":script.*:plays" warn2)
                "after clear-all-runs! the warning re-arms and fires again"))))))
 
 ;; ---- rf2-ftow6: concurrent-run race fix ---------------------------------
@@ -1407,8 +1407,8 @@
               concurrent-run detection can compare loops"
        (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.runner/token
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]]}})
        (async/deref-blocking (story/run-variant :story.runner/token) 5000)
        (let [final (run-blocking :story.runner/token)]
@@ -1422,8 +1422,8 @@
               would bail on mismatch"
        (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.runner/token-rotate
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]]}})
        (async/deref-blocking (story/run-variant :story.runner/token-rotate) 5000)
        (let [first-final  (run-blocking :story.runner/token-rotate)
@@ -1444,8 +1444,8 @@
        (let [n (atom 0)]
          (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
          (story/reg-variant :story.runner/sync-tight
-           {:events      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
-            :play-script {:auto-run? false
+           {:setup      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
+            :script {:auto-run? false
                           :script    [[:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]
                                       [:dispatch-sync [:rt/inc]]
@@ -1506,8 +1506,8 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/schema-error
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
                                     [:assert [:rf.assert/schema-error
                                               {:where :event :event :rt/touch}]]]}})
@@ -1536,8 +1536,8 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/no-cascade
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
                                     [:assert [:rf.assert/no-cascade-rerender
                                               {:event :rt/touch :sub :some/sub}]]]}})
@@ -1564,8 +1564,8 @@
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/caused
-         {:events      []
-          :play-script {:auto-run? false
+         {:setup      []
+          :script {:auto-run? false
                         :script    [[:dispatch-sync [:rt/touch]]
                                     [:assert [:rf.assert/caused
                                               {:event :rt/touch :sub :some/sub}]]]}})

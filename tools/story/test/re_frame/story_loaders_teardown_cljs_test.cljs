@@ -70,15 +70,15 @@
     (is (m/validate schemas/Variant
                     {:loaders          [[:ws/open]]
                      :loaders-teardown [[:ws/close]]
-                     :events           []}))
+                     :setup           []}))
     (is (m/validate schemas/Variant
                     {:loaders-teardown [[:cleanup]]
-                     :events           []}))
+                     :setup           []}))
     (is (m/validate schemas/Variant
-                    {:events []}))
+                    {:setup []}))
     (is (m/validate schemas/Variant
                     {:loaders-teardown []
-                     :events           []})
+                     :setup           []})
         "an empty vector is structurally valid (no-op teardown)")))
 
 (deftest schema-rejects-non-vector-loaders-teardown
@@ -86,10 +86,10 @@
             anything else fails the schema"
     (is (not (m/validate schemas/Variant
                          {:loaders-teardown :not-a-vector
-                          :events           []})))
+                          :setup           []})))
     (is (not (m/validate schemas/Variant
                          {:loaders-teardown [:not-a-vector-of-vectors]
-                          :events           []})))))
+                          :setup           []})))))
 
 ;; ===========================================================================
 ;; FIRES — declared events dispatch-sync into the variant frame on destroy
@@ -103,7 +103,7 @@
       (story/reg-variant :story.lt.fires/v
         {:loaders          [[:ws/open]]
          :loaders-teardown [[:ws/close]]
-         :events           []})
+         :setup           []})
       (let [p (story/run-variant :story.lt.fires/v)]
         (async done
           (-> p
@@ -125,7 +125,7 @@
       (rf/reg-event :step/three (fn [{:keys [db]} _] (swap! fired conj :three) {:db db}))
       (story/reg-variant :story.lt.order/v
         {:loaders-teardown [[:step/one] [:step/two] [:step/three]]
-         :events           []})
+         :setup           []})
       (let [p (story/run-variant :story.lt.order/v)]
         (async done
           (-> p
@@ -160,7 +160,7 @@
       (story/reg-variant :story.lt.order2/v
         {:decorators       [[:outer-dec]]
          :loaders-teardown [[:lt/cleanup]]
-         :events           []})
+         :setup           []})
       (let [p (story/run-variant :story.lt.order2/v)]
         (async done
           (-> p
@@ -183,7 +183,7 @@
       (fn [_ _] (throw (ex-info "loader-teardown boom" {:why :test}))))
     (story/reg-variant :story.lt.boom/v
       {:loaders-teardown [[:boom/cleanup]]
-       :events           []})
+       :setup           []})
     (let [p (story/run-variant :story.lt.boom/v)]
       (async done
         (-> p
@@ -209,7 +209,7 @@
         (fn [{:keys [db]} _] (swap! fired conj :after) {:db db}))
       (story/reg-variant :story.lt.continue/v
         {:loaders-teardown [[:step/before] [:step/boom] [:step/after]]
-         :events           []})
+         :setup           []})
       (let [p (story/run-variant :story.lt.continue/v)]
         (async done
           (-> p
@@ -246,7 +246,7 @@
       (story/reg-variant :story.lt.record/v
         {:decorators       [[:lt-probe]]
          :loaders-teardown [[:boom/cleanup]]
-         :events           []})
+         :setup           []})
       (let [p (story/run-variant :story.lt.record/v)]
         (async done
           (-> p
@@ -281,7 +281,7 @@
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-variant :story.lt.none/v
-      {:events [[:seed/init]]})
+      {:setup [[:seed/init]]})
     (let [p (story/run-variant :story.lt.none/v)]
       (async done
         (-> p

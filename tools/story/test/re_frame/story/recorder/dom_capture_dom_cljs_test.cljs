@@ -281,7 +281,7 @@
 ;; The DOM-capture rail is the SECOND credential/PII egress (the dispatch
 ;; rail being the first, redacted by `recorder/trace-listener`). Post
 ;; rf2-nkjkj `:entries` is the PRIMARY codegen source, so a typed password
-;; would otherwise ride verbatim into the generated `:play-script` step.
+;; would otherwise ride verbatim into the generated `:script` step.
 ;; These tests pin the record-but-redact policy on the DOM rail: a
 ;; password field's value is scrubbed at the capture boundary so the
 ;; generated snippet carries the placeholder, not the plaintext.

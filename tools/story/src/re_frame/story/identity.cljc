@@ -51,8 +51,8 @@
   includes:
 
   - Variant id
-  - `:events` setup dispatches and the `:play-script` / `:plays` play
-    surfaces (in order)
+  - `:setup` dispatches and the `:script` / `:plays` play surfaces (in
+    order)
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown`
     (in declared order; canonicalised)
   - Effective `:args` (post-`:extends`-merge with story + active modes)
@@ -126,10 +126,10 @@
   baseline or watch-mode rerun must invalidate on.
 
   Included:
-  - `:play-script` / `:plays` — the post-render interaction sequences.
+  - `:script` / `:plays` — the post-render interaction sequences.
     A play edit changes the asserted/driven state, so it MUST perturb
     the hash.
-  - `:events` — pre-render setup dispatches.
+  - `:setup` — pre-render setup dispatches.
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — async
     setup + the symmetric teardown; both shape the frame's settled state.
   - `:decorators` — composition.
@@ -178,7 +178,7 @@
   (let [body (registrar/handler-meta :variant variant-id)]
     (when body
       (select-keys body
-                   [:events :play-script :plays
+                   [:setup :script :plays
                     :loaders :loaders-complete-when :loaders-teardown
                     :decorators :args->events :platforms :substrates
                     :viewport :background

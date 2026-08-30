@@ -63,7 +63,7 @@
          (story/reg-story :story.cart {})
          (story/reg-variant :story.cart/empty
            {:doc    "Empty cart variant — exercises the target-frame dispatch."
-            :events []}))}
+            :setup []}))}
       (fn []
         (install-selection-watcher!)
         (try
@@ -89,8 +89,8 @@
       {:register-stories
        (fn []
          (story/reg-story :story.cart {})
-         (story/reg-variant :story.cart/empty {:events []})
-         (story/reg-variant :story.cart/with-items {:events []}))}
+         (story/reg-variant :story.cart/empty {:setup []})
+         (story/reg-variant :story.cart/with-items {:setup []}))}
       (fn []
         (install-selection-watcher!)
         (try
@@ -118,7 +118,7 @@
       {:register-stories
        (fn []
          (story/reg-story :story.cart {})
-         (story/reg-variant :story.cart/empty {:events []}))}
+         (story/reg-variant :story.cart/empty {:setup []}))}
       (fn []
         (install-selection-watcher!)
         (try

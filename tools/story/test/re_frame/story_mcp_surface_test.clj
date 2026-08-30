@@ -94,8 +94,8 @@
             agent's `(for [...])` walk from a nil punning bug"
     (is (= #{} (story/ids :variant))
         "empty registry → empty set")
-    (story/reg-variant :story.mcp.list-v/probe {:events []})
-    (story/reg-variant :story.mcp.list-v/probe-two {:events []})
+    (story/reg-variant :story.mcp.list-v/probe {:setup []})
+    (story/reg-variant :story.mcp.list-v/probe-two {:setup []})
     (let [result (story/ids :variant)]
       (is (set? result))
       (is (= #{:story.mcp.list-v/probe :story.mcp.list-v/probe-two}
@@ -136,8 +136,8 @@
     (rf/reg-event :mcp/seed
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (story/reg-variant :story.mcp.run/probe
-      {:events [[:mcp/seed 42]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
+      {:setup [[:mcp/seed 42]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
     (let [result (story-async/deref-blocking
                    (story/run-variant :story.mcp.run/probe) 5000)]
       (is (map? result)
@@ -163,14 +163,14 @@
           ":decorators slot present — the resolved decorator pack"))))
 
 (deftest run-variant-empty-play-still-returns-shape
-  (testing "even a variant with no :play-script surfaces the full return shape
+  (testing "even a variant with no :script surfaces the full return shape
             — agents must not have to special-case the no-play branch"
-    (story/reg-variant :story.mcp.run/no-play {:events []})
+    (story/reg-variant :story.mcp.run/no-play {:setup []})
     (let [result (story-async/deref-blocking
                    (story/run-variant :story.mcp.run/no-play) 5000)]
       (is (= :story.mcp.run/no-play (:frame result)))
       (is (= [] (:assertions result))
-          "empty :play-script → empty :assertions vector (not nil)")
+          "empty :script → empty :assertions vector (not nil)")
       (is (map? (:app-db result))))))
 
 ;; ===========================================================================
@@ -193,7 +193,7 @@
       (fn [{:keys [db]} [_ v]] {:db (assoc db :payload v)}))
     ;; MCP write path: programmatic registration (no &form meta).
     (story/reg-variant* :story.mcp.dispatch/probe
-      {:events []
+      {:setup []
        :args   {}})
     ;; Allocate the variant frame so the dispatch has somewhere to land.
     (story-async/deref-blocking
@@ -218,7 +218,7 @@
             app-db in order"
     (rf/reg-event :mcp.dispatch/push
       (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
-    (story/reg-variant* :story.mcp.dispatch.seq/probe {:events []})
+    (story/reg-variant* :story.mcp.dispatch.seq/probe {:setup []})
     (story-async/deref-blocking
       (story/run-variant :story.mcp.dispatch.seq/probe) 5000)
     (doseq [v ["a" "b" "c"]]
@@ -247,14 +247,14 @@
             coord-only change"
     (story/reg-variant* :story.mcp.snap/probe
       {:args {:label "v1"}
-       :events []})
+       :setup []})
     (let [identity-1 (story/snapshot-identity :story.mcp.snap/probe)]
       (is (some? identity-1) ":content-hash present")
       ;; Re-register with the same body but a different :source slot
       ;; — cosmetic, the same as moving the registration to a new line.
       (story/reg-variant* :story.mcp.snap/probe
         {:args   {:label "v1"}
-         :events []
+         :setup []
          :source {:file "agent.cljs" :line 99}})
       (let [identity-2 (story/snapshot-identity :story.mcp.snap/probe)]
         (is (= (:content-hash identity-1) (:content-hash identity-2))
@@ -271,7 +271,7 @@
             tools consume."
     (story/reg-variant* :story.mcp.snap.args/probe
       {:args   {:label "before"}
-       :events []})
+       :setup []})
     (let [base    (:content-hash
                     (story/snapshot-identity :story.mcp.snap.args/probe))
           with-co (:content-hash
@@ -295,7 +295,7 @@
     (story/reg-mode :Mode.mcp.snap/light {:args {:theme :light}})
     (story/reg-variant* :story.mcp.snap.modes/probe
       {:args   {:label "x"}
-       :events []})
+       :setup []})
     (let [dark  (:content-hash
                   (story/snapshot-identity :story.mcp.snap.modes/probe
                                            {:active-modes [:Mode.mcp.snap/dark]}))

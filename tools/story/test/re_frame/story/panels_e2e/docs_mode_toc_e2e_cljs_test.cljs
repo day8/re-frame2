@@ -78,7 +78,7 @@
     {:doc    "The happy-path docs variant — prose, args, tags."
      :args   {:label "Hello"}
      :tags   #{:dev :docs :test}
-     :events []})
+     :setup []})
   (story/reg-workspace :Workspace.docs-rich/prose-ws
     {:layout  :prose
      :content [{:type :variant :id variant-id}
@@ -86,7 +86,7 @@
   (story/reg-story :story.docs-no-prose {:doc "Variant with no prose."})
   (story/reg-variant no-prose-variant-id
     {:doc    "No-prose variant — prose TOC entry should be pruned."
-     :events []}))
+     :setup []}))
 
 ;; ---- helpers -----------------------------------------------------------
 

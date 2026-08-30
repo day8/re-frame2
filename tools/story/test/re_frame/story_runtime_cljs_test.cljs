@@ -71,7 +71,7 @@
     (rf/reg-event :test/inc
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.cljs.run/v
-      {:events [[:test/inc] [:test/inc]]})
+      {:setup [[:test/inc] [:test/inc]]})
     (let [p (story/run-variant :story.cljs.run/v)]
       (is (async-lib/promise? p))
       (async done
@@ -99,12 +99,12 @@
 (deftest cljs-events-only-fast-path-to-ready
   (testing "rf2-043cm — events-only variant lands :ready directly on
             CLJS too. Drives the regression's repro shape: a variant
-            body declaring only `:events`, with no `:loaders` / no
+            body declaring only `:setup`, with no `:loaders` / no
             `:frame-setup` decorators / no `:loaders-complete-when`."
     (rf/reg-event :test.eo/seed
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-variant :story.cljs.eo/v
-      {:events [[:test.eo/seed]]})
+      {:setup [[:test.eo/seed]]})
     (let [p (story/run-variant :story.cljs.eo/v)]
       (async done
         (-> p
@@ -122,7 +122,7 @@
 (deftest cljs-events-only-classifier
   (testing "rf2-043cm — `loaders/events-only-variant?` classifies the
             canonical events-only loader-body shape on CLJS"
-    (is (true?  (loaders/events-only-variant? {:events [[:counter/initialise 5]]}
+    (is (true?  (loaders/events-only-variant? {:setup [[:counter/initialise 5]]}
                                               {:hiccup [] :frame-setup []
                                                :fx-override [] :errors []}))
         "the counter_with_stories `:story.counter/events-only-loaded`
@@ -159,8 +159,8 @@
     (rf/reg-event :test.hang/touch
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cljs.hang/torn-down
-      {:events      []
-       :play-script {:script [[:dispatch-sync [:test.hang/touch]]
+      {:setup      []
+       :script {:script [[:dispatch-sync [:test.hang/touch]]
                               ;; The async yield window: the frame is
                               ;; destroyed while this :wait's setTimeout is
                               ;; pending, so the run loop resumes onto a
@@ -190,8 +190,8 @@
     (rf/reg-event :test.hang2/touch
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cljs.hang/token-swap
-      {:events      []
-       :play-script {:auto-run? false
+      {:setup      []
+       :script {:auto-run? false
                      :script [[:dispatch-sync [:test.hang2/touch]]
                               [:wait 60]
                               [:dispatch-sync [:test.hang2/touch]]]}})
@@ -223,7 +223,7 @@
     (story/reg-story :story.cljs.id
       {:component :app/v :args {:a 1}})
     (story/reg-variant :story.cljs.id/v
-      {:events [[:init]] :tags #{:dev}})
+      {:setup [[:init]] :tags #{:dev}})
     (let [s (story/snapshot-identity :story.cljs.id/v
                                      {:substrate :reagent})]
       (is (= :story.cljs.id/v (:variant-id s)))
@@ -239,7 +239,7 @@
     (story/reg-story :story.cljs.args
       {:args {:label "story"}})
     (story/reg-variant :story.cljs.args/v
-      {:args {:label "variant"} :events []})
+      {:args {:label "variant"} :setup []})
     (let [r (story/resolve-args :story.cljs.args/v
                                 {:cell-overrides {:icon :star}})]
       (is (= :light    (:theme r)))
@@ -255,7 +255,7 @@
        :wrap (fn [body _] [:div.centered body])})
     (story/reg-variant :story.cljs.dec/v
       {:decorators [[:centered]]
-       :events     []})
+       :setup     []})
     (let [r (story/resolve-decorators :story.cljs.dec/v)]
       (is (= 1 (count (:hiccup r))))
       (is (= :centered (-> r :hiccup first :id))))))

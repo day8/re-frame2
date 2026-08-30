@@ -91,7 +91,7 @@
     {:doc "Counter parent story for the e2e embed tests."})
   (story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — exercises the default embed path."
-     :events [[:counter/initialise]]}))
+     :setup [[:counter/initialise]]}))
 
 ;; ---- panel-catalog completeness -----------------------------------------
 

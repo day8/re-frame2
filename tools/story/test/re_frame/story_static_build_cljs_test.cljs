@@ -186,7 +186,7 @@
     (story/reg-story :story.static.seed
       {:doc "a seed story baked into the static export"})
     (story/reg-variant :story.static.seed/probe
-      {:events [[:probe/init]]
+      {:setup [[:probe/init]]
        :tags   #{:dev}})
     ;; Read surface — the MCP-or-tooling consumer path.
     (is (story/registered? :story   :story.static.seed))
@@ -194,7 +194,7 @@
     (is (= #{:story.static.seed/probe}
            (story/variants-of :story.static.seed)))
     (is (= [[:probe/init]]
-           (:events (story/variant->edn :story.static.seed/probe))))))
+           (:setup (story/variant->edn :story.static.seed/probe))))))
 
 ;; ===========================================================================
 ;; STATIC-EXPORT SELF-CONTAINMENT — open-in-editor project-root fails closed

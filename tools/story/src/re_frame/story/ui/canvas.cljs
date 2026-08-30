@@ -373,7 +373,7 @@
 (defn run-key
   "The shell-state slice that should trigger a fresh runtime run for
   `variant-id`. Ordinary app-db updates inside the variant frame must
-  not re-dispatch the variant's static `:events`; otherwise user
+  not re-dispatch the variant's static `:setup`; otherwise user
   interactions reset the canvas and the recorder captures fixture
   initialisation events as if they were user actions.
 
@@ -542,7 +542,7 @@
         ;; the first child render and race descendant subscribes/
         ;; dispatches"). It is idempotent (keyed on `canvas-last-run-key`),
         ;; so calling it here AND again from `component-did-mount` /
-        ;; `component-did-update` never double-runs the variant's `:events`
+        ;; `component-did-update` never double-runs the variant's `:setup`
         ;; — the second call is a no-op once the key matches. Scoped to
         ;; `events-only?` only: non-events-only variants stay on the
         ;; skeleton-gated path below, which already avoids this render ever
@@ -723,7 +723,7 @@
       :component-did-update
       (fn [_this _old-argv]
         ;; Re-run only when the variant runtime inputs change. An
-        ;; unconditional update would re-fire `:events` on every app-db
+        ;; unconditional update would re-fire `:setup` on every app-db
         ;; render, resetting interactive state and polluting recorder
         ;; output with fixture setup events.
         (run-if-needed!)

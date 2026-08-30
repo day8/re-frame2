@@ -53,15 +53,15 @@
   (story/reg-story :story.counter
     {:doc "Counter parent story."})
   (story/reg-variant :story.counter/empty
-    {:doc "empty counter" :events []})
+    {:doc "empty counter" :setup []})
   (story/reg-variant :story.counter/at-five
-    {:doc "counter pre-seeded at five" :events []})
+    {:doc "counter pre-seeded at five" :setup []})
   (story/reg-story :story.login
     {:doc "Login parent story."})
   (story/reg-variant :story.login/blank
-    {:doc "blank login form" :events []})
+    {:doc "blank login form" :setup []})
   (story/reg-variant :story.login/loaded
-    {:doc "login pre-populated" :events []}))
+    {:doc "login pre-populated" :setup []}))
 
 ;; ---- helpers: walk the sidebar's expanded hiccup to drive search --------
 

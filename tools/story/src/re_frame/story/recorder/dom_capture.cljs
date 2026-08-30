@@ -55,7 +55,7 @@
   DOM-capture rail is the SECOND egress and carries the SAME obligation:
   a user recording a login flow types a real password, and (with
   `:entries` the primary codegen source) that plaintext would otherwise
-  ride verbatim into the generated `:play-script` `[:type selector \"…\"]`
+  ride verbatim into the generated `:script` `[:type selector \"…\"]`
   step.
 
   So `handle-input!` / `handle-change!` detect a SENSITIVE input —

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.recorder-export-dialog-cljs-test
-  "Tests for the recorder → :play-script export dialog UI (rf2-x9zsr).
+  "Tests for the recorder → :script export dialog UI (rf2-x9zsr).
 
   Two tiers:
 

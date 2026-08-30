@@ -67,7 +67,7 @@
   (testing "ref-args expand into a per-reference body with fx-id + response"
     (story/reg-variant :story.fxstub/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
-       :events     []})
+       :setup     []})
     (let [r (story/resolve-decorators :story.fxstub/v)]
       (is (= 1 (count (:fx-override r))))
       (let [body (-> r :fx-override first :body)]
@@ -80,7 +80,7 @@
     (story/reg-variant :story.fxstub-multi/v
       {:decorators [[:rf.story/force-fx-stub :http      {:status :a}]
                     [:rf.story/force-fx-stub :websocket {:status :b}]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.fxstub-multi/v)
           stack   (decorators/fx-overrides-map (:fx-override r))]
       (is (= 2 (count (:overrides stack))))
@@ -112,7 +112,7 @@
   (testing "running a variant with force-fx-stub stamps :fx-overrides on the frame config"
     (story/reg-variant :story.fxstub-frame/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
-       :events     []})
+       :setup     []})
     (let [r (async/deref-blocking (story/run-variant :story.fxstub-frame/v) 5000)]
       (is (= :ready (:lifecycle r)))
       (let [overrides (:fx-overrides (rf/frame-meta :story.fxstub-frame/v))]
@@ -132,8 +132,8 @@
         {:fx [[:http {:url "/test" :method :get}]]}))
     (story/reg-variant :story.fxemit/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
-       :events     []
-       :play-script [[:dispatch-sync [:do/http-call]]
+       :setup     []
+       :script [[:dispatch-sync [:do/http-call]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxemit/v) 5000)
           last-a (last (:assertions r))]
@@ -152,8 +152,8 @@
         {:fx [[:http {:url "/api" :method :post}]]}))
     (story/reg-variant :story.fxlog/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
-       :events     []
-       :play-script [[:dispatch-sync [:do/http-call2]]]})
+       :setup     []
+       :script [[:dispatch-sync [:do/http-call2]]]})
     (async/deref-blocking (story/run-variant :story.fxlog/v) 5000)
     (let [log (re-frame.story.frames/stub-call-log-for :story.fxlog/v)]
       (is (= 1 (count log)))
@@ -176,13 +176,13 @@
         {:fx [[:http {:url "/b"}]]}))
     (story/reg-variant :story.fxisolation/a
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :events     []
-       :play-script [[:dispatch-sync [:do/http-a]]
+       :setup     []
+       :script [[:dispatch-sync [:do/http-a]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (story/reg-variant :story.fxisolation/b
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :events     []
-       :play-script [[:dispatch-sync [:do/http-b]]
+       :setup     []
+       :script [[:dispatch-sync [:do/http-b]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [ra (async/deref-blocking (story/run-variant :story.fxisolation/a) 5000)
           rb (async/deref-blocking (story/run-variant :story.fxisolation/b) 5000)

@@ -1,5 +1,5 @@
 (ns re-frame.story.play.ci-runner
-  "CI-as-test discovery + driver glue for Story's `:play-script` slot.
+  "CI-as-test discovery + driver glue for Story's `:script` slot.
 
   The companion to `re-frame.story.play.runner` (pure step state
   machine) and `re-frame.story.play.runner-events` (re-frame-side
@@ -7,7 +7,7 @@
 
   - `variants-with-play-scripts` — pure discovery: scan the Story
     registrar's variant side-table and return the variant ids whose
-    body carries a non-empty `:play-script`. Pure data → data; works
+    body carries a non-empty `:script`. Pure data → data; works
     on JVM and CLJS.
 
   - `ci-rows` — pure: enumerate the per-PLAY catalogue (one row per
@@ -19,7 +19,7 @@
 
   - `install-ci-hooks!` (CLJS) — install `window.__rf2_story_ci`
     helpers so a Playwright runner can: (a) enumerate variants with
-    `:play-script`, and (b) read each variant's terminal run-state
+    `:script`, and (b) read each variant's terminal run-state
     (`runner-events/current-state`) once the auto-run completes.
     No-op on JVM. The hook is INERT until called explicitly from a
     testbed init path — production / non-CI bundles never hit it.
@@ -48,8 +48,8 @@
 ;; ---- pure discovery ------------------------------------------------------
 
 (defn has-play-script?
-  "True iff `variant-body` carries a non-empty `:play-script` body.
-  Pure data → data. A bare `:play-script` vector is enough; a map
+  "True iff `variant-body` carries a non-empty `:script` body.
+  Pure data → data. A bare `:script` vector is enough; a map
   form is also accepted (the runner's `parse-spec` normalises both
   shapes, but discovery treats an empty vector / map without
   `:script` as 'no script' so the CI runner skips it).
@@ -57,7 +57,7 @@
   Empty map (`{}`) and empty vector (`[]`) are treated as absent —
   authors that want to opt-in must declare at least one step."
   [variant-body]
-  (let [body (:play-script variant-body)]
+  (let [body (:script variant-body)]
     (cond
       (nil? body)    false
       (vector? body) (pos? (count body))
@@ -72,7 +72,7 @@
     (boolean (and (vector? plays) (pos? (count plays))))))
 
 (defn has-any-play?
-  "True iff `variant-body` carries EITHER a non-empty `:play-script`
+  "True iff `variant-body` carries EITHER a non-empty `:script`
   or a non-empty `:plays` vector (multi-play)."
   [variant-body]
   (or (has-play-script? variant-body)
@@ -80,14 +80,14 @@
 
 (defn variants-with-play-scripts
   "Return a SORTED vector of variant ids whose body carries a non-empty
-  `:play-script` or `:plays` slot. Pure data → data; reads the Story
+  `:script` or `:plays` slot. Pure data → data; reads the Story
   registrar's variant side-table.
 
   Sorted so the CI runner walks variants in a deterministic order —
   helpful when comparing run logs across runs / branches.
 
   The name keeps the `play-scripts` plural; it includes both
-  `:play-script` and `:plays`-carrying variants. The CI runner uses
+  `:script` and `:plays`-carrying variants. The CI runner uses
   `ci-rows` to enumerate per-PLAY rows."
   ([]
    (variants-with-play-scripts (registrar/registrations :variant)))
@@ -101,7 +101,7 @@
 (defn ci-rows
   "Enumerate the CI runner's per-row catalogue (multi-play).
   Each row is one play; a variant with `:plays` of size N yields N
-  rows; a single-script `:play-script` variant yields ONE row.
+  rows; a single-script `:script` variant yields ONE row.
 
   Pure data → data.
 
@@ -207,7 +207,7 @@
 #?(:cljs
    (defn- list-variants-js
      "Return the JS array of variant ids (as fully-qualified strings)
-     with `:play-script` bodies. Used by the Playwright runner via
+     with `:script` bodies. Used by the Playwright runner via
      `window.__rf2_story_ci.listVariants()`."
      []
      (->js (variants-with-play-scripts))))
@@ -247,7 +247,7 @@
    (defn- read-play-run-state-js
      "Read the per-(variant, play-key) run state (multi-play).
      `play-key-str` is the play's `:name` string, or null/empty for the
-     single-script `:play-script` slot. Returns the projected JSON-safe
+     single-script `:script` slot. Returns the projected JSON-safe
      shape, or nil when no run has been started for that play."
      [variant-id-str play-key-str]
      (let [vid (->variant-id variant-id-str)

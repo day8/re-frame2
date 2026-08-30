@@ -245,11 +245,11 @@
 ;; ---- shipping-vocabulary normalization ----------------------------------
 
 (deftest events-normalizes-to-world-setup
-  (testing "shipping :events lowers to [:world :setup], bare event vectors
+  (testing ":setup lowers to [:world :setup], bare event vectors
             lifting to tagged [:dispatch …] (rf2-5x1wt.17 migration
             normalization — bare shorthand is the migration form, not the
             P1 public grammar)"
-    (let [m {:story.legacy/e {:events [[:counter/init 3]]}}
+    (let [m {:story.legacy/e {:setup [[:counter/init 3]]}}
           p (plan-of :story.legacy/e m)]
       (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup])))))
   (testing "already-tagged setup steps round-trip unchanged"
@@ -261,9 +261,9 @@
              (get-in p [:world :setup]))))))
 
 (deftest play-script-normalizes-to-script
-  (testing "shipping :play-script lowers to :script (bare vectors lift to :dispatch)"
+  (testing ":script lowers to the plan's :script (bare vectors lift to :dispatch)"
     (let [m {:story.legacy/p
-             {:play-script [[:dispatch-sync [:counter/init 3]]
+             {:script [[:dispatch-sync [:counter/init 3]]
                             [:counter/inc]
                             [:wait 50]]}}
           p (plan-of :story.legacy/p m)]
@@ -273,9 +273,9 @@
              (:script p))))))
 
 (deftest play-script-map-form-normalizes
-  (testing ":play-script map form lowers its :script"
+  (testing ":script map form lowers its :script"
     (let [m {:story.legacy/pm
-             {:play-script {:script [[:dispatch [:a]]] :auto-run? false}}}
+             {:script {:script [[:dispatch [:a]]] :auto-run? false}}}
           p (plan-of :story.legacy/pm m)]
       (is (= [[:dispatch [:a]]] (:script p))))))
 

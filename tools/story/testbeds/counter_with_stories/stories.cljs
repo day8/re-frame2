@@ -388,7 +388,7 @@
   ;; NO :loaders slot, NO :frame-setup decorator — those would break
   ;; the events-only classification and the fast-path it gates. (The
   ;; runtime classifier is named "events-only" after the lowered
-  ;; `:events` slot; the authoring surface is `:setup`.)
+  ;; `:setup` slot; the authoring surface is `:setup`.)
   (story/reg-variant :story.counter/events-only-loaded
     {:doc    "Canonical events-only loader-body shape. Counter seeded at
              5 via `:setup`; no
@@ -658,7 +658,7 @@
   ;; discovers every registered variant whose body carries a non-empty
   ;; `:script` slot (via `re-frame.story.play.ci-runner/
   ;; variants-with-play-scripts`; the runtime fn keeps its name after the
-  ;; `:script` → `:play-script` lowering), navigates the live Story shell
+  ;; `:script` → `:script` lowering), navigates the live Story shell
   ;; to each, waits for the auto-run's terminal status, and asserts the
   ;; aggregate result. These two fixtures pin the contract: one passes,
   ;; one is deliberately wrong so the CI runner's failure path stays

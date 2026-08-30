@@ -1,5 +1,5 @@
 (ns re-frame.story.play.ci-runner-test
-  "Pure unit tests for the Story `:play-script` CI-as-test discovery +
+  "Pure unit tests for the Story `:script` CI-as-test discovery +
   projection seams (rf2-3qcxk).
 
   All tests are JVM-runnable. The CLJS-only `install-ci-hooks!` is
@@ -21,37 +21,37 @@
 ;; ---- has-play-script? ----------------------------------------------------
 
 (deftest has-play-script-missing
-  (testing "has-play-script? is false when :play-script is absent"
+  (testing "has-play-script? is false when :script is absent"
     (is (false? (ci/has-play-script? {})))
-    (is (false? (ci/has-play-script? {:events [[:foo]]})))))
+    (is (false? (ci/has-play-script? {:setup [[:foo]]})))))
 
 (deftest has-play-script-empty
   (testing "has-play-script? is false for empty vectors / maps"
-    (is (false? (ci/has-play-script? {:play-script []})))
-    (is (false? (ci/has-play-script? {:play-script {:script []}})))
-    (is (false? (ci/has-play-script? {:play-script {}})))))
+    (is (false? (ci/has-play-script? {:script []})))
+    (is (false? (ci/has-play-script? {:script {:script []}})))
+    (is (false? (ci/has-play-script? {:script {}})))))
 
 (deftest has-play-script-bare-vector
   (testing "has-play-script? is true for a non-empty bare vector"
-    (is (true? (ci/has-play-script? {:play-script [[:dispatch [:foo]]]})))))
+    (is (true? (ci/has-play-script? {:script [[:dispatch [:foo]]]})))))
 
 (deftest has-play-script-map-form
   (testing "has-play-script? is true for a map with at least one step"
     (is (true? (ci/has-play-script?
-                 {:play-script {:script [[:dispatch [:foo]]]
+                 {:script {:script [[:dispatch [:foo]]]
                                 :auto-run? true}})))))
 
 ;; ---- variants-with-play-scripts ------------------------------------------
 
 (deftest discovery-from-injected-registrations
   (testing "discovery from an injected `{id → body}` map filters bodies
-            without `:play-script` and sorts the result"
-    (let [regs {:story.a/with-script    {:play-script [[:dispatch [:foo]]]}
-                :story.b/without-script {:events [[:bar]]}
-                :story.c/with-map-form  {:play-script
+            without `:script` and sorts the result"
+    (let [regs {:story.a/with-script    {:script [[:dispatch [:foo]]]}
+                :story.b/without-script {:setup [[:bar]]}
+                :story.c/with-map-form  {:script
                                          {:script [[:wait 0]] :auto-run? true}}
-                :story.d/empty-script   {:play-script []}
-                :story.e/empty-map      {:play-script {:script []}}}]
+                :story.d/empty-script   {:script []}
+                :story.e/empty-map      {:script {:script []}}}]
       (is (= [:story.a/with-script :story.c/with-map-form]
              (ci/variants-with-play-scripts regs))))))
 
@@ -63,16 +63,16 @@
     ;; out of scope for a discovery test.
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.t/script]
-           {:play-script [[:dispatch [:foo]]]})
+           {:script [[:dispatch [:foo]]]})
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.t/no-script]
-           {:events [[:foo]]})
+           {:setup [[:foo]]})
     (is (= [:story.t/script] (ci/variants-with-play-scripts)))
 
-    ;; A third variant with a `:play-script` lands in sorted order.
+    ;; A third variant with a `:script` lands in sorted order.
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.t/another]
-           {:play-script {:script [[:wait 0]]}})
+           {:script {:script [[:wait 0]]}})
     (is (= [:story.t/another :story.t/script]
            (ci/variants-with-play-scripts)))))
 
@@ -86,10 +86,10 @@
   (testing "ci-context bundles the variant list + per-play rows"
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.c/a]
-           {:play-script [[:dispatch [:a]]]})
+           {:script [[:dispatch [:a]]]})
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.c/b]
-           {:play-script {:script [[:wait 0]] :auto-run? false :name "b"}})
+           {:script {:script [[:wait 0]] :auto-run? false :name "b"}})
     (let [ctx (ci/ci-context)]
       (is (= [:story.c/a :story.c/b] (:variants ctx)))
       (is (not (contains? ctx :summaries))
@@ -155,22 +155,22 @@
 
 (deftest has-any-play?-or-of-both
   (is (false? (ci/has-any-play? {})))
-  (is (true?  (ci/has-any-play? {:play-script [[:dispatch [:a]]]})))
+  (is (true?  (ci/has-any-play? {:script [[:dispatch [:a]]]})))
   (is (true?  (ci/has-any-play? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
 
 (deftest discovery-includes-plays-variants
   (testing "variants-with-play-scripts picks up :plays-carrying bodies"
-    (let [regs {:story.a/single  {:play-script [[:dispatch [:a]]]}
+    (let [regs {:story.a/single  {:script [[:dispatch [:a]]]}
                 :story.b/multi   {:plays [{:name "p1" :script [[:dispatch [:b1]]]}
                                           {:name "p2" :script [[:dispatch [:b2]]]}]}
-                :story.c/none    {:events []}}]
+                :story.c/none    {:setup []}}]
       (is (= [:story.a/single :story.b/multi]
              (ci/variants-with-play-scripts regs))))))
 
 (deftest ci-rows-enumerates-plays-per-variant
   (testing "ci-rows produces one row per play; single-script variants produce one row"
     (let [regs {:story.a/single
-                {:play-script {:name "single-named"
+                {:script {:name "single-named"
                                :script [[:dispatch [:a]]]}}
 
                 :story.b/multi
@@ -178,7 +178,7 @@
                          {:name "error" :script [[:dispatch [:b2]]]
                           :auto-run? true}]}
 
-                :story.c/no-play {:events []}}
+                :story.c/no-play {:setup []}}
           rows (ci/ci-rows regs)]
       (is (= 3 (count rows))
           "single + multi(2) = 3 rows total")
@@ -193,8 +193,8 @@
             "row carries the per-play auto-run? flag")))))
 
 (deftest ci-rows-handles-bare-play-script
-  (testing "a bare :play-script (no :name) yields a row with :play-key nil"
-    (let [regs {:story.x/bare {:play-script [[:dispatch [:a]]]}}
+  (testing "a bare :script (no :name) yields a row with :play-key nil"
+    (let [regs {:story.x/bare {:script [[:dispatch [:a]]]}}
           rows (ci/ci-rows regs)]
       (is (= 1 (count rows)))
       (is (nil? (:play-key (first rows))))
@@ -210,7 +210,7 @@
                     {:name "b" :script [[:dispatch [:bar]]]}]})
     (swap! registrar/kind->id->body assoc-in
            [:variant :story.ctx/single]
-           {:play-script {:name "lone" :script [[:dispatch [:baz]]]}})
+           {:script {:name "lone" :script [[:dispatch [:baz]]]}})
     (let [ctx (ci/ci-context)]
       (is (= [:story.ctx/multi :story.ctx/single] (:variants ctx)))
       ;; rows are per-PLAY — multi(2) + single(1) = 3 rows.

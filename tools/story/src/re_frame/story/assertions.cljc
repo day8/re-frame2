@@ -279,7 +279,7 @@
   - A bare ASSERTIONS VECTOR (render-only / live-introspection path, e.g.
     `read-assertions`) — true iff every entry has `:passed? true`. A vector
     with zero entries is vacuously passing (the same §Story-as-test
-    duality: a variant with no `:play-script` shows green).
+    duality: a variant with no `:script` shows green).
 
   `re-frame.story.result` cannot be `:require`d here (it already requires
   this ns — cycle), so the one-line verdict check is inlined rather than

@@ -4,7 +4,7 @@
 
   The step-debugger is the Storybook Interactions-panel equivalent for
   Story's `:test` mode pane: step / pause / rewind / step-back /
-  breakpoint controls over the variant's `:play-script`. The runtime
+  breakpoint controls over the variant's `:script`. The runtime
   substrate already exists in `re-frame.story.play` (`begin-stepper!` /
   `step-once!` / `end-stepper!`); this namespace is the per-variant local
   state surface the view consumes + the mutators that drive the
@@ -17,7 +17,7 @@
        :cursor         <int>          ; number of steps run so far
        :total          <int>          ; count of play-script STEPS in this run
        :play-steps     <vector>       ; immutable snapshot of the FULL coerced
-                                      ;   :play-script step vector (every step
+                                      ;   :script step vector (every step
                                       ;   type; derived via
                                       ;   re-frame.story.play/variant-play-steps)
        :statuses       <vector>       ; `stepper-pure/enrich-statuses` rows
@@ -118,7 +118,7 @@
   ;; documented initial state.
   (-> (runtime/reset-variant variant-id)
       (.then  (fn [_]
-                ;; The stepper walks the FULL coerced :play-script
+                ;; The stepper walks the FULL coerced :script
                 ;; (every step type), not just the dispatch-bearing
                 ;; events. `play/variant-play-steps` returns the complete
                 ;; step vector and `play/begin-stepper!` seeds the

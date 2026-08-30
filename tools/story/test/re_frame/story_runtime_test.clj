@@ -108,7 +108,7 @@
       {:args {:theme :dark}})
     (story/reg-variant :story.ui.button/default
       {:args   {:label "Variant label" :icon :star}
-       :events []})
+       :setup []})
     (let [resolved (story/resolve-args :story.ui.button/default
                                        {:active-modes  [:Mode.app/dark]
                                         :cell-overrides {:label "Cell label"}})]
@@ -124,7 +124,7 @@
       {:args {:layout {:padding 16}}})
     (story/reg-variant :story.layout.box/deep
       {:args   {:layout {:margin 4}}
-       :events []})
+       :setup []})
     (let [r (story/resolve-args :story.layout.box/deep)]
       (is (= 1024 (get-in r [:layout :max-width])))
       (is (= 16   (get-in r [:layout :padding]))   "story wins")
@@ -152,7 +152,7 @@
        :response {:status :pending}})
     (story/reg-variant :story.composed/v
       {:decorators [[:centered] [:mock-auth] [:stub-http]]
-       :events     []})
+       :setup     []})
     (let [r (story/resolve-decorators :story.composed/v)]
       (is (= 1 (count (:hiccup r))))
       (is (= :centered (-> r :hiccup first :id)))
@@ -174,7 +174,7 @@
       {:decorators [[:outer]]})
     (story/reg-variant :story.compose/v
       {:decorators [[:inner]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.compose/v)
           ids     (mapv :id (:hiccup r))]
       (is (= [:outer :inner] ids)
@@ -192,7 +192,7 @@
       {:decorators [[:outer]]})
     (story/reg-variant :story.wrap/v
       {:decorators [[:inner]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.wrap/v)
           wrapped (decorators/apply-hiccup-decorators (:hiccup r) [:span "x"] {})]
       ;; Outermost is :outer; inside it is :inner; inside that is the span.
@@ -202,7 +202,7 @@
   (testing "an unregistered decorator id surfaces in :errors"
     (story/reg-variant :story.bad/v
       {:decorators [[:totally-unregistered]]
-       :events     []})
+       :setup     []})
     (let [r (story/resolve-decorators :story.bad/v)]
       (is (= 1 (count (:errors r))))
       (is (= :rf.error/decorator-unknown
@@ -216,7 +216,7 @@
       {:kind :fx-override :fx-id :http :response {:n 2}})
     (story/reg-variant :story.fx/v
       {:decorators [[:first-stub] [:second-stub]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.fx/v)
           stack   (decorators/fx-overrides-map (:fx-override r))]
       (is (= 1 (count (:overrides stack)))
@@ -247,7 +247,7 @@
       {:decorators [[:story-deco]]})
     (story/reg-variant :story.gd/v
       {:decorators [[:variant-deco]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.gd/v)
           ids     (mapv :id (:hiccup r))
           wrapped (decorators/apply-hiccup-decorators
@@ -264,7 +264,7 @@
     (story/reg-global-decorator :app/wrap
       {:kind :hiccup :wrap (fn [body _] [:div.wrap body])})
     (story/reg-story :story.gd2 {})
-    (story/reg-variant :story.gd2/bare {:events []})
+    (story/reg-variant :story.gd2/bare {:setup []})
     (let [r   (story/resolve-decorators :story.gd2/bare)
           ids (mapv :id (:hiccup r))]
       (is (= [:app/wrap] ids)
@@ -278,7 +278,7 @@
       {:kind :hiccup :wrap (fn [body _] [:div.g1 body])})
     (story/reg-global-decorator :app/g2
       {:kind :hiccup :wrap (fn [body _] [:div.g2 body])})
-    (story/reg-variant :story.gd3/v {:events []})
+    (story/reg-variant :story.gd3/v {:setup []})
     (let [r       (story/resolve-decorators :story.gd3/v)
           ids     (mapv :id (:hiccup r))
           wrapped (decorators/apply-hiccup-decorators
@@ -304,7 +304,7 @@
           ":app/first stays at position 0; re-registration did not push it
            to the end"))
     ;; And the new body is the one applied.
-    (story/reg-variant :story.gd4/v {:events []})
+    (story/reg-variant :story.gd4/v {:setup []})
     (let [r       (story/resolve-decorators :story.gd4/v)
           wrapped (decorators/apply-hiccup-decorators
                     (:hiccup r) [:span "x"] {})]
@@ -321,7 +321,7 @@
       {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
     (story/reg-global-decorator :app/stub
       {:kind :fx-override :fx-id :http :response {:ok? true}})
-    (story/reg-variant :story.gd5/v {:events []})
+    (story/reg-variant :story.gd5/v {:setup []})
     (let [r (story/resolve-decorators :story.gd5/v)]
       (is (= 1 (count (:hiccup r))))
       (is (= 1 (count (:frame-setup r))))
@@ -339,7 +339,7 @@
       {:kind :hiccup :wrap (fn [body _] [:div.keep body])})
     (story/reg-global-decorator :app/drop
       {:kind :hiccup :wrap (fn [body _] [:div.drop body])})
-    (story/reg-variant :story.gd6/v {:events []})
+    (story/reg-variant :story.gd6/v {:setup []})
     (is (= [:app/keep :app/drop]
            (mapv :id (:hiccup (story/resolve-decorators :story.gd6/v)))))
     (story/unreg-global-decorator! :app/drop)
@@ -355,7 +355,7 @@
        :wrap (fn [body args]
                [:div.tagged {:tag (-> args :decorator/args first)} body])}
       [:my-tag])
-    (story/reg-variant :story.gd7/v {:events []})
+    (story/reg-variant :story.gd7/v {:setup []})
     (let [r       (story/resolve-decorators :story.gd7/v)
           wrapped (decorators/apply-hiccup-decorators
                     (:hiccup r) [:span "x"] {})]
@@ -371,7 +371,7 @@
     (story/reg-story :story.id
       {:component :app/v :args {:a 1}})
     (story/reg-variant :story.id/v
-      {:events [[:init]] :args {:b 2} :tags #{:dev}})
+      {:setup [[:init]] :args {:b 2} :tags #{:dev}})
     (let [a (story/snapshot-identity :story.id/v {:substrate :reagent})
           b (story/snapshot-identity :story.id/v {:substrate :reagent})]
       (is (= (:content-hash a) (:content-hash b)))
@@ -382,9 +382,9 @@
   (testing "changing a variant's :args changes the hash"
     (story/reg-story :story.id-args
       {:component :app/v})
-    (story/reg-variant :story.id-args/v {:args {:x 1} :events []})
+    (story/reg-variant :story.id-args/v {:args {:x 1} :setup []})
     (let [h1 (-> (story/snapshot-identity :story.id-args/v) :content-hash)]
-      (story/reg-variant :story.id-args/v {:args {:x 2} :events []})
+      (story/reg-variant :story.id-args/v {:args {:x 2} :setup []})
       (let [h2 (-> (story/snapshot-identity :story.id-args/v) :content-hash)]
         (is (not= h1 h2))))))
 
@@ -394,7 +394,7 @@
       {:component :app/v :args {:theme :light}})
     (story/reg-mode :Mode.app/dark  {:args {:theme :dark}})
     (story/reg-mode :Mode.app/light {:args {:theme :light}})
-    (story/reg-variant :story.id-mode/v {:events []})
+    (story/reg-variant :story.id-mode/v {:setup []})
     (let [hd (-> (story/snapshot-identity :story.id-mode/v
                                           {:active-modes [:Mode.app/dark]})
                  :content-hash)
@@ -416,7 +416,7 @@
     ;; Two distinct mode IDS with byte-for-byte IDENTICAL :args.
     (story/reg-mode :Mode.app/a {:args {:theme :dark}})
     (story/reg-mode :Mode.app/b {:args {:theme :dark}})
-    (story/reg-variant :story.id-mode-same/v {:events []})
+    (story/reg-variant :story.id-mode-same/v {:setup []})
     (let [args-a (args/resolve-args :story.id-mode-same/v
                                     {:active-modes [:Mode.app/a]})
           args-b (args/resolve-args :story.id-mode-same/v
@@ -445,7 +445,7 @@
   (testing "different substrate produces different hash"
     (story/reg-story :story.id-sub
       {:component :app/v})
-    (story/reg-variant :story.id-sub/v {:events []})
+    (story/reg-variant :story.id-sub/v {:setup []})
     (let [hr (-> (story/snapshot-identity :story.id-sub/v {:substrate :reagent})
                  :content-hash)
           hu (-> (story/snapshot-identity :story.id-sub/v {:substrate :uix})
@@ -466,22 +466,22 @@
     (story/reg-story :story.id-dec
       {:component :app/v})
     (story/reg-variant :story.id-dec/v
-      {:events     []
+      {:setup     []
        :decorators [[:centered]]})
     (let [h1 (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
       (story/reg-variant :story.id-dec/v
-        {:events     []
+        {:setup     []
          :decorators [[:boxed]]})
       (let [h2 (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
         (is (not= h1 h2)
             "swapping the variant's decorator must produce a fresh hash"))
       (testing "adding a decorator to a previously-decoratorless variant also perturbs the hash"
         (story/reg-variant :story.id-dec/v
-          {:events     []
+          {:setup     []
            :decorators []})
         (let [h-empty (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
           (story/reg-variant :story.id-dec/v
-            {:events     []
+            {:setup     []
              :decorators [[:centered]]})
           (let [h-with (-> (story/snapshot-identity :story.id-dec/v) :content-hash)]
             (is (not= h-empty h-with)
@@ -489,7 +489,7 @@
 
 (deftest snapshot-identity-changes-with-play-script
   (testing "Per /spec/007-Stories.md §Variant snapshot identity — a variant-level
-            :play-script change MUST perturb the content-hash. Closes
+            :script change MUST perturb the content-hash. Closes
             rf2-bgwnf: variant-body-slice selected the legacy :play key
             (removed by rf2-0wrud), so play-script edits were silently
             dropped from the hash — breaking watch-mode auto-rerun and
@@ -497,21 +497,21 @@
     (story/reg-story :story.id-ps
       {:component :app/v})
     (story/reg-variant :story.id-ps/v
-      {:events      []
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+      {:setup      []
+       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (let [h1 (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
       (story/reg-variant :story.id-ps/v
-        {:events      []
-         :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 2]]]})
+        {:setup      []
+         :script [[:dispatch-sync [:rf.assert/path-equals [:n] 2]]]})
       (let [h2 (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
         (is (not= h1 h2)
             "editing the play-script must produce a fresh hash"))
       (testing "adding a play-script to a previously play-less variant also perturbs the hash"
-        (story/reg-variant :story.id-ps/v {:events []})
+        (story/reg-variant :story.id-ps/v {:setup []})
         (let [h-none (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
           (story/reg-variant :story.id-ps/v
-            {:events      []
-             :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+            {:setup      []
+             :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
           (let [h-with (-> (story/snapshot-identity :story.id-ps/v) :content-hash)]
             (is (not= h-none h-with)
                 "appending a play-script must produce a fresh hash")))))))
@@ -519,16 +519,16 @@
 (deftest snapshot-identity-changes-with-plays
   (testing "Per /spec/007-Stories.md §Variant snapshot identity — the multi-play
             :plays surface (rf2-tl7zk) also participates in the hash.
-            Companion to rf2-bgwnf: both play surfaces (:play-script and
+            Companion to rf2-bgwnf: both play surfaces (:script and
             :plays) must perturb snapshot identity."
     (story/reg-story :story.id-plays
       {:component :app/v})
     (story/reg-variant :story.id-plays/v
-      {:events []
+      {:setup []
        :plays  [{:name "happy" :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
     (let [h1 (-> (story/snapshot-identity :story.id-plays/v) :content-hash)]
       (story/reg-variant :story.id-plays/v
-        {:events []
+        {:setup []
          :plays  [{:name "happy" :script [[:dispatch-sync [:rf.assert/path-equals [:n] 2]]]}]})
       (let [h2 (-> (story/snapshot-identity :story.id-plays/v) :content-hash)]
         (is (not= h1 h2)
@@ -545,7 +545,7 @@
             the schemas artefact."
     (story/reg-story :story.id-sd
       {:component :app/v})
-    (story/reg-variant :story.id-sd/v {:events []})
+    (story/reg-variant :story.id-sd/v {:setup []})
     (let [prior (late-bind/get-fn :schemas/app-schemas-digest)]
       (try
         ;; Simulate a registered schema by installing a hook with a
@@ -587,9 +587,9 @@
             content-hash. plan.cljc DID fold `:component` into the plan-
             hash; only the snapshot path was incomplete."
     (story/reg-story :story.id-comp {:component :app/parent})
-    (story/reg-variant :story.id-comp/v {:events [] :component :view-a})
+    (story/reg-variant :story.id-comp/v {:setup [] :component :view-a})
     (let [h1 (-> (story/snapshot-identity :story.id-comp/v) :content-hash)]
-      (story/reg-variant :story.id-comp/v {:events [] :component :view-b})
+      (story/reg-variant :story.id-comp/v {:setup [] :component :view-b})
       (let [h2 (-> (story/snapshot-identity :story.id-comp/v) :content-hash)]
         (is (not= h1 h2)
             "swapping the variant's :component override must produce a fresh hash"))
@@ -611,24 +611,24 @@
     (story/reg-story :story.id-render {:component :app/v})
     (testing ":sub-overrides edit perturbs the hash"
       (story/reg-variant :story.id-render/v
-        {:events [] :sub-overrides {[:cart/total] 0}})
+        {:setup [] :sub-overrides {[:cart/total] 0}})
       (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
         (story/reg-variant :story.id-render/v
-          {:events [] :sub-overrides {[:cart/total] 999}})
+          {:setup [] :sub-overrides {[:cart/total] 999}})
         (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :sub-overrides value must produce a fresh hash")))
     (testing ":db-seed edit perturbs the hash"
-      (story/reg-variant :story.id-render/v {:events [] :db-seed {[:count] 1}})
+      (story/reg-variant :story.id-render/v {:setup [] :db-seed {[:count] 1}})
       (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
-        (story/reg-variant :story.id-render/v {:events [] :db-seed {[:count] 2}})
+        (story/reg-variant :story.id-render/v {:setup [] :db-seed {[:count] 2}})
         (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :db-seed value must produce a fresh hash")))
     (testing ":network edit perturbs the hash"
       (story/reg-variant :story.id-render/v
-        {:events [] :network {[:get "/api/x"] {:reply {:ok {:status 200}}}}})
+        {:setup [] :network {[:get "/api/x"] {:reply {:ok {:status 200}}}}})
       (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
         (story/reg-variant :story.id-render/v
-          {:events [] :network {[:get "/api/x"] {:reply {:ok {:status 500}}}}})
+          {:setup [] :network {[:get "/api/x"] {:reply {:ok {:status 500}}}}})
         (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :network reply must produce a fresh hash")))))
 
@@ -656,7 +656,7 @@
             variant-override guard rf2-bah5o2."
     (story/reg-story :story.story-comp {:component :view-a})
     ;; Component-less variant — the rendered view is the STORY's `:component`.
-    (story/reg-variant :story.story-comp/v {:events []})
+    (story/reg-variant :story.story-comp/v {:setup []})
     (let [h1 (-> (story/snapshot-identity :story.story-comp/v) :content-hash)]
       (story/reg-story :story.story-comp {:component :view-b})
       (let [h2 (-> (story/snapshot-identity :story.story-comp/v) :content-hash)]
@@ -681,7 +681,7 @@
     (story/reg-decorator :boxed
       {:kind :hiccup :wrap (fn [body _args] [:div.boxed body])})
     (story/reg-story :story.story-dec {:component :app/v :decorators [[:centered]]})
-    (story/reg-variant :story.story-dec/v {:events []})
+    (story/reg-variant :story.story-dec/v {:setup []})
     (let [h1 (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
       (story/reg-story :story.story-dec {:component :app/v :decorators [[:boxed]]})
       (let [h2 (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
@@ -717,11 +717,11 @@
             RED against the raw-tags reader: `#{:docs}` ≠
             `#{:dev :!dev :docs}` as raw sets, so it would perturb the hash."
     (story/reg-story :story.eff-tag {:component :app/v})
-    (story/reg-variant :story.eff-tag/v {:events [] :tags #{:docs}})
+    (story/reg-variant :story.eff-tag/v {:setup [] :tags #{:docs}})
     (let [h-plain (-> (story/snapshot-identity :story.eff-tag/v) :content-hash)]
       ;; Re-register the SAME variant with a marker authoring that RESOLVES
       ;; to the identical effective set `#{:docs}`.
-      (story/reg-variant :story.eff-tag/v {:events [] :tags #{:dev :!dev :docs}})
+      (story/reg-variant :story.eff-tag/v {:setup [] :tags #{:dev :!dev :docs}})
       (let [h-marker (-> (story/snapshot-identity :story.eff-tag/v) :content-hash)]
         (is (= h-plain h-marker)
             "identical effective tag set → identical hash (raw authoring differs)")
@@ -736,9 +736,9 @@
             perturb the hash (tags remain identity-bearing, they are not
             simply dropped from the identity)."
     (story/reg-story :story.eff-tag-chg {:component :app/v})
-    (story/reg-variant :story.eff-tag-chg/v {:events [] :tags #{:docs}})
+    (story/reg-variant :story.eff-tag-chg/v {:setup [] :tags #{:docs}})
     (let [h1 (-> (story/snapshot-identity :story.eff-tag-chg/v) :content-hash)]
-      (story/reg-variant :story.eff-tag-chg/v {:events [] :tags #{:docs :test}})
+      (story/reg-variant :story.eff-tag-chg/v {:setup [] :tags #{:docs :test}})
       (let [h2 (-> (story/snapshot-identity :story.eff-tag-chg/v) :content-hash)]
         (is (not= h1 h2)
             "adding an effective tag must produce a fresh hash")))))
@@ -753,13 +753,13 @@
     (story/reg-story :story.eff-tag-ext {:component :app/v})
     ;; Child ONLY :extends the parent — declares no tags of its own, so its
     ;; effective set is entirely inherited from the parent.
-    (story/reg-variant :story.eff-tag-ext/parent {:events [] :tags #{:dev}})
+    (story/reg-variant :story.eff-tag-ext/parent {:setup [] :tags #{:dev}})
     (story/reg-variant :story.eff-tag-ext/child  {:extends :story.eff-tag-ext/parent})
     (is (= #{:dev} (:effective-tags (ident/snapshot-tuple :story.eff-tag-ext/child)))
         "the child inherits the parent's tags through the :extends chain")
     (let [h1 (-> (story/snapshot-identity :story.eff-tag-ext/child) :content-hash)]
       ;; Edit ONLY the parent's tags. The child's raw body is untouched.
-      (story/reg-variant :story.eff-tag-ext/parent {:events [] :tags #{:docs}})
+      (story/reg-variant :story.eff-tag-ext/parent {:setup [] :tags #{:docs}})
       (is (= #{:docs} (:effective-tags (ident/snapshot-tuple :story.eff-tag-ext/child)))
           "the child's effective set now reflects the parent's edit")
       (let [h2 (-> (story/snapshot-identity :story.eff-tag-ext/child) :content-hash)]
@@ -779,7 +779,7 @@
             sibling of the `:extends`-parent guard rf2-chzryf."
     (story/reg-story :story.story-tag {:component :app/v :tags #{:docs}})
     ;; Tagless variant — inherits the story's tags as the fallback default.
-    (story/reg-variant :story.story-tag/v {:events []})
+    (story/reg-variant :story.story-tag/v {:setup []})
     (is (= #{:docs} (:effective-tags (ident/snapshot-tuple :story.story-tag/v)))
         "the tagless variant inherits the parent story's tags (fallback)")
     (let [h1 (-> (story/snapshot-identity :story.story-tag/v) :content-hash)]
@@ -809,7 +809,7 @@
   ;; literal (the v1/v2 drift this bead fixed).
   (testing "the tuple's :rf/snapshot-canonical slot equals fingerprint/canonical-version"
     (story/reg-story :story.id-canon {:component :app/c})
-    (story/reg-variant :story.id-canon/v {:events []})
+    (story/reg-variant :story.id-canon/v {:setup []})
     (is (= fp/canonical-version
            (:rf/snapshot-canonical (ident/snapshot-tuple :story.id-canon/v)))
         "the snapshot tuple stamps the live canonical-version, not a literal")))
@@ -830,7 +830,7 @@
     ;; separately by `lifecycle-events-only-fast-path-to-ready` /
     ;; `events-only-variant-classifier` below.
     (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
-    (story/reg-variant :story.life/v {:events [] :loaders [[:test/noop]]})
+    (story/reg-variant :story.life/v {:setup [] :loaders [[:test/noop]]})
     (let [r       (story/resolve-decorators :story.life/v)]
       (frames/allocate! :story.life/v r)
       (is (= :mounting (loaders/current-state :story.life/v)))
@@ -876,7 +876,7 @@
 
 ;; rf2-043cm — events-only fast-path coverage.
 ;;
-;; A variant declaring `:events` only (no `:loaders`, no `:frame-setup`
+;; A variant declaring `:setup` only (no `:loaders`, no `:frame-setup`
 ;; decorators, no `:loaders-complete-when`) has nothing to wait for
 ;; between mount and render. The runtime's `frames/allocate!` selects
 ;; the fast-path branch (`loaders/mount-ready!`) which drives the
@@ -904,7 +904,7 @@
   (testing "loaders/events-only-variant? — true for the events-only
             shape; false for any body / decorator-stack that binds
             loader work"
-    (is (true?  (loaders/events-only-variant? {:events [[:x]]} {}))
+    (is (true?  (loaders/events-only-variant? {:setup [[:x]]} {}))
         "no :loaders, no :frame-setup, no :loaders-complete-when → events-only")
     (is (true?  (loaders/events-only-variant? {} {}))
         "empty body → events-only (nothing to wait for)")
@@ -914,8 +914,8 @@
         "presence of :loaders-complete-when → not events-only")
     (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         "presence of :frame-setup decorators → not events-only")
-    (is (true?  (loaders/events-only-variant? {:play-script [[:dispatch-sync [:assert]]]} {}))
-        ":play-script does not gate the lifecycle (runs strictly after :ready)")
+    (is (true?  (loaders/events-only-variant? {:script [[:dispatch-sync [:assert]]]} {}))
+        ":script does not gate the lifecycle (runs strictly after :ready)")
     (is (true?  (loaders/events-only-variant? {} {:hiccup    [{:body {}}]
                                                   :fx-override [{:body {}}]}))
         ":hiccup + :fx-override decorators don't drive the lifecycle machine")))
@@ -925,7 +925,7 @@
             drives the lifecycle from :pre-mount directly to :ready
             in a single transition. The skeleton (rf2-0s4p1) reads
             `:ready` immediately and never engages."
-    (story/reg-variant :story.eo.fast/v {:events []})
+    (story/reg-variant :story.eo.fast/v {:setup []})
     (let [r (story/resolve-decorators :story.eo.fast/v)]
       (is (= :pre-mount (loaders/current-state :story.eo.fast/v))
           "before allocate the snapshot reads the initial state")
@@ -938,7 +938,7 @@
   (testing "rf2-043cm — a watcher registered before allocate observes
             ONE transition (:pre-mount → :ready) for events-only
             variants, not the three the classical path fires"
-    (story/reg-variant :story.eo.watch/v {:events []})
+    (story/reg-variant :story.eo.watch/v {:setup []})
     (let [transitions (atom [])
           unsub       (story/watch-variant
                         :story.eo.watch/v
@@ -961,7 +961,7 @@
             resolves to a result whose :lifecycle is :ready and whose
             :assertions vector is empty (no loader-incomplete projection)"
     (rf/reg-event :test/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (story/reg-variant :story.eo.run/v {:events [[:test/seed]]})
+    (story/reg-variant :story.eo.run/v {:setup [[:test/seed]]})
     (let [r (async/deref-blocking (story/run-variant :story.eo.run/v) 5000)]
       (is (= :ready (:lifecycle r))
           "the events-only variant lands :ready")
@@ -976,7 +976,7 @@
             :ready (an events-only variant) is a benign no-op. The
             :ready node has no transition out for :loaders-started so
             the discrete state stays :ready."
-    (story/reg-variant :story.eo.idem/v {:events []})
+    (story/reg-variant :story.eo.idem/v {:setup []})
     (let [r (story/resolve-decorators :story.eo.idem/v)]
       (frames/allocate! :story.eo.idem/v r)
       (is (= :ready (loaders/current-state :story.eo.idem/v)))
@@ -997,7 +997,7 @@
     (rf/reg-event :test/inc
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.run/v
-      {:events [[:test/inc] [:test/inc]]})
+      {:setup [[:test/inc] [:test/inc]]})
     (let [fut (story/run-variant :story.run/v)
           r   (async/deref-blocking fut 5000)]
       (is (= :story.run/v        (:frame r)))
@@ -1030,12 +1030,12 @@
     (story/reg-variant :story.img/v1
       {:images [(rf/image {:id :img/behaviour-v1
                            :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]
-       :events [[:img.counter/step]]})
+       :setup [[:img.counter/step]]})
     ;; Variant B mounts under the v2 image (adds 100) — SAME event id.
     (story/reg-variant :story.img/v2
       {:images [(rf/image {:id :img/behaviour-v2
                            :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
-       :events [[:img.counter/step]]})
+       :setup [[:img.counter/step]]})
     (let [ra (async/deref-blocking (story/run-variant :story.img/v1) 5000)
           rb (async/deref-blocking (story/run-variant :story.img/v2) 5000)]
       (is (= 1 (-> ra :app-db :n))
@@ -1060,9 +1060,9 @@
     (story/reg-variant :story.img/meta
       {:images [(rf/image {:id :img/behaviour-v1
                            :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]
-       :events [[:img.counter/step]]})
+       :setup [[:img.counter/step]]})
     (story/reg-variant :story.img/state-only
-      {:events []})
+      {:setup []})
     (frames/allocate! :story.img/meta (story/resolve-decorators :story.img/meta))
     (frames/allocate! :story.img/state-only (story/resolve-decorators :story.img/state-only))
     (is (= [:img/behaviour-v1] (frames/variant-image-ids :story.img/meta))
@@ -1097,7 +1097,7 @@
        :images [(rf/image {:id :img/behaviour-v1
                            :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]})
     (story/reg-variant :story.imginh/child
-      {:events [[:img.counter/step]]})           ; NO :images of its own
+      {:setup [[:img.counter/step]]})           ; NO :images of its own
     (let [r (async/deref-blocking (story/run-variant :story.imginh/child) 5000)]
       (is (= 1 (-> r :app-db :n))
           "the inherited story image resolved :img.counter/step to the v1 (add-one) handler")
@@ -1123,7 +1123,7 @@
     (story/reg-variant :story.imgover/wins
       {:images [(rf/image {:id :img/behaviour-v2
                            :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
-       :events [[:img.counter/step]]})
+       :setup [[:img.counter/step]]})
     (let [r (async/deref-blocking (story/run-variant :story.imgover/wins) 5000)]
       (is (= 100 (-> r :app-db :n))
           "the variant image (v2, add-hundred) layered on top WON the override
@@ -1155,7 +1155,7 @@
     (story/reg-variant :story.imgrep/v
       {:images [(rf/image {:id :img/behaviour-v2
                            :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
-       :events []})
+       :setup []})
     (frames/allocate! :story.imgrep/v (story/resolve-decorators :story.imgrep/v))
     (let [reported (frames/variant-image-ids :story.imgrep/v)]
       (is (= [:img/behaviour-v1 :img/behaviour-v2] reported)
@@ -1233,7 +1233,7 @@
         {:db (assoc db :used-loaded? (boolean (:loaded? db)))}))
     (story/reg-variant :story.flow/v
       {:loaders [[:test/load]]
-       :events  [[:test/use]]})
+       :setup  [[:test/use]]})
     (let [r (async/deref-blocking (story/run-variant :story.flow/v) 5000)]
       (is (true? (-> r :app-db :loaded?)))
       (is (true? (-> r :app-db :used-loaded?))
@@ -1252,8 +1252,8 @@
     (story/reg-variant :story.flow/blocked
       {:loaders               [[:test/load-but-not-ready]]
        :loaders-complete-when :test/not-ready?
-       :events                [[:test/should-not-run]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:events-ran?] true]]]})
+       :setup                [[:test/should-not-run]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:events-ran?] true]]]})
     (let [r (async/deref-blocking (story/run-variant :story.flow/blocked) 5000)
           incomplete (->> (:assertions r)
                           (filter #(= :rf.error/loader-incomplete (:assertion %)))
@@ -1282,10 +1282,10 @@
        :init [[:test/mock-init]]})
     (story/reg-variant :story.fs/v
       {:decorators [[:mock-frame]]
-       :events     [[:test/observe]]})
+       :setup     [[:test/observe]]})
     (let [r (async/deref-blocking (story/run-variant :story.fs/v) 5000)]
       (is (= {:user "alice"} (-> r :app-db :observed-mock))
-          ":init events ran before :events; observe saw the mock"))
+          ":init events ran before :setup; observe saw the mock"))
     (story/destroy-variant! :story.fs/v)))
 
 (deftest run-variant-unknown-variant
@@ -1300,7 +1300,7 @@
     (rf/reg-event :test/inc
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.reset/v
-      {:events [[:test/inc]]})
+      {:setup [[:test/inc]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.reset/v) 5000)
           r2 (async/deref-blocking (story/reset-variant :story.reset/v) 5000)]
       (is (= 1 (:counter (:app-db r1))))
@@ -1313,7 +1313,7 @@
 ;;
 ;; The runtime now routes phase 2 (setup) and phase 4 (script) through the
 ;; normalized variant plan (`re-frame.story.plan`) rather than reading the
-;; shipping `:events` / `:play-script` slots off the registered body. These
+;; shipping `:setup` / `:script` slots off the registered body. These
 ;; tests pin the migration's load-bearing behaviour: the PUBLIC `:setup` /
 ;; `:script` vocabulary runs, composed-fragment setup is executed in
 ;; phase 2 (a behaviour the pre-migration runtime did NOT deliver — it
@@ -1614,7 +1614,7 @@
             record path (an :rf.error/exception assertion at :phase-0-setup)
             — it is NOT misrouted as a plan-construction error (which would
             stamp the raw :rf.error/id as the assertion id)"
-    (story/reg-variant :story.postframe/v {:events []})
+    (story/reg-variant :story.postframe/v {:setup []})
     ;; Redef a phase fn that runs AFTER run-phase-0! (so the frame is
     ;; allocated and the lifecycle is past :pre-mount) to throw an ex-info
     ;; carrying an :rf.error/id but NO :where 'rf.story/variant-plan marker
@@ -1645,7 +1645,7 @@
 
 (deftest variant-frames-marked
   (testing "variant frames carry :rf/story? + :rf/variant on their config"
-    (story/reg-variant :story.fm/v {:events []})
+    (story/reg-variant :story.fm/v {:setup []})
     (let [r (story/resolve-decorators :story.fm/v)]
       (frames/allocate! :story.fm/v r)
       (let [m (rf/frame-meta :story.fm/v)]
@@ -1661,11 +1661,11 @@
 ;; ===========================================================================
 
 (deftest event-throwing-projects-as-assertion
-  (testing "a thrown exception during :events lands in :assertions"
+  (testing "a thrown exception during :setup lands in :assertions"
     (rf/reg-event :test/boom
       (fn [_ _] (throw (ex-info "bang" {:why :test}))))
     (story/reg-variant :story.err/v
-      {:events [[:test/boom]]})
+      {:setup [[:test/boom]]})
     (let [r (async/deref-blocking (story/run-variant :story.err/v) 5000)]
       ;; Phase-2 errors don't roll back the lifecycle; :ready is the
       ;; terminal state per `002-Runtime.md` §Error projection — we record and continue.
@@ -1690,9 +1690,9 @@
     ;; (EP-0015 frame-owned classification, installed at frame creation); no
     ;; public add-marks mutation, no run-once-then-mark-then-rerun dance.
     (story/reg-variant :story.err-redaction-jvm/v
-      {:events      []
+      {:setup      []
        :sensitive   {:app-db [[:token]]}
-       :play-script [[:dispatch-sync [:auth/boom-jvm]]]})
+       :script [[:dispatch-sync [:auth/boom-jvm]]]})
     (let [r    (async/deref-blocking (story/run-variant :story.err-redaction-jvm/v) 5000)
           ex   (last (filter #(= :rf.error/exception (:assertion %)) (:assertions r)))
           data (get-in ex [:error :data])]
@@ -1711,7 +1711,7 @@
     (rf/reg-event :plain/boom-jvm
       (fn [_ _] (throw (ex-info "boom" {:detail "not-secret"}))))
     (story/reg-variant :story.err-plain-jvm/v
-      {:events [[:plain/boom-jvm]]})
+      {:setup [[:plain/boom-jvm]]})
     (let [r    (async/deref-blocking (story/run-variant :story.err-plain-jvm/v) 5000)
           ex   (last (filter #(= :rf.error/exception (:assertion %)) (:assertions r)))]
       (is (= "not-secret" (get-in ex [:error :data :detail]))
@@ -1732,7 +1732,7 @@
        :init [[:test/setup-boom]]})
     (story/reg-variant :story.init-boom/v
       {:decorators [[:boom-setup]]
-       :events     []})
+       :setup     []})
     (let [r    (async/deref-blocking (story/run-variant :story.init-boom/v) 5000)
           recs (:assertions r)]
       (is (some #(and (= :rf.error/exception (:assertion %))
@@ -1761,7 +1761,7 @@
       {:rf.cofx/requires [:test/boom-cofx]}
       (fn [_ _] {}))
     (story/reg-variant :story.cofx-boom/v
-      {:events [[:test/uses-boom-cofx]]})
+      {:setup [[:test/uses-boom-cofx]]})
     (let [r    (async/deref-blocking (story/run-variant :story.cofx-boom/v) 5000)
           recs (:assertions r)
           exc  (first (filter #(= :rf.error/exception (:assertion %)) recs))]
@@ -1786,7 +1786,7 @@
         {:interceptors [boom-icpt]}
         (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.icpt-boom/v
-        {:events [[:test/uses-boom-icpt]]})
+        {:setup [[:test/uses-boom-icpt]]})
       (let [r    (async/deref-blocking (story/run-variant :story.icpt-boom/v) 5000)
             recs (:assertions r)
             exc  (first (filter #(= :rf.error/exception (:assertion %)) recs))]
@@ -1808,7 +1808,7 @@
     (rf/reg-event :test/inc-counter
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.fresh/v
-      {:events [[:test/inc-counter]]})
+      {:setup [[:test/inc-counter]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.fresh/v) 5000)
           r2 (async/deref-blocking (story/run-variant :story.fresh/v) 5000)]
       (is (= 1 (:counter (:app-db r1))))
@@ -1829,7 +1829,7 @@
     (rf/reg-event :test/inc-counter3
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.fresh3/v
-      {:events [[:test/inc-counter3]]})
+      {:setup [[:test/inc-counter3]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.fresh3/v) 5000)
           r2 (async/deref-blocking (story/run-variant :story.fresh3/v) 5000)]
       (is (= 1 (:counter (:app-db r1))))
@@ -1872,7 +1872,7 @@
   (testing "configure! writes the global-args layer"
     (story/configure! {:rf.story/global-args {:theme :dark}})
     (is (= {:theme :dark} (config/get-global-args)))
-    (story/reg-variant :story.cfg/v {:events []})
+    (story/reg-variant :story.cfg/v {:setup []})
     (let [r (story/resolve-args :story.cfg/v)]
       (is (= :dark (:theme r))))))
 
@@ -1921,7 +1921,7 @@
       {:rf.story/global-decorators [[:app/theme]]})
     (story/reg-variant :story.cfg.gd/v
       {:decorators [[:variant-deco]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.cfg.gd/v)
           ids     (mapv :id (:hiccup r))
           wrapped (decorators/apply-hiccup-decorators
@@ -1967,7 +1967,7 @@
                [:div.tagged {:tag (-> args :decorator/args first)} body])})
     (story/configure!
       {:rf.story/global-decorators [[:app/tagged :my-tag]]})
-    (story/reg-variant :story.cfg.gd2/v {:events []})
+    (story/reg-variant :story.cfg.gd2/v {:setup []})
     (let [r       (story/resolve-decorators :story.cfg.gd2/v)
           wrapped (decorators/apply-hiccup-decorators
                     (:hiccup r) [:span "x"] {})]
@@ -1985,7 +1985,7 @@
       {:decorators [[:app/s]]})
     (story/reg-variant :story.cfg.gd3/v
       {:decorators [[:app/v]]
-       :events     []})
+       :setup     []})
     (let [r       (story/resolve-decorators :story.cfg.gd3/v)
           ids     (mapv :id (:hiccup r))
           wrapped (decorators/apply-hiccup-decorators
@@ -2098,7 +2098,7 @@
     (rf/reg-event :auth/login-7c6ecy
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-7c6ecy")}))
     (story/reg-variant :story.classif/sensitive
-      {:events    [[:auth/login-7c6ecy]]
+      {:setup    [[:auth/login-7c6ecy]]
        :sensitive {:app-db [[:auth :token]]}})
     (let [r (async/deref-blocking (story/run-variant :story.classif/sensitive) 5000)]
       (is (= :ready (:lifecycle r))
@@ -2120,7 +2120,7 @@
     (rf/reg-event :docs/upload-7c6ecy
       (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] (apply str (repeat 2048 "x")))}))
     (story/reg-variant :story.classif/large
-      {:events [[:docs/upload-7c6ecy]]
+      {:setup [[:docs/upload-7c6ecy]]
        :large  {:app-db [[:docs :blob]]}})
     (let [r (async/deref-blocking (story/run-variant :story.classif/large) 5000)]
       (is (= :ready (:lifecycle r)))
@@ -2144,7 +2144,7 @@
     ;; commit-plane validator rejects it; the variant path now routes through
     ;; that SAME validator pre-commit.
     (story/reg-variant :story.classif/bad
-      {:events    [[:noop-7c6ecy]]
+      {:setup    [[:noop-7c6ecy]]
        :sensitive {:app-db [42]}})
     (let [r (async/deref-blocking (story/run-variant :story.classif/bad) 5000)
           assertion (->> (:assertions r)
@@ -2189,11 +2189,11 @@
     (rf/reg-event :auth/login-lsr95i
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-lsr95i")}))
     (story/reg-variant :story.classif-ext.lsr95i/parent
-      {:events    [[:auth/login-lsr95i]]
+      {:setup    [[:auth/login-lsr95i]]
        :sensitive {:app-db [[:auth :token]]}})
-    ;; The child ONLY `:extends`es the parent — no `:events`, no
+    ;; The child ONLY `:extends`es the parent — no `:setup`, no
     ;; `:sensitive` of its own. Setup APPENDS root→child (§Merge rules), so
-    ;; the bare child inherits the parent's `:events` and runs the SAME
+    ;; the bare child inherits the parent's `:setup` and runs the SAME
     ;; login step under its own frame; the classification must inherit
     ;; identically (both are `context-keys` in the plan compiler).
     (story/reg-variant :story.classif-ext.lsr95i/child
@@ -2203,7 +2203,7 @@
           "the extended child runs to :ready")
       (is (= "BEARER-secret-lsr95i"
              (get-in (rf/app-db-value :story.classif-ext.lsr95i/child) [:auth :token]))
-          "the inherited :events wrote the raw secret into the child's app-db")
+          "the inherited :setup wrote the raw secret into the child's app-db")
       (let [walked (rf/elide-wire-value
                      (rf/app-db-value :story.classif-ext.lsr95i/child)
                      {:frame :story.classif-ext.lsr95i/child})]
@@ -2222,7 +2222,7 @@
     (rf/reg-event :docs/upload-lsr95i
       (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] "large-blob-lsr95i")}))
     (story/reg-variant :story.classif-ext.lsr95i/base
-      {:events [[:docs/upload-lsr95i]]})
+      {:setup [[:docs/upload-lsr95i]]})
     (story/reg-variant :story.classif-ext.lsr95i/override
       {:extends :story.classif-ext.lsr95i/base
        :large   {:app-db [[:docs :blob]]}})
@@ -2256,7 +2256,7 @@
 ;; resolves the run result (unlike a registered variant, whose frame stays
 ;; live until an explicit `destroy-variant!`) — so these tests can't probe
 ;; `rf/elide-wire-value` AFTER the run resolves the way the registered-
-;; variant tests above do. Instead, an inline `:events` step calls
+;; variant tests above do. Instead, an inline `:setup` step calls
 ;; `rf/current-frame-id` (the dynamic scope an event handler runs under)
 ;; + `rf/elide-wire-value` itself WHILE the frame is still live, and
 ;; stashes the result into a test-side atom passed as an event arg.
@@ -2276,7 +2276,7 @@
           {:db db'})))
     (let [probe (atom ::unset)
           r     (async/deref-blocking
-                  (story/run {:events    [[:classif-inline-cmjly3/login+probe probe]]
+                  (story/run {:setup    [[:classif-inline-cmjly3/login+probe probe]]
                              :sensitive {:app-db [[:auth :token]]}})
                   5000)]
       (is (= :ready (:lifecycle r))
@@ -2300,7 +2300,7 @@
           {:db db'})))
     (let [probe (atom ::unset)
           r     (async/deref-blocking
-                  (story/run {:events [[:classif-inline-cmjly3/login+probe-plain probe]]})
+                  (story/run {:setup [[:classif-inline-cmjly3/login+probe-plain probe]]})
                   5000)]
       (is (= :ready (:lifecycle r)))
       (is (= "BEARER-secret-cmjly3-plain" @probe)
@@ -2321,7 +2321,7 @@
             documented on that fn."
     (rf/reg-event :noop-cmjly3 (fn [{:keys [db]} _] {:db db}))
     (let [r         (async/deref-blocking
-                      (story/run {:events    [[:noop-cmjly3]]
+                      (story/run {:setup    [[:noop-cmjly3]]
                                  :sensitive {:app-db [42]}})
                       5000)
           assertion (->> (:assertions r)

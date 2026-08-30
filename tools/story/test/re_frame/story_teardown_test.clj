@@ -112,7 +112,7 @@
       (rf/reg-event :feed/noop-init (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.feed/teardown-fires
         {:decorators [[:feed/live-subscription]]
-         :events     []})
+         :setup     []})
       ;; Allocate + destroy. The single :frame-setup decorator's
       ;; :teardown event must fire on destroy.
       (async/deref-blocking
@@ -140,7 +140,7 @@
       (rf/reg-event :step/noop (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.feed/multi-step
         {:decorators [[:multi-step-teardown]]
-         :events     []})
+         :setup     []})
       (async/deref-blocking
         (story/run-variant :story.feed/multi-step) 5000)
       (story/destroy-variant! :story.feed/multi-step)
@@ -172,7 +172,7 @@
         {:decorators [[:outer-dec]]})
       (story/reg-variant :story.teardown.order/v
         {:decorators [[:inner-dec]]
-         :events     []})
+         :setup     []})
       (async/deref-blocking
         (story/run-variant :story.teardown.order/v) 5000)
       (story/destroy-variant! :story.teardown.order/v)
@@ -198,7 +198,7 @@
       (rf/reg-event :dec-b/noop (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.teardown.same-level/v
         {:decorators [[:dec-a] [:dec-b]]
-         :events     []})
+         :setup     []})
       (async/deref-blocking
         (story/run-variant :story.teardown.same-level/v) 5000)
       (story/destroy-variant! :story.teardown.same-level/v)
@@ -236,12 +236,12 @@
         {:kind :frame-setup :init [[:d2/init]] :teardown [[:d2/cleanup]]})
       ;; Allocate with D1 — its :init ran; the allocate-time stack is captured.
       (story/reg-variant :story.hotdec/v
-        {:decorators [[:hot/d1]] :events []})
+        {:decorators [[:hot/d1]] :setup []})
       (async/deref-blocking (story/run-variant :story.hotdec/v) 5000)
       ;; HOT-RELOAD: the variant body now declares D2 instead of D1. The live
       ;; frame still carries D1's :init; only the registered body changed.
       (story/reg-variant :story.hotdec/v
-        {:decorators [[:hot/d2]] :events []})
+        {:decorators [[:hot/d2]] :setup []})
       ;; Sanity: the CURRENT resolution IS D2 — exactly what the buggy
       ;; re-resolve-at-teardown would read (so this test is not vacuous).
       (is (= [:hot/d2]
@@ -268,7 +268,7 @@
     (rf/reg-event :boom/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.teardown.boom/v
       {:decorators [[:boom-dec]]
-       :events     []})
+       :setup     []})
     (async/deref-blocking
       (story/run-variant :story.teardown.boom/v) 5000)
     ;; The destroy walk catches the exception. After destroy, the
@@ -312,7 +312,7 @@
         {:decorators [[:probe-dec]]})
       (story/reg-variant :story.teardown.record/v
         {:decorators [[:boom-dec]]
-         :events     []})
+         :setup     []})
       (async/deref-blocking
         (story/run-variant :story.teardown.record/v) 5000)
       (story/destroy-variant! :story.teardown.record/v)
@@ -348,7 +348,7 @@
       {:kind :frame-setup :init [[:seed/init]]})
     (story/reg-variant :story.teardown.none/v
       {:decorators [[:seed-only]]
-       :events     []})
+       :setup     []})
     (async/deref-blocking
       (story/run-variant :story.teardown.none/v) 5000)
     (is (nil? (story/destroy-variant! :story.teardown.none/v))
@@ -376,8 +376,8 @@
             leak (rf2-booyu)"
     (rf/reg-event :rs/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.runstate/v
-      {:events      []
-       :play-script [[:dispatch-sync [:rs/noop]]]})
+      {:setup      []
+       :script [[:dispatch-sync [:rs/noop]]]})
     (let [decorator-stack (story/resolve-decorators :story.runstate/v)]
       ;; Drive the live-shell path: allocate the frame, then run the play via
       ;; the runner (the toolbar Re-run / auto-run path that populates
@@ -392,7 +392,7 @@
           "run-state populated by the run")
       (is (contains? @runner-events/runs-by-play [:story.runstate/v nil])
           "runs-by-play populated by the run")
-      ;; A single :play-script variant's active-play key is legitimately nil
+      ;; A single :script variant's active-play key is legitimately nil
       ;; (no :plays :name), so assert the ENTRY exists, not that the value is
       ;; non-nil.
       (is (contains? @runner-events/active-play :story.runstate/v)
@@ -437,7 +437,7 @@
                       (swap! @#'trace-tooling/listeners dissoc id)
                       nil)]
         (rf/reg-event :lst/noop (fn [{:keys [db]} _] {:db db}))
-        (story/reg-variant :story.listener/v {:events [[:lst/noop]]})
+        (story/reg-variant :story.listener/v {:setup [[:lst/noop]]})
         (async/deref-blocking (story/run-variant :story.listener/v) 5000)
         (is (some play-listener-id? @live)
             "run-variant installed the per-frame play trace listener")
@@ -463,7 +463,7 @@
                       (swap! @#'trace-tooling/listeners dissoc id)
                       nil)]
         (rf/reg-event :lst/noop2 (fn [{:keys [db]} _] {:db db}))
-        (story/reg-variant :story.listener2/v {:events [[:lst/noop2]]})
+        (story/reg-variant :story.listener2/v {:setup [[:lst/noop2]]})
         (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
         (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
         (is (= 1 (count (filter play-listener-id? @live)))

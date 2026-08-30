@@ -476,7 +476,7 @@
 #?(:cljs
    (defn- variant-cell
      "Reagent component for one variant cell. Pre-allocates the
-     variant's frame and dispatches its `:events` slot SYNCHRONOUSLY
+     variant's frame and dispatches its `:setup` slot SYNCHRONOUSLY
      before the first render, then re-runs whenever ANY component of
      the canvas/workspace shared `run-key` advances — `:variant-id`,
      `:hot-reload-tick`, `:active-modes`, `:cell-overrides`, or
@@ -490,7 +490,7 @@
      blanking the shell. `r/with-let` runs its bindings exactly once
      per mount, before the body — that's the right hook for the
      synchronous pre-allocation. `run-variant` allocates the frame and
-     drains `:events` synchronously via `dispatch-sync`, so by the
+     drains `:setup` synchronously via `dispatch-sync`, so by the
      time the inner view renders the variant's app-db has its
      initialised state.
 
@@ -506,12 +506,12 @@
      keyed only on `:hot-reload-tick`, so editing a control through
      the controls panel — which writes through to `:cell-overrides`
      — never re-seeded the cell's frame and the cell kept rendering
-     against its original `:events`-seeded app-db. Mirroring the
+     against its original `:setup`-seeded app-db. Mirroring the
      canvas's full run-key (`canvas.cljs` `run-key` + `run-if-needed!`)
      also covers chrome-level `:active-modes` toggles and substrate
      flips. Keying on the full tuple still skips re-runs on ordinary
      intra-cell renders (an inc click bumps app-db but leaves the run-
-     key intact), so the variant's `:events` are NOT clobbered on user
+     key intact), so the variant's `:setup` is NOT clobbered on user
      interaction — same property the tick-only path preserved."
      [variant-id]
      (r/with-let [last-run-key (atom nil)]

@@ -222,11 +222,10 @@
       (let [body (registrar/handler-meta :variant :story.counter/regression-042)]
         (is (= :rf.test/run-artifact (get-in body [:run-artifact :artifact/kind]))
             "provenance survives into the registered variant")
-        ;; The registrar lowers the public `:script` bare step-vector to
-        ;; the shipping `:play-script` slot (still a bare step vector).
+        ;; The registrar stores the `:script` bare step-vector verbatim.
         (is (= [[:dispatch [:counter/init 5]]
                 [:dispatch [:counter/inc]]]
-               (:play-script body))
+               (:script body))
             "the behaviour program is the registered play script"))))
 
   (testing "the facade re-exports route to the same bridge"

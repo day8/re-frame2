@@ -114,7 +114,7 @@
     (story/reg-story :story.mcp.boundary {:doc "boundary fixture"})
     (story/reg-variant* :story.mcp.boundary/probe
       {:doc    "probe variant"
-       :events [[:probe/init]]
+       :setup [[:probe/init]]
        :args   {:n 7}
        :tags   #{:dev}})
     (is (story/registered? :variant :story.mcp.boundary/probe))
@@ -123,7 +123,7 @@
     (is (= #{:story.mcp.boundary/probe}
            (story/variants-of :story.mcp.boundary)))
     (let [edn (story/variant->edn :story.mcp.boundary/probe)]
-      (is (= [[:probe/init]] (:events edn)))
+      (is (= [[:probe/init]] (:setup edn)))
       (is (= {:n 7} (:args edn))))))
 
 (deftest reg-variant-star-bypasses-macro-source-stamp
@@ -133,7 +133,7 @@
             spec/006 — the MCP write path is programmatic, no &form
             meta is available)"
     (story/reg-variant* :story.mcp.no-source/probe
-      {:events []})
+      {:setup []})
     (let [body (story/handler-meta :variant :story.mcp.no-source/probe)]
       (is (not (contains? body :source))
           "no auto-source-stamp when called programmatically — keeps
@@ -146,7 +146,7 @@
             nil under programmatic registration so this case reduces to
             'whatever the caller wrote wins'"
     (story/reg-variant* :story.mcp.src-bring/probe
-      {:events []
+      {:setup []
        :source {:file "agent-supplied.cljs" :line 42}})
     (let [body (story/handler-meta :variant :story.mcp.src-bring/probe)]
       (is (= {:file "agent-supplied.cljs" :line 42}
@@ -159,7 +159,7 @@
 (deftest unregister-removes-from-read-surface
   (testing "MCP's unregister-variant tool routes through (unregister!
             :variant id) — after which the read surface no longer surfaces it"
-    (story/reg-variant :story.mcp.unreg/probe {:events []})
+    (story/reg-variant :story.mcp.unreg/probe {:setup []})
     (is (story/registered? :variant :story.mcp.unreg/probe))
     (registrar/unregister! :variant :story.mcp.unreg/probe)
     (is (not (story/registered? :variant :story.mcp.unreg/probe))
@@ -172,8 +172,8 @@
             workspaces, and tags untouched — the contract MCP needs for
             a 'clear all variants' tool that doesn't nuke the rest of
             the registry"
-    (story/reg-variant :story.kindA/v {:events []})
-    (story/reg-variant :story.kindB/w {:events []})
+    (story/reg-variant :story.kindA/v {:setup []})
+    (story/reg-variant :story.kindB/w {:setup []})
     (story/reg-mode :Mode.theme/dark {:args {:theme :dark}})
     (story/reg-workspace :Workspace.kind/grid
       {:layout :variants-grid})
@@ -259,8 +259,8 @@
             spec/001's `re-frame.registrar/registrations` — the shape MCP read
             tools rely on for registry walks"
     (story/reg-story :story.handlers {:doc "h-fixture"})
-    (story/reg-variant :story.handlers/a {:events [[:init-a]]})
-    (story/reg-variant :story.handlers/b {:events [[:init-b]]})
+    (story/reg-variant :story.handlers/a {:setup [[:init-a]]})
+    (story/reg-variant :story.handlers/b {:setup [[:init-b]]})
     (let [variants (story/registrations :variant)]
       (is (map? variants) "registrations returns a {id → body} map")
       (is (= #{:story.handlers/a :story.handlers/b} (set (keys variants))))
@@ -275,8 +275,8 @@
 (deftest ids-returns-the-id-set-per-kind
   (testing "(ids :kind) returns the set of registered ids for that kind"
     (story/reg-story   :story.ids {:doc "ids fixture"})
-    (story/reg-variant :story.ids/a {:events []})
-    (story/reg-variant :story.ids/b {:events []})
+    (story/reg-variant :story.ids/a {:setup []})
+    (story/reg-variant :story.ids/b {:setup []})
     (is (= #{:story.ids/a :story.ids/b} (story/ids :variant)))
     (is (contains? (story/ids :tag) :dev)
         "the canonical :dev tag id is in the tag id-set")))

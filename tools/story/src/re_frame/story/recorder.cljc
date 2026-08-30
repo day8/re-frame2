@@ -39,7 +39,7 @@
   ## `:sensitive?` events — record-but-redact
 
   Events flagged `:sensitive? true` are STILL captured into the
-  `:play-script` body, but the event payload is replaced with the
+  `:script` body, but the event payload is replaced with the
   framework's `:rf/redacted` sentinel so the credential / PII / auth-token
   doesn't ride into the snippet text. This mirrors the always-on
   error-emit path — record-but-redact, don't refuse-to-record. Two
@@ -90,7 +90,7 @@
   Recording captures user dispatches. Assertions are the dual — the
   user wants to say 'after I click this button, the counter shows 3'.
   The canonical seven `:rf.assert/*` ids (per spec/004) compose with
-  the captured `:play-script` body exactly the way they compose with a hand-
+  the captured `:script` body exactly the way they compose with a hand-
   authored one — `dispatch-sync` them in line. The `recordable-event?`
   filter drops them off the trace bus (assertions are authored, not
   observed), so we expose an explicit insertion path:
@@ -134,13 +134,13 @@
 ;;
 ;; The recorder skips assertion events (`:rf.assert/*`) and Story's
 ;; own internal helpers (`:rf.story/*` / `:re-frame.story.*`) so the
-;; emitted `:play-script` body is exactly the user-facing dispatches that
+;; emitted `:script` body is exactly the user-facing dispatches that
 ;; reproduce the canvas state.
 ;; ---------------------------------------------------------------------------
 
 (defn- internal-namespace?
   "True iff `ns-str` is a Story-internal namespace whose events should
-  not appear in a recorded `:play-script` body."
+  not appear in a recorded `:script` body."
   [ns-str]
   (and (string? ns-str)
        (or (= pred/reserved-assertion-ns ns-str)   ; "rf.assert"
@@ -150,7 +150,7 @@
 
 (defn recordable-event?
   "True iff `event` (a re-frame event vector) is one the recorder should
-  capture into a `:play-script` body. Filters out assertion events and
+  capture into a `:script` body. Filters out assertion events and
   Story's own internal helper events. Pure data → boolean; JVM-
   testable."
   [event]
@@ -165,7 +165,7 @@
   `:sensitive? true` event when the local-render profile redacts (the
   `:rf.egress/local-redacted` default, EP-0015). Record-but-redact
   preserves the row's temporal position in the captured
-  `:play-script` body without leaking the
+  `:script` body without leaking the
   credential / PII / auth-token. The single-element vector keeps the
   captured-events shape (vector-of-event-vectors) intact so the snippet
   round-trips through `read-string` cleanly; re-play sees a well-
@@ -194,7 +194,7 @@
 ;; This is the dispatch-only codegen. It reads the bare `:events` stream,
 ;; so it sees dispatched events + inserted assertions ONLY — it is BLIND
 ;; to DOM interactions (which live in `:entries`). The interactive
-;; recorder's PRIMARY save dialog renders the rich `:play-script`
+;; recorder's PRIMARY save dialog renders the rich `:script`
 ;; translation off `:entries` (`recorder.play-export/recording->script-body`
 ;; + `render-variant-form`) so canvas clicks/types/submits are never
 ;; dropped. `gen-play-snippet` is the codegen for the MCP
@@ -212,7 +212,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- event->step
-  "Wrap a captured event vector as a `:play-script` step. The canonical
+  "Wrap a captured event vector as a `:script` step. The canonical
   wrapping is `:dispatch-sync` — it drains to completion in declared
   order and lets `:rf.assert/*` events record on the very next step.
 
@@ -298,7 +298,7 @@
 ;; ids are reserved. The recorder's mid-recording insertion picker
 ;; enumerates these to drive a single-click 'add assertion' affordance —
 ;; pick the id, supply the payload, the assertion event lands inline
-;; in the captured `:play-script` body alongside the dispatched events.
+;; in the captured `:script` body alongside the dispatched events.
 ;;
 ;; The vocabulary is data, not behaviour — the actual handlers live in
 ;; `re-frame.story.assertions`. This list is for the picker UI and for
@@ -459,7 +459,7 @@
 
   The assertion also lands in the parallel `:entries`
   stream as an `:event/dispatch` entry tagged with the current
-  timestamp, so the `:play-script` translator (which consumes
+  timestamp, so the `:script` translator (which consumes
   `:entries`) sees the inserted assertion alongside the captured
   dispatches and DOM events in temporal order.
 
@@ -483,10 +483,10 @@
   "The recorder's idle state shape. `:recording?` flips true while a
   capture is in flight; `:events` accumulates the captured event
   vectors in declared order (oldest first, ready for `gen-play-snippet`
-  to wrap as `:play-script` `:dispatch-sync` steps); `:entries` accumulates the richer
+  to wrap as `:script` `:dispatch-sync` steps); `:entries` accumulates the richer
   per-entry maps (`:event/dispatch` + `:dom/click` / `:dom/type` /
   `:dom/submit`) with per-event timestamps — consumed by the
-  `:play-script` translator; `:variant-id` records which frame the
+  `:script` translator; `:variant-id` records which frame the
   capture targets; `:started-ms` is the wall-clock start time for
   elapsed-time display.
 
@@ -527,14 +527,14 @@
 (defn recorded-events
   "Return the vector of captured event vectors (oldest first). Feeds the
   simple `gen-play-snippet` codegen, which wraps each as a
-  `:play-script` `:dispatch-sync` step."
+  `:script` `:dispatch-sync` step."
   []
   (:events @state))
 
 (defn recorded-entries
   "Return the vector of captured rich entries (oldest first) — the
   `:event/dispatch` + `:dom/*` per-entry maps with per-entry `:t`
-  timestamps the `:play-script` translator consumes."
+  timestamps the `:script` translator consumes."
   []
   (:entries @state))
 
@@ -563,11 +563,11 @@
 ;;
 ;; The recorder carries `:events` (a vector of event vectors) for the
 ;; dispatch-only codegen which wraps each as a `:dispatch-sync` step, and
-;; `:entries` for TIMING and DOM INTERACTION which the rich `:play-script`
+;; `:entries` for TIMING and DOM INTERACTION which the rich `:script`
 ;; DSL needs to emit `:click` / `:type` / `:wait` steps.
 ;;
 ;; `:entries` is the recorder's SINGLE SOURCE OF TRUTH for codegen:
-;; the primary save dialog renders the `:play-script` translation off
+;; the primary save dialog renders the `:script` translation off
 ;; this stream. Each entry is one of:
 ;;
 ;;   {:kind :event/dispatch :event <vec> :t <ms>}
@@ -598,7 +598,7 @@
 
   The call ALSO appends a parallel `:entries` entry
   `{:kind :event/dispatch :event <vec> :t <ms>}` so the
-  `:play-script` translator sees the timing alongside the event.
+  `:script` translator sees the timing alongside the event.
   `:events` (bare event vectors) stays as-is for the simple
   `gen-play-snippet` codegen.
 
@@ -608,7 +608,7 @@
   facts). When non-empty it is stored in TWO index-aligned places: the
   parallel `:cofx` slot (so the bare-`:events` MCP path can re-supply
   it) AND the rich `:entries` `:event/dispatch` map under `:rf.cofx` (so
-  the `:play-script` translator sees it without a positional zip). The
+  the `:script` translator sees it without a positional zip). The
   `:cofx` slot stays index-aligned with `:events` — an empty / nil cofx
   conjoins `nil` so the two vectors never drift.
 
@@ -763,7 +763,7 @@
   dialog opens does not mutate the dialog's snippet.
 
   The dialog also snapshots `entries` (the rich
-  `:entries` slot) so the export dialog can drive the `:play-script`
+  `:entries` slot) so the export dialog can drive the `:script`
   translator with the full DOM+timing record; pass `nil` when no rich
   entries are available."
   [_state variant-id events entries now-ms]
@@ -949,7 +949,7 @@
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
   placeholder `redacted-event` vector replaces the event payload so the
   credential / PII / auth-token doesn't ride into the captured
-  `:play-script` body, while the row's temporal position is preserved for
+  `:script` body, while the row's temporal position is preserved for
   correlation. The suppressed-events counter is bumped (Spec 009 §Privacy
   — Story is a framework-published trace consumer that default-suppresses
   sensitive events) so the UI's redaction-indicator hint stays accurate.

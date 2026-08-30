@@ -35,7 +35,7 @@
 (deftest snapshot-args-returns-resolved-args
   (story/reg-variant :story.snap/v
     {:args {:label "hello" :n 1}
-     :events []})
+     :setup []})
   (let [snap (save-variant/snapshot-args :story.snap/v)]
     (is (= "hello" (:label snap)))
     (is (= 1 (:n snap)))))
@@ -43,7 +43,7 @@
 (deftest snapshot-args-includes-cell-overrides
   (story/reg-variant :story.snap/v
     {:args   {:label "before" :keep "yes"}
-     :events []})
+     :setup []})
   (let [snap (save-variant/snapshot-args
                :story.snap/v
                {:cell-overrides {:label "after"}})]
@@ -118,7 +118,7 @@
 ;; ---- save-current-as-variant! --------------------------------------------
 
 (deftest save-current-as-variant!-triggers-callback
-  (story/reg-variant :story.snap/v {:args {:n 7} :events []})
+  (story/reg-variant :story.snap/v {:args {:n 7} :setup []})
   (state/swap-state! state/select-variant :story.snap/v)
   (let [captured (atom nil)]
     (save-variant/set-open-dialog-fn!

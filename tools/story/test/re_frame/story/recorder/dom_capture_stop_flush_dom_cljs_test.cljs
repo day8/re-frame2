@@ -16,7 +16,7 @@
   is false) AND `append-dom`'s own `:recording?` check. So if the recording
   was STOPPED before the pending debounce timer (or the `remove!` drain)
   fired, the last buffered keystroke was silently dropped — the generated
-  `:play-script` lost its final field value.
+  `:script` lost its final field value.
 
   THE FIX: the capture-time `:t` is stamped at BUFFER time (while recording
   is live) and the drain appends via `recorder/record-dom-event-buffered!`,

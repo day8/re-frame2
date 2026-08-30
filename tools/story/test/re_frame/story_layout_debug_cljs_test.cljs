@@ -151,7 +151,7 @@
             variant's frame/app-db (rf2-yv8tsd — 'variant state unchanged')"
     (let [vid :story.x/counted]
       (story/reg-variant* vid {:args {:n 7}
-                               :events [[:set-thing 1]]})
+                               :setup [[:set-thing 1]]})
       (let [body-before (story/handler-meta :variant vid)]
         ;; Toggle every overlay on, then off again.
         (doseq [id [layout-debug/id-measure

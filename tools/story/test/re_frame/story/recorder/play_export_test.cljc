@@ -1,5 +1,5 @@
 (ns re-frame.story.recorder.play-export-test
-  "Pure unit tests for the recorder → :play-script translator
+  "Pure unit tests for the recorder → :script translator
   (rf2-x9zsr).
 
   Covers:
@@ -108,7 +108,7 @@
           ":name omitted when not supplied"))))
 
 (deftest empty-recording-yields-empty-script
-  (testing "an empty recording yields a legal empty :play-script"
+  (testing "an empty recording yields a legal empty :script"
     (let [spec (export/recording->script-body [])]
       (is (= [] (:script spec)))
       (is (true? (:auto-run? spec))))))
@@ -249,11 +249,11 @@
       (is (= :story.x/recorded (second parsed)))
       (let [body (nth parsed 2)]
         (is (= :story.x/source (:extends body)))
-        ;; rf2-7mj4z — the rendered form uses the PUBLIC :script authoring
-        ;; slot (a `{:script … :auto-run?}` body), not :play-script.
+        ;; rf2-7mj4z — the rendered form uses the :script slot (a
+        ;; `{:script … :auto-run?}` body), never the retired :play-script.
         (is (map? (:script body)))
         (is (nil? (:play-script body))
-            "the rendered form no longer emits the transitional :play-script slot")
+            "the rendered form never emits the retired :play-script slot")
         (is (false? (:auto-run? (:script body))))
         (is (= [[:dispatch [:counter/inc]]] (:script (:script body))))))))
 

@@ -259,9 +259,10 @@
       :modes                 #{...}}
      ```
 
-     Transitional spellings are still accepted by the schema and lowered
-     to the public slots: `:events` lowers to `:setup`, `:play-script`
-     lowers to `:script`. Author against `:setup` / `:script`.
+     `:setup` / `:script` / `:plays` are the only setup and play slots;
+     the body is stored under exactly those keys, so `variant->edn`
+     hands back what was authored. The retired `:events` / `:play-script`
+     spellings are rejected by the closed schema like any unknown key.
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
@@ -1898,7 +1899,7 @@
 
 ;; ---- Test Codegen recorder public surface -------------------------------
 ;;
-;; The recorder captures canvas-dispatched events as a `:play-script`
+;; The recorder captures canvas-dispatched events as a `:script`
 ;; body. Exposing the entry points here lets tests, MCP
 ;; tooling, and headless integrations drive recording programmatically
 ;; without going through the toolbar UI.

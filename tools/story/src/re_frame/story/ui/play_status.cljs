@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.play-status
-  "Toolbar chip + failure-banner UI for Story's rich `:play-script`
+  "Toolbar chip + failure-banner UI for Story's rich `:script`
   runner (rf2-8i2a9).
 
   ## What this renders
@@ -388,7 +388,7 @@
 
 (defn chip-when-enabled
   "Render `chip` only when the Story config is enabled AND the variant
-  has a `:play-script` OR `:plays` body. Used by the toolbar so
+  has a `:script` OR `:plays` body. Used by the toolbar so
   production builds + variants without a play surface don't render
   the chip at all.
 

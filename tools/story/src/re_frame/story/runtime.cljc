@@ -190,21 +190,12 @@
   (nil? (setup-step->event step)))
 
 (defn- plan-setup-events
-  "The phase-2 event vectors for a run: the parent STORY's `:events`
-  (resolved by id-grammar, NOT part of the variant plan — the plan
-  compiler only resolves the `:extends` chain + composed fragments)
-  prepended to the NORMALIZED PLAN's `[:world :setup]` steps
-  (§B8 — phase 2 consumes the plan's `:setup`).
-
-  The story-level events keep their existing id-grammar resolution so
-  `story.foo/bar` still inherits `story.foo`'s preconditions; the
-  variant-chain + composed-fragment setup comes from the plan, where
-  `:extends` setup APPENDS root→child and `:setup` / `:events` are both
-  lowered to the one slot (spec/017 §Merge rules).
-
-  An INLINE plan has no parent story (it is unregistered),
-  so `story-id` resolves nil and only the plan's own `[:world :setup]`
-  drives phase 2 — the plan is already the complete setup program.
+  "The phase-2 event vectors for a run: the NORMALIZED PLAN's
+  `[:world :setup]` steps (§B8 — phase 2 consumes the plan's `:setup`),
+  where `:extends` setup APPENDS root→child and composed fragments land
+  in declared order (spec/017 §Merge rules). The parent story carries no
+  setup slot (the `Story` schema is closed without one), so the plan is
+  the complete setup program for registered and inline variants alike.
 
   REFUSES (throws `:rf.error/story-setup-step-unrunnable`) when a setup
   step is a non-dispatch step (`[:wait …]` / `[:click …]` / `[:type …]`
@@ -217,10 +208,7 @@
   author wrote. The throw is caught by the orchestrator and projected as
   an `:error` run result."
   [variant-id plan]
-  (let [story-id     (args/parent-story-id variant-id)
-        story-body   (when story-id (registrar/handler-meta :story story-id))
-        story-events (or (:events story-body) [])
-        plan-setup   (get-in plan [:world :setup] [])]
+  (let [plan-setup (get-in plan [:world :setup] [])]
     (when-let [offenders (seq (filter non-dispatch-setup-step? plan-setup))]
       (error/throw-error!
         :rf.error/story-setup-step-unrunnable
@@ -236,8 +224,7 @@
         {:recovery :use-a-richer-runner-or-move-to-script
          :extra    {:variant/id      variant-id
                     :offending-steps (vec offenders)}}))
-    (vec (concat story-events
-                 (map setup-step->event plan-setup)))))
+    (mapv setup-step->event plan-setup)))
 
 (defn- run-events!
   "Phase 2: dispatch every phase-2 event into the variant's frame,
@@ -245,10 +232,9 @@
 
   §B8 — the variant-chain + composed-fragment setup comes from the
   NORMALIZED PLAN's `[:world :setup]` (the tagged dispatch steps the
-  compiler lowered `:setup` / `:events` into), routed through
-  `plan-setup-events`. The parent story's `:events` (resolved by id
-  grammar, not part of the plan) are prepended. The `dispatch-sync` +
-  per-event exception-drain semantics apply per event."
+  compiler lowered `:setup` into), routed through `plan-setup-events`.
+  The `dispatch-sync` + per-event exception-drain semantics apply per
+  event."
   [variant-id plan]
   (let [all-events (plan-setup-events variant-id plan)]
     (capture-phase-errors
@@ -1002,11 +988,11 @@
   `then` on the promise to know when
   to build the result.
 
-  Drives the rich-DSL `:play-script` runner via
-  `runner-events/run!`. Variants without `:play-script` / `:plays`
+  Drives the rich-DSL `:script` runner via
+  `runner-events/run!`. Variants without `:script` / `:plays`
   resolve to an empty script and the promise resolves immediately. Author
   event sequences by wrapping each entry in `[:dispatch-sync <event-vec>]`
-  inside a `:play-script` body.
+  inside a `:script` body.
 
   The resolved play scripts are FOLDED (shipping
   `:assert-db` / `:assert-dom` rewritten to the canonical `[:assert …]`

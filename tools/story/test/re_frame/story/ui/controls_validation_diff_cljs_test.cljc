@@ -194,7 +194,7 @@
        (story/reg-variant :story.ba86n/grp
          {:component :view.ba86n/grp
           :args      {:meta {:author "ada" :rating 5}}
-          :events    []})
+          :setup    []})
        (let [tree   (render :story.ba86n/grp)
              toggle (button-with-action tree "toggle-expand")]
          (is (some? toggle) "disclosure toggle present")
@@ -214,7 +214,7 @@
        (story/reg-variant :story.ba86n/grp2
          {:component :view.ba86n/grp2
           :args      {:meta {:author "ada"}}
-          :events    []})
+          :setup    []})
        ;; ONE editor instance — the expand ratom lives on its closure, so
        ;; the toggle + re-render must go through the same instance.
        (let [editor (controls/args-editor :story.ba86n/grp2)
@@ -237,7 +237,7 @@
                downstream tooling / the browser smoke can detect blocked
                renders"
        (story/reg-variant :story.ba86n/val
-         {:args {:title "hi"} :events []})
+         {:args {:title "hi"} :setup []})
        (let [tree (render :story.ba86n/val)
              row  (node-with-attr tree :data-controls-arg ":title")]
          (is (some? row))
@@ -255,7 +255,7 @@
          {:component :view.ba86n/bad
           ;; :age is a string but the schema says :int.
           :args      {:age "not-a-number"}
-          :events    []})
+          :setup    []})
        (let [tree    (render :story.ba86n/bad)
              banner  (node-with-attr tree :data-controls-validation "invalid")
              err-row (node-with-attr tree :data-controls-error)
@@ -281,7 +281,7 @@
                changed dot (data-controls-changed=\"true\") and a per-arg
                reset button; clicking reset clears only that arg's override"
        (story/reg-variant :story.ba86n/diff
-         {:args {:title "saved" :other "keep"} :events []})
+         {:args {:title "saved" :other "keep"} :setup []})
        (state/swap-state! state/set-cell-override-scalar
                           :story.ba86n/diff :title "edited")
        (state/swap-state! state/set-cell-override-scalar
@@ -304,7 +304,7 @@
      (testing "an arg at its saved value carries data-controls-changed=
                \"false\" — no diff dot"
        (story/reg-variant :story.ba86n/same
-         {:args {:title "saved"} :events []})
+         {:args {:title "saved"} :setup []})
        (let [tree (render :story.ba86n/same)
              row  (node-with-attr tree :data-controls-arg ":title")]
          (is (= "false" (:data-controls-changed (attrs row))))))))
@@ -314,7 +314,7 @@
      (testing "the panel-level 'reset overrides' button appears only when
                at least one override exists for the focused variant"
        (story/reg-variant :story.ba86n/resetall
-         {:args {:a 1} :events []})
+         {:args {:a 1} :setup []})
        ;; No overrides yet → no reset-all button.
        (is (nil? (button-with-action (render :story.ba86n/resetall) "reset-all")))
        ;; Add an override → reset-all appears.

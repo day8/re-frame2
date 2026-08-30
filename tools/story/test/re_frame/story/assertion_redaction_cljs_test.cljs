@@ -81,9 +81,9 @@
     (rf/reg-event :auth/login
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-12345")}))
     (story/reg-variant :story.redaction.path-equals/probe
-      {:events    [[:auth/login]]
+      {:setup    [[:auth/login]]
        :sensitive {:app-db [[:auth :token]]}
-       :play-script [[:dispatch-sync [:rf.assert/path-equals
+       :script [[:dispatch-sync [:rf.assert/path-equals
                  [:auth :token]
                  "BEARER-secret-12345"]]]})
     (async done
@@ -117,9 +117,9 @@
     (rf/reg-event :auth/login2
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-99999")}))
     (story/reg-variant :story.redaction.sentinel/probe
-      {:events    [[:auth/login2]]
+      {:setup    [[:auth/login2]]
        :sensitive {:app-db [[:auth :token]]}
-       :play-script [[:dispatch-sync [:rf.assert/path-equals
+       :script [[:dispatch-sync [:rf.assert/path-equals
                  [:auth :token]
                  :rf/redacted]]]})
     (async done
@@ -140,8 +140,8 @@
             unchanged (redaction only fires on marked paths)"
     (rf/reg-event :ui/set-label (fn [{:keys [db]} _] {:db (assoc db :label "hello")}))
     (story/reg-variant :story.redaction.plain/probe
-      {:events [[:ui/set-label]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:label] "hello"]]]})
+      {:setup [[:ui/set-label]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:label] "hello"]]]})
     (async done
       (-> (story/run-variant :story.redaction.plain/probe)
           (async-lib/then
@@ -171,9 +171,9 @@
     ;; Parameterised sub: reads the path passed as args.
     (rf/reg-sub :pii/at (fn [db [_ & path]] (get-in db (vec path))))
     (story/reg-variant :story.redaction.sub-equals/probe
-      {:events    [[:session/save-pii]]
+      {:setup    [[:session/save-pii]]
        :sensitive {:app-db [[:user :ssn]]}
-       :play-script [[:dispatch-sync [:rf.assert/sub-equals
+       :script [[:dispatch-sync [:rf.assert/sub-equals
                  [:pii/at :user :ssn]
                  "123-45-6789"]]]})
     (async done

@@ -1443,7 +1443,7 @@
       (is (nil? (:actual f)))
       (is (= [:auth :status] (:path f))))
 
-    ;; Step 4 (out of scope) — an agent would now propose a `:events` slot
+    ;; Step 4 (out of scope) — an agent would now propose a `:setup` slot
     ;; like `[[:test/set-status]]` and re-register, then re-run. The "fix
     ;; passes" half is exercised in tools/story's `path-equals-pass` test.
 
@@ -1935,7 +1935,7 @@
   (testing "duration 0 with no in-flight dispatches ⇒ empty public :script snippet"
     ;; The recorder's `gen-play-snippet` emits the PUBLIC
     ;; `:script {:auto-run? true :script [...]}` body, NOT the internal
-    ;; `:play-script` spelling. With zero captured events the inner
+    ;; `:script` spelling. With zero captured events the inner
     ;; `:script` vector is empty.
     (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
@@ -1946,7 +1946,7 @@
       (is (string? (:play-snippet s)))
       (is (re-find #":script" (:play-snippet s)))
       (is (not (re-find #":play-script" (:play-snippet s)))
-          "the snippet emits the public :script slot, not the transitional :play-script (rf2-7mj4z)")
+          "the snippet emits the :script slot, never the retired :play-script spelling (rf2-7mj4z, rf2-7dewo)")
       (is (re-find #":script\s+\[\]" (:play-snippet s)))
       (is (re-find #":story\.button/primary" (:play-snippet s))))))
 
@@ -1986,11 +1986,10 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/primary (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; Write-back assocs the PUBLIC `:script` authoring slot,
-      ;; which `reg-variant*` lowers to the shipping `:play-script` slot —
-      ;; so the STORED body (`variant->edn`) reads `:play-script` carrying
-      ;; the captured events as a LIVE, replayable script. Each captured
-      ;; event becomes a `[:dispatch ...]` step.
+      ;; Write-back assocs `:script` and `reg-variant*` stores it under
+      ;; that same key — so the STORED body (`variant->edn`) reads
+      ;; `:script` carrying the captured events as a LIVE, replayable
+      ;; script. Each captured event becomes a `[:dispatch ...]` step.
       ;; The count is read back from `:recorded-event-count` rather than
       ;; hard-coded. It is now deterministic — the driver's push fires inside
       ;; `start-recording!`'s own swap (rf2-zrdog), so all driven events land —
@@ -2001,8 +2000,8 @@
             "the legacy dead :play slot must NOT be written")
         (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
                 :auto-run? true}
-               (:play-script body))
-            "the stored body carries the lowered :play-script shipping slot")
+               (:script body))
+            "the stored body carries the written-back :script slot")
         ;; Pre-existing body keys survive (e.g. :doc).
         (is (= "Primary button." (:doc body)))))))
 
@@ -2021,36 +2020,28 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/recorded (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; Write-back assocs the public `:script` slot, lowered to
-      ;; the shipping `:play-script` slot in storage (count read back from
-      ;; `:recorded-event-count`; deterministic since rf2-zrdog).
+      ;; Write-back assocs `:script`, stored under that key (count read
+      ;; back from `:recorded-event-count`; deterministic since rf2-zrdog).
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
-             (:play-script (story/variant->edn :story.button/recorded))))
+             (:script (story/variant->edn :story.button/recorded))))
       (is (nil? (:play (story/variant->edn :story.button/recorded))))
       ;; Source variant is untouched.
-      (is (nil? (:play-script (story/variant->edn :story.button/primary))))
+      (is (nil? (:script (story/variant->edn :story.button/primary))))
       (is (nil? (:play (story/variant->edn :story.button/primary)))))))
 
-(deftest record-as-variant-write-back-replaces-existing-play-script
+(deftest record-as-variant-write-back-replaces-existing-script
   (testing "rf2-f4e1xs: write-back against a source variant that ALREADY
-            carries a play surface (a lowered :play-script) must REPLACE
-            it, not fail validation. The variant schema rejects a body
-            carrying more than one of :script / :play-script / :plays, so
-            the pre-fix `(assoc body :script …)` on such a source produced
-            a body with BOTH :script and :play-script and the registrar
-            rejected it. write-back! now drops the prior play surface
-            first."
+            carries a :script play surface must REPLACE it, not fail
+            validation — the recorded :script becomes the sole play
+            surface."
     (config/set-allow-writes! true)
-    ;; A source variant authored with the PUBLIC :script slot — the
-    ;; registrar lowers it to the shipping :play-script on store, so the
-    ;; stored body the recorder reads back already carries :play-script.
     (story/reg-variant :story.button/with-script
       {:doc    "Has an existing play surface."
        :args   {:label "Scripted"}
        :tags   #{:dev}
        :script [[:dispatch [:noop]]]})
-    (is (some? (:play-script (story/variant->edn :story.button/with-script)))
-        "precondition: the source variant stores a lowered :play-script")
+    (is (= [[:dispatch [:noop]]] (:script (story/variant->edn :story.button/with-script)))
+        "precondition: the source variant stores its authored :script")
     (drive-events-during-recording [[:counter/inc] [:counter/inc]])
     (let [r (invoke "record-as-variant"
                     {:variant-id  "story.button/with-script"
@@ -2059,20 +2050,20 @@
           s (:structuredContent r)
           n (:recorded-event-count s)]
       (is (success? r)
-          "write-back over an existing :play-script succeeds (was :isError pre-fix)")
+          "write-back over an existing :script succeeds (was :isError pre-fix)")
       (is (true? (:written-back? s)))
       (is (= :story.button/with-script (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
       (let [body (story/variant->edn :story.button/with-script)]
         ;; The recorded script REPLACES the prior play surface — the body
-        ;; carries the recorded steps under the lowered :play-script slot,
-        ;; NOT the old [:dispatch [:noop]] script.
+        ;; carries the recorded steps under :script, NOT the old
+        ;; [:dispatch [:noop]] script.
         (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
                 :auto-run? true}
-               (:play-script body))
-            "the stored :play-script is the recorded body, replacing the old script")
-        (is (nil? (:script body))
-            "no stray public :script slot survives (single play surface)")
+               (:script body))
+            "the stored :script is the recorded body, replacing the old script")
+        (is (nil? (:plays body))
+            "no second play surface survives (single play surface)")
         ;; Unrelated body keys survive.
         (is (= "Has an existing play surface." (:doc body)))))))
 
@@ -2102,8 +2093,8 @@
       (let [body (story/variant->edn :story.button/with-plays)]
         (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
                 :auto-run? true}
-               (:play-script body))
-            "the recorded :script lowers to :play-script, replacing :plays")
+               (:script body))
+            "the recorded :script is stored, replacing :plays")
         (is (nil? (:plays body))
             "the prior :plays surface is dropped (single play surface)")))))
 
@@ -2139,15 +2130,14 @@
       (is (success? rec))
       (is (true? (:written-back? s)))
       (is (pos? n) "the recorder captured at least one :test/bump step")
-      ;; The written-back body carries the LIVE play body under the lowered
-      ;; `:play-script` shipping slot — n `[:dispatch [:test/bump]]` steps,
-      ;; NOT the dead `:play` slot.
+      ;; The written-back body carries the LIVE play body under `:script`
+      ;; — n `[:dispatch [:test/bump]]` steps, NOT the dead `:play` slot.
       (let [body (story/variant->edn :story.button/replayed)]
         (is (nil? (:play body)) "no dead :play slot is written")
         (is (= {:script    (vec (repeat n [:dispatch [:test/bump]]))
                 :auto-run? true}
-               (:play-script body))
-            "write-back stores the lowered :play-script slot, one :dispatch step per captured event"))
+               (:script body))
+            "write-back stores :script, one :dispatch step per captured event"))
       ;; Run the written-back variant: the replayed :test/bump dispatches
       ;; must land on the frame's app-db. This is the load-bearing
       ;; distinction — a dead `:play` slot is never executed by any runner,
@@ -2217,7 +2207,7 @@
         ;; recorded dispatch step — [:dispatch [:counter/inc] {:rf.cofx {…}}].
         ;; (Write-back uses the RAW cofx on-box, unaffected by wire egress.)
         (let [body  (story/variant->edn :story.button/cofx-recorded)
-              steps (:script (:play-script body))]
+              steps (:script (:script body))]
           (is (every? (fn [step]
                         (and (= :dispatch (first step))
                              (= [:counter/inc] (second step))
@@ -2257,7 +2247,7 @@
       (let [body (story/variant->edn :story.button/no-cofx)]
         (is (= {:script    [[:dispatch [:counter/inc]] [:dispatch [:counter/inc]]]
                 :auto-run? true}
-               (:play-script body))
+               (:script body))
             "no captured cofx → bare 2-element dispatch steps, unchanged from pre-fix")
         (is (not (re-find #":rf.cofx" (:play-snippet s)))
             "the snippet carries no :rf.cofx slot when nothing was captured")))))
@@ -2343,12 +2333,12 @@
       (is (pos? n) "the recorder captured at least one event")
       (is (= :story-mcp (:origin body))
           "write-back body must carry :origin :story-mcp")
-      ;; Pre-existing body keys + the captured play body (stored under the
-      ;; lowered :play-script shipping slot) still land (step count derived
-      ;; from `:recorded-event-count` — capture races the :duration-ms window).
+      ;; Pre-existing body keys + the captured play body (stored under
+      ;; :script) still land (step count derived from
+      ;; `:recorded-event-count` — capture races the :duration-ms window).
       (is (= "Primary button." (:doc body)))
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
-             (:play-script body)))
+             (:script body)))
       (is (nil? (:play body))))))
 
 (deftest record-as-variant-write-back-new-id-stamps-origin
@@ -2924,8 +2914,8 @@
      frame container must exist (the elision registry lives in its runtime-db
      partition), so we `ensure-variant-frame!` first.
 
-  2. `:events` RE-APPLY — append a `[::reapply-frame-class frame config]`
-     step to the variant body's `:events` so each fresh run re-applies the
+  2. `:setup` RE-APPLY — append a `[::reapply-frame-class frame config]`
+     step to the variant body's `:setup` so each fresh run re-applies the
      classification onto the reset frame (phase 2, after allocation/reset).
      Without this the declarations are wiped when `ensure-fresh-frame!`
      resets the pre-run frame's runtime-db to `{}`, and the wire-egress
@@ -2944,7 +2934,7 @@
     (when-let [body (story-registrar/handler-meta :variant variant-id)]
       (story-registrar/reg-variant*
         variant-id
-        (update body :events (fnil conj [])
+        (update body :setup (fnil conj [])
                 [::reapply-frame-class variant-id config])))))
 
 (defn- declare-sensitive!
@@ -3561,7 +3551,7 @@
             ":rf/time-ms is always safe and surfaces verbatim under the live frame")
         ;; ON-BOX: the write-back body keeps the RAW cofx for replay fidelity.
         (let [body  (story/variant->edn :story.button/cofx-redacted)
-              steps (:script (:play-script body))]
+              steps (:script (:script body))]
           (is (every? (fn [step]
                         (= {:rf/time-ms 1781078400123 :session {:token "WIRE-COFX-SECRET"}}
                            (:rf.cofx (nth step 2 nil))))

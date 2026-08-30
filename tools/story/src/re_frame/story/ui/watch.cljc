@@ -69,7 +69,7 @@
 (defn compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
   hex-hash}` map of snapshot-identity content hashes. The hash captures
-  the variant's `:play-script` / `:events` / `:loaders` / `:decorators` /
+  the variant's `:script` / `:setup` / `:loaders` / `:decorators` /
   `:component` / `:sub-overrides` / `:db-seed` / `:network` / `:tags`
   slots plus the parent story's slice, the view's registered schema-
   digest, AND the variant's resolved effective args (which fold in the

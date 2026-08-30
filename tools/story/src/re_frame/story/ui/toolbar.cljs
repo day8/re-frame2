@@ -381,7 +381,7 @@
      ;; is focused (the panel is per-variant — no variant, nothing to
      ;; dispatch into).
      ;; rf2-8i2a9 — Play-script status chip. Visible only when a variant
-     ;; is focused AND the variant carries a `:play-script` body.
+     ;; is focused AND the variant carries a `:script` body.
      (when variant
        [:span {:style       (:cluster styles)
                :data-test   "story-toolbar-cluster"

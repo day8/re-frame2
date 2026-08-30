@@ -479,14 +479,14 @@ async function assertToolbarRecorder(page, phase) {
     }
     await page.locator('[data-test="story-recorder-close"]').click();
 
-    // rf2-0wrud post-:play-script: navigate to a variant whose state
-    // settles deterministically from `:events` alone — the prior
+    // rf2-0wrud post-:script: navigate to a variant whose state
+    // settles deterministically from `:setup` alone — the prior
     // `/clicked-three-times` target relied on three play-script
     // increments landing synchronously before this read; the
     // runner-events driver now yields between steps on CLJS, so a
     // remount mid-script could double-fire the increments and the
     // canvas would read past 3. `/loaded` initialises via
-    // `:events [[:counter/initialise 7]]` with no play-script
+    // `:setup [[:counter/initialise 7]]` with no play-script
     // increments, so the post-recorder navigation read is race-free.
     // The architectural plan (rf2-tglku) is to migrate this Playwright
     // surface to CLJS; the variant swap is the mechanical fix for the
@@ -717,7 +717,7 @@ async function assertCommandPalette(page) {
   await expectVisible(page.locator('[data-test="story-command-palette"]'), 5000);
   // Navigate to a deterministic, play-script-free variant. The prior
   // `/clicked-three-times` target runs three `:dispatch-sync` increments
-  // from its `:play-script` on every (re)mount, and the variant frame
+  // from its `:script` on every (re)mount, and the variant frame
   // re-mounts under React StrictMode — so `[data-test-variant]` churns
   // and `waitFor({state:'visible'})` flakes. `:story.counter/events-only
   // -loaded` settles from `:setup [[:counter/initialise 5]]` alone (no
@@ -1116,7 +1116,7 @@ async function assertTestWatchToggle(page) {
 async function assertSidebarNavigationSelectsEveryRow(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
   // `:story.counter/clicked-three-times` deliberately skipped here · brittle
-  // count-3 assertion fails under :play-script runner-events timing.
+  // count-3 assertion fails under :script runner-events timing.
   // CLJS-unit migration covers the variant body shape directly.
   for (const [slash, vid, count] of [
     ['/empty', ':story.counter/empty', 0],
@@ -1187,8 +1187,8 @@ const COVERAGE_MATRIX = [
     kind: 'probe',
     probe: async (_page) => {
       // rf2-8awk1 — the count-based assertions in this probe became
-      // brittle once `:play-script` (rf2-0wrud, PR #1726) replaced the
-      // pre-render `:play` slot. With `:play-script`'s runner-event
+      // brittle once `:script` (rf2-0wrud, PR #1726) replaced the
+      // pre-render `:play` slot. With `:script`'s runner-event
       // semantics, the per-variant counter values rendered in the
       // canvas can differ from the pre-migration synchronous baseline
       // (PR #1726 admin-merged with this probe still asserting the
@@ -1228,7 +1228,7 @@ const COVERAGE_MATRIX = [
   // rf2-kvsm1 — this row was a probe that returned early behind a
   // `console.warn`, its body held live only by an `eslint-disable
   // no-unreachable` pair, waiting on a "follow-on bead" that was never
-  // filed. The count-based assertions went brittle when `:play-script`
+  // filed. The count-based assertions went brittle when `:script`
   // (rf2-0wrud, PR #1726) shifted runner-event timing — the same break
   // that skipped the reg-variant row above. The wait is over: every
   // assertion the dead body held now has a live owner elsewhere, so the

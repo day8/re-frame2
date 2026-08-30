@@ -180,15 +180,15 @@
 ;; ---- gen-play-snippet ----------------------------------------------------
 
 (deftest gen-play-snippet-empty
-  (testing "gen-play-snippet with no events renders an empty public :script
-            body vector (rf2-7mj4z — recorder emits the public :script
-            spelling, NOT the transitional :play-script)"
+  (testing "gen-play-snippet with no events renders an empty :script
+            body vector (rf2-7mj4z — recorder emits the :script
+            spelling, never the retired :play-script)"
     (let [snip (recorder/gen-play-snippet [] {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":story.x/y"))
       (is (str/includes? snip ":script"))
       (is (not (str/includes? snip ":play-script"))
-          "the recorder no longer emits the transitional :play-script slot")
+          "the recorder never emits the retired :play-script slot")
       (is (str/includes? snip "[]")))))
 
 (deftest gen-play-snippet-renders-reg-variant
@@ -674,9 +674,9 @@
 ;;
 ;;   1. Accidental facade growth/shrink — a new recorder helper picked
 ;;      up by the namespace, or one of the intended seven removed.
-;;   2. Vocabulary drift — `gen-play-snippet` reverting to the
-;;      transitional `:play-script` spelling at the facade level (the
-;;      recorder-ns test pins the ns; this pins the re-export).
+;;   2. Vocabulary drift — `gen-play-snippet` reverting to the retired
+;;      `:play-script` spelling at the facade level (the recorder-ns test
+;;      pins the ns; this pins the re-export).
 
 (def ^:private intended-recorder-facade-vars
   "The exact recorder entries the public `re-frame.story` facade is
@@ -724,15 +724,15 @@
 
 (deftest facade-gen-play-snippet-emits-public-script-slot
   (testing "story/gen-play-snippet (the facade re-export) emits the
-            PUBLIC :script slot, NOT the transitional :play-script
+            :script slot, never the retired :play-script
             (rf2-7mj4z) — pinned at the facade, not just the recorder ns"
     (let [snip (story/gen-play-snippet [[:counter/inc]]
                                        {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":script")
-          "the public :script authoring slot is present")
+          "the :script slot is present")
       (is (not (str/includes? snip ":play-script"))
-          "the transitional :play-script slot is NOT emitted at the facade"))))
+          "the retired :play-script slot is NOT emitted at the facade"))))
 
 (deftest facade-recording->script-body-delegates-to-play-export
   (testing "story/recording->script-body (the facade re-export) returns
@@ -746,7 +746,7 @@
       (is (vector? (:script one-arg)) ":script is the runner step vector")
       (is (contains? one-arg :auto-run?) ":auto-run? slot present")
       (is (not (contains? one-arg :play-script))
-          "the body uses the public :script slot, not :play-script")
+          "the body carries the runner's :script key, never the retired :play-script")
       ;; Each captured event becomes a runner dispatch step — the live
       ;; counterpart to gen-play-snippet's text projection.
       (is (= 2 (count (:script one-arg)))

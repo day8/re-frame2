@@ -98,7 +98,7 @@
     (story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
     (story/reg-variant :story.modedecl/v
       {:modes  #{:Mode.app/dark :Mode.app/mobile}
-       :events []})
+       :setup []})
     (let [body (story/handler-meta :variant :story.modedecl/v)]
       (is (= #{:Mode.app/dark :Mode.app/mobile} (:modes body))
           ":modes set survives unmutated — used by docs panel +
@@ -117,7 +117,7 @@
     (story/reg-variant :story.modemix/v
       {:modes  #{:Mode.app/dark :Mode.app/mobile}
        :args   {:label "variant-label"}
-       :events []})
+       :setup []})
     ;; Single mode active.
     (let [r (story/resolve-args :story.modemix/v
                                 {:active-modes [:Mode.app/dark]})]
@@ -152,7 +152,7 @@
       {:modes  #{:Mode.app/dark :Mode.app/mobile}
        ;; variant declares NO :theme — so the mode's :theme :dark wins
        ;; over the story's :theme :light.
-       :events []})
+       :setup []})
     ;; Active mode wins over story-level arg.
     (let [r (async/deref-blocking
               (story/run-variant :story.modeprobe/v
@@ -194,7 +194,7 @@
     (story/reg-variant :story.authfx/v
       {:decorators [[:rf.story/force-fx-stub :http      {:status :ok}]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :events     []})
+       :setup     []})
     ;; The body's :decorators slot keeps the user-facing ref form
     ;; verbatim — Storybook-style decorator references stay textually
     ;; identical to what the author typed.
@@ -228,8 +228,8 @@
       (fn [_ _] {:fx [[:http {:url "/probe"}]]}))
     (story/reg-variant :story.authfx-rt/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :events     []
-       :play-script [[:dispatch-sync [:do/emit-http]]
+       :setup     []
+       :script [[:dispatch-sync [:do/emit-http]]
                     [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking
               (story/run-variant :story.authfx-rt/v) 5000)]
@@ -258,10 +258,10 @@
       {:kind :hiccup :wrap (fn [body _] [:div.inherited body])})
     (story/reg-variant :story.inherit-bare/parent
       {:decorators [[:inherited-deco]]
-       :events     []})
+       :setup     []})
     (story/reg-variant :story.inherit-bare/child
       {:extends :story.inherit-bare/parent
-       :events  []})
+       :setup  []})
     (let [body (story/handler-meta :variant :story.inherit-bare/child)]
       (is (= :story.inherit-bare/parent (:extends body))
           ":extends is stored RAW on the side-table body — the plan
@@ -280,7 +280,7 @@
             authority (rf2-f6z88, spec/017 §305-306): `:decorators` is a
             scalar context key, so `merge-context` is child-wins — the
             child's vector replaces the parent's (no concat / no append).
-            The same child-wins rule covers :args, :events, :tags,
+            The same child-wins rule covers :args, :setup, :tags,
             :modes, etc."
     (story/reg-decorator :parent-deco
       {:kind :hiccup :wrap (fn [body _] [:div.parent body])})
@@ -288,11 +288,11 @@
       {:kind :hiccup :wrap (fn [body _] [:div.child body])})
     (story/reg-variant :story.inherit-replace/parent
       {:decorators [[:parent-deco]]
-       :events     []})
+       :setup     []})
     (story/reg-variant :story.inherit-replace/child
       {:extends    :story.inherit-replace/parent
        :decorators [[:child-deco]]
-       :events     []})
+       :setup     []})
     (let [body (story/handler-meta :variant :story.inherit-replace/child)]
       (is (= [[:child-deco]] (:decorators body))
           "the raw side-table body carries the child's OWN :decorators
@@ -373,7 +373,7 @@
       {:decorators [[:story-wrap]]})
     (story/reg-variant :story.cascade/v
       {:decorators [[:variant-wrap]]
-       :events     []})
+       :setup     []})
     (let [pack (story/resolve-decorators :story.cascade/v)
           ids  (mapv :id (:hiccup pack))]
       (is (= [:story-wrap :variant-wrap] ids)
@@ -387,10 +387,10 @@
     (story/reg-story :story.tagcascade
       {:tags #{:dev :docs}})
     (story/reg-variant :story.tagcascade/no-tags
-      {:events []})
+      {:setup []})
     (story/reg-variant :story.tagcascade/own-tags
       {:tags   #{:test}
-       :events []})
+       :setup []})
     ;; The variant body's :tags slot may be empty if the variant
     ;; declared none — the docs-pane variant-tags helper is where the
     ;; cascade happens. Pin that the cascade reads through to the

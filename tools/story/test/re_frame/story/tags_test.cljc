@@ -111,10 +111,10 @@
 (deftest plan-tags-resolve-markers-through-extends
   (testing "rf2-n0vmq2 — plan :tags is the EFFECTIVE set (inherited :dev
             removed by :!dev), not the raw union"
-    (let [m {:story.login/filled {:tags #{:dev :test} :events []}
+    (let [m {:story.login/filled {:tags #{:dev :test} :setup []}
              :story.login/error  {:extends    :story.login/filled
                                    :tags       #{:!dev}
-                                   :events     []}}
+                                   :setup     []}}
           p (plan/variant-plan :story.login/error {:lookup m})]
       (is (= #{:test} (:tags p)))
       (is (= #{:test} (get-in p [:explain :tags])))
@@ -123,15 +123,15 @@
 
 (deftest plan-tags-additive-through-extends-without-markers
   (testing "the additive :extends union is preserved when no marker is present"
-    (let [m {:story.s/parent {:tags #{:test} :events []}
-             :story.s/child  {:extends :story.s/parent :tags #{:docs} :events []}}
+    (let [m {:story.s/parent {:tags #{:test} :setup []}
+             :story.s/child  {:extends :story.s/parent :tags #{:docs} :setup []}}
           p (plan/variant-plan :story.s/child {:lookup m})]
       (is (= #{:test :docs} (:tags p))))))
 
 (deftest plan-tags-story-fallback-via-story-lookup
   (testing "a variant that declares no tags inherits the parent story's via
             the :story-lookup opt"
-    (let [m {:story.fb/v {:events []}}
+    (let [m {:story.fb/v {:setup []}}
           stories {:story.fb {:tags #{:dev :docs}}}
           p (plan/variant-plan :story.fb/v {:lookup m :story-lookup stories})]
       (is (= #{:dev :docs} (:tags p))))))

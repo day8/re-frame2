@@ -17,12 +17,12 @@
   - Story side (`xray-target-frame-dispatch-e2e-cljs-test`) — the
     shell's selection-watcher dispatches `:rf.xray/set-target-frame`
     on every selection edge. That test drives `select-variant!` against
-    variants whose `:events` are EMPTY, so it asserts only that
+    variants whose `:setup` are EMPTY, so it asserts only that
     `:target-frame` flips — never that the variant's events land in
     Xray's buffer.
 
   Neither test exercises the FULL wiring on one edge: a variant that
-  actually dispatches `:events` → the user selects it → Xray observes
+  actually dispatches `:setup` → the user selects it → Xray observes
   BOTH (a) the variant's cascade in its trace-buffer AND (b) its
   target-frame re-oriented to the variant + epoch-history hydrated.
   That conjunction IS the empty-Xray contract — the bug was that a
@@ -38,12 +38,12 @@
        so REAL variant dispatches fan out through the trace-bus exactly
        as the production preload does.
     2. Register a counter story whose variant carries a non-empty
-       `:events` slot (`[:counter/initialise]` — the canonical counter
+       `:setup` slot (`[:counter/initialise]` — the canonical counter
        cascade) plus the event handler the slot dispatches.
     3. Install the production `selection-watcher` and select the
        variant — the same atom-write the sidebar click does. The watcher
        runs `ensure-variant-frame!` (→ `run-variant` dispatches the
-       variant's `:events` into its frame, traced into the bus) AND
+       variant's `:setup` into its frame, traced into the bus) AND
        dispatches `:rf.xray/set-target-frame <variant-id>`.
     4. Mirror the bus into Xray's `:trace-buffer` slot synchronously
        (the production path coalesces this on `next-tick`; node-test
@@ -86,7 +86,7 @@
   "Install the shell's production `selection-watcher` via `var` so the
   test drives a selection edge through the SAME callback `mount-shell!`
   installs during boot — `ensure-variant-frame!` (which dispatches the
-  variant's `:events`) and the `:rf.xray/set-target-frame` dispatch
+  variant's `:setup`) and the `:rf.xray/set-target-frame` dispatch
   both fire from here."
   []
   ((deref #'shell/selection-watcher)))
@@ -96,8 +96,8 @@
   ((deref #'shell/remove-selection-watcher!)))
 
 (defn- register-counter-host!
-  "Register the counter event the variant's `:events` slot dispatches.
-  Story variants dispatch their `:events` into the variant frame via
+  "Register the counter event the variant's `:setup` slot dispatches.
+  Story variants dispatch their `:setup` into the variant frame via
   `run-variant`; the handler must be registered for the dispatch to
   mutate app-db (and so produce a non-trivial epoch + cascade). Matches
   the canonical counter example: `:counter/initialise` seeds the slot
@@ -115,14 +115,14 @@
     {:doc    "Counter parent story for the Story-Xray wiring contract test."
      :images [app-image]})
   (story/reg-variant variant-id
-    {:doc    "Counter seeded at 5 — its :events cascade must land in
+    {:doc    "Counter seeded at 5 — its :setup cascade must land in
               Xray's trace-buffer on selection."
-     :events [[:counter/initialise]]}))
+     :setup [[:counter/initialise]]}))
 
 ;; ---- the conjunction contract -------------------------------------------
 
 (deftest variant-selection-seeds-trace-buffer-and-target-frame
-  (testing "Selecting a variant whose `:events` actually dispatch
+  (testing "Selecting a variant whose `:setup` actually dispatch
             (`:counter/initialise`) seeds BOTH halves of the Xray
             observation contract in ONE selection edge:
 
@@ -157,7 +157,7 @@
                 "Xray's :target-frame reflects the selected variant
                  after the selection-watcher's set-target-frame dispatch."))
 
-          ;; (b) the variant's :events cascade is observable in Xray.
+          ;; (b) the variant's :setup cascade is observable in Xray.
           (let [cascades (xray-e2e/xray-cascades)
                 events   (into #{} (map :event) cascades)]
             (is (pos? (count cascades))
@@ -165,7 +165,7 @@
                  cascade — the bus → :trace-buffer wiring fired.")
             (is (contains? events [:counter/initialise])
                 "the variant's `[:counter/initialise]` event surfaces as
-                 a cascade in Xray — proving the variant's :events
+                 a cascade in Xray — proving the variant's :setup
                  dispatched through the real trace-bus pipeline and not
                  just the target-frame slot flipping."))
 
@@ -196,9 +196,9 @@
            (fn [{:keys [db]} _event] {:db {:counter/value 10}}))
          (story/reg-story :story.counter {:images [app-image]})
          (story/reg-variant :story.counter/loaded
-           {:events [[:counter/initialise]]})
+           {:setup [[:counter/initialise]]})
          (story/reg-variant :story.counter/ten
-           {:events [[:counter/seed-ten]]}))}
+           {:setup [[:counter/seed-ten]]}))}
       (fn []
         (install-selection-watcher!)
         (try

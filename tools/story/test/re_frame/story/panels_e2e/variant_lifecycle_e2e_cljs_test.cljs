@@ -106,7 +106,7 @@
   (story/reg-variant :story.counter-matrix/loader-success
     {:doc    "Default-success loader → lifecycle reaches :ready."
      :loaders [[:counter/initialise 5]]
-     :events  [[:counter/inc]]})
+     :setup  [[:counter/inc]]})
   (story/reg-variant :story.counter-matrix/loader-never-completes
     {:doc "rf2-qrk2s class — `:loaders-complete-when` returns false; the
            lifecycle parks at :loading, no events/play, a non-throwing

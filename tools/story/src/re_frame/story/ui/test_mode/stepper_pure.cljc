@@ -4,7 +4,7 @@
 
   The step-debugger gives the `:test` mode pane Storybook's
   Interactions-panel feel: step / pause / rewind / step-back / breakpoint
-  controls over the variant's `:play-script` sequence. Everything below is pure
+  controls over the variant's `:script` sequence. Everything below is pure
   data → data so the JVM test corpus pins the contract without booting
   Reagent or the runtime.
 
@@ -21,7 +21,7 @@
 
 ;; ---- step-outcome (full-script step list) -------------------------------
 ;;
-;; The step-debugger walks the FULL coerced :play-script (every step
+;; The step-debugger walks the FULL coerced :script (every step
 ;; type), driving each through the rich-DSL executor. Each step that has
 ;; run carries a result record (`runner/step-pass` / `step-fail` /
 ;; `step-skip` / `step-exception`); steps not yet reached carry no result.

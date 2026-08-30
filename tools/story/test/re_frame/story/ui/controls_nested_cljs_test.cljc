@@ -160,7 +160,7 @@
           :args      {:title "Hello"
                       :items ["a" "b"]
                       :meta  {:author "ada" :rating 5}}
-          :events    []})
+          :setup    []})
        (let [t (controls/resolve-argtypes :story.nest/v)]
          ;; :title scalar
          (is (= :text (-> t :title :widget)))
@@ -183,7 +183,7 @@
          {:component :view.nest/labelled
           :argtypes  {:label {:widget :select :options ["a" "b"]}}
           :args      {:label "a"}
-          :events    []})
+          :setup    []})
        (let [t (controls/resolve-argtypes :story.nest/v2)]
          (is (= :select (-> t :label :widget)))
          (is (= ["a" "b"] (-> t :label :options)))))))
@@ -194,7 +194,7 @@
        (story/reg-variant :story.nest/v3
          {:args   {:nest {:k "v" :n 1}
                    :items ["x" "y"]}
-          :events []})
+          :setup []})
        (let [t (controls/resolve-argtypes :story.nest/v3)]
          ;; :nest map value → :group
          (is (= :group (-> t :nest :widget)))
@@ -212,7 +212,7 @@
                variant args)"
        (story/reg-variant :story.nest/v4
          {:args   {:registered "x"}
-          :events []})
+          :setup []})
        ;; Supply a different eff-args map. The variant has no schema and
        ;; no argtypes, so the fallback inference walks the supplied map's
        ;; value shapes — :supplied should appear in the result, :registered
@@ -232,7 +232,7 @@
                (tests, docs, etc.) — it calls args/resolve-args itself"
        (story/reg-variant :story.nest/v5
          {:args   {:title "hi"}
-          :events []})
+          :setup []})
        (let [t (controls/resolve-argtypes :story.nest/v5)]
          (is (= :text (-> t :title :widget)))))))
 
@@ -349,7 +349,7 @@
             vector — not an int-keyed map, not a truncated singleton"
     (story/reg-variant :story.nest.roundtrip/vector-arg
       {:args   {:items ["a" "b" "c"]}
-       :events []})
+       :setup []})
     (let [base       (get (args/resolve-args :story.nest.roundtrip/vector-arg) :items)
           shell      (state/set-cell-override state/default-shell-state
                                               :story.nest.roundtrip/vector-arg
@@ -374,7 +374,7 @@
             override does not throw"
     (story/reg-variant :story.nest.roundtrip/set-arg
       {:args   {:tags #{"a" "b"}}
-       :events []})
+       :setup []})
     (let [base       (get (args/resolve-args :story.nest.roundtrip/set-arg) :tags)
           ;; The panel's repeater renders a SET via a stable sorted
           ;; vector projection — index 0 is "a" (sort-by str).
@@ -408,7 +408,7 @@
             round trip the isolated set-cell-override test can't prove"
     (story/reg-variant :story.nest.roundtrip/map-arg
       {:args   {:settings {:title "Nested title" :enabled? true}}
-       :events []})
+       :setup []})
     (let [base      (get (args/resolve-args :story.nest.roundtrip/map-arg) :settings)
           shell     (state/set-cell-override state/default-shell-state
                                              :story.nest.roundtrip/map-arg

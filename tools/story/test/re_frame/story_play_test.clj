@@ -52,8 +52,8 @@
 ;; ===========================================================================
 
 (deftest execute-play-empty
-  (testing "execute-play! against an empty :play-script resolves to []"
-    (story/reg-variant :story.play/empty {:events []})
+  (testing "execute-play! against an empty :script resolves to []"
+    (story/reg-variant :story.play/empty {:setup []})
     (async/deref-blocking (story/run-variant :story.play/empty) 5000)
     (let [p (play/execute-play! :story.play/empty [])]
       (is (= [] (async/deref-blocking p 5000))))
@@ -66,8 +66,8 @@
       (rf/reg-event :step/b (fn [{:keys [db]} _] (swap! order conj :b) {:db db}))
       (rf/reg-event :step/c (fn [{:keys [db]} _] (swap! order conj :c) {:db db}))
       (story/reg-variant :story.order/v
-        {:events []
-         :play-script [[:dispatch-sync [:step/a]]
+        {:setup []
+         :script [[:dispatch-sync [:step/a]]
                   [:dispatch-sync [:step/b]]
                   [:dispatch-sync [:step/c]]]})
       (async/deref-blocking (story/run-variant :story.order/v) 5000)
@@ -79,8 +79,8 @@
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.mix/v
-      {:events []
-       :play-script [[:dispatch-sync [:counter/inc]]
+      {:setup []
+       :script [[:dispatch-sync [:counter/inc]]
                 [:dispatch-sync [:rf.assert/path-equals [:n] 1]]
                 [:dispatch-sync [:counter/inc]]
                 [:dispatch-sync [:rf.assert/path-equals [:n] 2]]
@@ -97,11 +97,11 @@
     (rf/reg-event :boom/now
       (fn [_ _] (throw (ex-info "boom" {:cause :test}))))
     (story/reg-variant :story.boom/v
-      {:events []
-       :play-script [[:dispatch-sync [:boom/now]]
+      {:setup []
+       :script [[:dispatch-sync [:boom/now]]
                 [:dispatch-sync [:rf.assert/path-equals [:after] :ok]]]})
     (let [result (async/deref-blocking (story/run-variant :story.boom/v) 5000)]
-      ;; rf2-z2dq8 (:play -> :play-script): re-frame's router catches the
+      ;; rf2-z2dq8 (:play -> :script): re-frame's router catches the
       ;; handler exception and emits a `:rf.error/handler-exception`
       ;; trace event; the per-frame trace listener captures it, and the
       ;; runner-events driver drains it into `:rf.story/assertions` as a
@@ -127,8 +127,8 @@
   (testing "trace-bus accumulators reset at the start of each play run"
     (rf/reg-event :do/work (fn [{:keys [db]} _] {:db (assoc db :did? true)}))
     (story/reg-variant :story.reset/v
-      {:events []
-       :play-script [[:dispatch-sync [:do/work]]
+      {:setup []
+       :script [[:dispatch-sync [:do/work]]
                 [:dispatch-sync [:rf.assert/dispatched? [:do/work]]]]})
     (async/deref-blocking (story/run-variant :story.reset/v) 5000)
     ;; The first run's dispatched-events accumulator must NOT leak into
@@ -150,8 +150,8 @@
     ;; but no user fx-id.
     (rf/reg-event :ee/touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (story/reg-variant :story.ee/db
-      {:events []
-       :play-script [[:dispatch-sync [:ee/touch]]
+      {:setup []
+       :script [[:dispatch-sync [:ee/touch]]
                      [:dispatch-sync [:rf.assert/effect-emitted :db]]]})
     (let [result (async/deref-blocking (story/run-variant :story.ee/db) 5000)
           ee-rec (first (filter #(= :rf.assert/effect-emitted (:assertion %))
@@ -173,8 +173,8 @@
 (deftest teardown-clears-accumulators
   (testing "destroy-variant! clears the per-frame pending-exceptions slot"
     (story/reg-variant :story.tear/v
-      {:events []
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:x] :nope]]]})
+      {:setup []
+       :script [[:dispatch-sync [:rf.assert/path-equals [:x] :nope]]]})
     (async/deref-blocking (story/run-variant :story.tear/v) 5000)
     (story/destroy-variant! :story.tear/v)
     (is (not (contains? @play/pending-exceptions :story.tear/v)))))
@@ -190,8 +190,8 @@
     (rf/reg-event :step/one (fn [{:keys [db]} _] {:db (assoc db :one? true)}))
     (rf/reg-event :step/two (fn [{:keys [db]} _] {:db (assoc db :two? true)}))
     (story/reg-variant :story.stepper/v
-      {:events []
-       :play-script [[:dispatch-sync [:step/one]]
+      {:setup []
+       :script [[:dispatch-sync [:step/one]]
                 [:dispatch-sync [:step/two]]]})
     ;; Run the variant phases 1-3; the play stepper takes over phase 4.
     (let [decorator-stack (story/resolve-decorators :story.stepper/v)]
@@ -224,8 +224,8 @@
             the canonical :rf.assert/path-equals (no synthetic :rf.assert/db)."
     (rf/reg-event :st/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (story/reg-variant :story.stepper/full
-      {:events []
-       :play-script {:auto-run? false
+      {:setup []
+       :script {:auto-run? false
                      :script    [[:dispatch-sync [:st/set-n 5]]
                                  [:wait 0]
                                  [:assert-db [:n] 5]              ; pass
@@ -303,8 +303,8 @@
             session still resets the cursor (every step back to :remaining)"
     (rf/reg-event :rw/one (fn [{:keys [db]} _] {:db (assoc db :one? true)}))
     (story/reg-variant :story.stepper/rw
-      {:events []
-       :play-script [[:dispatch-sync [:rw/one]]
+      {:setup []
+       :script [[:dispatch-sync [:rw/one]]
                      [:dispatch-sync [:rw/one]]]})
     (let [decorator-stack (story/resolve-decorators :story.stepper/rw)]
       (re-frame.story.frames/allocate! :story.stepper/rw decorator-stack)
@@ -336,7 +336,7 @@
     (story/reg-variant :story.loaders/registered
       {:loaders                [[:test/mark-loaded]]
        :loaders-complete-when  :my.fixture/ready?
-       :events                 []})
+       :setup                 []})
     (let [r (async/deref-blocking (story/run-variant :story.loaders/registered) 5000)]
       (is (= :ready (:lifecycle r)))
       (is (true? (-> r :app-db :loaded?))))
@@ -349,7 +349,7 @@
     (story/reg-variant :story.loaders/vector
       {:loaders                [[:test/load-a] [:test/load-b]]
        :loaders-complete-when  [[:test/load-a] [:test/load-b]]
-       :events                 []})
+       :setup                 []})
     ;; Per rf2-v2g9, the play-runner's trace listener now installs
     ;; before the loader phase, so the dispatched-events accumulator
     ;; observes loader-phase events and the vector predicate can match.
@@ -374,7 +374,7 @@
     (story/reg-variant :story.v2g9/loader-vector
       {:loaders               [[:fixture/loaded]]
        :loaders-complete-when [[:fixture/loaded]]
-       :events                []})
+       :setup                []})
     (let [r (async/deref-blocking
               (story/run-variant :story.v2g9/loader-vector) 5000)]
       (is (true? (-> r :app-db :fixture-loaded?))

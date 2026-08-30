@@ -4,7 +4,7 @@
 
   Two save-as flows ship today:
 
-  - record-as-`:play-script` — `re-frame.story.recorder` captures a trace of
+  - record-as-`:script` — `re-frame.story.recorder` captures a trace of
     dispatched events and surfaces the generated `(reg-variant ...)`
     EDN form in a modal for the user to copy + paste into source.
   - snapshot-args-as-`:args` — `re-frame.story.save-variant` captures
@@ -210,8 +210,8 @@
 ;; bracket/brace of their body key — e.g.
 ;;
 ;;     (story/reg-variant :id
-;;       {:play-script {:script [[:dispatch-sync [:counter/inc]]
-;;                               [:dispatch-sync [:counter/dec]]]}})
+;;       {:script {:script [[:dispatch-sync [:counter/inc]]
+;;                          [:dispatch-sync [:counter/dec]]]}})
 ;;
 ;; Per rf2-ar0t9: `indent-after` lives in `re-frame.story.predicates`
 ;; so producers (recorder, save-variant) don't have to `:require`
@@ -401,7 +401,7 @@
                               'copy'. Recorder uses (discards the
                               captured events); save-variant does not.
      - `:on-export`         — optional `(fn [])` — when provided, an
-                              extra `[Export as :play-script]` button
+                              extra `[Export as :script]` button
                               renders left of 'copy'. The recorder's
                               save-dialog wires this through to the
                               play-script export dialog (rf2-x9zsr);
@@ -476,9 +476,9 @@
                [:button
                 {:style     (:btn-muted styles)
                  :data-test (dtest "export")
-                 :title     "Export the recording as a :play-script (rich DSL)"
+                 :title     "Export the recording as a :script (rich DSL)"
                  :on-click  (fn [_] (on-export))}
-                "export as :play-script"])
+                "export as :script"])
              ;; rf2-ba86n.13 — optional flow-specific PRIMARY action. The
              ;; promotion flow wires this through to register the curated
              ;; regression variant (the substrate's `promote-run-artifact!`

@@ -38,9 +38,9 @@
     (is (= [:real-setup]
            (mapv :value (signals/fidelity-signals {:setup [[:dispatch [:e]]]}))))
     (is (= [:real-setup]
-           (mapv :value (signals/fidelity-signals {:events [[:e]]}))))
+           (mapv :value (signals/fidelity-signals {:setup [[:e]]}))))
     (is (= [:real-setup]
-           (mapv :value (signals/fidelity-signals {:play-script [[:dispatch [:e]]]})))))
+           (mapv :value (signals/fidelity-signals {:script [[:dispatch [:e]]]})))))
   (testing ":sub-overrides is a fidelity rung"
     (is (= [:sub-overrides]
            (mapv :value (signals/fidelity-signals {:sub-overrides {[:q] 1}})))))
