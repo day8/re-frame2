@@ -68,7 +68,7 @@
 
 (deftest report-flags-fn-override-as-view-only
   (testing "a fn-valued cell-override on the focused variant → view-only"
-    (story/reg-variant :story.egress/btn {:tags #{:dev} :events []})
+    (story/reg-variant :story.egress/btn {:tags #{:dev} :setup []})
     (state/swap-state!
       (fn [s] (-> s
                   (assoc :selected-variant :story.egress/btn)
@@ -81,7 +81,7 @@
 (deftest edn-snippet-emits-reg-variant-form
   (testing "the copy-EDN snippet is a (reg-variant …) form pinning :extends
             + the effective args of the focused cell"
-    (story/reg-variant :story.egress/counter {:tags #{:dev} :events [] :args {:n 1}})
+    (story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
     (state/swap-state!
       (fn [s] (-> s
                   (assoc :selected-variant :story.egress/counter)
@@ -108,7 +108,7 @@
   (testing "the open dialog renders all four human-egress commands, each
             shipping (NOT disabled-pending-a-seam) + carrying a
             reproducibility label"
-    (story/reg-variant :story.egress/d {:tags #{:dev} :events [] :args {:n 1}})
+    (story/reg-variant :story.egress/d {:tags #{:dev} :setup [] :args {:n 1}})
     (state/swap-state! #(assoc % :selected-variant :story.egress/d))
     (ui-share/open-share-export-dialog!)
     ;; `command-block` is a child Reagent component — `str` over the dialog
@@ -151,7 +151,7 @@
             surface: resolved-args keys ∪ :argtypes keys"
     (story/reg-variant :story.dak/v
       {:tags     #{:dev}
-       :events   []
+       :setup   []
        :args     {:label "Hi" :count 1}
        :argtypes {:flavour {:control :select}}})
     (let [ks (ui-share/declared-arg-keys :story.dak/v)]
@@ -171,7 +171,7 @@
             still-declared override survives — the end-to-end finding-2 fix"
     (story/reg-variant :story.dak/contract
       {:tags   #{:dev}
-       :events []
+       :setup []
        :args   {:label "Hi"}})
     (let [parsed {:overrides {:label "Renamed" :gone 9} :dropped []}
           out    (share/drop-stale-overrides
@@ -355,7 +355,7 @@
             PROPS — the idiomatic shallow-hiccup check used by the sibling
             render test."
     (async done
-      (story/reg-variant :story.egress/shot {:tags #{:dev} :events []})
+      (story/reg-variant :story.egress/shot {:tags #{:dev} :setup []})
       (state/swap-state! #(assoc % :selected-variant :story.egress/shot))
       (ui-share/open-share-export-dialog!)
       (let [prev (install-globals!

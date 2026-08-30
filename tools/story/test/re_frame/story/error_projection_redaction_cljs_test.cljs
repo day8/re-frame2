@@ -72,9 +72,9 @@
                         {:token  "BEARER-secret-12345"
                          :reason :bad-password}))))
     (story/reg-variant :story.err-redaction/probe
-      {:events      []
+      {:setup      []
        :sensitive   {:app-db [[:token]]}
-       :play-script [[:dispatch-sync [:auth/boom]]]})
+       :script [[:dispatch-sync [:auth/boom]]]})
     (async done
       (-> (story/run-variant :story.err-redaction/probe)
           (async-lib/then
@@ -102,8 +102,8 @@
       (fn [_ _]
         (throw (ex-info "boom" {:detail "not-secret"}))))
     (story/reg-variant :story.err-plain/probe
-      {:events      []
-       :play-script [[:dispatch-sync [:plain/boom]]]})
+      {:setup      []
+       :script [[:dispatch-sync [:plain/boom]]]})
     (async done
       (-> (story/run-variant :story.err-plain/probe)
           (async-lib/then

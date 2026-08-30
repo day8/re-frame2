@@ -78,7 +78,7 @@
       (registrar/reg-variant* :story.prod/ok
                               {:component :views/widget
                                :args      {:label "Hi" :count 3}
-                               :events    []})
+                               :setup    []})
       ;; No :lookup / :view-lookup — the DEFAULT side-table + framework
       ;; `:view` registrar path the production runtime takes.
       (is (= schema (view-args/compiled-view-args-schema :story.prod/ok))))))
@@ -90,7 +90,7 @@
     (registrar/reg-variant* :story.prod/dual
                             {:component :views/dual
                              :args      {:a "x"}
-                             :events    []})
+                             :setup    []})
     (is (= [:map [:a :string]]
            (view-args/compiled-view-args-schema :story.prod/dual)))))
 
@@ -101,7 +101,7 @@
     (registrar/reg-variant* :story.prod/schemaed
                             {:component :views/schemaed
                              :args      {:title "T"}
-                             :events    []})
+                             :setup    []})
     (is (= [:map [:title :string]]
            (view-args/compiled-view-args-schema :story.prod/schemaed)))))
 
@@ -112,7 +112,7 @@
     (registrar/reg-variant* :story.prod/specced
                             {:component :views/specced
                              :args      {:x "v"}
-                             :events    []})
+                             :setup    []})
     (is (nil? (view-args/compiled-view-args-schema :story.prod/specced)))))
 
 (deftest compiled-resolver-resolves-extends-inherited-component
@@ -127,11 +127,11 @@
     (registrar/reg-variant* :story.prod/parent
                             {:component :views/base
                              :args      {:label "P"}
-                             :events    []})
+                             :setup    []})
     (registrar/reg-variant* :story.prod/child
                             {:extends :story.prod/parent
                              :args    {:label "C"}
-                             :events  []})
+                             :setup  []})
     (is (= [:map [:label :string]]
            (view-args/compiled-view-args-schema :story.prod/child))
         "the inherited :component's props schema resolves off the compiled plan")))
@@ -144,7 +144,7 @@
       (registrar/reg-variant* :story.prod/same
                               {:component :views/same
                                :args      {:label "Hi"}
-                               :events    []})
+                               :setup    []})
       ;; The shared resolver and the controls/schema-validation panels MUST
       ;; agree because they read the same compiled slot.
       (is (= schema (view-args/compiled-view-args-schema :story.prod/same))))))
@@ -157,7 +157,7 @@
 (deftest compiled-resolver-no-component-is-nil
   (testing "a registered variant with no :component resolves nil"
     (registrar/reg-variant* :story.prod/plain
-                            {:args {:x 1} :events []})
+                            {:args {:x 1} :setup []})
     (is (nil? (view-args/compiled-view-args-schema :story.prod/plain)))))
 
 (deftest compiled-resolver-view-without-schema-is-nil
@@ -166,7 +166,7 @@
     (registrar/reg-variant* :story.prod/bare
                             {:component :views/bare
                              :args      {:x 1}
-                             :events    []})
+                             :setup    []})
     (is (nil? (view-args/compiled-view-args-schema :story.prod/bare)))))
 
 ;; ---- memoization invalidates on registrar mutation ----------------------
@@ -178,7 +178,7 @@
     (registrar/reg-variant* :story.prod/hot
                             {:component :views/hot
                              :args      {:a "x"}
-                             :events    []})
+                             :setup    []})
     (is (= [:map [:a :string]]
            (view-args/compiled-view-args-schema :story.prod/hot)))
     ;; Re-register the variant (bumps the Story side-table mutation-tick),
@@ -187,7 +187,7 @@
     (registrar/reg-variant* :story.prod/hot
                             {:component :views/hot
                              :args      {:a "x" :b 1}
-                             :events    []})
+                             :setup    []})
     (is (= [:map [:a :string] [:b :int]]
            (view-args/compiled-view-args-schema :story.prod/hot))
         "the resolver re-reads the compiled plan after the tick bump")))

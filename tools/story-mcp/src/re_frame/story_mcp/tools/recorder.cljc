@@ -68,22 +68,19 @@
 
 (defn- write-back!
   "Re-register the target variant with the captured recording as a live
-  play body under the public `:script` authoring slot. Preserves the
-  source variant's existing body keys (so `:component`, `:args`,
-  `:decorators` survive) and overwrites the play surface with the
-  translated, replayable script.
+  play body under the `:script` slot. Preserves the source variant's
+  existing body keys (so `:component`, `:args`, `:decorators` survive)
+  and overwrites the play surface with the translated, replayable
+  script.
 
-  The write-back assocs the PUBLIC `:script` authoring slot
-  (spec/017 §Public vocabulary), not the `:play-script` spelling. (Both
-  spellings store identically: `reg-variant*` lowers the
-  public `:script` to the shipping `:play-script` slot via
-  `schemas/lower-public-vocabulary`, so `variant->edn` of the stored body
-  reads `:play-script` either way — `:script` is an author-facing
-  intent, the stored shipping slot is `:play-script`. A `:play` key would
-  pass the open variant `:map` validation but no runner executes it.) We translate the captured
-  `events` via `story/recording->script-body` (the live runtime
-  counterpart to `gen-play-snippet`'s text output) — which returns a
-  `{:script … :auto-run?}` play body — and write that under `:script`.
+  The write-back assocs `:script` (spec/017 §Public vocabulary) and the
+  registrar stores it under that same key, so `variant->edn` of the
+  written-back body reads `:script` — the round trip is an identity on
+  the key. (A `:play` key is rejected by the closed variant schema; no
+  runner executes it.) We translate the captured `events` via
+  `story/recording->script-body` (the live runtime counterpart to
+  `gen-play-snippet`'s text output) — which returns a `{:script …
+  :auto-run?}` play body — and write that under `:script`.
 
   Stamps `:origin :story-mcp` per `spec/Cross-Cutting-Designs.md §5` —
   the write-back produces a new variant body and the origin tag
@@ -110,16 +107,14 @@
   (try
     (let [play-body (story/recording->script-body events {:cofx cofx})
           ;; REPLACE any existing play surface before adding the
-          ;; recorded `:script`. The source body may already carry a lowered
-          ;; `:play-script` (a variant authored with public `:script` is
-          ;; stored lowered) or `:plays`; the variant schema rejects a body
-          ;; that carries more than one of `:script` / `:play-script` /
-          ;; `:plays`, so `(assoc body :script …)` on such a source would
-          ;; fail validation instead of overwriting the play body. Dropping
-          ;; the prior surfaces first makes the recorded `:script` the sole
-          ;; play surface (lowered back to `:play-script` by the registrar).
+          ;; recorded `:script`. The source body may already carry
+          ;; `:plays`; the variant schema rejects a body that carries both
+          ;; `:script` and `:plays`, so `(assoc body :script …)` on such a
+          ;; source would fail validation instead of overwriting the play
+          ;; body. Dropping the prior surface first makes the recorded
+          ;; `:script` the sole play surface.
           registered (-> body
-                         (dissoc :script :play-script :plays)
+                         (dissoc :script :plays)
                          (assoc :script play-body :origin config/origin))
           id        (story/reg-variant* target-vid registered)
           payload   (assoc base :written-back? true :new-variant-id id)]

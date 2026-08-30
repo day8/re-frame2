@@ -59,7 +59,7 @@
     (story/reg-story :story.snap {:args {:theme :light}})
     (story/reg-variant :story.snap/v
       {:args {:label "hello" :n 1}
-       :events []})
+       :setup []})
     (let [snap (save-variant/snapshot-args :story.snap/v)]
       (is (= "hello" (:label snap)))
       (is (= 1 (:n snap)))
@@ -69,7 +69,7 @@
   (testing "cell-overrides supplied as opts override the variant args"
     (story/reg-variant :story.snap/v
       {:args   {:label "before" :keep "yes"}
-       :events []})
+       :setup []})
     (let [snap (save-variant/snapshot-args
                  :story.snap/v
                  {:cell-overrides {:label "after"}})]
@@ -212,7 +212,7 @@
 
 (deftest save-current-as-variant!-triggers-callback
   (testing "the impure trigger calls the registered open-dialog callback"
-    (story/reg-variant :story.snap/v {:args {:n 7} :events []})
+    (story/reg-variant :story.snap/v {:args {:n 7} :setup []})
     (state/swap-state! state/select-variant :story.snap/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
@@ -229,7 +229,7 @@
 (deftest save-current-as-variant!-carries-slice-report
   (testing "the trigger computes the eight-slice capture report and passes
             it through both the callback and the returned record"
-    (story/reg-variant :story.snap/sliced {:args {:n 3} :events []})
+    (story/reg-variant :story.snap/sliced {:args {:n 3} :setup []})
     (state/swap-state! state/select-variant :story.snap/sliced)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
@@ -251,7 +251,7 @@
     (story/reg-variant :story.snap/declared
       {:args         {:n 1}
        :sub-overrides {[:s] :v}
-       :events       []})
+       :setup       []})
     (state/swap-state! state/select-variant :story.snap/declared)
     (save-variant/set-open-dialog-fn! (fn [& _] nil))
     (let [result   (save-variant/save-current-as-variant!)
@@ -272,7 +272,7 @@
 
 (deftest save-current-as-variant!-variant-id-override
   (testing "an explicit :variant-id overrides the shell's focus"
-    (story/reg-variant :story.snap/override {:args {:n 42} :events []})
+    (story/reg-variant :story.snap/override {:args {:n 42} :setup []})
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
@@ -292,7 +292,7 @@
 
 (deftest event-handler-triggers-callback
   (testing "dispatching :rf.story/save-current-as-variant runs the save flow"
-    (story/reg-variant :story.event/v {:args {:n 9} :events []})
+    (story/reg-variant :story.event/v {:args {:n 9} :setup []})
     (state/swap-state! state/select-variant :story.event/v)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
@@ -304,7 +304,7 @@
 
 (deftest event-handler-honors-payload-opts
   (testing "the event payload's :variant-id overrides the focused variant"
-    (story/reg-variant :story.event/explicit {:args {:n 11} :events []})
+    (story/reg-variant :story.event/explicit {:args {:n 11} :setup []})
     (state/swap-state! state/select-variant nil)
     (let [captured (atom nil)]
       (save-variant/set-open-dialog-fn!
@@ -322,7 +322,7 @@
     (story/reg-story :story.counter {:args {:theme :dark}})
     (story/reg-variant :story.counter/happy-path
       {:args {:label "Counter" :n 0}
-       :events []})
+       :setup []})
     (state/swap-state! state/select-variant :story.counter/happy-path)
     ;; Capture via the impure trigger; harvest snapshot from the callback.
     (let [captured (atom nil)]

@@ -168,8 +168,8 @@
     (rf/reg-event :test/set
       (fn [{:keys [db]} _] {:db (assoc db :counter 7)}))
     (story/reg-variant :story.pane.mount/v
-      {:events [[:test/set]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 7]]]})
+      {:setup [[:test/set]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:counter] 7]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.mount/v)
           (async-lib/then
@@ -201,9 +201,9 @@
     (rf/reg-event :test/set-b
       (fn [{:keys [db]} _] {:db (assoc db :v "b")}))
     (story/reg-variant :story.pane.switch/a
-      {:events [[:test/set-a]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
+      {:setup [[:test/set-a]] :script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
     (story/reg-variant :story.pane.switch/b
-      {:events [[:test/set-b]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
+      {:setup [[:test/set-b]] :script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.switch/a)
           (async-lib/then
@@ -258,8 +258,8 @@
             results-atom flag the pane's own Re-run button reads."
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.pane.debounce/v
-      {:events [[:test/inc]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+      {:setup [[:test/inc]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
       (let [p (tm-state/run-variant-pane! :story.pane.debounce/v)]
         ;; The synchronous prelude of run-variant-pane! calls begin-run!
@@ -291,7 +291,7 @@
             allowed (the gate is :running?, not a permanent lock)"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.pane.cycle/v
-      {:events [[:test/inc]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
+      {:setup [[:test/inc]] :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.cycle/v)
           (async-lib/then

@@ -70,7 +70,7 @@
 
          rf2-tl7zk multi-play: the stored state carries a `:play-key`
          slot (the play's `:name` for `:plays` variants, nil for the
-         single-script `:play-script` slot). The chip uses this to
+         single-script `:script` slot). The chip uses this to
          show which play was last run; per-play history lives in
          `runs-by-play` for finer-grained queries."}
   run-state
@@ -81,7 +81,7 @@
   ^{:doc "[frame-id play-key] → runner-state. rf2-tl7zk: per-play
          history so the toolbar dropdown can show each play's last
          outcome and the CI runner can read per-play terminal state.
-         For single-script (`:play-script`) variants the only key is
+         For single-script (`:script`) variants the only key is
          `[variant-id nil]`. CLJS uses a Reagent ratom."}
   runs-by-play
   #?(:cljs (r/atom {})
@@ -142,7 +142,7 @@
   (atom {}))
 
 (defonce ^:private ^{:doc "Set of variant ids that have already received
-                          the both-:play-script-and-:plays console
+                          the both-:script-and-:plays console
                           warning. One warning per variant per page
                           lifetime keeps the console quiet. rf2-a1lvd:
                           re-armed by `clear-all-runs!` so a fresh test
@@ -292,7 +292,7 @@
   previous test's play outcomes; `clear-state!` is the per-frame
   counterpart called from teardown.
 
-  Clearing `warned-both-slots` here re-arms the both-`:play-script`-and-
+  Clearing `warned-both-slots` here re-arms the both-`:script`-and-
   `:plays` console warning per test and per hot-reload reset, following
   the warn-once-clear pattern: a warn-once cache that is never reset
   suppresses the affordance across test order + hot-reload."
@@ -365,10 +365,10 @@
     (contains? spec :script) (update :script assertions/fold-script)))
 
 (defn variant-play-script
-  "Resolve the `:play-script` body on `variant-id`, parse it, and FOLD its
+  "Resolve the `:script` body on `variant-id`, parse it, and FOLD its
   script. Returns the normalised spec map per `runner/parse-spec` with
   every shipping `:assert-db` / `:assert-dom` step rewritten to the
-  canonical `[:assert …]` checkpoint. Variants without `:play-script`
+  canonical `[:assert …]` checkpoint. Variants without `:script`
   return `{:script [] :auto-run? true}`.
 
   Note: variants declaring `:plays` resolve to the FIRST play's spec —
@@ -384,9 +384,9 @@
         (and (seq plays) (contains? body :plays))
         (first plays)
 
-        ;; Single-script (:play-script slot).
+        ;; Single-script (:script slot).
         :else
-        (runner/parse-spec (when body (:play-script body)))))))
+        (runner/parse-spec (when body (:script body)))))))
 
 ;; ---- multi-play warning (one-shot) ---------------------------------------
 
@@ -398,13 +398,13 @@
        (try
          (js/console.warn
            (str "[re-frame.story.play] " (pr-str variant-id)
-                " declares BOTH :play-script and :plays — preferring :plays."
+                " declares BOTH :script and :plays — preferring :plays."
                 " Pick one per variant to silence this warning."))
          (catch :default _ nil))
        :clj
        (binding [*out* *err*]
          (println (str "[re-frame.story.play] " (pr-str variant-id)
-                       " declares BOTH :play-script and :plays — preferring :plays."
+                       " declares BOTH :script and :plays — preferring :plays."
                        " Pick one per variant to silence this warning."))))))
 
 (defn variant-plays
@@ -412,14 +412,14 @@
   data → data; works on JVM + CLJS (multi-play).
 
   - `:plays` present → returns the parsed plays vector (size >= 1).
-  - `:play-script` present → returns a single-entry vector wrapping the
+  - `:script` present → returns a single-entry vector wrapping the
     parsed single-script spec.
   - Both present → warns once, prefers `:plays`.
   - Neither → returns `[]`."
   [variant-id]
   (let [body (handler-meta variant-id)]
     (when (and body
-               (contains? body :play-script)
+               (contains? body :script)
                (contains? body :plays))
       (warn-both-slots-once! variant-id))
     ;; FOLD every resolved play's script so the runtime consumes the
@@ -430,7 +430,7 @@
 (defn resolve-play
   "Resolve a `(variant-id, play-key)` pair to the parsed, FOLDED play spec,
   or nil. `play-key` may be nil — meaning 'the default play' (first
-  entry for multi-play, the single script for `:play-script`).
+  entry for multi-play, the single script for `:script`).
   Multi-play. The script is folded via `variant-plays`."
   [variant-id play-key]
   (let [plays (variant-plays variant-id)]
@@ -1903,7 +1903,7 @@
   Arities:
   - `[variant-id]`                — run the default play (the first
                                     play of `:plays`, or the single
-                                    `:play-script`).
+                                    `:script`).
   - `[variant-id done-cb]`        — as above + completion callback.
   - `[variant-id play-key spec done-cb]` — multi-play form:
                                     drive a specific play. `play-key`
@@ -1935,7 +1935,7 @@
    (let [spec  (or spec
                    (resolve-play variant-id play-key)
                    ;; Fall back to the single-script path so the default
-                   ;; play of a `:play-script` variant Just Works.
+                   ;; play of a `:script` variant Just Works.
                    (variant-play-script variant-id))
          pk    (or play-key (:name spec))
          init  (runner/initial-state spec)
@@ -1998,7 +1998,7 @@
   "Run the play identified by `play-key` (a play's `:name`) for
   `variant-id` (multi-play). Passing nil picks the default
   play (first entry for multi-play, the single script for
-  `:play-script`)."
+  `:script`)."
   ([variant-id play-key]
    (run-play! variant-id play-key nil))
   ([variant-id play-key done-cb]
@@ -2016,7 +2016,7 @@
 (defn auto-run!
   "Run the play script if `:auto-run?` is true. Called from the shell
   after the variant mounts. No-op when the variant has no
-  `:play-script` / `:plays` slot or no play declares `:auto-run? true`.
+  `:script` / `:plays` slot or no play declares `:auto-run? true`.
 
   Multi-play: every play with `:auto-run? true` is run in ORDER
   (sequentially) so they don't race against the same frame. By

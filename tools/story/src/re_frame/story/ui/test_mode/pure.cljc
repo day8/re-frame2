@@ -39,10 +39,10 @@
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
 (defn- has-play-script?
-  "True iff `vb` carries a non-empty `:play-script` (map `:script` or
+  "True iff `vb` carries a non-empty `:script` (map `:script` or
   bare vector)."
   [vb]
-  (let [script (:play-script vb)]
+  (let [script (:script vb)]
     (boolean
       (cond
         ;; Map form — {:auto-run? ... :script [...]}
@@ -60,10 +60,10 @@
 
 (defn variant-has-tests?
   "True iff `variant-id`'s registered body declares a non-empty
-  `:play-script` OR a non-empty `:plays` vector. Used by the pane to
+  `:script` OR a non-empty `:plays` vector. Used by the pane to
   gate between the run-and-render path and the empty-state placeholder.
 
-  `:play-script` is the canonical phase-4 slot; `:plays` is the
+  `:script` is the canonical phase-4 slot; `:plays` is the
   multi-play slot. This predicate recognises BOTH, so a `:plays`-only
   variant counts as testable — matching `ci-runner/has-any-play?`.
 
@@ -203,7 +203,7 @@
 
 ;; ---- pure: play-step scrubber data --------------------------------------
 ;;
-;; Each play event derived from the variant body's `:play-script` is
+;; Each play event derived from the variant body's `:script` is
 ;; dispatched as a
 ;; single event — each dispatch produces exactly one epoch in the variant
 ;; frame's `epoch-history`. So the play sequence maps 1-to-1 onto a slice
@@ -243,7 +243,7 @@
     :else                     (pr-str (first event))))
 
 (defn play-step-statuses
-  "Pure: given a play-events vector (derived from `:play-script`) and an
+  "Pure: given a play-events vector (derived from `:script`) and an
   `:assertions` records vector,
   return a vector of step-status maps — one per play event.
 

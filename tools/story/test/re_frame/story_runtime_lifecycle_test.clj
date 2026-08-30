@@ -170,7 +170,7 @@
             (story/variant-frames) — the registry is in step with the runtime"
     (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.destroy.list/v
-      {:events [[:test/nothing]]})
+      {:setup [[:test/nothing]]})
     (let [_ (async/deref-blocking (story/run-variant :story.destroy.list/v) 5000)]
       (is (contains? (story/variant-frames) :story.destroy.list/v)
           "the running variant is listed before destroy")
@@ -182,7 +182,7 @@
   (testing "calling destroy-variant! twice in a row does not throw"
     (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.destroy.twice/v
-      {:events [[:test/nothing]]})
+      {:setup [[:test/nothing]]})
     (async/deref-blocking (story/run-variant :story.destroy.twice/v) 5000)
     (is (nil? (story/destroy-variant! :story.destroy.twice/v)))
     (is (nil? (story/destroy-variant! :story.destroy.twice/v))
@@ -198,7 +198,7 @@
             UI shell relies on this for the 'reset' button affordance"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cycle/v
-      {:events [[:test/inc]]})
+      {:setup [[:test/inc]]})
     ;; First run.
     (let [r1 (async/deref-blocking (story/run-variant :story.cycle/v) 5000)]
       (is (= :ready (:lifecycle r1)))

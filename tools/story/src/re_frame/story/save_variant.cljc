@@ -2,7 +2,7 @@
   "Save-current-canvas-state-as-new-variant — the SB9 'Save' affordance
   (SB9 story-from-UI parity).
 
-  Story-from-UI in two affordances: (a) record-as-`:play-script` (Test Codegen,
+  Story-from-UI in two affordances: (a) record-as-`:script` (Test Codegen,
   `re-frame.story.recorder`); (b) snapshot-args-as-`:args`
   (this namespace). Both surface the captured state through the same
   review-then-commit modal pattern — Story emits an EDN snippet the user
@@ -200,8 +200,7 @@
   (let [sub-ovr   (declared-slot variant-body :sub-overrides)
         network   (declared-slot variant-body :network)
         fx-ovr    (declared-slot variant-body :fx-overrides)
-        setup     (or (declared-slot variant-body :setup)
-                      (declared-slot variant-body :events))
+        setup     (declared-slot variant-body :setup)
         body-vp   (declared-slot variant-body :viewport)
         live-vp   (:viewport shell)
         declared  (fn [slice label value note]
@@ -310,7 +309,7 @@
   round-trips through re-frame's registrar machinery.
 
   Unlike `re-frame.story.recorder/gen-play-snippet` (which produces a
-  `:play-script` body for record-as-test), this generator captures the canvas
+  `:script` body for record-as-test), this generator captures the canvas
   STATE — the args snapshot — so the new variant renders with the same
   controls as the source the user was tweaking when they clicked Save."
   [{:keys [variant-id extends args doc alias]
@@ -515,7 +514,7 @@
 ;; The event id is `:rf.story/save-current-as-variant`; the namespace
 ;; prefix `:rf.story/*` is filtered by the Test Codegen recorder's
 ;; `recordable-event?` predicate, so a save dispatched during an active
-;; recording never appears in the recorded `:play-script` body.
+;; recording never appears in the recorded `:script` body.
 ;; ---------------------------------------------------------------------------
 
 (def ^:const id-save-current-as-variant

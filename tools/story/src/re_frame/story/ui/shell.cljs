@@ -431,7 +431,7 @@
                      ;; calls `resume-run!` for this generation — the
                      ;; generation guard collapses both to ONE execution, so
                      ;; whichever fires first wins and the other no-ops.
-                     ;; Variants without `:play-script` / auto-plays no-op.
+                     ;; Variants without `:script` / auto-plays no-op.
                      (js/setTimeout
                        (fn [] (runtime/resume-run! now))
                        0))
@@ -451,7 +451,7 @@
 ;; change fires the already-installed `selection-watcher`, which schedules
 ;; its OWN auto-run for the same variant. Without a guard, both paths
 ;; schedule a `js/setTimeout` calling `play-runner-events/auto-run!` for
-;; the same variant, so its `:play-script` runs (and every event in it
+;; the same variant, so its `:script` runs (and every event in it
 ;; dispatches) TWICE.
 ;;
 ;; `mount-time-autorun-vid` is the pure decision this guard reduces to: it
@@ -770,7 +770,7 @@
   composed of header / prose / args / decorators / parameters / tags
   sections. Per rf2-qmjo the `:test` pane renders `test-mode-view/test-view`
   — the in-canvas aggregated pass/fail summary of the variant's
-  `:play-script` sequence + assertions. `:dev` preserves the existing canvas
+  `:script` sequence + assertions. `:dev` preserves the existing canvas
   / workspace behaviour."
   []
   (let [shell      @state/shell-state-atom
@@ -891,7 +891,7 @@
          ;; watcher`'s `js/setTimeout`). `mount-time-autorun-vid` uses this
          ;; pre-hydration value to tell the two cases apart so the mount-
          ;; time block never double-schedules a deep-linked variant's
-         ;; `:play-script`.
+         ;; `:script`.
          (let [pre-hydrate-vid (:selected-variant @state/shell-state-atom)]
            ;; rf2-o4u18 / rf2-ovb1en: hydrate the URL-state slots (workspace +
            ;; mode-tab + viewport + background + tag-filter + variant / modes /
@@ -1083,8 +1083,8 @@
           ;; so it floats above the three-pane layout regardless of
           ;; which panels are visible.
           [element-inspector/overlay]
-          ;; rf2-x9zsr — Test Codegen :play-script export dialog. Opens
-          ;; off the recorder save-dialog's [export as :play-script]
+          ;; rf2-x9zsr — Test Codegen :script export dialog. Opens
+          ;; off the recorder save-dialog's [export as :script]
           ;; button; stacks above via a higher z-index. Lives in its own
           ;; ratom so dismiss / reopen doesn't disturb the parent dialog.
           [recorder-export-ui/export-dialog]

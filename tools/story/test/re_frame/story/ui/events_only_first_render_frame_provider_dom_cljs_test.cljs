@@ -109,7 +109,7 @@
              (str "n=" @(rf/subscribe [:eofr/n]))]))
         (story/reg-variant variant-id
           {:component :views/eofr-probe
-           :events    [[:eofr/seed 7]]})
+           :setup    [[:eofr/seed 7]]})
         ;; Pre-select BEFORE mount — no selection-watcher pre-allocation
         ;; edge ever fires (the watcher doesn't exist yet; there's no
         ;; :selected-variant CHANGE for it to observe even once installed).
@@ -133,6 +133,6 @@
                            .-textContent))
                 "the variant's view actually rendered — the frame existed
                  by the time frame-provider scoped it, and the seed
-                 :events landed before the view's subscription read it")
+                 :setup landed before the view's subscription read it")
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))

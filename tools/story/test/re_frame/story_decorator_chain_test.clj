@@ -10,7 +10,7 @@
     (story decorators in declared order outside variant decorators in
     declared order).
   - `:frame-setup` decorators' `:init` events fire BEFORE the variant's
-    `:events` (proven by an `:observe` event reading the
+    `:setup` (proven by an `:observe` event reading the
     `:frame-setup`-installed value).
   - `:fx-override` decorators stack their stubs via the framework
     `:fx-overrides` map.
@@ -20,7 +20,7 @@
   - Two variants registered with the same event ids each get an
     independent frame: dispatching into A leaves B's app-db, emitted
     fx, assertions, and trace history untouched.
-  - The pair runs the SAME `:play-script` body against DIFFERENT seed args —
+  - The pair runs the SAME `:script` body against DIFFERENT seed args —
     so the only thing distinguishing the two frames' final app-db is
     the seed.
 
@@ -86,7 +86,7 @@
       {:decorators [[:wrap-A] [:wrap-B]]})
     (story/reg-variant :story.chain/v
       {:decorators [[:wrap-C] [:wrap-D]]
-       :events     []})
+       :setup     []})
     (let [r         (story/resolve-decorators :story.chain/v)
           ids       (mapv :id (:hiccup r))
           wrapped   (decorators/apply-hiccup-decorators
@@ -105,14 +105,14 @@
 (deftest multi-kind-stack-composition-runs-on-canvas
   (testing "a stack with one :hiccup + one :frame-setup + one :fx-override
             decorator runs cleanly end-to-end through run-variant: the
-            :frame-setup :init events fire before :events, the
+            :frame-setup :init events fire before :setup, the
             :fx-override redirect is live, and the resolve-decorators
             pack populates all three slots"
     ;; A :hiccup decorator (only inspected on the canvas side via
     ;; resolve-decorators; the JVM run-variant path produces no DOM).
     (story/reg-decorator :centered-pane
       {:kind :hiccup :wrap (fn [body _] [:div.centered body])})
-    ;; A :frame-setup decorator whose :init seeds app-db before :events.
+    ;; A :frame-setup decorator whose :init seeds app-db before :setup.
     (rf/reg-event :mock/seed
       (fn [{:keys [db]} _] {:db (assoc db :mock-user {:name "alice" :role :admin})}))
     (story/reg-decorator :seed-user
@@ -127,10 +127,10 @@
       {:decorators [[:centered-pane]
                     [:seed-user]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :events     [[:record/observed]]
-       ;; :emit/track dispatches in :play-script so the tape + stub-call log
+       :setup     [[:record/observed]]
+       ;; :emit/track dispatches in :script so the tape + stub-call log
        ;; (the SSOT :rf.assert/effect-emitted projects from — rf2-luzky) sees it.
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
                     [:dispatch-sync [:emit/track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
     ;; Resolve-decorators classifies the stack into the three slots.
@@ -139,14 +139,14 @@
       (is (= 1 (count (:frame-setup pack))) ":frame-setup slot populated")
       (is (= 1 (count (:fx-override pack))) ":fx-override slot populated")
       (is (empty? (:errors pack))           "no decorator errors"))
-    ;; Run end-to-end: :frame-setup fires first, then :events observe
-    ;; the seeded slot, then :play-script asserts.
+    ;; Run end-to-end: :frame-setup fires first, then :setup observe
+    ;; the seeded slot, then :script asserts.
     (let [r (async/deref-blocking
               (story/run-variant :story.multi-kind/v) 5000)]
       (is (= :ready (:lifecycle r))
           "lifecycle reaches :ready — multi-kind stack composes without crash")
       (is (= "alice" (-> r :app-db :seen-user :name))
-          ":frame-setup ran before :events — :record/observed saw the
+          ":frame-setup ran before :setup — :record/observed saw the
            seeded :mock-user even though :seed-user is a decorator
            (not a variant-level event)")
       (let [asserts (:assertions r)]
@@ -173,12 +173,12 @@
       {:kind :hiccup :wrap (fn [body _] [:div.child body])})
     (story/reg-variant :story.ext.dec/parent
       {:decorators [[:parent-only-deco]]
-       :events     []})
+       :setup     []})
     ;; Case 1 — child declares NO :decorators. It inherits the parent's
     ;; vector verbatim.
     (story/reg-variant :story.ext.dec/inherit-bare
       {:extends :story.ext.dec/parent
-       :events  []})
+       :setup  []})
     ;; Case 2 — child declares ITS OWN :decorators. The child's slot
     ;; replaces the parent's (spec'd `merge` semantics). The child's
     ;; story-level decorators are still composed outside (via the
@@ -187,7 +187,7 @@
     (story/reg-variant :story.ext.dec/inherit-and-replace
       {:extends    :story.ext.dec/parent
        :decorators [[:child-replacement]]
-       :events     []})
+       :setup     []})
     ;; Case 1: bare child inherits parent's :decorators via the plan.
     (let [body (story/handler-meta :variant :story.ext.dec/inherit-bare)]
       (is (= :story.ext.dec/parent (:extends body))
@@ -217,7 +217,7 @@
 ;; ===========================================================================
 
 (deftest frame-isolation-pair-app-db-and-emitted-fx
-  (testing "two variants — same :events, different seed args via
+  (testing "two variants — same :setup, different seed args via
             :frame-setup — each gets its own frame; the dispatches into
             A leave B's app-db / :emitted-fx / :assertions / stub log
             untouched. Per spec/002 §Per-variant frame allocation."
@@ -235,19 +235,19 @@
     (story/reg-variant :story.isolation/A
       {:decorators [[:seed-A]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :events     [[:inc-and-track] [:inc-and-track]]
-       ;; :play-script emits one more inc-and-track so :rf.assert/effect-emitted
+       :setup     [[:inc-and-track] [:inc-and-track]]
+       ;; :script emits one more inc-and-track so :rf.assert/effect-emitted
        ;; sees the emission via the tape + stub-call log SSOT (rf2-luzky —
        ;; there is no play-start accumulator reset).
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
                     [:dispatch-sync [:inc-and-track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]
                     [:dispatch-sync [:rf.assert/path-equals [:counter] 103]]]})
     (story/reg-variant :story.isolation/B
       {:decorators [[:seed-B]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
-       :events     [[:inc-and-track] [:inc-and-track]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 202]]
+       :setup     [[:inc-and-track] [:inc-and-track]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:counter] 202]]
                     [:dispatch-sync [:inc-and-track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]
                     [:dispatch-sync [:rf.assert/path-equals [:counter] 203]]]})
@@ -264,7 +264,7 @@
       ;; app-db isolation: each frame walks its own counter. Two
       ;; events-phase incs + one play-phase inc = 3 increments.
       (is (= 103 (:counter (:app-db rA)))
-          "A starts at 100 + two :events :inc-and-track + one :play-script
+          "A starts at 100 + two :setup :inc-and-track + one :script
            :inc-and-track = 103")
       (is (= 203 (:counter (:app-db rB)))
           "B starts at 200 + same three increments = 203 — A's
@@ -276,13 +276,13 @@
           "all B's assertions pass against B's app-db")
       ;; emitted-fx isolation: the stub-call log keys by frame-id; each
       ;; frame's log carries only its own emissions. Three per frame:
-      ;; two during :events phase + one during :play-script phase. Note the
+      ;; two during :setup phase + one during :script phase. Note the
       ;; stub-call log accumulates across phases (unlike the assertion
       ;; emitted-fx accumulator which the play-runner resets at play
       ;; start).
       (is (= 3 (count logA))
           "frame A's stub log carries exactly three entries — two from
-           :events + one from :play-script")
+           :setup + one from :script")
       (is (= 3 (count logB))
           "frame B's stub log carries exactly three entries — and ZERO
            of A's entries leaked across")
@@ -304,8 +304,8 @@
   (testing "destroying frame A leaves frame B's app-db / state intact.
             Per spec/002 §Coexistence + §Per-variant frame allocation."
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db (update db :pings (fnil inc 0))}))
-    (story/reg-variant :story.iso2/A {:events [[:ping]]})
-    (story/reg-variant :story.iso2/B {:events [[:ping]]})
+    (story/reg-variant :story.iso2/A {:setup [[:ping]]})
+    (story/reg-variant :story.iso2/B {:setup [[:ping]]})
     (async/deref-blocking (story/run-variant :story.iso2/A) 5000)
     (async/deref-blocking (story/run-variant :story.iso2/B) 5000)
     (is (story/variant-frame? :story.iso2/A))

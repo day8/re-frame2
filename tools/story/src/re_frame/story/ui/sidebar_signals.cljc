@@ -124,8 +124,8 @@
   seed, or overrides) — which is legitimate, not a defect."
   [body]
   (let [fidelity (plan/compute-fidelity
-                   {:setup         (or (:setup body) (:events body))
-                    :script        (or (:script body) (:play-script body) (:plays body))
+                   {:setup         (:setup body)
+                    :script        (or (:script body) (:plays body))
                     :db-seed       (:db-seed body)
                     :sub-overrides (:sub-overrides body)})]
     (into []
@@ -211,26 +211,24 @@
 
 (defn- body-script-steps
   "Pure data → data: the variant body's declared script steps, flattened
-  across the `:script` / `:play-script` / `:plays` spellings. Each step is
-  a tagged vector (or a bare event vector); `requirements/step-tokens`
-  reads the head tag, so no coercion is needed for the requirement signal —
-  a bare event vector has no recognised step tag and contributes the
-  headless-floor empty token set, which is correct."
+  across the `:script` (bare vector or `{:script …}` map) / `:plays`
+  slots. Each step is a tagged vector (or a bare event vector);
+  `requirements/step-tokens` reads the head tag, so no coercion is needed
+  for the requirement signal — a bare event vector has no recognised step
+  tag and contributes the headless-floor empty token set, which is
+  correct."
   [body]
   (cond
     (contains? body :script)
-    (vec (:script body))
+    (let [s (:script body)]
+      (cond
+        (vector? s) (vec s)
+        (map? s)    (vec (:script s))
+        :else       []))
 
     (contains? body :plays)
     (into [] (mapcat (fn [p] (or (:script p) (when (vector? p) p) [])))
           (or (:plays body) []))
-
-    (contains? body :play-script)
-    (let [ps (:play-script body)]
-      (cond
-        (vector? ps) (vec ps)
-        (map? ps)    (vec (:script ps))
-        :else        []))
 
     :else []))
 
@@ -243,7 +241,7 @@
   `runner-requirement-order`), defaulting to `:headless` when no concrete
   runner qualifies (the headless floor — a navigation signal never refuses)."
   [body]
-  (let [setup      (or (:setup body) (:events body) [])
+  (let [setup      (or (:setup body) [])
         script     (body-script-steps body)
         assertions (or (:assertions body) [])
         tokens     (requirements/required-tokens setup script assertions)]

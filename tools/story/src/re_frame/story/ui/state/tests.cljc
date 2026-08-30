@@ -15,7 +15,7 @@
   - `variant-test-status`       — read the per-variant status keyword.
   - `test-summary`              — aggregate across an id-seq.
   - `testable-variant-ids`      — derive the seq of `:test`-tagged
-                                  variants with a non-empty `:play-script`.
+                                  variants with a non-empty `:script`.
   - `set-test-watch-mode`       — toggle the chrome watch-mode flag.
   - `test-watch-mode?`          — read the flag.
   - `record-test-content-hashes` — stamp per-variant snapshot hashes.
@@ -209,12 +209,12 @@
 
 (defn- play-surface-has-steps?
   "True iff `body` declares a non-empty play surface — EITHER a
-  `:play-script` (map `:script` or bare-vector form) OR a non-empty
+  `:script` (map `:script` or bare-vector form) OR a non-empty
   `:plays` vector (multi-play). A `:plays`-only variant counts as
   testable in the chrome widget + sidebar dots, matching
   `ci-runner/has-any-play?` and `test-mode.pure/variant-has-tests?`."
   [body]
-  (let [script (:play-script body)
+  (let [script (:script body)
         plays  (:plays body)]
     (boolean
       (or
@@ -229,7 +229,7 @@
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) they declare a non-empty play surface (`:play-script` OR `:plays`).
+  (b) they declare a non-empty play surface (`:script` OR `:plays`).
   The second filter prunes variants tagged `:test` but
   without any assertions to run — those contribute neither to the
   headline counts nor to the 'Run all' iteration. Pure data → data;

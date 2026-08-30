@@ -196,9 +196,9 @@
               "real-setup fidelity — no overrides lower the evidence rung")
      ;; ---- execution ----
      (section "setup-order" "Setup order" :steps (:setup-order e)
-              "no :setup / :events steps")
+              "no :setup steps")
      (section "script-order" "Script order" :steps (:script-order e)
-              "no :script / :play steps")
+              "no :script steps")
      (section "checks" "Checks" :steps (:checks e)
               "no inherited or composed checks")
      (section "assertions" "Assertions" :steps (:assertions e)

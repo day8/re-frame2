@@ -52,7 +52,7 @@
        :tags      #{:dev}})
     (story/reg-variant :story.cljs.smoke/default
       {:doc    "default state"
-       :events [[:init]]
+       :setup [[:init]]
        :tags   #{:dev}})
     (is (story/registered? :story   :story.cljs.smoke))
     (is (story/registered? :variant :story.cljs.smoke/default))))
@@ -62,8 +62,8 @@
     (story/reg-story :story.cljs.form-b
       {:doc       "Form-B test."
        :component :app.cljs/comp
-       :variants  {:a {:events [[:init-a]]}
-                   :b {:events [[:init-b]]}}})
+       :variants  {:a {:setup [[:init-a]]}
+                   :b {:setup [[:init-b]]}}})
     (is (story/registered? :variant :story.cljs.form-b/a))
     (is (story/registered? :variant :story.cljs.form-b/b))))
 
@@ -98,7 +98,7 @@
        :tags      #{:dev}})
     (story/reg-variant :story.cljs.state-axis-smoke/all-state-magnitudes
       {:doc    "every :state/* tag at once."
-       :events [[:init]]
+       :setup [[:init]]
        :tags   (into #{:dev} schemas/canonical-state-tags)})
     (is (story/registered? :variant :story.cljs.state-axis-smoke/all-state-magnitudes)))
   (testing "each :state/* tag carries the :state axis classifier"

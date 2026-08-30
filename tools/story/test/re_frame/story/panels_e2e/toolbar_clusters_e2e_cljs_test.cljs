@@ -58,7 +58,7 @@
   ;; gates on `:selected-variant`. Without it the rendered strip skips
   ;; the data divider.
   (story/reg-story :story.counter {:doc "Counter story for toolbar e2e."})
-  (story/reg-variant :story.counter/v {:events []})
+  (story/reg-variant :story.counter/v {:setup []})
   (e2e/select-variant! :story.counter/v))
 
 (defn- render-toolbar []

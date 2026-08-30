@@ -12,7 +12,7 @@
     `record-test-run` / `clear-test-run` state transitions;
     `variant-test-status` lookup; `test-summary` aggregation across a
     fixture of variants in mixed states; `testable-variant-ids`
-    filter (must be both `:test`-tagged AND `:play-script`-bearing); the
+    filter (must be both `:test`-tagged AND `:script`-bearing); the
     `dot-style` descriptor projection and `dot-aria-label`.
   - **CLJS-only**: the rendered hiccup for the chrome widget carries
     the expected counts + headline; the sidebar's variant-row hiccup
@@ -134,14 +134,14 @@
 ;; ---- pure: testable-variant-ids -----------------------------------------
 
 (deftest testable-variant-ids-filters-by-tag-and-play
-  (testing "only :test-tagged variants with non-empty :play-script count"
-    (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-    (story/reg-variant :story.x/b {:tags #{:test} :events [] :play-script []})
-    (story/reg-variant :story.x/c {:tags #{:dev} :events []
-                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-    (story/reg-variant :story.x/d {:tags #{:test :dev} :events []
-                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+  (testing "only :test-tagged variants with non-empty :script count"
+    (story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                   :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+    (story/reg-variant :story.x/b {:tags #{:test} :setup [] :script []})
+    (story/reg-variant :story.x/c {:tags #{:dev} :setup []
+                                   :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+    (story/reg-variant :story.x/d {:tags #{:test :dev} :setup []
+                                   :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
     (let [vs (story-registrar/registrations :variant)
           testable (state/testable-variant-ids vs)]
       (is (= [:story.x/a :story.x/d] testable))
@@ -227,16 +227,16 @@
    (deftest widget-renders-headline-and-counts
      (testing "with 3 pass / 1 fail / 1 pending the widget headline and
                count chips reflect the fixture"
-       (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/b {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/c {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/d {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/e {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/b {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/c {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/d {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/e {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
              fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}]
          (state/swap-state! state/record-test-run :story.x/a pass)
@@ -258,7 +258,7 @@
    (deftest widget-empty-when-no-testable-variants
      (testing "no :test variants → the widget renders the empty-state
                sub-line and skips the Run all button"
-       (story/reg-variant :story.x/a {:tags #{:dev} :events []})
+       (story/reg-variant :story.x/a {:tags #{:dev} :setup []})
        (let [tree  (sidebar/test-widget (state/get-state)
                                         (state/registry-snapshot))
              empty (first (find-by-data-test tree "story-test-widget-empty"))
@@ -335,8 +335,8 @@
 #?(:cljs
    (deftest widget-run-all-button-disabled-while-running
      (testing "if any variant is :running the Run all button disables"
-       (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (state/swap-state! state/mark-test-running :story.x/a)
        (let [tree (sidebar/test-widget (state/get-state)
                                        (state/registry-snapshot))
@@ -352,12 +352,12 @@
                instead of re-deriving from the registry — passes a
                restricted subset and asserts the headline counts reflect
                only that subset"
-       (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/b {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (story/reg-variant :story.x/c {:tags #{:test} :events []
-                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/b {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/c {:tags #{:test} :setup []
+                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        ;; Supply a 1-variant subset. The registry has three; the widget
        ;; should report total=1 because we threaded a 1-element seq, not
        ;; the full registry-derived set.

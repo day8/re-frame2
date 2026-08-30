@@ -13,7 +13,7 @@
   `data-test=\"count\"` element rendered a specific integer for each.
 
   Once PR #1726 (rf2-0wrud) replaced the pre-render `:play` slot with
-  `:play-script` (runner-event semantics) the canvas counts no longer
+  `:script` (runner-event semantics) the canvas counts no longer
   matched the pre-migration baseline. Concretely: on
   `:story.counter/clicked-three-times` the canvas now shows `6` rather
   than `3` because the play-script runs its three `[:counter/inc]`
@@ -34,8 +34,8 @@
   - The lifecycle reaches `:ready` (loaders → events → render → play
     all completed cleanly).
   - The variant's final `:count` in `:app-db` matches the canonical
-    value defined by its `:events` + `:play-script` body.
-  - When the variant carries a `:play-script`, every assertion in the
+    value defined by its `:setup` + `:script` body.
+  - When the variant carries a `:script`, every assertion in the
     script passes (the play-script ran end-to-end against a clean
     canvas).
 
@@ -111,26 +111,26 @@
            counter_with_stories testbed."})
   (story/reg-variant :story.counter/empty
     {:doc "Fresh counter at zero. The simplest possible variant."
-     :events [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
+     :setup [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
   (story/reg-variant :story.counter/loaded
     {:doc "A counter seeded with a non-zero value."
-     :events [[:counter/initialise 7]]
-     :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 7]]]})
+     :setup [[:counter/initialise 7]]
+     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 7]]]})
   (story/reg-variant :story.counter/clicked-three-times
     {:doc "Counter after three increments from zero, driven from the
            play slot so :rf.assert/dispatched? observes them."
-     :events [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:counter/inc]]
+     :setup [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:counter/inc]]
                    [:dispatch-sync [:counter/inc]]
                    [:dispatch-sync [:counter/inc]]
                    [:dispatch-sync [:rf.assert/path-equals  [:count] 3]]
                    [:dispatch-sync [:rf.assert/dispatched?  [:counter/inc]]]]})
   (story/reg-variant :story.counter/save-stubbed
     {:doc "The save flow with the network fx stubbed."
-     :events [[:counter/initialise 5]]
+     :setup [[:counter/initialise 5]]
      :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
-     :play-script [[:dispatch-sync [:counter/save]]
+     :script [[:dispatch-sync [:counter/save]]
                    [:dispatch-sync [:rf.assert/path-equals    [:saving?] true]]
                    [:dispatch-sync [:rf.assert/effect-emitted :counter/sync-to-server]]]}))
 
@@ -216,7 +216,7 @@
 
 (deftest clicked-three-times-runs-clean-count-3
   (testing ":story.counter/clicked-three-times reaches :ready with
-            :count 3 — three play-script dispatches against an :events
+            :count 3 — three play-script dispatches against an :setup
             slot that seeded :count 0. This pins the lifecycle-level
             contract that the Playwright probe (now skipped per
             rf2-8awk1) was trying to assert via the DOM."
@@ -271,7 +271,7 @@
 (deftest reg-variant-side-table-shape
   (testing "all four variants are registered with the canonical body
             shape — variant-id round-trips through `variant->edn` and
-            the `:events` slot survives serialisation"
+            the `:setup` slot survives serialisation"
     (doseq [vid [:story.counter/empty
                  :story.counter/loaded
                  :story.counter/clicked-three-times
@@ -279,8 +279,8 @@
       (let [body (story/variant->edn vid)]
         (is (map? body)
             (str "variant->edn returned a map for " vid))
-        (is (vector? (:events body))
-            (str ":events slot is a vector for " vid))
+        (is (vector? (:setup body))
+            (str ":setup slot is a vector for " vid))
         (is (= [:counter/initialise]
-               (->> body :events first (take 1) vec))
-            (str ":events[0] is [:counter/initialise ...] for " vid))))))
+               (->> body :setup first (take 1) vec))
+            (str ":setup[0] is [:counter/initialise ...] for " vid))))))

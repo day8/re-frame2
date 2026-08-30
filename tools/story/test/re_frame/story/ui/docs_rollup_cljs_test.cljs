@@ -66,16 +66,16 @@
     {:doc   "First variant — :alpha."
      :args  {:label "alpha"}
      :tags  #{:dev}
-     :events []})
+     :setup []})
   (story/reg-variant :story.rollup/beta
     {:doc   "Second variant — :beta."
      :args  {:label "beta"}
      :tags  #{:docs}
-     :events []})
+     :setup []})
   (story/reg-variant :story.rollup/gamma
     {:doc   "Third variant — :gamma."
      :args  {:label "gamma"}
-     :events []}))
+     :setup []}))
 
 ;; ===========================================================================
 ;; variant-ids-for-story

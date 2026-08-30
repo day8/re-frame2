@@ -659,14 +659,12 @@ captured recording translated to a live play body via
 `re-frame.story/recording->script-body` — each captured event becomes
 a `[:dispatch ...]` step (carrying its captured `:rf.cofx` envelope as a
 trailing opts map where one was recorded) — and the write-back assocs
-the result under the PUBLIC `:script` authoring slot (rf2-7mj4z;
-spec/017 §Public vocabulary), NOT the transitional `:play-script`
-spelling. The two
-store identically: `reg-variant*` lowers the public `:script` to the
-shipping `:play-script` slot via `schemas/lower-public-vocabulary`, so
-`variant->edn` of the stored body reads `:play-script` either way — the
-public `:script` is an author-facing intent, the lowered shipping slot
-is unchanged. The legacy `:play` slot was removed (rf2-0wrud) and no
+the result under the `:script` slot (rf2-7mj4z; spec/017 §Public
+vocabulary). The registrar stores that key verbatim, so `variant->edn`
+of the written-back body reads `:script` — the write/read round trip
+is an identity on the key, and a body carrying the retired
+`:play-script` spelling is rejected by the closed variant schema
+(rf2-7dewo). The legacy `:play` slot was removed (rf2-0wrud) and no
 runner executes it. This branch is gated behind the same
 `allow-writes?` flag as `register-variant`; the read-only path
 (snippet only) needs no gate.

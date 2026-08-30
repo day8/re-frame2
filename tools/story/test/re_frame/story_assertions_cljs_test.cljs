@@ -63,8 +63,8 @@
     (rf/reg-event :test/set
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "alice")}))
     (story/reg-variant :story.cljs.assert/pe
-      {:events [[:test/set]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:user :name] "alice"]]]})
+      {:setup [[:test/set]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:user :name] "alice"]]]})
     (async done
       (-> (story/run-variant :story.cljs.assert/pe)
           (async-lib/then
@@ -80,11 +80,11 @@
   (testing "assertions-passing? returns true on all-pass, false on any-fail"
     (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (story/reg-variant :story.cljs.passing/ok
-      {:events [[:test/n2]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
+      {:setup [[:test/n2]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
     (story/reg-variant :story.cljs.passing/bad
-      {:events [[:test/n2]]
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 999]]]})
+      {:setup [[:test/n2]]
+       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 999]]]})
     (async done
       (-> (story/run-variant :story.cljs.passing/ok)
           (async-lib/then
@@ -103,8 +103,8 @@
 (deftest cljs-record-not-throw
   (testing "failing assertions never throw on CLJS; sequence runs to completion"
     (story/reg-variant :story.cljs.contract/v
-      {:events []
-       :play-script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
+      {:setup []
+       :script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
                 [:dispatch-sync [:rf.assert/path-equals [:also-nope] :other]]]})
     (async done
       (-> (story/run-variant :story.cljs.contract/v)

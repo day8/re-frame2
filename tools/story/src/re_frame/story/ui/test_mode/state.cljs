@@ -10,7 +10,7 @@
        :expanded        #{<row-key>}      ; expanded assertion rows
        :expanded-checks #{<check-id>}     ; expanded check groups
        :failed-only?    <bool>            ; failed-only filter
-       :play-events     <vector>          ; flat event-vec list derived from :play-script
+       :play-events     <vector>          ; flat event-vec list derived from :script
        :epoch-ids       <vector>          ; trailing epoch-id slice
        :selected-step   <int|nil>}
 
@@ -79,7 +79,7 @@
   slot."
   [variant-id result]
   (let [now          (interop/now-ms)
-        ;; `:play-script` is the canonical phase-4 slot.
+        ;; `:script` is the canonical phase-4 slot.
         ;; `play/variant-play-events` extracts a flat event-vec list
         ;; (one per `:dispatch`/`:dispatch-sync` step), the shape the
         ;; scrubber's slot expects.

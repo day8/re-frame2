@@ -121,7 +121,7 @@
 
 (deftest open-chip-for-variant-reads-source-slot
   (testing "open-chip-for-variant pulls :source off the variant body"
-    (let [body {:events []
+    (let [body {:setup []
                 :source {:ns 'app.stories
                          :file "src/app/stories.cljs"
                          :line 17
@@ -131,7 +131,7 @@
       (is (= "vscode://file/src/app/stories.cljs:17:3"
              (:href (second hiccup))))))
   (testing "open-chip-for-variant nil when variant body has no :source"
-    (is (nil? (open-in-editor/open-chip-for-variant {:events []})))
+    (is (nil? (open-in-editor/open-chip-for-variant {:setup []})))
     (is (nil? (open-in-editor/open-chip-for-variant nil)))))
 
 ;; ---- open-source-coord! (rf2-h0jc0) --------------------------------------

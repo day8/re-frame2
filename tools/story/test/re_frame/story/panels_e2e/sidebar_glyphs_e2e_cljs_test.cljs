@@ -71,18 +71,18 @@
 
 (defn- register-variants!
   "Two stories with one non-testable variant each, plus one workspace.
-  No `:test` tag / `:play-script` slot → both variants take the non-testable
+  No `:test` tag / `:script` slot → both variants take the non-testable
   branch in `variant-row` (the branch that emits `[glyphs/variant-glyph
   10]`)."
   []
   (story/reg-story :story.counter
     {:doc "Counter parent story."})
   (story/reg-variant :story.counter/empty
-    {:doc "empty counter" :events []})
+    {:doc "empty counter" :setup []})
   (story/reg-story :story.login
     {:doc "Login parent story."})
   (story/reg-variant :story.login/blank
-    {:doc "blank login form" :events []})
+    {:doc "blank login form" :setup []})
   (story/reg-workspace :Workspace.counter/all
     {:doc      "Counter workspace."
      :layout   :grid
@@ -183,7 +183,7 @@
             `[glyphs/variant-glyph]` sentinel as the iconographic
             prefix in the variant-glyph branch of `variant-row`. Both
             registered variants are non-testable (no `:test` tag, no
-            `:play-script`), so both rows take this branch."
+            `:script`), so both rows take this branch."
     (e2e/with-story-and-xray-frames
       {:register-stories register-variants!}
       (fn []

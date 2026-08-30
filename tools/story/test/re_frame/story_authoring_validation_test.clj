@@ -202,7 +202,7 @@
             the closed Variant schema does not silently swallow it"
     (try
       (story/reg-variant :story.swallow/play
-        {:events []
+        {:setup []
          :play   [[:rf.assert/path-equals [:counter/value] 0]]})
       (is false "expected an exception — :play must NOT be silently accepted")
       (catch clojure.lang.ExceptionInfo e
@@ -266,7 +266,7 @@
             component's props schema on the view metadata, not the body"
     (try
       (story/reg-variant :story.dead/schema
-        {:events []
+        {:setup []
          :schema [:map [:label :string]]})
       (is false "expected an exception — body :schema must NOT be accepted")
       (catch clojure.lang.ExceptionInfo e
@@ -277,7 +277,7 @@
   (testing ":rf/props on a VARIANT body is rejected too"
     (try
       (story/reg-variant :story.dead/rfprops
-        {:events   []
+        {:setup   []
          :rf/props [:map [:label :string]]})
       (is false "expected an exception — body :rf/props must NOT be accepted")
       (catch clojure.lang.ExceptionInfo e
@@ -321,10 +321,10 @@
                   :tags   #{:dev :docs :test}
                   :substrates #{:reagent}}))
         "incremented-variant migrated body validates")
-    ;; The lowering ran: :setup → :events, :script → :play-script.
+    ;; The body is stored under the keys the author wrote.
     (let [body (story/handler-meta :variant :story.migrated/incremented)]
-      (is (contains? body :events) ":setup lowered to :events")
-      (is (contains? body :play-script) ":script lowered to :play-script")
+      (is (= [[:counter/initialise]] (:setup body)) ":setup stored verbatim")
+      (is (= 6 (count (:script body))) ":script stored verbatim")
       (is (not (contains? body :play)) "no dead :play slot survives"))))
 
 (deftest reg-variant-accepts-mcp-origin-stamp
@@ -332,7 +332,7 @@
             body (spec/Cross-Cutting-Designs.md §5) — the closed schema
             MUST accept it or the MCP register-variant path breaks"
     (is (some? (story/reg-variant* :story.mcp/written
-                 {:events [] :origin :story-mcp}))
+                 {:setup [] :origin :story-mcp}))
         ":origin is a declared optional slot")))
 
 (deftest reg-workspace-rejects-typoed-slot
@@ -390,7 +390,7 @@
 (deftest reg-variant-plays-accepts-named-list
   (testing ":plays with valid named entries is accepted"
     (story/reg-variant :story.multi/named
-      {:events []
+      {:setup []
        :plays  [{:name "happy path"
                  :script [[:dispatch [:foo]]]}
                 {:name "error path"
@@ -402,7 +402,7 @@
   (testing ":plays must contain at least one entry"
     (try
       (story/reg-variant :story.multi/empty
-        {:events []
+        {:setup []
          :plays  []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
@@ -412,7 +412,7 @@
   (testing "each :plays entry must carry a :name"
     (try
       (story/reg-variant :story.multi/no-name
-        {:events []
+        {:setup []
          :plays  [{:script [[:dispatch [:foo]]]}]})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
@@ -422,7 +422,7 @@
   (testing ":plays entries must have unique :name values"
     (try
       (story/reg-variant :story.multi/dup
-        {:events []
+        {:setup []
          :plays  [{:name "p" :script [[:dispatch [:a]]]}
                   {:name "p" :script [[:dispatch [:b]]]}]})
       (is false "expected an exception")
@@ -430,105 +430,124 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-variant-play-script-and-plays-mutually-exclusive
-  (testing "a variant may not declare BOTH :play-script and :plays"
+  (testing "a variant may not declare BOTH :script and :plays"
     (try
       (story/reg-variant :story.multi/both
-        {:events      []
-         :play-script [[:dispatch [:legacy]]]
+        {:setup      []
+         :script [[:dispatch [:legacy]]]
          :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
-;; rf2-5x1wt.11 — public vocabulary (:setup / :script) + lowering
+;; rf2-7dewo — ONE variant vocabulary: :setup / :script / :plays
 ;; ===========================================================================
 ;;
 ;; Per tools/story/spec/017-Testing-Story.md §Public vocabulary, `:setup`
-;; and `:script` are the public authoring keys; `:events` / `:play-script`
-;; are the transitional spellings. The registrar lowers the public
-;; spellings into the shipping slots so the runtime reads them unchanged
-;; until rf2-5x1wt.17 / .22 route it through the variant plan.
+;; and `:script` (and named `:plays`) are the variant/fragment body keys,
+;; and the registrar stores them VERBATIM: `handler-meta` / `variant->edn`
+;; hand back exactly what was authored. The retired `:events` /
+;; `:play-script` spellings are not slots — the closed schema rejects
+;; them like any unknown key (a red witness per removed key below).
 
-(deftest reg-variant-public-setup-script-validate-and-lower
-  (testing ":setup / :script are accepted and lowered to :events / :play-script"
-    (story/reg-variant :story.vocab/public
-      {:setup  [[:counter/initialise 3]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:count] 3]]]})
-    (let [body (story/handler-meta :variant :story.vocab/public)]
-      (is (= [[:counter/initialise 3]] (:events body))
-          ":setup lowered into the shipping :events slot")
-      (is (some? (:play-script body))
-          ":script lowered into the shipping :play-script slot")
-      (is (not (contains? body :setup))  "authored :setup key dropped after lowering")
-      (is (not (contains? body :script)) "authored :script key dropped after lowering"))))
+(defn- shape-error
+  "Register `body` under `id` and return the thrown `:rf.error/id`, or nil
+  when registration succeeded."
+  [id body]
+  (try
+    (story/reg-variant* id body)
+    nil
+    (catch clojure.lang.ExceptionInfo e
+      (:rf.error/id (ex-data e)))))
 
-(deftest reg-variant-public-script-map-form-lowers
-  (testing "the :script map form (with :name / :auto-run?) lowers to :play-script"
-    (story/reg-variant :story.vocab/public-map
-      {:setup  []
-       :script {:name "named" :auto-run? true
-                :script [[:dispatch-sync [:counter/initialise 1]]]}})
-    (let [body (story/handler-meta :variant :story.vocab/public-map)]
-      (is (= "named" (get-in body [:play-script :name]))
-          "the named map-form :script lowered into :play-script intact"))))
-
-(deftest reg-variant-setup-and-events-mutually-exclusive
-  (testing "a variant may not declare BOTH :setup (public) and :events (transitional)"
+(deftest reg-variant-rejects-retired-events-slot
+  (testing "a variant body carrying :events (the retired setup spelling)
+            fails shape validation, naming the key and the slot it means"
     (try
-      (story/reg-variant :story.vocab/both-setup
-        {:setup  [[:a]]
-         :events [[:b]]})
-      (is false "expected an exception")
+      (story/reg-variant* :story.vocab/legacy-events
+        {:events [[:counter/initialise 3]]})
+      (is false "expected an exception — :events is not a slot")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))
+        (is (re-find #":events" (:reason (ex-data e)))
+            ":reason names the offending :events key")))))
 
-(deftest reg-variant-script-and-play-script-mutually-exclusive
-  (testing "a variant may not declare BOTH :script (public) and :play-script (transitional)"
+(deftest reg-variant-rejects-retired-play-script-slot
+  (testing "a variant body carrying :play-script (the retired play spelling)
+            fails shape validation and points at :script"
     (try
-      (story/reg-variant :story.vocab/both-script
+      (story/reg-variant* :story.vocab/legacy-play-script
         {:setup       []
-         :script      [[:dispatch [:a]]]
-         :play-script [[:dispatch [:b]]]})
-      (is false "expected an exception")
+         :play-script [[:dispatch [:a]]]})
+      (is false "expected an exception — :play-script is not a slot")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))
+        (is (re-find #":play-script \(did you mean :script\?\)" (:reason (ex-data e)))
+            ":reason names :play-script and suggests :script")))))
 
-(deftest reg-variant-script-and-plays-mutually-exclusive
-  (testing "a variant may not declare BOTH :script and :plays"
-    (try
-      (story/reg-variant :story.vocab/script-and-plays
-        {:setup  []
-         :script [[:dispatch [:a]]]
-         :plays  [{:name "p" :script [[:dispatch [:b]]]}]})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+(deftest reg-fragment-rejects-retired-slots
+  (testing "the fragment body is held to the same vocabulary"
+    (doseq [[label body] [[":events"      {:events [[:a]]}]
+                          [":play-script" {:play-script [[:dispatch [:a]]]}]]]
+      (try
+        (story/reg-fragment* :fragment.vocab/legacy body)
+        (is false (str "expected an exception — " label " is not a fragment slot"))
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/fragment-shape (:rf.error/id (ex-data e)))
+              (str label " rejects with :rf.error/fragment-shape")))))))
 
-(deftest reg-variant-public-named-plays-still-accepted
-  (testing "named :plays (named scripts) are preserved alongside the public :setup"
-    (story/reg-variant :story.vocab/named-plays
-      {:setup []
-       :plays [{:name "happy" :script [[:dispatch [:foo]]]}
-               {:name "error" :script [[:dispatch [:bar]]]}]})
-    (let [body (story/handler-meta :variant :story.vocab/named-plays)]
-      (is (= 2 (count (:plays body))) ":plays preserved as named scripts")
-      (is (not (contains? body :play-script))
-          ":plays is not lowered to :play-script"))))
+(deftest reg-variant-canonical-body-round-trips-verbatim
+  (testing ":setup / :script (bare vector) register and read back under the
+            same keys — the write/read round trip is an identity"
+    (let [authored {:setup  [[:counter/initialise 3]]
+                    :script [[:dispatch-sync [:rf.assert/path-equals [:count] 3]]]}]
+      (story/reg-variant* :story.vocab/public authored)
+      (let [body (story/variant->edn :story.vocab/public)]
+        (is (= authored (dissoc body :source))
+            "the stored body is the authored body plus the :source stamp")
+        (is (not (contains? body :events))      "no :events key appears on read-back")
+        (is (not (contains? body :play-script)) "no :play-script key appears on read-back"))))
+  (testing "the :script map form (with :name / :auto-run?) round-trips intact"
+    (let [authored {:setup  []
+                    :script {:name "named" :auto-run? false
+                             :script [[:dispatch-sync [:counter/initialise 1]]]}}]
+      (story/reg-variant* :story.vocab/public-map authored)
+      (is (= authored (dissoc (story/variant->edn :story.vocab/public-map) :source)))))
+  (testing "named :plays round-trip intact alongside :setup"
+    (let [authored {:setup []
+                    :plays [{:name "happy" :script [[:dispatch [:foo]]]}
+                            {:name "error" :script [[:dispatch [:bar]]]}]}]
+      (story/reg-variant* :story.vocab/named-plays authored)
+      (let [body (story/variant->edn :story.vocab/named-plays)]
+        (is (= authored (dissoc body :source)))
+        (is (not (contains? body :script)) ":plays is the only play surface")))))
 
-(deftest reg-variant-public-script-extends-overrides-transitional-parent
-  (testing "a child's public :script overrides a parent's transitional :play-script
-            (both lower to :play-script, so the existing sibling-drop applies)"
+(deftest reg-variant-script-map-form-drives-the-plan
+  (testing "a map-form :script's :auto-run? / :name reach the compiled plan
+            (the plan reads :script through the runner's coercion)"
+    (story/reg-variant* :story.vocab/map-plan
+      {:setup  []
+       :script {:name "named" :auto-run? false
+                :script [[:dispatch [:counter/initialise 1]]]}})
+    (let [p (plan/variant-plan :story.vocab/map-plan)]
+      (is (= [[:dispatch [:counter/initialise 1]]] (:script p)))
+      (is (= [{:name "named" :auto-run? false
+               :script [[:dispatch [:counter/initialise 1]]]}]
+             (get-in p [:world :scripts]))))))
+
+(deftest reg-variant-child-script-is-stored-verbatim-over-parent
+  (testing "a child's :script is stored as authored; the parent's play
+            surface is not merged into the stored body (:extends is raw)"
     (story/reg-variant :story.vocab/parent
-      {:setup       []
-       :play-script {:script [[:dispatch [:p/legacy]]]}})
+      {:setup  []
+       :script {:script [[:dispatch [:p/old]]]}})
     (story/reg-variant :story.vocab/child
       {:extends :story.vocab/parent
        :script  {:script [[:dispatch [:c/new]]]}})
     (let [body (story/handler-meta :variant :story.vocab/child)]
-      (is (contains? body :play-script) "child's lowered :script survived")
-      (is (= [[:dispatch [:c/new]]] (get-in body [:play-script :script]))
-          "the child's play surface won wholesale — no double-encoding"))))
+      (is (= [[:dispatch [:c/new]]] (get-in body [:script :script]))
+          "the child's own play surface is what is stored"))))
 
 ;; ===========================================================================
 ;; UNKNOWN-TAG CONTRACT — tag-vocab cross-check error carries the offending set
@@ -538,7 +557,7 @@
   (testing "an unregistered tag on a variant raises with the offender list"
     (try
       (story/reg-variant :story.tag/v
-        {:events []
+        {:setup []
          :tags   #{:dev :totally-made-up :also-fake}})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
@@ -561,7 +580,7 @@
     ;; Registration succeeds — raw body stored with the unknown parent.
     (story/reg-variant :story.x/child
       {:extends :story.x/no-such-parent
-       :events  []})
+       :setup  []})
     ;; Plan compile is where the unknown parent FAILS, carrying the id.
     (try
       (plan/variant-plan :story.x/child)
@@ -574,38 +593,38 @@
 ;; EXTENDS — PLAY-SURFACE OVERRIDE (rf2-ee38b.3)
 ;; ===========================================================================
 ;;
-;; :play-script and :plays are mutually-exclusive sibling encodings of
-;; the play surface. A child overriding a parent's :play-script with
+;; :script and :plays are mutually-exclusive sibling encodings of
+;; the play surface. A child overriding a parent's :script with
 ;; :plays (or vice versa) used to FAIL: the straight merge carried BOTH
 ;; keys and the schema's mutual-exclusion :fn rejected a body the author
 ;; never wrote with both. resolve-extends now drops the inherited sibling
 ;; when the child declares the other encoding.
 
 (deftest reg-variant-extends-child-plays-overrides-parent-play-script
-  (testing "a child declaring :plays while inheriting :play-script from
+  (testing "a child declaring :plays while inheriting :script from
             its parent resolves to ONLY :plays (no mutual-exclusion error)"
     (story/reg-variant :story.extplay/parent
-      {:events      []
-       :play-script {:script [[:dispatch [:p/legacy]]]}})
+      {:setup      []
+       :script {:script [[:dispatch [:p/legacy]]]}})
     ;; This used to throw :rf.error/variant-shape (both keys present).
     (story/reg-variant :story.extplay/child
       {:extends :story.extplay/parent
        :plays   [{:name "happy" :script [[:dispatch [:c/happy]]]}]})
     (let [body (story/handler-meta :variant :story.extplay/child)]
       (is (contains? body :plays)      "child's :plays survived")
-      (is (not (contains? body :play-script))
-          "the inherited :play-script was dropped — no double-encoding"))))
+      (is (not (contains? body :script))
+          "the inherited :script was dropped — no double-encoding"))))
 
 (deftest reg-variant-extends-child-play-script-overrides-parent-plays
-  (testing "the symmetric case — child :play-script overrides parent :plays"
+  (testing "the symmetric case — child :script overrides parent :plays"
     (story/reg-variant :story.extplay/parent2
-      {:events []
+      {:setup []
        :plays  [{:name "p" :script [[:dispatch [:p/plays]]]}]})
     (story/reg-variant :story.extplay/child2
       {:extends     :story.extplay/parent2
-       :play-script {:script [[:dispatch [:c/legacy]]]}})
+       :script {:script [[:dispatch [:c/legacy]]]}})
     (let [body (story/handler-meta :variant :story.extplay/child2)]
-      (is (contains? body :play-script) "child's :play-script survived")
+      (is (contains? body :script) "child's :script survived")
       (is (not (contains? body :plays))
           "the inherited :plays was dropped"))))
 
@@ -613,21 +632,21 @@
   (testing "SCRIPT IS NOT INHERITED through :extends (spec/017 §942-945:
             context flows down, behaviour/judgement is local). A child
             that declares NEITHER play encoding does NOT silently run the
-            parent's :play-script. The registrar stores the RAW body
+            parent's :script. The registrar stores the RAW body
             (rf2-f6z88) — `:extends` intact, parent NOT merged — so the
             child's body carries no play surface, and the plan compiler
             (the merge authority) takes script from the CHILD ONLY."
     (story/reg-variant :story.extplay/parent3
-      {:events      []
-       :play-script {:script [[:dispatch [:p/keep]]]}})
+      {:setup      []
+       :script {:script [[:dispatch [:p/keep]]]}})
     (story/reg-variant :story.extplay/child3
       {:extends :story.extplay/parent3
        :doc     "no play override"})
     (let [body (story/handler-meta :variant :story.extplay/child3)]
       (is (= :story.extplay/parent3 (:extends body))
           ":extends stored raw — the parent body is NOT merged in")
-      (is (not (contains? body :play-script))
-          "the parent's :play-script is NOT inherited — script is local")
+      (is (not (contains? body :script))
+          "the parent's :script is NOT inherited — script is local")
       (is (not (contains? body :plays))
           "no play surface inherited at all"))
     ;; The compiler confirms it: the silent child's compiled script is empty.
@@ -642,7 +661,7 @@
   (testing "a non-keyword variant id is rejected — the id-grammar check
             fires first and complains, carrying :rf.error/variant-id-shape"
     (try
-      (story/reg-variant* "not-a-keyword" {:events []})
+      (story/reg-variant* "not-a-keyword" {:setup []})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/variant-id-shape (:rf.error/id (ex-data e))))
@@ -670,7 +689,7 @@
   (testing "a Form-B (:variants sugar) reg-story stamps :source on the parent"
     (story/reg-story :story.combined.src
       {:doc      "parent."
-       :variants {:a {:events [[:init]]}}})
+       :variants {:a {:setup [[:init]]}}})
     (let [body (story/handler-meta :story :story.combined.src)]
       (is (map? (:source body)))
       (is (= 're-frame.story-authoring-validation-test (:ns (:source body))))
@@ -684,8 +703,8 @@
             this slot for both stories and variants generated from sugar."
     (story/reg-story :story.combined.gen
       {:doc      "parent with two generated variants."
-       :variants {:a {:events [[:init-a]]}
-                  :b {:events [[:init-b]]}}})
+       :variants {:a {:setup [[:init-a]]}
+                  :b {:setup [[:init-b]]}}})
     (let [body-a (story/handler-meta :variant :story.combined.gen/a)
           body-b (story/handler-meta :variant :story.combined.gen/b)]
       (is (map? (:source body-a)) "child :a carries :source")

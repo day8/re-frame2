@@ -98,7 +98,7 @@
     (registrar/reg-variant* :story.login/from-fragment
                             {:compose       [:fragment.login/errored]
                              :sub-overrides {[:login/attempts] 3}
-                             :events        []})
+                             :setup        []})
     (let [resolved (canvas-sub-overrides :story.login/from-fragment {})]
       (testing "the variant's OWN override resolves"
         (is (= 3 (get resolved [:login/attempts]))))
@@ -116,11 +116,11 @@
             resolver (rf2-45zvx — the :extends chain)"
     (registrar/reg-variant* :story.ext.subovr/parent
                             {:sub-overrides {[:login/state] :error}
-                             :events        []})
+                             :setup        []})
     (registrar/reg-variant* :story.ext.subovr/child
                             {:extends       :story.ext.subovr/parent
                              :sub-overrides {[:login/attempts] 5}
-                             :events        []})
+                             :setup        []})
     (let [resolved (canvas-sub-overrides :story.ext.subovr/child {})]
       (testing "the child's OWN override resolves"
         (is (= 5 (get resolved [:login/attempts]))))
@@ -137,7 +137,7 @@
     (registrar/reg-variant* :story.login/argdriven
                             {:args          {:message "default"}
                              :sub-overrides {[:login/error] [:arg :message]}
-                             :events        []})
+                             :setup        []})
     (let [plan-eff (get-in (plan/variant-plan :story.login/argdriven)
                            [:world :effective-args])]
       (testing "the plan-time arg resolves against the variant's effective args"
@@ -153,7 +153,7 @@
 (deftest variant-with-no-sub-overrides-resolves-nil
   (testing "a registered variant authoring NO :sub-overrides resolves nil
             (render-transparent — no wrapper)"
-    (registrar/reg-variant* :story.plain/v {:events []})
+    (registrar/reg-variant* :story.plain/v {:setup []})
     (is (nil? (canvas-sub-overrides :story.plain/v {})))))
 
 ;; ===========================================================================
@@ -176,10 +176,10 @@
     (registrar/reg-variant* :story.deco/parent
                             {:component  :views/widget
                              :decorators [[:deco/theme-dark]]
-                             :events     []})
+                             :setup     []})
     (registrar/reg-variant* :story.deco/child
                             {:extends :story.deco/parent
-                             :events  []})
+                             :setup  []})
     (let [;; render-variant's render-inputs carry the RAW refs off the plan.
           prepared       (render/prepare-render :story.deco/child)
           rv-refs        (get-in prepared [:render-inputs :decorators])
@@ -223,7 +223,7 @@
     (registrar/reg-variant* :story.fullstack/v
                             {:component  :views/widget
                              :decorators [[:deco/variant-pad]]
-                             :events     []})
+                             :setup     []})
     (let [;; render-variant's render-inputs carry the FULL stack off the plan.
           prepared    (render/prepare-render :story.fullstack/v)
           rv-refs     (get-in prepared [:render-inputs :decorators])
@@ -257,7 +257,7 @@
     (registrar/reg-variant* :story.deco/applied
                             {:component  :views/widget
                              :decorators [[:deco/wrap-a]]
-                             :events     []})
+                             :setup     []})
     (let [prepared (render/prepare-render :story.deco/applied)
           refs     (get-in prepared [:render-inputs :decorators])
           hiccup-d (:hiccup (decorators/resolve-decorator-refs refs))
@@ -278,7 +278,7 @@
             for a registered variant — never a silent empty render
             (the single render path's honest cannot-render state)"
     (registrar/reg-variant* :story.norender/v
-                            {:component :views/widget :events []})
+                            {:component :views/widget :setup []})
     ;; Drop the render host AFTER registration — on CLJS the `reg-variant*`
     ;; auto-install wires it; the fixture restores it after this test.
     (swap! late-bind/hooks dissoc :render-host)
@@ -336,7 +336,7 @@
                              ;; compile, inside the `variant-plan` the canvas
                              ;; recompiles to read `[:world :decorators]`.
                              :db-seed    {:seeded [:arg :only-in-mode]}
-                             :events     []})
+                             :setup     []})
     (testing "the OLD no-opts front door throws — the gap rf2-2cpoo left
               (proves the test exercises the actual failing path)"
       (is (missing-arg-throw?
@@ -362,7 +362,7 @@
                             {:component  :views/widget
                              :decorators [[:deco/cell-wrap]]
                              :db-seed    {:seeded [:arg :only-in-cell]}
-                             :events     []})
+                             :setup     []})
     (testing "the no-opts front door throws (the cell key is variant-absent)"
       (is (missing-arg-throw?
             #(decorators/resolve-decorators :story.canvas.cellarg/v))))
@@ -384,7 +384,7 @@
                              :decorators [[:deco/plain-wrap]]
                              :args       {:in-variant "static"}
                              :db-seed    {:seeded [:arg :in-variant]}
-                             :events     []})
+                             :setup     []})
     (testing "no-opts resolves (the variant declares the key)"
       (is (= [:deco/plain-wrap]
              (mapv :id (:hiccup (decorators/resolve-decorators
@@ -409,7 +409,7 @@
                             {:component  :views/widget
                              :decorators [[:deco/fp-wrap]]
                              :db-seed    {:seeded [:arg :only-in-mode]}
-                             :events     []})
+                             :setup     []})
     (testing "the no-opts poll throws (the gap)"
       (is (missing-arg-throw?
             #(decorators/resolution-fingerprints :story.canvas.fp/v))))

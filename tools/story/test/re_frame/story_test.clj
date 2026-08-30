@@ -100,7 +100,7 @@
   (testing "the first reg-variant after clear-all! also triggers auto-install"
     (story/clear-all!)
     (story/reg-variant :story.auto-install/v
-      {:events []
+      {:setup []
        :tags   #{:dev}})
     (is (true? @canonical/installed?))
     (is (story/registered? :variant :story.auto-install/v))
@@ -125,7 +125,7 @@
     ;; consistent and no exception fires).
     (let [tags-after-first (story/list-tags)]
       (story/reg-story :story.idem.b {:tags #{:docs}})
-      (story/reg-variant :story.idem.a/v {:tags #{:dev} :events []})
+      (story/reg-variant :story.idem.a/v {:tags #{:dev} :setup []})
       (is (= tags-after-first (story/list-tags))
           "canonical tag set is stable across subsequent reg-* calls"))))
 
@@ -224,18 +224,18 @@
   (testing "reg-variant writes a variant under :variant kind"
     (story/reg-variant :story.ui.button/default
       {:doc    "Default state."
-       :events [[:button/init]]
+       :setup [[:button/init]]
        :tags   #{:dev :docs}})
     (let [body (story/handler-meta :variant :story.ui.button/default)]
       (is (= "Default state." (:doc body)))
-      (is (= [[:button/init]] (:events body)))
+      (is (= [[:button/init]] (:setup body)))
       (is (= #{:dev :docs} (:tags body)))))
 
   (testing "the variant body is EDN-round-trippable (no fn slots)"
     (story/reg-variant :story.ui.button/edn-test
       {:doc    "EDN check."
-       :events [[:button/init]]
-       :play-script [[:dispatch-sync [:button/click]]
+       :setup [[:button/init]]
+       :script [[:dispatch-sync [:button/click]]
                 [:dispatch-sync [:rf.assert/path-equals [:click] true]]]
        :args   {:label "Hi"}
        :tags   #{:dev}})
@@ -254,14 +254,14 @@
             keeps the child's own slots verbatim; the compiled plan
             inherits the parent's :decorators via [:world :decorators]."
     (story/reg-variant :story.auth.login/loading
-      {:events     [[:auth/initialise]
+      {:setup     [[:auth/initialise]
                     [:auth/email-changed "alice@example.com"]
                     [:auth/login-pressed]]
        :decorators [[:force-fx-stub :http {:status :pending}]]
        :tags       #{:dev}})
     (story/reg-variant :story.auth.login/loading-with-prefill
       {:extends :story.auth.login/loading
-       :events  [[:auth/initialise]
+       :setup  [[:auth/initialise]
                  [:auth/email-changed "alice@example.com"]
                  [:auth/password-changed "hunter2"]
                  [:auth/login-pressed]]
@@ -269,7 +269,7 @@
     (let [body (story/handler-meta :variant :story.auth.login/loading-with-prefill)]
       (is (= :story.auth.login/loading (:extends body))
           ":extends is stored RAW — NOT stripped at registration")
-      (is (= 4 (count (:events body))) "child's own :events stored verbatim")
+      (is (= 4 (count (:setup body))) "child's own :setup stored verbatim")
       (is (nil? (:decorators body))
           "child declared no :decorators; the raw body carries none —
            inheritance is the compiler's job, not the registrar's")
@@ -291,7 +291,7 @@
     ;; Registration succeeds — the raw body is stored, :extends intact.
     (story/reg-variant :story.auth.login/child
       {:extends :story.auth.login/no-such-parent
-       :events  []})
+       :setup  []})
     (is (= :story.auth.login/no-such-parent
            (:extends (story/handler-meta :variant :story.auth.login/child)))
         "registration stores the raw body with the unknown parent intact")
@@ -306,8 +306,8 @@
   (testing ":extends cycle raises :rf.error/extends-cycle"
     ;; Set up a cycle: a → b → a. We have to use the raw lookup because
     ;; reg-variant would reject the second registration on unknown-parent.
-    (let [lookup {:story.a/first  {:extends :story.a/second :events []}
-                  :story.a/second {:extends :story.a/first  :events []}}]
+    (let [lookup {:story.a/first  {:extends :story.a/second :setup []}
+                  :story.a/second {:extends :story.a/first  :setup []}}]
       (try
         (extends/resolve-extends (get lookup :story.a/first)
                                  #(get lookup %))
@@ -326,7 +326,7 @@
                             (let [this   (keyword "story.chain" (str "n" i))
                                   parent (when (< (inc i) chain-len)
                                            (keyword "story.chain" (str "n" (inc i))))]
-                              [this (cond-> {:events []}
+                              [this (cond-> {:setup []}
                                       parent (assoc :extends parent))])))]
       (binding [extends/*max-extends-depth* 32]
         (try
@@ -345,9 +345,9 @@
        :component :app.auth/login-form
        :args      {:placeholder "you@example.com"}
        :tags      #{:dev :docs}
-       :variants  {:empty            {:events [[:auth/initialise]]
+       :variants  {:empty            {:setup [[:auth/initialise]]
                                       :tags   #{:dev :docs}}
-                   :validation-error {:events [[:auth/initialise]
+                   :validation-error {:setup [[:auth/initialise]
                                                [:auth/email-changed "x"]
                                                [:auth/login-pressed]]
                                       :tags   #{:dev :docs :test}}}})
@@ -366,10 +366,10 @@
        :component :app.formb/view
        :args      {:label "parent"}
        :tags      #{:dev}
-       :variants  {:idle {:events [[:formb/init]]
+       :variants  {:idle {:setup [[:formb/init]]
                            :args   {:state :idle}
                            :tags   #{:dev :test}}
-                   :busy {:events [[:formb/init] [:formb/load]]
+                   :busy {:setup [[:formb/init] [:formb/load]]
                           :args   {:state :busy}
                           :tags   #{:dev}}}})
     (let [combined-story (dissoc (story/handler-meta :story :story.formb.combined)
@@ -386,11 +386,11 @@
          :args      {:label "parent"}
          :tags      #{:dev}})
       (story/reg-variant :story.formb.separate/idle
-        {:events [[:formb/init]]
+        {:setup [[:formb/init]]
          :args   {:state :idle}
          :tags   #{:dev :test}})
       (story/reg-variant :story.formb.separate/busy
-        {:events [[:formb/init] [:formb/load]]
+        {:setup [[:formb/init] [:formb/load]]
          :args   {:state :busy}
          :tags   #{:dev}})
       (is (= combined-story
@@ -505,7 +505,7 @@
     (is (story/registered? :tag :auth/regression-set))
     ;; Now a variant tagged with it should validate
     (story/reg-variant :story.auth.login/regression-empty
-      {:events [[:auth/initialise]]
+      {:setup [[:auth/initialise]]
        :tags   #{:dev :auth/regression-set}})
     (is (story/registered? :variant :story.auth.login/regression-empty))))
 
@@ -587,7 +587,7 @@
     ;; inherited tag set. The registrar accepts these as long as the
     ;; base (un-prefixed) tag is registered.
     (story/reg-variant :story.bang/test
-      {:events []
+      {:setup []
        :tags   #{:!dev :docs}})
     (is (story/registered? :variant :story.bang/test))))
 
@@ -596,23 +596,23 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf\.error/unknown-tag"
                           (story/reg-variant :story.bang/bad
-                            {:events []
+                            {:setup []
                              :tags   #{:!totally-unknown}})))))
 
 ;; ---- query API ---------------------------------------------------------
 
 (deftest variants-of-finds-children
   (testing "variants-of returns only the variants of the requested story"
-    (story/reg-variant :story.foo/a {:events []})
-    (story/reg-variant :story.foo/b {:events []})
-    (story/reg-variant :story.bar/c {:events []})
+    (story/reg-variant :story.foo/a {:setup []})
+    (story/reg-variant :story.foo/b {:setup []})
+    (story/reg-variant :story.bar/c {:setup []})
     (is (= #{:story.foo/a :story.foo/b} (story/variants-of :story.foo)))
     (is (= #{:story.bar/c}              (story/variants-of :story.bar)))))
 
 (deftest variants-of-empty-when-no-children
   (testing "variants-of returns empty set when the story has no registered variants"
     (is (= #{} (story/variants-of :story.no-variants)))
-    (story/reg-variant :story.other/x {:events []})
+    (story/reg-variant :story.other/x {:setup []})
     (is (= #{} (story/variants-of :story.no-variants)))))
 
 (deftest variants-of-rejects-nested-namespace
@@ -621,16 +621,16 @@
             `:story.foo.bar/x` was a structurally-suspect 'prefix match' of
             `:story.foo`. The namespace-equality check rules it out by
             construction."
-    (story/reg-variant :story.foo/a     {:events []})
-    (story/reg-variant :story.foo.bar/x {:events []})
-    (story/reg-variant :story.foo.bar/y {:events []})
+    (story/reg-variant :story.foo/a     {:setup []})
+    (story/reg-variant :story.foo.bar/x {:setup []})
+    (story/reg-variant :story.foo.bar/y {:setup []})
     (is (= #{:story.foo/a}                       (story/variants-of :story.foo)))
     (is (= #{:story.foo.bar/x :story.foo.bar/y}  (story/variants-of :story.foo.bar)))))
 
 (deftest variants-of-short-and-bare-story
   (testing "variants-of works for the bare `:story` root and short names"
-    (story/reg-variant :story/root {:events []})
-    (story/reg-variant :story.a/v  {:events []})
+    (story/reg-variant :story/root {:setup []})
+    (story/reg-variant :story.a/v  {:setup []})
     (is (= #{:story/root} (story/variants-of :story)))
     (is (= #{:story.a/v}  (story/variants-of :story.a)))))
 
@@ -639,9 +639,9 @@
     (story/reg-story   :story.foo {})
     (story/reg-story   :story.bar {})
     (story/reg-story   :story.empty {})
-    (story/reg-variant :story.foo/a {:events []})
-    (story/reg-variant :story.foo/b {:events []})
-    (story/reg-variant :story.bar/c {:events []})
+    (story/reg-variant :story.foo/a {:setup []})
+    (story/reg-variant :story.foo/b {:setup []})
+    (story/reg-variant :story.bar/c {:setup []})
     (let [idx (story/variants-by-story)]
       (is (= #{:story.foo/a :story.foo/b} (get idx :story.foo)))
       (is (= #{:story.bar/c}              (get idx :story.bar)))
@@ -652,9 +652,9 @@
   (testing "variants-by-story's per-story slot matches `variants-of`'s output (rf2-d3iso)"
     (story/reg-story   :story.aa {})
     (story/reg-story   :story.bb {})
-    (story/reg-variant :story.aa/one   {:events []})
-    (story/reg-variant :story.aa/two   {:events []})
-    (story/reg-variant :story.bb/three {:events []})
+    (story/reg-variant :story.aa/one   {:setup []})
+    (story/reg-variant :story.aa/two   {:setup []})
+    (story/reg-variant :story.bb/three {:setup []})
     (let [idx (story/variants-by-story)]
       (doseq [sid [:story.aa :story.bb]]
         (is (= (story/variants-of sid) (get idx sid))
@@ -662,9 +662,9 @@
 
 (deftest variants-with-tags-intersection
   (testing "variants-with-tags returns variants whose :tags intersects the query"
-    (story/reg-variant :story.tag/a {:events [] :tags #{:dev :test}})
-    (story/reg-variant :story.tag/b {:events [] :tags #{:dev :docs}})
-    (story/reg-variant :story.tag/c {:events [] :tags #{:test}})
+    (story/reg-variant :story.tag/a {:setup [] :tags #{:dev :test}})
+    (story/reg-variant :story.tag/b {:setup [] :tags #{:dev :docs}})
+    (story/reg-variant :story.tag/c {:setup [] :tags #{:test}})
     (is (= #{:story.tag/a :story.tag/c} (story/variants-with-tags #{:test})))
     (is (= #{:story.tag/a :story.tag/b} (story/variants-with-tags #{:docs :dev})))))
 
@@ -672,9 +672,9 @@
   (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
             declares :!dev is EXCLUDED from the #{:dev} query (the inherited
             :dev was cancelled), while a sibling that keeps :dev is returned"
-    (story/reg-variant :story.rm/base  {:events [] :tags #{:dev}})
-    (story/reg-variant :story.rm/child {:events [] :extends :story.rm/base :tags #{:!dev}})
-    (story/reg-variant :story.rm/keeps {:events [] :tags #{:dev}})
+    (story/reg-variant :story.rm/base  {:setup [] :tags #{:dev}})
+    (story/reg-variant :story.rm/child {:setup [] :extends :story.rm/base :tags #{:!dev}})
+    (story/reg-variant :story.rm/keeps {:setup [] :tags #{:dev}})
     (let [hits (story/variants-with-tags #{:dev})]
       (is (contains? hits :story.rm/base))
       (is (contains? hits :story.rm/keeps))
@@ -685,13 +685,13 @@
   (testing "rf2-n0vmq2 — a variant that declares no tags inherits its parent
             story's :tags and is returned for a query on the inherited tag"
     (story/reg-story   :story.inh {:tags #{:dev}})
-    (story/reg-variant :story.inh/v {:events []})
+    (story/reg-variant :story.inh/v {:setup []})
     (is (contains? (story/variants-with-tags #{:dev}) :story.inh/v))))
 
 (deftest all-kinds-with-counts-reflects-state
   (testing "all-kinds-with-counts mirrors the side-table"
     (story/reg-story   :story.x   {:doc "x"})
-    (story/reg-variant :story.x/v {:events []})
+    (story/reg-variant :story.x/v {:setup []})
     (let [counts (story/all-kinds-with-counts)]
       (is (= 1 (:story   counts)))
       (is (= 1 (:variant counts)))
@@ -704,10 +704,10 @@
 (deftest variant->edn-returns-body
   (testing "variant->edn returns the registered body verbatim"
     (story/reg-variant :story.edn/x
-      {:events [[:init]]
+      {:setup [[:init]]
        :tags   #{:dev}})
     (let [edn (story/variant->edn :story.edn/x)]
-      (is (= [[:init]] (:events edn)))
+      (is (= [[:init]] (:setup edn)))
       (is (= #{:dev}    (:tags edn))))))
 
 ;; ---- elision sentinel ------------------------------------------------
@@ -736,7 +736,7 @@
       (story/reg-story :story.ui.tick {:doc "tick test"})
       (is (> (registrar/current-mutation-tick) t0))
       (let [t1 (registrar/current-mutation-tick)]
-        (story/reg-variant :story.ui.tick/v {:events [[:init]]})
+        (story/reg-variant :story.ui.tick/v {:setup [[:init]]})
         (is (> (registrar/current-mutation-tick) t1))
         (let [t2 (registrar/current-mutation-tick)]
           (registrar/unregister! :variant :story.ui.tick/v)
@@ -750,16 +750,16 @@
     (let [t0 (registrar/current-mutation-tick)]
       (dotimes [i 5]
         (story/reg-variant (keyword (str "story.tick.mono/v" i))
-                           {:events [[:init]]}))
+                           {:setup [[:init]]}))
       (is (>= (registrar/current-mutation-tick) (+ t0 5))))))
 
 (deftest variants-with-tags-memoised-on-mutation-tick
   (testing "variants-with-tags returns cached results between two registrar writes (rf2-c5nwl)"
     (story/reg-tag :status/stable {:axis :status})
     (story/reg-tag :role/dev      {:axis :role})
-    (story/reg-variant :story.memo/a {:tags #{:status/stable} :events []})
-    (story/reg-variant :story.memo/b {:tags #{:role/dev}     :events []})
-    (story/reg-variant :story.memo/c {:tags #{:status/stable :role/dev} :events []})
+    (story/reg-variant :story.memo/a {:tags #{:status/stable} :setup []})
+    (story/reg-variant :story.memo/b {:tags #{:role/dev}     :setup []})
+    (story/reg-variant :story.memo/c {:tags #{:status/stable :role/dev} :setup []})
     (let [r1 (registrar/variants-with-tags #{:status/stable})
           r2 (registrar/variants-with-tags #{:status/stable})]
       (testing "same query between writes returns identical (cache-hit) set"
@@ -769,7 +769,7 @@
       (let [r-role (registrar/variants-with-tags #{:role/dev})]
         (is (= #{:story.memo/b :story.memo/c} r-role))))
     (testing "registrar mutation invalidates the cache"
-      (story/reg-variant :story.memo/d {:tags #{:status/stable} :events []})
+      (story/reg-variant :story.memo/d {:tags #{:status/stable} :setup []})
       (let [r3 (registrar/variants-with-tags #{:status/stable})]
         (is (= #{:story.memo/a :story.memo/c :story.memo/d} r3))))))
 

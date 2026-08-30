@@ -92,7 +92,7 @@
      :decorators [[:hiccup-wrap]
                   [:rf.story/force-fx-stub :http {:status :ok}]]
      :tags       #{:dev :docs :test}
-     :events     []})
+     :setup     []})
   (story/reg-mode :Mode.app/dark {:args {:theme :dark}})
   (story/reg-workspace :Workspace.docs-rich/prose-ws
     {:layout  :prose
@@ -152,7 +152,7 @@
             an empty prose result — the renderer omits the section
             entirely (no 'no prose' placeholder per spec/008)"
     (story/reg-variant :story.docs.no-prose/v
-      {:doc "no-prose variant" :events []})
+      {:doc "no-prose variant" :setup []})
     (is (= [] (docs/prose-for-variant :story.docs.no-prose/v))
         "empty result — the renderer's `when (seq entries)` clause
          omits the prose section's data-test wrapper")))
@@ -234,7 +234,7 @@
     (is (= [:dev :docs :test]
            (docs/variant-tags :story.docs-rich/v))
         "rich variant exposes its full tag set, sorted")
-    (story/reg-variant :story.docs.no-tags/v {:events []})
+    (story/reg-variant :story.docs.no-tags/v {:setup []})
     (is (= [] (docs/variant-tags :story.docs.no-tags/v))
         "variant with no tags AND no parent story tags surfaces empty")))
 

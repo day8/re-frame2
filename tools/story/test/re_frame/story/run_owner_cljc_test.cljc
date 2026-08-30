@@ -73,8 +73,8 @@
   increment also issues the external effect), assert final `:count` = 3."
   [vid]
   (story/reg-variant vid
-    {:events      [[:counter/initialise 0]]
-     :play-script [[:dispatch-sync [:probe/inc-and-effect]]
+    {:setup      [[:counter/initialise 0]]
+     :script [[:dispatch-sync [:probe/inc-and-effect]]
                    [:dispatch-sync [:probe/inc-and-effect]]
                    [:dispatch-sync [:probe/inc-and-effect]]
                    [:dispatch-sync [:rf.assert/path-equals [:count] 3]]]}))
@@ -241,8 +241,8 @@
          ;; The variant waits, then increments once (issuing the external
          ;; effect), then asserts. The wait opens the supersession window.
          (story/reg-variant vid
-           {:events      [[:counter/initialise 0]]
-            :play-script [[:wait wait]
+           {:setup      [[:counter/initialise 0]]
+            :script [[:wait wait]
                           [:dispatch-sync [:probe/inc-and-effect]]
                           [:dispatch-sync [:rf.assert/path-equals [:count] 1]]]})
          ;; A prepares + starts resuming on its OWN thread. resume-run! blocks

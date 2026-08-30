@@ -151,7 +151,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- run-replay!
-  "Drive the just-exported `:play-script` against the recorded variant's
+  "Drive the just-exported `:script` against the recorded variant's
   frame via the runner. Updates the dialog's `:replay-status` slot so
   the UI can surface the outcome."
   [{:keys [source-id]} spec]
@@ -394,7 +394,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Public open-from-recorder helper
 ;;
-;; The recorder save-dialog's "Export as :play-script" button invokes
+;; The recorder save-dialog's "Export as :script" button invokes
 ;; this — passes the dialog's captured events + source-id + snapshots
 ;; the live frame db (when available) so the auto-assert option has
 ;; data to work with.

@@ -540,8 +540,8 @@
     (is (= "happy path" (:name (first plays))))))
 
 (deftest variant-body->plays-prefers-plays-over-play-script
-  (testing "if both :plays and :play-script are present, :plays wins"
-    (let [body  {:play-script [[:dispatch [:legacy]]]
+  (testing "if both :plays and :script are present, :plays wins"
+    (let [body  {:script [[:dispatch [:legacy]]]
                  :plays       [{:name "p1" :script [[:dispatch [:plays]]]}]}
           plays (runner/variant-body->plays body)]
       (is (= 1 (count plays)))
@@ -549,16 +549,16 @@
       (is (= [[:dispatch [:plays]]] (:script (first plays)))))))
 
 (deftest variant-body->plays-wraps-play-script
-  (testing "a :play-script-only variant produces a single-entry vector"
-    (let [body  {:play-script {:name "single" :script [[:dispatch [:a]]]}}
+  (testing "a :script-only variant produces a single-entry vector"
+    (let [body  {:script {:name "single" :script [[:dispatch [:a]]]}}
           plays (runner/variant-body->plays body)]
       (is (= 1 (count plays)))
       (is (= "single" (:name (first plays))))
       (is (= [[:dispatch [:a]]] (:script (first plays)))))))
 
 (deftest variant-body->plays-bare-play-script-without-name
-  (testing "a bare :play-script without a :name produces a one-entry vector with :name nil"
-    (let [body  {:play-script [[:dispatch [:a]]]}
+  (testing "a bare :script without a :name produces a one-entry vector with :name nil"
+    (let [body  {:script [[:dispatch [:a]]]}
           plays (runner/variant-body->plays body)]
       (is (= 1 (count plays)))
       (is (nil? (:name (first plays)))))))
@@ -567,7 +567,7 @@
   (testing "no play surface yields an empty vector"
     (is (= [] (runner/variant-body->plays nil)))
     (is (= [] (runner/variant-body->plays {})))
-    (is (= [] (runner/variant-body->plays {:events []})))))
+    (is (= [] (runner/variant-body->plays {:setup []})))))
 
 (deftest find-play-by-name
   (let [plays (runner/parse-plays
@@ -587,8 +587,8 @@
   (let [multi  (runner/parse-plays
                  [{:name "alpha" :script [[:dispatch [:a]]]}
                   {:name "beta"  :script [[:dispatch [:b]]]}])
-        single-bare (runner/variant-body->plays {:play-script [[:dispatch [:a]]]})
-        single-named (runner/variant-body->plays {:play-script {:name "n" :script [[:dispatch [:a]]]}})]
+        single-bare (runner/variant-body->plays {:script [[:dispatch [:a]]]})
+        single-named (runner/variant-body->plays {:script {:name "n" :script [[:dispatch [:a]]]}})]
     (is (= "alpha" (runner/default-play-key multi)))
     ;; Single-script wrap preserves the original :name (nil for bare, "n" for named).
     (is (nil? (runner/default-play-key single-bare)))

@@ -52,7 +52,7 @@
     {:doc "Counter parent story for the spine e2e tests."})
   (story/reg-variant variant-id
     {:doc    "Counter seeded at 5 — exercises the inline spine path."
-     :events [[:counter/initialise]]}))
+     :setup [[:counter/initialise]]}))
 
 ;; ---- 1 · the embed renders the spine band (hiccup level) ----------------
 

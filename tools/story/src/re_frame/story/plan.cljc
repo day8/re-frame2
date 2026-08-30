@@ -17,8 +17,8 @@
   - Read a registered variant body (or accept an inline map).
   - Resolve the `:extends` parent chain root-to-child, bounded with cycle
     detection (§Total resolution order step 1; §`:extends`).
-  - Lower author ergonomics into the four-bucket shape: `:events`/`:setup`
-    → `[:world :setup]`; `:play-script`/`:plays`/`:script` → `:script`;
+  - Lower author ergonomics into the four-bucket shape: `:setup`
+    → `[:world :setup]`; `:script`/`:plays` → `:script`;
     `:checks`/`:assertions` → `:expect`.
   - Resolve `:args` through the same precedence chain as
     `re-frame.story.args` (deep-merge, later wins) and substitute
@@ -227,11 +227,6 @@
 ;; Setup APPENDS root→child (preserving order); script and assertions are
 ;; taken from the child only.
 
-(def ^:private setup-keys
-  "Source keys that lower into `[:world :setup]`, in priority order
-  (`:setup` is the target spelling; `:events` is the shipping spelling)."
-  [:setup :events])
-
 (def ^:private context-keys
   "World/context keys inherited through `:extends` (deep-merge for maps,
   child-wins for scalars; see `merge-context`).
@@ -268,10 +263,10 @@
    :sensitive :large])
 
 (defn- pick-setup
-  "Return the raw setup vector for a body — the first of `setup-keys`
-  present. Both spellings lower to the same `[:world :setup]` slot."
+  "Return the raw `:setup` vector for a body — the one source of
+  `[:world :setup]`."
   [body]
-  (some (fn [k] (when (contains? body k) (get body k))) setup-keys))
+  (:setup body))
 
 (defn- merge-context
   "Deep-merge one context value root→child. Maps recurse (per
@@ -293,11 +288,11 @@
 ;; Script normalization
 ;; ============================================================================
 ;;
-;; `:play-script` (single) / `:plays` (named) / `:script` (target) all
-;; lower to `:script`. We reuse the shipping `runner/variant-body->plays`
-;; so bare event-vector shorthand and the `:dispatch`/`:dispatch-sync`/
-;; `:wait`/`:assert-*` tag grammar coerce exactly as the runtime sees
-;; them. Per spec §Public vocabulary + §Setup and script.
+;; `:script` (single) / `:plays` (named) both lower to `:script`. We reuse
+;; the runtime's `runner/variant-body->plays` so bare event-vector
+;; shorthand and the `:dispatch`/`:dispatch-sync`/`:wait`/`:assert-*` tag
+;; grammar coerce exactly as the runtime sees them. Per spec §Public
+;; vocabulary + §Setup and script.
 ;;
 ;; The normalized `:script` is the FIRST (auto-run / primary) play's
 ;; coerced step vector; the full named-play set is preserved under
@@ -336,9 +331,10 @@
 
 (defn- normalize-scripts
   "Return `{:script [step ...] :scripts [{:name :script :auto-run?} ...]}`
-  for a merged body. Accepts the target `:script` spelling AND the
-  shipping `:play-script` / `:plays` spellings, lowering them through the
-  runner's canonical coercion. The primary `:script` is the first play.
+  for a merged body. Reads the `:script` / `:plays` slots through the
+  runner's canonical coercion (`runner/variant-body->plays` — bare
+  vector or `{:script :auto-run? :name}` map for `:script`, named entries
+  for `:plays`). The primary `:script` is the first play.
 
   Each play's coerced script is first SHAPE-VALIDATED
   (`reject-malformed-steps!`) so a malformed `:assert-db` / `:assert-dom`
@@ -353,14 +349,7 @@
   Each `:scripts` entry carries the folded script too, so named plays the
   runner drives also see the canonical checkpoints."
   [id body]
-  (let [plays (cond
-                (contains? body :script)
-                ;; Target spelling: a bare step vector, coerced the same
-                ;; way the runner coerces a `:play-script` body's `:script`.
-                [{:script (runner/coerce-script (:script body)) :auto-run? true}]
-
-                :else
-                (runner/variant-body->plays body))
+  (let [plays (runner/variant-body->plays body)
         plays (mapv (fn [p]
                       (reject-malformed-steps! id (:script p))
                       (update p :script assertions/fold-script))

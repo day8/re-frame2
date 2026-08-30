@@ -162,8 +162,8 @@
 
 (deftest filter-variants-by-tag
   (testing "filter-variants returns matching subset"
-    (story/reg-variant :story.t/a {:tags #{:dev} :events []})
-    (story/reg-variant :story.t/b {:tags #{:test} :events []})
+    (story/reg-variant :story.t/a {:tags #{:dev} :setup []})
+    (story/reg-variant :story.t/b {:tags #{:test} :setup []})
     (let [vs   (story-registrar/registrations :variant)
           devs (state/filter-variants vs #{:dev})]
       (is (contains? devs :story.t/a))
@@ -171,9 +171,9 @@
 
 (deftest group-variants-by-story
   (testing "group-variants-by-story builds the sidebar tree"
-    (story/reg-variant :story.a/x {:events []})
-    (story/reg-variant :story.a/y {:events []})
-    (story/reg-variant :story.b/z {:events []})
+    (story/reg-variant :story.a/x {:setup []})
+    (story/reg-variant :story.a/y {:setup []})
+    (story/reg-variant :story.b/z {:setup []})
     (let [vs       (story-registrar/registrations :variant)
           grouped  (state/group-variants-by-story vs)
           by-story (into {} (map (juxt :story-id :variants) grouped))]
@@ -182,8 +182,8 @@
 
 (deftest sidebar-tag-collection
   (testing "sidebar/collect-tags enumerates registered tags"
-    (story/reg-variant :story.tg/a {:tags #{:dev :test} :events []})
-    (story/reg-variant :story.tg/b {:tags #{:dev :docs} :events []})
+    (story/reg-variant :story.tg/a {:tags #{:dev :test} :setup []})
+    (story/reg-variant :story.tg/b {:tags #{:dev :docs} :setup []})
     (let [vs (story-registrar/registrations :variant)]
       (is (= [:dev :docs :test]
              (sidebar/collect-tags vs))))))
@@ -203,7 +203,7 @@
   (testing "controls/resolve-argtypes inherits from args' value shapes"
     (story/reg-variant :story.at/v
       {:args   {:label "x" :n 1 :flag true}
-       :events []})
+       :setup []})
     (let [t (controls/resolve-argtypes :story.at/v)]
       (is (= :text    (:widget (get t :label))))
       (is (= :number  (:widget (get t :n))))
@@ -228,7 +228,7 @@
       {:args     {:placeholder "ok" :flavor :primary}
        :argtypes {:placeholder {:control :textarea}
                   :flavor      {:control :select :options [:primary :secondary]}}
-       :events   []})
+       :setup   []})
     (let [t (controls/resolve-argtypes :story.argtypes/ctrl)]
       (is (= :textarea (:widget (get t :placeholder))))
       (is (= :select   (:widget (get t :flavor))))
@@ -249,8 +249,8 @@
 
 (deftest variants-grid-layout-enumerates-from-registry
   (testing ":variants-grid auto-enumerates the anchor story's variants"
-    (story/reg-variant :story.demo/a {:events []})
-    (story/reg-variant :story.demo/b {:events []})
+    (story/reg-variant :story.demo/a {:setup []})
+    (story/reg-variant :story.demo/b {:setup []})
     (let [cells (workspace/resolve-layout
                   :Workspace.demo/all-variants
                   {:layout :variants-grid})]
@@ -300,7 +300,7 @@
       {:component :rf2-zme7/view
        :substrates #{:reagent}})
     (story/reg-variant :story.rf2-zme7/v
-      {:events [[:rf2-zme7/init]]
+      {:setup [[:rf2-zme7/init]]
        :substrates #{:reagent}})
     (story/reg-workspace :Workspace.rf2-zme7/g
       {:layout   :grid
@@ -379,10 +379,10 @@
   (testing ":grid layout cells use variant-id-derived React keys so
             React mounts fresh cells when a workspace swap changes the
             variant set (per rf2-kgn0c)"
-    (story/reg-variant :story.rf2-kgn0c.a/x {:events []})
-    (story/reg-variant :story.rf2-kgn0c.a/y {:events []})
-    (story/reg-variant :story.rf2-kgn0c.b/p {:events []})
-    (story/reg-variant :story.rf2-kgn0c.b/q {:events []})
+    (story/reg-variant :story.rf2-kgn0c.a/x {:setup []})
+    (story/reg-variant :story.rf2-kgn0c.a/y {:setup []})
+    (story/reg-variant :story.rf2-kgn0c.b/p {:setup []})
+    (story/reg-variant :story.rf2-kgn0c.b/q {:setup []})
     (story/reg-workspace :Workspace.rf2-kgn0c.a/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.a/x :story.rf2-kgn0c.a/y]})
@@ -414,9 +414,9 @@
 (deftest workspace-variants-grid-cells-key-on-variant-id-rf2-kgn0c
   (testing ":variants-grid layout cells use variant-id-derived React
             keys (the layout the Phase 1b smoke triggered the bug on)"
-    (story/reg-variant :story.rf2-kgn0c-vg.a/x {:events []})
-    (story/reg-variant :story.rf2-kgn0c-vg.a/y {:events []})
-    (story/reg-variant :story.rf2-kgn0c-vg.b/p {:events []})
+    (story/reg-variant :story.rf2-kgn0c-vg.a/x {:setup []})
+    (story/reg-variant :story.rf2-kgn0c-vg.a/y {:setup []})
+    (story/reg-variant :story.rf2-kgn0c-vg.b/p {:setup []})
     (story/reg-workspace :Workspace.rf2-kgn0c-vg.a/all
       {:layout :variants-grid})
     (story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
@@ -440,7 +440,7 @@
   (testing "the workspace's root <section> carries a workspace-id-derived
             React key so any swap unmounts the whole subtree as a
             belt-and-braces guard alongside per-cell keys"
-    (story/reg-variant :story.rf2-kgn0c-root/v {:events []})
+    (story/reg-variant :story.rf2-kgn0c-root/v {:setup []})
     (story/reg-workspace :Workspace.rf2-kgn0c-root/g
       {:layout   :grid
        :variants [:story.rf2-kgn0c-root/v]})
@@ -527,9 +527,9 @@
             falling through to the grid pipeline (per rf2-ktnl8 — pre-
             fix `:tabs` collapsed to grid and rendered every cell
             simultaneously)"
-    (story/reg-variant :story.rf2-ktnl8/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8/b {:events []})
-    (story/reg-variant :story.rf2-ktnl8/c {:events []})
+    (story/reg-variant :story.rf2-ktnl8/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8/b {:setup []})
+    (story/reg-variant :story.rf2-ktnl8/c {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8/a
@@ -548,9 +548,9 @@
   (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
             simultaneous-render bleed (rf2-ktnl8) cannot occur because
             non-active cells are not present in the rendered tree"
-    (story/reg-variant :story.rf2-ktnl8.only/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.only/b {:events []})
-    (story/reg-variant :story.rf2-ktnl8.only/c {:events []})
+    (story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.only/c {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.only/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.only/a
@@ -570,9 +570,9 @@
 (deftest tabs-renderer-emits-button-per-variant-rf2-ktnl8
   (testing "tabs-renderer renders a tab strip with one tab button per
             variant — the UI affordance for switching tabs"
-    (story/reg-variant :story.rf2-ktnl8.btn/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.btn/b {:events []})
-    (story/reg-variant :story.rf2-ktnl8.btn/c {:events []})
+    (story/reg-variant :story.rf2-ktnl8.btn/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.btn/b {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.btn/c {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.btn/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.btn/a
@@ -602,8 +602,8 @@
             gallery_chrome.cljs happens because simultaneous cells
             mount the SAME view in the SAME render tree; if only ONE
             cell mounts at a time, the bleed cannot occur.)"
-    (story/reg-variant :story.rf2-ktnl8.iso/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.iso/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.iso/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.iso/b {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.iso/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.iso/a
@@ -630,9 +630,9 @@
 (deftest tabs-renderer-buttons-carry-onclick-and-aria-rf2-ktnl8
   (testing "each tab button carries an on-click (the switch affordance)
             and aria-selected reflecting the active tab"
-    (story/reg-variant :story.rf2-ktnl8.aria/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.aria/b {:events []})
-    (story/reg-variant :story.rf2-ktnl8.aria/c {:events []})
+    (story/reg-variant :story.rf2-ktnl8.aria/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.aria/b {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.aria/c {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.aria/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.aria/a
@@ -660,8 +660,8 @@
             `r/with-let` re-allocates bindings on each non-React call),
             so this test pins the handler's structural invariant: it
             is callable, takes no args, and does not throw."
-    (story/reg-variant :story.rf2-ktnl8.click/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.click/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.click/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.click/b {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.click/t
       {:layout   :tabs
        :variants [:story.rf2-ktnl8.click/a
@@ -684,9 +684,9 @@
             that the two layouts mount different numbers of cells.
             Without this guard a future refactor could silently re-
             collapse `:tabs` to `:grid` (the rf2-ktnl8 starting state)."
-    (story/reg-variant :story.rf2-ktnl8.gt/a {:events []})
-    (story/reg-variant :story.rf2-ktnl8.gt/b {:events []})
-    (story/reg-variant :story.rf2-ktnl8.gt/c {:events []})
+    (story/reg-variant :story.rf2-ktnl8.gt/a {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.gt/b {:setup []})
+    (story/reg-variant :story.rf2-ktnl8.gt/c {:setup []})
     (story/reg-workspace :Workspace.rf2-ktnl8.gt/grid
       {:layout :grid
        :variants [:story.rf2-ktnl8.gt/a
@@ -753,9 +753,9 @@
 (deftest workspace-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing ":grid with :columns N emits a fixed repeat(N, …) template —
             pre-fix this slot was silently ignored (rf2-ugmrg)"
-    (story/reg-variant :story.ugmrg-cols/a {:events []})
-    (story/reg-variant :story.ugmrg-cols/b {:events []})
-    (story/reg-variant :story.ugmrg-cols/c {:events []})
+    (story/reg-variant :story.ugmrg-cols/a {:setup []})
+    (story/reg-variant :story.ugmrg-cols/b {:setup []})
+    (story/reg-variant :story.ugmrg-cols/c {:setup []})
     (story/reg-workspace :Workspace.ugmrg-cols/grid
       {:layout   :grid
        :columns  3
@@ -773,8 +773,8 @@
   (testing ":grid without :columns keeps the responsive auto-fit default
             (rf2-ugmrg — :columns is opt-in; absent it must not change
             existing behaviour)"
-    (story/reg-variant :story.ugmrg-auto/a {:events []})
-    (story/reg-variant :story.ugmrg-auto/b {:events []})
+    (story/reg-variant :story.ugmrg-auto/a {:setup []})
+    (story/reg-variant :story.ugmrg-auto/b {:setup []})
     (story/reg-workspace :Workspace.ugmrg-auto/grid
       {:layout   :grid
        :variants [:story.ugmrg-auto/a
@@ -789,8 +789,8 @@
 (deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing "isolated :variants-grid honours :columns too (same capped-grid
             renderer; rf2-ugmrg)"
-    (story/reg-variant :story.ugmrg-vg/a {:events []})
-    (story/reg-variant :story.ugmrg-vg/b {:events []})
+    (story/reg-variant :story.ugmrg-vg/a {:setup []})
+    (story/reg-variant :story.ugmrg-vg/b {:setup []})
     (story/reg-workspace :Workspace.ugmrg-vg/all
       {:layout  :variants-grid
        :for     :story.ugmrg-vg
@@ -812,7 +812,7 @@
 ;; when `:hot-reload-tick` advanced. Consequence in `:variants-grid` /
 ;; `:grid` workspaces: editing a control through the controls panel
 ;; wrote through to `:cell-overrides` but the cell's frame was never
-;; re-seeded → the cell kept rendering against its original `:events`-
+;; re-seeded → the cell kept rendering against its original `:setup`-
 ;; seeded app-db. Same hazard for chrome-level `:active-modes` toggles
 ;; and substrate flips.
 ;;
@@ -1260,7 +1260,7 @@
        :args      {:label "L"}
        :argtypes  {:label {:doc "label slot"}}
        :tags      #{:dev :docs}
-       :events    []})
+       :setup    []})
     (let [result (docs/docs-view :story.dv/x)]
       (is (vector? result))
       ;; Per rf2-8c7tk the docs-view wraps the body section + TOC in a
@@ -1287,7 +1287,7 @@
       {:args      {:greeting "hi"}
        :argtypes  {:greeting {:doc "the greeting"}}
        :tags      #{:dev :docs}
-       :events    []})
+       :setup    []})
     (let [rows (docs/args-rows :story.dvh/x {:greeting "hi"})]
       (is (= [{:key :greeting :value "hi" :doc "the greeting"}]
              rows)))
@@ -1301,9 +1301,9 @@
 
 (deftest test-view-empty-state-without-play
   (testing "test-view renders the empty-state placeholder when the
-            variant body has no :play-script slot — the variant is registered
+            variant body has no :script slot — the variant is registered
             but declares zero assertions, so no run is fired."
-    (story/reg-variant :story.tv/no-play {:events []})
+    (story/reg-variant :story.tv/no-play {:setup []})
     (let [result (test-mode-view/test-view :story.tv/no-play)]
       ;; r/create-class returns a fn — Reagent will invoke it during
       ;; render. We at least confirm the helper returns a non-nil
@@ -1381,7 +1381,7 @@
 
 (deftest registry-snapshot-shape
   (testing "registry-snapshot returns every Story kind"
-    (story/reg-variant :story.r/v {:events []})
+    (story/reg-variant :story.r/v {:setup []})
     (let [snap (state/registry-snapshot)]
       (is (contains? snap :stories))
       (is (contains? snap :variants))

@@ -174,7 +174,7 @@
           script-vec (edn/read-string script-str)]
       (is (some? script-str) "extractor found a :script vector substring")
       (is (not (str/includes? snip ":play-script"))
-          "the snippet no longer emits the transitional :play-script slot (rf2-7mj4z)")
+          "the snippet never emits the retired :play-script slot (rf2-7mj4z)")
       (is (every? #(and (vector? %)
                         (= :dispatch-sync (first %)))
                   script-vec)

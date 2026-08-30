@@ -136,7 +136,7 @@
       (with-story-and-xray-frames
         {:register-stories (fn []
                              (story/reg-variant :story.counter/loaded
-                               {:events [[:counter/initialise 5]]}))}
+                               {:setup [[:counter/initialise 5]]}))}
         (fn []
           (async done
             (-> (story/run-variant :story.counter/loaded)

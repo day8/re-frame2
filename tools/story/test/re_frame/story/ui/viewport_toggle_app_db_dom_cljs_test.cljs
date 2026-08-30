@@ -23,7 +23,7 @@
       mount [shell/framed-canvas] (viewport :full)
             |
       canvas/canvas's component-did-mount -> run-if-needed! -> run-variant
-            |  (variant's :events seed app-db)
+            |  (variant's :setup seed app-db)
             v
       simulate user interaction: dispatch a NON-setup event into the
       variant's frame directly (mirrors 'user increments a counter')
@@ -122,7 +122,7 @@
         ;; so only the mechanism under test — `framed-canvas` /
         ;; `canvas/canvas`'s mount lifecycle — is exercised.
         (story/reg-variant variant-id
-          {:events [[:vp-toggle/set 1]]})
+          {:setup [[:vp-toggle/set 1]]})
         (state/swap-state! state/select-variant variant-id)
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
@@ -137,13 +137,13 @@
             (react-dom/flushSync
               (fn [] (rdc/render root [framed-canvas])))
             (is (= 1 (:n (rf/app-db-value variant-id)))
-                "the variant's setup :events seeded app-db on first mount")
+                "the variant's setup :setup seeded app-db on first mount")
             (is (nil? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
                 "precondition: the default :full viewport is UNSIZED —
                  the sized wrapper marker is absent")
 
             ;; Simulate a user interaction: a dispatch the variant's
-            ;; OWN :events never fire (not a setup re-run artifact).
+            ;; OWN :setup never fire (not a setup re-run artifact).
             (rf/dispatch-sync [:vp-toggle/inc] {:frame variant-id})
             (is (= 2 (:n (rf/app-db-value variant-id)))
                 "the simulated interaction landed")
@@ -181,7 +181,7 @@
           (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         ;; No `:component` — see the sibling test above for why.
         (story/reg-variant variant-id
-          {:events [[:vp-toggle-rev/set 1]]})
+          {:setup [[:vp-toggle-rev/set 1]]})
         ;; Start already on a sized preset.
         (vs/select! :tablet)
         (state/swap-state! state/select-variant variant-id)

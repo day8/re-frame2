@@ -439,9 +439,8 @@
 ;; mode / story-panel / decorator / tag) share their ENTIRE body: auto-install,
 ;; assert the id shape, merge source-coords, validate the shape, store
 ;; (`reg-simple!`). `reg-story*` (Form-B `:variants` strip + tag check) and
-;; `reg-variant*` (authored-body validation + public-vocabulary lowering + tag
-;; check) carry kind-specific steps, so they expand the flow inline but still
-;; finish through `store!`.
+;; `reg-variant*` (tag check) carry kind-specific steps, so they expand the
+;; flow inline but still finish through `store!`.
 
 (defn- store!
   "Write `body` into the `[kind id]` side-table slot, bump the mutation tick,
@@ -487,12 +486,14 @@
   "Runtime helper for `reg-variant` macro. Per `001-Authoring.md` §Registration macros + spec/017
   §8.4 (the plan compiler is the SINGLE `:extends` merge authority):
 
-  1. Validate the AUTHORED body shape.
-  2. Lower the public vocabulary into the shipping slots.
+  1. Stamp source coords.
+  2. Validate the body shape (`:setup` / `:script` / `:plays` are the
+     only setup and play slots — the closed schema rejects any other
+     spelling).
   3. Cross-check tag membership.
-  4. Stamp source coords.
-  5. Write the RAW body — `:extends` INTACT, parents UNmerged — to the
-     side-table.
+  4. Write the body VERBATIM — `:extends` INTACT, parents UNmerged — to
+     the side-table, so `handler-meta` / `variant->edn` hand back exactly
+     the keys the author wrote.
 
   `:extends` is NOT resolved here. Storing the raw body lets the
   compiler's `resolve-source-chain` walk the parent chain on the default
@@ -504,23 +505,10 @@
   [id body]
   (maybe-auto-install!)
   (assert-id! :variant id)
-  ;; Validate the AUTHORED body first so the public-vocabulary mutual-
-  ;; exclusion (`:setup` xor `:events`, `:script` xor `:play-script` xor
-  ;; `:plays`) fires on what the author actually wrote, before
-  ;; `lower-public-vocabulary` folds the public spellings into the
-  ;; shipping slots.
-  (validate-shape! :variant id body)
-  (let [;; Lower `:setup`→`:events` and `:script`→`:play-script` so the
-        ;; stored body carries the shipping slots every downstream
-        ;; consumer reads (per spec/017 §Public vocabulary; stripped when
-        ;; the runtime reads the normalized plan).
-        ;; `:extends` is preserved verbatim — the plan compiler resolves
-        ;; it.
-        lowered  (schemas/lower-public-vocabulary body)
-        body     (-> lowered
-                     merge-coords
-                     (->> (validate-shape! :variant id)))
-        _        (validate-tag-membership! id (:tags body))]
+  (let [body (-> body
+                 merge-coords
+                 (->> (validate-shape! :variant id)))
+        _    (validate-tag-membership! id (:tags body))]
     (store! :variant id body)))
 
 (defn reg-fragment*
@@ -530,9 +518,8 @@
   Validates the body against the `Fragment` schema — which enforces the
   flat-fragment rule (a fragment MUST NOT carry `:compose` / `:extends`)
   and the world/behaviour-only shape (no `:checks` / `:assertions`). The
-  body is stored verbatim (un-lowered): the plan compiler normalizes both
-  `:setup`/`:events` and `:script`/`:play-script` spellings at compose
-  time, so the fragment keeps the author's spelling."
+  body is stored verbatim; the plan compiler reads its `:setup` /
+  `:script` at compose time."
   [id body]
   (reg-simple! :fragment id body))
 

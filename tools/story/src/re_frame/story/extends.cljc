@@ -102,7 +102,7 @@
   key-sets), if `child` declares ANY key in the group then strip EVERY
   key in that group from `inherited` before the merge. This lets a child
   override a parent's alternative encoding wholesale — e.g. a parent's
-  `:play-script` and a child's `:plays` are sibling encodings of the
+  `:script` and a child's `:plays` are sibling encodings of the
   same play surface; without this the straight merge would carry BOTH
   keys and the schema's mutual-exclusion `:fn` would reject a body the
   author never wrote with both keys."
@@ -131,7 +131,7 @@
   exclusive ENCODINGS of one slot — when the child declares any key in a
   group, the whole group is stripped from every inherited layer before
   the merge so the child's encoding wins wholesale (the Story play surface
-  `#{:play-script :plays}` is one such group). Layers closer to the child
+  `#{:script :plays}` is one such group). Layers closer to the child
   still shadow farther ones key-by-key as usual.
 
   Per /spec/007-Stories.md §Composed variants: 'Resolution at registration time. Cycles raise

@@ -389,15 +389,15 @@
 
 (deftest filter-variants-empty-filter
   (testing "an empty filter passes everything through"
-    (story/reg-variant :story.f/a {:tags #{:dev} :events []})
-    (story/reg-variant :story.f/b {:tags #{:test} :events []})
+    (story/reg-variant :story.f/a {:tags #{:dev} :setup []})
+    (story/reg-variant :story.f/b {:tags #{:test} :setup []})
     (let [vs (story-registrar/registrations :variant)]
       (is (= 2 (count (state/filter-variants vs #{})))))))
 
 (deftest filter-variants-with-tag
   (testing "filter restricts to variants whose tags intersect"
-    (story/reg-variant :story.f2/a {:tags #{:dev} :events []})
-    (story/reg-variant :story.f2/b {:tags #{:test} :events []})
+    (story/reg-variant :story.f2/a {:tags #{:dev} :setup []})
+    (story/reg-variant :story.f2/b {:tags #{:test} :setup []})
     (let [vs (story-registrar/registrations :variant)
           devs (state/filter-variants vs #{:dev})]
       (is (= 1 (count devs)))
@@ -405,8 +405,8 @@
 
 (deftest group-variants-by-story-keeps-untagged
   (testing "variants with no story namespace still appear under their derived parent"
-    (story/reg-variant :story.g/a {:events []})
-    (story/reg-variant :story.g/b {:events []})
+    (story/reg-variant :story.g/a {:setup []})
+    (story/reg-variant :story.g/b {:setup []})
     (let [vs       (story-registrar/registrations :variant)
           grouped  (state/group-variants-by-story vs)
           entries  (into {} (map (juxt :story-id :variants) grouped))]
@@ -475,11 +475,11 @@
     (story/reg-tag :role/dev      {:axis :role})
     (story/reg-tag :role/design   {:axis :role})
     (story/reg-variant :story.facet/a
-      {:tags #{:status/alpha :role/dev} :events []})
+      {:tags #{:status/alpha :role/dev} :setup []})
     (story/reg-variant :story.facet/b
-      {:tags #{:status/stable :role/dev} :events []})
+      {:tags #{:status/stable :role/dev} :setup []})
     (story/reg-variant :story.facet/c
-      {:tags #{:status/stable :role/design} :events []})
+      {:tags #{:status/stable :role/design} :setup []})
     (let [vs        (story-registrar/registrations :variant)
           tag->axis (story-registrar/tag->axis-index)]
       (testing "OR-within status — alpha OR stable returns all three"
@@ -565,9 +565,9 @@
 
 (deftest variants-grid-from-anchor
   (testing ":variants-grid enumerates variants of the anchor story"
-    (story/reg-variant :story.vg/a {:events []})
-    (story/reg-variant :story.vg/b {:events []})
-    (story/reg-variant :story.other/x {:events []})
+    (story/reg-variant :story.vg/a {:setup []})
+    (story/reg-variant :story.vg/b {:setup []})
+    (story/reg-variant :story.other/x {:setup []})
     (let [cells (workspace/resolve-layout
                   :Workspace.vg/all
                   {:layout :variants-grid})]
@@ -576,8 +576,8 @@
 
 (deftest variants-grid-explicit-for
   (testing ":variants-grid honours an explicit :for anchor"
-    (story/reg-variant :story.vge/a {:events []})
-    (story/reg-variant :story.vge/b {:events []})
+    (story/reg-variant :story.vge/a {:setup []})
+    (story/reg-variant :story.vge/b {:setup []})
     (let [cells (workspace/resolve-layout
                   :Workspace.other/all
                   {:layout :variants-grid :for :story.vge})]
@@ -616,8 +616,8 @@
 
 (deftest variants-grid-isolation-default-is-isolated
   (testing "absent :isolation slot resolves cells identically to baseline (data-shape)"
-    (story/reg-variant :story.iso-a/a {:events []})
-    (story/reg-variant :story.iso-a/b {:events []})
+    (story/reg-variant :story.iso-a/a {:setup []})
+    (story/reg-variant :story.iso-a/b {:setup []})
     (let [baseline (workspace/resolve-layout
                      :Workspace.iso-a/all
                      {:layout :variants-grid})
@@ -630,8 +630,8 @@
 
 (deftest variants-grid-isolation-shared-preserves-cell-resolution
   (testing ":isolation :shared resolves the same cell vector as :isolated"
-    (story/reg-variant :story.iso-b/x {:events []})
-    (story/reg-variant :story.iso-b/y {:events []})
+    (story/reg-variant :story.iso-b/x {:setup []})
+    (story/reg-variant :story.iso-b/y {:setup []})
     (let [isolated (workspace/resolve-layout
                      :Workspace.iso-b/all
                      {:layout :variants-grid :isolation :isolated})
@@ -648,9 +648,9 @@
   (testing ":variants-grid reads the spec-authoritative :for anchor
             (rf2-ugmrg — previously :for was silently ignored and only
             :story / the namespace derivation worked)"
-    (story/reg-variant :story.for-anchor/a {:events []})
-    (story/reg-variant :story.for-anchor/b {:events []})
-    (story/reg-variant :story.other-anchor/x {:events []})
+    (story/reg-variant :story.for-anchor/a {:setup []})
+    (story/reg-variant :story.for-anchor/b {:setup []})
+    (story/reg-variant :story.other-anchor/x {:setup []})
     (let [cells (workspace/resolve-layout
                   ;; deliberately a NON-matching workspace ns so the
                   ;; namespace derivation cannot supply the anchor — only
@@ -691,19 +691,19 @@
     (story/reg-story :story.t1
       {:doc "parent" :tags #{:dev :docs}})
     (story/reg-variant :story.t1/a
-      {:tags #{:dev :test} :events []})
+      {:tags #{:dev :test} :setup []})
     (is (= [:dev :test] (docs/variant-tags :story.t1/a))))
   (testing "variant-tags falls back to the parent story when the variant has none"
     (story/reg-story :story.t2
       {:doc "parent" :tags #{:dev :docs}})
-    (story/reg-variant :story.t2/a {:events []})
+    (story/reg-variant :story.t2/a {:setup []})
     (is (= [:dev :docs] (docs/variant-tags :story.t2/a)))))
 
 (deftest docs-variant-tags-resolves-removal-marker
   (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
             declares :!dev shows NO :dev and NO :!dev chip (effective set)"
-    (story/reg-variant :story.tm/base  {:tags #{:dev :test} :events []})
-    (story/reg-variant :story.tm/child {:extends :story.tm/base :tags #{:!dev} :events []})
+    (story/reg-variant :story.tm/base  {:tags #{:dev :test} :setup []})
+    (story/reg-variant :story.tm/child {:extends :story.tm/base :tags #{:!dev} :setup []})
     (is (= [:test] (docs/variant-tags :story.tm/child)))
     (is (not (some #{:dev :!dev} (docs/variant-tags :story.tm/child))))))
 
@@ -712,7 +712,7 @@
     (story/reg-variant :story.a/x
       {:args     {:label "Total" :count 0}
        :argtypes {:label {:doc "The cell label"}}
-       :events   []})
+       :setup   []})
     (let [rows  (docs/args-rows :story.a/x {:label "Total" :count 0})
           by-k  (into {} (map (juxt :key identity)) rows)]
       (is (= 2 (count rows)))
@@ -722,13 +722,13 @@
   (testing "args-rows accepts the Storybook-compat :description key"
     (story/reg-variant :story.a/desc
       {:argtypes {:label {:description "Story-compat description slot"}}
-       :events   []})
+       :setup   []})
     (let [[row] (docs/args-rows :story.a/desc {:label "foo"})]
       (is (= "Story-compat description slot" (:doc row)))))
   (testing "args-rows accepts a bare-string :argtypes value"
     (story/reg-variant :story.a/bare
       {:argtypes {:label "Short doc"}
-       :events   []})
+       :setup   []})
     (let [[row] (docs/args-rows :story.a/bare {:label "foo"})]
       (is (= "Short doc" (:doc row)))))
   (testing "args-rows merges parent-story :argtypes under variant :argtypes"
@@ -737,7 +737,7 @@
                   :count {:doc "from story"}}})
     (story/reg-variant :story.p/x
       {:argtypes {:label {:doc "from variant"}}
-       :events   []})
+       :setup   []})
     (let [rows  (docs/args-rows :story.p/x {:label "L" :count 0})
           by-k  (into {} (map (juxt :key identity)) rows)]
       (is (= "from variant" (:doc (get by-k :label))))
@@ -763,7 +763,7 @@
     (story/reg-variant :story.p1/x
       {:substrates #{:reagent}
        :platforms  #{:client}
-       :events     []})
+       :setup     []})
     (let [rows  (docs/parameter-rows :story.p1/x)
           by-k  (into {} (map (juxt :key identity)) rows)]
       (is (= 2 (count rows)))
@@ -774,7 +774,7 @@
     (story/reg-story :story.p2
       {:substrates #{:reagent :uix}
        :platforms  #{:client}})
-    (story/reg-variant :story.p2/x {:events []})
+    (story/reg-variant :story.p2/x {:setup []})
     (let [rows (docs/parameter-rows :story.p2/x)
           by-k (into {} (map (juxt :key identity)) rows)]
       (is (= #{:reagent :uix} (:value (get by-k :substrates))))
@@ -782,8 +782,8 @@
 
 (deftest docs-prose-for-variant
   (testing "prose-for-variant returns workspace prose blocks that reference the variant"
-    (story/reg-variant :story.d/x {:events []})
-    (story/reg-variant :story.d/y {:events []})
+    (story/reg-variant :story.d/x {:setup []})
+    (story/reg-variant :story.d/y {:setup []})
     (story/reg-workspace :Workspace.d/intro
       {:layout  :prose
        :content [{:type :prose   :body "## How it works"}
@@ -796,12 +796,12 @@
     (testing "a variant the workspace doesn't reference picks up nothing"
       (is (= [] (docs/prose-for-variant :story.d/y)))))
   (testing "non-prose layouts are ignored entirely"
-    (story/reg-variant :story.dg/x {:events []})
+    (story/reg-variant :story.dg/x {:setup []})
     (story/reg-workspace :Workspace.dg/grid
       {:layout :grid :variants [:story.dg/x]})
     (is (= [] (docs/prose-for-variant :story.dg/x))))
   (testing "prose blocks ride through in source order across multiple workspaces"
-    (story/reg-variant :story.dm/x {:events []})
+    (story/reg-variant :story.dm/x {:setup []})
     (story/reg-workspace :Workspace.dm/a
       {:layout  :prose
        :content [{:type :prose   :body "alpha"}
@@ -823,18 +823,18 @@
 ;; directly.
 
 (deftest test-mode-variant-has-tests?-checks-play-slot
-  (testing "variant-has-tests? is false when :play-script is absent or empty"
-    (story/reg-variant :story.tm/empty {:events []})
-    (story/reg-variant :story.tm/empty-play {:events [] :play-script []})
+  (testing "variant-has-tests? is false when :script is absent or empty"
+    (story/reg-variant :story.tm/empty {:setup []})
+    (story/reg-variant :story.tm/empty-play {:setup [] :script []})
     (is (not (test-mode/variant-has-tests? :story.tm/empty)))
     (is (not (test-mode/variant-has-tests? :story.tm/empty-play))))
-  (testing "variant-has-tests? is true when :play-script carries any step"
+  (testing "variant-has-tests? is true when :script carries any step"
     (story/reg-variant :story.tm/has
-      {:events [] :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
+      {:setup [] :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
     (is (test-mode/variant-has-tests? :story.tm/has)))
   (testing "rf2-ee38b.3: variant-has-tests? recognises the :plays slot too"
     (story/reg-variant :story.tm/plays
-      {:events [] :plays [{:name "happy"
+      {:setup [] :plays [{:name "happy"
                            :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
     (is (test-mode/variant-has-tests? :story.tm/plays)
         "a :plays-only variant is testable (was false before the fix)"))

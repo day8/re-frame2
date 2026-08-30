@@ -3,7 +3,7 @@
   mount-time decision logic.
 
   rf2-chi9j3 — a deep-linked auto-run variant executed its
-  `:play-script` TWICE on shell mount: `component-did-mount` installs
+  `:script` TWICE on shell mount: `component-did-mount` installs
   `selection-watcher`, then `hydrate-url-state!` may itself change
   `:selected-variant` (a `?variant=…` deep link), which fires the
   already-installed watcher and schedules an auto-run — and THEN the
@@ -33,7 +33,7 @@
             during THIS mount, must SKIP the mount-time schedule: the
             selection-watcher already fired (selection went nil -> vid)
             and scheduled its own auto-run. Scheduling here too would run
-            the variant's :play-script twice."
+            the variant's :script twice."
     (is (nil? (mount-time-autorun-vid nil :story.counter/deep-linked)))))
 
 (deftest mount-time-autorun-vid-skips-when-hydration-changed-selection

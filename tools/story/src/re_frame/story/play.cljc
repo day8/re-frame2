@@ -1,7 +1,7 @@
 (ns re-frame.story.play
   "Phase 4 — play-script trace listener + stepper helpers.
 
-  `:play-script` is the canonical and ONLY phase-4 surface. This module
+  `:script` is the canonical and ONLY phase-4 surface. This module
   holds the per-frame trace listener and the step-by-step play-stepper
   helpers. The rich-DSL execution itself lives in
   `re-frame.story.play.runner-events`.
@@ -20,7 +20,7 @@
 
   ## What this module does
 
-  A `:play-script` body carries tagged steps. Authors wrap event
+  A `:script` body carries tagged steps. Authors wrap event
   vectors as `[:dispatch-sync <event-vec>]` (or `:dispatch` for async).
   The `:rf.assert/*` events ride the same dispatch path — re-frame's
   interceptor chain runs the registered assertion handler (see
@@ -247,7 +247,7 @@
 (defn variant-play-events
   "Resolve a flat event-vector list for `variant-id`'s phase-4 play.
 
-  Derives a flat event-vector list from the variant's `:play-script`
+  Derives a flat event-vector list from the variant's `:script`
   body by extracting events from the `:dispatch` / `:dispatch-sync`
   steps. Other step types (`:wait`,
   `:click`, `:type`, `:assert-db`, `:assert-dom`) have no event-vector
@@ -258,7 +258,7 @@
   event at a time."
   [variant-id]
   (let [body   (registrar/handler-meta :variant variant-id)
-        spec   (runner/parse-spec (:play-script body))
+        spec   (runner/parse-spec (:script body))
         script (:script spec)]
     (->> (or script [])
          (keep (fn [step]
@@ -320,7 +320,7 @@
 ;; ---------------------------------------------------------------------------
 ;; UI play-stepper hook
 ;;
-;; The stepper walks the FULL coerced `:play-script` (every step type —
+;; The stepper walks the FULL coerced `:script` (every step type —
 ;; `:dispatch` / `:dispatch-sync` / `:wait` / `:click` / `:type` /
 ;; `:assert-db` / `:assert-dom`), driving each step through the SAME
 ;; rich-DSL executor the canvas auto-run path uses
@@ -333,7 +333,7 @@
 (defonce
   ^{:doc "Per-frame play-stepper state. `{frame-id → {:remaining vec,
          :ran vec, :results vec}}` where `:remaining` / `:ran` carry
-         coerced `:play-script` STEPS and `:results` carries the per-step
+         coerced `:script` STEPS and `:results` carries the per-step
          result records the
          rich-DSL executor returned. The UI shell consumes this to
          render the stepper widget. Used only when the play sequence is
@@ -342,7 +342,7 @@
   (atom {}))
 
 (defn variant-play-steps
-  "Resolve the FULL coerced `:play-script` step vector for `variant-id`'s
+  "Resolve the FULL coerced `:script` step vector for `variant-id`'s
   default play. Unlike `variant-play-events` (which drops every
   non-dispatch step) this returns EVERY step the rich-DSL runner
   recognises, in order, so the step-debugger walks the same sequence the
@@ -356,7 +356,7 @@
   the one assertion atom before the stepper executes it."
   [variant-id]
   (let [body (registrar/handler-meta :variant variant-id)
-        spec (runner/parse-spec (:play-script body))]
+        spec (runner/parse-spec (:script body))]
     (assertions/fold-script (vec (:script spec)))))
 
 (defn play-stepper-active?

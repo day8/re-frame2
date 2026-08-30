@@ -3,7 +3,7 @@
 
   Used by the recorder's DOM-capture layer to turn a `click` /
   `input` / `change` event target into a stable selector the
-  exporter can drop into a `:play-script` `[:click selector]` /
+  exporter can drop into a `:script` `[:click selector]` /
   `[:type selector text]` step.
 
   ## Priority

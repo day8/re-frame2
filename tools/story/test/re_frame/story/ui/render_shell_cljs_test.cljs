@@ -257,7 +257,7 @@
       ;; map doesn't carry a render-fn for it.
       (story/reg-variant variant-id
         {:substrates #{:uix}
-         :events     []})
+         :setup     []})
       ;; Drive the renderer: multi-substrate-grid is the outer fn the
       ;; canvas dispatches to; the inner safe-render-cell is what
       ;; surfaces the error cell. We render the grid then walk for the
@@ -286,7 +286,7 @@
     (let [variant-id :story.substrate.ok/probe]
       (story/reg-variant variant-id
         {:substrates #{:uix}
-         :events     []})
+         :setup     []})
       (let [hiccup    (multi-substrate/multi-substrate-grid variant-id)
             text-bits (hiccup-text-flatten hiccup)]
         ;; On the happy-path branch, safe-render-cell wraps the cell
@@ -330,7 +330,7 @@
     (story/reg-variant :story.hostdeco/v
       {:component  :views/probe
        :decorators [[:deco/themed]]
-       :events     []})
+       :setup     []})
     (let [plan        (plan/variant-plan :story.hostdeco/v)
           deco-refs   (get-in plan [:world :decorators])
           rendered    (multi-substrate/render-decorated-view
@@ -348,7 +348,7 @@
             seam — render-transparent (no spurious wrapper)"
     (rf/reg-view* :views/plain (fn [_] [:span.leaf "leaf"]))
     (story/reg-variant :story.hostnodeco/v
-      {:component :views/plain :events []})
+      {:component :views/plain :setup []})
     (let [plan      (plan/variant-plan :story.hostnodeco/v)
           deco-refs (get-in plan [:world :decorators])
           rendered  (multi-substrate/render-decorated-view
@@ -368,11 +368,11 @@
     (story/reg-variant :story.inhdeco/parent
       {:component  :views/probe
        :decorators [[:deco/parent-themed]]
-       :events     []})
+       :setup     []})
     ;; child inherits the parent's decorator via :extends, declares none.
     (story/reg-variant :story.inhdeco/child
       {:extends :story.inhdeco/parent
-       :events  []})
+       :setup  []})
     (let [prepared    (render/prepare-render :story.inhdeco/child)
           rv-refs     (get-in prepared [:render-inputs :decorators])
           canvas-ids  (mapv :id (:hiccup (story/resolve-decorators :story.inhdeco/child)))]
@@ -393,7 +393,7 @@
     (story/reg-variant :story.e2edeco/v
       {:component  :views/e2e
        :decorators [[:deco/e2e]]
-       :events     []})
+       :setup     []})
     (let [r (render/render-variant :story.e2edeco/v)]
       (is (= :rendered (:status r))
           "the host is installed (CLJS canonical vocabulary) → :rendered")

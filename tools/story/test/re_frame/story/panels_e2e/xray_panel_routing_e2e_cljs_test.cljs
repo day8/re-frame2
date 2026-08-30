@@ -46,7 +46,7 @@
          (story/reg-story :story.counter {})
          (story/reg-variant :story.counter/app-db
            {:xray-panel :app-db
-            :events []}))}
+            :setup []}))}
       (fn []
         (is (= :app-db (xray-embed/resolve-panel :story.counter/app-db))
             "resolve-panel returned :app-db for a variant with the slot")
@@ -82,10 +82,10 @@
            {:xray-panel :routing
             :doc "Story-level slot says :routing."})
          (story/reg-variant :story.routing/inherits
-           {:events []})
+           {:setup []})
          (story/reg-variant :story.routing/override
            {:xray-panel :machines
-            :events []}))}
+            :setup []}))}
       (fn []
         (is (= :routing (xray-embed/resolve-panel :story.routing/inherits))
             "variant with no slot inherits the story's :routing")
@@ -104,7 +104,7 @@
          (story/reg-story :story.typo {})
          (story/reg-variant :story.typo/v
            {:xray-panel :not-a-real-panel
-            :events []}))}
+            :setup []}))}
       (fn []
         (is (= xray-embed/default-panel
                (xray-embed/resolve-panel :story.typo/v))
@@ -124,7 +124,7 @@
          (story/reg-story :story.user-pick {})
          (story/reg-variant :story.user-pick/v
            {:xray-panel :views
-            :events []}))}
+            :setup []}))}
       (fn []
         (e2e/select-variant! :story.user-pick/v)
         ;; Pre-override: variant slot wins.
@@ -156,7 +156,7 @@
          (story/reg-story :story.routed {})
          (story/reg-variant :story.routed/v
            {:xray-panel :trace
-            :events []}))}
+            :setup []}))}
       (fn []
         (e2e/select-variant! :story.routed/v)
         (let [tree    (xray-embed/xray-embed-panel)

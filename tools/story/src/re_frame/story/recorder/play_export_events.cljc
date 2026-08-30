@@ -1,10 +1,10 @@
 (ns re-frame.story.recorder.play-export-events
-  "re-frame integration seam for the recorder → :play-script export
+  "re-frame integration seam for the recorder → :script export
   flow. Owns the side-effecty entry points the export dialog UI
   reaches for:
 
   - **Replay the generated script in-place** — dispatch the just-
-    -exported `:play-script` through the runner so the user can
+    -exported `:script` through the runner so the user can
     verify the export is valid before pasting it into source.
   - **Capture the live app-db snapshot** — read the variant frame's
     db at export time. Used by the auto-assert option to derive
@@ -60,7 +60,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn replay-script!
-  "Drive `spec` (a `:play-script` map per `runner/parse-spec`) against
+  "Drive `spec` (a `:script` map per `runner/parse-spec`) against
   `frame-id` via `runner-events/run!`. Returns the initial run-state
   (status `:running`, step-idx 0). `done-cb` fires with the terminal
   run-state.

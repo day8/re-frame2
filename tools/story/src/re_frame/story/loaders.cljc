@@ -19,7 +19,7 @@
      drain settles. Default: 'complete when no further loader-tagged
      events are in flight'. The variant overrides this for long-lived
      fx (e.g. `:websocket`) per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
-  4. **`:ready`** — `:events` have run; render allowed.
+  4. **`:ready`** — `:setup` events have run; render allowed.
   5. **`:error`** — terminal error projection per `002-Runtime.md` §Error projection.
 
   ## Substrate
@@ -337,7 +337,7 @@
     AND
   - the resolved decorator stack carries no `:frame-setup` decorators.
 
-  The variant body's `:events` and `:play-script` slots are ignored — events
+  The variant body's `:setup` and `:script` slots are ignored — setup events
   dispatch synchronously after mount and play runs strictly after
   `:ready`, so neither holds the lifecycle in a loading phase.
   `:hiccup` and `:fx-override` decorators don't drive the lifecycle

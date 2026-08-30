@@ -109,11 +109,11 @@
         (rf/reg-event :testview-switch/set-b
           (fn [{:keys [db]} _] {:db (assoc db :v "b")}))
         (story/reg-variant va
-          {:events      [[:testview-switch/set-a]]
-           :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
+          {:setup      [[:testview-switch/set-a]]
+           :script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
         (story/reg-variant vb
-          {:events      [[:testview-switch/set-b]]
-           :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
+          {:setup      [[:testview-switch/set-b]]
+           :script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
         (let [mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try

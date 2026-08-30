@@ -55,7 +55,7 @@
             the unified result (§B5 — story/is reports per assertion)"
     (story/reg-variant :story.is/pass
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                               [:assert-db [:status] :loaded]
                               [:assert-db [:status] :loaded]]}})
     (let [[result reports] (capture-reports #(story/is :story.is/pass))]
@@ -67,7 +67,7 @@
   (testing "story/is fires a :fail report for a failing assertion (§B5)"
     (story/reg-variant :story.is/fail
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :idle]]
+       :script {:script [[:dispatch-sync [:is/set-status :idle]]
                               [:assert-db [:status] :loaded]]}})
     (let [[result reports] (capture-reports #(story/is :story.is/fail))]
       (is (= :fail (:status result)))
@@ -83,7 +83,7 @@
             the pass/fail verdict is tracked separately per :assert step"
     (story/reg-variant :story.is/two-mixed
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                               ;; assertion 1 — passes
                               [:assert-db [:status] :loaded]
                               ;; assertion 2 — fails (status is :loaded, not :idle)
@@ -104,7 +104,7 @@
             ONE run-level :pass so the test sees a positive signal"
     (story/reg-variant :story.is/empty
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :ready]]]}})
+       :script {:script [[:dispatch-sync [:is/set-status :ready]]]}})
     (let [[result reports] (capture-reports #(story/is :story.is/empty))]
       (is (= :pass (:status result)))
       (is (= 1 (count reports)))
@@ -126,7 +126,7 @@
   (testing "story/run returns a promise/future of the unified run-result"
     (story/reg-variant :story.is/run
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                               [:assert-db [:status] :loaded]]}})
     (let [p (story/run :story.is/run)
           result (.get ^java.util.concurrent.CompletableFuture p)]
@@ -141,7 +141,7 @@
             (rf2-zaklu)"
     (story/reg-variant :story.is/timeout
       {:tags        #{:test}
-       :play-script {:script [[:dispatch-sync [:is/set-status :loaded]]
+       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                               [:assert-db [:status] :loaded]]}})
     ;; A generous custom timeout still produces the normal unified result —
     ;; proves the opt is accepted + stripped from the runner opts without
