@@ -129,37 +129,43 @@ Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) a
 (ns app.login-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
   ;; cf. examples/capabilities/machines/state_machine_walkthrough
   ;; :idle --submit--> :submitting; :entry describes the HTTP fx
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :idle :data {:attempts 0 :error nil}}
-            [:auth.login/submit {:email "a@b.com"
-                                 :password "secret"}])]
-    (is (result/ok? r))
-    (is (= :submitting (:state (result/snap r))))
-    (is (= :rf.http/managed (ffirst (result/fx r)))))
+  (let [{:keys [status snapshot fx]}
+        (machines/machine-transition
+          login-flow
+          {:state :idle :data {:attempts 0 :error nil}}
+          [:auth.login/submit {:email "a@b.com"
+                               :password "secret"}])]
+    (is (= :ok status))
+    (is (= :submitting (:state snapshot)))
+    (is (= :rf.http/managed (ffirst fx))))
 
   ;; two failures already recorded; the third locks out and is still counted
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :submitting :data {:attempts 2 :error nil}}
-            [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (result/ok? r))
-    (is (= :locked-out (:state (result/snap r))))
-    (is (= 3 (get-in (result/snap r) [:data :attempts])))))
+  (let [{:keys [status snapshot]}
+        (machines/machine-transition
+          login-flow
+          {:state :submitting :data {:attempts 2 :error nil}}
+          [:auth.login/failure {:error {:message "bad creds"}}])]
+    (is (= :ok status))
+    (is (= :locked-out (:state snapshot)))
+    (is (= 3 (get-in snapshot [:data :attempts])))))
 ```
 
-The result contains:
+The result is one plain map:
 
-- the next snapshot (`result/snap`);
-- the effects vector (`result/fx`);
-- success/failure (`result/ok?` / `result/fail?`);
-- failure diagnostics (`result/info`) if a guard or action throws.
+```clojure
+{:status :ok  :snapshot {:state … :data … :tags …} :fx [[:rf.http/managed …] …]}   ;; success
+{:status :error :error {:kind :rf.error/machine-action-exception :exception … …}} ;; a guard or action threw
+```
+
+- `:snapshot` is the next snapshot; an event no transition matches returns `:status :ok` with the snapshot unchanged and `:fx []`.
+- `:fx` is the effects vector in emission order.
+- `:error` carries the diagnostics when a guard, action or `:data` fn throws (`:kind :rf.error/machine-action-exception`, with the `:exception` and the throwing ref) or a runaway `:always` / `:raise` cycle hits its depth limit (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot — nothing was committed.
+- Mistakes in the call itself — a malformed `:state`, a guard or action keyword with no entry in the definition — throw an `:rf.error/*` `ex-info` rather than returning `:status :error`, exactly as `reg-machine` would.
 
 Effects are asserted as data. The HTTP request is not performed in this test; the returned `:fx` description is inspected.
 

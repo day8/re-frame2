@@ -1,50 +1,42 @@
 (ns re-frame.machines.result
-  "One result type for the machine-transition engine.
+  "The machine-transition engine's one result type. INTERNAL to the
+  machines artefact: nothing outside `implementation/machines/src` reads
+  these maps, and the accessors below are the engine's, not the app's.
 
-  The engine's pure surface (`apply-transition-once`, `machine-transition-
-  single`, `parallel-machine-transition`, `apply-initial-entry-cascade`,
-  and the public `machine-transition`) returns a Result map — either an
-  `:ok` with the post-transition snapshot + emitted fx, or a `:fail`
-  carrying diagnostic info about the action / `:data`-fn that threw. One
-  shape is the engine's single success/failure result type.
+  The engine's pure seams (`apply-transition-once`, `machine-transition-
+  single`, `parallel-machine-transition`, `apply-initial-entry-cascade`)
+  return a Result — success with the post-transition snapshot + emitted
+  fx, or failure carrying diagnostic info about the guard / action /
+  `:data`-fn that threw (or the bounded-depth limit that tripped).
 
   ## Shape
 
+  The core keys are the Spec 005 §Level 1 public spellings, so the engine
+  and the public surface never disagree about what a snapshot or an fx
+  vector is called:
+
       ;; success
-      {::tag :ok ::snap <snapshot> ::fx <fx-vec>}
+      {:status :ok :snapshot <snapshot> :fx <fx-vec>}
 
       ;; failure
-      {::tag :fail ::info <diagnostic-map>}
+      {:status :error :error <diagnostic-map>}
 
-  Use the constructors `ok` / `fail` and the predicates `ok?` / `fail?`.
-  The `::snap` / `::fx` / `::info` keys are public so callers can
-  destructure with `::keys [snap fx]` — or, for the common
-  pair-destructure-after-fail-check pattern, use the `with-ok` macro:
+  On top of those the engine rides namespaced bookkeeping the lifecycle
+  handler reads and nobody else should — `::handled?`, `::microsteps`,
+  `::cascade`, `::parallel-done-handled?` on a success, and the
+  `::depth-abort?` sentinel inside a failure's `:error` map. The public
+  `re-frame.machines/machine-transition` strips every one of them and
+  stamps the public `:kind`; see that facade for the projection.
+
+  Use the constructors `ok` / `fail` / `depth-abort`, the predicates
+  `ok?` / `fail?` / `depth-abort?`, the accessors `snap` / `fx` / `info`,
+  and — for the pair-destructure-after-fail-check pattern — the
+  `with-ok` macro:
 
       (if (fail? r)
         (fail-with r ...)
         (with-ok [snap fx] r
-          ...body using snap fx...))
-
-  Single-field reads have plain accessor fns `snap` / `fx` / `info` so
-  call sites don't need the `::result/` namespace prefix where only one
-  slot is wanted.
-
-  Rejected alternative — `defrecord Result [tag snap fx info]`: would let
-  callers destructure with bare `{:keys [snap fx]}`, BUT changes the
-  public key shape from `::tag` / `::snap` / `::fx` / `::info` (the
-  `:rf/*` single-root namespaced scheme per `spec/Conventions.md`) to
-  bare unqualified keys. External callers (`re-frame.machines/machine-
-  transition` is publicly re-exported; core's smoke / pattern-smoke
-  tests destructure via `::result/snap`) would all churn. The macro
-  preserves the namespaced-key contract while giving call sites the
-  ergonomic win.
-
-  Bundle-isolation note: this ns is internal to the machines artefact.
-  Nothing in `tools/` or `examples/` reaches into it; the public
-  `re-frame.machines/machine-transition` surface returns Result values
-  directly but consumers should use the predicates and accessors here
-  rather than reading the `::tag` key by hand."
+          ...body using snap fx...))"
   (:refer-clojure :exclude [ok?]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -53,41 +45,41 @@
   "Build a success Result carrying `snap` (post-transition snapshot) and
   `fx` (the emitted fx vector)."
   [snap fx]
-  {::tag :ok ::snap snap ::fx fx})
+  {:status :ok :snapshot snap :fx fx})
 
 (defn fail
   "Build a failure Result carrying `info` (a diagnostic map describing
   which action / `:data`-fn threw, with keys like `:action-ref`,
   `:exception`, `:invoke-id`, `:decl-path`, `:transition`, `:state-path`)."
   [info]
-  {::tag :fail ::info info})
+  {:status :error :error info})
 
 (defn ok?
-  "True iff `r` is an `:ok` Result."
+  "True iff `r` is a success Result."
   [r]
-  (and (map? r) (= :ok (::tag r))))
+  (and (map? r) (= :ok (:status r))))
 
 (defn fail?
-  "True iff `r` is a `:fail` Result."
+  "True iff `r` is a failure Result."
   [r]
-  (and (map? r) (= :fail (::tag r))))
+  (and (map? r) (= :error (:status r))))
 
 (defn fail-with
   "Build a failure Result by `merge`ing `extra` over the existing
-  `:fail` Result's `::info` map. Used by the outer cascade (transition,
-  spawn) to enrich the inner failure (run-action / materialise-data) with
-  the transition-level context (`:decl-path`, `:transition`,
-  `:state-path`) before re-raising.
+  failure's `:error` map. Used by the outer cascade (transition, spawn)
+  to enrich the inner failure (run-action / materialise-data) with the
+  transition-level context (`:decl-path`, `:transition`, `:state-path`)
+  before re-raising.
 
   Guarded with `(if (fail? r) … r)`, symmetric with the
   `with-handled` / `with-microsteps` / `with-cascade` siblings (which
-  pass a non-`:ok` Result through unchanged). A non-`:fail` Result returns
-  unchanged — `fail-with` only enriches an actual failure's `::info`, never
-  grafts a phantom `::info` onto an `:ok` Result (which would corrupt it
-  into a hybrid map carrying both `::snap`/`::fx` AND `::info`)."
+  pass a failure through unchanged). A success returns unchanged —
+  `fail-with` only enriches an actual failure's `:error`, never grafts a
+  phantom `:error` onto a success (which would corrupt it into a hybrid
+  map carrying both `:snapshot`/`:fx` AND `:error`)."
   [r extra]
   (if (fail? r)
-    (assoc r ::info (merge (::info r) extra))
+    (assoc r :error (merge (:error r) extra))
     r))
 
 (defn depth-abort
@@ -103,44 +95,41 @@
   §Bounded depth requires (the pre-event snapshot stays committed), and the
   triggering user event is not silently consumed.
 
-  The `::info` map carries `::depth-abort? true` so the handler routing
+  The `:error` map carries `::depth-abort? true` so the handler routing
   recognises this is a depth-abort — NOT a thrown action — and SKIPS the
   generic `:rf.error/machine-action-exception` re-emit (the engine already
   emitted the precise `:rf.error/machine-{always,raise}-depth-exceeded`
   category at the abort site, the single trace for the trip). `info` carries
   the diagnostic context (`:error-id`, `:actor-id`, `:depth`, `:path`,
-  `:frame`) for callers / tests that inspect the `::info`."
+  `:frame`) for callers / tests that inspect the `:error` map."
   [info]
-  {::tag :fail ::info (assoc info ::depth-abort? true)})
+  {:status :error :error (assoc info ::depth-abort? true)})
 
 (defn depth-abort?
-  "True iff `r` is a `:fail` Result produced by a bounded-depth abort
+  "True iff `r` is a failure Result produced by a bounded-depth abort
   (`depth-abort`) — distinguishes a `:always` / `:raise` depth-limit trip
-  from a thrown-action `:fail`, so the handler routing skips the generic
-  action-exception trace for the depth case. A non-`:fail`
-  Result (or a thrown-action `:fail`) returns false."
+  from a thrown-action failure, so the handler routing skips the generic
+  action-exception trace for the depth case. A success (or a
+  thrown-action failure) returns false."
   [r]
-  (and (fail? r) (true? (get-in r [::info ::depth-abort?]))))
+  (and (fail? r) (true? (get-in r [:error ::depth-abort?]))))
 
 (defn snap
-  "Read the post-transition snapshot off an `:ok` Result. One-char-shorter
-  spelling of `(::result/snap r)` — same semantics. For pair destructures
-  use the `with-ok` macro."
+  "Read the post-transition snapshot off a success Result. For pair
+  destructures use the `with-ok` macro."
   [r]
-  (::snap r))
+  (:snapshot r))
 
 (defn fx
-  "Read the emitted fx vector off an `:ok` Result. One-char-shorter
-  spelling of `(::result/fx r)` — same semantics. For pair destructures
+  "Read the emitted fx vector off a success Result. For pair destructures
   use the `with-ok` macro."
   [r]
-  (::fx r))
+  (:fx r))
 
 (defn info
-  "Read the diagnostic info map off a `:fail` Result. One-char-shorter
-  spelling of `(::result/info r)` — same semantics."
+  "Read the diagnostic info map off a failure Result."
   [r]
-  (::info r))
+  (:error r))
 
 (defn with-handled
   "Stamp the optional `::handled?` flag onto an `:ok` Result. Per Spec 005
@@ -223,11 +212,10 @@
 
 #?(:clj
    (defmacro with-ok
-     "Pair-destructure an `:ok` Result's `::snap` and `::fx` slots into
+     "Pair-destructure a success Result's `:snapshot` and `:fx` slots into
      `snap-sym` and `fx-sym`, evaluate `body` in their scope. The macro
      captures the dominant call-site pattern across the engine — the
-     `(if (fail? r) ... (let [{snap ::result/snap fx ::result/fx} r] ...))`
-     dance — without churning the namespaced-key public-API contract.
+     `(if (fail? r) ... (let [{snap :snapshot fx :fx} r] ...))` dance.
 
          (if (fail? cascade-r)
            (fail-with cascade-r {...})
@@ -241,6 +229,6 @@
      [[snap-sym fx-sym] r & body]
      (let [r-sym (gensym "r")]
        `(let [~r-sym  ~r
-              ~snap-sym (::snap ~r-sym)
-              ~fx-sym   (::fx ~r-sym)]
+              ~snap-sym (:snapshot ~r-sym)
+              ~fx-sym   (:fx ~r-sym)]
           ~@body))))

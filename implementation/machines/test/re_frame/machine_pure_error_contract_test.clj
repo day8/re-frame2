@@ -50,7 +50,6 @@
             [re-frame.error :as error]
             [re-frame.machines :as machines]
             [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.machines.transition :as transition]))
 
@@ -112,7 +111,7 @@
           (is (= :a (:state tags)))))))
 
   (testing "the snapshot is unchanged on an unhandled event (no state churn)"
-    (let [{s ::result/snap} (machines/machine-transition
+    (let [{s :snapshot} (machines/machine-transition
                               no-handler-spec {:state :a :data {}} [:nope])]
       (is (= :a (:state s)) "state unchanged"))))
 
@@ -134,7 +133,7 @@
 
   (testing "the reserved-namespace ping still returns an unchanged snapshot
    (no transition, no churn — benign, just unlabelled)"
-    (let [{s ::result/snap} (machines/machine-transition
+    (let [{s :snapshot} (machines/machine-transition
                              no-handler-spec {:state :a :data {}}
                              [:rf.story.lifecycle/events-complete])]
       (is (= :a (:state s)) "state unchanged for the benign reserved ping")))
@@ -186,8 +185,8 @@
             entry-evs (filter #(and (= :rf.machine/action-ran (:operation %))
                                     (= :initial-entry (:phase (:tags %))))
                               evs)]
-        (is (result/ok? r) "the bootstrap cascade succeeds")
-        (is (= :a (:state (::result/snap r))) "the initial state is installed")
+        (is (= :ok (:status r)) "the bootstrap cascade succeeds")
+        (is (= :a (:state (:snapshot r))) "the initial state is installed")
         (is (zero? (count no-op-evs))
             "the bootstrap does NOT emit an unhandled-no-op (it is the machine's
              BIRTH, not an ignored event)")
@@ -406,9 +405,9 @@
                           :is-open? (fn [{d :data}] (:open? d))}  ;; registered id → fn
                 :states  {:a {:on {:go {:target :b :guard :gate}}}
                           :b {}}}
-          {s-pass ::result/snap} (machines/machine-transition
+          {s-pass :snapshot} (machines/machine-transition
                                   spec {:state :a :data {:open? true}} [:go])
-          {s-fail ::result/snap} (machines/machine-transition
+          {s-fail :snapshot} (machines/machine-transition
                                   spec {:state :a :data {:open? false}} [:go])]
       (is (= :b (:state s-pass))
           "indirected guard resolved + passed ⇒ transition fires")

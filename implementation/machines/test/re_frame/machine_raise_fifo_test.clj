@@ -19,8 +19,7 @@
   Pairs with the flat-machine drain in
   `re-frame.machines.transition/drain-raises`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines :as machines]))
 
 (defn- log-action
   "Build an action that appends `label` to `:data :log` and optionally
@@ -49,7 +48,7 @@
                                      :b  {:action :b}
                                      :c  {:action :c}
                                      :d  {:action :d}}}}}
-          {snap ::result/snap} (machines/machine-transition
+          {snap :snapshot} (machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c :d] (:log (:data snap)))
           "FIFO (XState/SCXML): the nested raise D lands behind sibling C —
@@ -67,7 +66,7 @@
                 :states  {:hub {:on {:go {:action :go}
                                      :b  {:action :b}
                                      :c  {:action :c}}}}}
-          {snap ::result/snap} (machines/machine-transition
+          {snap :snapshot} (machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c] (:log (:data snap)))
           "sibling raises drain in the order they entered the queue"))))
@@ -91,7 +90,7 @@
                                      :c  {:action :c}
                                      :d  {:action :d}
                                      :e  {:action :e}}}}}
-          {snap ::result/snap} (machines/machine-transition
+          {snap :snapshot} (machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c :d :e] (:log (:data snap)))
           "both first-level siblings (B, C) drain before either's nested
@@ -114,7 +113,7 @@
                           :s1 {:on {:e2 {:target :s2 :action :a2}}}
                           :s2 {:on {:e3 {:target :s3 :action :a3}}}
                           :s3 {}}}
-          {snap ::result/snap} (machines/machine-transition
+          {snap :snapshot} (machines/machine-transition
                                  spec {:state :s0 :data {}} [:e1])]
       (is (= :s3 (:state snap))
           "linear chain still settles to the terminal state")
@@ -150,19 +149,19 @@
                                 (swap! seen conj ev)))]
         ;; A depth-bound abort is a FAILED macrostep, not an :ok rollback
         ;; no-op (XState v5 throws on such a runaway). The pure surface
-        ;; returns a `result/fail` carrying the `::depth-abort?` sentinel;
-        ;; atomic rollback is guaranteed — a `:fail` threads NO snapshot / fx,
-        ;; so nothing intermediate escapes the abort. (The lifecycle handler
-        ;; short-circuits to `{}`, leaving the pre-event snapshot committed in
-        ;; runtime-db.)
+        ;; returns `:status :error` whose `:kind` names the depth-exceeded
+        ;; category; atomic rollback is guaranteed — a failure threads NO
+        ;; snapshot / fx, so nothing intermediate escapes the abort. (The
+        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
+        ;; snapshot committed in runtime-db.)
         (let [r (machines/machine-transition spec {:state :idle :data {}} [:start])]
-          (is (result/fail? r)
+          (is (= :error (:status r))
               "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
-          (is (result/depth-abort? r)
-              "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
-          (is (nil? (result/snap r))
+          (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
+              "the failure names the raise depth-exceeded category (a bounded-depth trip)")
+          (is (nil? (:snapshot r))
               "a :fail threads no snapshot — nothing intermediate survives")
-          (is (nil? (result/fx r))
+          (is (nil? (:fx r))
               "a :fail threads no fx — no accumulated side-effect leaks the abort"))))))
 
 ;; ---- 6. depth-bound rollback is TRULY atomic ------------------------------
@@ -202,11 +201,11 @@
       ;; `:fail` threading NO snapshot / fx: every intermediate :a/:b state,
       ;; bumped :n, and accumulated :side-effect fx is discarded with the
       ;; macrostep (there is nothing to commit on a `:fail`).
-      (is (result/fail? r)
+      (is (= :error (:status r))
           "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
-      (is (result/depth-abort? r)
-          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
-      (is (nil? (result/snap r))
+      (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
+          "the failure names the raise depth-exceeded category (a bounded-depth trip)")
+      (is (nil? (:snapshot r))
           "a :fail threads no snapshot — no intermediate :a/:b state or bumped :n survives")
-      (is (nil? (result/fx r))
+      (is (nil? (:fx r))
           "a :fail threads no fx — EVERY accumulated :side-effect was discarded"))))

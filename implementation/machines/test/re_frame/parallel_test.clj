@@ -31,7 +31,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -200,7 +199,7 @@
                                :states  {:x {:tags #{:right/x} :on {:flip :y}}
                                          :y {:tags #{:right/y}}}}}}
           initial {:state {:left :a :right :x} :data {} :tags #{:left/a :right/x}}
-          {snap1 ::result/snap fx1 ::result/fx} (machines/machine-transition m initial [:flip])]
+          {snap1 :snapshot fx1 :fx} (machines/machine-transition m initial [:flip])]
       (is (= {:left :b :right :y} (:state snap1))
           "pure transition broadcasts to both regions")
       (is (= #{:left/b :right/y} (:tags snap1))

@@ -23,10 +23,9 @@
        `append-audit-row` /
        `record-error` /
        `clear-error`             — sim-state lifecycle ops
-    6. `result-*` shims          — Result destructuring without
-                                   reaching into the machines artefact
-    7. `step-sim`                — fold an engine Result into sim-state
-    8. `format-state-display` /
+    6. `step-sim`                — fold an `rf/machine-transition` result
+                                   (the Spec 005 §Level 1 map) into sim-state
+    7. `format-state-display` /
        `format-event-display`    — UI-facing formatters"
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -189,29 +188,20 @@
            (:last-error s1)))
     (is (nil? (:last-error (sim-h/clear-error s1))))))
 
-;; ---- (6) Result shims ---------------------------------------------------
+;; ---- (6) step-sim ----------------------------------------------------------
+;;
+;; Stub results in the Spec 005 §Level 1 public shape `rf/machine-transition`
+;; returns — plain keys, no machines artefact on the test classpath.
 
 (def ^:private ok-result
-  {:re-frame.machines.result/tag :ok
-   :re-frame.machines.result/snap {:state :authing :data {:counter 1}}
-   :re-frame.machines.result/fx []})
+  {:status :ok
+   :snapshot {:state :authing :data {:counter 1}}
+   :fx []})
 
 (def ^:private fail-result
-  {:re-frame.machines.result/tag :fail
-   :re-frame.machines.result/info {:reason :no-matching-transition}})
-
-(deftest result-shims-discriminate
-  (is (true? (sim-h/result-ok? ok-result)))
-  (is (false? (sim-h/result-ok? fail-result)))
-  (is (true? (sim-h/result-fail? fail-result)))
-  (is (false? (sim-h/result-fail? ok-result))))
-
-(deftest result-shims-read-slots
-  (is (= {:state :authing :data {:counter 1}} (sim-h/result-snap ok-result)))
-  (is (= [] (sim-h/result-fx ok-result)))
-  (is (= {:reason :no-matching-transition} (sim-h/result-info fail-result))))
-
-;; ---- (7) step-sim ----------------------------------------------------------
+  {:status :error
+   :error {:kind :rf.error/machine-action-exception
+           :reason :no-matching-transition}})
 
 (deftest step-sim-ok-advances-snapshot-and-trail
   (let [s0       (sim-h/make-sim-state :auth/login flat-definition)
@@ -251,18 +241,18 @@
         s1 (sim-h/step-sim s0 [:start] (constantly "not a result"))]
     (is (= :idle (get-in s1 [:snapshot :state])))
     (is (some? (:last-error s1)))
-    (is (= "engine returned a non-Result value" (-> s1 :last-error :reason)))))
+    (is (= "engine returned a non-result value" (-> s1 :last-error :reason)))))
 
 (deftest step-sim-audit-trail-order-newest-last
   "Each step appends — the trail is insertion-ordered so the view can
   render either direction. We pin the contract here so a downstream
   view-test can rely on insertion order."
-  (let [results [{:re-frame.machines.result/tag :ok
-                  :re-frame.machines.result/snap {:state :authing :data {}}
-                  :re-frame.machines.result/fx []}
-                 {:re-frame.machines.result/tag :ok
-                  :re-frame.machines.result/snap {:state :done :data {}}
-                  :re-frame.machines.result/fx []}]
+  (let [results [{:status :ok
+                  :snapshot {:state :authing :data {}}
+                  :fx []}
+                 {:status :ok
+                  :snapshot {:state :done :data {}}
+                  :fx []}]
         s0 (sim-h/make-sim-state :auth/login flat-definition)
         s1 (sim-h/step-sim s0 [:start] (constantly (first results)))
         s2 (sim-h/step-sim s1 [:ok]    (constantly (second results)))
@@ -271,7 +261,7 @@
     (is (= [:start] (-> trail first :event)))
     (is (= [:ok]    (-> trail last :event)))))
 
-;; ---- (8) on-chart binding helpers (rf2-u422r) ---------------------------
+;; ---- (7) on-chart binding helpers (rf2-u422r) ---------------------------
 ;;
 ;; The on-chart simulator binds the topology chart to this same engine:
 ;; `current-sim-state` drives the active-state highlight, `last-transition`
@@ -306,12 +296,12 @@
 (deftest last-transition-projects-most-recent-audit-row
   (testing "last-transition projects the newest audit row into the chart's
             focused-event lens {:from :to :event}"
-    (let [ok1 {:re-frame.machines.result/tag :ok
-               :re-frame.machines.result/snap {:state :authing :data {}}
-               :re-frame.machines.result/fx []}
-          ok2 {:re-frame.machines.result/tag :ok
-               :re-frame.machines.result/snap {:state :done :data {}}
-               :re-frame.machines.result/fx []}
+    (let [ok1 {:status :ok
+               :snapshot {:state :authing :data {}}
+               :fx []}
+          ok2 {:status :ok
+               :snapshot {:state :done :data {}}
+               :fx []}
           s0  (sim-h/make-sim-state :auth/login flat-definition)
           s1  (sim-h/step-sim s0 [:start] (constantly ok1))
           s2  (sim-h/step-sim s1 [:ok]    (constantly ok2))
@@ -324,9 +314,9 @@
   (testing "a failed step does not append a row, so last-transition still
             reflects the last SUCCESSFUL transition (the chart keeps the
             prior edge lit while the guard error toasts)"
-    (let [ok  {:re-frame.machines.result/tag :ok
-               :re-frame.machines.result/snap {:state :authing :data {}}
-               :re-frame.machines.result/fx []}
+    (let [ok  {:status :ok
+               :snapshot {:state :authing :data {}}
+               :fx []}
           s0  (sim-h/make-sim-state :auth/login flat-definition)
           s1  (sim-h/step-sim s0 [:start] (constantly ok))
           s2  (sim-h/step-sim s1 [:bad]   (constantly fail-result))
@@ -347,7 +337,7 @@
     (is (nil? (sim-h/edge-click->event "start")))
     (is (nil? (sim-h/edge-click->event 42)))))
 
-;; ---- (9) format helpers --------------------------------------------------
+;; ---- (8) format helpers --------------------------------------------------
 
 (deftest format-state-display-handles-shapes
   (is (= "(none)" (sim-h/format-state-display nil)))

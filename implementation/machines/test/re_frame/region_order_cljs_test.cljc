@@ -59,7 +59,7 @@
       include-order? (assoc :region-order order))))
 
 (defn- noted-fx [r]
-  (filterv #(= :noted (first %)) (result/fx r)))
+  (filterv #(= :noted (first %)) (:fx r)))
 
 ;; A TEN-region machine written as a MAP LITERAL — >8 entries, so the reader
 ;; produces a PersistentHashMap and authored order r0..r9 is gone at read time.
@@ -97,20 +97,20 @@
             DECLARATION order r0..r9, NOT :regions hash order"
     (let [m (go-machine r10 true)
           r (parallel/machine-transition m (boot m) [:go])]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (instance? #?(:clj clojure.lang.PersistentHashMap
                         :cljs cljs.core/PersistentHashMap)
                      (:regions m))
           ":regions is a PersistentHashMap — the >8 threshold is crossed")
-      (is (= r10 (get-in (result/snap r) [:data :order]))
+      (is (= r10 (get-in (:snapshot r) [:data :order]))
           "committed action-data order is authored r0..r9"))))
 
 (deftest action-data-order-preserved-literal
   (testing ">8 regions (LITERAL :regions map): shared :data accumulates in
             DECLARATION order r0..r9"
     (let [r (parallel/machine-transition literal-ten (boot literal-ten) [:go])]
-      (is (result/ok? r))
-      (is (= r10 (get-in (result/snap r) [:data :order]))))))
+      (is (= :ok (:status r)))
+      (is (= r10 (get-in (:snapshot r) [:data :order]))))))
 
 ;; ---- 2. cascade order -----------------------------------------------------
 
@@ -118,7 +118,7 @@
   (testing ">8 regions: cascade steps are concatenated in declaration order"
     (let [m (go-machine r10 true)
           r (parallel/machine-transition m (boot m) [:go])]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= r10 (vec (distinct (keep :region (result/cascade r)))))
           "distinct region sequence across cascade steps is authored r0..r9"))))
 
@@ -128,7 +128,7 @@
   (testing ">8 regions: per-region fx accumulate in declaration order"
     (let [m (go-machine r10 true)
           r (parallel/machine-transition m (boot m) [:go])]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= (mapv (fn [rn] [:noted rn]) r10) (noted-fx r))
           "emitted [:noted rN] fx are ordered r0..r9"))))
 
@@ -144,10 +144,10 @@
                         order)
           m       {:type :parallel :data {} :region-order order :regions regions}
           r       (parallel/apply-initial-entry-cascade m (boot m))
-          spawned (->> (result/fx r)
+          spawned (->> (:fx r)
                        (filterv #(= :rf.machine/spawn (first %)))
                        (mapv #(:machine-id (second %))))]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= order spawned)
           "spawn fx are emitted in declaration order r0..r9"))))
 
@@ -167,8 +167,8 @@
           m       {:type :parallel :data {:birth []} :region-order order
                    :actions actions :regions regions}
           r       (parallel/apply-initial-entry-cascade m (boot m))]
-      (is (result/ok? r))
-      (is (= order (get-in (result/snap r) [:data :birth]))
+      (is (= :ok (:status r)))
+      (is (= order (get-in (:snapshot r) [:data :birth]))
           "birth entry-action order is authored r0..r9"))))
 
 ;; ---- 6. destroy exit-cascade order ----------------------------------------
@@ -188,8 +188,8 @@
           m       {:type :parallel :data {:exit []} :region-order order
                    :actions actions :regions regions}
           r       (parallel/run-active-exit-cascade m (boot m))]
-      (is (result/ok? r))
-      (is (= order (get-in (result/snap r) [:data :exit]))
+      (is (= :ok (:status r)))
+      (is (= order (get-in (:snapshot r) [:data :exit]))
           "destroy exit-action order is authored r0..r9"))))
 
 ;; ---- 7. root multi-target apply order -------------------------------------
@@ -214,11 +214,11 @@
                    :actions actions :regions regions
                    :on {:go {:target targets}}}
           r       (parallel/machine-transition m (boot m) [:go])]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= (into {} (map (fn [rn] [rn :two])) order)
-             (:state (result/snap r)))
+             (:state (:snapshot r)))
           "every targeted region moved to :two")
-      (is (= order (get-in (result/snap r) [:data :entered]))
+      (is (= order (get-in (:snapshot r) [:data :entered]))
           "targeted-region :entry order is authored r0..r9"))))
 
 ;; ---- 8. selection semantics unchanged -------------------------------------
@@ -231,10 +231,10 @@
           rev (go-machine rev-order true)
           rf  (parallel/machine-transition fwd (boot fwd) [:go])
           rr  (parallel/machine-transition rev (boot rev) [:go])]
-      (is (= r10 (get-in (result/snap rf) [:data :order])))
-      (is (= rev-order (get-in (result/snap rr) [:data :order]))
+      (is (= r10 (get-in (:snapshot rf) [:data :order])))
+      (is (= rev-order (get-in (:snapshot rr) [:data :order]))
           "apply order follows the declared :region-order")
-      (is (= (:state (result/snap rf)) (:state (result/snap rr)))
+      (is (= (:state (:snapshot rf)) (:state (:snapshot rr)))
           "the selected / committed state is IDENTICAL regardless of order")
       (is (= (set r10) (set (keep :region (result/cascade rf)))
              (set (keep :region (result/cascade rr))))
@@ -302,7 +302,7 @@
       (is (= [:a :b :c] (parallel/region-order m))
           "region-order is derived from the array-map's insertion order")
       (let [r (parallel/machine-transition m (boot m) [:go])]
-        (is (= [:a :b :c] (get-in (result/snap r) [:data :order])))))))
+        (is (= [:a :b :c] (get-in (:snapshot r) [:data :order])))))))
 
 ;; ---- 12. normalisation is idempotent --------------------------------------
 

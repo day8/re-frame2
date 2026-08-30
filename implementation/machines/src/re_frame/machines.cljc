@@ -31,9 +31,10 @@
       (the pure registration-time validator; the conformance corpus's
       `:reg-machine` Mode-B op pins the registration-error taxonomy
       against it)
-    - `machine-transition` — `re-frame.machines.parallel` (the public
-      dispatch; flat / compound delegates to
-      `re-frame.machines.transition`'s `machine-transition-single`)
+    - `machine-transition` — owned here: the Spec 005 §Level 1 public
+      map over `re-frame.machines.parallel`'s engine seam (flat /
+      compound delegates to `re-frame.machines.transition`'s
+      `machine-transition-single`)
     - `machines`, `machine-meta`, `machine-by-system-id` — owned
       directly on this façade (Spec 005 §Querying machines)
     - `spawn-fx`, `spawn-all-init-fx` —
@@ -55,6 +56,7 @@
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.result :as result]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.ssr :as machines-ssr]
             [re-frame.machines.timer :as timer]
@@ -76,8 +78,6 @@
 ;; Declarative spawns allocate ids in the parent snapshot's
 ;; `:rf/spawn-counter`; hand-emitted spawns use the frame's runtime-db
 ;; `[:rf.runtime/machines :spawn-counter <machine-id>]` slot.
-;; `machine-transition` is a pure function — no module-level mutable
-;; state, deterministic from its (machine snapshot event) arguments.
 
 (def reg-machine*           registration/reg-machine*)
 (def make-machine-handler registration/make-machine-handler)
@@ -100,9 +100,63 @@
 (def spawn-fx               spawn/spawn-fx)
 (def spawn-all-init-fx      spawn/spawn-all-init-fx)
 (def destroy-machine-fx     destroy/destroy-machine-fx)
-(def machine-transition     parallel/machine-transition)
 (def after-schedule-fx      timer/after-schedule-fx)
 (def after-cancel-fx        timer/after-cancel-fx)
+
+;; ---- the pure transition (Spec 005 §Testing §Level 1) --------------------
+;;
+;; The engine seam (`parallel/machine-transition`) returns the engine's
+;; internal Result, which rides lifecycle bookkeeping (`::result/handled?`,
+;; `::result/microsteps`, `::result/cascade`, `::result/parallel-done-
+;; handled?`) and a `::result/depth-abort?` sentinel inside a failure's
+;; diagnostic map. None of that is the app's business. The public fn
+;; projects the Result onto the one plain map Spec 005 §Level 1 defines,
+;; and stamps `:kind` with the Spec 009 category the runtime would emit
+;; for the same failure — so a test reads the pure result with the same
+;; vocabulary Xray shows for the live one.
+
+(defn- public-result
+  "Project the engine's Result onto the Spec 005 §Level 1 public map."
+  [r]
+  (if (result/ok? r)
+    {:status   :ok
+     :snapshot (result/snap r)
+     :fx       (vec (result/fx r))}
+    (let [info (result/info r)
+          kind (if (result/depth-abort? r)
+                 (:error-id info)
+                 :rf.error/machine-action-exception)]
+      {:status :error
+       :error  (merge {:kind kind}
+                      (dissoc info ::result/depth-abort? :error-id))})))
+
+(defn machine-transition
+  "The pure transition. Given a machine `definition`, the current
+  `snapshot` and an `event` vector, return one plain map (Spec 005
+  §Testing §Level 1):
+
+      {:status :ok :snapshot <next-snapshot> :fx [<effect> …]}
+      {:status :error :error {:kind <error-id> …}}
+
+  `:snapshot` is the post-transition `{:state … :data … :tags …}` and
+  `:fx` the emitted effects in emission order — described, never
+  performed. An event no transition matched is `:status :ok` with the
+  snapshot unchanged and `:fx []`. `:status :error` is the engine's own
+  failed macrostep — a guard / action / `:data` fn threw
+  (`:kind :rf.error/machine-action-exception`, with `:exception` and the
+  throwing ref) or a bounded-depth limit tripped
+  (`:kind :rf.error/machine-always-depth-exceeded` /
+  `:rf.error/machine-raise-depth-exceeded`); it carries no snapshot, the
+  macrostep is atomic. Programmer-input errors (a malformed `:state`, an
+  unrecognised `:on` form, a dangling guard / action ref) THROW the same
+  `:rf.error/*` ex-info the registration validators throw — they are
+  bugs in the call, not results.
+
+  Deterministic from its three arguments — no frame, no app-db, no
+  module-level state; JVM- and CLJS-runnable. `re-frame.machines` is the
+  only namespace a caller needs."
+  [definition snapshot event]
+  (public-result (parallel/machine-transition definition snapshot event)))
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;

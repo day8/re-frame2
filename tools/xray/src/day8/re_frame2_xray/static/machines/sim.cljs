@@ -85,21 +85,20 @@
 
 (defn- run-machine-transition
   "Call `rf/machine-transition` against the cloned definition + sim
-  snapshot. Returns a `result/ok` / `result/fail` map per the engine's
-  Result contract. Wrapped in `try` so a host that hasn't loaded the
-  machines artefact surfaces a friendly error instead of an
+  snapshot. Returns the Spec 005 §Level 1 map — `{:status :ok …}` /
+  `{:status :error …}`. Wrapped in `try` so a host that hasn't loaded
+  the machines artefact surfaces a friendly error instead of an
   uncaught throw."
   [definition snapshot event]
   (try
     (machines/machine-transition definition snapshot event)
     (catch :default e
-      ;; Synthesise a fail-Result shape so the step orchestrator
+      ;; Synthesise the `:status :error` shape so the step orchestrator
       ;; handles it uniformly.
-      {:re-frame.machines.result/tag :fail
-       :re-frame.machines.result/info
-       {:reason      :rf.xray.static.machines.sim/engine-call-failed
-        :exception   (ex-message e)
-        :machines-on-classpath? false}})))
+      {:status :error
+       :error  {:kind        :rf.xray.static.machines.sim/engine-call-failed
+                :exception   (ex-message e)
+                :machines-on-classpath? false}})))
 
 (defn- step-and-store
   "Fold ONE engine step against `machine-id`'s cloned sim snapshot and

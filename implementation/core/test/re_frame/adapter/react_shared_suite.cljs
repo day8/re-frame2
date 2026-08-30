@@ -1468,7 +1468,7 @@
              :states  {:red    {:on {:tick {:target :green}}}
                        :green  {:on {:tick {:target :yellow}}}
                        :yellow {:on {:tick {:target :red}}}}}
-          {s :re-frame.machines.result/snap}
+          {s :snapshot}
           (machines/machine-transition m {:state :red :data {}} [:tick])]
       (is (= :green (:state s))))))
 

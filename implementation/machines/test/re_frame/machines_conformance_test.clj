@@ -40,8 +40,7 @@
             [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.conformance :as conformance]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines :as machines]))
 
 ;; ---- fixture discovery ----------------------------------------------------
 
@@ -277,22 +276,23 @@
                                                      (:snapshot call)
                                                      (:event call))
                         (catch Throwable e
-                          {::result/snap nil
-                           ::result/fx   [:error (.getMessage e)]}))
+                          {:snapshot nil
+                           :fx   [:error (.getMessage e)]}))
         ;; A bounded-depth abort (`:always` / `:raise` depth limit tripped on
-        ;; a runaway cycle) returns a `result/fail` carrying the
-        ;; `::depth-abort?` sentinel, not an `:ok` rollback no-op (XState v5
-        ;; throws on such a cycle). The fixture's `:expect-next-snapshot` /
-        ;; `:expect-effects` capture the ATOMIC-ROLLBACK contract: the
-        ;; macrostep does not commit, so the externally-observable
-        ;; next-snapshot is the INPUT snapshot and the effects are empty (the
-        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
-        ;; snapshot committed). Project a depth-abort `:fail` onto that
-        ;; observable shape so the fixture asserts the rollback fact under the
-        ;; failure surface.
-        depth-abort? (result/depth-abort? r)
-        snap-out   (if depth-abort? (:snapshot call) (::result/snap r))
-        fx-out     (if depth-abort? [] (::result/fx r))
+        ;; a runaway cycle) is `:status :error` with a depth-exceeded
+        ;; `:kind`, not an `:ok` rollback no-op (XState v5 throws on such a
+        ;; cycle). The fixture's `:expect-next-snapshot` / `:expect-effects`
+        ;; capture the ATOMIC-ROLLBACK contract: the macrostep does not
+        ;; commit, so the externally-observable next-snapshot is the INPUT
+        ;; snapshot and the effects are empty (the lifecycle handler
+        ;; short-circuits to `{}`, leaving the pre-event snapshot committed).
+        ;; Project a depth-abort onto that observable shape so the fixture
+        ;; asserts the rollback fact under the failure surface.
+        depth-abort? (contains? #{:rf.error/machine-always-depth-exceeded
+                                  :rf.error/machine-raise-depth-exceeded}
+                                (get-in r [:error :kind]))
+        snap-out   (if depth-abort? (:snapshot call) (:snapshot r))
+        fx-out     (if depth-abort? [] (:fx r))
         want-snap  (:expect-next-snapshot call)
         want-fx    (or (:expect-effects call) [])
         ok-snap?   (= want-snap snap-out)

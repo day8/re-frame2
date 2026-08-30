@@ -31,8 +31,7 @@
   per-decl-path `:rf/after-epoch` map so the timer is `live` (carried-epoch
   == current per-path epoch)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines :as machines]))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -47,7 +46,7 @@
   return `[next-state next-snapshot fx-vec]`. `next-state` is read off the
   returned snapshot's `:state` for the common state-change assertion."
   [spec snapshot event]
-  (let [{snap ::result/snap fx ::result/fx} (machines/machine-transition spec snapshot event)]
+  (let [{snap :snapshot fx :fx} (machines/machine-transition spec snapshot event)]
     [(:state snap) snap fx]))
 
 (defn- snap-at
@@ -367,9 +366,9 @@
                                 :escalated {}
                                 :calm      {}}}]
       (testing "guard passes → first candidate target + action on both paths"
-        (let [{on-snap ::result/snap}
+        (let [{on-snap :snapshot}
               (machines/machine-transition on-spec {:state :idle :data {:hot? true}} [:poke])
-              {after-snap ::result/snap}
+              {after-snap :snapshot}
               (machines/machine-transition
                 after-spec
                 {:state :idle
@@ -382,9 +381,9 @@
           (is (= (:state on-snap) (:state after-snap))
               ":on and :after land on the SAME target for the same candidate-vector")))
       (testing "guard fails → unguarded fallback on both paths"
-        (let [{on-snap ::result/snap}
+        (let [{on-snap :snapshot}
               (machines/machine-transition on-spec {:state :idle :data {:hot? false}} [:poke])
-              {after-snap ::result/snap}
+              {after-snap :snapshot}
               (machines/machine-transition
                 after-spec
                 {:state :idle

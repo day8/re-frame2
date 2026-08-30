@@ -41,7 +41,6 @@
   "
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.trace :as trace]))
 
@@ -63,8 +62,8 @@
   (testing "identical args produce identical Result values"
     (let [snap     {:state :idle :data {}}
           event    [:submit]
-          {snap1 ::result/snap fx1 ::result/fx} (machines/machine-transition auth-flow-spec snap event)
-          {snap2 ::result/snap fx2 ::result/fx} (machines/machine-transition auth-flow-spec snap event)]
+          {snap1 :snapshot fx1 :fx} (machines/machine-transition auth-flow-spec snap event)
+          {snap2 :snapshot fx2 :fx} (machines/machine-transition auth-flow-spec snap event)]
       (is (= snap1 snap2)
           "two pure-call invocations from the same input produce the same next-snapshot")
       (is (= fx1 fx2)
@@ -115,8 +114,8 @@
     ;; snapshot, so the two calls never share state.
     (let [snap-a {:state :idle :data {:tag :a}}
           snap-b {:state :idle :data {:tag :b}}
-          {fx-a ::result/fx} (machines/machine-transition auth-flow-spec snap-a [:submit])
-          {fx-b ::result/fx} (machines/machine-transition auth-flow-spec snap-b [:submit])]
+          {fx-a :fx} (machines/machine-transition auth-flow-spec snap-a [:submit])
+          {fx-b :fx} (machines/machine-transition auth-flow-spec snap-b [:submit])]
       (is (= :http/post#1 (-> fx-a first second :rf/spawned-id))
           "first snapshot's spawn is :http/post#1")
       (is (= :http/post#1 (-> fx-b first second :rf/spawned-id))
@@ -130,7 +129,7 @@
     (let [snap     {:state            :idle
                     :data             {}
                     :rf/spawn-counter {:http/post 3}}
-          {snap' ::result/snap fx ::result/fx} (machines/machine-transition auth-flow-spec snap [:submit])]
+          {snap' :snapshot fx :fx} (machines/machine-transition auth-flow-spec snap [:submit])]
       (is (= :http/post#4 (-> fx first second :rf/spawned-id))
           "spawn allocates :http/post#4 — bump of the pre-existing 3")
       (is (= {:http/post 4} (:rf/spawn-counter snap'))
@@ -171,9 +170,9 @@
                    (finally (trace/unregister-listener! ::purity-probe))))]
       (is (= r-no-listener r-with-listener)
           "the reduction (snapshot + fx) does not depend on listener presence")
-      (is (= :done (-> r-with-listener ::result/snap :state))
+      (is (= :done (-> r-with-listener :snapshot :state))
           "the transition resolved to :done either way")
-      (is (= {:n 1} (-> r-with-listener ::result/snap :data))
+      (is (= {:n 1} (-> r-with-listener :snapshot :data))
           "the :bump action's :data update landed in the returned snapshot")
       (is (some #(= :rf.machine/action-ran (:operation %)) @seen)
           "the side channel DID carry the :rf.machine/action-ran diagnostic")
@@ -192,7 +191,7 @@
                                        :join     :all}
                                       :on        {:done :ready}}
                           :ready     {}}}
-          {snap' ::result/snap} (machines/machine-transition spec {:state :idle :data {}} [:start])]
+          {snap' :snapshot} (machines/machine-transition spec {:state :idle :data {}} [:start])]
       (is (= {:worker 3} (:rf/spawn-counter snap'))
           "three :worker children bumped the slot to 3"))))
 
@@ -212,9 +211,9 @@
              {:red    {:on {:tick {:target :green}}}
               :green  {:on {:tick {:target :yellow}}}
               :yellow {:on {:tick {:target :red}}}}}]
-      (let [{s1 ::result/snap} (machines/machine-transition m {:state :red :data {}} [:tick])]
+      (let [{s1 :snapshot} (machines/machine-transition m {:state :red :data {}} [:tick])]
         (is (= :green (:state s1))))
-      (let [{s2 ::result/snap} (machines/machine-transition m {:state :green :data {}} [:tick])]
+      (let [{s2 :snapshot} (machines/machine-transition m {:state :green :data {}} [:tick])]
         (is (= :yellow (:state s2)))))))
 
 (deftest machine-always-microstep
@@ -229,7 +228,7 @@
               :idle     {}}}
           ;; Even with a no-op event (no match in :on), :always is checked
           ;; and the guard passes — transition to :authed.
-          {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
+          {s :snapshot} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
       (is (= :authed (:state s))))))
 
 ;; ---- depth-limit boundary parity ------------------------------------------
@@ -358,7 +357,7 @@
                           :s1 {:on {:e2 {:target :s2 :action :r2}}}
                           :s2 {:on {:e3 {:target :s3 :action :r3}}}
                           :s3 {}}}
-          {s ::result/snap} (machines/machine-transition
+          {s :snapshot} (machines/machine-transition
                               spec {:state :s0 :data {}} [:e1])]
       (is (= :s3 (:state s))
           "a 3-deep self-chain under the default limit reaches the terminal
@@ -379,7 +378,7 @@
              {:idle {:on {:start {:target :busy :action :start}
                           :bump  {:action :bump}}}
               :busy {:on {:bump {:action :bump}}}}}
-          {s ::result/snap fx ::result/fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
+          {s :snapshot fx :fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
       ;; Two raised :bump events should have been processed pre-commit;
       ;; final data :n should be 2.
       (is (= 2 (:n (:data s))))

@@ -26,7 +26,6 @@
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
             [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]
             [re-frame.machines.transition :as transition]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -91,7 +90,7 @@
                        :running {}}}]
       (is (nil? (registration-error-id :kw/ok m))
           "registration accepts the sibling keyword target")
-      (let [{snap ::result/snap} (machines/machine-transition
+      (let [{snap :snapshot} (machines/machine-transition
                                    m {:state :idle :data {}} [:go])]
         (is (= :running (:state snap))
             "runtime resolves the SAME keyword to the sibling state"))))
@@ -114,7 +113,7 @@
                                :states  {:leaf {}}}}}]
       (is (nil? (registration-error-id :vec/ok m))
           "registration accepts the absolute vector path")
-      (let [{snap ::result/snap} (machines/machine-transition
+      (let [{snap :snapshot} (machines/machine-transition
                                    m {:state [:outer :inner] :data {}} [:deep])]
         (is (= [:other :leaf] (:state snap))
             "runtime resolves the SAME vector to the absolute leaf"))))
@@ -140,7 +139,7 @@
                                 :on    {:ping {:target :same-state}}}}}]
       (is (nil? (registration-error-id :same/ok m))
           "registration accepts the :same-state sentinel")
-      (let [{snap ::result/snap} (machines/machine-transition
+      (let [{snap :snapshot} (machines/machine-transition
                                    m {:state :active :data {}} [:ping])]
         (is (= :active (:state snap))
             "runtime keeps the configuration (external self-transition)")))))
@@ -162,7 +161,7 @@
       ;; recorded leaf (:b), proving the SAME pseudo-state both layers
       ;; agree is targetable resolves to a real configuration.
       (let [s0 {:state [:region :a] :data {}}
-            {s1 ::result/snap} (machines/machine-transition m s0 [:next])]
+            {s1 :snapshot} (machines/machine-transition m s0 [:next])]
         (is (= [:region :b] (:state s1)) "advanced to :region :b"))))
 
   (testing "the shared history-node? predicate recognises the pseudo-state node"

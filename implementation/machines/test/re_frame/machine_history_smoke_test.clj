@@ -29,6 +29,7 @@
   (spec/009 line 291)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.machines :as machines]
+            [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]))
 
@@ -53,8 +54,8 @@
   step did not fail."
   [machine snapshot event]
   (let [r (machines/machine-transition machine snapshot event)]
-    (is (result/ok? r) (str "transition ok for event " (pr-str event)))
-    (result/snap r)))
+    (is (= :ok (:status r)) (str "transition ok for event " (pr-str event)))
+    (:snapshot r)))
 
 ;; A media-player chart whose `:playing` COMPOUND owns a DEEP history
 ;; pseudo-state. Per the XState v5 / SCXML exit-set rule, only
@@ -165,8 +166,8 @@
     (let [snap     (assoc (seed [:player :stopped])
                           :rf/history {[:player :playing] [:player :playing :gone]})
           r        (machines/machine-transition deep-player snap [:play])]
-      (is (result/ok? r) "dangling path is benign — no failure")
-      (let [restored (result/snap r)]
+      (is (= :ok (:status r)) "dangling path is benign — no failure")
+      (let [restored (:snapshot r)]
         (is (= [:player :playing :at-start] (:state restored))
             "dangling recorded path discarded ⇒ fell back to :default-target")))))
 
@@ -346,11 +347,12 @@
 
 (deftest cascade-step-source-stamping
   (testing "history-driven :entry cascade steps carry :source (spec/009 line 291)"
-    ;; Re-run the restore and read the structured cascade off the transition
-    ;; result — each :entry step must carry :source matching the restored
-    ;; event; non-history steps (exit) carry none.
+    ;; Re-run the restore and read the structured cascade off the ENGINE
+    ;; seam's Result (the `::result/cascade` rider is lifecycle bookkeeping
+    ;; the public map does not carry) — each :entry step must carry :source
+    ;; matching the restored event; non-history steps (exit) carry none.
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])
-          r          (machines/machine-transition deep-player after-stop [:play])]
+          r          (parallel/machine-transition deep-player after-stop [:play])]
       (is (result/ok? r))
       (let [cascade (result/cascade r)
             entries (filterv #(= :entry (:kind %)) cascade)
@@ -364,7 +366,7 @@
 (deftest non-history-transition-has-no-source-on-steps
   (testing "an ordinary (non-history) transition stamps NO :source on cascade steps"
     ;; :seek :at-start→:mid-track is a plain leaf transition — no history.
-    (let [r       (machines/machine-transition
+    (let [r       (parallel/machine-transition
                     deep-player (seed [:player :playing :at-start]) [:seek])
           cascade (result/cascade r)]
       (is (result/ok? r))

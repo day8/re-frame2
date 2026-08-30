@@ -53,11 +53,11 @@
           m-ba (event-order-machine [:b :a] reads-ba)
           r-ab (parallel/machine-transition m-ab (initial-snapshot m-ab) [:go])
           r-ba (parallel/machine-transition m-ba (initial-snapshot m-ba) [:go])]
-      (is (and (result/ok? r-ab) (result/ok? r-ba)))
-      (is (= {:a :done :b :ready} (:state (result/snap r-ab)))
+      (is (and (= :ok (:status r-ab)) (= :ok (:status r-ba))))
+      (is (= {:a :done :b :ready} (:state (:snapshot r-ab)))
           "A/B reaches the eventless target in the triggering macrostep")
-      (is (= (select-keys (result/snap r-ab) [:state :data])
-             (select-keys (result/snap r-ba) [:state :data]))
+      (is (= (select-keys (:snapshot r-ab) [:state :data])
+             (select-keys (:snapshot r-ba) [:state :data]))
           "reversing declaration order cannot change selected :always work")
       (is (every? #(= {:a? true :b? true} %) (concat @reads-ab @reads-ba))
           "the first eventless SELECT happens only after both event actions"))))
@@ -83,10 +83,10 @@
           m-ba (birth-order-machine [:b :a])
           r-ab (parallel/apply-initial-entry-cascade m-ab (initial-snapshot m-ab))
           r-ba (parallel/apply-initial-entry-cascade m-ba (initial-snapshot m-ba))]
-      (is (and (result/ok? r-ab) (result/ok? r-ba)))
-      (is (= {:a :done :b :ready} (:state (result/snap r-ab))))
-      (is (= (select-keys (result/snap r-ab) [:state :data])
-             (select-keys (result/snap r-ba) [:state :data])))
+      (is (and (= :ok (:status r-ab)) (= :ok (:status r-ba))))
+      (is (= {:a :done :b :ready} (:state (:snapshot r-ab))))
+      (is (= (select-keys (:snapshot r-ab) [:state :data])
+             (select-keys (:snapshot r-ba) [:state :data])))
       (is (= 2 (result/microsteps r-ab))
           "A writes in round 0; B observes it from a fresh snapshot in round 1")
       (is (= 2 (result/microsteps r-ba))
@@ -121,14 +121,14 @@
           micros (filterv #(= :microstep (:kind %)) (result/cascade r))
           micro-traces (filterv #(= :rf.machine.microstep/transition
                                     (second %)) @emits)]
-      (is (result/ok? r))
+      (is (= :ok (:status r)))
       (is (= 1 (result/microsteps r)))
       (is (= [:a :b] (mapv :region micros)))
       (is (= [0 0] (mapv :microstep-index micros)))
       (is (= [0 0] (mapv #(-> % last :microstep-index) micro-traces)))
       (is (= [:a :b] (mapv #(-> % last :region) micro-traces)))
-      (is (= [:a :b] (get-in (result/snap r) [:data :log])))
-      (is (= [[:note :a] [:note :b]] (result/fx r))
+      (is (= [:a :b] (get-in (:snapshot r) [:data :log])))
+      (is (= [[:note :a] [:note :b]] (:fx r))
           "action and fx application stay in canonical region order"))))
 
 (deftest eventless-round-precedes-raised-fifo
@@ -153,9 +153,9 @@
                   :states {:waiting {:on {:tick {:target :seen :action :raised}}}
                            :seen {}}}}}
           r (parallel/machine-transition m (initial-snapshot m) [:go])]
-      (is (result/ok? r))
-      (is (= [:event :always :raised] (get-in (result/snap r) [:data :log])))
-      (is (= {:a :done :b :seen} (:state (result/snap r)))))))
+      (is (= :ok (:status r)))
+      (is (= [:event :always :raised] (get-in (:snapshot r) [:data :log])))
+      (is (= {:a :done :b :seen} (:state (:snapshot r)))))))
 
 (deftest parent-always-action-failure-is-atomic
   (let [m {:type :parallel
@@ -170,9 +170,9 @@
             :b {:initial :idle
                 :states {:idle {:on {:go :moved}} :moved {}}}}}
         r (parallel/machine-transition m (initial-snapshot m) [:go])]
-    (is (result/fail? r))
-    (is (nil? (result/snap r)) "failed macrostep publishes no partial snapshot")
-    (is (nil? (result/fx r)) "failed macrostep releases no partial effects")))
+    (is (= :error (:status r)))
+    (is (nil? (:snapshot r)) "failed macrostep publishes no partial snapshot")
+    (is (nil? (:fx r)) "failed macrostep releases no partial effects")))
 
 (deftest parent-always-depth-counts-rounds-and-rolls-back
   (let [m {:type :parallel
@@ -185,12 +185,12 @@
                          :x {:always :y}
                          :y {:always :x}}}}}
         r (parallel/machine-transition m (initial-snapshot m) [:go])]
-    (is (result/fail? r))
+    (is (= :error (:status r)))
     (is (= :rf.error/machine-always-depth-exceeded
-           (:error-id (result/info r))))
-    (is (= 2 (:depth (result/info r))))
-    (is (nil? (result/snap r)))
-    (is (nil? (result/fx r)))))
+           (:error-id (:error r))))
+    (is (= 2 (:depth (:error r))))
+    (is (nil? (:snapshot r)))
+    (is (nil? (:fx r)))))
 
 (deftest all-rounds-publish-once
   (testing "event set plus two eventless rounds is one frame-state publication"

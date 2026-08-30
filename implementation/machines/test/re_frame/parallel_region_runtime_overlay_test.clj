@@ -28,7 +28,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]
             [re-frame.machines.test-support :as mtest]))
 
 ;; ---- helpers ---------------------------------------------------------------

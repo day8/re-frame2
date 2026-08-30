@@ -4,8 +4,8 @@
   A runaway `a →:always b →:always a` cycle must be DISTINGUISHABLE from a
   guard-blocked no-op (XState v5 THROWS on such a cycle).
 
-  The depth-abort returns a `result/fail` carrying the `::result/depth-abort?`
-  sentinel; it routes through the SAME failure path a thrown action takes
+  The depth-abort returns `{:status :error …}` whose `:kind` names the
+  depth-exceeded category; it routes through the SAME failure path a thrown action takes
   (the handler short-circuits to `{}` — no snapshot write reaches
   runtime-db, so the atomic rollback Spec 005 §Bounded depth requires is
   preserved). The precise `:rf.error/machine-{always,raise}-depth-exceeded`

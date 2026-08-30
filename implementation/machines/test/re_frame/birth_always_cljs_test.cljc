@@ -67,8 +67,8 @@
   [machine]
   (let [initial (parallel/build-initial-snapshot machine {:bootstrap-pending? false})
         r       (parallel/apply-initial-entry-cascade machine initial)]
-    (is (result/ok? r) "birth macrostep succeeds")
-    (let [snap (result/snap r)]
+    (is (= :ok (:status r)) "birth macrostep succeeds")
+    (let [snap (:snapshot r)]
       {:state (:state snap) :data (:data snap)})))
 
 (defn- boot-result
@@ -78,9 +78,9 @@
   [machine]
   (let [initial (parallel/build-initial-snapshot machine {:bootstrap-pending? false})
         r       (parallel/apply-initial-entry-cascade machine initial)]
-    (is (result/ok? r) "birth macrostep succeeds")
-    (let [snap (result/snap r)]
-      {:state (:state snap) :data (:data snap) :fx (result/fx r)})))
+    (is (= :ok (:status r)) "birth macrostep succeeds")
+    (let [snap (:snapshot r)]
+      {:state (:state snap) :data (:data snap) :fx (:fx r)})))
 
 (defn- raise-fx?
   "True iff `fx` carries any reserved `[:raise ...]` entry (which would have
@@ -324,10 +324,10 @@
                        :b {:always [{:guard :p? :target :a}]}}}
           initial (parallel/build-initial-snapshot m {:bootstrap-pending? false})
           r       (parallel/apply-initial-entry-cascade m initial)]
-      (is (result/fail? r) "birth returns a :fail (failed macrostep), not an :ok no-op")
+      (is (= :error (:status r)) "birth returns a :fail (failed macrostep), not an :ok no-op")
       (is (result/depth-abort? r)
           "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
-      (is (nil? (result/snap r))
+      (is (nil? (:snapshot r))
           "a :fail threads no snapshot — the runaway settle commits nothing"))))
 
 ;; ===========================================================================
