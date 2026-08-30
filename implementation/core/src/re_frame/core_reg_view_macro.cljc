@@ -168,7 +168,9 @@
              ;;
              ;; Per rf2-kkut0 (frame-affordance redesign) + rf2-cry25
              ;; (Option A, Mike-ruled): the reg-view injection is now SUGAR
-             ;; over a single `make-capture-frame` — the frame api captures the
+             ;; over a single `re-frame.capture-frame/make-capture-frame` (the
+             ;; owned constructor behind `capture-frame`, off the facade per
+             ;; rf2-93sxp) — the frame api captures the
              ;; render-time frame ONCE, and the injected `dispatch` /
              ;; `subscribe` NOUNS are its `:dispatch` / `:subscribe` ops.
              ;; They shadow the coord-capturing `dispatch` / `subscribe`
@@ -184,7 +186,7 @@
              ;; frame api's opts only. Render-time frame capture is preserved
              ;; (`make-capture-frame` captures `(current-frame-id)` once).
              fn-body  `(fn ~sym ~args
-                         (let [handle#    (re-frame.core/make-capture-frame
+                         (let [handle#    (re-frame.capture-frame/make-capture-frame
                                             (re-frame.core/current-frame-id)
                                             {:dispatch-opts       ~dispatch-opts-form
                                              :subscribe-call-site ~sub-coord-form})

@@ -67,6 +67,12 @@
             [re-frame.core :as rf]
             [re-frame.router :as router]
             [re-frame.subs :as subs]
+            ;; The frame api constructor behind `capture-frame` and the
+            ;; `reg-view` injection — an owned implementation seam, off the
+            ;; facade (rf2-93sxp). Bound under its own SCI namespace below so
+            ;; the `reg-view` shim can name it exactly as the real expansion
+            ;; does, without copying an internal alias into `re-frame.core`.
+            [re-frame.capture-frame :as capture-frame]
             ;; Consumed (not re-exposed to cells) for page-owned registration
             ;; ownership + clear-on-disposal — see `disposePage` (rf2-u4pqs).
             [re-frame.registrar :as registrar]
@@ -124,10 +130,12 @@
 ;; expansion lives in re-frame.core-reg-view-macro/expand-reg-view). Cells
 ;; want the same sugar, so this SCI macro mirrors that expansion — register
 ;; the render fn via the REAL `reg-view*`, inject `dispatch` / `subscribe`
-;; as locals from a render-time `make-capture-frame` (so frame resolution
-;; is genuine: the harness frame by default, or a cell-created
-;; `frame-provider`'s frame via the context tier), `def` the var to
-;; `(rf/view id)`, and return the id per Conventions §`reg-*` return-value.
+;; as locals from a render-time `re-frame.capture-frame/make-capture-frame`
+;; (the owned constructor the real expansion names, bound under its own SCI
+;; namespace below; frame resolution is genuine: the harness frame by
+;; default, or a cell-created `frame-provider`'s frame via the context
+;; tier), `def` the var to `(rf/view id)`, and return the id per
+;; Conventions §`reg-*` return-value.
 ;; Omitted vs the real expansion: source-coord capture (`*pending-coords*`,
 ;; `:rf.trace/call-site`) — a browser cell has no `*file*` to stamp, and
 ;; coord capture is an optional capability per Spec 001. The id derives
@@ -153,7 +161,7 @@
                   (if docstring {:doc docstring} {})
                   (list 'fn sym args
                         (list 'let
-                              [handle     (list 're-frame.core/make-capture-frame
+                              [handle     (list 're-frame.capture-frame/make-capture-frame
                                                 (list 're-frame.core/current-frame-id)
                                                 {:dispatch-opts {:source :ui}})
                                'dispatch  (list :dispatch handle)
@@ -199,6 +207,14 @@
     'reg-view      (sci/new-var 'reg-view sci-reg-view
                                 {:ns rf-ns :macro true :sci/macro true})}))
 
+;; The owned constructor the `reg-view` shim expands to (rf2-93sxp). ONLY that
+;; var is bound — not a `copy-ns` of the implementation namespace — and it is
+;; bound under its own namespace, never merged into the `re-frame.core` map
+;; above, so the facade a cell sees stays the real one.
+(def capture-frame-ns (sci/create-ns 're-frame.capture-frame nil))
+(def re-frame-capture-frame-namespace
+  {'make-capture-frame (sci/copy-var capture-frame/make-capture-frame capture-frame-ns)})
+
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))
 
@@ -215,7 +231,8 @@
 ;; a paste of stock idiom still resolves to the v2 surface.
 (def sci-ctx
   (sci/init
-   {:namespaces {'re-frame.core        re-frame-core-namespace
+   {:namespaces {'re-frame.core          re-frame-core-namespace
+                 're-frame.capture-frame re-frame-capture-frame-namespace
                  'reagent2.core        reagent2-core-namespace
                  'reagent2.ratom       reagent2-ratom-namespace
                  'reagent2.dom.client  reagent2-dom-client-namespace

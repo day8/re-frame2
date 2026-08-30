@@ -112,6 +112,27 @@
     :design-bead "rf2-x76af2.22"
     :description "Re-kick a fresh async drain for an exact captured frame record. Called by frame/call-serialized-with-drain!'s cold-section release when that record's queue is non-empty (a dispatch! that arrived during the hold scheduled a drain-try! that CAS-lost to the cold holder and gave up). The record/token is carried across the late-bind seam so an obsolete A callback can never re-resolve and drain same-id B."}
 
+   ;; ---- re-frame.core → re-frame.capture-frame (the facade's dispatch seams) --
+   ;; `re-frame.capture-frame` (the frame api constructor behind
+   ;; `capture-frame` and the `reg-view` injection, rf2-93sxp) sits below the
+   ;; facade, but its ops must call the facade's `^:no-doc` `dispatch-impl` /
+   ;; `dispatch-sync-impl` / `subscribe-impl` `def`-aliases — the seams the
+   ;; call-site macros target and tool tests `with-redefs` — rather than the
+   ;; owning fns directly. The facade publishes the three at load; the
+   ;; constructor reads them at capture time.
+   {:key         :core/dispatch-impl
+    :producer-ns 're-frame.core
+    :design-bead "rf2-93sxp"
+    :description "The facade's `dispatch-impl` seam (a `def`-alias of re-frame.router/dispatch!), read live so a with-redefs on re-frame.core/dispatch-impl reaches a frame api's :dispatch op. Consumed by re-frame.capture-frame/make-capture-frame."}
+   {:key         :core/dispatch-sync-impl
+    :producer-ns 're-frame.core
+    :design-bead "rf2-93sxp"
+    :description "The facade's `dispatch-sync-impl` seam (a `def`-alias of re-frame.router/dispatch-sync!), read live for a frame api's :dispatch-sync op. Consumed by re-frame.capture-frame/make-capture-frame."}
+   {:key         :core/subscribe-impl
+    :producer-ns 're-frame.core
+    :design-bead "rf2-93sxp"
+    :description "The facade's `subscribe-impl` seam (a `def`-alias of re-frame.subs/subscribe), read live for a frame api's :subscribe op. Consumed by re-frame.capture-frame/make-capture-frame."}
+
    ;; ---- EP-0023 inline-registration lowering -------------------------------
    ;; `re-frame.image-assembly` lowers an image's inline `:registrations` fn
    ;; bodies (`:impl`) into the runnable descriptor shape per kind so they route

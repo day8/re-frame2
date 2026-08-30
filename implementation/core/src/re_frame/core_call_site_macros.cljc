@@ -6,9 +6,6 @@
   the CLJS compiler from baking the owner's fixed arities into call sites, so
   tools can safely replace the seam with a differently shaped test fn.
 
-  `->interceptor` is a separate definition-site-capturing macro. It shares the
-  coordinate and debug-gate machinery but is not part of the dispatch family.
-
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of every
@@ -148,33 +145,4 @@
            plain   (if arg2
                      `(re-frame.core/subscribe-impl ~arg1 ~arg2)
                      `(re-frame.core/subscribe-impl ~arg1))]
-       (gate stamped plain))))
-
-;; ---- ->interceptor definition-site coordinate capture --------------------
-;;
-;; `->interceptor` is the only interceptor constructor with a USER
-;; definition site to jump to (the std interceptor `path` and
-;; the cofx injector are framework-built; the reg-event handler-wrappers
-;; carry the event's own coord). The macro captures `(meta &form)` and bakes
-;; the result into `->interceptor*`'s `:source-coord` kwarg. The coordinate
-;; stays on the exact interceptor instance through chain errors and
-;; `:rf.error/interceptor-exception`; it is not resolved through the registrar.
-;;
-;; The gate is OUTERMOST so the whole `:source-coord` literal DCEs under
-;; `:advanced` + `goog.DEBUG=false`: the prod branch omits the kwarg
-;; entirely, expanding to the identical fn call the bare fn-path produces.
-
-#?(:clj
-   (defn build-interceptor-form
-     "Build the expansion for the `->interceptor` macro. `kwargs` is the
-     verbatim `& {:keys [id before after]}` arg-seq the user wrote;
-     `form-meta` / `ns-sym` / `file` come from the call site. Emits a
-     gated `(if interop/debug-enabled? <with-coord> <plain>)` around
-     `re-frame.core/->interceptor*` — the dev branch splices the
-     captured `:source-coord` kwarg in, the prod branch is the bare
-     fn-call so the coord literal DCEs."
-     [form-meta ns-sym file kwargs]
-     (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped `(re-frame.core/->interceptor* ~@kwargs :source-coord ~cs-form)
-           plain   `(re-frame.core/->interceptor* ~@kwargs)]
        (gate stamped plain))))

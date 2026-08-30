@@ -1778,14 +1778,12 @@
   (testing "a phase-2 event whose USER INTERCEPTOR :before throws is
             captured as an :rf.error/exception assertion carrying the
             :rf.error/interceptor-exception operation (rf2-294yq5.2)"
-    (let [boom-icpt (rf/->interceptor
-                      :id :test/boom-icpt
-                      :before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt}))))]
-      ;; EP-0022 reference-only flip: register the interceptor value then
-      ;; reference it by id from the chain (the value's `:id` must match).
-      (rf/reg-interceptor :test/boom-icpt boom-icpt)
+    ;; EP-0022: author the interceptor with `reg-interceptor` (the public
+    ;; form; it returns the id) and reference it by id from the chain.
+    (let [boom-icpt (rf/reg-interceptor :test/boom-icpt
+                      {:before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt})))})]
       (rf/reg-event :test/uses-boom-icpt
-        {:interceptors [:test/boom-icpt]}
+        {:interceptors [boom-icpt]}
         (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.icpt-boom/v
         {:events [[:test/uses-boom-icpt]]})

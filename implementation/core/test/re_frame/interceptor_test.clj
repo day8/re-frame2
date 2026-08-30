@@ -902,91 +902,63 @@
           (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
               "an interceptor :after throw does NOT report as handler-exception"))))))
 
-;; ---- macro-path source-coord capture (rf2-siheh) --------------------------
+;; ---- explicit source-coord on the lowering constructor (rf2-siheh) --------
 ;;
-;; The `->interceptor` MACRO captures the definition-site coord from
-;; `(meta &form)` (riding the rf2-wvsxg absolutise path, exactly like the
-;; reg-* macros) and bakes `:source-coord` into the interceptor map. When
-;; that interceptor throws, the coord rides the error-record (interceptor/
-;; error-record) → the router threads it onto the
-;; `:rf.error/interceptor-exception` trace's `:source-coord` tag, so the
-;; Xray Epoch INTERCEPTOR row can render a jump-to-source chip (parity with
-;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). The `->interceptor*` FN path
-;; captures no coord — there is no syntactic call site to attribute.
+;; `->interceptor*` (`re-frame.interceptor`, the ONE lowering constructor)
+;; captures no coord of its own — there is no syntactic call site to
+;; attribute — but a `:source-coord` passed to it stays on the interceptor
+;; map. When that interceptor throws, the coord rides the error-record
+;; (interceptor/error-record) → the router threads it onto the
+;; `:rf.error/interceptor-exception` trace's `:source-coord` tag, so the Xray
+;; Epoch INTERCEPTOR row can render a jump-to-source chip (parity with EVENT
+;; HANDLER / SUBSCRIPTIONS / VIEWS). The facade's coord-capturing
+;; `->interceptor` macro, which used to bake that coord from `(meta &form)`,
+;; is gone (rf2-93sxp — no library caller; `reg-interceptor` is the authoring
+;; form), so the threading contract is pinned with an explicit coord.
 
-(deftest macro-interceptor-carries-absolutised-source-coord
-  (testing "a macro-defined interceptor map carries an absolutised
-            :source-coord (:ns / :file / :line); :file is an absolute
-            on-disk path per the rf2-wvsxg absolutise path"
-    (let [icpt (rf/->interceptor
-                 :id     :siheh/probe
-                 :before identity)
-          {:keys [ns file line] :as coord} (:source-coord icpt)]
-      ;; SEMANTIC, posture-independent (rf2-d2841): whichever branch the macro
-      ;; expands to, it must still BUILD a usable interceptor. A production
-      ;; branch that dropped more than the coord would be an rf2-9c2jf-class
-      ;; defect, and nothing else in the suite would see it.
-      (is (= :siheh/probe (:id icpt))
-          "the macro builds an interceptor carrying the requested :id")
-      (is (fn? (:before icpt))
-          "the macro builds an interceptor carrying the :before fn")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The macro's
-      ;; PRODUCTION branch omits the `:source-coord` kwarg entirely, by design.
-      (when interop/debug-enabled?
-        (is (map? coord)
-            "the macro bakes a :source-coord map into the interceptor")
-        (is (= 're-frame.interceptor-test ns)
-            ":ns is the metadata-free consumer namespace symbol")
-        (is (integer? line) ":line is the macro call-site line")
-        (is (string? file) ":file is a string")
-        ;; rf2-wvsxg — the macro feeds the picked :file through
-        ;; absolutise-file at expansion time, so the coord ships an
-        ;; absolute on-disk path (here the classpath resolved the test
-        ;; source under the core artefact's test root).
-        (is (re-find #"interceptor_test\.clj$" file)
-            ":file resolves to this test source file")
-        (is (re-find #"^(?:/|[A-Za-z]:)" file)
-            ":file is absolute (leading slash or drive letter) — absolutised"))))
+(def ^:private probe-coord
+  {:ns 're-frame.interceptor-test :file "re_frame/interceptor_test.clj" :line 921 :column 1})
 
-  (testing "the ->interceptor* fn path captures NO :source-coord (HoF /
-            programmatic — no syntactic call site to attribute)"
-    (let [icpt (interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). This is the
-      ;; NEGATIVE half of the macro-vs-fn discriminator above; under the
-      ;; production gate neither path carries a coord, so asserting it there
-      ;; would pass for the wrong reason.
-      (when interop/debug-enabled?
-        (is (nil? (:source-coord icpt))
-            "fn-built interceptor carries no coord")))))
+(deftest lowering-constructor-keeps-an-explicit-source-coord
+  (testing "an interceptor built with an explicit :source-coord carries it;
+            one built without carries none"
+    (let [with-coord (interceptor/->interceptor* :id           :siheh/probe
+                                                 :before       identity
+                                                 :source-coord probe-coord)
+          bare       (interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
+      (is (= :siheh/probe (:id with-coord))
+          "the constructor carries the requested :id")
+      (is (fn? (:before with-coord))
+          "the constructor carries the :before fn")
+      (is (= probe-coord (:source-coord with-coord))
+          "an explicit :source-coord stays on the interceptor map")
+      (is (nil? (:source-coord bare))
+          "no coord unless the caller supplies one"))))
 
-(deftest macro-interceptor-source-coord-rides-the-exception-trace
-  (testing "a throwing macro-defined interceptor threads its :source-coord
-            onto the :rf.error/interceptor-exception trace (the slot the
-            Xray Epoch INTERCEPTOR row's jump-to-source chip reads)"
-    ;; EP-0022 reference-only: register the MACRO-BUILT interceptor VALUE as
-    ;; the descriptor (the registration boundary accepts an interceptor value),
-    ;; so the :source-coord the macro captured from `(meta &form)` rides
-    ;; through resolution onto the trace. Then reference it by id.
+(deftest interceptor-source-coord-rides-the-exception-trace
+  (testing "a throwing interceptor threads its :source-coord onto the
+            :rf.error/interceptor-exception trace (the slot the Xray Epoch
+            INTERCEPTOR row's jump-to-source chip reads)"
+    ;; EP-0022 reference-only: register the interceptor VALUE as the
+    ;; descriptor (the registration boundary accepts an interceptor value),
+    ;; so the :source-coord it carries rides through resolution onto the
+    ;; trace. Then reference it by id.
     (rf/reg-interceptor :siheh/before-icpt
-                         (rf/->interceptor
-                           :id     :siheh/before-icpt
-                           :before (fn [_] (throw (ex-info "before blew up" {})))))
+                        (interceptor/->interceptor*
+                          :id           :siheh/before-icpt
+                          :before       (fn [_] (throw (ex-info "before blew up" {})))
+                          :source-coord probe-coord))
     (rf/reg-event :siheh/before-boom
-                     {:interceptors [:siheh/before-icpt]}
-                     (fn [{:keys [db]} _] {:db db}))
+                  {:interceptors [:siheh/before-icpt]}
+                  (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/before-boom])]
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): a coord
-      ;; threaded onto a trace tag is dev-only twice over — the coord is not
-      ;; captured in production and the trace is not emitted there either.
+      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): the trace is
+      ;; not emitted in production.
       (when interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
-          (let [coord (get-in (first ix) [:tags :source-coord])]
-            (is (map? coord)
-                "the trace carries the interceptor's :source-coord tag")
-            (is (re-find #"interceptor_test\.clj$" (:file coord))
-                ":file points at this test source")
-            (is (integer? (:line coord)) ":line is captured"))))))
+          (is (= probe-coord (get-in (first ix) [:tags :source-coord]))
+              "the trace carries the interceptor's :source-coord tag")))))
 
   (testing "a throwing ->interceptor*-built interceptor threads NO
             :source-coord tag (degrades to plain text in the panel)"

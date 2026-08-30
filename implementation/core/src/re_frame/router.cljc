@@ -2246,7 +2246,7 @@
 (defn ^:no-doc emit-captured-frame-superseded!
   "rf2-9pyles — the recover-but-emit seam for a `capture-frame` op whose CAPTURED
   frame incarnation has been SUPERSEDED. A frame api built by
-  `re-frame.core/make-capture-frame` pins the EXACT incarnation live at capture
+  `re-frame.capture-frame/make-capture-frame` pins the EXACT incarnation live at capture
   (its `:drain-lock`); if that incarnation is later destroyed — whether the id is
   now unclaimed OR a same-id successor incarnation B has reseated under it — the
   captured op must NOT leak into B. It RECOVERS (the event is never enqueued into

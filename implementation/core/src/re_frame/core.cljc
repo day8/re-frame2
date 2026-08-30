@@ -29,6 +29,11 @@
   which would wipe a previously-loaded `re-frame.core.X`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
+            ;; The frame api constructor behind `capture-frame` and the
+            ;; `reg-view` injection — an implementation namespace below this
+            ;; facade (rf2-93sxp), so the expansion can name it fully-qualified
+            ;; without a compiler-only Var living here.
+            [re-frame.capture-frame :as frame-api]
             [re-frame.router :as router]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
@@ -178,7 +183,6 @@
                                     reg-view reg-machine defmachine
                                     image
                                     dispatch dispatch-sync subscribe
-                                    ->interceptor
                                     with-frame with-new-frame
                                     with-fx-overrides
                                     with-managed-request-stubs]])))
@@ -191,8 +195,9 @@
 ;; alias below resolve the SAME var. `^:no-doc` strips them from the API
 ;; manifest / generated docs (the same mechanism `reg-event-db` etc. use) —
 ;; they are NOT a public facade surface, just the shared internal seam the
-;; `dispatch` / `dispatch-sync` / `subscribe` macro's expansion AND
-;; `make-capture-frame`'s injected ops both call through, so a SINGLE
+;; `dispatch` / `dispatch-sync` / `subscribe` macro's expansion AND a frame
+;; api's ops (`re-frame.capture-frame/make-capture-frame`, published to it
+;; below) both call through, so a SINGLE
 ;; `with-redefs` on one of these (or the CLJS value-alias, which aliases the
 ;; SAME var) intercepts every real dispatch, macro-driven or reg-view-
 ;; injected alike (rf2-m90brg — API-shrink #2 retired the PUBLIC `dispatch*` /
@@ -212,6 +217,18 @@
 (def ^:no-doc dispatch-impl      router/dispatch!)
 (def ^:no-doc dispatch-sync-impl router/dispatch-sync!)
 (def ^:no-doc subscribe-impl     subs/subscribe)
+
+;; Publish the three seams to `re-frame.capture-frame` (rf2-93sxp). It sits
+;; BELOW this facade and cannot `:require` it, so the frame api's ops reach
+;; the seams through the late-bind registry (the cycle-breaking flavour, per
+;; `re-frame.late-bind.directory`). Each published fn reads the var at CALL
+;; time — `(dispatch-impl event opts)`, not the var's current value — so a
+;; `with-redefs` on `rf/dispatch-impl` reaches an op captured before it,
+;; exactly as it reaches the macro expansions.
+(late-bind/set-fns!
+  {:core/dispatch-impl      (fn [event opts]   (dispatch-impl event opts))
+   :core/dispatch-sync-impl (fn [event opts]   (dispatch-sync-impl event opts))
+   :core/subscribe-impl     (fn [query-v opts] (subscribe-impl query-v opts))})
 
 (defn ^:no-doc stamp-opts
   "Merge macro-stamped `extra` into a call's user-supplied `opts`, TOLERANTLY:
@@ -408,8 +425,7 @@
   `reg-event-ctx` raises `:rf.error/reg-event-ctx-removed`, naming
   `reg-interceptor` as the public replacement for application full-context
   work (register the interceptor by id, then reference it from a `reg-event`
-  registration's `:interceptors` chain; `->interceptor` is internal-only
-  post-EP-0022). See `re-frame.events/reg-event-ctx` and
+  registration's `:interceptors` chain). See `re-frame.events/reg-event-ctx` and
   spec/001-Registration.md §The retired event-registration names."}
   reg-event-ctx events/reg-event-ctx)
 
@@ -433,8 +449,8 @@
        runtime-extension authority. Coeffects are declared uniformly via
        `:rf.cofx/requires`. Full-context work is expressed with an
        interceptor authored via `reg-interceptor` and referenced by id from
-       this registration's `:interceptors` chain (`->interceptor` is the
-       internal lowering constructor post-EP-0022, not the authoring form).
+       this registration's `:interceptors` chain (there is no public
+       interceptor-value constructor post-EP-0022).
        Captures source-coords (Spec 001) at this call site. Additionally
        captures the whole `(reg-event :id ...)`
        form as a string under the handler's `:rf.handler/source` meta
@@ -1250,206 +1266,6 @@
   (frame/require-current-frame! :current-frame-id
                                 {:where 're-frame.core/current-frame-id}))
 
-;; ---- capture-frame incarnation fence (rf2-9pyles) -------------------------
-;;
-;; A frame api is LOCKED to one frame, and moftbs (rf2-moftbs) made a frame's
-;; identity its EXACT incarnation (the record's `:drain-lock`), distinct across a
-;; `destroy-frame!` + same-id reconstruction. So a frame api captured against a
-;; LIVE frame A must stay bound to incarnation A: if A is later destroyed and a
-;; same-id successor incarnation B reseats under the id, an op fired from a stale
-;; async closure (the motivating case: a predecessor React root's DEFERRED
-;; layout/effect cleanup, firing after `destroy-adapter!` returned and a fresh
-;; generation reseated frame B) must NOT dispatch into B. The bare-id resolution
-;; `dispatch!`/`dispatch-sync!` perform at call time would otherwise silently
-;; retarget the successor.
-;;
-;; The fence PINS the incarnation live at capture and treats a superseded target
-;; as destroyed (recover-but-emit `:rf.error/frame-destroyed`, NOT a throw — these
-;; ops fire from host cleanup where a throw would break the host teardown). It
-;; applies UNIFORMLY to every op that resolves the target — `:dispatch`,
-;; `:dispatch-sync` (rf2-9pyles) AND `:subscribe` (rf2-tdjv7p, closing the same
-;; silent cross-incarnation retarget for the read op so subscribe cannot read a
-;; successor's app-db or leak a persisted reaction into its sub-cache). The pin
-;; is EXACT even over a frame VALUE: the value carries its own construction token
-;; (`:rf.frame/incarnation-token`, rf2-moftbs), preferred before the id-keyed
-;; registry lookup so `(capture-frame <value>)` pins the same incarnation
-;; `(capture-frame <id>)` does (rf2-vclh63). When the captured id was NOT live at
-;; capture (`capture-frame`'s 1-arity lock-to-id form used from outside any scope,
-;; a not-yet-mounted id, or a derived-read value carrying no token) nothing is
-;; pinned and the op stays address-directed — the documented dynamic-id
-;; semantics. This is the async-safe, RECOVER-BUT-EMIT form of the incarnation
-;; fence: where a synchronous fence throws on a superseded incarnation, this one
-;; emits `:rf.error/frame-destroyed` and drops the op.
-
-(defn- capture-target-incarnation
-  "The EXACT incarnation token (`:drain-lock`) pinning the capture TARGET's live
-  incarnation, else nil (unpinned / address-directed). `frame-target` is a
-  keyword id OR a frame VALUE.
-
-  A construction frame VALUE carries its own exact token
-  (`:rf.frame/incarnation-token`, rf2-moftbs) — PREFER it so `(capture-frame
-  <value>)` pins the SAME incarnation `(capture-frame <id>)` does. The id-keyed
-  registry lookup (`frame-incarnation-token`) returns nil for a value map (the
-  registry is keyed by id, not by the value), so without this the value path
-  silently lost its pin (rf2-vclh63). A keyword id — or a derived-read value that
-  carries no construction token — falls to the id-keyed lookup: a live id pins,
-  an absent/not-yet-mounted id (or a derived-read value, whose map is not a
-  registry key) pins nothing. Namespace-qualified `frame/…` is never shadowed by
-  a local `frame`."
-  [frame-target]
-  (or (frame/frame-value-incarnation-token frame-target)
-      (frame/frame-incarnation-token frame-target)))
-
-(defn- capture-target-superseded?
-  "True when a pinned `captured-incarnation` no longer identifies the capture
-  TARGET's live frame — the exact captured incarnation was destroyed, whether the
-  id is now unclaimed or a same-id successor incarnation reseated. `frame-target`
-  is NORMALIZED to its frame id (`frame-target->id`) before the liveness lookup so
-  a frame VALUE's carried token is compared against the current live incarnation
-  under its id — the id-keyed token lookup does not accept a value map, so without
-  this a pinned value would read nil-live and be spuriously superseded on every
-  op (rf2-vclh63). nil `captured-incarnation` (an unpinned capture) is never
-  superseded."
-  [frame-target captured-incarnation]
-  (and (some? captured-incarnation)
-       (not (frame/frame-incarnation-live?
-              (frame/frame-target->id frame-target) captured-incarnation))))
-
-(defn- capture-dispatch!
-  "Route a captured `:dispatch`/`:dispatch-sync` op through the incarnation fence:
-  when the pinned incarnation is superseded, recover-but-emit `:rf.error/frame-
-  destroyed` (never enqueue into a same-id successor); otherwise delegate to
-  `dispatch-fn` (the `dispatch-impl` / `dispatch-sync-impl` alias, preserving the
-  single `with-redefs` interception seam). `frame-target` is a keyword id OR a
-  frame VALUE; the recover-but-emit stamps the normalized frame id (identity for
-  a keyword) so the diagnostic carries an id, never a value map (rf2-vclh63).
-  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm — `:dispatch` or
-  `:dispatch-sync` — carried through the recover-but-emit so the frame-destroyed
-  source-coord resolves under `[:event id]` exactly, never the realm-ambiguous
-  fallback that could steal a same-keyword subscription's coord."
-  [dispatch-fn op frame-target captured-incarnation event opts]
-  (if (capture-target-superseded? frame-target captured-incarnation)
-    (router/emit-captured-frame-superseded!
-      event (frame/frame-target->id frame-target) op opts)
-    ;; rf2-dlld6: the `capture-target-superseded?` pre-check above and the
-    ;; ordinary address-directed dispatch below are SEPARATE operations. On the
-    ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
-    ;; installed in the window between them, so a capture that just validated A
-    ;; would enqueue into B — a bare-id resolve, violating the exact-incarnation
-    ;; promise. Carry the EXACT captured incarnation through as
-    ;; `:rf.frame/expected-incarnation` so `dispatch!` / `dispatch-sync!`
-    ;; validate it against the SAME record they resolve for enqueue (one
-    ;; exact-incarnation operation) and recover-but-emit rather than leak into B.
-    ;; nil `captured-incarnation` (an unpinned capture made while its target was
-    ;; ABSENT) carries nothing and stays deliberately address-directed.
-    (dispatch-fn event (cond-> opts
-                         (some? captured-incarnation)
-                         (assoc :rf.frame/expected-incarnation captured-incarnation)))))
-
-(defn- capture-subscribe!
-  "Route a captured `:subscribe` op through the SAME incarnation fence as
-  `capture-dispatch!` (rf2-tdjv7p): when the pinned incarnation is superseded,
-  recover-but-emit `:rf.error/frame-destroyed` and return nil — never resolve a
-  reaction against a same-id successor (which would read the successor's app-db
-  and cache a reaction in its sub-cache). Otherwise delegate to `subscribe-thunk`
-  (the live read, which itself applies the dev-only `:rf.trace/call-site`
-  wrapper). The subscribe half of the async-safe, recover-but-emit incarnation
-  fence — the dispatch half is above; reuses the dispatch fence's emit seam,
-  passing `subscribe-call-site` as the `:rf.trace/call-site` so the drop is
-  attributed to the subscribe coord, and the `:subscribe` operation realm
-  (rf2-7xlvt) so the frame-destroyed source-coord resolves under `[:sub id]`
-  exactly — never a same-keyword event's coord."
-  [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
-  (if (capture-target-superseded? frame-target captured-incarnation)
-    (router/emit-captured-frame-superseded!
-      query-v (frame/frame-target->id frame-target) :subscribe
-      {:rf.trace/call-site subscribe-call-site})
-    (subscribe-thunk)))
-
-(defn make-capture-frame
-  "INTERNAL constructor for `capture-frame` (and the `reg-view` injection
-  sugar) — `:tier :implementation` (EP-0024 Open Issue #8, rf2-5vla7c).
-  Not an app-facing surface — call `capture-frame` instead. It is a plain
-  (technically public) Var rather
-  than `defn-` ONLY so the `reg-view` macro's emitted body can reference
-  it fully-qualified (a `defn-` private would fail the CLJ analyzer when
-  the expansion compiles on the JVM); the precedent is `reg-view*` /
-  `view`, which are likewise public plumbing.
-
-  Build a frame api locked to `frame`:
-
-    {:frame         frame
-     :dispatch      (fn ([event] [event opts]))
-     :dispatch-sync (fn ([event] [event opts]))
-     :subscribe     (fn [query-v])}
-
-  The captured `frame` is closed over by every op — no dynamic-var read
-  at op-call time — so the frame api dispatches / subscribes into `frame`
-  even when an op fires after the surrounding `with-frame` /
-  `frame-provider` / `frame-root` scope has unwound (the async-boundary
-  case).
-
-  Per the frame-affordance redesign (rf2-kkut0) the captured frame is
-  AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
-  per-call `:frame` in `opts` CANNOT override it — the frame api is
-  locked to one frame.
-
-  `opts` (the second arg) supports the `reg-view` source-coord sugar:
-    :dispatch-opts        base dispatch opts merged BELOW the captured
-                          `:frame` (and below any per-call `opts`). The
-                          `reg-view` macro injects
-                          `{:source :ui :rf.trace/call-site <view-coord>}`
-                          here so a view's on-click `#((:dispatch h) [...])`
-                          classifies as `:source :ui` + carries the view's
-                          call-site for Xray's dispatch 'go to code'.
-    :subscribe-call-site  a source-coord stamped (under
-                          `interop/debug-enabled?`) onto any error emitted
-                          inside the synchronous subscribe miss path
-                          (`:rf.error/no-such-sub`, `:rf.error/frame-
-                          destroyed`). Mirrors the `subscribe` macro's
-                          `trace/with-call-site` wrapper; subscriptions
-                          carry no `:source` axis. DCEs in production."
-  [frame {:keys [dispatch-opts subscribe-call-site]}]
-  ;; rf2-9pyles: pin the EXACT incarnation live at capture so a later op cannot
-  ;; leak into a same-id successor. nil (id not live at capture) ⇒ address-directed.
-  (let [captured-incarnation (capture-target-incarnation frame)]
-    {:frame frame
-     :dispatch
-     (fn dispatch-fn
-       ([event]      (capture-dispatch! dispatch-impl :dispatch frame captured-incarnation
-                                        event (merge dispatch-opts {:frame frame})))
-       ([event opts] (capture-dispatch! dispatch-impl :dispatch frame captured-incarnation
-                                        event (merge dispatch-opts opts {:frame frame}))))
-     :dispatch-sync
-     (fn dispatch-sync-fn
-       ([event]      (capture-dispatch! dispatch-sync-impl :dispatch-sync frame captured-incarnation
-                                        event (merge dispatch-opts {:frame frame})))
-       ([event opts] (capture-dispatch! dispatch-sync-impl :dispatch-sync frame captured-incarnation
-                                        event (merge dispatch-opts opts {:frame frame}))))
-     :subscribe
-     ;; rf2-tdjv7p: fence subscribe on the SAME incarnation pin as dispatch — a
-     ;; capture pinned to incarnation A whose frame was destroyed and reseated as
-     ;; a same-id successor B must NOT subscribe into B (reading B's app-db,
-     ;; caching a reaction in B's sub-cache); it recover-but-emits and returns nil.
-     (fn subscribe-fn
-       [query-v]
-       ;; rf2-dlld6: carry the EXACT captured incarnation into the read so
-       ;; `subscribe-in-frame` validates it against the SAME record it resolves
-       ;; from the sub-cache (one exact-incarnation operation) — closing the
-       ;; identical check-then-use window the dispatch arm has: a same-id
-       ;; successor B installed between the `capture-subscribe!` pre-check and
-       ;; the resolve cannot be read (nor a reaction cached in B's sub-cache).
-       (let [sub-opts (cond-> {:frame frame}
-                        (some? captured-incarnation)
-                        (assoc :rf.frame/expected-incarnation captured-incarnation))]
-         (capture-subscribe!
-           (fn []
-             (if (and subscribe-call-site interop/debug-enabled?)
-               (trace/with-call-site subscribe-call-site
-                 (subscribe-impl query-v sub-opts))
-               (subscribe-impl query-v sub-opts)))
-           frame captured-incarnation query-v subscribe-call-site)))}))
-
 (defn capture-frame
   "Return a frame api — the keystone affordance for
   carrying a frame into closures and across async boundaries. Per Spec
@@ -1492,11 +1308,11 @@
   002 §Resolver surface). Use the 1-arity `(capture-frame frame-id)` to
   lock a frame api to a named frame from outside any scope (the right shape
   for async callbacks / tools / tests / SSR)."
-  ([]         (make-capture-frame
+  ([]         (frame-api/make-capture-frame
                 (frame/require-current-frame!
                   :capture-frame {:where 're-frame.core/capture-frame})
                 nil))
-  ([frame-id] (make-capture-frame frame-id nil)))
+  ([frame-id] (frame-api/make-capture-frame frame-id nil)))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
 
@@ -2120,42 +1936,15 @@
 ;; same-name `def`-alias in the Convention-A block near the top of this ns
 ;; covers the HoF / programmatic case — reach the owning ns directly
 ;; (`re-frame.interceptor-registry/reg-interceptor*`) from JVM code.
-
-(def ^{:doc "INTERNAL lowering constructor (EP-0022) — NOT the public
-  application-authoring surface; author interceptors with `reg-interceptor`
-  and reference them by id from event/frame `:interceptors` chains. This
-  fn-form lowers a descriptor into an executable chain entry from kwargs:
-  `:id`, `:before`, `:after`, and an optional `:source-coord` (the
-  `->interceptor` macro supplies it from `(meta &form)`). Retained as the
-  framework-internal lowering seam (used by the registry resolver, the std
-  interceptors, and tests); it MUST NOT appear in a public event/frame
-  chain. Per spec/001 §`->interceptor` is not the application authoring
-  form, spec/002 §10, and spec/API.md §Standard interceptors."}
-  ->interceptor*  interceptor/->interceptor*)
-
-#?(:clj
-   (defmacro ->interceptor
-     "INTERNAL lowering constructor (EP-0022) — NOT the public application-
-     authoring surface. The public form is `reg-interceptor` (which names the
-     interceptor, captures source coords, and makes it addressable / queryable
-     / overridable by id). `->interceptor` survives only as the coord-capturing
-     internal lowering constructor (the macro counterpart of `->interceptor*`):
-     it builds an interceptor map from kwargs and bakes the definition-site
-     `:source-coord` from `(meta &form)` so the Xray Epoch INTERCEPTOR row can
-     jump to source when an interceptor throws. It MUST NOT appear in a public
-     event/frame chain — those carry interceptor REFERENCES (Spec 002).
-
-     Kwargs: `:id` (keyword name; default `:unnamed`), `:before`
-     (`(fn [ctx] ctx)` — runs before the handler), `:after`
-     (`(fn [ctx] ctx)` — runs after, in reverse order).
-
-     The captured coord DCEs under `:advanced` + `goog.DEBUG=false` (the
-     macro's prod branch omits the `:source-coord` kwarg entirely). Per
-     spec/001 §`->interceptor` is not the application authoring form,
-     spec/002 §10, spec/API.md §Standard interceptors, and rf2-siheh."
-     [& kwargs]
-     (csm/build-interceptor-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                 kwargs)))
+;;
+;; The lowering constructor is NOT on this facade either (rf2-93sxp): the
+;; `->interceptor*` alias and the coord-capturing `->interceptor` macro were
+;; facade exports whose manifest rows read "internal lowering only" — an
+;; internal disposition recorded against a still-exported var, the annotation-
+;; not-removal shape Conventions §Removing or demoting a facade export names.
+;; `re-frame.interceptor/->interceptor*` is the one constructor, reached by
+;; the registry resolver, the std interceptors and tests; the macro had no
+;; library caller and is deleted. `reg-interceptor` is the authoring form.
 
 ;; Interceptor CONTEXT ACCESSORS — `get-coeffect` / `assoc-coeffect` /
 ;; `get-effect` / `assoc-effect` — are NO LONGER re-exported from the

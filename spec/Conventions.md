@@ -1247,7 +1247,7 @@ The diff-time obligation above is the **add** side: it governs what goes *onto* 
 
 **Who rules.** The same diff-time bar as additions: the PR that supersedes or internalises a surface **classifies its disposition** (which fate, and why) in the same change. A mechanical "this is dead, delete it" needs no escalation; a genuine *"is this still used internally?"* judgment call escalates to the operator, exactly as a contested tier on the add side does.
 
-This rule is **enforced by the public-facade manifest-hygiene CI check** (the guardrail that joins each `:facade? true` manifest row against its disposition and fails on a faceted row that has been superseded), the symmetric enforcement partner to the api-manifest drift-check that backs the add side.
+This rule is **enforced by the api-manifest drift-check itself** (`clojure -M -m re-frame.api-manifest.gen --check`, the `api-manifest` lint job): the generator refuses any `:facade? true` row at tier `implementation`, so an internal disposition cannot be recorded against a var that still exports from the facade — the same check that backs the add side, guarding the remove side too.
 
 ## Lifecycle-verb law — a closed verb vocabulary for naming lifecycle and facade APIs
 

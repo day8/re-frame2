@@ -38,7 +38,7 @@ Every entry here registers a named handler into the frame's registrar.
     (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
   ```
   > **Migration note.** The bare positional interceptor middle slot — `(reg-event :id [undoable] handler)` — has been removed. Put interceptor chains in the metadata map: `(reg-event :id {:interceptors [undoable]} handler)`.
-- **Raw-context handlers**: there is no separate registrar for them. To read or rewrite the interceptor context, register a named interceptor with `(rf/reg-interceptor :my/audit {:before ... :after ...})` and reference it by id from the `:interceptors` vector (`{:interceptors [:my/audit]}`). Its `:before` / `:after` fns receive and return the context map directly. (`->interceptor` is the framework-internal lowering constructor, not the authoring form.)
+- **Raw-context handlers**: there is no separate registrar for them. To read or rewrite the interceptor context, register a named interceptor with `(rf/reg-interceptor :my/audit {:before ... :after ...})` and reference it by id from the `:interceptors` vector (`{:interceptors [:my/audit]}`). Its `:before` / `:after` fns receive and return the context map directly. (There is no public interceptor-value constructor; the framework lowers registered descriptors internally.)
 - **Example** — a pure state update and an effectful handler:
   ```clojure
   ;; State-only: the db write is an explicit :db effect.
@@ -472,16 +472,6 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
       [:div "streaming…"]))
   ```
 
-### `make-capture-frame`
-
-- **Kind**: function (internal — `:tier :implementation`, EP-0024)
-- **Signature**:
-  ```clojure
-  (make-capture-frame frame)
-  (make-capture-frame frame opts)
-  ```
-- **Description**: **Not an app-facing surface** — the internal constructor behind `capture-frame` and the `reg-view` injection sugar. It is a public Var only so the `reg-view` macro's emitted body can reference it fully-qualified. Call `capture-frame` instead.
-
 <a id="with-frame--with-new-frame"></a>
 
 ### `with-frame`
@@ -552,24 +542,6 @@ The effect map is **closed**: app handlers return `:db` + `:fx` only. (A third r
     (fn [cofx _]
       {:db (assoc (:db cofx) :cart/saving? true)}))
   ```
-
-### `->interceptor`
-
-- **Kind**: macro (internal lowering constructor, EP-0022)
-- **Signature**:
-  ```clojure
-  (->interceptor & {:keys [id before after]})
-  ```
-- **Description**: **INTERNAL — not the public authoring form.** The framework-internal lowering constructor. It turns a `{:before … :after …}` descriptor into an executable chain entry, capturing the definition-site `:source-coord` from `(meta &form)`. Application code registers interceptors with `reg-interceptor` and references them by id; `->interceptor` must not appear directly in a public `:interceptors` chain.
-
-### `->interceptor*`
-
-- **Kind**: function (internal, EP-0022)
-- **Signature**:
-  ```clojure
-  (->interceptor* & {:keys [id before after]})
-  ```
-- **Description**: **INTERNAL.** The plain, runtime-callable fn form of the `->interceptor` macro (per Conventions `*`-suffix naming). HoF / programmatic / REPL callers reach this directly; it captures no source-coord. Not an authoring surface — use `reg-interceptor`.
 
 ### `with-fx-overrides`
 
