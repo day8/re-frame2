@@ -41,6 +41,11 @@ Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapt
 (:require [re-frame.adapter.reagent :as reagent-adapter])
 ;; ...
 (reagent-adapter/flush-views!)
+
+;; The same name on the UIx adapter, from its own require:
+(:require [re-frame.adapter.uix :as uix-adapter])
+;; ...
+(uix-adapter/flush-views!)
 ```
 
 This is intentional per [Spec 006 §Revertibility constraints — What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do): the adapter-dependency direction is `adapter → core`, never the reverse. `re-frame.test-support` ships in core and cannot reach into adapter namespaces without inverting the direction. Test code knows its adapter at compile time (the same require that boots the adapter at app boot, repeated in the test ns) — the `(reagent-adapter/flush-views!)` shape is structurally identical to how production code calls `(reagent-adapter/render ...)`.

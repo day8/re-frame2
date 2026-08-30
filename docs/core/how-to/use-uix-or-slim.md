@@ -270,7 +270,7 @@ There's one Reagent footgun that doesn't port at all, and that's good news: the 
 
 !!! note "Flushing renders in tests"
 
-    When a test dispatches against a UIx-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` updates haven't settled yet. Call `(uix-adapter/flush-views!)` after the dispatch — it wraps React's `act()` and settles pending effects. This is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
+    When a test `dispatch-sync`s against a UIx-mounted tree and then wants to read the resulting DOM, the React `useSyncExternalStore` update hasn't committed yet. Run the dispatch inside `(uix-adapter/flush-views! #(rf/dispatch-sync …))` — it wraps React's `act()` and commits the re-render before returning. A real click's `dispatch` queues on the router instead, and settles with a bounded `poll-until`. The complete component test — mount, click, settle, assert, unmount — is [Test a view §4](../testing/views.md#4-uix-hook-components-mount-it-for-real). `flush-views!` is a *test* helper, per-adapter-require (you reach for it from test code, not app code). It's distinct from the production-grade `flush-render!` contract function the adapter implements for headless tooling; you won't call that one directly.
 
 !!! note "Why this matters"
 
