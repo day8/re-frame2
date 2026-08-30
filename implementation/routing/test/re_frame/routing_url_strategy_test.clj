@@ -48,7 +48,9 @@
 
 (deftest history-strategy-shape
   (testing "history-url-strategy carries the two host-agnostic keys on JVM
-            (the side-effecting keys are CLJS-only — SSR ignores strategies)"
+            (the side-effecting keys are CLJS-only — SSR runs no browser side
+            effects; the pure :encode it DOES run is pinned cross-host in
+            route_link_ssr_parity_cljs_test)"
     (is (fn? (:encode strategy/history-url-strategy)))
     (is (fn? (:decode strategy/history-url-strategy)))
     ;; JVM half omits the side-effecting keys (see the ns docstring).

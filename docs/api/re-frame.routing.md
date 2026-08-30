@@ -380,7 +380,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
 
 ## URL strategies
 
-A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy rf.routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies: the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
+A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy rf.routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR runs none of them — the server takes the request URL via `:rf.route/handle-url-change` and drives no history — but it does honour the pure `:encode`: a server-rendered `route-link` carries the same encoded href the hydrated client renders (`/demos/active` for a `with-base-path` frame, `#/active` for a hash frame).
 
 ### `history-url-strategy`
 
@@ -460,7 +460,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
   - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
   - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the framework's interception is skipped.
   - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value, and **omitting** `:prefetch` is the only way to opt out — a key present with any other value (including `true`, `false`, `nil`, or a mode borrowed from another router) throws `:rf.error/route-link-bad-prefetch` at the render site rather than quietly rendering a passive link. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. The intent *handlers* are CLJS-only (SSR renders the anchor with none), but the value is validated on both hosts, so the server shell never accepts a mode the hydrated client rejects.
-  - The rendered href is encoded through the rendering frame's `:url-strategy`.
+  - The rendered href is encoded through the rendering frame's `:url-strategy` — on both hosts, so the server shell and the hydrated client agree.
   - On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
 - **Example**:
   ```clojure
@@ -486,7 +486,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
   ```clojure
   (route-link-render-ssr props & children) → hiccup
   ```
-- **Description**: The JVM render fn for the `:route/link` view. It renders the `<a href=...>` shell without the click-interception logic. SSR has no DOM events to intercept, so the anchor is emitted as-is; clicks on the hydrated page run the CLJS render fn's on-click path. The href is emitted path-form regardless of `:url-strategy` (SSR ignores strategies), and the hydrated CLJS render re-encodes it. The authoring surface is [`route-link`](#route-link), also published on the `re-frame.core` facade.
+- **Description**: The JVM render fn for the `:route/link` view. It renders the `<a href=...>` shell without the click-interception logic. SSR has no DOM events to intercept, so the anchor is emitted as-is; clicks on the hydrated page run the CLJS render fn's on-click path. The href is encoded through the rendering frame's `:url-strategy` exactly as on the client — the SSR pipeline pins the request frame around its render walk, so a `with-base-path` server frame emits `/demos/active` and a hash frame `#/active`, matching the hydrated render; called outside any frame scope it renders the path form (the history default). The authoring surface is [`route-link`](#route-link), also published on the `re-frame.core` facade.
 
 ## Keyword surfaces
 

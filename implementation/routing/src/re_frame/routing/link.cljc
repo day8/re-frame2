@@ -104,10 +104,12 @@
   `:rf.route/url-requested` dispatch (the click handler routes through the
   cascade, which is path-form throughout). The rendered `:href` is the
   ENCODED form so copy-link / open-in-new-tab land on the right address
-  (`#/active` for a hash app). The CLJS render passes its captured frame's
-  strategy `:encode`; the SSR render passes `identity` (SSR ignores
-  strategies — the path-form href is the server shell, and the hydrated
-  CLJS render fn re-encodes on the client)."
+  (`#/active` for a hash app). BOTH render fns pass the RENDERING frame's
+  strategy `:encode` — the CLJS render its captured frame's, the SSR render
+  the frame `rf/with-frame` pinned around the server walk — so the server
+  shell and the hydrated client carry the same `:href` (Spec 011's
+  structural-equivalence rule; rf2-skr1c). Only the strategy's browser side
+  effects are CLJS-only; its pure `:encode` is not."
   [props encode]
   ;; EP-0037 R0b: select the address through the ONE shared extractor
   ;; (`address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
@@ -128,9 +130,9 @@
   ;; must ALSO strip the control keys and hand back route-link's open
   ;; DOM-attribute passthrough map (Spec 012 §The extraction law), which
   ;; `link-model` must NOT do — the consuming view artefact owns its own markup
-  ;; — and this fn takes `encode` as an ARGUMENT (CLJS render passes the frame
-  ;; strategy's `:encode`, SSR passes `identity`) where `link-model` resolves it
-  ;; behind a reader conditional. A shared helper would need a home both already
+  ;; — and this fn takes `encode` as an ARGUMENT (each render fn resolves its
+  ;; frame's strategy `:encode` and hands it in) where `link-model` resolves it
+  ;; from the `render-frame` it is handed. A shared helper would need a home both already
   ;; require, and there is none; a namespace invented to hold this calculation
   ;; would cost more than it saves. Do not spend an afternoon unifying them —
   ;; but if a shared home appears for another reason, collapse both onto it.
@@ -399,14 +401,29 @@
   Spec 011 the render tree is the contract; this is the JVM half of
   that contract for the `:route/link` view.
 
-  SSR does not apply URL strategies: the server has no address bar,
-  and a hash never reaches it. The href is emitted PATH-FORM (`encode` =
-  `identity`); on hydration the CLJS `route-link-render` re-encodes it
-  through the frame's strategy. So a hash app's server shell carries
-  `/active` and the hydrated anchor carries `#/active`, both pointing at
-  the same route."
+  The `:href` is encoded through the RENDERING frame's `:url-strategy`,
+  exactly as the CLJS render fn encodes it — the pure one of the four
+  consult points, so it runs on both hosts (Spec 012 §URL strategies). SSR
+  skips only the strategy's browser side effects (`:decode`'s host read,
+  `:push!` / `:replace!`, the listener); it does NOT skip `:encode`,
+  because Spec 011 makes the server tree and the client's first render
+  structurally equal and an `:href` that differed would be a hydration
+  mismatch. A `/demos`-based server frame therefore emits `/demos/active`
+  and a hash frame `#/active` (rf2-skr1c — this door used to hard-code
+  `identity`, so a based server shell rendered `/active` and left its
+  deployment mount when followed before hydration).
+
+  The frame is READ, not required: `frame/resolve-current-frame` answers
+  the frame the SSR pipeline pins with `rf/with-frame` around its render
+  walk (normalised to its id, so a `with-new-frame` VALUE resolves too),
+  and nil outside any scope — which `url-strategy-for-frame-id` resolves to
+  the history default, so a bare helper call keeps rendering the path form.
+  (The CLJS render REQUIRES its frame because it must capture one for the
+  click dispatch; the server shell dispatches nothing.)"
   [props & children]
-  (let [[_url attrs _address] (href-attrs props identity)]
+  (let [render-frame          (frame/resolve-current-frame)
+        encode                (:encode (strategy/url-strategy-for-frame-id render-frame))
+        [_url attrs _address] (href-attrs props encode)]
     (into [:a attrs] children)))
 
 ;; ---------------------------------------------------------------------------
@@ -444,7 +461,7 @@
   captured `render-frame` id, compute the rendered link model:
 
     {:href    <strategy-encoded href — one of the four strategy consult
-              points on CLJS; path-form (`identity` encode) on the JVM>
+              points, on BOTH hosts>
      :payload <the FULL `[:rf.route/url-requested {...}]` dispatch vector,
               path-form throughout — the navigation identity>
      :native? <true when the anchor carries native-handling attrs the
@@ -455,9 +472,12 @@
   route-link semantics through this one seam without exposing routing internals
   (strategy encode, frame capture, source stamping) as separate hooks — and
   reaches the SAME payload synthesiser `rf/route-link` uses, not a copy of it.
-  The JVM branch encodes path-form (SSR has
-  no address bar); on hydration the CLJS render re-encodes through the frame
-  strategy. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
+  `render-frame`'s `:url-strategy` supplies `:encode` on both hosts (a nil
+  `render-frame` resolves to the history default), so the server shell's href
+  is the one the hydrated client renders — SSR skips the strategy's browser
+  side effects, never its pure `:encode` (rf2-skr1c; the `:clj` arm used to
+  hard-code `identity`). Per Spec 012 §Linking from views and the rf2-5yovjt
+  ruling."
   [target render-frame]
   ;; EP-0037 R0b: select the address through the ONE shared extractor
   ;; (`address/extract-address`) — the same closed key class `rf/route-link`,
@@ -479,7 +499,7 @@
   ;; route-link's open DOM-attribute passthrough map (Spec 012 §The extraction
   ;; law), which this seam must NOT do — the consuming view artefact owns its
   ;; own markup and passthrough attrs — and `href-attrs` takes `encode` as an
-  ;; ARGUMENT where this fn resolves it behind the reader conditional below.
+  ;; ARGUMENT where this fn resolves it from the `render-frame` it is handed.
   ;; Calling `href-attrs` from here would also invert the seam: it is the
   ;; `rf/route-link` internal, this is the ui-facing surface. A shared helper
   ;; would need a home both already require, and there is none. Do not spend an
@@ -489,8 +509,7 @@
   (validate-prefetch! target)
   (let [{:keys [to params query fragment] :as addr} (address/extract-address target)
         path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
-        encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
-                    :clj  identity)]
+        encode   (:encode (strategy/url-strategy-for-frame-id render-frame))]
     {:href    (encode path-url)
      :payload (url-requested-payload addr path-url)
      :native? (native-anchor? target)}))

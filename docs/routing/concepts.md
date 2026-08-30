@@ -717,8 +717,10 @@ Egress-only redaction while the route is active. Full story:
 ```
 
 `route-url` / `match-url` stay path-form; strategy encodes `#` at the edges.
-`rf.routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
-form on the wire; client re-encodes on hydrate).
+`rf.routing/with-base-path` for deploy under a subpath. SSR runs no strategy side
+effects (no history, no listener) but does encode `route-link` hrefs through the
+rendering frame's strategy, so the server shell carries the same `href` the hydrated
+client renders.
 
 <a id="converting-routes--urls-by-hand"></a>
 
