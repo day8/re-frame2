@@ -52,11 +52,16 @@
     (is (nil? (ns-resolve 're-frame.core 'reg-machine*))
         "re-frame.core/reg-machine* stays absent")))
 
-(deftest arrow-interceptor-star-untouched
-  (testing "->interceptor* is a SEPARATE internal-lowering pair (EP-0022) —
-            out of scope for rf2-m90brg; it must still resolve unchanged"
-    (is (some? (ns-resolve 're-frame.core '->interceptor*))
-        "re-frame.core/->interceptor* is untouched by this bead")))
+(deftest arrow-interceptor-star-gone-from-facade
+  (testing "->interceptor* was a SEPARATE internal-lowering pair (EP-0022),
+            out of scope for rf2-m90brg and left resolving then; rf2-93sxp
+            took it off the facade too — the constructor lives only on
+            re-frame.interceptor (see
+            re-frame.facade-internal-constructors-cljs-test for both platforms)"
+    (is (nil? (ns-resolve 're-frame.core '->interceptor*))
+        "re-frame.core/->interceptor* is GONE (no alias)")
+    (is (some? (ns-resolve 're-frame.interceptor '->interceptor*))
+        "re-frame.interceptor/->interceptor* is the owning constructor")))
 
 ;; ---- the retained macro forms still work -----------------------------------
 

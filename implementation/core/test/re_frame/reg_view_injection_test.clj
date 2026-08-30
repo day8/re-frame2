@@ -260,7 +260,7 @@
 ;; ---- production-elision shape (dev coord vs slim prod coord) -------------
 ;;
 ;; Per rf2-kkut0 the injection is sugar over a single
-;; `(re-frame.core/make-capture-frame (re-frame.core/current-frame-id)
+;; `(re-frame.capture-frame/make-capture-frame (re-frame.core/current-frame-id)
 ;;   {:dispatch-opts <gated> :subscribe-call-site <gated>})`. The handle's
 ;; `:dispatch-opts` and `:subscribe-call-site` args each ride their OWN
 ;; outer `(if interop/debug-enabled? <dev> <prod>)` gate so Closure DCEs
@@ -292,10 +292,10 @@
                                   'my.ns "v.cljc" 'cv
                                   '([] [:button {:on-click #(dispatch [:x])}]))
           ;; The single injection call:
-          ;; (re-frame.core/make-capture-frame (re-frame.core/current-frame-id)
+          ;; (re-frame.capture-frame/make-capture-frame (re-frame.core/current-frame-id)
           ;;   {:dispatch-opts <gate> :subscribe-call-site <gate>}).
           mfh-call (find-form #(and (seq? %)
-                                    (= 're-frame.core/make-capture-frame (first %)))
+                                    (= 're-frame.capture-frame/make-capture-frame (first %)))
                               exp)
           frame-arg (nth mfh-call 1)            ;; the captured-frame expr
           opts-map  (nth mfh-call 2)            ;; the {:dispatch-opts ... :subscribe-call-site ...}

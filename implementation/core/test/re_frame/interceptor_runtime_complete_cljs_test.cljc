@@ -16,9 +16,10 @@
        NOT a sibling `[id other-arg]`; canonical-arg identity; remove + replace;
        and `:rf.error/interceptor-override-invalid` on a malformed key.
 
-    3. `->interceptor` is the internal lowering constructor — NOT public
-       authoring (the public form is `reg-interceptor`) — but the constructor
-       still produces a working executable interceptor.
+    3. `re-frame.interceptor/->interceptor*` is the internal lowering
+       constructor — NOT public authoring (the public form is
+       `reg-interceptor`), and off the `re-frame.core` facade (rf2-93sxp) —
+       but the constructor still produces a working executable interceptor.
 
   Dual-runtime (.cljc): runs on JVM (`clojure -M:test`) and CLJS
   (`npm run test:cljs`)."
@@ -317,12 +318,15 @@
            (rf/reg-interceptor :pub/authored {:doc "public form"} {:before identity})))
     (is (some? (rf/handler-meta :interceptor :pub/authored))
         "reg-interceptor produced a registered, addressable program member")
-    ;; The manifest demotes ->interceptor / ->interceptor* off the public-
-    ;; authoring (front-porch) tier to :internal-public (lowering only); this
-    ;; test pins the BEHAVIORAL contract: authoring goes through reg-interceptor,
-    ;; while ->interceptor* remains a working internal lowering seam (above).
-    (is (var? #'rf/->interceptor*)
-        "->interceptor* is retained as the internal lowering constructor")))
+    ;; The lowering constructor lives ONLY on its owning namespace
+    ;; (rf2-93sxp — the facade no longer carries `->interceptor*`; the absence
+    ;; is pinned on both platforms by
+    ;; re-frame.facade-internal-constructors-cljs-test). This test pins the
+    ;; BEHAVIORAL contract: authoring goes through reg-interceptor, while
+    ;; `re-frame.interceptor/->interceptor*` remains a working internal
+    ;; lowering seam (above).
+    (is (fn? interceptor/->interceptor*)
+        "->interceptor* is retained on re-frame.interceptor as the internal lowering constructor")))
 
 ;; ===========================================================================
 ;; PIECE 4 — interceptor-registry resolution-seam coverage gaps

@@ -630,42 +630,24 @@
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "with-new-frame"]      {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "capture-frame"]       {:tier :front-porch :owner "002" :status "v1"}
-  ;; EP-0024 Open Issue #8 (rf2-5vla7c): `make-capture-frame` below is
-  ;; RETIERED off the app-facing facade to `:implementation`. `capture-frame`
-  ;; (above) stays the ONE public carry primitive; it survives exported from
-  ;; `re-frame.core` ONLY for cross-namespace / test reach (NOT a supported
-  ;; app/tool surface — an app MUST NOT depend on it), the same rationale as
-  ;; `->interceptor`. No API.md var-row. Grounded by the 0-caller backbone in
-  ;; ai/findings/API-review/codex/frame-targeting-and-lifecycle.md.
-  ;;   - `make-capture-frame` — the lower-level `capture-frame` constructor;
-  ;;     `capture-frame` is the public face. Exported so the `reg-view` macro's
-  ;;     emitted body can reference `re-frame.core/make-capture-frame`.
-  ;; API-shrink #1 (rf2-csbbwu): `frame-bound-fn` (macro) / `frame-bound-fn*`
-  ;; (fn) are DELETED from `re-frame.core` entirely (not just retiered) —
-  ;; `capture-frame` (or an explicit `{:frame …}` opt) is the ONE public carry
-  ;; primitive. The frame-rebinding closure semantics survive internally as
-  ;; `re-frame.frame/bind-fn` (a different namespace, not on this facade).
-  ["re-frame.core" "make-capture-frame"]  {:tier :implementation :owner "002" :status "EP-0024 (internal capture-frame constructor)"}
+  ;; `capture-frame` is the ONE public carry primitive. Its constructor,
+  ;; `make-capture-frame`, was a facade export retiered to `:implementation`
+  ;; (EP-0024 Open Issue #8, rf2-5vla7c) — annotation, not removal. rf2-93sxp
+  ;; moved it to `re-frame.capture-frame` (an implementation namespace the
+  ;; `reg-view` expansion names fully-qualified); it has no row, exactly as
+  ;; `re-frame.frame/bind-fn` (the internal survivor of API-shrink #1,
+  ;; rf2-csbbwu, which DELETED `frame-bound-fn` / `frame-bound-fn*`) has none.
   ["re-frame.core" "view"]                {:tier :advanced    :owner "001" :status "v1"}
   ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"}
   ;; Interceptor authoring (spec/API.md §Interceptors). EP-0022 Slice C
-  ;; (rf2-0adhqs.3): `->interceptor` is NO LONGER the public application-
-  ;; authoring surface — `reg-interceptor` is (spec/001 §`->interceptor` is not
-  ;; the application authoring form; spec/002 §10). Both `->interceptor` (the
-  ;; coord-capturing macro) and `->interceptor*` (the plain-fn constructor)
-  ;; survive only as the framework-INTERNAL lowering constructor that turns a
-  ;; descriptor into an executable chain entry; they MUST NOT appear in a public
-  ;; event/frame chain. `->interceptor` is tiered `:implementation`: exported
-  ;; only so the registry resolver, the std interceptors, and tests can reach
-  ;; the lowering seam across a namespace boundary — NOT a host/tool embedding
-  ;; point (it fails the `internal-public` boundary test "is this a surface a
-  ;; host or tool legitimately embeds against?"), so it is below the supported
-  ;; surface. (The earlier `:internal-public` row was self-contradicting: API.md
-  ;; asserts the Xray `mount-<panel>!` family is that tier's sole instance.)
-  ;; `->interceptor*` stays at the `:advanced` tier API.md §Standard
-  ;; interceptors documents it under (the "internal lowering constructor" row).
-  ["re-frame.core" "->interceptor"]       {:tier :implementation :owner "002" :status "EP-0022 (internal lowering only)"}
-  ["re-frame.core" "->interceptor*"]      {:tier :advanced        :owner "002" :status "EP-0022 (internal lowering only)"}
+  ;; (rf2-0adhqs.3): `reg-interceptor` is the public authoring surface
+  ;; (spec/001 §`->interceptor` is not the application authoring form;
+  ;; spec/002 §10). The lowering constructor `->interceptor*` lives ONLY on
+  ;; `re-frame.interceptor` (no row — not a public namespace), and the
+  ;; coord-capturing `->interceptor` macro is deleted (rf2-93sxp): neither
+  ;; is exported from `re-frame.core` any longer, so the `:implementation` +
+  ;; `:facade? true` rows they carried — the shape the generator now refuses —
+  ;; are gone rather than annotated.
   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
   ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
   ;; spec/API.md §Standard interceptors). rf2-w9xyx1 removed them from the

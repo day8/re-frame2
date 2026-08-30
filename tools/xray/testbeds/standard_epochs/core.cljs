@@ -226,17 +226,13 @@
 ;; makes the framework's per-step exception attribution (the :before-chain
 ;; vs interceptor-:after distinction) visible live in Xray.
 
-;; Throws in :before — aborts before the handler runs (button #13).
-(def throwing-interceptor
-  (rf/->interceptor
-    :id     :standard-epochs/throwing-interceptor
-    :before (fn interceptor-before-throws [_ctx]
-              (throw (ex-info "standard-epochs / interceptor :before (intentional — exercises the interceptor :before error surface)"
-                              {:surface :interceptor-exception :phase :before})))))
-
-;; EP-0022 reference-only flip: chains carry references only, so register the
-;; interceptor value and reference it by id from the event chain (button #13).
-(rf/reg-interceptor :standard-epochs/throwing-interceptor throwing-interceptor)
+;; Throws in :before — aborts before the handler runs (button #13). Authored
+;; with `reg-interceptor` (EP-0022 — the public form; chains carry references
+;; only) and referenced by id from the event chain.
+(rf/reg-interceptor :standard-epochs/throwing-interceptor
+  {:before (fn interceptor-before-throws [_ctx]
+             (throw (ex-info "standard-epochs / interceptor :before (intentional — exercises the interceptor :before error surface)"
+                             {:surface :interceptor-exception :phase :before})))})
 
 ;; Throws in :after — the handler runs to completion first, THEN this
 ;; throws on the way back out of the chain (button #14). The foil to the
@@ -244,16 +240,10 @@
 ;; not the handler, so the per-step placement renders the exception under
 ;; the interceptor's :after step and the framework attributes it to the
 ;; interceptor rather than collapsing it into a handler exception.
-(def throwing-interceptor-after
-  (rf/->interceptor
-    :id    :standard-epochs/throwing-interceptor-after
-    :after (fn interceptor-after-throws [_ctx]
-             (throw (ex-info "standard-epochs / interceptor :after (intentional — exercises the interceptor :after error surface)"
-                             {:surface :interceptor-exception :phase :after})))))
-
-;; EP-0022 reference-only flip: register the value and reference it by id from
-;; the event chain (button #14).
-(rf/reg-interceptor :standard-epochs/throwing-interceptor-after throwing-interceptor-after)
+(rf/reg-interceptor :standard-epochs/throwing-interceptor-after
+  {:after (fn interceptor-after-throws [_ctx]
+            (throw (ex-info "standard-epochs / interceptor :after (intentional — exercises the interceptor :after error surface)"
+                            {:surface :interceptor-exception :phase :after})))})
 
 ;; ============================================================================
 ;; EFFECTS

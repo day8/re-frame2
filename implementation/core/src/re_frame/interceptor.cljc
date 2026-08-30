@@ -7,11 +7,12 @@
      :before (fn [context] new-context)   ;; runs before handler
      :after  (fn [context] new-context)}  ;; runs after handler
 
-  Built via the `->interceptor` macro (`re-frame.core`, captures the
-  definition-site `:source-coord` for jump-to-source per Spec 001) or
-  the `->interceptor*` fn (this ns; HoF / programmatic, no coord
-  capture). A captured `:source-coord` rides the error-record so
-  tooling can jump to the throwing interceptor's source.
+  Built via `->interceptor*` (this ns) — the framework's ONE lowering
+  constructor, reached by the registry resolver, the standard
+  interceptors and tests; it is not an application authoring surface
+  (that is `re-frame.core/reg-interceptor`, EP-0022). A `:source-coord`
+  passed to it rides the error-record so tooling can jump to the
+  throwing interceptor's source.
 
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
@@ -21,14 +22,12 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn ->interceptor*
-  "Build an interceptor map from kwargs — the plain, runtime-callable
-  fn form of the `->interceptor` macro (per Conventions §`*`-suffix
-  naming). HoF / programmatic / REPL callers reach this directly; the
-  `rf/->interceptor` macro is the ergonomic surface that ALSO captures
-  the definition-site `:source-coord` from `(meta &form)` (so the Xray
-  Epoch INTERCEPTOR row can jump to source). This fn captures no
-  call-site — pass `:source-coord` explicitly if you have one (the
-  macro does exactly that).
+  "Build an interceptor map from kwargs — the framework-internal lowering
+  constructor (EP-0022). Not an application authoring surface: apps
+  author with `re-frame.core/reg-interceptor` and reference the
+  interceptor by id from a chain; the registry resolver lowers the
+  registered descriptor through this fn. This fn captures no call-site —
+  pass `:source-coord` explicitly if you have one.
 
   Kwargs:
     :id            keyword name (default `:unnamed`); appears in error
@@ -39,11 +38,10 @@
     :after         `(fn [context] new-context)` — runs after the handler,
                    in reverse declaration order.
     :source-coord  optional `{:ns :file :line :column}` source-coord map
-                   (per Spec 001 §Source-coordinate capture). Stamped by
-                   the `->interceptor` macro from `(meta &form)`; rides
-                   the error-record so tooling renders a jump-to-source
-                   chip when the interceptor throws. Absent on the plain
-                   fn path unless the caller supplies one.
+                   (per Spec 001 §Source-coordinate capture). Rides the
+                   error-record so tooling renders a jump-to-source chip
+                   when the interceptor throws. Absent unless the caller
+                   supplies one.
 
   The `context` map carries:
     `:coeffects` — input data: `:db` (current app-db value), `:event`
@@ -54,7 +52,7 @@
                    app-db value), `:fx` (the vector of `[fx-id args]`
                    pairs the runtime walks after the chain).
 
-  See also: `->interceptor` (the macro form, `re-frame.core`),
+  See also: `re-frame.core/reg-interceptor` (the authoring form),
   `get-coeffect`, `assoc-coeffect`, `get-effect`, `assoc-effect`,
   `:rf.cofx/requires` (the declared-coeffect key), `:rf.interceptor/path`
   (the standard path interceptor, a registered factory referenced as
@@ -143,8 +141,7 @@
   coeffect-supplier throw is handled there rather than on this record.
 
   The record carries the throwing interceptor's
-  `:source-coord` when one was captured (the `->interceptor` macro
-  stamps it from `(meta &form)`). The router threads it onto the
+  `:source-coord` when the interceptor value carries one. The router threads it onto the
   `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
   row renders a jump-to-source chip (parity with EVENT HANDLER /
   SUBSCRIPTIONS / VIEWS). Absent on the fn-path / framework interceptors

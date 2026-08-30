@@ -316,6 +316,27 @@
        (sort-by (comp (juxt first second) first))
        vec))
 
+(defn implementation-facade-rows
+  "Return a sorted vector of `[namespace var]` for every row that combines an
+   implementation-only disposition (`:tier :implementation`) with
+   `:facade? true` (rf2-93sxp).
+
+   A facade export tiered `:implementation` is annotation, not removal: the
+   var still resolves from `re-frame.core`, still projects into docs/api and
+   still reaches SCI's `copy-ns`, while its row claims it is internal. Per
+   Conventions §Removing or demoting a facade export the disposition must
+   fire on the SURFACE — the var leaves the facade for its owning namespace,
+   where the generator does not row it — so a row of this shape is a
+   contradiction to refuse at generation, exactly as `duplicate-rows` refuses
+   two rows for one var. `:internal-public` is deliberately NOT in scope: that
+   tier is a supported host/tool embed seam, not an internal one."
+  [rows]
+  (->> rows
+       (filter #(and (:facade? %) (= :implementation (:tier %))))
+       (map (juxt :namespace :var))
+       (sort-by (juxt first second))
+       vec))
+
 (defn build-manifest
   "Build the full manifest data structure (the value written to
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
@@ -323,7 +344,8 @@
   [sidecar]
   (let [[rows missing] (build-rows sidecar)
         stale          (stale-sidecar-entries sidecar)
-        dups           (duplicate-rows rows)]
+        dups           (duplicate-rows rows)
+        demoted        (implementation-facade-rows rows)]
     (when (seq missing)
       (throw (ex-info
               (str "Public vars with no sidecar classification (add a "
@@ -357,6 +379,21 @@
                                     (str ns-str "/" var-str " (" n " rows)"))
                                   dups)))
               {:duplicates dups})))
+    ;; Facade-vs-disposition invariant (rf2-93sxp). A `:facade? true` row at
+    ;; `:tier :implementation` says "internal" about a var that still exports
+    ;; from `re-frame.core` — annotation, not removal. Refuse it here so the
+    ;; disposition has to land on the surface (Conventions §Removing or
+    ;; demoting a facade export — delete, don't demote).
+    (when (seq demoted)
+      (throw (ex-info
+              (str "Implementation-only rows exported from the facade — these "
+                   "`[namespace var]` pairs are `:tier :implementation` AND "
+                   "`:facade? true`. A facade export cannot be internal by "
+                   "annotation: move the var off `re-frame.core` into its owning "
+                   "namespace (Conventions §Removing or demoting a facade export "
+                   "— delete, don't demote), or tier it as the surface it is:\n  "
+                   (str/join "\n  " (map #(str/join "/" %) demoted)))
+              {:implementation-facade demoted})))
     {:meta {:doc        (str "GENERATED public-API manifest — do NOT hand-edit "
                              "the :vars list. Regenerate with: clojure -M -m "
                              "re-frame.api-manifest.gen (run from "

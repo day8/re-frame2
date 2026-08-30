@@ -112,3 +112,81 @@
       (is (pos? (count rows)) "precondition: the manifest is non-empty")
       (is (empty? (gen/duplicate-rows rows))
           "the committed manifest must not carry duplicate [namespace var] rows"))))
+
+;; ---------------------------------------------------------------------------
+;; implementation-facade-rows — the facade-vs-disposition invariant
+;; (rf2-93sxp). A `:facade? true` row at `:tier :implementation` records an
+;; internal disposition against a var that still exports from `re-frame.core`
+;; — annotation, not removal (Conventions §Removing or demoting a facade
+;; export). `build-manifest` refuses it, so the disposition must land on the
+;; surface; the planted-row shape here is exactly the one the three
+;; `make-capture-frame` / `->interceptor` / `->interceptor*` rows carried.
+;; ---------------------------------------------------------------------------
+
+(deftest implementation-facade-rows-flags-only-the-contradiction
+  (testing "a :facade? true row at :tier :implementation is flagged; an
+            :implementation row OFF the facade, an :internal-public facade
+            row and an ordinary front-porch row are not"
+    (is (= [["re-frame.core" "make-capture-frame"]]
+           (gen/implementation-facade-rows
+             [{:namespace "re-frame.core" :var "capture-frame"
+               :tier :front-porch :facade? true}
+              {:namespace "re-frame.core" :var "make-capture-frame"
+               :tier :implementation :facade? true}
+              {:namespace "re-frame.story" :var "capture-golden"
+               :tier :implementation :facade? false}
+              {:namespace "re-frame.core" :var "frame-provider"
+               :tier :internal-public :facade? true}])))))
+
+(deftest implementation-facade-rows-are-sorted
+  (testing "the report is sorted by [namespace var] for stable output"
+    (is (= [["a.ns" "b"] ["a.ns" "c"] ["z.ns" "a"]]
+           (gen/implementation-facade-rows
+             [{:namespace "z.ns" :var "a" :tier :implementation :facade? true}
+              {:namespace "a.ns" :var "c" :tier :implementation :facade? true}
+              {:namespace "a.ns" :var "b" :tier :implementation :facade? true}])))))
+
+(defn- live-sidecar-with-demoted-facade-var
+  "The REAL committed sidecar with one live facade var's classification
+   RETIERED to `:implementation` — the planted contradiction. The var itself
+   still exports from `re-frame.core`, so the generated row is
+   `:facade? true` + `:tier :implementation`: the exact shape the removed
+   rows had. Using the real sidecar keeps the missing/stale/duplicate checks
+   passing so the facade-vs-disposition check is what fires."
+  []
+  (let [sidecar (gen/read-sidecar)
+        k       ["re-frame.core" "capture-frame"]]
+    (assert (get-in sidecar [:classification k])
+            "precondition: the sidecar classifies re-frame.core/capture-frame")
+    (assoc-in sidecar [:classification k :tier] :implementation)))
+
+(deftest build-manifest-throws-on-implementation-facade-row
+  (testing "build-manifest refuses a :facade? true row at :tier :implementation
+            — the throw is what turns generation / --check red"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"Implementation-only rows exported from the facade"
+          (gen/build-manifest (live-sidecar-with-demoted-facade-var))))))
+
+(deftest build-manifest-implementation-facade-ex-data-lists-the-key
+  (testing "the thrown ex-data names the offending [namespace var] so the
+            var can be moved off the facade"
+    (try
+      (gen/build-manifest (live-sidecar-with-demoted-facade-var))
+      (is false "expected build-manifest to throw on the planted row")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= [["re-frame.core" "capture-frame"]]
+               (:implementation-facade (ex-data e))))))))
+
+(deftest live-manifest-has-no-implementation-facade-rows
+  (testing "the committed spec/api-manifest.edn carries no :facade? true row
+            at :tier :implementation, and the plant above is the only way to
+            get one (non-vacuous: the manifest still carries :implementation
+            rows OFF the facade and :facade? true rows at other tiers)"
+    (let [rows (:vars (gen/read-committed-manifest))]
+      (is (some #(and (= :implementation (:tier %)) (not (:facade? %))) rows)
+          "precondition: :implementation rows exist off the facade")
+      (is (some :facade? rows)
+          "precondition: facade rows exist")
+      (is (empty? (gen/implementation-facade-rows rows))
+          "the committed manifest must not carry an implementation-only facade row"))))

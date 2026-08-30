@@ -4,23 +4,26 @@
   Per spec/002-Frames.md (§What `reg-view` injects) and rf2-kkut0
   (frame-affordance redesign), `reg-view` is a defn-shape macro that auto-injects two lexical
   bindings — `dispatch` and `subscribe` — into the body, sourced from a
-  single `capture-frame` (the keystone OPERATION BUNDLE):
-  `(:dispatch (re-frame.core/make-capture-frame ...))` and
-  `(:subscribe (re-frame.core/make-capture-frame ...))`. clj-kondo doesn't
+  single `capture-frame` (the keystone OPERATION BUNDLE). clj-kondo doesn't
   macroexpand by default, so without this hook the body's `dispatch` /
   `subscribe` references all read as `Unresolved symbol`.
 
   The hook rewrites `(reg-view sym [args] body)` into
 
       (defn sym [args]
-        (let [handle    (re-frame.core/make-capture-frame
-                          (re-frame.core/current-frame-id) {})
-              dispatch  (:dispatch handle)
-              subscribe (:subscribe handle)]
+        (let [dispatch  (:dispatch  (re-frame.core/capture-frame))
+              subscribe (:subscribe (re-frame.core/capture-frame))]
           body))
 
   preserving any leading docstring + optional attr-map, so kondo's
-  built-in `defn` analysis covers arglist + arity + lexical bindings."
+  built-in `defn` analysis covers arglist + arity + lexical bindings. The
+  real expansion builds the bundle through the owned constructor
+  `re-frame.capture-frame/make-capture-frame` (off the facade, rf2-93sxp)
+  with the view's coords; the hook names the PUBLIC `capture-frame` instead
+  because the rewrite exists only to make the two bindings visible, and a
+  view namespace requires `re-frame.core`, not the implementation
+  namespace — naming the latter would make every reg-view body an
+  `Unresolved namespace` warning."
   (:require [clj-kondo.hooks-api :as api]))
 
 (defn with-frame
@@ -109,18 +112,12 @@
                              (api/list-node
                                [(api/keyword-node :dispatch)
                                 (api/list-node
-                                  [(api/token-node 're-frame.core/make-capture-frame)
-                                   (api/list-node
-                                     [(api/token-node 're-frame.core/current-frame-id)])
-                                   (api/map-node [])])])
+                                  [(api/token-node 're-frame.core/capture-frame)])])
                              (api/token-node 'subscribe)
                              (api/list-node
                                [(api/keyword-node :subscribe)
                                 (api/list-node
-                                  [(api/token-node 're-frame.core/make-capture-frame)
-                                   (api/list-node
-                                     [(api/token-node 're-frame.core/current-frame-id)])
-                                   (api/map-node [])])])])
+                                  [(api/token-node 're-frame.core/capture-frame)])])])
                           ;; Insert a leading no-op reference to
                           ;; `dispatch` / `subscribe` so kondo's
                           ;; unused-binding linter sees both bindings

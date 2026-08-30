@@ -565,13 +565,11 @@
             `:failing-id` (distinct from the event) — so an off-box shipper
             can tell WHICH interceptor failed in production, not just the
             category. `:reason` rides too."
-    (let [seen (atom [])
-          boom-after (rf/->interceptor
-                       :id :n4x74b/boom-after
-                       :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
+    (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                              (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor :n4x74b/boom-after boom-after)
+      (rf/reg-interceptor :n4x74b/boom-after
+                          {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
       (rf/reg-event :n4x74b/with-throwing-interceptor
                     {:interceptors [:n4x74b/boom-after]}
                     (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
@@ -592,13 +590,11 @@
   (testing "Per rf2-n4x74b: the :before-phase variant — an interceptor whose
             :before throws is attributed to the interceptor id on the always-on
             record too (the same classification applies to both phases)."
-    (let [seen (atom [])
-          boom-before (rf/->interceptor
-                        :id :n4x74b/boom-before
-                        :before (fn [_ctx] (throw (ex-info "before boom" {}))))]
+    (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                              (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor :n4x74b/boom-before boom-before)
+      (rf/reg-interceptor :n4x74b/boom-before
+                          {:before (fn [_ctx] (throw (ex-info "before boom" {})))})
       (rf/reg-event :n4x74b/before-throws
                     {:interceptors [:n4x74b/boom-before]}
                     (fn [{:keys [db]} _] {:db db}))
@@ -696,14 +692,12 @@
             `:after` one through `:reason` alone. Both phases pinned here, in
             every posture."
     (rf/reg-interceptor :mlh1h/boom-before
-      (rf/->interceptor :id     :mlh1h/boom-before
-                        :before (fn [_ctx] (throw (ex-info "before boom" {})))))
+      {:before (fn [_ctx] (throw (ex-info "before boom" {})))})
     (rf/reg-event :mlh1h/before-throws
                   {:interceptors [:mlh1h/boom-before]}
                   (fn [{:keys [db]} _] {:db db}))
     (rf/reg-interceptor :mlh1h/boom-after
-      (rf/->interceptor :id    :mlh1h/boom-after
-                        :after (fn [_ctx] (throw (ex-info "after boom" {})))))
+      {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
     (rf/reg-event :mlh1h/after-throws
                   {:interceptors [:mlh1h/boom-after]}
                   (fn [{:keys [db]} _] {:db db}))
@@ -1321,15 +1315,12 @@
   (testing "An interceptor :after throw aborts the event before the
             install — even though the handler produced a :db effect: app-db
             is UNCHANGED and NO :rf.event/db-changed is emitted."
-    (let [traces (atom [])
-          ;; A user interceptor whose :after throws AFTER the handler has
-          ;; produced its :db effect.
-          boom-after (rf/->interceptor
-                       :id :test/boom-after
-                       :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
-      ;; EP-0022 reference-only flip: register the interceptor VALUE under its
-      ;; own id and reference it from the chain.
-      (rf/reg-interceptor :test/boom-after boom-after)
+    (let [traces (atom [])]
+      ;; A user interceptor whose :after throws AFTER the handler has
+      ;; produced its :db effect — authored with `reg-interceptor` (EP-0022)
+      ;; and referenced by id from the chain.
+      (rf/reg-interceptor :test/boom-after
+                          {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:seeded 1}}))
       (rf/dispatch-sync [:seed])
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
