@@ -55,7 +55,7 @@
   (story/reg-variant :story.xray.app-db/tiny-app-db
     {:doc        "Tiny three-key app-db. Panel renders the resting
                  minimal-state shape — counter + user + ui."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/tiny-app-db-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/tiny-app-db-buffer)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -64,7 +64,7 @@
     {:doc        "No epochs in history. Panel renders the empty-state
                  + reserved scaffolding only (rf2-e9tb0 dropped the
                  pinned-watches strip)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/empty-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -74,7 +74,7 @@
                  :auth, :catalog, :cart, :prefs, :session). Mutates a
                  handful of slices so the diff renders against a
                  realistically-sized backdrop."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/large-app-db-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/large-app-db-buffer)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
@@ -84,7 +84,7 @@
                  markers (across :auth, :user/profile, :billing).
                  Panel surfaces each marker verbatim per Spec 009
                  §Privacy + spec/015-Data-Classification."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/sensitive-paths-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/sensitive-paths-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -93,7 +93,7 @@
     {:doc        "Epoch where multiple slices carry `:rf.size/large-
                  elided` sentinels. Panel must render the marker shape
                  without trying to expand."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/large-sentinels-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/large-sentinels-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -104,7 +104,7 @@
                  focusing a path exercises the cross-epoch 'Show me
                  when this changed' walker per spec/004 §Show me when
                  this changed."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/watched-keys-buffer)]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/watched-keys-buffer)]
                   [:rf.xray/focus-slice-path [:user/profile]]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
@@ -114,7 +114,7 @@
     {:doc        "One epoch with a single top-level key mutation
                  (`:counter` from 5 → 6). Panel renders one changed-
                  slice card."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/single-key-change-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/single-key-change-buffer)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -123,7 +123,7 @@
     {:doc        "One epoch mutating five top-level keys — scalar,
                  nested map, vector slice, added flash, removed
                  legacy flag. Mid-size diff fits one screen."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/five-key-changes-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/five-key-changes-buffer)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -133,7 +133,7 @@
                  :department :eng :team :platform :project :xray
                  :status]`). Exercises the path-pr-str sort and the
                  path rendering in slice cards."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/nested-deep-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/nested-deep-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -142,7 +142,7 @@
     {:doc        "One epoch mutating ~100 top-level keys at once.
                  Exercises the overflow / scroll behaviour of the
                  changed-slices stack under storm load."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/large-flat-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/large-flat-buffer)]]
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
@@ -151,7 +151,7 @@
     {:doc        "One epoch demonstrating every diff op (`:added` /
                  `:modified` / `:removed`) side-by-side. Surfaces the
                  op-colour ladder uniformly in a single card."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/mixed-ops-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/mixed-ops-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -163,7 +163,7 @@
                  spawned-actor table. The `[runtime]` group surfaces
                  these separately from user-key slices per Spec
                  Conventions §Reserved runtime-db keys."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/reserved-keys-buffer)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/reserved-keys-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

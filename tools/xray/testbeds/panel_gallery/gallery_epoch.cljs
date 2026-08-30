@@ -95,7 +95,7 @@
                  `:db` ✓ → app-db row — a bare db-only handler that returns
                  only `:db` still lights the step, rf2-kt6js / rf2-j630b)
                  + SUBSCRIPTIONS + VIEWS."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/vanilla-db-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/vanilla-db-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -113,7 +113,7 @@
                  `{:db :fx}`). After the badge: ONE overall ✓/✗ glyph
                  (AND-of-rows; the skipped + dropped rows are NEUTRAL, so
                  this all-actioned ledger reads ✓). No post-commit labels."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/effectful-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/effectful-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -128,7 +128,7 @@
                  phases, with per-action data + fx attribution) ·
                  transition · timer-cancel — replacing the pre-rf2-u69j7
                  category roll-up."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/machine-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/machine-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -146,7 +146,7 @@
                  Hot-reload drift surfaces inline (rf2-gbz39 — Issues
                  is no longer a tab; rf2-7gf7v) — no cascade step
                  surfaces it."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/schema-violations-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/schema-violations-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -162,7 +162,7 @@
                  the `Rolled back` chip stays OFF (the handler threw
                  before any commit — NO spurious rollback); the epoch
                  `:outcome` flips `:error`."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/exception-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/exception-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -177,7 +177,7 @@
                  matches the row by `:fx-id`); the single badge reads ✗;
                  the committed `:db` is NOT rolled back on a post-commit
                  fx throw (rf2-wnvid)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-exception-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/fx-exception-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -194,7 +194,7 @@
                  The HANDLER step is NOT skipped — an `:after` throw runs
                  the handler first — so its `:db` write still renders; the
                  epoch `:outcome` flips `:error`."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/interceptor-after-throw-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/interceptor-after-throw-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -208,7 +208,7 @@
                  and the downstream HANDLER step renders as SKIPPED (⊘
                  muted) — NOT 'ran, returned no :db' (the handler body
                  never executed). The epoch `:outcome` flips `:error`."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/coeffect-throw-skipped-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/coeffect-throw-skipped-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -223,7 +223,7 @@
                  inputs column (rf2-87c8a — the layer-1 root reads
                  `app-db`, the derived subs name their upstream input
                  sub-id)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/caused-by-subs-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/caused-by-subs-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -239,7 +239,7 @@
                  `[:cart :total] 120 → 195`) as a SEPARATE numbered
                  step. The two `:db` contributions are no longer
                  conflated."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/handler-flow-db-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/handler-flow-db-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -251,7 +251,7 @@
                  (`:cart/add` — child epoch present in buffer with
                  matching parent-dispatch-id) and three not-in-buffer
                  rows (muted marker) — rf2-yx1ae."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/child-dispatches-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/child-dispatches-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -263,7 +263,7 @@
                  warning tone) on per-step duration chips (rf2-nqt3d
                  per-row portion; the top-of-pipeline summary chip
                  was retired by rf2-dwuq3)."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/long-step-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/long-step-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -273,7 +273,7 @@
                  (`:cart/total`, `:cart/item-count`, `:cart/badge`).
                  Exercises the FLOW step's per-row before/after
                  rendering."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/flows-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/flows-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -281,7 +281,7 @@
   (story/reg-variant :story.xray.epoch/empty
     {:doc        "No epochs in history — drives the panel's
                  `:no-focus` empty-state line ('No epoch focused.')."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/empty-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/empty-history)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -291,7 +291,7 @@
                  the projection returns an empty step vector; the
                  panel renders its cold-pipeline empty-state without
                  crashing."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/no-events-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/no-events-history)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
@@ -302,7 +302,7 @@
                  Exercises the VIEWS step's UNMOUNTED sub-section
                  (rf2-gmw1i) — header reads `N re-rendered; M unmounted`,
                  each unmounted-row paints the red ✗ teardown glyph."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/unmounted-views-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/unmounted-views-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -314,7 +314,7 @@
                  step's DISPOSED sub-section (rf2-wpfjo) — header reads
                  `N recomputed (...); L disposed`, each row paints the
                  red ✗ eviction glyph + a muted reason chip."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/disposed-subs-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/disposed-subs-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -325,7 +325,7 @@
                  `from :after timer · 250ms on [:active :authenticating]` —
                  the kind label, the delay-ms chip, and the
                  source-state-path as a click-to-source affordance."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/after-timer-source-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/after-timer-source-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -335,7 +335,7 @@
                  rf2-5qp4g). The DISPATCH step renders
                  `from machine spawn · :checkout/worker` — the kind label
                  + the spawned actor-id."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/machine-spawn-source-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/machine-spawn-source-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -347,7 +347,7 @@
                  `from fx :dispatch · parent epoch #20` — the kind
                  label + a click-to-navigate parent-epoch chip resolved
                  against the in-buffer parent."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-source-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-source-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -360,7 +360,7 @@
                  `from fx :dispatch-later · 500ms · parent epoch #22` —
                  the kind label, the original scheduled delay, and the
                  parent-epoch navigation link."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-later-source-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-later-source-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
@@ -372,7 +372,7 @@
                  renders the kind label + the unresolved parent chip
                  (`parent dispatch #99999 (not in buffer)`) — muted
                  plain span, no dead click affordance."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-orphaned-source-history)]]
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/fx-dispatch-orphaned-source-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

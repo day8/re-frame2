@@ -70,7 +70,7 @@
     {:doc        "R1 — modified scalar. `{:counter 5} → {:counter 6}`.
                   Shows the value-side `~` glyph + `← was 5`
                   italic muted suffix."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r1-modified-scalar)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -82,7 +82,7 @@
                   value cell). `+` glyph sits at column 1 of the key
                   cell. The slot identity changed (a key appeared),
                   so the visual unit is the whole row."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r2-new-map-key)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -94,7 +94,7 @@
                   reaches the KEY text (`:b`) — not just the value.
                   `−` glyph sits at column 1 of the key cell. The
                   whole slot died, so the whole row reads as dead."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r2-removed-map-key)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -105,7 +105,7 @@
                   via `:default-expanded-depth 1`. Operator sees
                   `▸ :user {…} [3∆]`. Click the triangle to expand
                   — chip vanishes, per-row signals appear."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r3-collapsed-chip)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -115,7 +115,7 @@
                   bearing subtree, painted in the dominant-op hue.
                   Sub-tree carries one change at row 3 of 5; the
                   rail runs the full subtree height."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r4-vertical-rail)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -126,7 +126,7 @@
                   triangle + green rail. Descendant gutter glyphs +
                   stripes SUPPRESSED; descendant row washes RETAINED
                   for partial-visibility readability."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r5-wholly-new-subtree)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -136,7 +136,7 @@
                   the new-subtree case; parent gets `−` glyph + red
                   triangle + red rail. Descendants paint red wash
                   but no per-leaf glyphs/stripes."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r5-wholly-removed-subtree)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -146,7 +146,7 @@
                   `[:a :NEW :b :c]`. After-index 1 carries `+`; after-
                   indices 2 and 3 paint `:same-shifted` + `(was 1)`
                   / `(was 2)` muted suffixes."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r6-vector-insert)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -157,7 +157,7 @@
                   the `:vector-removals` channel — the pure-diff
                   lens interleaves a `−` row at the surgical
                   position."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r6-vector-remove)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -167,7 +167,7 @@
                   Demonstrates LCS detection (vs. naive's `every
                   element modified`). Editscript transcript is one
                   insert + one remove — the smallest possible."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r6-vector-reorder)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -178,7 +178,7 @@
                   classifies as `:modified` (not `:children`); value
                   column shows new map shape; suffix reads `← was
                   \"hi\"` via the `mini` renderer."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r7-type-change)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -188,7 +188,7 @@
                   carries `:rf/redacted`; after-side carries a real
                   value. Row reads `:modified` + curated `← was
                   redacted` suffix (no sentinel text leak)."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r8-was-redacted-now-visible)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -198,7 +198,7 @@
                   side carries `:rf/redacted`. Suffix reads `← now
                   redacted`; prior value is NOT printed (the
                   redaction was probably applied for a reason)."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/r8-was-visible-now-redacted)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -209,7 +209,7 @@
     {:doc        "All-ops cascade — the §2 canonical example: counter
                   modified + user/name modified + flash added +
                   legacy-flag removed. The full grammar in one mount."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-all-ops-cascade)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -219,7 +219,7 @@
                   `:removed`, and `:modified` descendants. The R5
                   wholly-added-collapse rule does NOT trigger;
                   per-leaf marking returns for the added leaves."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-mixed-ops-subtree)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -229,7 +229,7 @@
                   triangles + rails + chips don't pile up uselessly.
                   Single leaf change at the bottom produces a chain
                   of `:children` ancestors with their rails."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-deeply-nested-change)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -240,7 +240,7 @@
                   4. Under naive compare this would render as 8
                   `~`s; under LCS it's 1 `+` + 7 `(was N)` suffixes.
                   The dramatic operator UX win."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-long-vector-one-insert)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -249,7 +249,7 @@
     {:doc        "Empty diff (no changes). Mode-3 must render
                   correctly when before == after; no glyphs, no
                   chips, no rails, no washes."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-empty-diff)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -259,7 +259,7 @@
                   the chrome doesn't melt into noise; the eye still
                   tracks the cascade because every row carries the
                   same `~` glyph at the same column."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-massive-diff)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -271,7 +271,7 @@
                   variant pins the data). Operator sees the
                   relationship between `:diff` / `:full` /
                   `:full+diff`."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/combo-mode-toggle-three-up)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -286,7 +286,7 @@
                   global theme toggle, not per-variant — the same
                   hiccup paints under both themes via CSS variable
                   resolution."
-     :events     [[:panel-gallery.edn-inspector/seed!
+     :setup     [[:panel-gallery.edn-inspector/seed!
                    (fixtures/theme-density-narrow-panel)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
