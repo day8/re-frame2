@@ -54,6 +54,7 @@
             ;; at the boundary is to require the adapter ns at boot.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support])
@@ -259,3 +260,21 @@
             "handler ran — nil validator means no boundary check, even in production"))
       (finally
         (schemas/reset-schema-validator!)))))
+
+;; ---- rf2-tiymn — the humanizer is NOT published in production ------------
+;;
+;; The adapter publishes `malli.error/humanize` under
+;; `:schemas/humanize-explain!` inside `(when interop/debug-enabled? ...)`.
+;; Under this build's `:advanced` + `goog.DEBUG=false` that form folds
+;; away, so the hook is unbound while the validator hook from the same
+;; ns-load is bound. `schemas_cljs_test.cljs` pins the dev dual (bound, and
+;; a failure carries `:explain-humanized`); `scripts/check-schemas-bundle.cjs`
+;; pins the bundle shape (the keyword never survives into the probe).
+
+(deftest humanizer-unpublished-in-prod-cljs
+  (testing "rf2-tiymn — under `:advanced` + `goog.DEBUG=false` the humanize
+            hook is unbound while the validator hook is bound"
+    (is (nil? (late-bind/get-fn :schemas/humanize-explain!))
+        "no humanizer in a production build")
+    (is (fn? (late-bind/get-fn :schemas/malli-validate))
+        "the validator from the same adapter ns-load IS bound — the absence above is the gate, not a missing adapter")))
