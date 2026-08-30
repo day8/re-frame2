@@ -8,92 +8,59 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 Path: `spec/` in the re-frame2 repo.
 
-**The spec is the contract.** Every claim the skill makes about what an implementation must do traces to a normative claim in `spec/`. The skill's job is to **route**, **sequence**, and **operationalise** consumption of the corpus for the specific task of porting — not to duplicate it.
+**The spec is the contract.** Every claim the skill makes about what an implementation must do traces to a normative claim in `spec/`. The skill's job is to **route**, **sequence**, and **operationalise** consumption of the corpus for the specific task of porting — not to duplicate it. Since the 2026-08 reduction the leaves carry links and derivation instructions only; anything enumerable (fixture counts, capability tags, operator sets) is derived from the corpus at the port's pin, never transcribed.
 
-The most load-bearing files for the skill:
+The most load-bearing files:
 
-- **`spec/000-Vision.md`** — the load-bearing decisions framing. The host-profile matrix at §"Host-profile matrix"; the eight-language scope at §"The pattern (JS-cross-compile-language-agnostic)"; the seven required properties of the identity primitive at §"The identity primitive — required properties"; the four hard constraints + fourteen goals at §"Constraints and goals".
-- **`spec/Implementor-Checklist.md`** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus). The skill's `references/phase-1-decisions.md` is the workflow shape of Part 1 + Part 2; `references/decision-record.md` is the fill-in shape for the engineer's choices against the table.
-- **`spec/001-Registration.md`** — EP 001. The registry contract. Referenced in `references/phase-2-impl-order.md`.
-- **`spec/002-Frames.md`** — EP 002. Frames + events + effects + subs. The largest EP after 005; multiple references in `phase-2-impl-order.md`.
-- **`spec/006-ReactiveSubstrate.md`** — EP 006. The adapter contract.
-- **`spec/009-Instrumentation.md`** — EP 009. Trace event stream, error contract, production elision.
-- **`spec/005-StateMachines.md`** — EP 005. Walked in Phase 2 only if D3 Q1 = yes; the spec's largest EP (~2,900 lines).
-- **`spec/conformance/README.md`** — the acceptance test. Capability tagging, the harness shape, the fixture format. The skill's `references/conformance.md` is the operational walk of this doc.
-- **`spec/API.md`** — the consolidated signatures. A per-EP "read first" anchor in `references/phase-2-impl-order.md` wherever the public surface matters, plus the SKILL.md done checklist.
-- **`spec/Ownership.md`** — the canonical "where does X live" contract-surface map. A port author's single most useful index for "which spec owns this surface". A Phase-2 reading anchor in `references/phase-2-impl-order.md`.
-- **`spec/Conventions.md`** — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. A port that ignores the reserved-namespace scheme fails conformance fixtures asserting `:rf.*` operation ids. A Phase-2 reading anchor and a cardinal rule.
+- **`spec/000-Vision.md`** — the eight-host scope footnote, the identity-primitive required properties, the host-profile matrix.
+- **`spec/Implementor-Checklist.md`** — Part 1 (capability declarations), Part 2 (options-by-host for every mechanism — the profile leaf links here instead of restating), Part 3 (conformance consumption). The §Required table (incl. runtime shape policing) and §Security obligations are cited directly.
+- **`spec/conformance/README.md`** — the acceptance test: fixture format, handler-DSL op table, capability tagging, versioning, harness steps. `references/conformance.md` is the operational walk of this doc and defers to it on any disagreement.
+- **`spec/001-Registration.md`, `spec/002-Frames.md`, `spec/006-ReactiveSubstrate.md`, `spec/009-Instrumentation.md`, `spec/015-Data-Classification.md`** — the foundation EP owners in the EP index.
+- **`spec/API.md`** — the consolidated public signatures; a standing anchor of the EP loop.
+- **`spec/Ownership.md`** — the "which spec owns this surface" map; the loop's other standing anchor.
+- **`spec/Conventions.md`** — the reserved `:rf/*` scheme, the three unqualified fx-ids, the `:rf/path` algebra and CEDN-1 canonical identity (cardinal rules 10–11).
+- **`spec/Managed-Effects.md`, `spec/004C-Roots-and-Mount.md`, `spec/Spec-Schemas.md`** — cross-cutting obligations linked from the EP index (reply envelope, root-attempt evidence, `:rf/effect-map`).
 
-The skill cites every spec file by URL (the published docs URL: `https://day8.github.io/re-frame2/spec/<file>/`). Cross-references to specific sections use anchor links.
+The skill cites spec files by the published docs URL (`https://day8.github.io/re-frame2/spec/<file>/`), with anchor links for sections.
 
 ## 2. Secondary input — the CLJS reference implementation
 
 Path: `implementation/` in the re-frame2 repo.
 
-**The reference is a worked example, not normative.** The skill's `references/reference-impl-tour.md` is the dedicated tour. The tour describes what the reference did; it does not prescribe what other implementations must do. Engineers reading the tour are told explicitly (top and bottom of the leaf) that the spec wins on any disagreement.
-
-The most load-bearing directories for the tour:
-
-- **`implementation/core/src/re_frame/`** — public API + the heart of EP 001 / 002 / 009; also `core/src/re_frame/substrate/` (the substrate contract `adapter.cljc` + the in-core plain-atom reference substrate `plain_atom.cljc`).
-- **`implementation/adapters/{reagent,reagent-slim,uix,test-react}/`** — EP 006's React-binding adapter realisations (plain-atom is NOT here; it lives in core's `substrate/`).
-- **`implementation/{epoch,flows,http,machines,routing,schemas,ssr}/`** — the per-feature artefacts (per the pay-as-you-go split).
-
-The tour names what's in each directory, calls out CLJS-specific choices, and names pattern-required behaviour. The tour does not transcribe source.
+**The reference is a worked example, not normative.** There is no dedicated tour leaf since the 2026-08 reduction: a port author who wants to see how *someone* solved a problem opens the matching artefact directory at the pin (`implementation/core/` for the runtime heart, `implementation/adapters/*` for the React bindings, per-feature artefacts `machines`/`routing`/`flows`/`http`/`schemas`/`ssr`/`epoch`), reads the source, and tests everything against `spec/` before adopting it.
 
 ## 3. Tertiary inputs
 
-These shape the skill's discipline but aren't quoted directly.
+- **`skills/re-frame-migration/`** — the closest structural analogue (workflow skill, spec/ folder, cardinal-rules voice).
+- **`skills/re-frame2/SKILL.md`** — the canonical authoring pattern for voice and structure.
+- **`skills/README.md`** — the leaf-size discipline (≤250 lines / ≤16 KB per leaf), the published-skill `allowed-tools` baseline, and the verification-posture table this skill's row must stay consistent with.
+- **`skills/shared/issue-filing.md`** — the shell-safety core `references/cardinal-rules.md` §8's local recipe is kept deliberately in sync with.
 
-- **`ai/findings/re-frame2-skill-design-v2.md`** — the design rationale for the `re-frame2` skill family. This skill inherits the four pillars, the leaf-loading shape, and the Q14 lock (NO verification module).
-- **`skills/re-frame-migration/`** — the closest structural analogue. Workflow skill; has `spec/` folder; targets a specific task (migration vs implementation); kickoff-prompt pattern. Voice / density / load-bearing-rules style mirrored.
-- **`skills/re-frame2/SKILL.md`** + reference leaves — the canonical example of the authoring pattern. Voice, structure, "cardinal rules" framing all mirror this skill.
-- **`skills/re-frame2-setup/`** — distribution-metadata triad (`LICENSE`, `package.json`, `.claude-plugin/plugin.json`) and README shape.
-- **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table; this skill's audience is "Section 2 — Implementing the spec".
-- **`docs/the-mayor-method/`** — methodology context for Mike's AI-first framing. Influences the "the engineer runs their builds; the skill teaches them the workflow" framing (Q14 lock).
+## 4. Repo tooling this skill is wired into
 
-## 4. Anthropic skill conventions
+A re-authoring pass MUST keep these green (they run on every PR):
 
-Pulled from `https://code.claude.com/docs/en/skills` at authoring time.
-
-The skill conforms to:
-
-- `name` field ≤ 64 chars; lowercase + numbers + hyphens (`re-frame2-implementor`).
-- `description` field is the discovery surface; "pushy" with explicit "use this skill whenever the user mentions" language; lists the triggering phrases ("porting re-frame2", "implementing re-frame2 in <language>", "writing a re-frame2 runtime", "conformance corpus", "implementor checklist").
-- SKILL.md body well under 500 lines.
-- Reference files one level deep from SKILL.md; no SKILL → A → B chains.
-- Forward slashes in paths.
-- Avoid time-sensitive content (deferred to spec-URL lookups rather than hardcoded VERSIONs).
-- Per-tool `spec/` folder (per Mike's standing rule).
+- **`scripts/check_skill_implementor_order.py`** — foundation-order + required-foundation-gate guard over SKILL.md, README.md, cardinal-rules.md, phase-1-decisions.md, phase-2-impl-order.md, and this spec/ folder's design.md + authoring-prompt.md. Any line stating the foundation order must include 015; any line pinning the gate-1 fixture scope must name all three v1-required families. Its owner cross-check reads `references/conformance.md` §Capability tagging for the three family roots and the v1-required framing.
+- **`scripts/check_skill_implementor_partition_drift.py`** — stale-API denylist (listener verbs, managed-HTTP naming, adapter lifecycle, machine classification keys, reply-contract spellings) plus the no-bead-id scan over the user-facing leaves.
+- **`scripts/check_skill_mcp_drift.py`** — keys on the paths `references/cardinal-rules.md` (spec-pin `rev-parse` command; the local gh-issue body/title/search safety clauses) and `references/phase-1-decisions.md` (spec-pin `remote get-url` command). Keep those filenames and the literal commands/clauses.
+- **`scripts/check_adapter_disposition.py`** — rosters `references/phase-2-impl-order.md` as a scanned authority; keep that filename.
 
 ## 5. What the skill does NOT consume
 
-These are deliberately out of the loop:
-
-- **`migration/from-re-frame-v1/README.md`** — that's the migration skill's input. This skill is about new implementations, not v1→v2 migration.
-- **`spec/Construction-Prompts.md`** — that's the authoring-side `re-frame2` skill's input (the per-kind AI templates for application authors writing new code).
-- **`spec/Pattern-*.md`** — application patterns; not relevant to implementors.
-- **`docs/core/**`** — narrative guide for application authors.
-- **`examples/**`** — worked example apps; not relevant to implementors.
-- **`implementation/**` source line-by-line** — `reference-impl-tour.md` names directories and surfaces choices, but does not transcribe source.
+- `migration/from-re-frame-v1/README.md` (the migration skill's input), `spec/Construction-Prompts.md` and `spec/Pattern-*.md` (application-side), `docs/core/**` (narrative guide), `examples/**`.
 
 ## 6. Update procedure
 
-When `spec/` changes, the skill needs targeted updates. The audit shape:
+When `spec/` changes:
 
-1. **New EP added** to `spec/` → add a section to `references/phase-2-impl-order.md`; if optional, add a row to D3 in `references/decision-record.md` template and `references/phase-1-decisions.md`'s D3 block.
-2. **EP renamed / renumbered** → update every spec URL referenced in the leaves.
-3. **`spec/Implementor-Checklist.md` decision added** → add a sub-decision block to `references/phase-1-decisions.md` and a template field to `references/decision-record.md`.
-4. **New capability tag** added to `spec/conformance/README.md` → add a row to D7 in `references/decision-record.md`.
-5. **CLJS reference implementation reorganises** → update `references/reference-impl-tour.md`'s "Layout" tree and per-EP sections.
-6. **Anthropic skill conventions change materially** → reauthor SKILL.md against the new conventions.
-
-The skill's `phase-1-decisions.md` is the integration point for the Implementor-Checklist; periodic audits grep both files for drift.
+1. **New EP added** → a row in `phase-2-impl-order.md`'s EP index (and a scope question in `phase-1-decisions.md` if optional).
+2. **EP renamed / renumbered** → sweep the leaves' spec URLs.
+3. **New always-claimed capability family** → `conformance.md` §Capability tagging (and the order guard's family set — reconcile with `scripts/check_skill_implementor_order.py`).
+4. **Fixture-format / DSL changes** → nothing, usually: the leaves teach derivation at the pin rather than carrying the catalogue. Only a change to the *derivation procedure itself* (new metadata keys, a new fail-loud floor) touches `conformance.md`.
+5. **Verification-posture change** → SKILL.md §Verification + `skills/README.md`'s posture row + design.md L3, together.
 
 ## 7. When to re-author from scratch
 
-- **Spec corpus reorganises significantly** (more than ~3 file renames or section restructures) → the existing leaves' URL references are stale; rebuilding from the new spec layout is easier than patching.
-- **The Q14 lock changes** → the design itself changes; this `spec/` folder needs updating first, then the skill.
-- **A second worked reference implementation lands** → the `reference-impl-tour.md` leaf needs restructuring (each impl gets its own tour section, or the tour becomes a per-impl directory).
-- **The conformance corpus's fixture format changes** → `references/conformance.md` needs a rewrite.
-
-Otherwise, edit the existing leaves directly; reauthoring from scratch is for major-version updates.
+- The spec corpus reorganises significantly (many renames) → rebuild the URL surface from the new layout.
+- The two-phase shape itself changes → update `design.md` first, then the skill.
+- Otherwise, edit the existing leaves directly.

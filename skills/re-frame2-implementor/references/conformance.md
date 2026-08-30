@@ -1,216 +1,90 @@
 # conformance
 
-How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation"; without it passing, the port is "inspired by re-frame2" but not conformant.
-
-The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/). This leaf walks the operational shape — building the harness, what the fixtures look like, scoring, and spec-gap vs implementation-bug diagnosis.
+How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL op table, capability tagging, versioning, the harness steps. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Where this leaf and the corpus README disagree, the README (at your pin) wins.
 
 ## What the corpus is
 
-A directory of EDN files, one per fixture, each describing one canonical interaction. Two complementary fixture modes (per [`spec/conformance/README.md` §Fixture format](https://day8.github.io/re-frame2/spec/conformance/#fixture-format)):
+EDN fixtures, one canonical interaction each, in two modes (README §Fixture format):
 
-- **Mode A — dispatch-driven.** A frame configuration plus initial `app-db`, a sequence of dispatches, and the expected emissions after drain: final `app-db`, sub values, routed effects, trace events. Most fixtures use Mode A. A Mode-A dispatch record MAY carry a flat `:rf.cofx` map in its dispatch opts to pin the recordable coeffects (`:rf/time-ms`, and optionally other owner-qualified facts — EP-0010 recording / EP-0017 authoring); when present the harness MUST thread it onto the envelope verbatim and the durable-write expectation reads from it, so the fixture is deterministic regardless of the wall clock. A fixture that omits it expects the runtime to stamp `:rf/time-ms` itself — assert the durable timestamp came from the token, not a fresh ambient read.
-- **Mode B — pure / direct-call.** No frame, no dispatch loop. Direct invocations of pure primitives via `:fixture/calls`, each record naming the primitive in `:call` and carrying its own call-local expectation. **The reserved `:call` operator set is additive and the fixtures are authoritative — derive the live set from the corpus at your pinned commit, not from any prose list (this one included).** Enumerate it directly: `grep -rhoE ':call\s+:[a-z][a-z.]*[a-z/-]*' spec/conformance/fixtures/ | sort -u`, and cross-check against the [`spec/conformance/README.md` §Fixture format](https://day8.github.io/re-frame2/spec/conformance/#fixture-format) operator list. The op set spans several EP families — the FSM/routing/SSR ops plus the EP-0012 identity/path, EP-0015 classification, and EP-0014 graph ops detailed in the sub-bullets below. New pure primitives may register a new op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list and rejects an unrecognised `:call` op as malformed will fail current fixtures or misdiagnose a harness gap as a spec gap — drive the op set from the fixtures, treating the sub-bullets as illustrative of the *families* you may meet, never a frozen enumeration.
-  - The **EP-0012 path/canonical ops** pin the shared `:rf/path` algebra + CEDN-1 identity foundation (cardinal rule 11): `:canonical-bytes` / `:canonical-identical` / `:canonical-distinct` assert key-order-irrelevant canonical identity; `:path-instantiate` asserts template normalization (`'?name` sugar → the `[:rf.path/param …]` data form); the `:path-*` law ops pin the get/put/over/compose/prefix/overlap + root-path laws. A port implementing only CEDN bytes and template instantiation but not the path-law ops does **not** pass EP-0012 conformance. These fixtures carry the **`:identity/*` capability family** (`:identity/cedn1`, `:identity/cedn1-path-algebra-golden`) — not `:core/*`. The path+identity foundation is pattern-required (cardinal rule 11), so a conformant port claims `:identity/*` and runs these — they are not D3-gated, but they ARE a distinct claim from `:core/*`.
-  - The **EP-0015 projector ops** pin the data-classification egress boundary (Spec 015, decision block D5b): `:project-egress` is the centralised record-level projector under a resolved `:rf.egress/profile` (optionally against a registered `:frame`); `:redact-headers` is the HTTP-header carrier denylist; `:ssr-apply-policy` is the SSR hydration-payload allowlist projection (taking `:expect` for the projected slice or `:expect-error` for the fail-closed `:rf.error/id`). These fixtures carry the **`:data-classification/*` capability family** (`:data-classification/classification-effects` plus the per-scenario tags like `:data-classification/frame-sensitive-app-db-redacts`, `:data-classification/sensitive-wins-over-large`, `:data-classification/project-egress-fails-closed-no-frame`, …) — not `:core/*`. Spec 015 is **v1-required** (not D3-gated), so a conformant port claims `:data-classification/*` and runs these — enumerate the exact sub-tags from `grep -rho ':data-classification/[a-z0-9-]*' spec/conformance/fixtures/ | sort -u` at your pinned commit.
-  - The **EP-0014 `:derivation-graph` op** composes the cross-family derivation/process graph (subs / flows / resources / routes / machines as one `{:mode :nodes :edges}` graph) and asserts normalized node + edge shapes. It is graded against a **split capability pair** so a host cannot overclaim: the broad `:derivation/algebra-graph` and the narrow `:derivation/algebra-graph-subs-machines` (the subs+machines static subset) — a graph host spanning only subscriptions + machines claims the subset and allowlists the broad capability as a known-skip. The graph surface is gated by D3 Q6 (whether you ship Tool-Pair inspection); a port with no inspection surface records that as a `known-skipped-capabilities` reason. See [`decision-record.md` D7 note on the derivation/process algebra](decision-record.md).
-  - The **SSR-streaming ops** drive Spec 011 streaming SSR (shipped — per [`spec/011-SSR.md` §Streaming SSR](https://day8.github.io/re-frame2/spec/011-SSR/#streaming-ssr)): `:ssr.streaming/render-shell` walks the root render-tree and returns the shell HTML plus the continuation list; `:ssr.streaming/render-continuation` renders one continuation subtree; `:ssr.streaming/build-final-payload` builds the canonical `__rf_payload` chunk after all continuations drain. The fixtures that exercise them (`ssr-streaming.edn`, `ssr-streaming-nested.edn`, `ssr-hydration-mismatch.edn`) carry the capability gates `:ssr/render-to-string`, `:ssr/suspense-boundary`, `:ssr/hydration-payload`, `:ssr/chunked-response` — a Q3=yes port either implements all four and runs the streaming fixtures, or puts the streaming-specific tags on `known-skipped-capabilities` to intentionally skip them. (Note: Spec 011's API table names the first two functions with a trailing `!` — `render-shell!` / `render-continuation!` — but the conformance `:call` op names match the fixtures' bare forms above; the harness keys on the fixture op name.)
-  - The `:reg-machine` op pins the machine **registration-error taxonomy** (`:rf.error/machine-*` via the [009 `:rf.error/id` ex-data contract](https://day8.github.io/re-frame2/spec/009-Instrumentation/#the-thrown-error-shape--the-rferrorid-ex-data-contract)): each `:reg-machine` call carries a candidate `:definition` and either an `:expect-error` (the `:rf.error/<category>` the registration-time validator must throw) or none (a well-formed control that must validate silently). Fixtures using it declare the `:fsm/registration-validation` capability; a port that validates lazily declares that capability in `known-skipped-capabilities` (see [§Capability tagging](#capability-tagging)).
+- **Mode A — dispatch-driven.** A frame configuration plus initial `app-db`, a sequence of dispatches, and the expected post-drain observables: final `app-db`, sub values, routed effects, trace events. A dispatch record MAY pin recordable coeffects via a flat `:rf.cofx` map — thread it onto the envelope verbatim, so the fixture is deterministic regardless of the wall clock.
+- **Mode B — pure / direct-call.** No frame, no dispatch loop; `:fixture/calls` invoke pure primitives, each record carrying its own expectation.
 
-Each fixture carries a `:fixture/capabilities` set — the capability tags it exercises. The harness runs every fixture whose capabilities are a subset of the port's claimed list (D7 of the decision record).
+**Derive, never transcribe.** The Mode-B `:call` operator set, the handler-DSL op set, the capability vocabulary, the dynamic-host-only fixture set, and the fixture count are all facts of the corpus **at your pin** — enumerate them there rather than trusting any prose list (this leaf included):
 
-## The harness — ~300 lines per host
-
-The contract from [`spec/conformance/README.md` §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus):
-
-1. **Read** all `.edn` files in `fixtures/`. If your host has no EDN reader, ship a small one (~200 lines for any host with hash-maps and vectors) or translate the corpus locally as part of harness bootstrap. Each fixture also declares a `:fixture/spec-version`; the harness should surface (and per the corpus README's §Versioning, reject) implementations that haven't moved with a spec-shape bump — don't silently run mismatched-version fixtures.
-2. **For each fixture**, first check host-applicability, then classify capabilities. A fixture carrying `:fixture/dynamic-host-only? true` (see [§Static hosts and dynamic-host-only fixtures](#static-hosts-and-dynamic-host-only-fixtures)) asserts a runtime-validation trace that a statically-typed host cannot produce — a static host filters those out *before* the capability check. Then classify the fixture's `:fixture/capabilities`: if `⊆ claimed-capabilities`, run it. Otherwise the harness MUST distinguish two out-of-claim flavours — see [§The two out-of-claim flavours](#the-two-out-of-claim-flavours) — and report "skipped (out-of-claim)" only for capabilities on the explicit `known-skipped-capabilities` allowlist; an unknown capability (in neither set) MUST FAIL the suite with a diagnostic naming it.
-3. **Bootstrap the runtime** per the fixture's `:fixture/registry` (the kinds + ids the fixture expects to be registered).
-4. **Realise the handler bodies** from `:fixture/handlers` via the EDN-handler-body DSL (below).
-5. **Create a frame** per `:fixture/frame-config`.
-6. **Run the dispatches** in `:fixture/dispatches` (Mode A), or the calls in `:fixture/calls` (Mode B).
-7. **Capture observables** — for Mode A: final `app-db`, sub values, trace emissions, effects routed; for Mode B: the call-local expectation.
-8. **Compare** the observables against `:fixture/expect`. Partial-match semantics for trace events; literal match for `app-db`; ordered match for routed effects.
-9. **Report** per-fixture: pass / fail / not-exercised, plus aggregate score: `passed / claimed-applicable`.
-
-The harness is the same shape for every host; the differences are entirely host-mechanical (EDN read, registry bootstrap, frame creation, dispatch invocation).
-
-## The EDN-handler-body DSL
-
-Fixtures describe event-handler and sub bodies as **EDN data**, not host code. The harness reads the data and realises it into native closures.
-
-The DSL is small — ~10 operations cover the common cases:
-
-```clojure
-;; In a fixture:
-:fixture/handlers
-{:event {:counter/inc        [[:update [:count] [:fn :inc]]]
-         :counter/initialise [[:set [:count] 0]]}
- :sub   {:count             [[:get [:count]]]}}
+```bash
+ls spec/conformance/fixtures/*.edn | wc -l                                        # fixture count
+grep -rhoE ':call\s+:[a-z][a-z.]*[a-z/-]*' spec/conformance/fixtures/ | sort -u   # Mode-B call ops
+grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u                     # one family's live tags
+grep -rl ':fixture/dynamic-host-only?' spec/conformance/fixtures/                 # static-host-inapplicable fixtures
+grep -rhoE ':fixture/spec-version\s+"[^"]*"' spec/conformance/fixtures/ | sort -u # spec versions in play
 ```
 
-Each handler body is a vector of operations. Each operation is `[<op> <args...>]`. The harness interprets the operations against the dispatch envelope and returns the result.
+New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
-Common ops (mirror [`spec/conformance/README.md` §Handler-body DSL ops](https://day8.github.io/re-frame2/spec/conformance/), not this summary):
+## The harness (~300 lines per host)
 
-- `[:set path value]` — set `app-db` at `path` to `value`.
-- `[:update path [:fn op]]` — apply `op` (`:inc`, `:dec`, `:not`, …) at `path`.
-- `[:get path]` — read `app-db` at `path` (used in sub bodies).
-- `[:reduce-input sub-id reduce-fn-form map-fn-form]` — (sub bodies) fold over another sub's value.
-- `[:dispatch event-vector]` — schedule a dispatch as an effect.
-- `[:fx [...]]` — return a literal `:fx` vector.
-- `[:throw "message"]`, `[:return-raw value]`, `[:noop]` — control/failure ops (`:return-raw` is the only op that can author a malformed effect-map).
+[README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (host-applicability first, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
 
-The complete operator set (incl. `:dispatch-sync`, `:make-frame-capture`, and the reflection/value forms `[:event-arg …]` / `[:get-event-arg …]` / `[:fn …]`) is the table in `spec/conformance/README.md` §Handler-body DSL ops.
+Four fail-loud floors the harness owes:
 
-The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/conformance.cljc` (namespace `re-frame.conformance` — `realise-event-handler` / `realise-sub` / `realise-fx-handler`); copy the dispatch-style and adapt the literal-op handlers. It's a `.cljc`, so it is both JVM- and CLJS-runnable.
+- **Spec version.** Reject a `:fixture/spec-version` the harness hasn't moved with (README §Versioning) — never silently run a mismatched fixture.
+- **Unknown capability.** A fixture capability in neither the claim nor the `known-skipped` allowlist FAILS the suite with a diagnostic naming it (§The two out-of-claim flavours below).
+- **Unknown op.** An unrecognised handler-DSL op or Mode-B `:call` op fails with a diagnostic naming it; then either grow the interpreter (the designed path) or file the corpus gap (rules 8–9).
+- **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
 
-**Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap (ask for the DSL to be documented in `spec/conformance/README.md`). File it as a GitHub issue per [`cardinal-rules.md` §§8–9](cardinal-rules.md).
+Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures — ~50 lines, the complete op table in the README. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
+
+Wire the harness into the port's CI; every commit should report the score. **The harness is tooling**, so the tooling-security file-path obligation applies to any scratch-dir/env-var write path it accepts ([`phase-2-impl-order.md` §Cross-cutting obligations](phase-2-impl-order.md#cross-cutting-obligations-spec-owned-read-dont-restate)).
 
 ## Capability tagging
 
-This section is this skill's **single operational owner** of three things every port needs and that no other leaf restates: (1) how you **derive** the claimable capability set (grep the fixtures at your pinned commit), (2) the **family → D3-scope map** — which D3 question gates which capability family, and (3) the **corpus/spec divergence rule** — when the fixtures lead the prose (the common corpus-ahead case) and the one case where the prose leads the fixtures (the corpus-behind `:actor/*` exception). The other leaves point here instead of repeating it: Phase 1 (`phase-1-decisions.md` §D7) frames the *choice*, the decision record (`decision-record.md` §D7) captures the *result* as fields, and the Phase 2 EP walks (`phase-2-impl-order.md`) cite the locked claim.
+This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-question map**, and the **corpus/spec divergence rule**. The port profile records only the result.
 
-From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/):
+Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the EP-0012 `:rf/path` algebra + CEDN-1 canonical identity), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope question and is claimed iff that answer is yes:
 
-```
-:core/*           pattern-required basics — always run
-:identity/*       v1-required — the EP-0012 :rf/path algebra + CEDN-1 canonical
-                  identity foundation (:identity/cedn1, :identity/cedn1-path-algebra-golden)
-:data-classification/*  v1-required — the Spec 015 egress/redaction contract
-                  (:data-classification/classification-effects + per-scenario sub-tags); enumerate
-                  from the fixtures
-:fsm/*            FSM-richness axis (EP 005, D3 Q1) — flat / hierarchical / eventless-always /
-                  delayed-after / tags / parallel-regions / final-states / history /
-                  registration-validation / choice / internal-events / timeout (the last three
-                  per EP-0029) — enumerate the live set from the fixtures, not this list
-:actor/*          actor-model axis (EP 005, D3 Q1) — own-state / spawn-destroy / cross-actor-fx /
-                  declarative-spawn / spawn-and-join / system-id — corpus-BEHIND: the README +
-                  Spec 005 declare all six but the fixtures back only four (see the note below)
-:flow/*           Flows axis (EP 013, D3 Q8) — wildcard family; ~19 sub-tags at corpus HEAD
-                  (basic / trace / init / reg-v / poke / toggle / topo / dirty-check /
-                   frame-scoped / hot-reload / lifecycle-emits-traces / …) — enumerate
-                  from the fixtures, not this list
-:rf.http/managed  managed-HTTP (EP 014, D3 Q9)
-:routing/*        Q2 yes
-:ssr/*            Q3 yes
-:schemas/*        Q4 yes (regardless of mechanism)
-:derivation/*     derivation/process graph-inspection (EP-0014, D3 Q6 / Tool-Pair;
-                  normative home: spec/Derivations.md) —
-                  the SPLIT pair :derivation/algebra-graph (broad) +
-                  :derivation/algebra-graph-subs-machines (subs+machines subset);
-                  a graph host spanning only subs+machines claims the subset and
-                  known-skips the broad capability
-:resources/*      Resources reads (EP 016, D3 Q10) — six resources-*.edn fixtures:
-                  :resources/ensure / dedupe / stale-suppression / scope-fail-closed /
-                  owner-release-gc / keep-previous (enumerate from the fixtures). A Q10=yes
-                  port claims :resources/* and runs them. The MUTATION half is
-                  corpus-behind: spec/016 mandates reg-mutation / :rf.mutation/execute
-                  but the corpus defines no mutation tags/fixtures yet — self-test
-                  from the spec + own unit tests until they land. (:rf.resource/* /
-                  :rf.mutation/* are the reserved EVENT/SUB id namespaces used inside
-                  fixtures, distinct from this :resources/* capability vocabulary.)
-```
+| Family | Claimed when |
+|---|---|
+| `:fsm/*`, `:actor/*` | Q1 state machines |
+| `:routing/*` | Q2 routing |
+| `:ssr/*` | Q3 SSR |
+| `:schemas/*` | Q4 schemas ≠ no (see §Static hosts below) |
+| `:flow/*` | Q8 flows |
+| `:rf.http/managed` | Q9 managed HTTP |
+| `:resources/*` | Q10 resources |
+| `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | Q6 Tool-Pair inspection — a subs+machines-only graph host claims the narrow tag and known-skips the broad one |
 
-`:identity/*` and `:data-classification/*` are **v1-required** (like `:core/*`) — not D3-gated — because the EP-0012 path+identity foundation (cardinal rule 11) and Spec 015 data classification (D5b) are both v1 obligations. A conformant port claims all three and runs their fixtures.
-
-The decision record's D7 captures the claimed tag set. The harness uses the claim as the filter; only matching fixtures run. **The fixtures are authoritative for SCORING — only a fixture-backed capability can run, so match the fixtures, not any prose list.** Both the Implementor-Checklist's family list and the conformance README's prose enumeration usually lag the fixtures (both omit `:flow/*` and its sub-tags and `:rf.http/managed`; the README also omits `:fsm/history` / `:fsm/choice` / `:fsm/internal-events` / `:fsm/timeout`; the Implementor-Checklist additionally omits `:fsm/final-states` / `:fsm/registration-validation`). Enumerate the claimable vocabulary directly from `spec/conformance/fixtures/*` at the pinned commit — e.g. `grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u` (and the same for `:flow/`, `:actor/`). If you ship the optional EP 005 history surface, EP 013 (Flows), or EP 014 (HTTP), declare `:fsm/history` / `:flow/*` / `:rf.http/managed` in D7 (and, for `:flow/*`, satisfy or skip each sub-tag) or those fixtures trip the unknown-capability diagnostic below.
-
-> **The "fixtures lead the prose" rule is not universal — it can invert.** Fixtures are authoritative for *what runs (scoring)*; the conformance README's capability table + the owning Spec are authoritative for *what exists to be claimed (the vocabulary)*. The two can diverge in **either** direction. The common case is corpus-ahead (fixtures carry a tag the prose forgot). But `:actor/*` is corpus-**behind**: the README ([`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/)) and Spec 005 declare all six (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/system-id`), but the fixtures currently back only four — `grep ':actor/' spec/conformance/fixtures/` yields just `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/spawn-destroy`, `:actor/system-id`. `:actor/own-state` and `:actor/cross-actor-fx` are **real, spec-mandated capabilities with no fixture yet** (a corpus gap, not non-existent tags). So `grep`-the-fixtures *under-claims* the actor axis: enumerate `:actor/*` from the README + Spec 005, cross-check against the fixtures, and put a fixture-less spec capability on `known-skipped-capabilities` **only if you don't implement it** — never because the grep missed it.
-
-A port that claims `:core/* + :fsm/flat + :actor/own-state` runs every `:core/*` fixture, every `:fsm/flat` fixture, and every `:actor/own-state` fixture — and skips the hierarchical FSM fixtures, the `:spawn` fixtures, the routing fixtures, etc.
+**Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from `spec/conformance/fixtures/` at the pin (the greps above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
 
 ### The two out-of-claim flavours
 
-Per [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/), a fixture whose capabilities aren't a subset of the claim is **not** simply "skipped." The harness MUST distinguish:
+A fixture whose capabilities aren't a subset of the claim is **not** simply "skipped":
 
-- **Intentional out-of-claim** — the capability is on the harness's explicit `known-skipped-capabilities` allowlist (e.g. a flat-FSM-only port listing `:fsm/hierarchical`, or a lazy-validating port listing `:fsm/registration-validation`). Reported as "skipped (out-of-claim)" — does **not** fail the suite.
-- **Typo / claim-set drift** — the capability is in neither the claimed set nor the allowlist. The suite **MUST FAIL** with a diagnostic naming the unknown capability. The remedy is either to add it to `claimed-capabilities` (with runtime backing to match) or to `known-skipped-capabilities` (an explicit decision not to claim it).
-
-The reference harness keeps `known-skipped-capabilities` empty today (every corpus capability is claimed); the allowlist exists so future divergence is an explicit decision, never silent rot. A harness that silently skips unknown capabilities is the shape the spec now forbids — build the fail-on-unknown one.
+- **Intentional out-of-claim** — the capability is on the explicit `known-skipped` allowlist, with a reason. Reported "skipped (out-of-claim)"; does not fail the suite.
+- **Typo / claim-set drift** — the capability is in neither set. The suite **MUST FAIL** naming it. The remedy is to add it to the claim (with runtime backing) or to `known-skipped` (an explicit decision) — a harness that silently skips unknown capabilities is the shape the spec forbids.
 
 ### Static hosts and dynamic-host-only fixtures
 
-Some fixtures carry `:fixture/dynamic-host-only? true` — at corpus HEAD seven do: the five schema-validation fixtures (`schema-event-payload-validates.edn`, `schema-cofx-validates.edn`, `schema-sub-return-validates.edn`, `schema-app-db-slice-validates.edn`, `error-schema-failure.edn`) plus `machine-data-schema-rollback.edn` and `machine-output-schema-validates.edn`. Derive the live set with `grep -rl ':fixture/dynamic-host-only?' spec/conformance/fixtures/` at the pinned commit. The flag means the fixture asserts a **runtime** validation trace (e.g. a malformed payload emits `:rf.error/schema-validation-failure` and the handler is skipped). A statically-typed host that claims `:schemas/*` **via host types** (D5 = yes-via-host-types — the type checker rejects the malformed value at the call site before any frame exists) cannot produce that runtime trace at all: the bad value never compiles, so there's nothing to dispatch and nothing to observe.
-
-This is the one place the D7 rule "claim `:schemas/*` if D5 ≠ no, regardless of mechanism" needs a mechanism-aware refinement, because the *vocabulary* claim (shape description exists) and the *fixture* claim (runtime trace observable) diverge for a static host:
-
-- **Dynamic-host port** (runtime validator — Malli-style, or a hand-rolled predicate pass): runs every `:schemas/*` fixture normally. `:fixture/dynamic-host-only?` is a no-op for you.
-- **Static-host port** (`yes-via-host-types`): you still claim the shape-description capability you actually provide, but you do **not** claim the runtime-trace sub-capabilities the dynamic-host-only fixtures assert (`:schemas/runtime`, `:schemas/event-payload`, …). Put those runtime tags on `known-skipped-capabilities` with an explicit static-host reason — e.g. `:reason "static host — malformed values rejected at compile time; no runtime schema trace to assert"`. That records a **documented static-host conformance path**, not claim-set drift: the harness reports the dynamic-host-only schema fixtures as "skipped (out-of-claim)" rather than failing them, and a reader sees *why*.
-
-The harness honours the flag at filter time: when the host is static, drop `:fixture/dynamic-host-only?` fixtures before the capability-subset check (they can never pass, and forcing a runtime validator solely to satisfy them is misleading work the corpus explicitly marks inapplicable). When the host is dynamic, the flag changes nothing.
-
-A minimal static-host conformance manifest fragment:
-
-```clojure
-;; D5 = yes-via-host-types — shape is described by the host type system.
-{:host/dynamic?              false
- :claimed-capabilities       #{:core/* :schemas/shape-description}   ; what the type system provides
- :known-skipped-capabilities {:schemas/runtime       {:reason "static host — malformed values rejected at compile time; no runtime schema trace"}
-                              :schemas/event-payload {:reason "static host — malformed event payloads are a compile error; no runtime :rf.error/schema-validation-failure to assert"}}}
-```
-
-Report the static-host path explicitly in the README's conformance section (per [§Reporting conformance](#reporting-conformance)) so a downstream consumer reads the skip as a host-mechanism fact, not a missing surface.
+Some fixtures carry `:fixture/dynamic-host-only? true` (derive the live set with the grep above): they assert a **runtime** validation trace a statically-typed host claiming schemas via its type system cannot produce — the malformed value never compiles. A static-host port filters those fixtures out *before* the capability-subset check, claims the shape-description capability it actually provides, and puts the runtime-trace tags on `known-skipped` with an explicit static-host reason. That is a documented static-host conformance path, not claim-set drift; report it in the port README so the skip reads as a host-mechanism fact.
 
 ## Diagnosis — spec gap vs implementation bug
 
-When a fixture fails, the question is: who's at fault?
+When a fixture fails:
 
-**Implementation bug.** The fixture exercises a well-specified surface that the port has implemented incorrectly. Symptoms:
+- **Implementation bug.** The spec for the surface is unambiguous; other ports could pass from the spec alone. Fix the port — the corpus is doing its job.
+- **Spec gap.** The expectation isn't justified by anything in `spec/`; it seems to reflect a choice the CLJS reference made that isn't normative; an AI armed only with `spec/` + the corpus + this skill couldn't reproduce it without consulting `implementation/`. **Don't patch the port to match** — file it per [`cardinal-rules.md` §§8–9](cardinal-rules.md).
 
-- The spec for the relevant EP is unambiguous about the expected behaviour.
-- Other ports could pass this fixture from the spec alone.
-- The failure is a copy-paste error, a typo, a mistaken mechanism choice.
-
-**Action:** fix the port. The conformance corpus is doing its job — surfacing a bug.
-
-**Spec gap.** The fixture exercises a surface the spec is silent on or ambiguous about. Symptoms:
-
-- The expected behaviour isn't justified by anything in `spec/`.
-- The fixture's expectation seems to reflect a choice the CLJS reference made that isn't normative.
-- An AI armed only with `spec/` + the corpus + this skill couldn't reproduce the expectation without consulting `implementation/`.
-
-**Action:** don't patch the port to match — file the gap as a GitHub issue per [`cardinal-rules.md` §§8–9](cardinal-rules.md). The spec needs to grow to cover the case; once it does, the port (and every other port) can target the explicit contract.
-
-The framing from [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/) is normative here: *"A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap."*
-
-## Running the harness
-
-The mechanics depend on the host. Typical shape:
-
-```
-$ <port-toolchain> conformance run --claimed=":core/* :fsm/flat :actor/own-state"
-
-Loading corpus from ../re-frame2/spec/conformance/fixtures ... 136 fixtures.
-Filtering by claimed capabilities ... 78 applicable, 58 not exercised.
-
-PASS  counter-inc-once                 :core/event-handler :core/sub :core/trace
-PASS  closed-effect-map                :core/event-handler
-FAIL  sub-cache-dedupes-equal-query-v  :core/sub :identity/cedn1
-      Expected: {[:total] 7}
-      Actual:   {[:total] 5}
-PASS  ...
-SKIP  fsm-hierarchical-exit-cascade    :fsm/hierarchical   (not claimed)
-...
-
-Score: 77 / 78 applicable. 1 failure.
-```
-
-Wire the harness into the port's CI; every commit should report the score. Conformance regressions caught at commit time are far cheaper than at release time.
-
-**The harness is tooling — the file-path security obligation applies.** If your harness translates the corpus to a host-native form, regenerates fixtures, or writes results into a scratch directory configured by an env-var override, it MUST constrain that path to a closed allowed-prefix list and fail fast on an escape (no silent `$HOME`/`/` write). This is a spec-pinned MUST for any writing tool, the harness included — see [`phase-2-impl-order.md` §Tooling-security obligations](phase-2-impl-order.md#tooling-security-obligations-any-port-that-ships-tooling).
+The framing from the corpus README is normative here: *"A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap."*
 
 ## When the corpus itself is incomplete
 
-The corpus is a living artefact — it grows as the spec grows. If your port implements a surface the corpus has no fixture for (e.g. a specific error category from EP 009, or a `:fsm/tags` interaction), that's not a port-side problem — that's a corpus gap. File it as a GitHub issue per [`cardinal-rules.md` §§8–9](cardinal-rules.md), ideally including a draft fixture in the body.
-
-The **recordable-coeffect contract** (EP-0010 recording / EP-0017 authoring) is `:core/*` (envelope stamp + declared-only delivery + durable-write determinism — see [`phase-2-impl-order.md` EP 002 §The world-input contract](phase-2-impl-order.md#the-world-input-contract-ep-0010)). Where a dedicated fixture for a sub-behaviour lags (e.g. child-token fresh-stamping, or the declared-only delivery filter), self-test it from the spec anyway: dispatch with a pinned `:rf.cofx`, declare + write a durable timestamp/id, restore the epoch (or replay the recorded token), and assert the durable value is reproduced from the token rather than re-read from a moved clock. A divergence on restore is the observable failure; treat a missing fixture for it as a corpus gap to file, not a reason to skip the behaviour.
+The corpus grows with the spec. A spec-mandated surface with no fixture yet is a **corpus gap**: self-test the behaviour from the owning Spec with the port's own unit tests, record the capability as *fixture-less self-tested* in the profile, and file the gap upstream (ideally with a draft fixture in the body) per rules 8–9. A missing fixture is never a reason to skip the behaviour.
 
 ## Reporting conformance
 
-The port's README should state:
+The port's README states three things, copied from the profile:
 
-- **Claimed capability tags** — copied from D7 of the decision record.
-- **Conformance score** — the most-recent harness result, e.g. `78 / 78 :core/* + :fsm/flat + :actor/own-state`.
-- **Date / commit hash of the corpus** the score was measured against. The corpus changes; pinning the score to a corpus commit lets downstream consumers verify.
+- **Claimed capability tags.**
+- **Conformance score** — `passed / claimed-applicable` from the most recent harness run.
+- **The corpus commit** the score was measured against — the corpus changes, so an unpinned score is unverifiable.
 
-This is the public contract: when the score is `N / N`, the port is a conformant re-frame2 implementation against its claim. When it's `N-k / N`, the port is k-fixtures-from-conformant. Either way, the consumer knows where they stand.
+When the score is `N / N`, the port is a conformant re-frame2 implementation against its claim; when it's `N-k / N`, it is k fixtures from conformant. Either way, the consumer knows where they stand.
