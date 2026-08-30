@@ -45,16 +45,23 @@
  * ATTRIBUTION technique (rf2-kybsf used it once, to split "Malli grew"
  * from "core grew"); it is not a posture, so it is not the control.
  *
- * FIRST MATCHED RUN (2026-08-05, cold, Windows, node 24, malli 0.20.1 —
- * the run these thresholds are set from):
+ * FIRST MATCHED RUN (2026-08-05, cold, Windows, node 24, malli 0.20.1):
  *
  *   schemas-bundle-control      86356 B gzipped (84.3 KB)
  *   schemas-bundle-probe       127926 B gzipped (124.9 KB)
  *   margin                      41570 B gzipped (40.6 KB)
  *
+ * SECOND MATCHED RUN (2026-08-30, rf2-tiymn, Windows, node 24, malli
+ * 0.20.1 — the run these thresholds are set from), after the adapter
+ * stopped publishing the humanizer in production builds:
+ *
+ *   schemas-bundle-control      86851 B gzipped (84.8 KB)
+ *   schemas-bundle-probe       127696 B gzipped (124.7 KB)
+ *   margin                      40845 B gzipped (39.9 KB)
+ *
  * Composition of that margin, from `shadow.cljs.build-report` optimized
- * bytes (post-Closure, uncompressed): Malli 121.5 KB (`malli.core` 88.6,
- * `malli.impl.regex` 16.9, `malli.error` 12.0, `malli.registry` 2.0,
+ * bytes (post-Closure, uncompressed): Malli 120.0 KB (`malli.core` 88.6,
+ * `malli.impl.regex` 16.9, `malli.error` 10.5, `malli.registry` 2.0,
  * `malli.sci` 1.3, `malli.impl.util` 0.7) + `borkdude.dynaload` 6.6 KB +
  * the `re-frame.schemas` artefact 14.3 KB + ~43 KB of `re-frame.core` /
  * `goog` that the schemas path roots and the bare control DCEs away
@@ -66,6 +73,29 @@
  * budget, and it is the price of a control that is a control — anything
  * the control rooted that the probe does not would make the margin
  * UNDERSTATE the cost, and that is the direction that loosens a gate.
+ *
+ * THE HUMANIZER, AND WHAT CLOSURE KEEPS OF `malli.error`. The adapter
+ * publishes `malli.error/humanize` under `:schemas/humanize-explain!`
+ * only when `interop/debug-enabled?` is true (rf2-tiymn) — the hook's
+ * sole reader, the `:explain-humanized` enrichment of dev traces, sits
+ * behind the same gate. Under `:advanced` + `goog.DEBUG=false` the
+ * publication folds away, so this gate asserts the hook keyword is
+ * ABSENT from the probe (a `set-fn!` that survived would leave its
+ * keyword literal behind) and PRESENT for the sibling
+ * `:schemas/malli-validate` publication from the same ns-load, which is
+ * what proves the blob inspected is the probe's and that a surviving
+ * publication does leave a keyword. Measured on the same control, same
+ * day: unconditional publication 41595 B margin, gated 40845 B (-750 B;
+ * `malli.error` 12.0 -> 10.5 KB optimized), and with the adapter's
+ * `[malli.error]` require deleted outright 38333 B (-3262 B; every
+ * `malli.error` literal gone). The difference between the last two is
+ * `malli.error`'s message table (`default-errors`, built by
+ * `PersistentHashMap.fromArrays`) and its negation prefix: top-level
+ * defs whose initialisers Closure cannot prove pure, so it keeps them
+ * even with no reader. Only taking the namespace out of the module
+ * graph reaches that 2.5 KB, and the library cannot do that for a
+ * consumer without a build-side knob, so it is priced inside the margin
+ * and recorded in Spec 010 §Bundle cost rather than asserted away here.
  *
  * WHY IT IS TWO-SIDED. A margin that COLLAPSES is not good news — it
  * means the A/B stopped measuring what it measures, which is exactly how
@@ -97,6 +127,7 @@ const { createGateReporter } = require('./lib/gate-report.cjs');
 const {
   listReleaseJsFiles,
   classifyReleaseBundle,
+  countSubstring,
 } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -122,11 +153,13 @@ const BUNDLES = [
 
 // ----- the margin contract ---------------------------------------------------
 
-// Both bounds are set from the first matched A/B run recorded in the
-// header (41570 B / 40.6 KB), per the rf2-kybsf ruling: numbers from the
-// measurement, never inherited from a prior constant.
+// Both bounds are set from the second matched A/B run recorded in the
+// header (40845 B / 39.9 KB), per the rf2-kybsf ruling: numbers from the
+// measurement, never inherited from a prior constant. The first run set
+// them at 45 / 20 KB from 41570 B; rf2-tiymn re-derived them from its own
+// measurement by the same rule, and the ceiling moved with the margin.
 //
-// CEILING — 45 KB, i.e. the measured margin plus ~4.4 KB (~11 %) of
+// CEILING — 44 KB, i.e. the measured margin plus ~4.1 KB (~10 %) of
 // stated headroom. The headroom absorbs a Malli patch bump and small
 // additions to the schemas artefact's own surface; for scale, Malli's
 // marginal cost moved 29.8 -> 30.8 KB across the three months and the
@@ -139,24 +172,37 @@ const BUNDLES = [
 // Closure DCEs a merely-required namespace, which is Spec 010's own
 // "inter-namespace DCE works" claim holding. Add a call to
 // `malli.transform/json-transformer` and the namespace becomes reachable:
-// +5.5 KB gzipped on top of the already-present `malli.core`, margin
-// 47201 B (46.1 KB), 1.1 KB over this ceiling, exit 1. So the headroom is
-// tight enough for the smallest of the two heavy restrict-list
-// namespaces, and `malli.generator` (heavier still, carries test.check)
-// reds by more. Note the list's per-namespace figures are STANDALONE
-// weights — the incremental cost when `malli.core` is already in the
-// bundle is smaller, and the incremental one is what this gate sees.
-// The headroom is a tolerance, not a licence to grow into.
+// +5.5 KB gzipped on top of the already-present `malli.core` (measured
+// 2026-08-05 at margin 47201 B against the 45 KB ceiling, and re-measured
+// 2026-08-30 against this one — see the header's second run), exit 1. So
+// the headroom is tight enough for the smallest of the two heavy
+// restrict-list namespaces, and `malli.generator` (heavier still, carries
+// test.check) reds by more. Note the list's per-namespace figures are
+// STANDALONE weights — the incremental cost when `malli.core` is already
+// in the bundle is smaller, and the incremental one is what this gate
+// sees. The headroom is a tolerance, not a licence to grow into.
 //
-// FLOOR — 20 KB, a little under half the measured margin. It restores the
-// "Malli arm strictly larger" methodology guard rf2-fqbcy originally had,
-// in the shape the A/B allows: a reverted facade adapter require drops
-// the margin to the measured 9.7 KB, and a control that accidentally
-// became Malli-bearing or a probe that stopped rooting the schemas
-// surface drops it toward 0. Both are FAILURES of the measurement rather
-// than good news about the bundle.
-const MARGIN_MAX_BYTES = 45 * 1024;
+// FLOOR — 20 KB, about half the measured margin. It restores the "Malli
+// arm strictly larger" methodology guard rf2-fqbcy originally had, in the
+// shape the A/B allows: a reverted facade adapter require drops the
+// margin to the measured 9.7 KB, and a control that accidentally became
+// Malli-bearing or a probe that stopped rooting the schemas surface drops
+// it toward 0. Both are FAILURES of the measurement rather than good news
+// about the bundle.
+const MARGIN_MAX_BYTES = 44 * 1024;
 const MARGIN_MIN_BYTES = 20 * 1024;
+
+// ----- the humanizer contract ------------------------------------------------
+
+// The late-bind keyword the adapter publishes the humanizer under, and the
+// one it publishes the validator under. A `set-fn!` call that survives
+// Closure leaves its keyword literal in the bundle (`new Keyword("schemas",
+// "malli-validate", "schemas/malli-validate", …)`), so the fully-qualified
+// name is a direct marker for "this publication reached production".
+// The humanizer's must be absent from the probe; the validator's must be
+// present, or the absence check inspected nothing (rf2-tiymn).
+const HUMANIZE_HOOK = 'schemas/humanize-explain!';
+const VALIDATE_HOOK = 'schemas/malli-validate';
 
 // ----- helpers ---------------------------------------------------------------
 
@@ -188,6 +234,7 @@ function main() {
   report.detail('');
 
   const sizes = {};
+  const blobs = {};
   let bundlesOk = true;
 
   for (const bundle of BUNDLES) {
@@ -212,6 +259,7 @@ function main() {
       continue;
     }
     sizes[bundle.name] = total;
+    blobs[bundle.name] = cls.blob;
     report.detail(`  [measured] ${bundle.name}`);
     report.detail(`        role:   ${bundle.role}`);
     report.detail(`        bundle: ${fmtKb(total)} gzipped (${total} bytes)`);
@@ -254,12 +302,33 @@ function main() {
     report.detail(`        COLLAPSE: margin is ${fmtKb(MARGIN_MIN_BYTES - margin)} below the floor`);
   }
 
+  // ----- the humanizer assertion --------------------------------------------
+  //
+  // The dev-only humanizer must not reach the production probe, and the
+  // check must be shown to be looking at the probe: the validator hook the
+  // same ns-load publishes unconditionally has to be there.
+  const humanizeInProbe   = countSubstring(blobs[PROBE], HUMANIZE_HOOK);
+  const validateInProbe   = countSubstring(blobs[PROBE], VALIDATE_HOOK);
+  const humanizeInControl = countSubstring(blobs[CONTROL], HUMANIZE_HOOK);
+  const validateInControl = countSubstring(blobs[CONTROL], VALIDATE_HOOK);
+
+  const humanizerLeaked = humanizeInProbe > 0 || humanizeInControl > 0;
+  const validatorAbsent = validateInProbe === 0;
+  const controlTainted  = validateInControl > 0;
+  const humanizerOk     = !humanizerLeaked && !validatorAbsent && !controlTainted;
+
   report.detail('');
-  if (marginOk) {
+  report.detail(`  [${humanizerOk ? 'OK' : 'FAIL'}] humanizer publication is dev-only (Spec 010 §Humanize-hook, rf2-tiymn)`);
+  report.detail(`        \`${HUMANIZE_HOOK}\`: probe ${humanizeInProbe}, control ${humanizeInControl} (both must be 0)`);
+  report.detail(`        \`${VALIDATE_HOOK}\`:    probe ${validateInProbe}, control ${validateInControl} (probe > 0, control 0)`);
+
+  report.detail('');
+  if (marginOk && humanizerOk) {
     report.pass(
       'schemas-bundle',
       `${CONTROL}=${fmtKb(control)}; ${PROBE}=${fmtKb(probe)}; ` +
-        `margin=${fmtKb(margin)} within ${fmtKb(MARGIN_MIN_BYTES)}…${fmtKb(MARGIN_MAX_BYTES)}`
+        `margin=${fmtKb(margin)} within ${fmtKb(MARGIN_MIN_BYTES)}…${fmtKb(MARGIN_MAX_BYTES)}; ` +
+        `humanizer hook absent from the probe`
     );
     process.exit(0);
   }
@@ -267,6 +336,30 @@ function main() {
   report.flushDetails();
   console.error('=== FAIL ===');
   console.error('');
+  if (humanizeInProbe > 0) {
+    console.error('THE HUMANIZER REACHED THE PRODUCTION PROBE. The');
+    console.error(`\`${HUMANIZE_HOOK}\` keyword survived Closure, which means`);
+    console.error('something published or read the hook outside the');
+    console.error('`interop/debug-enabled?` gate. Check the adapter\'s');
+    console.error('`(when interop/debug-enabled? (late-bind/set-fn! …))` form in');
+    console.error('`re-frame.schemas.malli`, and every `get-fn` of the key in');
+    console.error('`re-frame.schemas.validate` — each must sit inside a gated body.');
+    console.error('');
+  }
+  if (validatorAbsent) {
+    console.error(`THE VALIDATOR HOOK IS MISSING FROM THE PROBE. \`${VALIDATE_HOOK}\``);
+    console.error('is published unconditionally by the same ns-load, so its absence');
+    console.error('means the adapter never loaded (the rf2-v96fh regression, which');
+    console.error('the floor also catches) or the blob inspected is not the probe.');
+    console.error('The humanizer check above proves nothing until this is fixed.');
+    console.error('');
+  }
+  if (humanizeInControl > 0 || controlTainted) {
+    console.error(`THE CONTROL CARRIES A SCHEMAS PUBLICATION. \`${CONTROL}\` must`);
+    console.error('require `re-frame.core` and nothing else; a schemas keyword in');
+    console.error('it means it stopped being a control.');
+    console.error('');
+  }
   if (overCeiling) {
     console.error('THE MARGIN GREW. Requiring `re-frame.schemas` now costs more');
     console.error('than Spec 010 §Bundle cost budgets. Likely causes, in the');
@@ -294,6 +387,9 @@ function main() {
     console.error('first, with the measurement, and move this band in lockstep.');
   }
   if (underFloor) {
+    if (overCeiling || humanizeInProbe > 0 || validatorAbsent || controlTainted) {
+      console.error('');
+    }
     console.error('THE MARGIN COLLAPSED, which is a measurement failure and not');
     console.error('a saving. Requiring `re-frame.schemas` is supposed to cost');
     console.error('what Spec 010 §Bundle cost says it costs; a margin this small');

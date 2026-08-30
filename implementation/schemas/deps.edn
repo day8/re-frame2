@@ -11,9 +11,9 @@
 ;;
 ;; Requiring `re-frame.schemas`
 ;; itself `:require`s `re-frame.schemas.malli`, which publishes Malli's
-;; validate / explain / humanize into the late-bind hook table at
-;; namespace load. The default validator is therefore active when a schema
-;; is registered on both CLJS and the JVM.
+;; validate / explain into the late-bind hook table at namespace load
+;; (and humanize too, in development builds). The default validator is
+;; therefore active when a schema is registered on both CLJS and the JVM.
 ;;
 ;; Apps that want schemas-as-inert-data without the Malli validation
 ;; surface call `(set-schema-validator! nil)` at boot, which disables every
