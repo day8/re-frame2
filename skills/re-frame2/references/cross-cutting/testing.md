@@ -145,7 +145,17 @@ Pin at the boundary that owns it: a caller-pinned id is simplest on the **event 
   (is (= :stories (rf/current-frame-id))))             ;; make-frame returns the frame VALUE
 ```
 
-On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
+`rf/with-frame` is a **macro on both JVM and CLJS** — the same body-splicing expansion on either host; there is no function form. Never wrap the body in a `(fn [] …)` thunk: a fn literal is a legal body expression, so the macro evaluates it and returns it **uninvoked** — in a `use-fixtures` wrapper that silently skips every test under it (the run reports `Ran 0 tests containing 0 assertions.` and exits 0). A JVM `clojure.test` fixture invokes `(test-fn)` **inside** the macro body:
+
+```clojure
+(use-fixtures :each
+  (fn [test-fn]
+    (rf/make-frame {:id :app/test})   ;; with-frame pins an EXISTING frame
+    (rf/with-frame :app/test
+      (test-fn))))                    ;; invoke test-fn INSIDE the macro body
+```
+
+List it after the [reset fixture](#the-per-test-fixture-always-use-it) in the `use-fixtures` form — the reset runs outermost and clears the frames registry each test, so the per-test `make-frame` never collides. On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`.
 
 ## Asserting state: `assert-path-equals` and `app-db-value`
 
