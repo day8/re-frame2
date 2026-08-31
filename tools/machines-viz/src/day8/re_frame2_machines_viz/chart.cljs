@@ -1328,7 +1328,19 @@
                                  (post-elk/apply-post-elk raw-result parsed
                                                           elk-direction)
                                  raw-result)]
-                  (when result
+                  ;; Stale-settle guard (rf2-x19xi). Each pass closes over
+                  ;; the `this-key` it was launched for; only the pass whose
+                  ;; key is STILL the active `@layout-key` may commit. A
+                  ;; superseded pass (the key changed while its Promise was
+                  ;; in flight — initial and measured-relayout passes alike)
+                  ;; can resolve AFTER the current topology has settled;
+                  ;; committing it would overwrite the current geometry with
+                  ;; another key's positions/routes/error (ids absent from
+                  ;; the stale result fall back to the {x 0 y 0} origin) and
+                  ;; schedule a fit for the wrong topology. So a stale
+                  ;; result is dropped whole: no layout-state, no fit-key,
+                  ;; no fitView.
+                  (when (and result (= this-key @layout-key))
                     (reset! layout-state result)
                     ;; After a successful layout settle (positions present,
                     ;; no error), auto-fit the viewport ONCE per layout-key
