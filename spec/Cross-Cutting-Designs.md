@@ -80,7 +80,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Consumers.**
 - `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch! / replace-app-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
-- `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
+- `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` writes carry `:origin :story-mcp`.
 - `tools/xray/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.
 
