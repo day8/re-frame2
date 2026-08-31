@@ -34,7 +34,6 @@ Path: `implementation/` in the re-frame2 repo.
 - **`skills/re-frame-migration/`** — the closest structural analogue (workflow skill, spec/ folder, cardinal-rules voice).
 - **`skills/re-frame2/SKILL.md`** — the canonical authoring pattern for voice and structure.
 - **`skills/README.md`** — the leaf-size discipline (≤250 lines / ≤16 KB per leaf), the published-skill `allowed-tools` baseline, and the verification-posture table this skill's row must stay consistent with.
-- **`skills/shared/issue-filing.md`** — the shell-safety core `references/cardinal-rules.md` §8's local recipe is kept deliberately in sync with.
 
 ## 4. Repo tooling this skill is wired into
 

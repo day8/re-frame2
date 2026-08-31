@@ -20,8 +20,7 @@
 ;;;;
 ;;;; This is the CHEAP class of drift the setup skill can suffer: a prose
 ;;;; promise of a runtime invariant that doesn't exist, or a substrate pin
-;;;; that diverges from the tested template. Mirrors the shape of
-;;;; `skills/shared/tests/retro_protocol_test.clj`.
+;;;; that diverges from the tested template.
 ;;;;
 ;;;; Run locally:  bb tests/setup_drift_test.clj   (from skills/re-frame2-setup/)
 ;;;; Exit:         0 = pass, non-zero = fail.

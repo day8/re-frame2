@@ -21,7 +21,9 @@
 
   This invariant was previously the `tool-pair-spec-elision-registry-is-
   runtime-db-not-app-db` / `security-spec-elision-registry-is-runtime-db-not-
-  app-db` guards inside `skills/shared/tests/tool_pair_surfaces_test.clj`.
+  app-db` guards inside the since-removed
+  `skills/shared/tests/tool_pair_surfaces_test.clj` (the whole
+  `skills/shared/` tree was retired under rf2-fqjys).
   rf2-u3anaj (#5509) slimmed that skills leaf to a routing index and removed
   its second-spec token-pinning suite, per the `exact semantics tested by the
   owning suites` acceptance — which left this spec-content invariant with NO

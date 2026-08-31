@@ -36,10 +36,7 @@ re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / 
 
 - [re-frame-pair](https://github.com/day8/re-frame-pair) — the v1 skill (re-frame + re-frame-10x; this is its source).
 - [re-frame2-pair-retro](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) — the retrospective skill that reviews pair sessions and proposes improvements to re-frame2-pair itself. Sibling to v1's [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver).
-- [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
-- [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — the skills-corpus pointer at the Tool-Pair surface enumeration (and the "supersedes re-frame-10x" claim) that sibling skills cite when routing an upstream finding. This README carries the fullest surface list; the shared leaf points back here for it.
-
-> Distribution caveat — link from a clone; bring `skills/shared/` along. The skill references sibling `../shared/` leaves in normal operation, and a `package.json` `files` allow-list cannot reach a parent directory — `npm pack` (and any plugin bundle) does not ship `skills/shared/`. The supported install is a link from a full re-frame2 monorepo clone (link, never copy); a tarball / plugin / vendored install must copy `skills/shared/` alongside the skill or the shared references break.
+- [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes; its capability table is the consolidated, complete enumeration sibling skills cite when routing an upstream finding. This README carries the fullest shipped-tool surface list.
 
 ## Which technical stack?
 
@@ -54,7 +51,7 @@ You don't need to change your application code to use it — the MCP server (Nod
 
 ## No re-frame-10x dependency
 
-re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch! frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)). The underlying "these surfaces are first-class in re-frame2, superseding 10x" claim is stated once for the whole skills corpus in [`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md); this section is the re-frame2-pair-specific framing of it.
+re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch! frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)). The underlying claim — these surfaces are first-class in re-frame2, superseding 10x — rests on the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)'s consolidated capability contract; this section is the re-frame2-pair-specific framing of it.
 
 If your app uses both re-frame2-pair and Xray, they coexist as parallel listeners over re-frame2's Tool-Pair surfaces. Xray's default UI is the app-provided `[data-rf-xray-host]` true-inline panel; re-frame2-pair has no UI panel and neither tool depends on the other.
 

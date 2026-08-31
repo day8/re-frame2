@@ -246,7 +246,6 @@ skills/                        Claude skills
   re-frame2-pair-retro/        Retrospective skill — reviews pair sessions, drafts improvements
   re-frame2-xray/              Xray devtools-panel skill (launch modes, panels, components)
   re-frame-migration/          re-frame v1.x → re-frame2 migration skill
-  shared/                      Cross-skill protocols (retro-protocol, evidence discipline)
 ```
 
 **Start here:** [The user guide](docs/index.md), followed by the [Core track](docs/core/introduction.md).

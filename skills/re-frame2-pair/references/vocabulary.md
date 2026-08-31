@@ -75,8 +75,8 @@ belongs to `skills/re-frame2/` (authoring) or direct spec reading.
 The full mechanism (projection profiles, the off-box redaction ruling,
 the elision walker) is documented once in
 [`skills/re-frame2/references/cross-cutting/privacy-and-elision.md`](../../re-frame2/references/cross-cutting/privacy-and-elision.md)
-and the shared enumeration
-[`skills/shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md).
+and the consolidated capability contract in
+[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md).
 This is the operational summary for a pair session.
 
 **The contract.** Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md),

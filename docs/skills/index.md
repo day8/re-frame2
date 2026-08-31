@@ -4,7 +4,7 @@
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
-re-frame2 ships nine skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
+re-frame2 ships nine skills, colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
 
 ## How to load a skill
 
