@@ -150,8 +150,9 @@ Everything above calls a view as a function. A UIx `defui` that reads `use-subsc
 ;; `flush-views!`, and stood down while the test waits for an update that
 ;; arrives on React's own schedule (`wait-for` below) — the discipline
 ;; Testing Library's `waitFor` follows. The flag is a global, so `mount!`
-;; captures the value it finds and `unmount!` puts that value back — the
-;; recipe leaves the suite's act environment exactly as it found it.
+;; captures the value it finds and `unmount!` puts that value back in a
+;; `finally` — the recipe leaves the suite's act environment exactly as it
+;; found it, even when a render or a teardown throws.
 
 (defn- act-environment! [on?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) on?))
@@ -167,23 +168,34 @@ Everything above calls a view as a function. A UIx `defui` that reads `use-subsc
 (defn- mount!
   "Render `element` under `:rf/default` into a fresh node on the page, inside
    `flush-views!`, so the tree is committed when this returns. Captures the
-   act-environment flag as it stood; `unmount!` restores it."
+   act-environment flag as it stood; `unmount!` restores it. A render that
+   throws restores the flag and removes the node before rethrowing, so a
+   failed mount leaves nothing behind."
   [element]
   (let [act-prev (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
         node     (.createElement js/document "div")
         root     (uix-dom/create-root node)]
     (.appendChild js/document.body node)
-    (act-environment! true)
-    (uix-adapter/flush-views!
-      #(uix-dom/render-root
-         ($ uix-adapter/frame-provider {:frame :rf/default} element)
-         root))
-    {:node node :root root :act-prev act-prev}))
+    (try
+      (act-environment! true)
+      (uix-adapter/flush-views!
+        #(uix-dom/render-root
+           ($ uix-adapter/frame-provider {:frame :rf/default} element)
+           root))
+      {:node node :root root :act-prev act-prev}
+      (catch :default e
+        (act-environment! act-prev)
+        (.remove node)
+        (throw e)))))
 
 (defn- unmount! [{:keys [node root act-prev]}]
-  (uix-adapter/flush-views! #(uix-dom/unmount-root root))
-  (.remove node)
-  (act-environment! act-prev))
+  (try
+    (uix-adapter/flush-views! #(uix-dom/unmount-root root))
+    (finally
+      ;; Even when React's unmount or an effect cleanup throws, the node
+      ;; leaves the page and the act flag goes back to what `mount!` found.
+      (.remove node)
+      (act-environment! act-prev))))
 
 (defn- by-testid [node id]
   (.querySelector node (str "[data-testid=\"" id "\"]")))
@@ -221,13 +233,35 @@ Everything above calls a view as a function. A UIx `defui` that reads `use-subsc
             (.then (fn [_] (is (= "1" (text node "counter-value")))))
             (.catch (fn [e] (is false (str "the +1 click never reached the DOM: " e))))
             (.finally (fn []
-                        (unmount! mounted)
-                        ;; The restore is part of the recipe's contract: the
-                        ;; suite sees the act flag this test found on entry.
-                        (is (= (:act-prev mounted)
-                               (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
-                            "unmount! restores the act-environment flag mount! captured")
-                        (done))))))))
+                        ;; Teardown cannot cost the suite its `done`: a throw
+                        ;; out of `unmount!` is reported as a failure, and
+                        ;; `done` runs regardless.
+                        (try
+                          (unmount! mounted)
+                          ;; The restore is part of the recipe's contract: the
+                          ;; suite sees the act flag this test found on entry.
+                          (is (= (:act-prev mounted)
+                                 (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+                              "unmount! restores the act-environment flag mount! captured")
+                          (catch :default e
+                            (is false (str "teardown threw: " e)))
+                          (finally (done))))))))))
+
+(deftest mount-unmount-hands-back-the-act-flag-it-found
+  (if-not (exists? js/document)
+    (is true "no DOM here — the browser lane runs this test")
+    ;; The regression pin for the restore itself. A runner whose flag already
+    ;; sits at `true` would let a teardown that merely forces `true` pass by
+    ;; coincidence — so plant a sentinel the runner would never set, run one
+    ;; mount/unmount round trip, and demand the sentinel back.
+    (let [ambient (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+      (try
+        (act-environment! "recipe-sentinel")
+        (unmount! (mount! ($ counter)))
+        (is (= "recipe-sentinel" (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+            "mount!/unmount! restore the exact pre-existing act-flag value")
+        (finally
+          (act-environment! ambient))))))
 ```
 
 Four things carry it.
@@ -236,9 +270,9 @@ Four things carry it.
 
 **`flush-views!` settles what you drive.** It wraps React's `act()`: the mount inside it is committed by the time it returns, and so is the re-render a `dispatch-sync` inside it causes. That is the settle for state the test pushes in — and it is per-adapter-require, as [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md#what-carries-over-what-doesnt) tabulates.
 
-**A real click settles on the router's clock, not React's.** The view's `dispatch` queues the event and the router drains it on the next turn, so no `act()` can settle it. The wait is `poll-until` on the DOM — the same bounded settle as §3 — composed with `cljs.test/async`. React's `act()` asks the environment to declare itself (`IS_REACT_ACT_ENVIRONMENT`); the recipe keeps it on while `flush-views!` drives React and stands it down while the test waits for an update that lands on React's own schedule, the discipline Testing Library's `waitFor` follows. And because the flag is a global, `mount!` captures the value it finds and `unmount!` puts it back — the suite around this test sees the act environment it started with, and the async test's last assertion proves the restore. That is all the small helpers encode.
+**A real click settles on the router's clock, not React's.** The view's `dispatch` queues the event and the router drains it on the next turn, so no `act()` can settle it. The wait is `poll-until` on the DOM — the same bounded settle as §3 — composed with `cljs.test/async`. React's `act()` asks the environment to declare itself (`IS_REACT_ACT_ENVIRONMENT`); the recipe keeps it on while `flush-views!` drives React and stands it down while the test waits for an update that lands on React's own schedule, the discipline Testing Library's `waitFor` follows. And because the flag is a global, `mount!` captures the value it finds and `unmount!` puts it back — the suite around this test sees the act environment it started with. The file's last test pins that promise: it plants a sentinel value, runs one mount/unmount round trip, and demands the sentinel back, so the check holds even on a runner whose flag already sat at `true`. That is all the small helpers encode.
 
-**Teardown is unconditional.** `unmount!` runs in a `finally` — or the promise's `.finally` — so a red assertion never leaves a root mounted on the page; the fixture's `:after` takes care of the frame and the adapter.
+**Teardown is unconditional.** `unmount!` runs in a `finally` — or the promise's `.finally` — so a red assertion never leaves a root mounted on the page, and the helpers hold that line when React itself misbehaves: a `mount!` whose render throws restores the flag and removes its node before rethrowing, `unmount!` removes and restores through its own `finally` even when the unmount or an effect cleanup throws, and the async test's `done` runs no matter what teardown does. The fixture's `:after` takes care of the frame and the adapter.
 
 Run it in a browser build. In re-frame2's tree the `-dom-cljs-test` suffix puts the file in the `:browser-test` lane (`npm run test:browser` from `implementation/`), and the adapter's `clojure -M:test` pins this page's block to that file byte for byte, so what you read here is what runs. In your own project the generated scaffold's `:test` build is a Node target with no DOM — the right default, since [handler](event-handlers.md) and [subscription](subscriptions.md) tests stay the bulk of what you write — and a component test like this one needs a shadow-cljs `:browser-test` target and a browser to open it in.
 
