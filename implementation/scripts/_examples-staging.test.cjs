@@ -16,8 +16,7 @@
  *     dozen example builds) and the three UIx examples resolve to a runnable
  *     entry with a colocated index.html on disk.
  *
- * Standalone node-runnable suite — no external test framework. Wired into
- * package.json via `test:script-policy`.
+ * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

@@ -50,8 +50,7 @@
  * never the workflow's own matrix axes, which are the thing under test.
  *
  * Standalone node-runnable suite (no external framework, no node_modules),
- * matching the sibling `_*.test.cjs` convention. Wired into
- * `npm run test:script-policy`.
+ * matching the sibling `_*.test.cjs` convention. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

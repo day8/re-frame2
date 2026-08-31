@@ -8,8 +8,7 @@
  * that the Splint job stays gated on `lint_surface` (so the routing is what
  * decides whether Splint runs). It is a TEXT/policy assertion over the
  * committed workflow — no Actions runtime needed — mirroring the
- * test.yml shape assertions in `_changed-surfaces.test.cjs`. Wired into
- * `test:script-policy`.
+ * test.yml shape assertions in `_changed-surfaces.test.cjs`. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

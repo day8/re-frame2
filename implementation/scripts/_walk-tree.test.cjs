@@ -18,7 +18,7 @@
  *     .walkErrors + .actionable, naming each path) on a partial walk.
  *
  * Standalone node-runnable suite — no external framework, mirroring the sibling
- * script suites. Wired into package.json via `test:script-policy`.
+ * script suites. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

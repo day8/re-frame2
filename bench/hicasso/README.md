@@ -43,7 +43,7 @@ arms, the ladders, the topology and shape suites, the SSR spike, the `*_cljs_tes
 suites and the Node runners are all driven from here; every `.cjs` driver clears the
 shared build cache first (`implementation/core/test/re_frame/bench/lane_cache.cjs`,
 rf2-2rtt6.20), and `lane_cache_wiring.test.cjs` beside it — run by `npm run check` here
-and by `test:script-helpers` in the package — holds them to that.
+and by `test:scripts` in the package — holds them to that.
 
 So do not read "keep as evidence" as "do not touch". It bounds what this tree may be used
 FOR — it is where measurements are taken, not where product code is grown — and it

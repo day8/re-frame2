@@ -7,7 +7,7 @@
  *
  *  1. LIVE GATE — run the real scan over the actual examples/reagent/ tree and
  *     FAIL if it reports any slim-wiring violation. This is what gives the
- *     always-run `test:script-policy` gate its teeth: a `reagent2.*` or
+ *     always-run `test:scripts` gate its teeth: a `reagent2.*` or
  *     `re-frame.adapter.reagent-slim` require leaking into the stock tree turns
  *     this gate RED in CI. (Today the real tree is clean, so the live scan
  *     passes — see the teeth-proof in the PR: add a slim require to a stock
@@ -21,8 +21,7 @@
  *         flagged — the boundary must distinguish stock from slim.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * `check-examples-assets.test.cjs`. Wired into package.json via
- * `test:script-policy`.
+ * `check-examples-assets.test.cjs`. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

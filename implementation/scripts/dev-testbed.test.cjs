@@ -4,8 +4,7 @@
  *
  * Standalone node-runnable suite — no external test framework, mirroring
  * `_path-policy.test.cjs`. Each test logs PASS / FAIL; the process exits
- * 0 only when every test passes. Wired into `package.json` via
- * `test:script-helpers`.
+ * 0 only when every test passes. Discovered by `npm run test:scripts`.
  *
  * Requiring `dev-testbed.cjs` does NOT spawn shadow-cljs: the CLI body is
  * guarded by `require.main === module`, so importing it here only loads

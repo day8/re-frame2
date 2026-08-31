@@ -37,7 +37,7 @@
  * rather than `bash` because CI invokes it as `sh scripts/...` and the script
  * is POSIX by contract.
  *
- * Wired into `npm run test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 'use strict';

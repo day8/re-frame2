@@ -7,7 +7,7 @@
  *
  *  1. LIVE GATE — run the real scan over the actual repo tree and FAIL if it
  *     reports any violation. This is what gives the always-run
- *     `test:script-policy` gate its teeth: a missing/renamed _shared asset, a
+ *     `test:scripts` gate its teeth: a missing/renamed _shared asset, a
  *     broken @import, or a non-exempt page dropping a required shared asset
  *     turns this gate RED in CI. (Today the real tree is clean, so the live
  *     scan passes — see the teeth-proof in the PR: break favicon.svg → RED →
@@ -20,8 +20,7 @@
  *     regress to a vacuous pass.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * `_adapter-smoke-filter.test.cjs` / `check-examples-compile.test.cjs`. Wired into
- * package.json via `test:script-policy`.
+ * `_adapter-smoke-filter.test.cjs` / `check-examples-compile.test.cjs`. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

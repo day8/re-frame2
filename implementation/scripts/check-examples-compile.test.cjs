@@ -28,8 +28,7 @@
  *     healthy count.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * `_adapter-smoke-filter.test.cjs` / `dev-testbed.test.cjs`. Wired into
- * package.json via `test:script-policy`.
+ * `_adapter-smoke-filter.test.cjs` / `dev-testbed.test.cjs`. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

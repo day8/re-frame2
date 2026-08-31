@@ -81,7 +81,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # accepts.
 #
 # Keep these commands in lockstep with that workflow's implementation
-# browser/bundle list — the `test:script-policy` gate pins the inventory (see
+# browser/bundle list — the `test:scripts` gate pins the inventory (see
 # implementation/scripts/_rigorous-local-inventory.test.cjs).  That pin is not
 # decorative: it is what caught this list drifting behind the ten additions
 # above, in the same spine run that was meant merely to confirm them.

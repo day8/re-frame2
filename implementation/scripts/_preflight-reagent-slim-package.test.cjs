@@ -24,7 +24,7 @@
  *
  * Pattern mirrors `_transform-reagent-slim-ns.test.cjs` (the sibling
  * release-script test): spawn the real shell script via `bash`, assert on
- * exit code + stdout/stderr. Wired into `test:script-policy`.
+ * exit code + stdout/stderr. Discovered by `npm run test:scripts`.
  *
  * HOW THE FIXTURES AVOID A REAL BUILD: the script shells out to `clojure
  * -M:clein jar` / `clojure -M:clein pom` and to `jar tf`. Each fixture dir

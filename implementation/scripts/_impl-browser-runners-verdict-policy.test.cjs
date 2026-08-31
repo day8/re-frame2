@@ -56,7 +56,7 @@
  * Console noise stays diagnostic-only by design; only `pageerror` is
  * fatal — matching every adjacent runner's policy.
  *
- * Wired into package.json via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

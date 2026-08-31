@@ -54,7 +54,7 @@
  * checkout step as structure. Nothing is ever written inside this repository:
  * every fixture lives under the OS temp dir and is removed on the way out.
  *
- * Wired into `npm run test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

@@ -11,8 +11,7 @@
  * abort cases against throwaway fixtures.
  *
  * Pattern mirrors `_changed-surfaces.test.cjs`: spawn the real shell
- * script via `bash`, assert on exit code + stdout/stderr. Wired into
- * `test:script-policy`.
+ * script via `bash`, assert on exit code + stdout/stderr. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

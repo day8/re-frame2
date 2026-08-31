@@ -2393,7 +2393,7 @@ test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7
 // classifier sync problem with zero machinery. This arm pins the wiring:
 // verify-readme-links must carry BOTH guard invocations. A future PR un-moving
 // or gutting the wiring fails here (this file runs under the unconditional
-// js-harness-self-tests job's test:script-policy).
+// js-harness-self-tests job's test:scripts).
 test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2-2718r)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const readmeLinks = jobBlock(workflow, 'verify-readme-links');
@@ -2419,7 +2419,7 @@ test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2
 // Deleting the step leaves valid YAML, a green matrix, and a witness that is
 // local-only again, which is the original defect in a new shape. Same invariant
 // as the adapter-disposition arm above, for the same reason, running in the same
-// unconditional job (js-harness-self-tests -> test:script-policy).
+// unconditional job (js-harness-self-tests -> test:scripts).
 test('the fast-PR spine self-test harness is wired into a REQUIRED check (rf2-03298)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const readmeLinks = jobBlock(workflow, 'verify-readme-links');
@@ -2945,7 +2945,7 @@ test('adapter-smoke harness edit fires ONLY adapter_testbed_smokes, not the adap
 // the SHARED port-resolver.cjs fires BOTH. Static-only scanners
 // (check-examples-assets.cjs, check-reagent-slim-boundary.cjs) stay on the
 // always-on JS harness path (cljs_browser only) — they have always-on
-// .test.cjs coverage under test:script-policy and drive no browser gate.
+// .test.cjs coverage under test:scripts and drive no browser gate.
 
 const ADAPTER_SMOKE_GATE_FILES = [
   'examples/scripts/spec-helpers.cjs',

@@ -24,7 +24,7 @@
  *     root is refused, just as $BROWSER_TEST_ROOT would be).
  *
  * These all fail at module load (option parse / enforcePolicy), so the suite
- * is cheap: no build, no server, no browser. Wired into `test:script-policy`.
+ * is cheap: no build, no server, no browser. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

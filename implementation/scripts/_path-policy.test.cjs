@@ -4,7 +4,7 @@
  *
  * Standalone node-runnable suite — no external test framework. Each
  * test logs PASS / FAIL; the process exits 0 only when every test
- * passes. Wire into `package.json` via `test:script-policy`.
+ * passes. Discovered by `npm run test:scripts`.
  */
 
 'use strict';
