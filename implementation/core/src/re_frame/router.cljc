@@ -1043,7 +1043,8 @@
         (classify-pipeline-exception error event-id)
         handler-throw? (= operation :rf.error/handler-exception)
         ;; The throwing user interceptor's definition-site
-        ;; coord (an explicit `:source-coord` handed to `->interceptor*`,
+        ;; coord (its `:source-coord` — the registration coord stamped at
+        ;; chain resolution (rf2-tq26u) or one handed to `->interceptor*` —
         ;; carried on the interceptor map → error-record). Threaded onto the
         ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
         ;; INTERCEPTOR row renders a jump-to-source chip (parity with
