@@ -28,7 +28,7 @@ re-export rule is:
   `preview-variant` / `read-failures`), `aggregate-verdict` (the ONE
   verdict-aggregation rule, for `read-failures`), and `valid-variant-id?`
   (the STRING-shape variant-id grammar predicate, for the
-  `register-variant` / `record-as-variant` write paths). Each is classified
+  `register-variant` write path). Each is classified
   a **tooling-consumer entry point** per the standing facade-export rule:
   it is consumed by `story-mcp`, not by user story bodies, and lets
   Story's internals (`assertions` / `result` / `requirements` / `schemas`)
@@ -276,8 +276,9 @@ The facade exposes seven entries on `re-frame.story` (per spec/005
 recorder-lifecycle + simple-codegen surfaces; the seventh,
 `recording->script-body`, is re-exported from the recorder's
 `play-export` sub-namespace as the runtime counterpart to
-`gen-play-snippet` — the live `{:script … :auto-run?}` body the MCP
-write-back path (`record-as-variant`) registers (rf2-x9zsr / rf2-d5u89).
+`gen-play-snippet` — the live `{:script … :auto-run?}` body a
+programmatic re-registration writes under `:script`
+(rf2-x9zsr / rf2-d5u89).
 
 | Fn | Signature | Purpose |
 |---|---|---|
