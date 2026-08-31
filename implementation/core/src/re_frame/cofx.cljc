@@ -617,7 +617,12 @@
         ;; when `schema` declares any `:sensitive?` slot.
         leak-slots (cond-> {:value value}
                      (some? explanation) (assoc :explain explanation))
-        redacted   (if (and redact-fn (some? schema))
+        ;; The schema declaration's PRESENCE was established by the caller
+        ;; (`validate-recordable-value!` delegates only a present key), so
+        ;; do NOT suppress redaction again with a truthiness / some? test
+        ;; on the opaque schema value (rf2-6eh5h): a present nil schema is
+        ;; opaque to the walker, which classes it fail-closed sensitive.
+        redacted   (if redact-fn
                      (try
                        (redact-fn schema leak-slots)
                        (catch #?(:clj Throwable :cljs :default) e
@@ -655,9 +660,12 @@
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
   `:schema` (from `meta`). A no-op when the registration declares no
-  `:schema`, when no validator is registered (schemas artefact absent / set
-  to nil), or when the value conforms; otherwise emits
-  `:rf.error/cofx-value-invalid` and THROWS (a production hard error).
+  `:schema` — declaration is KEY-presence, not value truthiness
+  (rf2-6eh5h): a present nil / false `:schema` is delegated verbatim to
+  the registered validator — when no validator is registered (schemas
+  artefact absent / set to nil), or when the value conforms; otherwise
+  emits `:rf.error/cofx-value-invalid` and THROWS (a production hard
+  error).
 
   Routes through the shared `:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn` late-bind seam (the same one
@@ -669,33 +677,38 @@
   [cofx-id value meta failing-id frame-id continue?]
   (if-not (continue?)
     nil
-    (if-let [schema (:schema meta)]
-    (let [validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
-      (if (nil? validate-fn)
-        ;; No validator registered (schemas artefact absent, or
-        ;; `set-schema-validator!` called with nil) → nil = "every value
-        ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
-        value
-        (let [ok? (try (validate-fn schema value)
-                       (catch #?(:clj Throwable :cljs :default) e
-                         (if (continue?) false nil)))]
-          (cond
-            (not (continue?)) nil
-            ok?
-            value
-            :else
-            (let [explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-                  explanation (when (and (continue?) explain-fn)
-                                (try (explain-fn schema value)
-                                     (catch #?(:clj Throwable :cljs :default) e
-                                       (if (continue?) nil nil))))]
-              ;; Pass `schema` so the emit redacts the value-bearing slots
-              ;; (trace tags AND thrown ex-data) when the schema marks any
-              ;; slot `:sensitive?` — fail-closed off-box (rf2-hdi6wr).
-              (when (continue?)
-                (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id
-                                          continue?)))))))
-      value)))
+    ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+    ;; false `:schema` is a declaration whose exact token goes to the
+    ;; registered validator (default Malli throws on the non-schema form
+    ;; → the catch below fails CLOSED). Only an ABSENT key skips.
+    (if-not (contains? meta :schema)
+      value
+      (let [schema      (:schema meta)
+            validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+        (if (nil? validate-fn)
+          ;; No validator registered (schemas artefact absent, or
+          ;; `set-schema-validator!` called with nil) → nil = "every value
+          ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
+          value
+          (let [ok? (try (validate-fn schema value)
+                         (catch #?(:clj Throwable :cljs :default) e
+                           (if (continue?) false nil)))]
+            (cond
+              (not (continue?)) nil
+              ok?
+              value
+              :else
+              (let [explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                    explanation (when (and (continue?) explain-fn)
+                                  (try (explain-fn schema value)
+                                       (catch #?(:clj Throwable :cljs :default) e
+                                         (if (continue?) nil nil))))]
+                ;; Pass `schema` so the emit redacts the value-bearing slots
+                ;; (trace tags AND thrown ex-data) when the schema marks any
+                ;; slot `:sensitive?` — fail-closed off-box (rf2-hdi6wr).
+                (when (continue?)
+                  (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id
+                                            continue?))))))))))
 
 ;; ---- structural-EDN check of GENERATED recordable values ------------------
 ;;    (EP-0017 erratum rf2-rmroo4 slice B — rf2-uqz2ir)

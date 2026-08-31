@@ -196,12 +196,19 @@
                 (nil? handler-meta)
                 ctx
 
-                ;; Per rf2-iftj4, registration would have rejected an
-                ;; validate-at-boundary-interceptor attachment without `:schema`. A nil
-                ;; schema here can only happen if a caller mutated the
-                ;; registry metadata after registration; fall through
-                ;; as a no-op (defensive — never expected in practice).
-                (nil? schema)
+                ;; Declaration is KEY-presence, not value truthiness
+                ;; (rf2-6eh5h). Per rf2-iftj4 registration rejects a
+                ;; boundary attachment whose metadata lacks the `:schema`
+                ;; KEY — but `{:schema nil}` registers (the registrar
+                ;; checks `contains?`), so a present falsey value MUST be
+                ;; delegated verbatim below rather than treated as
+                ;; impossible: the old `(nil? schema)` no-op ran the
+                ;; handler UNGUARDED on exactly the payloads this
+                ;; interceptor exists to gate (a release-resident
+                ;; fail-open). An ABSENT key can only mean the registry
+                ;; metadata was mutated post-registration; no declaration,
+                ;; fall through as a no-op (defensive).
+                (not (contains? handler-meta :schema))
                 ctx
 
                 :else
