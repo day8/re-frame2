@@ -6,7 +6,7 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 - [Install / configure (one-time)](#install--configure-one-time)
 - [Stale-binary post-merge hook](#stale-binary-post-merge-hook)
-- [MCP tool reference (args)](#mcp-tool-reference-args) — the 33 tools, name → arg signature → semantics home
+- [MCP tool reference (args)](#mcp-tool-reference-args) — the 29 tools, name → arg signature → semantics home
 - [When to use `snapshot` vs the per-op reads](#when-to-use-snapshot-vs-the-per-op-reads)
 - [Preload probe (no inject step)](#preload-probe-no-inject-step)
 - [Build-id resolution](#build-id-resolution)
@@ -62,7 +62,7 @@ The hook is idempotent, advisory (never blocks a pull), and prints the exact reb
 
 ## MCP tool reference (args)
 
-The server exposes **33 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 33 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
+The server exposes **29 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 29 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
 
 This is the **transport index** — the tool name, its arg signature, and where its per-tool semantics are documented. The behaviour of each tool (return shapes, modes, gotchas) lives once in `ops.md`; this table does not restate it.
 
@@ -91,12 +91,8 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `trace-window` | `{ms, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
-| `watch-epochs` | `{pred?, since-id?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch-push-mode) |
+| `watch-epochs` | `{pred?, since-id?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |
 | `watch-until` | `{signals, pred, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
-| `subscribe` | `{topic, filter?, max-events?, max-ms?}` — push-mode; emits `notifications/progress` | [`streaming-subscriptions.md`](streaming-subscriptions.md) |
-| `unsubscribe` | `{sub-id}` — idempotent close | [`streaming-subscriptions.md`](streaming-subscriptions.md) |
-| `list-streams` | `{topic? \| sub-id?}` — active streaming-tap subs (runtime side) | [`streaming-subscriptions.md` §Diagnostics](streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered) |
-| `get-stream-controls` | `{}` — server-side stream resource-control state; in-process, ungated | [`streaming-subscriptions.md` §get-stream-controls](streaming-subscriptions.md#get-stream-controls--why-was-my-stream-denied--quiet--terminated) |
 | `record` | `{signals, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `read-recording` | `{recording-id, drain?, stop?}` — read back a recording's change-log | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `tail-build` | `{probe?, wait-ms?}` — wait for a hot-reload to land by polling the probe | [`ops.md` §Hot-reload](ops.md#hot-reload-coordination) |
@@ -132,7 +128,7 @@ Use the per-op reads when:
 - **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
 - **Root path `path: "[]"`** — explicit request for the full `:app-db`. A **last resort** (large on any real app frame; refused against a reserved `:rf/*` tool frame). Orient first, then slice. The wire cap is the backstop.
 
-The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **event bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per run — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape and the same wire format the `subscribe` streaming surface emits on event-bundle topics).
+The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **event bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per run — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape).
 
 Use `get-path` (next section) when you already know the addressed subtree — it's a single-slice round-trip rather than the multi-slice composition `snapshot` does.
 

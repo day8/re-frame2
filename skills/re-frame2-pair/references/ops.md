@@ -2,11 +2,11 @@
 
 The op vocabulary the skill operates through. Every op runs over the **MCP transport** (the only one this skill exposes) — see [`mcp-transport.md`](mcp-transport.md). The Invocation column shows the MCP form.
 
-Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `eval-cljs {form: "<runtime call>"}`. Dedicated MCP tools (`orient`, `dispatch`, `dispatch-dry-run`, `snapshot`, `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, `trace-window`, `watch-epochs`, `tail-build`, `subscribe`, `unsubscribe`, the operating-frame trio, the time-travel writes) cover the broader concerns.
+Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `eval-cljs {form: "<runtime call>"}`. Dedicated MCP tools (`orient`, `dispatch`, `dispatch-dry-run`, `snapshot`, `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, `trace-window`, `watch-epochs`, `tail-build`, the operating-frame trio, the time-travel writes) cover the broader concerns.
 
 **Op-selection rule: prefer a structured op WHEN ONE FITS the gesture; for the long tail and recovery, `eval-cljs` is first-class, not a last resort.** A structured op gives a validated, elided, single-round-trip answer for the gesture it owns; the long tail with no dedicated shape (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery) is `eval-cljs` work — see [recipes.md §eval-cljs is the workhorse](recipes.md#eval-cljs-is-the-workhorse).
 
-> **Privacy carve-out (applies to every raw-`eval-cljs` row below).** The structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `subscribe`, and — for its `:db-state-after-simulation` + `:would-fire-effects[*].args` slots — `dispatch-dry-run`) apply the wire-boundary elision walker by default (sensitive slots → `:rf/redacted`, large slots → `:rf.size/large-elided`) under the `--allow-sensitive-reads` gate (OFF by default). The **raw `eval-cljs` forms in this catalogue** (`(re-frame2-pair.runtime/snapshot)`, `(…/app-db-at …)`, `(…/sub-cache)`, `(…/subs-sample …)`, `(re-frame.trace.tooling/trace-buffer :rf/default)`, `(rf/epoch-history …)`, the time-travel / `app-db-reset!` write forms) return their value **un-elided** and are **not** governed by that gate — `eval-cljs` is default-ON (gated only by `--no-eval`). So when the data is a privacy-sensitive app-db path, sub value, trace event, or epoch payload, prefer the structured elided tool; reach for the raw eval form for that data only on explicit user/operator request. See [SKILL.md §Style guidance privacy bullet](../SKILL.md) and [`vocabulary.md` §The raw-eval carve-out](vocabulary.md#the-raw-eval-carve-out--eval-cljs-is-outside-the-structured-guarantee).
+> **Privacy carve-out (applies to every raw-`eval-cljs` row below).** The structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, and — for its `:db-state-after-simulation` + `:would-fire-effects[*].args` slots — `dispatch-dry-run`) apply the wire-boundary elision walker by default (sensitive slots → `:rf/redacted`, large slots → `:rf.size/large-elided`) under the `--allow-sensitive-reads` gate (OFF by default). The **raw `eval-cljs` forms in this catalogue** (`(re-frame2-pair.runtime/snapshot)`, `(…/app-db-at …)`, `(…/sub-cache)`, `(…/subs-sample …)`, `(re-frame.trace.tooling/trace-buffer :rf/default)`, `(rf/epoch-history …)`, the time-travel / `app-db-reset!` write forms) return their value **un-elided** and are **not** governed by that gate — `eval-cljs` is default-ON (gated only by `--no-eval`). So when the data is a privacy-sensitive app-db path, sub value, trace event, or epoch payload, prefer the structured elided tool; reach for the raw eval form for that data only on explicit user/operator request. See [SKILL.md §Style guidance privacy bullet](../SKILL.md) and [`vocabulary.md` §The raw-eval carve-out](vocabulary.md#the-raw-eval-carve-out--eval-cljs-is-outside-the-structured-guarantee).
 
 ## Contents
 
@@ -19,7 +19,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `e
   - [View → rendered content + producing entity (`ui/read`)](#view--rendered-content--producing-entity-uiread)
   - [`read-dom` — raw DOM content by explicit CSS selector](#read-dom--raw-dom-content-by-explicit-css-selector)
 - [Hicasso evidence — mounted boundaries, read attribution, render cause](#hicasso-evidence--mounted-boundaries-read-attribution-render-cause)
-- [Live watch (push-mode)](#live-watch-push-mode)
+- [Live watch](#live-watch)
 - [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)
 - [Time-travel (epoch restore)](#time-travel-epoch-restore)
@@ -104,7 +104,6 @@ Read-only from the trace stream + epoch history.
 | `trace/find-where` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/find-where <pred>)"}` | Most recent epoch matching a predicate — primary forensic op for "when did X happen?" post-mortems |
 | `trace/find-all-where` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/find-all-where <pred>)"}` | Every matching epoch, newest first — for trajectories rather than single transitions |
 | `trace/cascade` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/cascade-of <dispatch-id>)"}` | Walk `:dispatch-id` / `:parent-dispatch-id` (Spec 009 §Dispatch correlation) to reconstruct the full cascade tree from a root dispatch |
-| `trace/configure-privacy` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/configure-privacy! {:include-sensitive? true})"}` | Set the privacy posture for the streaming subscription surface. Default: `{:include-sensitive? false}` — drops `:sensitive? true` trace events before they reach the LLM-facing queue, per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md). Resets on page reload. See [references/vocabulary.md §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out). |
 
 ## DOM source bridge
 
@@ -203,20 +202,14 @@ All three also accept `build` and `max-tokens`. None takes a `view-id`; there is
 
 **Empty versus absent.** With the door loaded and nothing mounted, `read-mounted-boundaries` returns an empty-but-versioned `{:ok? true :boundaries []}` — and it is complete for its scope, because the read-set entry cache is authoritative about what holds a live read edge. What the empty does **not** establish is that nothing is retained above: an Activity-hidden subtree that released its reads leaves the same empty census as an unmounted one, and only a later re-subscribe distinguishes them. Read the other way round, a row is not proof the boundary is on screen — a Suspense-fallback-hidden subtree stays subscribed and stays in the roster. A read stamped a `:schema` this tool build was not written against comes back as `{:ok? false :reason :evidence-tier-version-mismatch}` with `:expected` and `:actual` rather than a successful read of a shape it cannot parse; there is no compatibility adapter on either side, deliberately. A throwing read degrades to `:evidence-tier-error` with a `:message` rather than failing the eval. Every `:ok? false` rides `isError: true`, so a degraded read is never cached and never masquerades as a successful empty answer.
 
-## Live watch (push-mode)
+## Live watch
 
-Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same underlying assembled-epoch / trace stream.
+`watch-epochs` polls the assembled-epoch history — the one live-watch
+route, and every observation arrives as a completed tool result.
 
-**MCP streaming subscriptions (preferred for push-mode).** True server-pushed events delivered via `notifications/progress`, correlated by the call's `progressToken`. See [streaming-subscriptions.md](streaming-subscriptions.md) for topics, filters, termination, and the recipes that prefer this path.
+**The poll loop.** The `watch-epochs` MCP tool is poll-only: each call returns the matching epochs that landed *after* `since-id`. To live-watch, call it repeatedly, passing the previous response's `:head-id` as the next `since-id`.
 
-| Op | MCP tool | Behaviour |
-|---|---|---|
-| `trace/subscribe` | `mcp__re-frame2-pair__subscribe` | Open a streaming subscription on the `:trace`, `:epoch`, `:fx`, `:error`, or `:frameless` bus. Returns a `sub-id`; each batch arrives as a `notifications/progress` tick until termination. `:frameless` emits flat event batches (not cascade bundles) and is the right topic for **registration, reload, REPL, and other unjoined lifecycle events** that carry no `:rf.trace/dispatch-id` — the only live channel for them. |
-| `trace/unsubscribe` | `mcp__re-frame2-pair__unsubscribe` | Close a subscription by `sub-id`. Idempotent — unknown ids return `:existed? false`. |
-
-**Pull-mode poll (fallback).** The `watch-epochs` MCP tool is poll-only: each call returns the matching epochs that landed *after* `since-id`. To live-watch, call it repeatedly, passing the previous response's `:head-id` as the next `since-id`. Use this when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite, controlled drain rather than a push stream.
-
-The tool's accepted args (`:additionalProperties false` — anything else is rejected): `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, `dedup`, `include-sensitive`, `build`. There is **no** `window-ms`/`count`/`stream`/`stop` arg — the MCP `watch-epochs` tool is poll-only (`since-id`/`cursor`); "run for N matches" / "stream until disconnect" are loops the agent runs, not tool args.
+The tool's accepted args (`:additionalProperties false` — anything else is rejected): `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, `dedup`, `include-sensitive`, `build`. There is **no** `window-ms`/`count`/`stop` arg — the MCP `watch-epochs` tool is poll-only (`since-id`/`cursor`); "run for N matches" / "watch until the user stops you" are loops the agent runs, not tool args.
 
 | Op | Invocation | Behaviour |
 |---|---|---|
@@ -224,7 +217,7 @@ The tool's accepted args (`:additionalProperties false` — anything else is rej
 | `watch/resume` | `mcp__re-frame2-pair__watch-epochs {since-id: "<last-head-id>", pred: {...}}` | Returns only matches that landed after `since-id`; repeat to live-watch |
 | `watch/paginate` | `mcp__re-frame2-pair__watch-epochs {pred: {...}, limit: 20, cursor: "<next-cursor>"}` | When a poll's matches exceed `:limit` (default 50), `:next-cursor`/`:has-more?` let you page the rest |
 
-"Run for N matches" and "stream until disconnect" are *loops the agent runs*, not tool args: call `watch-epochs` repeatedly, advancing `since-id`, until you've seen enough matches or the user stops you.
+"Run for N matches" and "watch until the user stops you" are *loops the agent runs*, not tool args: call `watch-epochs` repeatedly, advancing `since-id`, until you've seen enough matches or the user stops you.
 
 Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:app|:pair|:story|:test`), `frame`.
 
@@ -232,7 +225,7 @@ Each call tracks the last seen `:epoch-id` in the operating frame's history via 
 
 ## Signal recording + blocking waits
 
-The push/poll watch ops above stream *epochs* — the cascade unit. The `record` / `read-recording` / `watch-until` family observes arbitrary **signals** (an app-db path, sub value, DOM node's text/attribute, the focus slot) across a window of **real human interaction** — the canonical move for catching intermittent / human-in-the-loop bugs (render-timing races reproducible only under real mouse input); the runtime solves the rAF-sampling / dedup / teardown footguns once. All three are **read-only**: never dispatch, mutate app-db, or write the DOM.
+The poll-watch ops above return *epochs* — the cascade unit. The `record` / `read-recording` / `watch-until` family observes arbitrary **signals** (an app-db path, sub value, DOM node's text/attribute, the focus slot) across a window of **real human interaction** — the canonical move for catching intermittent / human-in-the-loop bugs (render-timing races reproducible only under real mouse input); the runtime solves the rAF-sampling / dedup / teardown footguns once. All three are **read-only**: never dispatch, mutate app-db, or write the DOM.
 
 **SIGNAL shapes** (each a map naming one observable, shared by `record` + `watch-until`):
 
@@ -263,7 +256,7 @@ Editing source is legitimate and often correct. The protocol is strict — after
 4. **`tail-build` does not tail the shadow-cljs server log** (the name is historical) — it polls your `probe` form and hands back *diagnostics*. So **branch on the result, don't treat every non-success as a compile error**:
    - `{:ok? false :reason :timed-out :probe-values {:initial … :final …} :note …}` — the probe was reachable but its value never changed in `wait-ms`. The `:note` lists the candidate causes; use `:probe-values` to disambiguate. **If `:initial` and `:final` are equal, the reload may have landed but your probe doesn't discriminate it** — pick a better probe (one whose value provably changes on reload, e.g. a `handler-meta` hash) or ask the user to refresh the browser, then re-probe. Do *not* report a compile error on this evidence alone.
    - `{:ok? false :reason :probe-errored :probe-error …}` — the probe form raised on every iteration. Treat this as a **malformed probe** (typo, dotted host-interop against a missing var), not a compile error, unless separate shadow-cljs / browser output proves an actual build failure. Fix the probe and re-run.
-   - A genuine compile error is confirmed from **actual shadow-cljs / browser console output**, not inferred from a `tail-build` timeout. When the runtime is reachable, the `subscribe`/`watch-epochs` `:frameless` topic (below) also surfaces reload / registration / compile lifecycle events.
+   - A genuine compile error is confirmed from **actual shadow-cljs / browser console output**, not inferred from a `tail-build` timeout.
 
 ```
 mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}

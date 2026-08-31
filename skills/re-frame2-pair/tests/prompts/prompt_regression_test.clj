@@ -46,13 +46,12 @@
 (def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
 (def ^:private hot-reload (delay (slurp-rel "references/ops.md")))
 
-;; User-facing docs + the streaming + variant leaves the MCP-surface
+;; User-facing docs + the variant leaf the MCP-surface
 ;; conformance drift guards assert against.
 (def ^:private readme-md (delay (slurp-rel "README.md")))
 (def ^:private capabilities-md (delay (slurp-rel "docs/capabilities.md")))
 (def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
 (def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
-(def ^:private streaming-md (delay (slurp-rel "references/streaming-subscriptions.md")))
 (def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
 (def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
@@ -225,11 +224,11 @@
 ;;
 ;; The skill-facing privacy guarantee MUST match what the pair-mcp tools
 ;; actually enforce:
-;;   - The guarantee is scoped to the STRUCTURED MCP read/stream tools,
+;;   - The guarantee is scoped to the STRUCTURED MCP read tools,
 ;;     NOT to raw `eval-cljs` (which is default-ON and returns its value
 ;;     un-walked, regardless of --allow-sensitive-reads).
-;;   - Epoch egress (trace-window / watch-epochs / the :epoch streaming
-;;     topic) is REDACTED/ELIDED by default via projected-record /
+;;   - Epoch egress (trace-window / watch-epochs) is REDACTED/ELIDED by
+;;     default via projected-record /
 ;;     elide-wire-value — not shipped raw.
 ;; These assertions fail if the docs drift to the over-broad "sensitive
 ;; data does not cross the LLM boundary by default" claim or the "epoch
@@ -257,7 +256,7 @@
     (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
         (str "SKILL.md carries the over-broad 'Sensitive data does not "
              "cross the LLM boundary by default.' lede — narrow it to the "
-             "structured MCP reads/streams (rf2-k2off)."))))
+             "structured MCP reads (rf2-k2off)."))))
 
 (deftest vocabulary-epoch-egress-matches-impl
   (testing "vocabulary.md reflects projected/elided epoch egress (rf2-6wvh5 / rf2-vr2hn)"
@@ -317,8 +316,8 @@
   (testing "README does not claim the skill is un-exercised end-to-end"
     (is (not (str/includes? @readme-md "not yet exercised against a running"))
         (str "README carries the stale 'not yet exercised against a running "
-             "re-frame2 app' status — the fixture app + push-mode streaming "
-             "have landed (rf2-ojo3z)."))))
+             "re-frame2 app' status — the fixture app "
+             "has landed (rf2-ojo3z)."))))
 
 (deftest local-dev-is-mcp-primary-not-babashka-required
   (testing "LOCAL_DEV no longer lists Babashka as a skill prerequisite"
@@ -369,50 +368,9 @@
              "(tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs) as the "
              "connect/dispatch/trace/hot-reload coverage (rf2-dduetj)."))))
 
-(deftest streaming-progress-payload-matches-impl
-  (testing "streaming-subscriptions.md documents _meta.data + both payload slots (finding 2)"
-    (is (str/includes? @streaming-md "_meta.data")
-        (str "streaming-subscriptions.md must place the structured drop counts "
-             "under _meta.data, not a top-level `data` slot (rf2-ojo3z)."))
-    (is (and (str/includes? @streaming-md ":event-bundles")
-             (str/includes? @streaming-md ":events"))
-        (str "streaming-subscriptions.md must document BOTH the :event-bundles "
-             "(trace/fx/error) and :events (epoch/frameless) payload slots."))
-    (is (str/includes? @streaming-md "EDN-printed **map**")
-        (str "streaming-subscriptions.md must state `message` is an EDN map "
-             "(with :sub-id + :event-bundles/:events), not a bare vector "
-             "(rf2-ojo3z)."))))
-
-(deftest subscribe-not-scoped-by-operating-frame-pin
-  (testing "variant-as-frame.md + SKILL.md carve subscribe out of operating-frame scoping (finding 3)"
-    (is (str/includes? @variant-md "filter {:frame")
-        (str "variant-as-frame.md must say subscribe is scoped via "
-             "filter {:frame ...}, not the operating-frame pin (rf2-ojo3z)."))
-    (is (and (str/includes? @skill-md "subscribe")
-             (str/includes? @skill-md "no `frame` arg"))
-        (str "SKILL.md must state subscribe has no `frame` arg so the "
-             "operating-frame pin does not scope a streaming subscription "
-             "(rf2-ojo3z)."))))
-
 ;; ---------------------------------------------------------------------------
 ;; Wire-size-budget + recipes drift
 ;; ---------------------------------------------------------------------------
-;;
-;; wire-size-budget.md must describe the SAME topic-dependent
-;; subscribe payload slot as streaming-subscriptions.md: `:events` for the
-;; flat topics (epoch/frameless) and `:event-bundles` for the event-bundle
-;; topics (trace/fx/error). A host decoding subscribe dedup off the
-;; size-budget leaf that only knew `:events` would leave trace/fx/error
-;; event-bundle ticks unexpanded. Mirrors the streaming-subscriptions guard above.
-
-(deftest wire-size-budget-names-both-subscribe-slots
-  (testing "wire-size-budget.md subscribe dedup names both :events and :event-bundles (rf2-a85bb2 finding 2)"
-    (is (and (str/includes? @wire-size-md ":event-bundles")
-             (str/includes? @wire-size-md ":events"))
-        (str "wire-size-budget.md must document the topic-dependent subscribe "
-             "payload slot — :events (epoch/frameless) AND :event-bundles "
-             "(trace/fx/error) — not :events alone, or a host will leave "
-             "event-bundle dedup ticks unexpanded (rf2-a85bb2)."))))
 
 ;; Finding 3 — the render-source-coord recipe must NOT tell an agent to pass
 ;; the whole `:render-key` tuple to `handler-meta {kind: "view"}`. The schema
@@ -454,7 +412,6 @@
 ;; - tail-build returns probe diagnostics (:probe-values / :reason / :note); a
 ;;   timeout is NOT always a compile error. The "read the tail output / treat a
 ;;   timeout as a compile error" framing must not appear.
-;; - the subscribe topic catalogue in ops.md must list :frameless.
 
 (deftest restore-not-taught-as-app-db-only
   (testing "pair skill no longer teaches restore as app-db-only (rf2-7a1mkv finding 1)"
@@ -499,15 +456,6 @@
               (includes-ci? hr "historical"))
           (str "ops.md hot-reload guidance must note tail-build does NOT "
                "actually tail the shadow-cljs server log (rf2-7a1mkv).")))))
-
-(deftest subscribe-topic-catalogue-includes-frameless
-  (testing "ops.md subscribe/trace topic list includes :frameless (rf2-7a1mkv finding 3)"
-    (is (str/includes? @ops-md ":frameless")
-        (str "ops.md no longer lists `:frameless` in the subscribe topic "
-             "catalogue — the only live channel for registration / reload / "
-             "REPL / other unjoined lifecycle events without a "
-             ":rf.trace/dispatch-id (subscribe.cljs recognises it; "
-             "rf2-7a1mkv finding 3)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; snapshot uses plural `frames`, not singular `frame`

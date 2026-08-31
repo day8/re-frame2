@@ -176,7 +176,7 @@ Two-plus app frames are registered and the session hasn't pinned one. Pin one wi
 Two likely causes:
 
 - **No epoch history yet.** `(rf/epoch-history :rf/default)` returns `[]` until the app dispatches at least one event. Click around or fire one synthetic dispatch.
-- **No activity matches the predicate**. Try `watch-epochs {}` with no predicate (or `subscribe {topic: "epoch"}`) to confirm the transport works, then add filters.
+- **No activity matches the predicate**. Try `watch-epochs {}` with no predicate to confirm the transport works, then add filters.
 
 ### DOM ops return `{:src nil}`
 

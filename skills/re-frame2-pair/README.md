@@ -2,7 +2,7 @@
 
 > ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
 
-> Delivery path: this skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (`@day8/re-frame2-pair-mcp` — not yet published to npm; build and run it from a re-frame2 clone, see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)) — 33 tools catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 33 are reachable from the skill's `allowed-tools:`; the 2 write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the only skill-facing transport — and the one implementation of every operation. The bash/babashka transport that originally fronted these ops (`scripts/ops.clj` + shell wrappers) has been removed; the live connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from [`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`](../../tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs).
+> Delivery path: this skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (`@day8/re-frame2-pair-mcp` — not yet published to npm; build and run it from a re-frame2 clone, see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)) — 29 tools catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 29 are reachable from the skill's `allowed-tools:`; the 2 write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the only skill-facing transport — and the one implementation of every operation. The bash/babashka transport that originally fronted these ops (`scripts/ops.clj` + shell wrappers) has been removed; the live connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from [`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`](../../tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs).
 
 A `Skill` that makes `Claude Code` a better pair programmer by allowing it to interact with your running [re-frame2](https://github.com/day8/re-frame2) application.
 
@@ -22,7 +22,7 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed. Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
+Pre-alpha — MCP-server-primary; the fixture app has landed. Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
 
 More docs: [`docs/TESTING.md`](docs/TESTING.md) (test plan); [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) (running from a clone); [`RELEASING.md`](RELEASING.md) (release flow); [`docs/initial-spec.md`](docs/initial-spec.md) (the original, historical design record).
 
@@ -162,7 +162,7 @@ On first use in a session:
 
 1. The MCP server locates your shadow-cljs nREPL port automatically (it scans the standard port files and absorbs shadow restarts — you rarely configure anything; see [`references/mcp-transport.md` §Install / configure](references/mcp-transport.md#install--configure-one-time)).
 2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the 2-line setup. No per-session inject step.
-3. Live-watch happens 2 ways: pull-mode `watch-epochs` (tracks the last seen `:epoch-id` per frame and asks for everything since) and push-mode `subscribe` (the long-running call pushes each batch as a `notifications/progress` tick — see [`references/streaming-subscriptions.md`](references/streaming-subscriptions.md)). Hot-reload confirmation is probe-based: after an edit, the `tail-build` tool polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
+3. Live-watch is the pull-mode `watch-epochs` poll loop (tracks the last seen `:epoch-id` per frame and asks for everything since); every observation arrives as a completed tool result. Hot-reload confirmation is probe-based: after an edit, the `tail-build` tool polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
 
 On full page refresh, the preload re-runs as part of the next bundle load — the marker reappears automatically; no manual reconnect step.
 

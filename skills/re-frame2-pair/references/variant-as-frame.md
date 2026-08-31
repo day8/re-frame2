@@ -1,6 +1,6 @@
 # Variant-as-frame — driving Story variants from a re-frame2-pair session
 
-> A Story variant *is* a re-frame2 frame. This leaf documents the pattern and what falls out of it for re-frame2-pair — frame-scoped reads/writes/watches against a variant's isolated app-db, no extra resolver step. One exception (see Idiom 1): `subscribe` has no `frame` arg, so the operating-frame pin does **not** scope a streaming subscription — scope it with `filter {:frame ...}`. Assumes you've read `SKILL.md` (the multi-frame model) and have a Story-enabled build running.
+> A Story variant *is* a re-frame2 frame. This leaf documents the pattern and what falls out of it for re-frame2-pair — frame-scoped reads/writes/watches against a variant's isolated app-db, no extra resolver step. Assumes you've read `SKILL.md` (the multi-frame model) and have a Story-enabled build running.
 
 ## When to load this leaf
 
@@ -35,8 +35,6 @@ snapshot                               ;; reads the variant's frame
 trace-window                           ;; epoch window from the variant's frame
 dispatch {event: "[:counter/inc]"}     ;; dispatches into the variant's frame
 ```
-
-> **`subscribe` is the exception — pin it doesn't scope.** Unlike the ops above, the `subscribe` streaming tool has **no top-level `frame` arg**; the operating-frame pin does not restrict it. A pinned variant + `subscribe {topic: "epoch"}` streams epochs from **every** frame. To scope a stream to a variant, pass `filter {:frame ":story.counter/loaded"}` (see [§Recipe — drive a Story variant](recipes.md) and the [streaming-subscriptions](streaming-subscriptions.md) filter vocab). Until/unless `subscribe` gains a `frame` arg, the filter is the only frame scope for streams.
 
 **Idiom 2 — explicit `frame` per call.** Useful when you're flipping between variants or when the session-default is something else (e.g. `:rf/default`).
 
