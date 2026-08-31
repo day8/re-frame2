@@ -26,10 +26,15 @@ prop reads as `Unresolved symbol`.
 
 No custom `:re-frame.hicasso/*` findings ship here. An earlier version
 carried six bespoke behavioral checks — a hand-maintained scope grammar and
-Hiccup walkers policing a narrow, non-authoritative slice of what the runtime
-already refuses — and they were retired (rf2-r3r00): each mistake they could
-see is refused loudly at its execution boundary, with a named
-`:rf.error/hicasso-*` id and a documented recovery route, which is the
-authoritative version of the same assistance. A clj-kondo hook sees one form
-at a time and does not know your program; a lint layer that guesses is one
-people learn to ignore.
+Hiccup walkers policing a narrow, non-authoritative slice — and they were
+retired (rf2-r3r00). What they policed has more authoritative owners, and
+not one owner. A bad head, a read outside render, a deferral crossing a
+boundary — these the runtime refuses loudly at execution, with a named
+`:rf.error/hicasso-*` id and a documented recovery route. An unkeyed mapped
+child is React's own missing-key warning. A nameless interactive element is
+the test kit's job, whose `ht/unnamed-controls` inspects the whole tree
+rather than one form. And a read parked in a mutable reference is a
+documented judgment call — forcing it inside another body is undefined
+conduct, which nothing polices. A clj-kondo hook sees one form at a time and
+does not know your program; a lint layer that guesses is one people learn to
+ignore.
