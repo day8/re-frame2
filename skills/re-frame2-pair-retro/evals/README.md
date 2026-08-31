@@ -19,6 +19,18 @@ There is no automated scorer and none should be added: the previous
 regex-based session-evidence scorer accepted keyword soup before it was
 repaired, and the repair cost more than the coverage was worth.
 
+One deliberately narrow exception sits outside this directory:
+`tests/duplicate_search_test.clj` (run `bb tests/duplicate_search_test.clj`
+from the skill root) pins the §Issue drafts duplicate-search **command
+contract** — the prescribed `gh issue list` query stays narrow to
+`day8/re-frame2` and explicitly `--state all` (gh defaults to open-only,
+which hides a closed owner), a discovered closed owner links instead of
+twinning, and a failed query reads as "not checked", never "no duplicate".
+It extracts the prescribed argv from `SKILL.md` verbatim and models gh's
+documented state filtering over a fixed fixture set — a command-contract
+pin, not a session-evidence scorer, and like everything here it is
+repo-maintenance material the published package does not ship.
+
 ## Repo-maintenance artifact, not shipped
 
 `evals/` is a repo-maintenance artifact — it is deliberately not part of
