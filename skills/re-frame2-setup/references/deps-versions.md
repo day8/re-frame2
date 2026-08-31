@@ -62,15 +62,20 @@ The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`,
 
 **Two different "versions" — don't conflate them.** The repo `VERSION` is what release *tags* are cut from; the *published Maven version* is whatever has shipped to Clojars (currently: none). A repo `VERSION` of `0.0.1.alpha` does **not** mean `{:mvn/version "0.0.1.alpha"}` resolves.
 
-**The author picks the re-frame2 pin at kickoff; the skill never auto-selects.** Pinning makes the project reproducible. Sources for the author to pick a `:git/sha` today (or a `:mvn/version` once published), in order of authority:
+**The default pin is the generator template's baseline; an author-supplied pin overrides it.** Pinning makes the project reproducible, and the skill picks the default itself — a missing pin is never a reason to halt or interview the author. The template's `hooks.clj` (`tools/template/src/day8/re_frame2_template/hooks.clj`) carries the one reviewed baseline — `:rf2-version` (tracking the repo `VERSION` release tags are cut from), the `:shadow-version` / `:react-version` pins, and a reviewed monorepo commit for the tools coords — drift-guarded by `version_lockstep_test.clj`. Concretely, when the author supplies no pin:
+
+- **Post-publish**: every framework coord gets `{:mvn/version "<the template's :rf2-version>"}` — after confirming it resolves on Clojars (source 3 below).
+- **Pre-publish (today)**: a framework `:mvn/version` cannot resolve, so use the template's reviewed monorepo commit as the single `:git/sha` for every `day8/re-frame2*` coordinate (one SHA for all = lockstep holds by construction), or `:local/root` against a reviewed sibling checkout when one exists ([recipe below](#the-localroot-sibling-checkout-dev-route-pre-publish)).
+
+Sources to verify that default — or for the author to pick an overriding `:git/sha` today (or a `:mvn/version` once published) — in order of authority:
 
 1. **The repo's `VERSION` file** (`github.com/day8/re-frame2/blob/main/VERSION`) — the single source of truth release tags are cut from; the canonical VERSION for the **next** release, NOT a guarantee it is published.
 2. **`CHANGELOG.md`** / **the GitHub releases page** — list released VERSIONs; a tag `v<VERSION>` gives the matching `:git/sha`.
 3. **Clojars** (`clojars.org/day8/re-frame2` and siblings) — the authority for whether a `:mvn/version` actually resolves. **If the artefact 404s on Clojars, `:mvn/version` is not an option yet** — use `:git/sha` / `:local/root`.
 
-(The generator template ships a **pinned baseline** in its `hooks.clj` and emits the same mixed shape this page teaches: `:mvn/version` for the framework coords — forward-correct, gated against a `:local/root` rewrite pre-publish — and a pinned `:git/sha` for the tools coords, because no `xray-v*` / `story-v*` tag has been cut. See [`../README.md` §Relationship to the generator template](../README.md#relationship-to-the-generator-template).)
+(The template emits the same mixed shape this page teaches: `:mvn/version` for the framework coords — forward-correct, gated against a `:local/root` rewrite pre-publish — and a pinned `:git/sha` for the tools coords, because no `xray-v*` / `story-v*` tag has been cut. See [`../README.md` §Relationship to the generator template](../README.md#relationship-to-the-generator-template).)
 
-**Never invent a version. Never silently pick `latest`. Never write a `:mvn/version` framework coord that 404s on Clojars.** If the author hasn't supplied a pin, stop and ask before editing any dep file.
+**Never invent a version. Never silently pick `latest`. Never write a `:mvn/version` framework coord that 404s on Clojars.** All three still bind the default: the template baseline is a *reviewed* pin (not an invention), `latest` stays explicit opt-in, and publication state decides the coordinate shape below.
 
 ## `deps.edn` shape
 
@@ -193,7 +198,7 @@ Read the pinned `implementation/package.json` (see [`../SKILL.md`](../SKILL.md) 
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest, run `npm view <pkg> version` for each and **show the result for confirmation before writing it** — don't auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 
-Then `npm install` (after the author has approved the resolved `package.json`).
+Then run `npm install` yourself. On the default pinned baseline there is nothing to pause for — the explicit latest-from-npm route above is the only one that stops for confirmation.
 
 ## When to add the optional per-feature artefacts
 

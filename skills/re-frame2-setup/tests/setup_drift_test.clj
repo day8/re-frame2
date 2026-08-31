@@ -29,7 +29,7 @@
 ;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
 ;;;; which loops `skills/re-frame2-setup/tests/*_test.clj`. The job fires when
 ;;;; `report-changed-surfaces.sh` classifies a `skills/re-frame2-setup/**`
-;;;; change as `skills_structural=true`. So the prose-drift Locks 1–12 below
+;;;; change as `skills_structural=true`. So the prose-drift locks below
 ;;;; are guarded in CI, not just locally.
 ;;;;
 ;;;; What this suite does NOT cover: it is a PROSE-DRIFT / structural guard, not
@@ -737,64 +737,85 @@
                "header (rf2-agi57x).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 12 — the generator route is USER-RUN; the skill's allowed-tools do NOT
-;; grant `clojure -Tnew create`, and the UIx greenfield route the skill
-;; EXECUTES is the manual scaffold.
+;; Lock 12 — zero-interview pin default + executor posture (rf2-rc0yh).
 ;;
-;; The skill documents the one-command `clojure -Tnew create …` generator as a
-;; complete alternative, but its `allowed-tools` front-matter grants only
-;; `clojure -Stree`, npm, and `shadow-cljs watch/compile` — NOT `-Tnew`. So the
-;; skill must frame the generator as something the AUTHOR runs, while the route
-;; the skill itself executes (esp. for UIx) is the manual scaffold whose
-;; commands the grant actually covers. Steering UIx users toward the
-;; generator as "the fastest/complete path" without flagging that the loaded
-;; skill cannot run it weakens prompt ergonomics (the agent recommends a route
-;; it must then abandon or interrupt for extra tool access). These guards fail
-;; if the front-matter starts advertising `-Tnew`, or if the prose stops
-;; framing the generator as user-run / stops giving UIx an executable
-;; manual route.
+;; One unqualified greenfield prompt must produce one served SPA with no
+;; clarification round and no handing-back of commands:
+;;
+;;   * deps-versions.md must NOT tell the skill to stop and ask when the
+;;     author supplied no pin — the no-pin default IS the generator template's
+;;     pinned baseline (hooks.clj, drift-guarded by version_lockstep_test.clj),
+;;     and an author-supplied pin merely overrides it.
+;;   * SKILL.md must frame the skill as the EXECUTOR: it runs `npm install`
+;;     and a terminating `npx shadow-cljs compile app` itself, starts the
+;;     watch, and reports the actual URL — and it must keep the honesty line
+;;     that compile success alone is not a mount claim.
+;;
+;; The RETIRED original Lock 12 (rf2-agi57x) asserted the opposite posture for
+;; the generator — that allowed-tools must NOT grant `clojure -Tnew` and the
+;; prose must frame the generator as user-run. rf2-rc0yh dropped that
+;; prohibition as policy (the skill runs the generator itself when the author
+;; asks for that route); do not reintroduce it.
 ;; ---------------------------------------------------------------------------
 
-(deftest allowed-tools-do-not-grant-generator-command
-  (testing "SKILL.md allowed-tools front-matter does not grant `clojure -Tnew create`"
+(deftest pin-default-is-zero-interview
+  (testing "deps-versions.md defaults the pin to the template baseline instead of stopping to ask"
+    (let [body @deps-versions-md]
+      (is (not (re-find #"(?i)stop and ask" body))
+          (str "deps-versions.md tells the skill to stop and ask for a pin "
+               "again. The zero-interview contract (rf2-rc0yh): when the "
+               "author supplies no pin, the default IS the generator "
+               "template's pinned baseline — proceed, don't interview."))
+      (is (not (re-find #"(?i)the skill never auto-selects" body))
+          (str "deps-versions.md re-introduces the never-auto-selects pin "
+               "interview. An author-supplied pin OVERRIDES the template-"
+               "baseline default; its absence is not a reason to stop "
+               "(rf2-rc0yh)."))
+      (is (contains-any? body ["default pin is the generator template's baseline"
+                               "an author-supplied pin overrides"])
+          (str "deps-versions.md no longer names the generator template's "
+               "pinned baseline as the no-pin default. One reviewed source of "
+               "truth (template hooks.clj, drift-guarded by "
+               "version_lockstep_test.clj) is what makes the zero-interview "
+               "default reproducible (rf2-rc0yh)."))))
+  (testing "SKILL.md states the zero-interview default"
+    (let [skill @skill-md]
+      (is (contains-any? skill ["no clarification round" "never a reason to stop and ask"
+                                "zero-interview"])
+          (str "SKILL.md no longer states the zero-interview default: an "
+               "unqualified greenfield request proceeds on Reagent + the "
+               "template-baseline pin with no clarification round "
+               "(rf2-rc0yh).")))))
+
+(deftest skill-executes-the-scaffold-and-reports-the-url
+  (testing "SKILL.md frames the skill as running install + a terminating compile itself"
     (let [skill @skill-md
-          ;; Isolate the YAML front-matter (between the first two `---` fences)
-          ;; so we test the actual tool GRANT, not the prose that legitimately
-          ;; shows the user-run generator command.
+          ;; Isolate the YAML front-matter (between the first two `---`
+          ;; fences) so the grant premise reads the actual allowed-tools
+          ;; block, not prose.
           fm    (some-> (re-find #"(?s)^---\r?\n(.*?)\r?\n---" skill) second)]
       (is (some? fm)
           "Could not isolate the SKILL.md YAML front-matter (allowed-tools block).")
-      (is (and fm (not (str/includes? fm "-Tnew")))
-          (str "SKILL.md's allowed-tools front-matter now grants a `-Tnew` "
-               "command. The skill's executable path is the manual scaffold; "
-               "the generator is a USER-RUN route. If a deliberate decision "
-               "grants the generator command to the skill, update this guard "
-               "(rf2-agi57x).")))))
-
-(deftest generator-framed-as-user-run-not-skill-executed
-  (testing "SKILL.md cardinal rule frames the generator as user-run, not skill-executed"
-    (let [skill @skill-md]
-      (is (contains-any? skill ["USER-RUN route" "user-run route" "the author runs"
-                                "author runs the" "hand them the generator"
-                                "the **author** runs"])
-          (str "SKILL.md no longer frames the generator template as a USER-RUN "
-               "route. The skill's allowed-tools cannot execute `clojure -Tnew "
-               "create`; the prose must hand the author the command to run "
-               "rather than imply the skill runs it (rf2-agi57x)."))
-      ;; And the UIx path the skill EXECUTES must be the manual substrate
-      ;; views (already locked by Lock 7) — re-assert the executable framing.
-      (is (contains-any? skill ["manual six-step" "manual scaffold"])
-          (str "SKILL.md no longer names the manual six-step scaffold as the "
-               "path the skill executes (vs. the user-run generator). The "
-               "skill's executable route must be the one its allowed-tools "
-               "cover (rf2-agi57x)."))))
-  (testing "entry-namespace.md frames the generator as user-run / skill-doesn't-run-Tnew"
-    (let [body @entry-namespace-md]
-      (is (contains-any? body ["user-run" "the **author** invokes" "the author invokes"
-                               "does not run `clojure -Tnew`" "this skill does not run"])
-          (str "entry-namespace.md no longer frames the UIx generator "
-               "route as user-run. The skill cannot execute `clojure -Tnew`; "
-               "the author runs it (rf2-agi57x).")))))
+      (is (and fm
+               (str/includes? fm "npm install")
+               (str/includes? fm "shadow-cljs compile"))
+          (str "SKILL.md's allowed-tools no longer grant the executor path "
+               "(`npm install` + `shadow-cljs compile`). The skill runs the "
+               "scaffold itself; the grants must cover it (rf2-rc0yh)."))
+      (is (str/includes? skill "The skill runs both commands itself")
+          (str "SKILL.md no longer frames the skill as the executor of the "
+               "verify-and-serve step — it must run the terminating "
+               "`npx shadow-cljs compile app` and start the watch itself "
+               "rather than handing the author a to-do list (rf2-rc0yh)."))
+      (is (str/includes? skill "http://localhost:8280/")
+          (str "SKILL.md no longer reports the actual dev URL "
+               "(http://localhost:8280/). The handoff names the successful "
+               "command and the URL being served (rf2-rc0yh)."))
+      (is (contains-any? skill ["not the mount" "does not prove the mount"
+                                "don't claim the mount" "compile success alone"])
+          (str "SKILL.md dropped the honesty line: compile success proves the "
+               "build, not the browser mount — the handoff must not claim the "
+               "counter mounted from a green compile alone (rf2-rc0yh).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 13 — the PUBLIC entry-ramp docs (docs-site setup page + top-level

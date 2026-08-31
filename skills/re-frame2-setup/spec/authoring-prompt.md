@@ -22,5 +22,5 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
 - The prompt assumes read access to the repo, including `examples/core/counter/` and the generator template.
-- The prompt does **not** ask the session to verify the resulting skill — the author runs the build; Mike reads the PR (`design.md` L6 / Q14).
+- The prompt does **not** ask the session to verify the resulting skill — Mike reads the PR (`design.md` L6 / Q14: the skill deliverable ships no verification module; the shipped skill itself does run the app build it scaffolds).
 - When to re-author (major-version updates) and the per-surface update procedure are owned by [`inputs.md`](inputs.md) §6 — consult it there rather than restating the triggers in this wrapper.
