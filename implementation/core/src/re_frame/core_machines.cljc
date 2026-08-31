@@ -28,8 +28,11 @@
   ([machine] :delegate))
 
 (defwrapper machine-transition
-  "Pure (machine, snapshot, event) -> [snapshot fx]. Per Spec 005
-  §Drain semantics §Level 3. Late-bound via :machines/machine-transition."
+  "The pure transition: given a machine definition, the current snapshot
+  and an event vector, return one plain map — `{:status :ok :snapshot
+  <next-snapshot> :fx [...]}` on success, `{:status :error :error {:kind
+  ...}}` on an engine-reported failure. Per Spec 005 §Testing §Level 1.
+  Late-bound via :machines/machine-transition."
   {:hook :machines/machine-transition :artefact machines-artefact :on-absent :throw}
   ([machine snapshot event] :delegate))
 
