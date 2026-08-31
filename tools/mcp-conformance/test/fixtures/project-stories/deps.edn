@@ -1,0 +1,31 @@
+;; Golden-path consumer fixture for story-mcp's project-story bootstrap
+;; (tools/story-mcp/README.md §Loading your project's stories, rf2-cfq8a).
+;;
+;; This directory is a MINIMAL CONSUMING PROJECT: its own `:paths`, its
+;; own pre-authored story namespace (`src/app/stories.cljc`), and one
+;; launch alias. `test/end-to-end-project-stories.cjs` starts the server
+;; through `clojure -M:story-mcp` from THIS root — the exact shape the
+;; README documents — and proves the first MCP connect can discover,
+;; read, and run the project's story with no prior write.
+;;
+;; A real consumer depends on the published coordinate:
+;;
+;;   day8/re-frame2-story-mcp {:mvn/version "..."}
+;;
+;; The fixture uses the in-repo `:local/root` for the same artefact —
+;; the identical swap the release workflow performs on the tool's own
+;; deps.edn before deploying.
+{:paths ["src"]
+ :deps  {day8/re-frame2-story-mcp {:local/root "../../../../story-mcp"}}
+
+ :aliases
+ {;; The golden path. `clojure.main` runs `-e` init-opts IN ORDER,
+  ;; BEFORE `-m`, so the project's registration namespaces are loaded —
+  ;; and their `reg-story` / `reg-variant` calls landed in this JVM's
+  ;; Story registry — by the time the server takes the stdio loop. A
+  ;; missing or throwing namespace aborts the launch here, loudly, with
+  ;; an ordinary `require` failure on stderr and a non-zero exit: the
+  ;; server never comes up over a silently empty project registry.
+  :story-mcp
+  {:main-opts ["-e" "(require 'app.stories)"
+               "-m" "re-frame.story-mcp.server"]}}}

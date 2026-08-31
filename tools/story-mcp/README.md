@@ -47,8 +47,60 @@ RF_STORY_MCP_ALLOW_WRITES=true clojure -M -m re-frame.story-mcp.server
 clojure -J-Drf.story-mcp.allow-writes=true -M -m re-frame.story-mcp.server
 ```
 
-The launch must preload any JVM namespaces that populate the Story
-registry the server should expose.
+A bare launch has canonical vocabulary (tags, assertions, modes) but
+ZERO project stories — see the next section for the launch that
+preloads yours.
+
+## Loading your project's stories
+
+Story-MCP is a same-JVM adapter: every catalogue read and run operates
+on the Story registry inside the server's own process, so your
+registration namespaces must be loaded before the stdio loop starts.
+`clojure.main` already sequences this — `-e` init-opts run in order,
+before `-m` — so the golden path is one alias in **your project's**
+deps.edn whose `:main-opts` require your story namespaces and then hand
+over to the server:
+
+```clojure
+;; deps.edn — consumer project root
+{:aliases
+ {:story-mcp
+  {:extra-deps {day8/re-frame2-story-mcp {:mvn/version "..."}}
+   :main-opts  ["-e" "(require 'app.stories)"   ; your registrations load here,
+                "-m" "re-frame.story-mcp.server"]}}} ; then the server takes stdio
+```
+
+and an MCP-host entry that launches it from the project root:
+
+```json
+{"mcpServers":
+ {"story": {"command": "clojure", "args": ["-M:story-mcp"]}}}
+```
+
+Repeat the `-e` form (or require several namespaces in one) as needed;
+init-opts run in command order. Add `--allow-writes` to the host's
+`args` only when you want the author/refine loop. A missing or throwing
+namespace aborts the launch loudly — the ordinary `require` failure on
+stderr and a non-zero exit — so the server never comes up over a
+silently empty project registry.
+
+Two rules the required namespaces must obey:
+
+- **JVM-loadable.** They must be CLJ/CLJC-loadable in this headless
+  JVM. Hicasso-substrate stories qualify (`:component` is a view-id
+  keyword; the body is pure data). Reagent/UIx `.cljs` story files are
+  browser-side registrations: a running browser's CLJS registry is
+  reached through re-frame2-pair's `eval-cljs`
+  ([`skills/re-frame2-pair/references/stories.md`](../../skills/re-frame2-pair/references/stories.md)),
+  never through this server.
+- **stdout is the wire.** The stdio loop owns stdout for JSON-RPC
+  frames, so keep load-time printing off stdout (use `*err*`); a stray
+  `println` in a required namespace corrupts the handshake.
+
+The end-to-end witness for this path is
+[`tools/mcp-conformance/test/end-to-end-project-stories.cjs`](../mcp-conformance/test/end-to-end-project-stories.cjs),
+driven from the consumer-shaped fixture project at
+[`tools/mcp-conformance/test/fixtures/project-stories/`](../mcp-conformance/test/fixtures/project-stories/).
 
 Tests:
 
