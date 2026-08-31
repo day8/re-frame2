@@ -91,8 +91,8 @@ if (-not (Test-Path -LiteralPath $Target)) {
     }
 }
 
-# Link whatever skills/<name> dirs exist (audit ALL of skills/, per the bead -
-# including shared/, which carries the retro-protocol doc + tests).
+# Link whatever skills/<name> dirs exist (audit ALL of skills/, per the bead).
+# Each skill is self-contained.
 $entries = Get-ChildItem -LiteralPath $skillsSrc -Directory
 foreach ($entry in $entries) {
     $name = $entry.Name

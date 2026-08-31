@@ -55,8 +55,6 @@ PERSONAL_NAMES="mike miket"
 # PERMANENT — redaction test fixtures (see bead rf2-1ppe4 NOTES). They MUST
 # carry user-named paths to prove the scrubbing/redaction logic actually
 # redacts them; replacing the names with placeholders would defeat the test.
-#     - skills/shared/tests/fixtures/02-redaction.md
-#     - skills/shared/tests/retro_protocol_test.clj
 #     - tools/machines-viz/test/day8/re_frame2_machines_viz/share_cljs_test.cljs
 #
 # (The local worktree-guard + git-hook tooling was de-personalised by
@@ -69,9 +67,7 @@ PERSONAL_NAMES="mike miket"
 # ----------------------------------------------------------------------------
 is_allowlisted() {
   case "$1" in
-    # PERMANENT — redaction fixtures (prove scrubbing; names are the test input).
-    skills/shared/tests/fixtures/02-redaction.md) return 0 ;;
-    skills/shared/tests/retro_protocol_test.clj) return 0 ;;
+    # PERMANENT — redaction fixture (proves scrubbing; names are the test input).
     tools/machines-viz/test/day8/re_frame2_machines_viz/share_cljs_test.cljs) return 0 ;;
     # This gate script (carries the PERSONAL_NAMES list + this comment).
     scripts/check-no-hardcoded-paths.sh) return 0 ;;

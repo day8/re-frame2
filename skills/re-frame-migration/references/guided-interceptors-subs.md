@@ -383,7 +383,7 @@ Read the body and propose; author confirms.
 **Decision shape**:
 
 1. Drop the annotation; the default policy almost always covers the case.
-2. If the author confirms a real need for the non-default policy (the call site explanation matters), **flag it for the author** and — with their approval — file a GitHub issue against `day8/re-frame2` naming the use case (see the shared [`issue-filing.md`](../../shared/issue-filing.md) recipe for the `--body-file` filing shape). Don't invent a v2 API.
+2. If the author confirms a real need for the non-default policy (the call site explanation matters), **flag it for the author** and — with their approval — file a GitHub issue against `day8/re-frame2` naming the use case (see the [`issue-filing.md`](issue-filing.md) recipe for the `--body-file` filing shape). Don't invent a v2 API.
 
 ---
 

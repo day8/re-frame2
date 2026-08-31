@@ -163,10 +163,8 @@ rc=0
 linked=0
 skipped=0
 
-# Iterate every skills/<name> directory. `shared/` is included: it carries the
-# retro-protocol security doc + tests that re-frame2-pair-retro loads, so it
-# must be linked too. The README index lists eight USER-facing skills; we link
-# whatever dirs exist (audit ALL of skills/, per the bead).
+# Iterate every skills/<name> directory. Each skill is self-contained; we
+# link whatever dirs exist (audit ALL of skills/, per the bead).
 for entry in "$SKILLS_SRC"/*/; do
   [ -d "$entry" ] || continue
   name=$(basename "$entry")
