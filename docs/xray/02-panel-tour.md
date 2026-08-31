@@ -11,10 +11,10 @@ L1  ribbon       mode, frame, filters, settings, close
 L2  event spine  recent epochs for the selected frame
 L3  tabs         Epoch, app-db, Views, Trace, Machine, Routes,
                  Resources, Graph, Frames, Hicasso
-L4  detail       the selected tab's view of the focused epoch
+L4  detail       the selected tab's detail view
 ```
 
-The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the entire tool. Click an event row and every tab reads that same epoch.
+The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the event lenses. Click an event row and Epoch, app-db, Views, Trace, Machine, and Routes read that same epoch. (Graph, Frames, and Hicasso browse live structure instead — they do not follow the row you pick, and Resources follows the selected frame for its live sections.)
 
 ![The event spine and Dynamic tabs](../images/xray/xray-tutorial-epoch.png)
 
