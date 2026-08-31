@@ -82,8 +82,8 @@ The connection machine composes the locked substrate:
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
   (rf/make-machine-handler
     {:initial :disconnected
-     :data    {:url            nil               ;; supplied by :ws/connect; refreshed by :ws/refresh-token
-               :auth-token     nil               ;; supplied by :ws/connect (or refreshed at runtime)
+     :data    {:url            nil               ;; supplied by :ws/connect
+               :cred-ref       nil               ;; OPAQUE credential reference — never the bearer itself (see §Parameters)
                :retries        0
                :max-retries    8
                :base-ms        1000              ;; initial backoff
@@ -118,16 +118,19 @@ The connection machine composes the locked substrate:
 
      :actions
      {:record-connection-opts
-      ;; Caller passes URL + token on :ws/connect; opts land in :data and
-      ;; every subsequent reconnect re-reads them via :spawn's :data fn.
-      (fn [{:keys [data] [_ {:keys [url auth-token]}] :event}]
-        {:data (assoc data :url url :auth-token auth-token)})
+      ;; Caller passes the URL + an OPAQUE credential reference on
+      ;; :ws/connect; opts land in :data and every subsequent reconnect
+      ;; re-reads them via :spawn's :data fn. Never the bearer itself —
+      ;; see §Parameters.
+      (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
+        {:data (assoc data :url url :cred-ref cred-ref)})
 
-      :refresh-token
-      ;; The auth machine calls this after an out-of-band refresh; the
-      ;; next :active entry's :spawn :data fn picks up the fresh token.
-      (fn [{:keys [data] [_ token] :event}]
-        {:data (assoc data :auth-token token)})
+      :rotate-cred
+      ;; The auth machine calls this after an out-of-band credential
+      ;; rotation; only the new opaque reference crosses the dispatch
+      ;; boundary, and the next :active entry's :spawn :data fn picks it up.
+      (fn [{:keys [data] [_ new-cred-ref] :event}]
+        {:data (assoc data :cred-ref new-cred-ref)})
 
       :on-socket-lost
       ;; The live socket dropped (a :ws/closed that passed :current-socket?).
@@ -155,10 +158,12 @@ The connection machine composes the locked substrate:
                      (:in-flight data))})
 
       :send-auth
-      ;; Route an :auth message into the live socket actor.
+      ;; Route an :auth message into the live socket actor. NO token in
+      ;; the payload: the actor resolved the bearer from :cred-ref inside
+      ;; its own host closure at socket-open and attaches it to the wire
+      ;; frame itself — the credential never rides a dispatch.
       (fn [{:keys [data]}]
-        {:fx [[:dispatch [(socket-id data) [:send {:type  :auth
-                                                   :token (:auth-token data)}]]]]})
+        {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
 
       :on-connected
       ;; Compound entry action for :connected — reset the retry counter (we
@@ -222,10 +227,10 @@ The connection machine composes the locked substrate:
       :record-and-reset
       ;; Compound action — record fresh opts AND reset the retry counter.
       ;; Used on manual :ws/connect from :reconnecting / :failed (the
-      ;; running app has refreshed the token; reconnect immediately).
-      (fn [{:keys [data] [_ {:keys [url auth-token]}] :event}]
+      ;; running app has rotated its credential; reconnect immediately).
+      (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
         {:data (-> data
-                   (assoc :url url :auth-token auth-token)
+                   (assoc :url url :cred-ref cred-ref)
                    (assoc :retries 0))})
 
       :record-error
@@ -248,14 +253,16 @@ The connection machine composes the locked substrate:
        ;; spawns a fresh one.
        :spawn {:machine-id :websocket/socket
                 ;; Mechanism 2 from Pattern-AsyncEffect §Parameter passing
-                ;; across the boundary — the child reads URL + auth-token
-                ;; from the parent's :data at spawn time. Every re-entry to
-                ;; :active picks up whatever the parent's :data currently
-                ;; holds, so a :refresh-token between reconnects flows in
+                ;; across the boundary — the child reads URL + the opaque
+                ;; :cred-ref from the parent's :data at spawn time (the
+                ;; child resolves the reference to the real bearer inside
+                ;; its own host closure — see §Parameters). Every re-entry
+                ;; to :active picks up whatever the parent's :data currently
+                ;; holds, so a :rotate-cred between reconnects flows in
                 ;; without any extra wiring.
                 :data       (fn [{snap :snapshot}]
-                              {:url        (-> snap :data :url)
-                               :auth-token (-> snap :data :auth-token)})}
+                              {:url      (-> snap :data :url)
+                               :cred-ref (-> snap :data :cred-ref)})}
                 ;; Recording the socket-id needs no :on-spawn write and no
                 ;; :exit cleanup: on every declarative :spawn the runtime binds
                 ;; the newborn actor's id into THIS machine's :data under
@@ -279,7 +286,7 @@ The connection machine composes the locked substrate:
                :ws/fatal    {:target :failed
                              :action :record-error}
                :ws/send     {:action :enqueue-message}
-               :ws/refresh-token {:action :refresh-token}
+               :ws/rotate-cred {:action :rotate-cred}
                ;; A request issued before the connection is :connected is
                ;; queued like any other send (the whole event is buffered, so
                ;; its :request-id survives); the :connected leaf overrides
@@ -360,33 +367,35 @@ The connection machine composes the locked substrate:
                     (min (* base-ms (Math/pow 2 retries))
                          max-backoff-ms)))
                 {:target [:active]}}
-       :on     {;; Manual reconnect (e.g., after the auth machine refreshes
-                ;; the token) — short-circuit the backoff, record fresh opts,
-                ;; zero the retry counter, re-enter :active.
+       :on     {;; Manual reconnect (e.g., after the auth machine rotates
+                ;; the credential) — short-circuit the backoff, record fresh
+                ;; opts, zero the retry counter, re-enter :active.
                 :ws/connect {:target [:active]
                              :action :record-and-reset}
                 :ws/send    {:action :enqueue-message}
                 :ws/request {:action :enqueue-message}
-                :ws/refresh-token {:action :refresh-token}}}
+                :ws/rotate-cred {:action :rotate-cred}}}
 
       :failed
-      {:on {:ws/connect       {:target [:active]
-                               :action :record-and-reset}
-            :ws/refresh-token {:action :refresh-token}}}}}))
+      {:on {:ws/connect     {:target [:active]
+                             :action :record-and-reset}
+            :ws/rotate-cred {:action :rotate-cred}}}}}))
 ```
 
-The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
+The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. It is also where the opaque `:cred-ref` becomes a real credential: the actor resolves the reference inside its own host closure as the socket opens, attaches the bearer to the auth wire frame, and discards it — the bearer never enters machine `:data` or a dispatch (see §Parameters). Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
 
 ### Parameters
 
-The connection's `:url` and `:auth-token` arrive on the `:ws/connect` event:
+The connection's `:url` and an **opaque credential reference** arrive on the `:ws/connect` event:
 
 ```clojure
-(rf/dispatch [:ws/connection [:ws/connect {:url        "wss://api.example.com/ws"
-                                           :auth-token (some-token)}]])
+(rf/dispatch [:ws/connection [:ws/connect {:url      "wss://api.example.com/ws"
+                                           :cred-ref (current-session-cred-ref)}]])
 ```
 
-`:record-connection-opts` persists them into `:data`; the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a refreshed token (via `[:ws/connection [:ws/refresh-token new-token]]`) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
+`:cred-ref` is a REFERENCE — a session id, a vault index, any opaque key your auth slice issues — never the bearer itself. Machine `:data` is framework-inspectable (snapshots, trace emissions, recorder fixtures, pair tooling), so a raw bearer, cookie, or refresh token must never enter `:data` or ride a dispatch payload. The socket actor exchanges the reference for the real credential inside its own host closure at the moment it opens/authenticates the socket — the worked example's `resolve-credential` seam in `examples/patterns/websocket/messages.cljs` — writes it to the auth wire frame, and discards it.
+
+`:record-connection-opts` persists URL + reference into `:data`; the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a rotated credential (via `[:ws/connection [:ws/rotate-cred new-cred-ref]]`, carrying only the new reference) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
 
 For the canonical menu of mechanisms — event payload (used here for caller-supplied URL/token), spawn-spec `:data` fn (used between this machine and the child socket actor), and boot-time host config (when the URL is fixed by build-time config and threaded in by the boot machine) — see [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary).
 
@@ -459,7 +468,7 @@ A bare `:schema` is not that check. It is an ordinary registration diagnostic �
 
 ### Re-authentication on reconnect
 
-Token expiry across reconnects has two recovery paths, both supported by the worked machine. **Proactive**: the auth machine refreshes the token and dispatches `[:ws/connection [:ws/refresh-token new-token]]`; the `:refresh-token` action updates `:data :auth-token`; the next `:active` entry's `:spawn` `:data` fn picks up the fresh value. **Reactive**: a reconnect into `:authenticating` fails with `:ws/auth-failed` and the machine transitions to `:failed`; the auth machine observes via a `[:rf/machine <id>]` subscription (per [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)), runs its refresh, and dispatches `[:ws/connection [:ws/connect {:url ... :auth-token new-token}]]` to re-target. Either way, refreshed credentials land in `:data` and the next `:active` entry threads them through `:spawn` `:data`.
+Credential expiry across reconnects has two recovery paths, both supported by the worked machine. **Proactive**: the auth machine refreshes the credential host-side and dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque reference; the `:rotate-cred` action updates `:data :cred-ref`; the next `:active` entry's `:spawn` `:data` fn picks up the fresh reference and the new socket resolves it to the new bearer. **Reactive**: a reconnect into `:authenticating` fails with `:ws/auth-failed` and the machine transitions to `:failed`; the auth machine observes via a `[:rf/machine <id>]` subscription (per [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)), runs its refresh, and dispatches `[:ws/connection [:ws/connect {:url ... :cred-ref new-cred-ref}]]` to re-target. Either way, only the opaque reference lands in `:data`; the bearer stays host-side, resolved by the spawning socket's own closure.
 
 ## SSR
 
@@ -476,7 +485,8 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data` — under the runtime-maintained `:rf/spawned` slot.
 - **Leaking in-flight requests when the socket drops.** A request already on the wire when the connection is lost can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after reconnect and the slot never clears). Fail each on loss — fire its `:reply-event` with `{:ok false :error :ws/connection-lost}` and clear `:in-flight` (the worked example's `:on-socket-lost`) — so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
 - **Anchoring the `:spawn` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
-- **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:auth-token` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a token expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/refresh-token` slot at the parent level.
+- **Storing a raw bearer / cookie / refresh token in machine `:data`, or dispatching one through the machine.** `:data` is framework-inspectable — app-db snapshots, trace emissions, recorder fixtures, pair tooling — so a credential held there is liable to be serialised somewhere nobody inspects character-by-character. Carry an opaque `:cred-ref` and resolve it to the real bearer inside the socket actor's host closure at authentication time (see §Parameters).
+- **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:cred-ref` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a credential expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/rotate-cred` slot at the parent level.
 - **Skipping the connection-epoch check on socket-sourced events.** Without `:current-socket?` (or equivalent) on `:ws/received` **and** on the lifecycle transitions `:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`, a slow event from a torn-down socket can land after a reconnect and act on the fresh connection: a stale `:message` processed against the new `:in-flight` map (wrong-reply dispatch, or a slot cleared by a stale correlation id), or a stale `:ws/closed` tearing the live connection back to `:reconnecting`. The guard is one key; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
 - **Declaring a `:schema` on the receiving handler and calling the ingress guarded.** That schema is a development diagnostic and elides, so on the build facing the real network there is no check at all. The connection machine validates the socket-id, never the payload, so nothing else covers it either. Add `:rf.schema/at-boundary` to the handler's `:interceptors` — see [§Inbound frames are untrusted](#inbound-frames-are-untrusted-and-schema-alone-will-not-check-them).

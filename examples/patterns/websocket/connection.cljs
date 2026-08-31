@@ -113,8 +113,15 @@
      ;; there's no `:socket-id` here: the live socket's id lives in the
      ;; framework's `:rf/spawned` slot (read via `socket-id`), which the
      ;; runtime keeps current for us.
+     ;;
+     ;; And note `:cred-ref`, not a token. Machine `:data` is
+     ;; framework-inspectable — snapshots, traces, recorder fixtures — so a
+     ;; raw bearer must never sit here (or ride a dispatch). We carry an
+     ;; OPAQUE reference; the socket actor exchanges it for the real bearer
+     ;; inside its own host closure at authentication time
+     ;; (`websocket.messages/resolve-credential`) and discards it.
      :data    {:url            nil
-               :auth-token     nil
+               :cred-ref       nil
                :retries        0
                :max-retries    8
                :base-ms        100
@@ -149,10 +156,12 @@
 
      :actions
      {:record-connection-opts
-      (fn action-record-connection-opts [{data :data [_ {:keys [url auth-token]}] :event}]
+      ;; Caller passes the URL and an OPAQUE credential reference on
+      ;; `:ws/connect` — never the bearer itself (see `:data` above).
+      (fn action-record-connection-opts [{data :data [_ {:keys [url cred-ref]}] :event}]
         {:data (-> data
                    (assoc :url url)
-                   (assoc :auth-token auth-token)
+                   (assoc :cred-ref cred-ref)
                    (assoc :error nil))})
 
       :record-and-reset
@@ -160,16 +169,20 @@
       ;; This runs on a *manual* `:ws/connect` out of `:reconnecting` or
       ;; `:failed` — the user is asking for a clean slate, so we give them
       ;; one and forget the failed attempts.
-      (fn action-record-and-reset [{data :data [_ {:keys [url auth-token]}] :event}]
+      (fn action-record-and-reset [{data :data [_ {:keys [url cred-ref]}] :event}]
         {:data (-> data
                    (assoc :url url)
-                   (assoc :auth-token auth-token)
+                   (assoc :cred-ref cred-ref)
                    (assoc :retries 0)
                    (assoc :error nil))})
 
-      :refresh-token
-      (fn action-refresh-token [{data :data [_ token] :event}]
-        {:data (assoc data :auth-token token)})
+      :rotate-cred
+      ;; The app rotated its credential (say, the auth slice refreshed a
+      ;; session). Only the new opaque reference crosses the dispatch
+      ;; boundary; the next `:active` entry's spawn re-reads it and the new
+      ;; socket resolves it host-side.
+      (fn action-rotate-cred [{data :data [_ new-cred-ref] :event}]
+        {:data (assoc data :cred-ref new-cred-ref)})
 
       :on-socket-lost
       ;; The live socket just dropped (a `:ws/closed` that passed
@@ -209,13 +222,15 @@
         {:data (assoc data :error error)})
 
       :send-auth
-      ;; We've just entered `:authenticating`, so send the credentials:
+      ;; We've just entered `:authenticating`, so start the handshake:
       ;; route an `:auth` message into the live socket actor and wait for
-      ;; the server to bless us.
+      ;; the server to bless us. Note there's NO token in this payload —
+      ;; the actor resolved the bearer from `:cred-ref` when it opened the
+      ;; socket, holds it in its private host closure, and attaches it to
+      ;; the wire frame itself. The credential never rides a dispatch.
       (fn action-send-auth [{data :data}]
         {:fx [[:dispatch [(socket-id data)
-                          [:send {:type  :auth
-                                  :token (:auth-token data)}]]]]})
+                          [:send {:type :auth}]]]]})
 
       :flush-queue-and-resubscribe
       ;; We're connected at last. Two bits of housekeeping on entry: reset
@@ -342,13 +357,16 @@
        ;; clears its id from our :rf/spawned slot, so `socket-id` reads nil).
        ;; See docs/machines/concepts.md#when-the-machine-grows.
        :spawn {:machine-id :websocket/socket
-                ;; Hand the child the URL and token from our `:data` as it's
-                ;; born. Every fresh entry to :active re-reads whatever's
-                ;; current — so a token refreshed mid-reconnect just rides
-                ;; into the next socket, no extra plumbing.
+                ;; Hand the child the URL and the opaque `:cred-ref` from
+                ;; our `:data` as it's born. Every fresh entry to :active
+                ;; re-reads whatever's current — so a credential rotated
+                ;; mid-reconnect just rides into the next socket, no extra
+                ;; plumbing. The reference is all that moves: the child
+                ;; resolves it to the real bearer inside its own host
+                ;; closure at socket-open.
                 :data       (fn [{snap :snapshot}]
-                              {:url        (-> snap :data :url)
-                               :auth-token (-> snap :data :auth-token)})}
+                              {:url      (-> snap :data :url)
+                               :cred-ref (-> snap :data :cred-ref)})}
 
        ;; Transitions every leaf inherits. A leaf can override any of these
        ;; (deepest state wins); anything it doesn't handle falls through to
@@ -360,7 +378,7 @@
                              :action :record-error}
                :ws/send     {:action :enqueue-message}
                :ws/request  {:action :enqueue-message}
-               :ws/refresh-token {:action :refresh-token}
+               :ws/rotate-cred {:action :rotate-cred}
                :ws/disconnect {:target :disconnected}
                ;; Subscribe before we're fully connected? Just note the
                ;; topic down; the next :connected entry will actually send
@@ -430,7 +448,7 @@
                                    :action :record-and-reset}
                 :ws/send          {:action :enqueue-message}
                 :ws/request       {:action :enqueue-message}
-                :ws/refresh-token {:action :refresh-token}
+                :ws/rotate-cred   {:action :rotate-cred}
                 :ws/disconnect    {:target :disconnected
                                    :action :reset-retries}}}
 
@@ -450,7 +468,7 @@
               ;; unhandled and silently dropped — user-visible message loss.
               :ws/send          {:action :enqueue-message}
               :ws/request       {:action :enqueue-message}
-              :ws/refresh-token {:action :refresh-token}
+              :ws/rotate-cred   {:action :rotate-cred}
               :ws/disconnect    {:target :disconnected
                                  :action :reset-retries}}}}})
 

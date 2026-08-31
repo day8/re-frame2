@@ -89,10 +89,14 @@
         handle        (rf/capture-frame)]
     [:div.lifecycle
      [:button {:data-testid "ws-connect"
+               ;; Note what the connect payload carries: the URL and an
+               ;; OPAQUE credential reference — never a bearer. The socket
+               ;; actor resolves the reference host-side at authentication
+               ;; time (see `websocket.messages/resolve-credential`).
                :on-click    #(dispatch [:ws/connection
                                         [:ws/connect
-                                         {:url        "ws://mock"
-                                          :auth-token "demo-token"}]])
+                                         {:url      "ws://mock"
+                                          :cred-ref :ws.demo/cred-a}]])
                :disabled    any-active?}
       "Connect"]
      [:button {:data-testid "ws-drop"
