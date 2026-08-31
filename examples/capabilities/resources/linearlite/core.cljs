@@ -366,11 +366,19 @@
         ;; Armed: answer the WRITE with a 503 so the optimistic apply rolls back.
         ;; Disarm first (it's a one-shot), then hand off to the canned-failure
         ;; fx — its reply rides `:after-ms` → `:dispatch-later` like any other.
-        (let [failure {:kind :rf.http/http-5xx :status 503
-                       :message "Simulated server failure (the demo's rollback seam)."}
-              stub    (registrar/handler :fx :rf.http/managed-canned-failure)]
+        ;; The canned-failure args contract (Spec 014 §Testing) is top-level
+        ;; `:kind` + `:tags`: the tags merge into the classified failure map
+        ;; the reply carries under `:error`, so the mutation's rollback path
+        ;; sees {:kind :rf.http/http-5xx :status 503 :message …} — an honest
+        ;; 503 through the documented closed failure taxonomy, exactly what
+        ;; this demo backend promises.
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
           (rf/dispatch [:linearlite/set-fail-next-write false])
-          (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :failure failure)))
+          (stub frame-ctx (assoc args-map
+                                 :after-ms demo-reply-delay-ms
+                                 :kind     :rf.http/http-5xx
+                                 :tags     {:status  503
+                                            :message "Simulated server failure (the demo's rollback seam)."})))
         ;; Otherwise, success: a read returns the current board; a write mutates
         ;; the canonical board and returns the new authoritative one.
         (let [payload (if write?

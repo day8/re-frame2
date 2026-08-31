@@ -349,3 +349,142 @@
     (reply-failure! {:kind :rf.http/http-5xx :status 503})
     (is (= "Beta" (:title (issue-by-id "srv-2"))) "the title reverted to its prior value (rollback)")
     (is (= demo-board (board-data)) "the board is restored to its pre-edit value")))
+
+;; ============================================================================
+;; 5. THE ARMED DEMO BACKEND — fail-next-write answers a REAL 503 (rf2-pqt5f)
+;; ============================================================================
+;;
+;; Everything above BYPASSES the example's own demo backend (the capturing
+;; override replays hand-built replies), so it proves the generic mutation
+;; arcs, not the runnable backend users execute. These two tests route
+;; `:rf.http/managed` at the ACTUAL registered `:linearlite.demo/http-stub` —
+;; the same routing the example's mount `:fx-overrides` does in the browser —
+;; and pin the armed path's failure CLASSIFICATION: "Fail the next write"
+;; must settle through the canonical 503 envelope the example says it
+;; synthesises ({:kind :rf.http/http-5xx :status 503 :message …} via the
+;; canned-failure contract's top-level `:kind` + `:tags`), never the
+;; contract's silent default {:kind :rf.http/transport}, while keeping the
+;; visible optimistic-apply → rollback arc.
+;;
+;; DETERMINISM. The demo stub defers each reply 220 ms via `:after-ms`, whose
+;; deferral rides the framework `:dispatch-later` (the documented override
+;; seam). We override `:dispatch-later` to PARK the deferred deliverer event
+;; instead of arming a timer — which both keeps the optimistic window
+;; observable (the "before settle" assertions) and lets the test settle each
+;; reply synchronously, in order, by re-dispatching what was parked.
+
+(def ^:private parked-later (atom []))
+
+(defn- use-real-demo-stub!
+  "Point `:rf.http/managed` at the example's REAL registered demo stub
+   (capturing each request into `last-managed-args` on the way through), and
+   park the stub's deferred replies off the `:dispatch-later` seam."
+  []
+  (reset! parked-later [])
+  (fx/reg-fx :rf.http/managed
+    (fn [frame-ctx args]
+      (reset! last-managed-args args)
+      ((registrar/handler :fx :linearlite.demo/http-stub) frame-ctx args)))
+  (fx/reg-fx :dispatch-later
+    (fn [frame-ctx {:keys [event]}]
+      (swap! parked-later conj {:frame (or (:frame frame-ctx) :rf/default)
+                                :event event})
+      nil)))
+
+(defn- flush-parked-replies!
+  "Settle every parked deferred reply, in the order the demo stub issued
+   them (each parked event is the framework's canned-reply deliverer with
+   `:after-ms` already stripped, so re-dispatching it synthesises the reply
+   immediately)."
+  []
+  (let [parked @parked-later]
+    (reset! parked-later [])
+    (doseq [{:keys [frame event]} parked]
+      (rf/dispatch-sync event {:frame frame}))))
+
+(defn- load-board-via-real-stub!
+  "Enter the board route and settle its first load through the ACTUAL demo
+   stub — the board the tests below see is the example's own canonical
+   `demo-board`, not this suite's canned one."
+  []
+  (rf/dispatch-sync [:rf.route/navigate {:to :linearlite.app/board}])
+  (flush-parked-replies!)
+  (reset! last-managed-args nil))
+
+(defn- fail-next-write? []
+  (rf/compute-sub [:linearlite/fail-next-write?]
+                  (rf/frame-state-value :rf/default)))
+
+(deftest armed-fail-next-write-settles-a-classified-503-through-the-real-stub
+  (testing "examples/capabilities/resources/linearlite — arming 'Fail the next
+            write' and executing one real write settles through the demo
+            backend's promised 503 envelope: exact rollback, one-shot disarm,
+            and a mutation :error of {:kind :rf.http/http-5xx :status 503 …} —
+            not the canned default :rf.http/transport"
+    (use-real-demo-stub!)
+    (load-board-via-real-stub!)
+    (is (= :loaded (:status (entry))) "the real stub's deferred read settled the board")
+    (let [pre-write (board-data)
+          id        (:id (first (:issues pre-write)))
+          target    (if (= :done (:status (issue-by-id id))) :backlog :done)]
+      (rf/dispatch-sync [:linearlite/set-fail-next-write true])
+      (is (true? (fail-next-write?)) "armed")
+      ;; One REAL example write — the same event the board's UI dispatches.
+      (rf/dispatch-sync [:linearlite/change-status id target])
+      ;; BEFORE the deferred reply settles: the write reached the demo stub
+      ;; and the optimistic change is showing.
+      (is (= :put (get-in @last-managed-args [:request :method]))
+          "the write's request lowered through the demo stub")
+      (is (= target (:status (issue-by-id id)))
+          "the optimistic move is showing while the reply is still parked")
+      (is (true? (:optimistic? (mutation-state [:status id])))
+          "the instance is :optimistic? while pending")
+      (is (seq @parked-later)
+          "the ARMED stub parked a deferred reply (it answered, deferred)")
+      (is (false? (fail-next-write?))
+          "the one-shot flag disarmed at request time")
+      ;; SETTLE the parked 503.
+      (flush-parked-replies!)
+      (is (= pre-write (board-data))
+          "the board equals its EXACT pre-write value (rollback)")
+      (let [ms (mutation-state [:status id])]
+        (is (true? (:error? ms)) "the instance settled terminal :error")
+        (is (false? (:optimistic? ms)) "no live optimistic apply remains")
+        (is (= :rf.http/http-5xx (get-in ms [:error :kind]))
+            "the stored public mutation :error is classified :rf.http/http-5xx —
+             the http-5xx branch of the closed failure taxonomy, not the
+             canned default :rf.http/transport")
+        (is (= 503 (get-in ms [:error :status])) "…carrying the promised HTTP 503")
+        (is (= "Simulated server failure (the demo's rollback seam)."
+               (get-in ms [:error :message]))
+            "…and the demo's message"))
+      (is (false? (fail-next-write?)) "still disarmed after settle (one-shot)"))))
+
+(deftest unarmed-write-through-the-real-stub-commits
+  (testing "examples/capabilities/resources/linearlite — positive control: an
+            otherwise-equivalent UNARMED write through the same actual demo
+            stub settles :success and commits, proving the armed test selects
+            the armed branch rather than passing because every request fails
+            or no reply ran"
+    (use-real-demo-stub!)
+    (load-board-via-real-stub!)
+    (let [id       (:id (first (issues)))
+          original (:status (issue-by-id id))
+          target   (if (= :done original) :backlog :done)]
+      (rf/dispatch-sync [:linearlite/change-status id target])
+      (is (= target (:status (issue-by-id id))) "optimistic move applied")
+      (is (seq @parked-later) "the stub parked a deferred success reply")
+      (flush-parked-replies!)
+      (is (= target (:status (issue-by-id id)))
+          "the move COMMITTED — the server board confirmed it")
+      (let [ms (mutation-state [:status id])]
+        (is (true? (:success? ms)) "the instance settled :success")
+        (is (nil? (:error ms)) "no failure was stored"))
+      ;; Compensating write: put the issue's status back so the example's
+      ;; module-level canonical `demo-board` atom leaves this test exactly as
+      ;; it entered (the demo stub *is* the server, and its board is defonce'd
+      ;; across the bundle).
+      (rf/dispatch-sync [:linearlite/change-status id original])
+      (flush-parked-replies!)
+      (is (= original (:status (issue-by-id id)))
+          "the compensating write restored the canonical board"))))
