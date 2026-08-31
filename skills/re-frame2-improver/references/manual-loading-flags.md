@@ -22,15 +22,23 @@ A boolean flag is a one-bit lifecycle marker implemented in `assoc` calls. It ca
 
 ## The canonical fix
 
-[`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) — model the page-level lifecycle as a parallel `reg-machine` with `:data`, `:form`, and `:mode` regions; tag each state with per-axis intent; resolve render via a priority table in plain data.
+**Smallest correction first.** When the concrete bug is a missing terminator cleanup — the classic missing `dissoc` on the failure branch — the immediate correctness repair is one line: clear the flag on that branch too (`(-> db (dissoc :items/loading?) (assoc :items/error err))`). Every path that can terminate the in-flight operation must flip the flag off. Report that one-liner as the immediate fix; it is proportionate to the bug and requires no re-architecture.
 
-For the simpler one-axis case (just data lifecycle), the same `reg-machine` shape with a single region replaces the flag.
+**When the canonical redesign pays.** The flag's structural cost — every new terminator re-inherits the cleanup obligation, and the flag-vs-data sibling race breeds a discriminator-sub cluster downstream — is what the redesign removes: [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) models the page-level lifecycle as a parallel `reg-machine` with `:data`, `:form`, and `:mode` regions; tag each state with per-axis intent; resolve render via a priority table in plain data. For the simpler one-axis case (just data lifecycle), the same `reg-machine` shape with a single region replaces the flag. Offer this as the optional broader redesign when the lifecycle has grown past one axis (failure + cancellation + reload + empty-vs-initial disambiguation) — not as the mandatory fix for one missing `dissoc`.
 
 Spec source: [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md).
 
 ## Worked example
 
-**Before** — manual flag with `dissoc` discipline:
+**Smallest correction** — the failure handler learns the cleanup it forgot:
+
+```clojure
+(rf/reg-event :items/load-failure
+  (fn [{:keys [db]} [_ err]]
+    {:db (-> db (dissoc :items/loading?) (assoc :items/error err))}))
+```
+
+**Before the redesign** — manual flag with `dissoc` discipline:
 
 ```clojure
 (rf/reg-event :items/load-start
@@ -45,7 +53,7 @@ Spec source: [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
     {:db (-> db (dissoc :items/loading?) (assoc :items/error err))}))  ;; if you forget the dissoc, spinner-forever
 ```
 
-**After** — machine with tag-based render selection:
+**After the redesign** — machine with tag-based render selection:
 
 ```clojure
 (rf/reg-machine :items

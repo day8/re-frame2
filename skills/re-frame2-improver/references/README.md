@@ -32,10 +32,6 @@ Consolidate co-occurring findings that share one refactor. When 2 leaves match t
 
 Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / The canonical fix / Worked example / Edge cases — locked in [`../spec/design.md` §L5](../spec/design.md) (`schemaless-events.md` adds a sixth additive "Regression example"). The catalogue grows only when an anti-pattern surfaces across 3+ real reviews; the growth procedure and deferred candidates live in [`../spec/design.md`](../spec/design.md).
 
-## Shared retro protocol
-
-- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — 7-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol. The SKILL.md loads it; per-leaf detection rules assume it is already in scope.
-
 ## Cross-references
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
