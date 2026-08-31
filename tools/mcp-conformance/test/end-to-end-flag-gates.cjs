@@ -19,7 +19,7 @@
 // story-mcp's `--allow-writes`. (The pair-mcp eval-cljs gate is
 // default-ON; the disabled envelope is reachable only with the
 // `--no-eval` opt-out against a live nREPL — see "Coverage boundary"
-// below; that wire check lives in `live-re-frame2-pair-subscribe.cjs`,
+// below; that wire check lives in `live-re-frame2-pair-turn-observation.cjs`,
 // which boots a non-degraded server with `--no-eval`.)
 //
 // ### story-mcp `--allow-writes` (default OFF, hard-rename rejection)
@@ -65,7 +65,7 @@
 // `eval-cljs` never reaches its `--no-eval` gate and the
 // `:rf.error/eval-cljs-disabled` envelope is unreachable degraded. The
 // honest home for the pair-mcp eval-gate WIRE check is therefore the
-// live path: `live-re-frame2-pair-subscribe.cjs` boots a non-degraded
+// live path: `live-re-frame2-pair-turn-observation.cjs` boots a non-degraded
 // server WITH `--no-eval` (the eval opt-out), so it observes the disabled
 // envelope over the wire when a runtime is attached. The pair-mcp parser
 // rename-rejection itself (`--allow-raw-state` legacy spelling ⇒ gate

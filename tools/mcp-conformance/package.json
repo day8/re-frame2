@@ -7,7 +7,7 @@
   "scripts": {
     "test:re-frame2-pair": "node test/end-to-end-re-frame2-pair.cjs",
     "test:re-frame2-pair-live-overflow": "node test/live-re-frame2-pair-overflow.cjs",
-    "test:re-frame2-pair-live-subscribe": "node test/live-re-frame2-pair-subscribe.cjs",
+    "test:re-frame2-pair-live-turn-observation": "node test/live-re-frame2-pair-turn-observation.cjs",
     "test:re-frame2-pair-live-redaction": "node test/live-re-frame2-pair-redaction.cjs",
     "test:re-frame2-pair-live-iserror": "node test/live-re-frame2-pair-iserror.cjs",
     "test:re-frame2-pair-live-cofx": "node test/live-re-frame2-pair-cofx.cjs",

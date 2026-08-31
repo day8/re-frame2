@@ -10,9 +10,9 @@ const LIVE_TESTS = [
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE OVERFLOW CONFORMANCE GREEN',
   },
   {
-    basename: 'live-re-frame2-pair-subscribe.cjs',
-    name: 'live subscribe / notifications/progress conformance',
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN',
+    basename: 'live-re-frame2-pair-turn-observation.cjs',
+    name: 'live turn-shaped observation conformance (dispatch consequence / watch-epochs / watch-until / recorder + flag gates)',
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE TURN-OBSERVATION CONFORMANCE GREEN',
   },
   {
     // Pull-mode epoch projection with sensitive reads closed and open.

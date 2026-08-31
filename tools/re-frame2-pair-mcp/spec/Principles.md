@@ -134,8 +134,7 @@ the mega-op reads `snapshot` / `get-path`, the read-orientation pair
 `orient` / `read-sub`, the view-plane reads `read-dom` / `read-ui`,
 the signal recorder `record` / `read-recording` / `watch-until`, the
 operating-frame trio `set-operating-frame` / `reset-operating-frame` /
-`get-operating-frame`, the streaming triad `subscribe` / `unsubscribe`
-/ `list-streams`, the reactive-sub-cache reader `list-subscriptions`,
+`get-operating-frame`, the reactive-sub-cache reader `list-subscriptions`,
 the registrar-introspection pair `handler-meta` / `list-handlers`, and
 `get-re-frame2-pair-instructions` — full catalogue in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) has no shim
@@ -166,16 +165,15 @@ own router-SKILL guidance lands at the same ~5k ceiling. An
 agent host with a 200k context window can absorb a handful of
 20k tool returns, but the realistic working session fires
 dozens of tool calls — re-frame2-pair-mcp's `snapshot` mega-op and the
-`subscribe` streaming pair are the exposed surfaces here. A
+epoch-history reads are the exposed surfaces here. A
 single oversized response burns the budget the agent needs
 for the next ten ops.
 
-The discipline rests on **eight normative mechanisms**.
+The discipline rests on **seven normative mechanisms**.
 Mechanisms 1-6 align deliberately with the cross-MCP wire
 pipeline so that an agent learning the slot on one server
-gets the same slot on the others; mechanisms 7-8 are
-re-frame2-pair-mcp-specific (epoch-record diff encoding and
-streaming-subscribe budgets).
+gets the same slot on the others; mechanism 7 is
+re-frame2-pair-mcp-specific (epoch-record diff encoding).
 Every catalogue entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) declares
 which mechanisms apply, with a **typical-token** hint
@@ -184,7 +182,7 @@ behaviour note. The hints surface in `list-tools` so the
 agent can plan ahead. The cap is enforced at the wire
 boundary, not just documented.
 
-The eight mechanisms in re-frame2-pair-mcp:
+The seven mechanisms in re-frame2-pair-mcp:
 
 1. **Token budget cap** (§"The wire-boundary cap") — 5,000-token
    default + `max-tokens` per-call override + `{:rf.mcp/overflow ...}`
@@ -207,10 +205,6 @@ The eight mechanisms in re-frame2-pair-mcp:
    path-keyed structural patches against the same record's
    `:db-before`. *re-frame2-pair-mcp-specific*: addresses the
    epoch-record pair shape.
-8. **Streaming subscribe byte+event budget** (§"Streaming
-   subscribe byte+event budget") — runtime-side queue feeding
-   `subscribe` carries OR-combined event-count + byte caps.
-   *re-frame2-pair-mcp-specific*.
 
 The reserved `:rf.mcp/*` and `:rf.size/*` keyword namespaces
 are catalogued at
@@ -222,7 +216,7 @@ re-frame2 MCP server.
 
 The subsections below run in **pipeline order**
 (wire-boundary cap → path slicing → per-tool budget → diff
-encoding → dedup → size elision → streaming budget), not
+encoding → dedup → size elision), not
 mechanism-number order — the mechanism numbers track the
 cross-server catalogue identity, while the file order
 matches the order each transform runs at the wire boundary.
@@ -348,7 +342,7 @@ stay inside the budget by construction:
 
 - **Pagination / cursor for unbounded surfaces.** Any op that
   returns a list whose size is a function of runtime state
-  (`trace-window`, `subscribe` epoch batches, `registrations`
+  (`trace-window`, `watch-epochs` matches, `registrations`
   listings under `discover-app`) MUST accept a `:limit`
   argument and return a `:cursor` for continuation. The
   default `:limit` MUST keep the response under the cap. No
@@ -363,12 +357,6 @@ stay inside the budget by construction:
   MUST be `:sample` for any op whose `:full` payload can
   exceed the cap. Agents opt into `:full` when they actually
   need it.
-- **Streaming over batch where appropriate.** `subscribe`
-  returns one event per JSON-RPC notification, not a buffered
-  batch. The cap applies per notification; the agent host
-  meters consumption. Batching is reserved for ops whose
-  payload is naturally bounded and small.
-
 Each op's reference entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) carries a
 **typical-token** hint (e.g., `~1.2k`, `~3k under :sample`)
@@ -380,9 +368,9 @@ plan ahead.
 **Catalogue-entry contract (normative).** Every tool entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) MUST declare:
 
-1. **Which of the eight mechanisms apply** to the tool (cap,
+1. **Which of the seven mechanisms apply** to the tool (cap,
    path-slice, cursor, lazy-summary, dedup, elision, diff-
-   encode, streaming-budget). A tool that ships a tree-typed
+   encode). A tool that ships a tree-typed
    payload but doesn't apply mechanisms 4 / 6 (lazy-summary /
    size-elision) is the load-bearing exception that has to be
    called out in the entry.
@@ -584,12 +572,12 @@ diff-encoding). The wire-cap then measures the deduped payload,
 not the raw, so dedup gets to shrink first.
 
 **Table reset policy**. The cache is built **per dedup call**
-(per `:epochs` slice, per subscribe-tick events vector).
-Cross-call carry-over would require a stateful per-subscription
-cache and a wire shape that references entries from previous
-frames — a non-trivial protocol change for a marginal gain (the
+(per `:epochs` slice).
+Cross-call carry-over would require a stateful cache and a wire
+shape that references entries from previous
+responses — a non-trivial protocol change for a marginal gain (the
 dominant within-call savings are already captured). If a future
-findings doc shows cross-tick share-pooling matters, that is a
+findings doc shows cross-call share-pooling matters, that is a
 separate bead.
 
 **Idempotence on no-dedup-opportunity**. A payload with no
@@ -612,12 +600,6 @@ value sizes); the floor is **≥50%** on any payload where the
 `:db-before` reference is shared across multiple records, which
 is the rule rather than the exception for diff-encoded epoch
 slices.
-
-**Subscribe streaming**. The `subscribe` tool's
-`notifications/progress` frames apply the same wrap per-tick.
-The cache is per-tick (no cross-tick refs); each `:events`
-vector in the progress payload is a self-contained deduped
-blob.
 
 ### Size-elision wire markers (rf2-urjnc)
 
@@ -733,92 +715,6 @@ verbatim; the dominant cost falls to the surrounding small
 siblings. Combined with path-slicing (`:summary` default on
 snapshot), the typical `investigate-X` workflow stays well
 inside the 5,000-token cap without further drill-down.
-
-### Streaming subscribe byte+event budget (rf2-ho4ve)
-
-Mechanism 8 — re-frame2-pair-mcp-specific, applied at the *upstream*
-edge — the runtime-side queue feeding the `subscribe` tool —
-rather than at the wire boundary itself.
-
-re-frame2-pair-mcp ships a runtime-side OR-combined event-count
-+ byte budget. The motivation is memory pressure: an
-event-count-only buffer (`:max-buffered
-500`) is misleading when event size varies by orders of
-magnitude. Five small trace events fit in ~500 bytes; five
-overflowed epoch records with diff-encoded 1MB app-db
-references can hit 5MB. The bound the operator cares about
-is bytes, not events.
-
-**The budget**. Every active subscription carries an
-OR-combined pair on the runtime side:
-
-- `:max-buffered-events` — integer event-count cap, default
-  500. The coarse backstop.
-- `:max-buffered-bytes` — integer cap on the UTF-8 BYTES of each
-  event's `pr-str` form, default 5_000_000 (~5 MB). The
-  load-bearing bound. The unit matches the wire-cap's own UTF-8
-  `pr-str` byte discipline (`token-estimate = (quot bytes 4)`), so
-  the budgets across the upstream-queue and the egress-wire stay
-  coherent — a coherence that only became true when both rulers
-  stopped counting UTF-16 code units (rf2-2rtt6.132 on the wire
-  cap, rf2-2rtt6.135 on this one).
-
-The runtime's `enqueue!` admits the new event first, then
-evicts from the FRONT of the queue until BOTH budgets hold.
-Drop-OLDEST FIFO is the only sensible policy for a byte
-budget — a single fat newcomer can require evicting an
-arbitrary number of small predecessors, and there's no way to
-know that on admission without already having admitted it.
-
-**Eviction reporting**. On every `drain-subscription!` the
-runtime returns:
-
-```clojure
-{:events          [...]                       ; queued events
- :dropped-events  <integer>                   ; evicted events since last drain
- :dropped-bytes   <integer>                   ; evicted bytes since last drain
- :overflow-reason :max-buffered-events
-                 | :max-buffered-bytes
-                 | nil                        ; which budget tripped LAST
- :gone?           <boolean>}
-```
-
-The counters reset on drain — each tick reports the delta
-since the previous tick. `:overflow-reason` is the LAST budget
-that tripped (bytes wins on a same-enqueue tie because the
-byte budget tripping signals a large-payload storm — the
-event-budget tripping in isolation is the easy case).
-
-The MCP server forwards these on every `notifications/progress`
-frame's `:_meta.data` slot (with the keyword stringified per JSON-RPC
-constraints) and accumulates them onto the final tools/call summary.
-The `_meta` wrapper is intentional: the official MCP SDK preserves it
-in progress callbacks while stripping unknown top-level progress
-fields. The agent host pattern-matches on `:overflow-reason` to decide
-which budget to raise — bytes-bound storms call for
-`max-buffered-bytes` (or a tighter `filter`); event-bound
-storms call for `max-buffered-events`.
-
-**Why two budgets, not just one**. The byte budget alone
-suffices in principle (bytes is what hurts), but the event
-budget is cheap to maintain and a useful coarse cap against
-runaway subscriptions with a pathologically chatty filter —
-"please don't keep more than 500 events even if they're
-small". The event budget rarely trips in practice for normal
-filters but is the backstop for the chatty-filter case the
-byte budget can't catch (lots of tiny events, none over
-budget individually but together swamp drain throughput).
-
-**Cross-MCP vocabulary**. The `:overflow-reason` keywords
-(`:max-buffered-events`, `:max-buffered-bytes`) sit in the
-runtime's own namespace because they're a property of the
-upstream queue, not a wire marker. The MCP wire payload's
-`:_meta.data` slot stringifies them for JSON-RPC. The
-`:dropped-events` / `:dropped-bytes` field names mirror the
-existing `:dropped-sensitive` slot already used for the
-privacy filter (Spec 009 §Privacy / rf2-3cted) — the agent
-host learns one shape: "dropped count + the reason it was
-dropped".
 
 ## Per-session response cache (rf2-3rt1f)
 
@@ -941,11 +837,8 @@ var.
 
 **Bypass policy**. Action tools (`dispatch`, `eval-cljs`,
 `tail-build`) bypass — their return value is the result of an
-action, not a read. Streaming tools (`subscribe`,
-`unsubscribe`) bypass — they emit progress notifications, not
-single payloads. Volatile runtime-state reads bypass too —
-`list-streams` / `get-stream-controls` (the streaming-tap registry)
-and `get-operating-frame`, whose resolved triple is a function of the
+action, not a read. Volatile runtime-state reads bypass too —
+`get-operating-frame`, whose resolved triple is a function of the
 live frame registry plus the per-session pin: both axes can move
 WITHOUT an app-db mutation and WITHOUT a `set-operating-frame` /
 `reset-operating-frame` call (a frame mount/unmount, or a runtime
@@ -970,7 +863,7 @@ shared with story-mcp. The shared verbs the pair pins are
 `get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
 `preview-` / `record-as-` / `tail-` plus the bare universals
-`dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`, plus the
+`dispatch` and `eval-cljs`, plus the
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
@@ -978,15 +871,14 @@ re-frame2-pair-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
 `dispatch`, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
 `trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`,
 `read-sub`, `read-dom`, `read-ui`, `record`, `read-recording`,
-`watch-until`, `subscribe`, `unsubscribe`, `list-subscriptions`,
-`list-streams`, `get-stream-controls`, `handler-meta`, `list-handlers`,
+`watch-until`, `list-subscriptions`,
+`handler-meta`, `list-handlers`,
 `set-operating-frame`, `reset-operating-frame`, `get-operating-frame`,
 `get-re-frame2-pair-instructions` — the canonical catalogue, in
 `tools/list` order, lives at
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) are all conformant
-against existing verbs. `list-subscriptions` reads the reactive sub-cache and
-`list-streams` the streaming-tap registry (rf2-qicji split — the
-`list-<things>` enumeration verb fits both); `list-handlers` came from
+against existing verbs. `list-subscriptions` reads the reactive sub-cache
+(the `list-<things>` enumeration verb); `list-handlers` came from
 the rf2-4y595 `registry-list` → `list-handlers` rename (see NAMING.md's
 audit table). New tools land
 against an existing verb, or via a Lock entry in

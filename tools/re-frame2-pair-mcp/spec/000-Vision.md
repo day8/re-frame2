@@ -57,7 +57,7 @@ added.
                        ┌─────────────────────────────────────────────┐
                        │  tools/<tool>.cljs                          │
                        │    snapshot.cljs, dispatch.cljs,            │
-                       │    eval_cljs.cljs, subscribe.cljs, …        │
+                       │    eval_cljs.cljs, watch_epochs.cljs, …     │
                        │    (one file per tool — see 003-Tool-       │
                        │     Catalogue.md for the live count)        │
                        └─────────────────────────────────────────────┘

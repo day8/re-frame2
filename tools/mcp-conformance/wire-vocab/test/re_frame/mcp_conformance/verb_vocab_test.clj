@@ -34,14 +34,12 @@
 
 (def ^:private bare-verbs
   "Catalogued bare-verb tool names from NAMING.md §The verb table
-  (`dispatch`, `eval-cljs`, `subscribe` / `unsubscribe`) plus the
+  (`dispatch`, `eval-cljs`) plus the
   mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`,
   `record`)."
   #{"dispatch"
     "dispatch-dry-run"
     "eval-cljs"
-    "subscribe"
-    "unsubscribe"
     "snapshot"
     "trace-window"
     "watch-epochs"

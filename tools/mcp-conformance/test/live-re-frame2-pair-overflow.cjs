@@ -129,7 +129,7 @@ const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
 
 // Pre-flight SKIP: route through the runner's shared skip helper so we
 // don't spawn a child or install a watchdog. Same posture as the sibling
-// live-re-frame2-pair-subscribe.cjs. The skip helper prints the canonical
+// live-re-frame2-pair-turn-observation.cjs. The skip helper prints the canonical
 // `SKIP <reason>` banner and exits 0.
 if (!process.env.SHADOW_CLJS_NREPL_PORT) {
   runWithWatchdog.skip(
@@ -156,7 +156,7 @@ runWithWatchdog(
       // what we want. The disabled-envelope contract is pinned by the
       // unit fixture `:eval-cljs/disabled-via-no-eval` in
       // tools/re-frame2-pair-mcp's conformance corpus and by the live
-      // probe in live-re-frame2-pair-subscribe.cjs (which boots WITH
+      // probe in live-re-frame2-pair-turn-observation.cjs (which boots WITH
       // --no-eval).
       args: [SERVER],
       cwd: os.tmpdir(),
