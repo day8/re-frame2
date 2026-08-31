@@ -10,6 +10,11 @@
    - `:comment-form` in the plain form slice shape.
    - Route-driven loads that read the current slug off the runtime-db
      coeffect at `[:rf.runtime/routing :current :params :slug]`.
+   - Route-keyed reads that stay owned by the route identity: each slice
+     records the slug it is loading, replies carry the slug they were
+     requested for, and a settle that no longer belongs to the screen is
+     refused (see `reply-for-current-slug?` below — the same correlation
+     law article_editor.cljs spells for the editor).
    - Optimistic post / delete flows that roll back through nothing fancier
      than ordinary events."
   (:require [clojure.string :as str]
@@ -34,6 +39,40 @@
 
 (defn comment-path [slug]
   (str (article-path slug) "/comments"))
+
+;; ============================================================================
+;; THE CORRELATION GATE — route-keyed reads stay owned by the route identity
+;; ============================================================================
+;;
+;; Entering `/article/alpha` and then `/article/beta` puts FOUR requests in
+;; flight, and nothing cancels the first pair: the per-slug `:request-id`s
+;; (`[:article/load "alpha"]` vs `[:article/load "beta"]`) are deliberately
+;; DISTINCT, so managed HTTP's same-id supersede never fires between them and
+;; alpha's replies are delivered in full — however late. Supersede is an
+;; optimisation for re-issuing the SAME read; correlating a reply with the
+;; screen is the app's correctness boundary (Spec 014: navigation staleness
+;; for a plain managed request is the app's, not the fx's).
+;;
+;; So each slice records WHICH slug it is loading (`[:article :slug]` /
+;; `[:comments :slug]`, stamped by the load handler in the same write that
+;; starts the load), every reply target carries the slug it was REQUESTED
+;; for, and each terminal handler asks this one question before writing
+;; anything — data, status, error, or timestamp. A late alpha settle while
+;; the slice targets beta is dropped on the floor; a beta settle (success OR
+;; failure) is beta's own and lands normally. Retained data follows the same
+;; law: a SAME-slug refresh keeps the prior data up while `:fetching`
+;; (never blank a loaded page on a refresh), but a slug CHANGE resets the
+;; slice, so alpha's article is never renderable under `/article/beta`.
+;;
+;; article_editor.cljs spells this identical law for the editor
+;; (`still-editing?`, with the full why-neither-request-id-nor-leafwise-seed-
+;; covers-this reasoning); the resources twin spells it against the route.
+(defn reply-for-current-slug?
+  "Does a reply REQUESTED for `slug` still belong to the slice at
+   `slice-key` (`:article` / `:comments`)? True exactly when the slug the
+   reply carries equals the slug the slice currently targets."
+  [db slice-key slug]
+  (= slug (get-in db [slice-key :slug])))
 
 ;; ============================================================================
 ;; RECORDABLE COEFFECTS
@@ -65,12 +104,12 @@
 (rf/reg-event :article/initialise
   (fn [{:keys [db]} _]
     {:db (assoc db :article {:status :idle :data nil :error nil
-                        :loaded-at nil :attempt 0})}))
+                        :loaded-at nil :attempt 0 :slug nil})}))
 
 (rf/reg-event :comments/initialise
   (fn [{:keys [db]} _]
     {:db (assoc db :comments {:status :idle :data [] :error nil
-                         :loaded-at nil :attempt 0})}))
+                         :loaded-at nil :attempt 0 :slug nil})}))
 
 (rf/reg-event :comment-form/initialise
   (fn [{:keys [db]} _]
@@ -92,40 +131,60 @@
          one load — once to send the request, once when the answer comes back —
          and branches on the envelope's `:status` to tell which hat it's
          wearing. One event id, two roles. See the HTTP guide, the one-handler
-         way to handle the reply: ../../../docs/async/http.md#one-handler"
+         way to handle the reply: ../../../docs/async/http.md#one-handler
+
+         The `:reply-to` target CARRIES THE REQUESTED SLUG, so the reply hat
+         can ask `reply-for-current-slug?` before writing anything — a slow
+         alpha reply landing after the reader moved to `/article/beta` is
+         dropped, success and failure alike. And on a slug CHANGE the request
+         hat resets the slice (prior data is only kept up for a SAME-slug
+         `:fetching` refresh), so the page never renders one slug's article
+         under another slug's URL. See THE CORRELATION GATE above."
    :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ reply]]
+  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ slug reply]]
     (if reply
-      ;; Reply hat — the answer's back. Success or failure?
-      (case (:status reply)
-        :ok
-        {:db (-> db
-                 (assoc-in [:article :status] :loaded)
-                 (assoc-in [:article :data] (:article (:value reply)))
-                 (assoc-in [:article :error] nil)
-                 (assoc-in [:article :loaded-at] time-ms))}
+      ;; Reply hat — the answer's back, carrying the slug it was requested
+      ;; for. The correlation gate first: a reply whose slug is no longer the
+      ;; slice's is not this screen's to act on — return nil, change nothing.
+      (when (reply-for-current-slug? db :article slug)
+        (case (:status reply)
+          :ok
+          {:db (-> db
+                   (assoc-in [:article :status] :loaded)
+                   (assoc-in [:article :data] (:article (:value reply)))
+                   (assoc-in [:article :error] nil)
+                   (assoc-in [:article :loaded-at] time-ms))}
 
-        :error
-        {:db (-> db
-                 (assoc-in [:article :status] :error)
-                 (assoc-in [:article :error] (rh/failure->message (:error reply))))})
+          :error
+          {:db (-> db
+                   (assoc-in [:article :status] :error)
+                   (assoc-in [:article :error] (rh/failure->message (:error reply))))}))
 
       ;; Request hat — first time through, fire the managed request. `:reply-to`
-      ;; brings the one reply right back to this event.
-      (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
-        {:db (-> db
-                 (assoc-in [:article :status]
-                           (if (get-in db [:article :data]) :fetching :loading))
-                 (assoc-in [:article :error] nil)
-                 (update-in [:article :attempt] (fnil inc 0)))
+      ;; brings the one reply right back to this event, slug aboard. A
+      ;; same-slug re-entry is a refresh (keep the loaded article up,
+      ;; `:fetching`); a different slug is a new identity (reset the slice, so
+      ;; the old article is not renderable while the new one loads).
+      (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
+            refresh? (reply-for-current-slug? db :article slug)
+            slice    (if refresh?
+                       (:article db)
+                       {:status :idle :data nil :error nil
+                        :loaded-at nil :attempt 0})]
+        {:db (assoc db :article
+                    (-> slice
+                        (assoc :slug   slug
+                               :status (if (and refresh? (:data slice)) :fetching :loading)
+                               :error  nil)
+                        (update :attempt (fnil inc 0))))
          :fx [[:rf.http/managed
                (rh/request {:method     :get
                             :path       (article-path slug)
                             :decode     schema/ArticleResponse
                             :retry      rh/data-fetch-retry
                             :request-id [:article/load slug]
-                            :reply-to   [:article/load]})]]}))))
+                            :reply-to   [:article/load slug]})]]}))))
 
 ;; ============================================================================
 ;; COMMENTS
@@ -137,38 +196,58 @@
          choice from :article/load just above, which uses the unified
          `:reply-to` back to itself. Both styles are perfectly valid; reach for
          whichever reads more clearly in the handler at hand. Here, separate
-         handlers keep the load logic tidy."
+         handlers keep the load logic tidy.
+
+         Both reply targets CARRY THE REQUESTED SLUG (the same correlation law
+         as :article/load — see THE CORRELATION GATE above), and the same
+         refresh-vs-new-identity split applies on the way out: a same-slug
+         re-entry keeps the loaded comments up while `:fetching`; a different
+         slug resets the slice."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
-      {:db (-> db
-               (assoc-in [:comments :status]
-                         (if (seq (get-in db [:comments :data])) :fetching :loading))
-               (assoc-in [:comments :error] nil)
-               (update-in [:comments :attempt] (fnil inc 0)))
+    (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
+          refresh? (reply-for-current-slug? db :comments slug)
+          slice    (if refresh?
+                     (:comments db)
+                     {:status :idle :data [] :error nil
+                      :loaded-at nil :attempt 0})]
+      {:db (assoc db :comments
+                  (-> slice
+                      (assoc :slug   slug
+                             :status (if (and refresh? (seq (:data slice))) :fetching :loading)
+                             :error  nil)
+                      (update :attempt (fnil inc 0))))
        :fx [[:rf.http/managed
              (rh/request {:method     :get
                           :path       (comment-path slug)
                           :decode     schema/CommentsResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:comments/load slug]
-                          :on-success [:comments/loaded]
-                          :on-failure [:comments/load-failed]})]]})))
+                          :on-success [:comments/loaded slug]
+                          :on-failure [:comments/load-failed slug]})]]})))
 
 (rf/reg-event :comments/loaded
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:comments :status] :loaded)
-             (assoc-in [:comments :data] (vec (:comments value)))
-             (assoc-in [:comments :error] nil)
-             (assoc-in [:comments :loaded-at] time-ms))}))
+  {:doc "The GET's `:on-success`, carrying the slug it was requested for.
+         Correlation-gated: a late reply for a slug the slice no longer
+         targets writes nothing — not data, not status, not the timestamp."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ slug {:keys [value]}]]
+    (when (reply-for-current-slug? db :comments slug)
+      {:db (-> db
+               (assoc-in [:comments :status] :loaded)
+               (assoc-in [:comments :data] (vec (:comments value)))
+               (assoc-in [:comments :error] nil)
+               (assoc-in [:comments :loaded-at] time-ms))})))
 
 (rf/reg-event :comments/load-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (-> db
-        (assoc-in [:comments :status] :error)
-        (assoc-in [:comments :error] (rh/failure->message error)))}))
+  {:doc "The GET's `:on-failure`, correlated exactly as `:comments/loaded` is —
+         a late failure for the PREVIOUS article must not mark the current
+         one's comments errored."}
+  (fn [{:keys [db]} [_ slug {:keys [error]}]]
+    (when (reply-for-current-slug? db :comments slug)
+      {:db (-> db
+          (assoc-in [:comments :status] :error)
+          (assoc-in [:comments :error] (rh/failure->message error)))})))
 
 ;; ============================================================================
 ;; COMMENT FORM

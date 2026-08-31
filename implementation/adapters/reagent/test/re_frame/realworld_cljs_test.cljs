@@ -493,9 +493,11 @@
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:comments/initialise] {:frame f})
-    ;; Seed a single comment (the list is now length 1).
+    ;; Seed a single comment (the list is now length 1). :comments/loaded
+    ;; carries the slug it was requested for (rf2-iy3d6); the initialised
+    ;; slice targets nil, so a nil-slug reply is the matching identity here.
     (rf/dispatch-sync
-      [:comments/loaded
+      [:comments/loaded nil
        {:value {:comments [{:id 7 :body "survivor"
                             :author {:username "eve"}}]}}]
       {:frame f})
@@ -1883,6 +1885,238 @@
   (testing "a CROSS-slug FAILURE is refused too — a late A error cannot banner B
             or trip B's lifecycle into :error (rf2-czvc, R-C2)"
     (editor-cross-slug-failure-is-refused-test)))
+
+;; ============================================================================
+;; article page — cross-slug detail replies stay owned by the route (rf2-iy3d6)
+;; ============================================================================
+;;
+;; The article page repeats the editor's navigation-staleness law over its TWO
+;; route-driven reads. `/article/:slug`'s on-match dispatches :article/load
+;; and :comments/load; the requests are keyed per slug ([:article/load slug] /
+;; [:comments/load slug]) — DISTINCT ids across a navigation, so managed
+;; HTTP's same-id supersede never fires between alpha's and beta's requests
+;; and all four stay independently deliverable. Correlation is therefore the
+;; app's own boundary: the requested slug rides every reply target (the
+;; unified `:reply-to [:article/load slug]`; the split
+;; `[:comments/loaded slug]` / `[:comments/load-failed slug]` — both reply
+;; styles stay exercised), each slice records the slug it is loading, and the
+;; terminal handlers refuse a settle whose slug the slice no longer targets.
+;; On a slug CHANGE the request hat resets the slice (retained data is for a
+;; SAME-slug refresh only), so the old article is never renderable under the
+;; new URL even without an out-of-order settle.
+
+(defn- full-article [slug title]
+  {:slug slug :title title
+   :description (str "About " slug)
+   :body (str "Body of " slug)
+   :tagList [slug]
+   :createdAt "2026-05-01" :updatedAt "2026-05-01"
+   :favorited false :favoritesCount 0
+   :author {:username "alice" :bio nil :image nil :following false}})
+
+(defn- full-comment [slug]
+  {:id (str "c-" slug) :createdAt "2026-05-01" :updatedAt "2026-05-01"
+   :body (str "First on " slug)
+   :author {:username "eve" :bio nil :image nil :following false}})
+
+(defn- req-by-id
+  "The captured lowered request carrying `:request-id` id, or nil."
+  [lowered id]
+  (some #(when (= id (:request-id %)) %) lowered))
+
+(defn- article-slice* [f] (rf/compute-sub [:article/slice] (rf/frame-state-value f)))
+(defn- comments-slice* [f] (rf/compute-sub [:comments/slice] (rf/frame-state-value f)))
+(defn- route-params* [f]
+  (get-in (:rf.db/runtime (rf/frame-state-value f))
+          [:rf.runtime/routing :current :params]))
+
+(defn- settle-article-ok! [f req slug title]
+  (rf/dispatch-sync (conj (:reply-to req)
+                          {:status :ok :value {:article (full-article slug title)}})
+                    {:frame f}))
+
+(defn- settle-article-fail! [f req]
+  (rf/dispatch-sync (conj (:reply-to req)
+                          {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                    {:frame f}))
+
+(defn- settle-comments-ok! [f req slug]
+  (rf/dispatch-sync (conj (:on-success req)
+                          {:status :ok :value {:comments [(full-comment slug)]}})
+                    {:frame f}))
+
+(defn- settle-comments-fail! [f req]
+  (rf/dispatch-sync (conj (:on-failure req)
+                          {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                    {:frame f}))
+
+(defn- article-cross-slug-late-success-is-refused-test []
+  ;; A capturing stub holds every article + comments request open so both
+  ;; slugs' pairs can be settled by hand, in the order a slow network picks.
+  (let [lowered (atom [])]
+    (rf/reg-fx :realworld.test/article-cross-slug
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/article-cross-slug}})]
+      (rf/dispatch-sync [:article/initialise] {:frame f})
+      (rf/dispatch-sync [:comments/initialise] {:frame f})
+      (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+      ;; Enter /article/alpha — its article + comments GETs go out and stay out.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      ;; …and follow a link to /article/beta before either settles.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+      (is (= 4 (count @lowered))
+          "both entries lowered an article AND a comments GET — four requests")
+      (is (= 4 (count (distinct (map :request-id @lowered))))
+          "the four carry DISTINCT per-slug request-ids, so same-id supersede
+           never fires between them — every one is independently deliverable,
+           and correlating each reply is the app's job")
+      (let [a-art (req-by-id @lowered [:article/load "alpha"])
+            a-com (req-by-id @lowered [:comments/load "alpha"])
+            b-art (req-by-id @lowered [:article/load "beta"])
+            b-com (req-by-id @lowered [:comments/load "beta"])]
+        (is (= [:article/load "alpha"] (:reply-to a-art))
+            "the unified :reply-to carries the slug it was requested for")
+        (is (= [:comments/loaded "alpha"] (:on-success a-com))
+            "…and so do the split comments targets, on the success branch")
+        (is (= [:comments/load-failed "alpha"] (:on-failure a-com))
+            "…and the failure branch")
+        ;; Beta settles normally first — the ordinary path is untouched.
+        (settle-article-ok! f b-art "beta" "Beta")
+        (settle-comments-ok! f b-com "beta")
+        (is (= "Beta" (:title (rf/compute-sub [:article/data] (rf/frame-state-value f))))
+            "beta's own article reply is accepted through the public sub")
+        (is (= ["First on beta"]
+               (mapv :body (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "beta's own comments reply is accepted through the public sub")
+        ;; THE LATE ARRIVALS. Snapshot beta's slices WHOLE — data, status,
+        ;; error, loaded-at, attempt, slug — because the bug is never the one
+        ;; leaf you looked at.
+        (let [art-before (article-slice* f)
+              com-before (comments-slice* f)]
+          (settle-article-ok! f a-art "alpha" "Alpha")
+          (settle-comments-ok! f a-com "alpha")
+          (is (= {:slug "beta"} (route-params* f))
+              "the route still says beta")
+          (is (= art-before (article-slice* f))
+              "a late alpha article success changes NOTHING on the article
+               slice — data, status, error, loaded-at, attempt and slug all
+               stand")
+          (is (= com-before (comments-slice* f))
+              "…and the late alpha comments success changes nothing on the
+               comments slice"))))))
+
+(defn- article-cross-slug-late-failure-is-refused-test []
+  (let [lowered (atom [])]
+    (rf/reg-fx :realworld.test/article-cross-slug-fail
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/article-cross-slug-fail}})]
+      (rf/dispatch-sync [:article/initialise] {:frame f})
+      (rf/dispatch-sync [:comments/initialise] {:frame f})
+      (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+      (let [a-art (req-by-id @lowered [:article/load "alpha"])
+            a-com (req-by-id @lowered [:comments/load "alpha"])
+            b-art (req-by-id @lowered [:article/load "beta"])
+            b-com (req-by-id @lowered [:comments/load "beta"])]
+        ;; Beta loads clean.
+        (settle-article-ok! f b-art "beta" "Beta")
+        (settle-comments-ok! f b-com "beta")
+        (let [art-before (article-slice* f)
+              com-before (comments-slice* f)]
+          ;; Alpha's requests FAIL, late.
+          (settle-article-fail! f a-art)
+          (settle-comments-fail! f a-com)
+          (is (= art-before (article-slice* f))
+              "a late alpha article failure cannot mark beta's article slice
+               errored or touch its lifecycle facts")
+          (is (= com-before (comments-slice* f))
+              "…nor can alpha's comments failure touch beta's comments slice")
+          (is (= :loaded (:status (article-slice* f))) "beta stays :loaded")
+          (is (nil? (:error (article-slice* f))) "no error banner over beta")))
+      ;; NON-VACUITY for the failure gate: a failure for the CURRENT slug is
+      ;; still accepted. Enter /article/gamma, hold, and fail gamma's own
+      ;; requests — the gate must let its own failures through.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/gamma"] {:frame f})
+      (let [g-art (req-by-id @lowered [:article/load "gamma"])
+            g-com (req-by-id @lowered [:comments/load "gamma"])]
+        (settle-article-fail! f g-art)
+        (settle-comments-fail! f g-com)
+        (is (= :error (:status (article-slice* f)))
+            "gamma's OWN article failure is accepted — the gate correlates, it
+             does not swallow failures")
+        (is (some? (:error (article-slice* f))) "…with its message surfaced")
+        (is (= :error (:status (comments-slice* f)))
+            "gamma's OWN comments failure is accepted too")))))
+
+(defn- article-slug-change-resets-while-same-slug-refresh-retains-test []
+  (let [lowered (atom [])]
+    (rf/reg-fx :realworld.test/article-transition
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/article-transition}})]
+      (rf/dispatch-sync [:article/initialise] {:frame f})
+      (rf/dispatch-sync [:comments/initialise] {:frame f})
+      (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+      ;; Load alpha fully.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-ok! f (req-by-id @lowered [:article/load "alpha"]) "alpha" "Alpha")
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (is (= "Alpha" (:title (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
+      ;; SAME-slug refresh control: re-firing the route's loads for the slug
+      ;; already on screen (exactly what the route's on-match dispatches)
+      ;; keeps the loaded data up while the refresh is out.
+      (reset! lowered [])
+      (rf/dispatch-sync [:article/load] {:frame f})
+      (rf/dispatch-sync [:comments/load] {:frame f})
+      (is (= :fetching (:status (article-slice* f)))
+          "a same-slug re-load is a REFRESH — :fetching, not :loading")
+      (is (= "Alpha" (:title (rf/compute-sub [:article/data] (rf/frame-state-value f))))
+          "…and the loaded article stays renderable while it is out")
+      (is (= ["First on alpha"]
+             (mapv :body (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+          "…as do the loaded comments")
+      (settle-article-ok! f (req-by-id @lowered [:article/load "alpha"]) "alpha" "Alpha")
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      ;; Now NAVIGATE: loaded alpha → /article/beta, beta held. A slug change
+      ;; is a new identity — alpha's data must not be renderable under beta's
+      ;; URL even though beta hasn't settled yet.
+      (reset! lowered [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+      (is (= {:slug "beta"} (route-params* f)) "the route moved to beta")
+      (let [art (article-slice* f)
+            com (comments-slice* f)]
+        (is (= :loading (:status art))
+            "a slug CHANGE is not a refresh — :loading, fresh lifecycle")
+        (is (nil? (:data art))
+            "alpha's article is NOT exposed under beta's URL while beta loads")
+        (is (= "beta" (:slug art)) "the article slice now targets beta")
+        (is (= :loading (:status com)) "the comments slice starts over too")
+        (is (empty? (:data com))
+            "alpha's comments are NOT exposed under beta's URL")
+        (is (= "beta" (:slug com)) "the comments slice now targets beta")))))
+
+(deftest realworld-article-page-cross-slug
+  (testing "cross-slug article/comments requests are independently deliverable;
+            slugs ride both reply styles; a LATE alpha success cannot overwrite
+            the active beta page (rf2-iy3d6)"
+    (article-cross-slug-late-success-is-refused-test))
+  (testing "a LATE alpha failure cannot mark beta errored; a CURRENT slug's own
+            failure is still accepted (the failure gate's non-vacuity control)
+            (rf2-iy3d6)"
+    (article-cross-slug-late-failure-is-refused-test))
+  (testing "a slug change resets the article/comments slices (alpha never
+            renderable under beta's URL) while a same-slug re-load keeps the
+            loaded data up as a refresh (rf2-iy3d6)"
+    (article-slug-change-resets-while-same-slug-refresh-retains-test)))
 
 ;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +
