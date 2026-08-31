@@ -226,7 +226,7 @@ browse + 4-mode sub-strip + JUMP-to-Dynamic semantics).
 - **Not writeable into `app-db`.** Read-only forever (lock #3 in
   `DESIGN-RATIONALE.md`).
 - **Not a session recorder.** No export, no import; sessions are ephemeral
-  (lock #4). The recorder → `:play-script` export pipeline is a Story
+  (lock #4). The recorder → `:script` export pipeline is a Story
   integration (see [`018-Event-Spine.md`](018-Event-Spine.md) §Recorder /
   Story integration); the running Xray session does not persist.
 - **Not a mobile surface.** Desktop only; viewports below 600px refuse to
@@ -415,7 +415,7 @@ freedom to evolve its UI without breaking an AI contract). Drop it.
 **Story (`tools/story/`)** — the component playground — embeds Xray's
 Epoch panel as a per-variant observability ribbon (per the embedding contract
 in [`008-Embedding-Contract.md`](008-Embedding-Contract.md)). The recorder
-→ `:play-script` pipeline (per
+→ `:script` pipeline (per
 [`018-Event-Spine.md`](018-Event-Spine.md) §Recorder / Story integration)
 turns a captured Xray session into a Story-runnable script — the only
 "export" Xray offers, and it lands in Story's persistent layer, not
