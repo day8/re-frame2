@@ -1903,13 +1903,13 @@ matching only. **Future:** the same pill machinery extends to:
 The matcher algebra stays AND-across-modes / OR-within-mode (per §7);
 the matcher vocabulary grows.
 
-### Recorder → `:play-script` export pipeline (Story integration)
+### Recorder → `:script` export pipeline (Story integration)
 
 **Bug class:** "I caught this bug in dev; I want a Story variant that
 reproduces it so my colleague can see the same thing."
 
 The Xray session has every dispatch (and its outcome) in the trace
-buffer. Story has the `:play-script` machinery (per Story's spec) for
+buffer. Story has the `:script` machinery (per Story's spec) for
 declarative variant replay. The pipeline bridges them:
 
 ```clojure
@@ -1917,9 +1917,9 @@ declarative variant replay. The pipeline bridges them:
 ;;   → marker dropped at the focused cascade.
 ;; Continue clicking around the app to capture the repro path.
 ;; Right-click → "Export to Story" → opens a dialog with the
-;;   generated `:play-script`:
+;;   generated `:script`:
 
-{:play-script
+{:script
  [{:dispatch [:cart/add-item {:id 22}]}
   {:dispatch [:cart/begin-checkout]}
   {:wait-for-machine [:checkout :review]}
@@ -1938,7 +1938,7 @@ The pipeline:
 3. **Export dialog** — paste into a Story variant file, or "Save to
    Story" (when Story is embedded in the same dev build) drops the
    variant straight into the story.
-4. **Round-trip** — opening that Story variant runs the play-script;
+4. **Round-trip** — opening that Story variant runs the script;
    Xray, embedded in the Story chrome, lands on the same cascade.
 
 This is the **only "export" Xray offers**, and it lands in Story's
