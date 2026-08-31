@@ -5126,7 +5126,8 @@ jobs:
       # compiles the `:server-test` build (shadow-cljs.edn) and runs
       # `out/server-test.js` under Node. The test suite covers the
       # bencode framing helpers (`nrepl_test`), the snapshot reader
-      # (`snapshot_test`), and the subscribe surface (`subscribe_test`).
+      # (`snapshot_test`), and the pull-mode watch surface
+      # (`watch_epochs_test`, `watch_until_test`).
       - name: Run shadow-cljs :server-test (tools/re-frame2-pair-mcp artefact)
         run: npm test
 
