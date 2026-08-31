@@ -372,6 +372,30 @@
    (when failure
      (first (redact-failure-with-flag failure sensitive? carriers)))))
 
+(defn redact-response-meta
+  "Redact the sensitive response-header carriers on a canonical reply's
+  `[:meta :headers]` before the reply rides a trace surface (rf2-lddbk).
+
+  A successful completion's reply carries the response wire facts under
+  `:meta` (`{:status :status-text :headers}` — `re-frame.http.reply/
+  success-reply`). The reply DELIVERED to the app rides raw (on-box app
+  data — the caller's own response); this redactor fires only on the
+  trace-egress path, substituting `:rf/redacted` for every header whose
+  name is in the merged denylist (the immutable built-in defaults ∪ the
+  app-declared `:carriers {:headers [..]}` extension, resolved via
+  `managed-carriers` exactly as the failure-map `:headers` redaction
+  does). A reply with no `:meta` headers passes through untouched.
+
+  Per-call `:sensitive?` wholesale redaction is NOT this fn's job — `:meta`
+  is a core wire-bearing slot, so `trace-reply`'s
+  `:rf.privacy/force-redact-wire?` translation already redacts the whole
+  slot for a sensitive request."
+  [reply]
+  (if (map? (get-in reply [:meta :headers]))
+    (update-in reply [:meta :headers]
+               headers/redact-headers (:headers (managed-carriers)))
+    reply))
+
 (defn stamp-sensitive
   "Stamp the `:sensitive?` flag onto a tags map when `sensitive?` is true.
 

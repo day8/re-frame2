@@ -777,3 +777,147 @@
                (fail-closed) — the off-box projector omits :decoded"))
         (finally
           (stop-server! srv))))))
+
+;; ---- rf2-lddbk — successful-response :meta headers at the trace boundary ---
+;;
+;; A successful completion's canonical reply carries the response wire facts
+;; under `:meta` (`{:status :status-text :headers}`). The reply DELIVERED to
+;; the app rides raw — the caller's own response, on-box app data. The trace
+;; surface (`:rf.http/replied`) redacts every header whose name is in the
+;; merged denylist (immutable built-in defaults ∪ the app-declared `:carriers
+;; {:headers [..]}` extension) BEFORE the shared canonical-reply elider walk,
+;; matching the failure-map `:headers` posture; ordinary headers stay useful
+;; on-box. Per-call `:sensitive?` force-redacts the WHOLE `:meta` wire slot
+;; through the shared `trace-reply` → `trace-summary` translation.
+
+(defn- await-reply-and-replied-trace!
+  "Drive the polling shared by the rf2-lddbk trace tests: wait until the
+  default frame's app-db carries `:reply` AND a `:rf.http/replied` trace row
+  landed in `captured`. Returns `[db replied-event]`."
+  [captured]
+  (let [db (wait-for!
+             (fn [] (let [d (rf/app-db-value :rf/default)]
+                      (when (some? (:reply d)) d)))
+             3000)
+        _  (wait-for!
+             (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+             3000)
+        ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
+    [db ev]))
+
+(deftest replied-trace-redacts-builtin-sensitive-response-meta-headers
+  (testing "rf2-lddbk — built-in Set-Cookie is redacted at [:tags :meta
+            :headers] on the :rf.http/replied trace while an ordinary
+            response header rides useful on-box; the DELIVERED reply keeps
+            both raw"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (let [hs (.getResponseHeaders ex)]
+                    (.set hs "Set-Cookie" "session=SECRET-COOKIE; Path=/")
+                    (.set hs "X-RateLimit-Remaining" "37"))
+                  (write-response! ex 200 "application/json" "{\"ok\":true}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/meta-load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request  {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/x")}
+                      :decode   :json
+                      :reply-to [:api/meta-load msg]}]]})))
+
+        (rf/dispatch-sync [:api/meta-load])
+
+        (let [[db ev] (await-reply-and-replied-trace! captured)]
+          (testing "the delivered reply rides raw — on-box app data"
+            (is (= "session=SECRET-COOKIE; Path=/"
+                   (get-in db [:reply :meta :headers "set-cookie"]))
+                "Set-Cookie reaches APP code unredacted (the caller's own response)")
+            (is (= "37" (get-in db [:reply :meta :headers "x-ratelimit-remaining"]))))
+          (testing "the trace surface redacts the denylisted name, keeps ordinary headers"
+            (is (= :rf/redacted (get-in ev [:tags :meta :headers "set-cookie"]))
+                "built-in Set-Cookie is redacted on the :rf.http/replied trace")
+            (is (= "37" (get-in ev [:tags :meta :headers "x-ratelimit-remaining"]))
+                "an ordinary response header stays useful on the on-box trace")
+            (is (= 200 (get-in ev [:tags :meta :status]))
+                "the wire status rides the trace summary verbatim")))
+        (finally
+          (stop-server! srv))))))
+
+(deftest replied-trace-redacts-app-declared-carrier-in-response-meta
+  (testing "rf2-lddbk — an app-declared :carriers {:headers [..]} name is
+            redacted at [:tags :meta :headers] on the :rf.http/replied trace
+            (union onto the immutable defaults), while the delivered reply
+            keeps it raw"
+    (fx/reg-fx :rf.http/managed
+      {:carriers {:headers ["X-Honeycomb-Team"]}}
+      http-managed/managed-handler)
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
+                  (write-response! ex 200 "application/json" "{\"ok\":true}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/carrier-load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request  {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/x")}
+                      :decode   :json
+                      :reply-to [:api/carrier-load msg]}]]})))
+
+        (rf/dispatch-sync [:api/carrier-load])
+
+        (let [[db ev] (await-reply-and-replied-trace! captured)]
+          (is (= "hc-token" (get-in db [:reply :meta :headers "x-honeycomb-team"]))
+              "the delivered reply keeps the app carrier raw (on-box app data)")
+          (is (= :rf/redacted (get-in ev [:tags :meta :headers "x-honeycomb-team"]))
+              "the app-declared sensitive response-header carrier is redacted on the trace"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest sensitive-request-force-redacts-response-meta-wholesale
+  (testing "rf2-lddbk — per-call :sensitive? redacts the WHOLE :meta wire
+            slot on the :rf.http/replied trace (the shared force-redact-wire
+            translation — :meta is a core wire-bearing slot like :value)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (-> ex .getResponseHeaders (.set "X-RateLimit-Remaining" "37"))
+                  (write-response! ex 200 "application/json" "{\"ok\":true}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/sensitive-load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request    {:method :get
+                                   :url    (str "http://127.0.0.1:" port "/x")}
+                      :sensitive? true
+                      :decode     :json
+                      :reply-to   [:api/sensitive-load msg]}]]})))
+
+        (rf/dispatch-sync [:api/sensitive-load])
+
+        (let [[db ev] (await-reply-and-replied-trace! captured)]
+          (is (= "37" (get-in db [:reply :meta :headers "x-ratelimit-remaining"]))
+              "the delivered reply still carries the metadata — :sensitive? governs egress, not app data")
+          (is (= :rf/redacted (get-in ev [:tags :meta]))
+              "the whole :meta wire slot is force-redacted on the trace for a sensitive request")
+          (is (= :rf/redacted (get-in ev [:tags :value]))
+              "…exactly as the :value wire slot already is"))
+        (finally
+          (stop-server! srv))))))

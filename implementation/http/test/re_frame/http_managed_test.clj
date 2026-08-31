@@ -1114,6 +1114,67 @@
         (is (= :ok (get-in db [:result :status])))
         (is (= [:hello :world] (get-in db [:result :value])))))))
 
+;; ---- 11b. rf2-lddbk — stubs may supply optional response metadata ----------
+
+(deftest with-managed-request-stubs-optional-response-meta
+  (testing "rf2-lddbk — a route entry may supply optional response metadata
+            beside its success value ({:reply {:ok v :meta {...}}}); it rides
+            the canned reply's :meta slot verbatim so header-dependent :after
+            code is testable without a network. An entry WITHOUT :meta stays
+            minimal — no metadata is fabricated."
+    (rf/reg-event :meta-stub/load
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
+          {:db (assoc db :result reply)}
+          {:fx [[:rf.http/managed
+                 {:reply-to [:meta-stub/load msg]
+                  :request  {:method :get :url (:url msg)}
+                  :decode   :json}]]})))
+    (rf/with-managed-request-stubs
+      {[:get "/with-meta"] {:reply {:ok   {:v 1}
+                                    :meta {:status  200
+                                           :headers {"x-ratelimit-remaining" "37"}}}}
+       [:get "/no-meta"]   {:reply {:ok {:v 2}}}}
+      (rf/dispatch-sync [:meta-stub/load {:url "/with-meta"}])
+      (let [db (await-reply! #(some? (:result %)) 2000)]
+        (is (= {:v 1} (get-in db [:result :value])))
+        (is (= 200 (get-in db [:result :meta :status]))
+            "the supplied stub metadata rides [:meta :status]")
+        (is (= "37" (get-in db [:result :meta :headers "x-ratelimit-remaining"]))
+            "supplied stub headers ride [:meta :headers] verbatim"))
+      (rf/dispatch-sync [:meta-stub/load {:url "/no-meta"}])
+      (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])) 2000)]
+        (is (not (contains? (:result db) :meta))
+            "absence stays minimal — the stub fabricates no lifecycle facts")))))
+
+(deftest canned-success-optional-response-meta
+  (testing "rf2-lddbk — the canned-success stub honours an optional :meta on
+            its args-map (same shape the live transport threads); absent
+            stays absent"
+    (rf/reg-event :meta-canned/load
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
+          {:db (assoc db :result reply)}
+          {:fx [[:rf.http/managed
+                 (merge {:reply-to [:meta-canned/load msg]
+                         :request  {:method :get :url "/canned"}
+                         :decode   :json}
+                        msg)]]})))
+    (rf/dispatch-sync [:meta-canned/load {:value {:v 1}
+                                          :meta  {:status  201
+                                                  :headers {"location" "/things/9"}}}]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+    (let [db (await-reply! #(some? (:result %)))]
+      (is (= {:v 1} (get-in db [:result :value])))
+      (is (= 201 (get-in db [:result :meta :status])))
+      (is (= "/things/9" (get-in db [:result :meta :headers "location"]))
+          "a canned Location header is readable exactly as a live one would be"))
+    (rf/dispatch-sync [:meta-canned/load {:value {:v 2}}]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+    (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])))]
+      (is (not (contains? (:result db) :meta))
+          "no :meta supplied — none fabricated"))))
+
 ;; ---- 11a. rf2-rzqan — bare wrapper INTERCEPTS, never reaching the real fx ---
 ;;
 ;; The load-bearing regression for rf2-rzqan: the documented

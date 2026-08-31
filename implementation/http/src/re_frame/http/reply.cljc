@@ -181,12 +181,29 @@
 (defn success-reply
   "Build the canonical `:status :ok` reply map for a successful HTTP
   completion. `value` is the decoded-and-`:accept`-projected payload.
-  `:rf.reply/work-status :completed`."
-  [ctx value]
-  (assoc (base-reply ctx)
-         :status      :ok
-         :rf.reply/work-status :completed
-         :value       value))
+  `:rf.reply/work-status :completed`.
+
+  `response-meta` (rf2-lddbk) is the successful response's wire facts —
+  `{:status <int> :status-text <string> :headers <normalized map>}` as the
+  transport normalized them — riding under the envelope's `:meta`
+  family-extension slot (Managed-Effects §The reply map: `:meta`
+  effect-family-data) so `:after` middleware and the app reply target can
+  read the actual response status and headers on success, exactly as the
+  failure paths already expose them on the `:error` map. `:headers` is the
+  SAME cross-host normalized shape the failure maps carry (lower-cased
+  names; string value, or vector-of-strings for a multi-valued header) —
+  never a second representation. When nil/absent (a canned stub that
+  supplied none, or a synthetic caller), `:meta` is OMITTED rather than
+  fabricated (Managed-Effects: omit optional fields when absent). `:meta`
+  is a core wire-bearing slot, so trace egress elides/redacts it through
+  the shared `re-frame.reply/trace-summary` walker like `:value`."
+  ([ctx value] (success-reply ctx value nil))
+  ([ctx value response-meta]
+   (cond-> (assoc (base-reply ctx)
+                  :status      :ok
+                  :rf.reply/work-status :completed
+                  :value       value)
+     (some? response-meta) (assoc :meta response-meta))))
 
 (defn- timed-out?
   "A `:rf.http/timeout` failure lowers to `:rf.reply/work-status :timed-out` (NOT a

@@ -124,6 +124,30 @@
         (is (= {:request-id :article/by-id} (:correlation r)))
         (is (not (contains? r :request-id)))))))
 
+(deftest success-reply-response-meta-is-optional-and-canonical
+  (testing "rf2-lddbk — the 3-arity threads the successful response's wire
+            facts onto the envelope's :meta family-extension slot; the reply
+            stays schema-valid and :value stays the accepted payload"
+    (let [meta* {:status      200
+                 :status-text "OK"
+                 :headers     {"content-type"          "application/json"
+                               "x-ratelimit-remaining" "37"
+                               ;; multi-valued header — the normalized
+                               ;; vector-of-verbatim-lines shape rides
+                               ;; UNCHANGED (no second representation)
+                               "set-cookie"            ["a=1; Path=/" "b=2; Path=/"]}}
+          r     (http-reply/success-reply base-ctx {:title "Welcome"} meta*)]
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (= :ok (:status r)) "the envelope status stays :ok — :meta adds facts, never re-levels them")
+      (is (= {:title "Welcome"} (:value r)) ":value remains the decoded-and-accepted payload")
+      (is (= meta* (:meta r)) "the response wire facts ride verbatim under :meta")
+      (is (= ["a=1; Path=/" "b=2; Path=/"] (get-in r [:meta :headers "set-cookie"]))
+          "a multi-valued header keeps the ONE normalized vector shape")))
+  (testing "rf2-lddbk — absent metadata is OMITTED, never fabricated (the
+            2-arity and a nil 3rd arg both leave :meta off the reply)"
+    (is (not (contains? (http-reply/success-reply base-ctx {:v 1}) :meta)))
+    (is (not (contains? (http-reply/success-reply base-ctx {:v 1} nil) :meta)))))
+
 (deftest failure-reply-maps-to-error
   (testing "a transport failure builds a schema-valid :status :error reply"
     (let [r (http-reply/failure-reply
@@ -266,6 +290,70 @@
           (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
           (is (= 503 (get-in db [:got :error :status])))
           (is (not (contains? (:got db) :kind)) "no retired :kind dialect"))
+        (finally (stop-server! srv))))))
+
+(deftest real-transport-success-reply-carries-response-meta
+  (testing "rf2-lddbk — a successful live request delivers the ACTUAL response
+            status, status text, and normalized headers at [:meta …] on the
+            canonical reply the app target receives; :value stays the payload"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (let [hs (.getResponseHeaders ex)]
+                    (.set hs "X-Request-Cost" "3")
+                    ;; TWO Set-Cookie lines — the multi-valued case MUST ride
+                    ;; the one normalized vector-of-verbatim-lines shape
+                    ;; (rf2-0xvm1/rf2-wmdmou), never a second representation.
+                    (.add hs "Set-Cookie" "session=abc; Path=/")
+                    (.add hs "Set-Cookie" "csrf=xyz; Path=/"))
+                  (write-response! ex 200 "application/json" "{\"title\":\"hello\"}")))]
+      (try
+        (rf/reg-event :meta/load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request  {:url (str "http://127.0.0.1:" (:port srv) "/m")}
+                      :decode   :json
+                      :reply-to [:meta/load msg]}]]})))
+        (rf/dispatch-sync [:meta/load {}])
+        (let [db    (await-reply! #(some? (:reply %)))
+              reply (:reply db)]
+          (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+          (is (= "hello" (get-in reply [:value :title]))
+              ":value remains the decoded-and-accepted payload")
+          (is (= 200 (get-in reply [:meta :status]))
+              "the actual numeric wire status rides [:meta :status]")
+          (is (string? (get-in reply [:meta :status-text]))
+              "the transport's status text rides [:meta :status-text]")
+          (is (= "3" (get-in reply [:meta :headers "x-request-cost"]))
+              "an ordinary response header rides the normalized (lower-cased) map RAW on the delivered reply")
+          (is (= ["session=abc; Path=/" "csrf=xyz; Path=/"]
+                 (get-in reply [:meta :headers "set-cookie"]))
+              "a multi-valued header is the normalized vector of verbatim lines — no second header representation")
+          (is (string? (get-in reply [:meta :headers "content-type"]))
+              "single-valued headers keep the string shape"))
+        (finally (stop-server! srv))))))
+
+(deftest real-transport-failure-reply-carries-no-response-meta
+  (testing "rf2-lddbk — the scope is SUCCESSFUL responses: a failure reply's
+            wire facts already ride the :error map (status/status-text/
+            headers), so no :meta is added on the failure path"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 503 "text/plain" "down")))]
+      (try
+        (rf/reg-event :meta/fail
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                    :on-failure [:meta/failed]}]]}))
+        (rf/reg-event :meta/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+        (rf/dispatch-sync [:meta/fail])
+        (let [db (await-reply! #(some? (:reply %)))]
+          (is (not (contains? (:reply db) :meta))
+              "failure replies carry no :meta — their wire facts live on :error")
+          (is (= 503 (get-in db [:reply :error :status]))
+              "the failure map still carries the wire status as before"))
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================

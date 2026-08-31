@@ -164,7 +164,16 @@
         ;; are deliberately OMITTED — synthesising fake ones would add noise no
         ;; handler reads. The real transport's full envelope is pinned by the
         ;; lowering conformance (`http-reply-lowering-test`).
-        reply        {:status :ok :value value}]
+        ;;
+        ;; rf2-lddbk — an optional `:meta` on the args-map rides the reply's
+        ;; `:meta` slot verbatim, so header-dependent `:after` middleware /
+        ;; reply handlers are testable without a network (supply the same
+        ;; `{:status <int> :status-text <string> :headers <normalized map>}`
+        ;; shape the live transport threads). ABSENT stays absent — the stub
+        ;; never fabricates response metadata it was not given.
+        meta*        (get args-map :meta)
+        reply        (cond-> {:status :ok :value value}
+                       (some? meta*) (assoc :meta meta*))]
     (dispatch-canned-reply!
       {:origin-event   origin-event
        ;; rf2-et4c1s — the canned stub honours the SAME reply-addressing keys
@@ -409,7 +418,12 @@
         reply          (:reply entry)]
     (cond
       (and entry (contains? reply :ok))
-      (emit-canned-success! frame-ctx (assoc args-map :value (:ok reply))
+      ;; rf2-lddbk — a route entry may supply optional response metadata
+      ;; beside its success value (`{:reply {:ok v :meta {...}}}`); it rides
+      ;; the canned reply's `:meta` slot verbatim. Absent stays absent.
+      (emit-canned-success! frame-ctx
+                            (cond-> (assoc args-map :value (:ok reply))
+                              (contains? reply :meta) (assoc :meta (:meta reply)))
                             middleware-ctx)
 
       (and entry (contains? reply :failure))
