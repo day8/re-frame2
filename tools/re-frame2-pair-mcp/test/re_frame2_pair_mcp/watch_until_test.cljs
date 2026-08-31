@@ -23,8 +23,10 @@
   different reason, so `:invalid-numeric-arg` is a precise pin on the
   early-exit."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [clojure.string]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
 (def ^:private read-edn tu/extract-edn)
@@ -116,3 +118,26 @@
                    (is (not= :invalid-numeric-arg (:reason edn))
                        "a numeric-string :timeout-ms is accepted"))
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; watch-form applies the predicate TO the sample (rf2-ahjbc).
+;;
+;; THE BUG: the emitted poll form read `(boolean ((<pred-fn>) sample))` —
+;; the pred fn was invoked with ZERO args (binding `sample` to undefined)
+;; and its boolean result was then itself INVOKED with the sample, a
+;; TypeError on every poll. The poll loop's nREPL-hiccup `.catch` swallowed
+;; the throw, so every live watch-until timed out with `:last-sample nil`.
+;; The live turn-observation conformance witness is the end-to-end gate;
+;; this pin makes the emission shape a unit-level regression net.
+;; ---------------------------------------------------------------------------
+
+(deftest watch-form-applies-pred-to-sample
+  (let [pred-src (record/pred-source {:signal 0 :equals :done})
+        form     (watch-until/watch-form [{:app-db [:upload :status]}]
+                                         :rf/default pred-src nil)]
+    (is (clojure.string/includes? form "(boolean ((fn [sample]")
+        "the pred fn literal is applied directly inside the boolean")
+    (is (clojure.string/includes? form ") sample))")
+        "the sample rides as the pred fn's argument")
+    (is (not (clojure.string/includes? form "(boolean (((fn"))
+        "no zero-arg pred invocation wraps the fn literal")))

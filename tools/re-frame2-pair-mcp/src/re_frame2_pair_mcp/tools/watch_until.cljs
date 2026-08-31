@@ -91,7 +91,7 @@
         ['r       sample-call
          'sample  (ef/rt-raw "(:sample r)")
          'held?   (ef/rt-raw (if pred-src
-                               (str "(boolean ((" pred-src ") sample))")
+                               (str "(boolean (" pred-src " sample))")
                                "false"))]
         ;; `sample-signals` fails CLOSED with an
         ;; `:ambiguous-frame` refusal (`:ok? false`) when a frame-policy
