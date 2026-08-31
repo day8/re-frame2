@@ -1,0 +1,15 @@
+{
+  "name": "reagent-migration-mig23-cold-start-fixture",
+  "version": "0.0.0-SNAPSHOT",
+  "private": true,
+  "description": "Executable cold-start evidence for the reagent-migration skill's MIG-23 SSR recipe (rf2-vpdrf): a never-initialized process raises :rf.error/no-adapter-installed at both recipe entry points; one rf/init! per process boot fixes both.",
+  "devDependencies": {
+    "shadow-cljs": "3.4.10",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "scripts": {
+    "test:cold-start": "shadow-cljs compile cold-start-test && node target/cold-start-test.js",
+    "clean": "rm -rf .shadow-cljs target"
+  }
+}

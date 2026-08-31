@@ -349,10 +349,26 @@ is no, those roots stay on Reagent, which is still fully supported. The hold, if
 there is one, is **per-root**: client-only roots in the same app convert
 normally.
 
-**The server half is one call.**
+**Both halves boot cold, and a cold process has no adapter.** The Node
+renderer is a **separate process** from the browser, and nothing installs an
+adapter for either — there is no default-adapter registry (the MIG-15
+invariant), and `server/render` mints a frame per request, so frame
+construction raises `:rf.error/no-adapter-installed` in a never-initialized
+process before any HTML is produced. Each process installs exactly one
+appropriate adapter with `rf/init!` at startup, before its first frame:
+`ssr/adapter` on the Node service, the app's existing Reagent adapter in the
+browser.
+
+**The server half is one `rf/init!` at process boot, then one render call per
+request.**
 
 ```clojure
-(ns app.server (:require [re-frame.hicasso.server :as server]))
+(ns app.server
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
+            [re-frame.hicasso.server :as server]))
+
+(rf/init! ssr/adapter)   ;; once, at process startup — never per request
 
 (:document (server/render {:hiccup            [views/page {}]
                            :payload           payload-policy
@@ -365,12 +381,24 @@ normally.
 hydration-payload policy — allowlist every top-level app-db key the page reads,
 or the client hydrates against a hole. `render` mints and destroys its own
 per-request frame, and answers `:html`, `:payload-script` and `:document` among
-others.
+others. `ssr/adapter` (`re-frame.ssr/adapter`) is the headless server-side
+adapter, and installing it is boot work, not request work — two requests after
+one `rf/init!` are the normal shape.
 
-**The client half is THREE ordered calls, and the order is the contract.**
+**The client half is a boot precondition plus THREE ordered calls, and the
+order is the contract.** The install is boot, not a fourth hydration step:
+keep the migrating app's existing `(rf/init! reagent-adapter/adapter)` —
+MIG-15's line — ahead of the three calls. Adapter selection is not part of
+this migration, so do not silently switch a part-migrated app to another
+adapter (a Hicasso-only app may deliberately choose
+`re-frame.hicasso.substrate/adapter`, but that is its own decision). Skip the
+install in a cold client entry and the first `rf/make-frame` raises the same
+`:rf.error/no-adapter-installed`, so `ssr/hydrate!` and `h/hydrate!` never
+run.
 
 ```clojure
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)                   ;; 0. boot — the app's existing adapter
   (rf/make-frame {:id :app/main :platform :client})    ;; 1. the frame
   (ssr/hydrate! {:frame :app/main})                    ;; 2. state
   (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
@@ -378,10 +406,14 @@ others.
               [views/page {}]))
 ```
 
-- **`rf/make-frame` first.** Unlike `h/mount!`, `h/hydrate!` does **not** ensure
-  the frame — an adopting root takes its state from the payload. Skip it and the
-  `:rf/hydrate` dispatch is a silent no-op: nothing throws and the page renders
-  empty.
+- **The install is per process, not per load.** `rf/init!` is idempotent,
+  `run` is the page's one boot entry, and a hot-reload pass re-renders through
+  the root handle (MIG-15's `h/render!` shape) rather than re-running `run` —
+  the hydration/HMR path never re-runs `rf/init!`.
+- **`rf/make-frame` first of the three.** Unlike `h/mount!`, `h/hydrate!` does
+  **not** ensure the frame — an adopting root takes its state from the payload.
+  Skip it and the `:rf/hydrate` dispatch is a silent no-op: nothing throws and
+  the page renders empty.
 - **`ssr/hydrate!` before `h/hydrate!`.** It reads the `__rf_payload` script,
   replaces that frame's state and verifies, so the first client render sees the
   state the server rendered from.

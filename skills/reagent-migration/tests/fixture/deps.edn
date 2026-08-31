@@ -1,0 +1,27 @@
+;; reagent-migration MIG-23 cold-start fixture classpath (rf2-vpdrf).
+;;
+;; Pulls the local re-frame2 artefacts in as :local/root entries so the
+;; fixture runs against the exact tree-of-truth in this repo. Same idiom
+;; as skills/re-frame2-pair/tests/fixture/deps.edn.
+;;
+;; Path math: this file lives at
+;; skills/reagent-migration/tests/fixture/deps.edn
+;; so "../../../../implementation/<artefact>" lands in the right place.
+;;
+;; The fixture needs core (rf/init!, rf/make-frame, the adapter
+;; lifecycle), ssr (re-frame.ssr/adapter — the server-side install the
+;; corrected MIG-23 server half shows), hicasso (re-frame.hicasso.server's
+;; render — the server product door), and the stock Reagent adapter (the
+;; migrating app's EXISTING client adapter, which MIG-15/MIG-23 keep).
+;;
+;; `thheller/shadow-cljs` is listed because `shadow-cljs.edn` runs with
+;; `:deps true` — shadow-cljs builds the classpath from this file, and the
+;; library jar must be resolvable on it. Pinned to match the package.json
+;; devDependency exactly.
+{:paths ["test"]
+ :deps  {day8/re-frame2         {:local/root "../../../../implementation/core"}
+         day8/re-frame2-ssr     {:local/root "../../../../implementation/ssr"}
+         day8/re-frame2-hicasso {:local/root "../../../../implementation/hicasso"}
+         day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
+         reagent/reagent        {:mvn/version "2.0.1"}
+         thheller/shadow-cljs   {:mvn/version "3.4.10"}}}

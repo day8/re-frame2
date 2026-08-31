@@ -1,0 +1,17 @@
+;; reagent-migration MIG-23 cold-start fixture build (rf2-vpdrf).
+;;
+;; ONE :node-test build. `:deps true` routes classpath resolution through
+;; this directory's deps.edn (same idiom as
+;; skills/re-frame2-pair/tests/fixture/shadow-cljs.edn — declaring
+;; :dependencies here as well would silently WIN over deps.edn and drop
+;; the :local/root artefacts).
+;;
+;; Run with:  npm run test:cold-start
+;; (= shadow-cljs compile cold-start-test && node target/cold-start-test.js)
+{:deps true
+ :builds
+ {:cold-start-test
+  {:target    :node-test
+   :output-to "target/cold-start-test.js"
+   :ns-regexp "cold-start-test$"
+   :autorun   false}}}
