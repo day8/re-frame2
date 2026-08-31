@@ -13,7 +13,8 @@
         * error during a child's commit (componentDidMount) is caught.
         * nested boundaries: inner catches, outer does not fire.
     - :get-snapshot-before-update pairs with :component-did-update's
-      third arg.
+      snapshot arg, and both paired update lifecycles forward React's
+      prevState (rf2-08hx1).
     - Source-coord stamping integration (the renderer-side stamp lives
       in re-frame.views/reg-view*; the runtime here exercises the
       meta-tag fast path that the macro fold introduces).
@@ -116,8 +117,8 @@
                   {:reagent-render             (fn [_this] [:div])
                    :component-did-mount        (fn [_this])
                    :component-will-unmount     (fn [_this])
-                   :component-did-update       (fn [_this _prev-argv _snap])
-                   :get-snapshot-before-update (fn [_this _prev-argv] nil)
+                   :component-did-update       (fn [_this _prev-argv _prev-state _snap])
+                   :get-snapshot-before-update (fn [_this _prev-argv _prev-state] nil)
                    :component-did-catch        (fn [_this _err _info])
                    :display-name               "Full"})]
       (is (some? klass) "all-cap-keys spec produced a class")
@@ -360,55 +361,80 @@
       (is (zero? @fu-calls)
           "unmounted component was NOT forceUpdate'd on the drain"))))
 
-(deftest lifecycle-component-did-update-receives-prev-argv-and-snapshot
-  (testing "componentDidUpdate forwards (this, prev-argv, snapshot)"
+(deftest lifecycle-component-did-update-receives-prev-argv-prev-state-and-snapshot
+  (testing "componentDidUpdate forwards (this, prev-argv, prev-state, snapshot) — rf2-08hx1"
+    ;; The documented FIXED four-argument callback (README.md / FORM-3.md /
+    ;; IMPL-SPEC §6.6, stock-Reagent 2.0.1 parity). Distinct sentinels in
+    ;; every slot so a dropped or shifted argument cannot read green: a
+    ;; bridge that omits prev-state would land the snapshot sentinel in the
+    ;; prev-state slot and nil in the snapshot slot.
     (let [seen  (atom nil)
+          calls (atom 0)
+          prev-state-sentinel #js {:probe "prev-state-sentinel"}
           ^js klass (component/create-class*
                   {:reagent-render       (fn [_] [:div])
-                   :component-did-update (fn [this prev-argv snapshot]
+                   :component-did-update (fn [this prev-argv prev-state snapshot]
+                                           (swap! calls inc)
                                            (reset! seen
                                              {:this this
                                               :prev-argv prev-argv
+                                              :prev-state prev-state
                                               :snapshot snapshot}))})
           inst  (new klass #js {:__rfArgv [:render :a 1]})
           prev-props #js {:__rfArgv [:render :a 0]}]
       (.call (.. klass -prototype -componentDidUpdate)
-             inst prev-props nil :the-snapshot)
+             inst prev-props prev-state-sentinel :the-snapshot)
+      (is (= 1 @calls) "user callback fired exactly once")
       (is (= [:render :a 0] (:prev-argv @seen))
           "prev-argv reconstructed from prevProps.__rfArgv")
+      (is (identical? prev-state-sentinel (:prev-state @seen))
+          "React's prevState forwarded verbatim as the 3rd user-fn arg")
       (is (= :the-snapshot (:snapshot @seen))
-          "snapshot from React forwarded as the 3rd user-fn arg")
+          "snapshot from React forwarded as the 4th user-fn arg")
       (is (identical? inst (:this @seen))))))
 
 (deftest lifecycle-get-snapshot-before-update-pairs-with-component-did-update
-  (testing "getSnapshotBeforeUpdate's return value flows to componentDidUpdate's 3rd arg"
+  (testing "getSnapshotBeforeUpdate's return value flows to componentDidUpdate's snapshot arg"
     ;; Per IMPL-SPEC §6.6: React captures the gSBU return value and
-    ;; passes it as cDU's 3rd arg. The plumbing here mirrors that —
-    ;; we don't run React, so we exercise the user-fn dispatch shape:
-    ;; gSBU receives (this prev-argv) and returns an arbitrary value;
-    ;; cDU receives (this prev-argv snapshot).
-    (let [snapshot-captured (atom nil)
-          cdu-snapshot      (atom nil)
+    ;; passes it as componentDidUpdate's 3rd React arg. The plumbing
+    ;; here mirrors that — we don't run React, so we exercise the
+    ;; user-fn dispatch shape with the documented FIXED arities
+    ;; (rf2-08hx1): gSBU receives (this prev-argv prev-state) and
+    ;; returns an arbitrary value; cDU receives (this prev-argv
+    ;; prev-state snapshot). Distinct prev-state sentinels prove the
+    ;; bridge forwards React's prevState rather than dropping it.
+    (let [gsbu-seen  (atom nil)
+          cdu-seen   (atom nil)
+          prev-state-sentinel #js {:probe "gsbu-prev-state"}
           ^js klass (component/create-class*
                   {:reagent-render             (fn [_] [:div])
-                   :get-snapshot-before-update (fn [_this prev-argv]
-                                                 (reset! snapshot-captured prev-argv)
+                   :get-snapshot-before-update (fn [_this prev-argv prev-state]
+                                                 (reset! gsbu-seen
+                                                   {:prev-argv prev-argv
+                                                    :prev-state prev-state})
                                                  :scroll-position-42)
-                   :component-did-update       (fn [_this _prev-argv snapshot]
-                                                 (reset! cdu-snapshot snapshot))})
+                   :component-did-update       (fn [_this _prev-argv prev-state snapshot]
+                                                 (reset! cdu-seen
+                                                   {:prev-state prev-state
+                                                    :snapshot snapshot}))})
           inst  (new klass #js {:__rfArgv [:r 1]})
           prev-props #js {:__rfArgv [:r 0]}]
       (let [snap (.call (.. klass -prototype -getSnapshotBeforeUpdate)
-                        inst prev-props nil)]
+                        inst prev-props prev-state-sentinel)]
         (is (= :scroll-position-42 snap)
             "gSBU returned the snapshot value")
-        (is (= [:r 0] @snapshot-captured)
-            "gSBU received prev-argv reconstructed from prevProps"))
-      ;; React would now pass the snapshot to cDU as its 3rd arg.
+        (is (= [:r 0] (:prev-argv @gsbu-seen))
+            "gSBU received prev-argv reconstructed from prevProps")
+        (is (identical? prev-state-sentinel (:prev-state @gsbu-seen))
+            "gSBU received React's prevState verbatim as its 3rd user arg"))
+      ;; React would now pass the snapshot to cDU as its 3rd React arg
+      ;; (the user fn's 4th, after this/prev-argv/prev-state).
       (.call (.. klass -prototype -componentDidUpdate)
-             inst prev-props nil :scroll-position-42)
-      (is (= :scroll-position-42 @cdu-snapshot)
-          "cDU received gSBU's return value as 3rd arg"))))
+             inst prev-props prev-state-sentinel :scroll-position-42)
+      (is (identical? prev-state-sentinel (:prev-state @cdu-seen))
+          "cDU received React's prevState verbatim in the prev-state slot")
+      (is (= :scroll-position-42 (:snapshot @cdu-seen))
+          "cDU received gSBU's return value in the snapshot slot"))))
 
 (deftest lifecycle-display-name-statically-set
   (testing ":display-name lands on the class as displayName (static field)"
