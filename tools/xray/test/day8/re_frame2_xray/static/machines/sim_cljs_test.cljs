@@ -267,7 +267,7 @@
 
 (deftest sim-step-engine-throw-treated-as-fail
   (testing "When the machines artefact is not on the classpath,
-            `rf/machine-transition` throws; the sim handler catches and
+            `machines/machine-transition` throws; the sim handler catches and
             synthesises a fail-Result so the user sees an error instead
             of a runtime crash."
     (setup-xray-frame!)

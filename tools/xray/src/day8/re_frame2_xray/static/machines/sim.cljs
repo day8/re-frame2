@@ -21,8 +21,8 @@
     - **Isolation**: sim **clones** the registered machine definition
       into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine
       <machine-id>]`; production registry is untouched. The runtime
-      calls `rf/machine-transition` — a pure fn — so the host frame's
-      app-db is never touched.
+      calls `machines/machine-transition` — a pure fn — so the host
+      frame's app-db is never touched.
     - **Static posture**: Sim does NOT read the live snapshot; the seed
       is the definition's declared `:initial` + `:data`. No live event
       stream feeds into Sim; the user's Step button is the only input.
@@ -46,7 +46,7 @@
   on-chart path REUSES the existing engine end-to-end (no new
   transition logic): an edge click coerces the edge's fireable
   event-id and folds ONE `step-sim` through the same
-  `rf/machine-transition` call the step-button drives.
+  `machines/machine-transition` call the step-button drives.
 
   ## What this ns owns
 
@@ -77,14 +77,16 @@
 
 ;; ---- runtime hook -------------------------------------------------------
 ;;
-;; `rf/machine-transition` is a late-bind wrapper that throws when the
-;; machines artefact is not on the classpath. The sim sub-mode only
-;; appears when there's at least one registered machine — so by the
-;; time a user clicks Step, the artefact IS loaded. We resolve the var
-;; defensively all the same so the JVM test target can stub it.
+;; `machines/machine-transition` is the pure engine entry, owned by
+;; `re-frame.machines` (the front-porch shrink left no `rf/`
+;; re-export); a host that hasn't loaded the machines artefact throws
+;; at this call. The sim sub-mode only appears when there's at least
+;; one registered machine — so by the time a user clicks Step, the
+;; artefact IS loaded. We wrap the call defensively all the same so the
+;; JVM test target can stub it.
 
 (defn- run-machine-transition
-  "Call `rf/machine-transition` against the cloned definition + sim
+  "Call `machines/machine-transition` against the cloned definition + sim
   snapshot. Returns the Spec 005 §Level 1 map — `{:status :ok …}` /
   `{:status :error …}`. Wrapped in `try` so a host that hasn't loaded
   the machines artefact surfaces a friendly error instead of an
@@ -682,7 +684,7 @@
     - **Click to send** — a click on an outgoing transition edge
       dispatches `:sim-chart-edge-clicked`, which coerces the edge's
       fireable event-id and folds ONE `step-sim` through the same
-      `rf/machine-transition` path the step-button uses. Guard
+      `machines/machine-transition` path the step-button uses. Guard
       pass/fail surfaces exactly as it does for the button — a failed
       guard leaves the snapshot put + stamps `:last-error` (rendered in
       the side rail's error toast).

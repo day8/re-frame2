@@ -26,9 +26,9 @@
     - A user picks an event from an autocomplete-style picker (a
       text input + dropdown of declared events for the current state)
       and clicks Step.
-    - The runtime calls `rf/machine-transition` (the public late-bind
-      surface) with the cloned definition + current sim snapshot +
-      event vector. On `:status :ok`, the snapshot advances and an
+    - The runtime calls `re-frame.machines/machine-transition` (the
+      machines artefact's pure engine entry) with the cloned definition
+      + current sim snapshot + event vector. On `:status :ok`, the snapshot advances and an
       audit-trail row is appended. On `:status :error`, the snapshot
       stays and an error surfaces.
     - Reset returns to the declared initial state.
@@ -58,7 +58,8 @@
                                      or nil on parse error
     5. `append-audit-row`          — push a step entry onto the trail
     6. `format-state-display`      — sim chart state-keyword resolver
-    7. `step-sim`                  — fold one `rf/machine-transition`
+    7. `step-sim`                  — fold one
+                                     `re-frame.machines/machine-transition`
                                      result (the Spec 005 §Level 1 map)
                                      into the sim-state
     8. `last-transition` / `current-sim-state` / `edge-click->event`
@@ -177,9 +178,9 @@
   shallow-read) — the runtime's own `apply-initial-entry-cascade` would
   fire `:entry` actions, which sim deliberately skips at bootstrap (we
   want a pure, hermetic step machine the user drives). The first
-  user-fired event runs `rf/machine-transition` which DOES execute
-  entry / exit / action cascades — so action evaluation kicks in from
-  step 1 onwards, not from initial bootstrap.
+  user-fired event runs `re-frame.machines/machine-transition` which
+  DOES execute entry / exit / action cascades — so action evaluation
+  kicks in from step 1 onwards, not from initial bootstrap.
 
   Returns nil when `definition` is nil or has no `:initial`."
   [definition]
@@ -275,7 +276,7 @@
 
 ;; ---- step orchestrator (pure shape, runtime-callable) -------------------
 ;;
-;; `rf/machine-transition` returns the Spec 005 §Level 1 map —
+;; `re-frame.machines/machine-transition` returns the Spec 005 §Level 1 map —
 ;; `{:status :ok :snapshot … :fx …}` or `{:status :error :error {:kind …}}`
 ;; — plain keys, so the sim reads it with no dependency on the machines
 ;; artefact (which may not be on the host's classpath at all). The `:fx`
@@ -283,8 +284,9 @@
 
 (defn step-sim
   "Fold one engine call into a sim-state update. `runtime-fn` is a
-  unary fn `(fn [event] result)` that closes over `(rf/machine-transition
-  definition snapshot ...)`; the helper is shaped this way so the JVM
+  unary fn `(fn [event] result)` that closes over
+  `(re-frame.machines/machine-transition definition snapshot ...)`; the
+  helper is shaped this way so the JVM
   test target can substitute a stub result without booting the machines
   artefact (production CLJS passes the real fn).
 
