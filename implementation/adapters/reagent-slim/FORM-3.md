@@ -18,9 +18,9 @@ the keys it excludes, and walks through the canonical Form-3 use case
 |---|---|
 | `:reagent-render` | The render function. Returns hiccup. Called on every render. |
 | `:component-did-mount` | Fires once, after the first commit. Use to attach DOM-dependent state (refs read, JS libraries instantiated). |
-| `:component-did-update` | Fires after every re-render commit (not the first). Receives `(this prev-props prev-state snapshot)`. The third arg is the value returned by `:get-snapshot-before-update` if set, else `nil`. |
+| `:component-did-update` | Fires after every re-render commit (not the first). Receives `(this prev-props prev-state snapshot)`. The fourth arg is the value returned by `:get-snapshot-before-update` if set, else `nil`. |
 | `:component-will-unmount` | Fires once, just before unmount. The canonical disposal seam — release timers, listeners, JS-library instances. |
-| `:get-snapshot-before-update` | Fires just before commit, with `(this prev-props prev-state)`. Returns any value; that value is passed as the 3rd arg to `:component-did-update`. Use to capture pre-commit DOM measurements (e.g. scroll position) for restoration after the commit. |
+| `:get-snapshot-before-update` | Fires just before commit, with `(this prev-props prev-state)`. Returns any value; that value is passed as the 4th arg to `:component-did-update`. Use to capture pre-commit DOM measurements (e.g. scroll position) for restoration after the commit. |
 | `:component-did-catch` | Error-boundary callback. Fires with `(this error info)` when a descendant throws during render. Logging-only — re-frame2 ships only the `componentDidCatch` half of React's error-boundary contract. Apps that want stateful fallback rendering pair this with a local `(reagent2.core/atom)` flipped from inside the callback. |
 | `:display-name` | A string used by React DevTools and error messages. Compile-time only — zero runtime cost. |
 
