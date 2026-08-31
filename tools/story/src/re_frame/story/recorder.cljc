@@ -21,9 +21,9 @@
        captured event vector.
   3. Provides a pure `gen-play-snippet` fn that emits the
      `(reg-variant ...)` EDN form for the captured sequence — this is
-     what the user copies into source AND what the MCP layer exposes
-     downstream (story-mcp's `record-as-variant` tool, filed as a
-     separate adjacent bead).
+     what the user copies into source AND what a pair session emits by
+     driving these primitives in the attached CLJS runtime (the
+     headless story-mcp bridge was retired, rf2-5saz7).
 
   ## Recording boundary
 
@@ -197,8 +197,8 @@
 ;; recorder's PRIMARY save dialog renders the rich `:script`
 ;; translation off `:entries` (`recorder.play-export/recording->script-body`
 ;; + `render-variant-form`) so canvas clicks/types/submits are never
-;; dropped. `gen-play-snippet` is the codegen for the MCP
-;; `record-as-variant` record-and-sleep flow, whose capture path produces
+;; dropped. `gen-play-snippet` is the codegen for the bare-events
+;; capture flow, whose capture path produces
 ;; no DOM entries (so the dispatch-only view is complete there), and for
 ;; the `story/gen-play-snippet` public re-export.
 ;;

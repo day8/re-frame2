@@ -1010,7 +1010,7 @@
   `:story.<path>/<variant>` (namespace begins with `story.` or is exactly
   `story`, and the variant tail name is non-empty). Either part may be
   `nil`. Pure data → data — operates on the STRING shape so an MCP write
-  path (story-mcp `record-as-variant` / `register-variant`) can validate a
+  path (story-mcp `register-variant`) can validate a
   caller-supplied id BEFORE interning a keyword (the
   `fresh-keyword-checked` `shape-ok?` predicate), single-sourced with the
   registrar's keyword-level grammar."
@@ -1969,8 +1969,8 @@
   This is the runtime counterpart to `gen-play-snippet` (which renders
   human-readable EDN text): where `gen-play-snippet` produces a string
   for the user to paste, `recording->script-body` produces the actual
-  `{:script [...] :auto-run? bool}` map a runner executes. The MCP
-  write-back path (`record-as-variant`) calls this to re-register the
+  `{:script [...] :auto-run? bool}` map a runner executes. A
+  programmatic re-registration calls this to re-register the
   variant with a live `:script` slot — the canonical AND ONLY phase-4
   replay surface.
 

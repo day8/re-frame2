@@ -683,7 +683,7 @@
   documented to expose (API.md §Recorder facade). Six recorder-lifecycle
   + simple-codegen surfaces plus `recording->script-body`, the runtime
   data->data counterpart re-exported from the `play-export` sub-ns for
-  the MCP `record-as-variant` write-back path."
+  programmatic re-registration consumers."
   '#{start-recording!
      stop-recording!
      clear-recording!
@@ -737,7 +737,7 @@
 (deftest facade-recording->script-body-delegates-to-play-export
   (testing "story/recording->script-body (the facade re-export) returns
             the live {:script ... :auto-run?} body the runner executes —
-            the MCP write-back contract (record-as-variant). Both arities
+            the programmatic re-registration contract. Both arities
             resolve through the play-export sub-ns."
     (let [events    [[:counter/inc] [:counter/by 7]]
           one-arg   (story/recording->script-body events)

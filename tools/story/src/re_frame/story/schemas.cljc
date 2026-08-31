@@ -798,7 +798,7 @@
   silently accepted and then dropped on the floor at runtime. Two
   registrar-stamped slots are declared so the closed map accepts them:
   `:source` (the source-coord stamp) and `:origin` (the write-surface tag
-  the story-mcp `register-variant` / `record-as-variant` tools stamp per
+  the story-mcp `register-variant` tool stamps per
   spec/Cross-Cutting-Designs.md §5)."
   [:and
    [:map {:closed true}
