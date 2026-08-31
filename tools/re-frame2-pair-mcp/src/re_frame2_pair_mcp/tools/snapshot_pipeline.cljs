@@ -248,7 +248,7 @@
   cross-frame share-pooling would require a single table spanning
   every frame's slice, which is a follow-on optimisation; per-frame
   is the safe default and matches the table-reset policy
-  (per-call, not per-stream)."
+  (per-call)."
   [snapshot enabled?]
   (cond
     (or (not enabled?) (not (map? snapshot)))

@@ -185,14 +185,10 @@
        suffix→canonical mapping. A default that isn't running surfaces via
        the downstream `ensure-runtime!` diagnostic ladder; the alias step
        would only round-trip to re-derive the id it was already handed.
-    2. **It keeps the streaming subscribe gate fast.** Prepending a
-       serial `active-builds` jvm-eval to EVERY first tool call —
-       including `subscribe`'s registration path — would, on a slow
-       hermetic CI runner, push `subscribe!` registration past the
-       live-subscribe conformance test's dispatch head-start, so the
-       dispatched cascade lands before the subscription exists and zero
-       `notifications/progress` frames arrive (the bus only queues for
-       already-registered subs). Suffix-forgiveness targets an operator
+    2. **It keeps latency-sensitive first calls fast.** Prepending a
+       serial `active-builds` jvm-eval to EVERY first tool call would
+       tax every no-arg call on a slow hermetic CI runner for no
+       correctness gain. Suffix-forgiveness targets an operator
        who TYPES a build (`:build machine-epochs`); the no-arg default
        needs no trip.
 
@@ -213,7 +209,7 @@
   [{:keys [conn args] :as ctx}]
   (if-not (wire/arg-build-explicit? conn args)
     ;; Bare env / `:app` default — already canonical; skip the round-trip
-    ;; so latency-sensitive paths (subscribe registration) are not
+    ;; so latency-sensitive first calls are not
     ;; delayed. See the docstring's bare-default fast path.
     (js/Promise.resolve ctx)
     (let [requested (wire/requested-build conn args)]
@@ -354,9 +350,9 @@
      allowed. Already-marker results bypass — the marker envelopes
      are sub-cap by construction.
 
-  `extra` carries the MCP `extra` payload (signal + sendNotification +
-  _meta.progressToken) for streaming tools. Non-streaming tools ignore
-  it."
+  `extra` carries the MCP `extra` payload (the SDK's per-request
+  context: signal + sendNotification + _meta). Every current handler
+  ignores it."
   [conn name args extra]
   ;; Session-sticky operating build. An explicit `:build` on
   ;; any tool call (except `discover-app`, which owns its success-gated

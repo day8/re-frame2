@@ -32,8 +32,8 @@
 
 (defn with-cache-knob
   "Splice `cache` into a tool descriptor's inputSchema.properties — but
-  only for the read tools that consult `cache/apply-cache`. Action and
-  streaming tools don't list the knob because it has no effect there
+  only for the read tools that consult `cache/apply-cache`. Action
+  tools don't list the knob because it has no effect there
   (bypassed in `registry/cacheable?`)."
   [desc]
   (let [name  (:name desc)

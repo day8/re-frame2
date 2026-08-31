@@ -166,9 +166,8 @@
   (is (= [] (server/launch-diagnostics [])))
   (is (= [] (server/launch-diagnostics
               ["--no-eval" "--allow-sensitive-reads" "--allow-writes"
-               "--port-file" "/abs/nrepl.port" "--http-port=9700"
-               "--max-concurrent-streams=20"]))
-      "every recognised flag (boolean / valued / resource) parses clean"))
+               "--port-file" "/abs/nrepl.port" "--http-port=9700"]))
+      "every recognised flag (boolean / valued) parses clean"))
 
 (deftest launch-diagnostics-names-unknown-flag
   (let [[d :as ds] (server/launch-diagnostics ["--no-eavl"])]
@@ -203,29 +202,6 @@
   (let [[d] (server/launch-diagnostics ["--http-port" "garbage"])]
     (is (= :malformed-value (:issue d)))
     (is (re-find #"9630" (:effect d)))))
-
-(deftest launch-diagnostics-names-malformed-resource-flag
-  (testing "non-positive resource cap"
-    (let [[d] (server/launch-diagnostics ["--max-concurrent-streams=0"])]
-      (is (= :malformed-value (:issue d)))
-      (is (= "--max-concurrent-streams=0" (:input d)))))
-  (testing "non-numeric resource cap"
-    (let [[d] (server/launch-diagnostics ["--abuse-window-ms=abc"])]
-      (is (= :malformed-value (:issue d)))))
-  (testing "a valid positive resource cap is clean"
-    (is (= [] (server/launch-diagnostics ["--max-events-per-sec=200"])))))
-
-(deftest resource-env-diagnostics-names-invalid-env
-  (testing "zero / non-numeric / blank env vars each earn a :malformed-env"
-    (let [ds (server/resource-env-diagnostics
-               #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS        "0"
-                    :RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC "not-a-number"})]
-      (is (= 2 (count ds)))
-      (is (every? #(= :malformed-env (:issue %)) ds))))
-  (testing "valid + unset env is clean"
-    (is (= [] (server/resource-env-diagnostics
-                #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS "15"})))
-    (is (= [] (server/resource-env-diagnostics #js {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; --port-file launch flag — explicit, cwd-independent port file.

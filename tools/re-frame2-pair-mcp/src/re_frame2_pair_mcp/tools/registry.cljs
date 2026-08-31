@@ -3,11 +3,12 @@
   lookup, and cache policy. Each entry carries a wire name, handler,
   cacheability decision, and descriptor.
 
-  Every registered handler has shape `(fn [conn args extra])`. Only
-  `subscribe` consults `extra`; other handlers ignore it through
-  `ignoring-extra`. Pair handlers are late-bound so tests that replace
-  a per-tool var affect the next call. Implementations and descriptor
-  knob splicers remain in their per-tool or per-concern namespaces."
+  Every registered handler has shape `(fn [conn args extra])` — the
+  MCP request context rides `extra`; today every handler ignores it
+  through `ignoring-extra`. Pair handlers are late-bound so tests that
+  replace a per-tool var affect the next call. Implementations and
+  descriptor knob splicers remain in their per-tool or per-concern
+  namespaces."
   (:require [re-frame2-pair-mcp.tools.discover-app :as discover-app]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
@@ -26,11 +27,7 @@
             [re-frame2-pair-mcp.tools.hicasso-tool :as hicasso-tool]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]
-            [re-frame2-pair-mcp.tools.subscribe :as subscribe]
-            [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
-            [re-frame2-pair-mcp.tools.list-streams :as list-streams]
-            [re-frame2-pair-mcp.tools.get-stream-controls :as get-stream-controls]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
             [re-frame2-pair-mcp.tools.describe-image :as describe-image]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
@@ -114,7 +111,7 @@
     ;; on `(hash app-db)`, but the DOM can change without an app-db
     ;; mutation (a portal, a third-party widget, an async layout), so a
     ;; cache keyed on app-db would serve stale render reads. Same posture
-    ;; as the action / streaming tools.
+    ;; as the action tools.
     :cacheable? false
     :descriptor data/read-dom}
    {:name       "read-ui"
@@ -150,7 +147,7 @@
     ;; Installs a live recorder on the runtime (mints a recording-id, runs
     ;; a background rAF sampler) — an action with an observable side-effect
     ;; on the recording registry, NOT a function of frame state. Same
-    ;; non-cacheable posture as the streaming / action tools.
+    ;; non-cacheable posture as the action tools.
     :cacheable? false
     :descriptor data/record}
    {:name       "read-recording"
@@ -166,38 +163,10 @@
     ;; on WHEN the condition trips, not on a single app-db snapshot.
     :cacheable? false
     :descriptor data/watch-until}
-   {:name       "subscribe"
-    :handler    (fn [conn args extra] (subscribe/subscribe-tool conn args extra))
-    :cacheable? false
-    :descriptor data/subscribe}
-   {:name       "unsubscribe"
-    :handler    (ignoring-extra #(unsubscribe/unsubscribe-tool %1 %2))
-    :cacheable? false
-    :descriptor data/unsubscribe}
    {:name       "list-subscriptions"
     :handler    (ignoring-extra #(list-subscriptions/list-subscriptions-tool %1 %2))
     :cacheable? true
     :descriptor data/list-subscriptions}
-   {:name       "list-streams"
-    :handler    (ignoring-extra #(list-streams/list-streams-tool %1 %2))
-    :cacheable? false
-    :descriptor data/list-streams}
-   {:name       "get-stream-controls"
-    :handler    (ignoring-extra #(get-stream-controls/get-stream-controls-tool %1 %2))
-    ;; Pure read over the server's IN-PROCESS resource-control atoms.
-    ;; NOT cacheable: the active-stream / token-bucket /
-    ;; abuse-window state is volatile session-local state, not a function
-    ;; of app-db — a precheck-hash cache keyed on app-db would serve stale
-    ;; control readings. Same posture as `list-streams` (volatile
-    ;; streaming-registry read).
-    :cacheable? false
-    ;; CLOSED-WORLD (rf2-6amhbt): the handler reads server-local atoms
-    ;; with NO nREPL round-trip, so the server dispatches it at the
-    ;; pre-connection boundary (bypassing `ensure-connection!`) — it
-    ;; answers even when no shadow build is running, honouring the
-    ;; spec/003 "answers even when the runtime is down" contract.
-    :closed-world? true
-    :descriptor data/get-stream-controls}
    {:name       "handler-meta"
     :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
     :cacheable? true
@@ -229,7 +198,7 @@
     :descriptor data/reset-operating-frame}
    {:name       "get-operating-frame"
     :handler    (ignoring-extra #(operating-frame/get-operating-frame-tool %1 %2))
-    ;; NOT cacheable — same posture as `get-stream-controls` / `list-streams`:
+    ;; NOT cacheable —
     ;; a read of volatile process/runtime state, not a function of frame
     ;; app-db. The resolved triple (`:frames` / `:app-frames` / `:selected`
     ;; / `:operating`) depends on the live frame registry plus the per-
@@ -302,17 +271,16 @@
 (def ^:private closed-world-set
   "Materialised set of tool names flagged `:closed-world?` — the tools
   whose handler answers WITHOUT an nREPL round-trip (server-local reads:
-  `get-stream-controls`, `get-re-frame2-pair-instructions`). Built once at
-  load time so `closed-world-tool?` is an O(1) membership test."
+  `get-re-frame2-pair-instructions`). Built once at load time so
+  `closed-world-tool?` is an O(1) membership test."
   (into #{} (comp (filter :closed-world?) (map :name)) tools))
 
 (defn closed-world-tool?
   "Predicate — does this tool answer WITHOUT a live nREPL connection?
 
-  True for the server-local reads (`get-stream-controls`,
-  `get-re-frame2-pair-instructions`) whose handlers touch only in-process
-  state (resource-control atoms / an inline text `def`). The server
-  dispatches these at the pre-connection boundary — BEFORE
+  True for the server-local reads (`get-re-frame2-pair-instructions`)
+  whose handlers touch only in-process state (an inline text `def`).
+  The server dispatches these at the pre-connection boundary — BEFORE
   `ensure-connection!` — so they answer even on a stock / degraded install
   with no shadow build running, symmetric with the unknown-tool
   (rf2-4mc6q1) and gated-write (rf2-wz66k7) pre-connection guards.
@@ -331,8 +299,7 @@
   for the inline `get-re-frame2-pair-instructions` onboarding text
   (which is a pure-data function with no state whatsoever — once is
   forever). False for action tools (`dispatch`, `eval-cljs`,
-  `tail-build`), streaming tools (`subscribe`, `unsubscribe`,
-  `list-streams`, `get-stream-controls`), and volatile runtime-state
+  `tail-build`) and volatile runtime-state
   reads whose value can move without an app-db mutation —
   `get-operating-frame`, whose resolved triple is a function of the
   live frame registry plus the per-session pin. Their

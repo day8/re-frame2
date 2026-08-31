@@ -28,11 +28,11 @@
   records the tool egresses, routing each record through
   `re-frame.core/projected-record`. The projection runs APP-SIDE inside
   the eval form (where the frame's `[:rf.runtime/elision]` runtime-db registry is
-  reachable, same as the snapshot / get-path / subscribe walkers), so
+  reachable, same as the snapshot / get-path walkers), so
   the records the MCP server receives already carry `:rf/redacted` /
   `:rf.size/large-elided` markers in their payload slots.
 
-  ## Gate parity with snapshot / get-path / subscribe
+  ## Gate parity with snapshot / get-path
 
   The `--allow-sensitive-reads` boot gate (`raw-state/raw-state-allowed?`)
   governs whether a caller's `:include-sensitive true` is honoured. The
@@ -46,9 +46,8 @@
     `:include-sensitive true` cannot talk an operator who did not pass
     `--allow-sensitive-reads` into shipping raw state.
   - Gate ON + caller opts in (`include-sensitive true`) — `project?` is
-    false: records ship raw, exactly as subscribe ships raw on the
-    operator's explicit opt-in. This is the operator's deliberate choice
-    to see verbatim state.
+    false: records ship raw on the operator's explicit opt-in. This is
+    the operator's deliberate choice to see verbatim state.
 
   ## Named-egress profile: `:rf.egress/off-box-tool`
 

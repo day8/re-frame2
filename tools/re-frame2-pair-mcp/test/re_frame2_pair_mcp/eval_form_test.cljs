@@ -27,8 +27,8 @@
          (ef/emit (ef/rt-call 'health)))))
 
 (deftest rt-call-scalar-args-emit
-  (is (= "(re-frame2-pair.runtime/unsubscribe! \"abc-123\")"
-         (ef/emit (ef/rt-call 'unsubscribe! "abc-123"))))
+  (is (= "(re-frame2-pair.runtime/read-recording \"abc-123\")"
+         (ef/emit (ef/rt-call 'read-recording "abc-123"))))
   (is (= "(re-frame2-pair.runtime/snapshot :rf/default)"
          (ef/emit (ef/rt-call 'snapshot :rf/default))))
   (is (= "(re-frame2-pair.runtime/dispatch-and-collect 42)"
@@ -102,35 +102,17 @@
 ;; Round-trips — the six tool sites pinned at the wire shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest subscribe-form-shape
-  ;; Pin the wire shape — the runtime sees
-  ;; `(re-frame2-pair.runtime/subscribe! {opts-map})`.
-  (let [opts {:topic :trace
-              :max-buffered-events 500
-              :max-buffered-bytes  5000000}
-        form (ef/emit (ef/rt-call 'subscribe! opts))]
+(deftest opts-map-form-shape
+  ;; Pin the wire shape for an opts-map call — the runtime sees
+  ;; `(re-frame2-pair.runtime/<fn> {opts-map})` with the map
+  ;; round-tripping through the emitted source unchanged.
+  (let [opts {:signals [{:app-db [:cart]}]
+              :stop    {:ms 5000}}
+        form (ef/emit (ef/rt-call 'start-recording! opts))]
     (is (= opts
            (-> form
                cljs.reader/read-string
                second)))))
-
-(deftest subscribe-form-carries-both-budgets
-  ;; Regression: both budgets must round-trip.
-  (let [opts {:topic :trace
-              :max-buffered-events 1000
-              :max-buffered-bytes  2000000}
-        form (ef/emit (ef/rt-call 'subscribe! opts))
-        edn  (cljs.reader/read-string form)]
-    (is (= 1000    (-> edn second :max-buffered-events)))
-    (is (= 2000000 (-> edn second :max-buffered-bytes)))))
-
-(deftest unsubscribe-form-shape
-  (is (= "(re-frame2-pair.runtime/unsubscribe! \"abc-123-uuid\")"
-         (ef/emit (ef/rt-call 'unsubscribe! "abc-123-uuid")))))
-
-(deftest drain-form-shape
-  (is (= "(re-frame2-pair.runtime/drain-subscription! \"sub-xyz\")"
-         (ef/emit (ef/rt-call 'drain-subscription! "sub-xyz")))))
 
 (deftest precheck-form-shape-no-frame
   ;; Precheck routes through the O(1) cached accessor.

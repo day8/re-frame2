@@ -19,8 +19,8 @@
     2. **`count-elided-markers` full-payload walk** at every emit-
        site. The `:snapshot-map` and `:scalar-value` arms carry a
        server-side count on the eval form and skip the walk; the
-       `:epoch-vector` arm (trace-window, watch-epochs) and the
-       subscribe per-tick walk locally. This benchmark pins the
+       `:epoch-vector` arm (trace-window, watch-epochs) walks
+       locally. This benchmark pins the
        per-walk cost so a future optimisation (e.g. server-side
        count for runtime drains) has a baseline.
 
@@ -215,7 +215,7 @@
 ;; Bench 2 — count-elided-markers walk over a marker-rich payload.
 ;;
 ;; snapshot+get-path carry a server-side count and skip this walker;
-;; the `:epoch-vector` arm and subscribe per-tick still walk locally.
+;; the `:epoch-vector` arm still walks locally.
 ;; The bench pins the per-walk cost so a future "server-side count for
 ;; runtime drains" optimisation has a baseline to claim against.
 ;; ---------------------------------------------------------------------------

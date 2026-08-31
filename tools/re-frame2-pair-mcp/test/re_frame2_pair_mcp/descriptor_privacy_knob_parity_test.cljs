@@ -39,8 +39,6 @@
 ;;
 ;; Source of truth (verify against the cited handler if you change this):
 ;;   dispatch     :include-sensitive  — dispatch.cljs (`incl?`, :trace/:settle epoch egress)
-;;   subscribe    :include-sensitive  — subscribe.cljs (`incl?`, top-level sensitive drop)
-;;                :elision            — subscribe.cljs (`elision?`, per-event value walk)
 ;;   record       :include-sensitive  — record.cljs   (`incl?`,    :elide-opts)
 ;;                :elision            — record.cljs   (`elision?`, :elide-opts)
 ;;   watch-until  :include-sensitive  — watch_until.cljs (`incl?`,    :sample / :last-sample)
@@ -55,7 +53,6 @@
 
 (def ^:private handler-consumed-knobs
   {"dispatch"           #{:include-sensitive}
-   "subscribe"          #{:include-sensitive :elision}
    "record"             #{:include-sensitive :elision}
    "watch-until"        #{:include-sensitive :elision}
    "dispatch-dry-run"   #{:include-sensitive :elision}

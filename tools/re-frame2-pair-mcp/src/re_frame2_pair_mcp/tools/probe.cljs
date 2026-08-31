@@ -813,9 +813,6 @@
 ;;   - watch-until / tail-build — poll a form on a cadence, not a single
 ;;     eval (the signal step lands, but the eval recurs inside a poll
 ;;     loop, not as one terminal `.then`).
-;;   - subscribe — signals then opens a streaming controller whose
-;;     `.catch` must release the stream slot before `err->result`, so its
-;;     postlude is a different shape.
 ;;   - discover-app — chains a `runtime-health!` read after the probe.
 ;; ---------------------------------------------------------------------------
 
@@ -973,7 +970,7 @@
   transient failure on a `:cacheable?` tool (describe-image) can never be
   cached and mask a later successful read.
 
-  Used by describe-image / record / read-recording / list-streams /
+  Used by describe-image / record / read-recording /
   list-subscriptions — tools whose runtime fn already speaks the
   `{:ok? …}` envelope and needs no per-call decoration."
   [v]

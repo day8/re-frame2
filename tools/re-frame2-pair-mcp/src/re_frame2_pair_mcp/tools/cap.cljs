@@ -87,8 +87,7 @@
   {"snapshot"      "Narrow scope: pass `path [:k1 :k2]` to slice the :app-db slice, `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Default mode is :summary — drill down via `get-path` once you know the key."
    "get-path"      "Narrow the path further — pass a deeper segment so the addressed subtree is smaller. Or call `snapshot` with no `path` first for a tree-summary, then re-aim."
    "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
-   "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or stream via `subscribe` with `max-events`."
-   "subscribe"     "Tighten `filter`, lower `max-buffered-events` / `max-buffered-bytes`, set `max-events` so each tick stays small."
+   "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or fetch incrementally with `since-id` / `cursor`."
    "eval-cljs"     "Slice the value at the call-site (`get-in`, `take`, project to fewer keys) before returning."
    "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame2-pair.runtime/health)` directly via `eval-cljs` with a projection."
    "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
@@ -201,42 +200,3 @@
                          :hint     (get overflow-hints tool)
                          :strategy strategy})))
 
-(defn cap-message
-  "Per-notification wire-cap for a single serialised EDN message string.
-  Returns `message` unchanged when under the cap (or the
-  cap is disabled via `nil`), else the `pr-str` of the same
-  `{:rf.mcp/overflow {...}}` marker the result path emits.
-
-  Unlike `apply-cap` — which walks an MCP result's `:content` / structured
-  slots — this caps the ONE pre-serialised `:message` string the
-  `subscribe` streaming loop ships in a `notifications/progress`
-  notification. The MCP `tools/call` RESULT path is capped at the `invoke`
-  chokepoint (`apply-cap`), but a progress NOTIFICATION never crosses that
-  chokepoint, so the per-tick payload would otherwise egress un-capped —
-  busting the per-notification token budget the spec pins
-  (`spec/Principles.md` §Streaming over batch: \"the cap applies per
-  notification\"; §Subscribe streaming: progress frames apply the same
-  wrap per-tick; `003-Tool-Catalogue.md` §Universal dedup: the per-tick
-  `:events` vector participates in the wire-cap discipline). This is the
-  same cap-completeness class as counting `:structuredContent`
-  toward the cap — every wire-bearing payload passes through the gate.
-
-  Uses the SAME two-stage gate (`base-cap/over-cap?` — token sum OR the
-  secondary char gate) and the SAME `overflow/overflow-payload` shape as
-  the result path, so an agent that learned the `:rf.mcp/overflow` marker
-  on a `tools/call` result recognises it identically on the progress
-  channel. The overflow marker carries the `subscribe` per-tool hint so
-  the agent's next step (tighten `filter`, lower the buffer caps, set
-  `max-events`) is specific."
-  [message {:keys [tool cap]}]
-  (if (or (nil? cap) (nil? message))
-    message
-    (let [tokens (base-overflow/token-estimate message)
-          chars  (count message)]
-      (if-not (base-cap/over-cap? tokens chars cap)
-        message
-        (pr-str (base-overflow/overflow-payload
-                  {:tool        tool
-                   :token-count (base-cap/reported-count tokens chars cap)
-                   :cap         cap
-                   :hint        (get overflow-hints tool)}))))))

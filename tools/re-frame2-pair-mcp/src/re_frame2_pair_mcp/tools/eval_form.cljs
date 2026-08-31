@@ -2,9 +2,8 @@
   "Mini-DSL for composing the CLJS eval forms tools ship over nREPL.
 
   Many call-sites — `dispatch`, `trace-window`, `watch-epochs`,
-  `snapshot`, `get-path`, `subscribe`, `subscribe`'s drain/unsubscribe
-  loop forms, `list-subscriptions` (reactive sub-cache), `list-streams`
-  (streaming-tap registry), `unsubscribe`, plus `precheck-form` — need
+  `snapshot`, `get-path`, `list-subscriptions` (reactive sub-cache),
+  plus `precheck-form` — need
   CLJS source strings. Building them by raw `str` concatenation carries
   two costs this DSL avoids:
 
@@ -31,7 +30,7 @@
 
   ## Usage idioms
 
-      (def form (emit (rt-call 'subscribe! opts)))
+      (def form (emit (rt-call 'snapshot)))
 
       (def form
         (emit (rt-let ['snap (rt-call 'snapshot)]
@@ -51,8 +50,8 @@
 
   - Tests assert against the DSL data:
 
-        (= [::call 'subscribe! [{:topic :trace ...}]]
-           (rt-call 'subscribe! {:topic :trace ...}))
+        (= [::call 'snapshot [{:path [:cart] ...}]]
+           (rt-call 'snapshot {:path [:cart] ...}))
 
     No regex over generated source, no whitespace fragility."
   (:refer-clojure :exclude [emit])

@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.args
-  "Argument-coercion helpers for the snapshot / get-path / subscribe
+  "Argument-coercion helpers for the snapshot / get-path
   family — path vectors, frame ids, slice include lists, summary modes,
-  per-slice mode maps, and the streaming filter map.
+  and per-slice mode maps.
 
   Path-arg parsing: two tools take a `:path` argument:
   `snapshot` (slice the :app-db slice) and `get-path` (direct
@@ -608,33 +608,21 @@
           [:ok parsed])))))
 
 ;; ---------------------------------------------------------------------------
-;; Numeric subscribe-control args.
+;; Numeric integer args.
 ;;
-;; `subscribe` forwards five integer knobs straight from the MCP args to
-;; the runtime queue budget / poll loop / termination caps. The
-;; descriptor schemas said `type: integer` with NO lower bound, so a
-;; malformed or LLM-generated value reached the runtime un-vetted:
+;; Several tools forward integer knobs straight from the MCP args into
+;; poll loops and deadline comparisons. The descriptor schemas say
+;; `type: integer` with NO lower bound, so a malformed or LLM-generated
+;; value would otherwise reach the runtime un-vetted (a zero / negative
+;; cadence collapses a poll loop into a near-tight spin; a negative
+;; deadline is immediately elapsed).
 ;;
-;;   - a negative `max-buffered-events` / `max-buffered-bytes` is truthy
-;;     and collapses the queue budget so EVERY event evicts (an apparently
-;;     healthy but永-empty probe);
-;;   - a zero / negative `poll-ms` collapses the poll loop into a
-;;     near-tight spin, burning local CPU + nREPL bandwidth;
-;;   - a negative termination cap (`max-ms` / `max-events`) is non-zero so
-;;     the `(pos? …)` guard fires, but `>=` against a negative bound is
-;;     immediately true — silently disabling the intended bound or, for
-;;     `max-ms`, scheduling a `setTimeout` with a negative delay.
+;; The positivity contract: these knobs must be POSITIVE integers
+;; (>= 1) — a zero budget / cadence is nonsensical.
 ;;
-;; Two positivity contracts cover the five knobs:
-;;   - buffer caps + `poll-ms` must be POSITIVE integers (>= 1) — a zero
-;;     budget / cadence is nonsensical.
-;;   - `max-ms` / `max-events` must be NON-NEGATIVE integers (>= 0) where
-;;     0 means "unbounded" (the documented sentinel).
-;;
-;; Both return the tagged `[:ok n|nil]` / `[:err {…}]` shape so
-;; `subscribe-tool` short-circuits a bad value to an honest `:ok? false`
-;; envelope (the same one-cond-branch pattern as `:unknown-topic` /
-;; `:invalid-filter-edn`) WITHOUT touching the nREPL socket. An ABSENT
+;; Returns the tagged `[:ok n|nil]` / `[:err {…}]` shape so the tool
+;; short-circuits a bad value to an honest `:ok? false`
+;; envelope WITHOUT touching the nREPL socket. An ABSENT
 ;; arg is `[:ok nil]` — the caller falls back to the runtime / descriptor
 ;; default.
 
@@ -701,25 +689,10 @@
         [:ok n]
         (err-int arg-name raw "a positive integer (>= 1)")))))
 
-(defn parse-non-negative-int-arg
-  "Validate an OPTIONAL non-negative-integer MCP arg value
-  where 0 is the documented unbounded sentinel. `raw` is the already-
-  extracted arg value; `arg-name` is its wire key. Returns `[:ok nil]`
-  when absent, `[:ok n]` for an integer `>= 0`, and `[:err {…}]` for a
-  negative / fractional / non-numeric value."
-  [arg-name raw]
-  (cond
-    (nil? raw) [:ok nil]
-    :else
-    (let [n (coerce-int raw)]
-      (if (and (not= ::bad n) (not (neg? n)))
-        [:ok n]
-        (err-int arg-name raw "a non-negative integer (>= 0; 0 = unbounded)")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Timeout / wait millisecond args.
 ;;
-;; Three NON-streaming tools thread a millisecond deadline straight from
+;; Three tools thread a millisecond deadline straight from
 ;; the MCP args into an `(>= elapsed deadline)` poll comparison with NO
 ;; coercion or lower-bound check:
 ;;
@@ -734,12 +707,10 @@
 ;; the timeout knob exists to prevent. A zero / negative value times out
 ;; immediately (or, for `tail-build`, schedules a negative `setTimeout`
 ;; delay). These deadlines must be POSITIVE millisecond integers (>= 1);
-;; 0 is not a meaningful "wait/await for no time" sentinel here (unlike
-;; subscribe's `max-ms`, where 0 means UNBOUNDED — the opposite polarity).
-;; So this reuses the POSITIVE-int contract, not the non-negative one.
+;; 0 is not a meaningful "wait/await for no time" sentinel here.
 ;;
 ;; Returns the same tagged `[:ok n|nil]` / `[:err {…}]` shape as the
-;; subscribe validators so each tool short-circuits a bad value to an
+;; other numeric validators so each tool short-circuits a bad value to an
 ;; honest `:ok? false` / isError envelope (the masterpiece-CORRECTNESS
 ;; posture: an unbounded-poll arg is an agent error worth telling the
 ;; agent about, not a value to silently paper over). An ABSENT arg is
@@ -838,36 +809,3 @@
 
           :else
           [:ok parsed])))))
-
-(defn parse-filter-arg
-  "MCP-side filter arg can be either a JS object or an EDN string. We
-  accept both for ergonomic parity with the bash-shim chain (`pred` is
-  a JSON object there).
-
-  Returns the tagged `[:ok m]` / `[:err :invalid-filter-edn]` shape
-  (mirroring `read-edn-arg`) so the caller can surface a bad
-  filter EDN as an honest `:ok? false` error rather than subscribing
-  with a nonsense filter. The two success shapes:
-
-    - `[:ok nil]`  — absent filter (no filtering).
-    - `[:ok m]`    — a parsed EDN string, a CLJS map passed through, or
-                     a JS object keywordised.
-
-  The lone failure shape `[:err :invalid-filter-edn]` is returned when
-  an EDN STRING fails to `read-string`. The tag lets `subscribe-tool`
-  short-circuit to the same honest-error envelope `:unknown-topic`
-  already uses, rather than swallowing the parse failure into a
-  broken-success path: a typo'd filter that flowed straight into the
-  runtime `subscribe!` `:filter` slot would silently become a nonsense
-  filter streaming the wrong (likely empty) event set with no
-  corrective signal."
-  [raw]
-  (cond
-    (nil? raw)        [:ok nil]
-    (string? raw)     (let [parsed (try (cljs.reader/read-string raw)
-                                        (catch :default _ ::reader-fail))]
-                        (if (= ::reader-fail parsed)
-                          [:err :invalid-filter-edn]
-                          [:ok parsed]))
-    (map? raw)        [:ok raw]
-    :else             [:ok (js->clj raw :keywordize-keys true)]))

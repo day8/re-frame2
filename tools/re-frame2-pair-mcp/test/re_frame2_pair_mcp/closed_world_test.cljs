@@ -2,9 +2,9 @@
   "Server-boundary closed-world dispatch tests (rf2-6amhbt).
 
   The server handler (`server.cljs/handle-call`) runs `ensure-connection!`
-  for the connected tools BEFORE the dispatcher. But two tools —
-  `get-stream-controls` and `get-re-frame2-pair-instructions` — read only
-  server-local state (resource-control atoms / an inline text `def`) with
+  for the connected tools BEFORE the dispatcher. But one tool —
+  `get-re-frame2-pair-instructions` — reads only
+  server-local state (an inline text `def`) with
   NO nREPL round-trip. On a stock / degraded install with no nREPL port,
   routing them through `ensure-connection!` would REJECT with
   `:nrepl-port-not-found` and the closed-world body would never run,
@@ -35,7 +35,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closed-world-tool?-flags-exactly-the-server-local-reads
-  (is (true? (registry/closed-world-tool? "get-stream-controls")))
   (is (true? (registry/closed-world-tool? "get-re-frame2-pair-instructions")))
   ;; The predicate is re-exported onto the façade the server consumes.
   (is (identical? tools/closed-world-tool? registry/closed-world-tool?))
@@ -43,7 +42,7 @@
   ;; positive here would route a nREPL-dependent tool around the
   ;; connection and hand it a nil conn.
   (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
-                "subscribe" "list-streams" "restore-epoch" "replace-app-db"
+                "restore-epoch" "replace-app-db"
                 ;; The re-frame.hicasso.tool reads eval over nREPL in the
                 ;; browser runtime — NOT server-local.
                 "read-mounted-boundaries" "read-read-attribution" "explain-render"]]
@@ -79,25 +78,5 @@
                        "discovery was NOT run — dispatched before ensure-connection!")
                    (is (nil? (:discovery-error snap))
                        "no discovery attempt recorded — connection step never reached"))))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
-
-(deftest stream-controls-answered-before-connection
-  (async done
-    (-> (server/handle-call-for-tests {} "get-stream-controls" #js {} nil)
-        (.then (fn [result]
-                 (is (not (err? result))
-                     "closed-world stream-controls succeed with NO nREPL")
-                 (let [edn (read-edn result)]
-                   (is (true? (:ok? edn)))
-                   (is (not= :nrepl-port-not-found (:reason edn)))
-                   ;; The in-process resource-control payload rides back —
-                   ;; a wired-but-empty handler would fail this.
-                   (is (map? (:config edn)) "server-local :config payload present")
-                   (is (contains? edn :concurrent-streams)))
-                 (let [snap (server/session-state-snapshot)]
-                   (is (false? (:discovered? snap))
-                       "discovery was NOT run — dispatched before ensure-connection!")
-                   (is (nil? (:discovery-error snap))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))

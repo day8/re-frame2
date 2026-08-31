@@ -78,8 +78,8 @@
     callers who haven't yet learned the `:rf.mcp/cache-hit` shape.
     The arg is parsed by the shared
     `re-frame2-pair-mcp.tools.args/parse-bool-arg` table.
-  - **Per-tool opt-out**: streaming / progress-bearing tools
-    (`subscribe`, `dispatch` with `:trace`) bypass the cache. Their
+  - **Per-tool opt-out**: action tools
+    (`dispatch` with `:trace`) bypass the cache. Their
     return value is the result of an action, not a read.
 
   ## Marker shape

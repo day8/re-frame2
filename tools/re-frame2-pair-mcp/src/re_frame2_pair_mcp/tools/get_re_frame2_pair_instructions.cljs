@@ -3,8 +3,8 @@
 
   Mirrors story-mcp's `get-story-instructions`. Returns the
   conventions an agent needs to drive the surface effectively (EDN
-  posture, `:origin :pair` tagged mutations, streaming subscribe
-  semantics, the wire-boundary cap + dedup + elision pipeline) plus a
+  posture, `:origin :pair` tagged mutations, the wire-boundary
+  cap + dedup + elision pipeline) plus a
   short `## Routing rules` index of which tool to reach for.
 
   IT DOES NOT ENUMERATE THE TOOLS (rf2-wyza). It used to — a 33-entry
@@ -78,15 +78,14 @@
     "     raw selector read, provenance irrelevant — `read-dom`.\n"
     "  5. Waiting on the app, never a poll loop — `watch-until` for a\n"
     "     predicate over a signal-set, `record` + `read-recording` to\n"
-    "     sample while a human drives the UI, `subscribe` to stream,\n"
-    "     `tail-build` for a hot reload.\n"
+    "     sample while a human drives the UI, `tail-build` for a hot\n"
+    "     reload. What already happened is a bounded history read —\n"
+    "     `watch-epochs` / `trace-window`. Every observation arrives as\n"
+    "     a completed tool result; there is no push channel.\n"
     "  6. Multi-frame — `set-operating-frame` ONCE, rather than a\n"
     "     `:frame` arg on every call; it is the escape from\n"
     "     `:ambiguous-frame`. `get-operating-frame` reports what\n"
-    "     targeted ops resolve to. ONE EXCEPTION: `subscribe` takes no\n"
-    "     `:frame` argument and the pin does NOT scope it — a pinned\n"
-    "     session still streams every frame. Scope a stream with its\n"
-    "     filter instead: `{:frame :foo}`.\n"
+    "     targeted ops resolve to.\n"
     "\n"
     "That is the whole routing index — this text does NOT list the tool\n"
     "set. `tools/list` ships every descriptor at handshake, a name that\n"
@@ -106,7 +105,7 @@
     "`dispatch` and `eval-cljs` tag their side-effects with `:origin :pair`\n"
     "(or `:origin :pair-mcp` where the runtime distinguishes) so the agent\n"
     "host's mutations are distinguishable from user-driven events in the\n"
-    "epoch ring. Filter your `subscribe` / `watch-epochs` calls on\n"
+    "epoch ring. Filter your `watch-epochs` calls on\n"
     "`:origin :pair` to see only what you triggered.\n"
     "\n"
     "## Wire-boundary pipeline\n"
@@ -118,16 +117,6 @@
     "return the `:rf.mcp/overflow` marker; declared-large slots return\n"
     "the `:rf.size/large-elided` marker with a `:handle [:rf.elision/at\n"
     "<path>]` fetch handle.\n"
-    "\n"
-    "## Streaming subscribe semantics\n"
-    "\n"
-    "`subscribe` is a long-running tools/call. Each batch of matching\n"
-    "events arrives as a `notifications/progress` notification correlated\n"
-    "by the call's `progressToken`. The call resolves with a summary when\n"
-    "the client cancels or `unsubscribe` fires. Topics: `trace`, `epoch`,\n"
-    "`fx`, `error`. Filter vocab is topic-dependent — see the descriptor.\n"
-    "Per-tick `:events` vectors are structurally deduped; oversize tick\n"
-    "payloads honour the wire-cap.\n"
     "\n"
     "## Session entry-point\n"
     "\n"

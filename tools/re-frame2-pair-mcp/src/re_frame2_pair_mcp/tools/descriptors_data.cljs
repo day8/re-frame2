@@ -100,8 +100,7 @@
 ;;   :destructiveHint  — observable state change (dispatch, eval-cljs).
 ;;   :idempotentHint   — repeated calls with the same args produce the
 ;;                       same result (snapshot, get-path).
-;;   :openWorldHint    — reaches external state (the browser runtime,
-;;                       a streaming bus subscription, ...).
+;;   :openWorldHint    — reaches external state (the browser runtime).
 ;;
 ;; Each tool's matrix pick is documented inline at its descriptor.
 ;; ---------------------------------------------------------------------------
@@ -138,36 +137,6 @@
   {:destructiveHint true
    :openWorldHint   true})
 
-(def ^:private streaming-unsubscribe-annotations
-  "Annotations for `unsubscribe` — closes a subscription. Idempotent
-  (a second close is a no-op `:existed? false`). Touches the
-  streaming registry only (the per-call result is metadata)."
-  {:idempotentHint true
-   :openWorldHint  true})
-
-(def ^:private streaming-subscribe-annotations
-  "Annotations for `subscribe` — opens a streaming subscription on
-  the runtime bus. Reaches external state (`:openWorldHint`); not
-  idempotent (repeated calls create new subscriptions)."
-  {:openWorldHint true})
-
-(def ^:private streaming-info-annotations
-  "Annotations for `list-streams` — pure read over the streaming-tap
-  subscription registry, idempotent across same-state calls."
-  {:readOnlyHint   true
-   :idempotentHint true
-   :openWorldHint  true})
-
-(def ^:private stream-controls-annotations
-  "Annotations for `get-stream-controls` — pure read over
-  the server's IN-PROCESS resource-control atoms. Read-only and
-  idempotent across same-state calls. `:openWorldHint false`: unlike
-  `list-streams` it does NOT reach the browser runtime over nREPL — the
-  state is server-local, so the read never leaves the process."
-  {:readOnlyHint   true
-   :idempotentHint true
-   :openWorldHint  false})
-
 (def ^:private record-annotations
   "Annotations for `record` — installs a read-only observer
   on the runtime. `:readOnlyHint true` because the recorder never mutates
@@ -193,23 +162,6 @@
   idempotent-read-only set."
   {:idempotentHint true
    :openWorldHint  true})
-
-(def ^:private streaming-final-summary
-  "Streaming-tool final-summary envelope (subscribe). The progress
-  notifications it emits along the way carry their own shape
-  documented in spec/003-Tool-Catalogue.md §subscribe; the
-  `tools/call` result itself is just the termination summary."
-  {:type "object"
-   :additionalProperties true
-   :properties {"ok?"             {:type "boolean"}
-                "sub-id"          {:type "string"
-                                    :description "uuid of the closed subscription"}
-                "delivered"       {:type "integer"}
-                "dropped-events"  {:type "integer"}
-                "dropped-bytes"   {:type "integer"}
-                "ticks"           {:type "integer"}
-                "reason"          {:type "string"
-                                    :description "termination reason keyword (as a string)"}}})
 
 ;; ===========================================================================
 ;; Tool descriptors
@@ -1589,119 +1541,6 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; subscribe
-;; ---------------------------------------------------------------------------
-
-(def subscribe
-  {:name "subscribe"
-   :description (str "Open a streaming subscription on the trace or epoch bus. Push-mode replacement for watch-epochs. "
-                     "Long-running tools/call — emits each batch of matching events as a notifications/progress notification "
-                     "(correlated via the call's progressToken), and resolves with a summary when the client cancels or an "
-                     "unsubscribe op fires. Topics: 'trace' (raw trace stream), 'epoch' (assembled :rf/epoch-records), "
-                     "'fx' (trace stream filtered to :op-type :rf.fx), 'error' (trace stream filtered to :op-type :error), "
-                     "'frameless' (trace events with no :rf.trace/dispatch-id — registration emits, REPL evals, lifecycle "
-                     "outside any cascade; per Tool-Pair §Frameless trace events). "
-                     "Event-bundle delivery (rf2-mscih): :trace / :fx / :error ship each tick's matched events grouped "
-                     "by :rf.trace/dispatch-id into event bundles matching `(rf/trace-buffer frame-id)` shape "
-                     "(:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events "
-                     ":parent-dispatch-id). The progress payload's load slot is `:event-bundles` on these topics. Frameless "
-                     "events NEVER ride these topics — opt into the `:frameless` topic explicitly. :epoch and :frameless "
-                     "ship as `:events` (flat). "
-                     "Filter vocab depends on topic — :trace/:fx/:error/:frameless accept the (rf/trace-buffer) filter map "
-                     "(:operation :op-type :frame :severity :event-id :handler-id :source :origin :dispatch-id :since-ms :between); "
-                     ":epoch accepts the epoch-matches? predicate map (:event-id :event-id-prefix :effects :touches-path "
-                     ":sub-ran :render :origin :frame :timing-ms). :timing-ms (rf2-r3azh) is a server-side wall-clock "
-                     "filter — number (sugar for `>= N`) or comparison string (`\">100\"`, `\"<=50\"`, …). "
-                     "Pass `filter` either as a JSON object or as an EDN-encoded string. "
-                     "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
-                     "level; opt back in with `include-sensitive true`. Dropped count surfaces as `:dropped-sensitive` "
-                     "on each progress payload (when non-zero) and the final summary. The events that DO ride are then "
-                     "walked by `re-frame.core/elide-wire-value` (rf2-vr2hn) server-side by default — declared-`:large?` "
-                     "slots collapse to markers, declared-`:sensitive?` leaves redact — exactly like snapshot / get-path. "
-                     "Pass `elision false` to stream raw payload values (honoured only under --allow-sensitive-reads; "
-                     "orthogonal to the `include-sensitive` whole-event drop). "
-                     "Each progress payload's payload-slot is structurally deduped by default (rf2-obpa9) — "
-                     "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
-                     "agent host reconstructs via `(re-frame.mcp-base.dedup/expand cache-map)`. Dedup is per-tick, not "
-                     "per-stream — each notifications/progress frame carries its own cache, no cross-tick "
-                     "references. Pass `dedup false` to skip. "
-                     "Examples: "
-                     "1. Stream every epoch: {:topic \"epoch\"} -> progress ticks {:sub-id \"<uuid>\" :events [...]} until cancel; final summary {:ok? true :sub-id \"<uuid>\" :delivered N :ticks K :reason :aborted}. "
-                     "2. Filtered fx stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks {:sub-id \"...\" :event-bundles [{:dispatch-id ... :event ... :fx ... :effects [...] :trace-events [...]}]}; ends with {:ok? true :delivered N :reason :aborted}. "
-                     "3. Time-bounded error probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors; event bundles only. "
-                     "4. Frameless live channel: {:topic \"frameless\"} -> ticks {:sub-id \"...\" :events [<registration / REPL emits>]}.")
-   :typicalTokens 1000
-   :annotations streaming-subscribe-annotations
-   :outputSchema streaming-final-summary
-   :inputSchema {:type "object"
-                 :properties {:topic   {:type "string"
-                                        :description "Topic name. Required."
-                                        :enum ["trace" "epoch" "fx" "error" "frameless"]}
-                              :filter  {:description "Filter map (JSON object) or EDN string. Vocab depends on topic."
-                                        :oneOf [{:type "object"}
-                                                {:type "string"}]}
-                              :max-buffered-events {:type "integer"
-                                                    :minimum 1
-                                                    :description "Runtime-side queue cap in EVENTS. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 500. On overflow the OLDEST events are evicted (drop-oldest FIFO) and reported as `:dropped-events` / `:overflow-reason :max-buffered-events` on the next progress tick. OR-combined with :max-buffered-bytes — whichever trips first evicts."}
-                              :max-buffered-bytes  {:type "integer"
-                                                    :minimum 1
-                                                    :description "Runtime-side queue cap in UTF-8 BYTES of each event's pr-str form. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 5_000_000 (~5 MB). Same drop-oldest policy; reports `:dropped-bytes` / `:overflow-reason :max-buffered-bytes` in the same unit. Sized to fit the 5,000-token wire-cap posture across a normal poll cadence."}
-                              :poll-ms {:type "integer"
-                                        :minimum 1
-                                        :description "Server poll cadence in ms. Positive integer (>= 1); a non-positive value is rejected with :reason :invalid-numeric-arg. Default 100."}
-                              :max-ms  {:type "integer"
-                                        :minimum 0
-                                        :description "Hard upper-bound on how long the subscription stays open, ms. Non-negative integer (>= 0); a negative value is rejected with :reason :invalid-numeric-arg. 0 = unbounded (close on cancel only). Default 0."}
-                              :max-events {:type "integer"
-                                           :minimum 0
-                                           :description "Terminate after this many events have been delivered. Non-negative integer (>= 0); a negative value is rejected with :reason :invalid-numeric-arg. 0 = unbounded. Default 0."}
-                              :dedup    knobs/dedup-property
-                              :include-sensitive {:type "boolean"
-                                                   :description (str "Opt back in to forwarding `:sensitive? true` items. Default false — "
-                                                                     "the spec/009 §Privacy forwarder default-drops top-level "
-                                                                     "`:sensitive? true` events (dropped count surfaces as "
-                                                                     "`:dropped-sensitive`). Honoured ONLY when the server was launched "
-                                                                     "with --allow-sensitive-reads; otherwise forced false (rf2-c2dtu). "
-                                                                     "Orthogonal to `:elision` — this governs whole-event drop, `:elision` "
-                                                                     "governs per-value walking of the events that DO ride.")}
-                              :elision  {:type "boolean"
-                                         :description (str "Apply the size/sensitive elision walker "
-                                                           "(`re-frame.core/elide-wire-value`, rf2-vr2hn) to each streamed "
-                                                           "event's payload server-side, before the batch crosses the wire — "
-                                                           "declared-`:large?` slots collapse to `{:rf.size/large-elided ...}` "
-                                                           "markers and declared-`:sensitive?` leaves redact to `:rf/redacted`, "
-                                                           "the SAME walker snapshot / get-path / record use. Default true. Pass "
-                                                           "false to stream raw values — honoured ONLY when the server was "
-                                                           "launched with --allow-sensitive-reads; otherwise forced true. "
-                                                           "Orthogonal to `:include-sensitive`: a gate-ON caller wanting full-raw "
-                                                           "streamed events passes BOTH `:elision false` and "
-                                                           "`:include-sensitive true`.")}
-                              :build   {:type "string"}}
-                 :required ["topic"]
-                 :additionalProperties false}})
-
-;; ---------------------------------------------------------------------------
-;; unsubscribe
-;; ---------------------------------------------------------------------------
-
-(def unsubscribe
-  {:name "unsubscribe"
-   :description (str "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false. "
-                     "Examples: "
-                     "1. Live close: {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? true}. "
-                     "2. Already-closed (idempotent): {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? false}. "
-                     "3. Unknown id: {:sub-id \"never-was\"} -> {:ok? true :sub-id \"never-was\" :existed? false}.")
-   :typicalTokens 50
-   :annotations streaming-unsubscribe-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema {:type "object"
-                 :properties {:sub-id {:type "string"
-                                       :description "The uuid returned by `subscribe`."}
-                              :build  {:type "string"}}
-                 :required ["sub-id"]
-                 :additionalProperties false}})
-
-;; ---------------------------------------------------------------------------
 ;; list-subscriptions
 ;; ---------------------------------------------------------------------------
 
@@ -1712,7 +1551,6 @@
                      "(re-frame.subs.tooling/sub-cache-snapshot, via the runtime's `sub-cache` fn), so the two never disagree (rf2-qicji). "
                      "The reactive cache is ref-counted and live: an entry appears the moment a view subscribes and DISAPPEARS "
                      "when the last consumer disposes the reaction — so a disposed sub no longer shows up here. "
-                     "NOT the streaming-tap registry — for 'what trace/epoch/fx/error streams are open?' use `list-streams`. "
                      "Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}` (query-vectors only, sorted, stable across calls); "
                      "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n> :input-kind <:db|:static|:parametric> :realized-inputs [<query-v> ...]}`. "
                      ":input-kind + :realized-inputs (rf2-e3acps) are the live counterpart to the static sub-topology: :realized-inputs are the REALIZED input query-vectors for the concrete outer query-v "
@@ -1736,70 +1574,6 @@
                               :include-sensitive {:type "boolean"
                                                    :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.size/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}
                               :build          {:type "string"}}
-                 :additionalProperties false}})
-
-;; ---------------------------------------------------------------------------
-;; list-streams
-;; ---------------------------------------------------------------------------
-
-(def list-streams
-  {:name "list-streams"
-   :description (str "List active streaming-tap subscriptions opened via `subscribe`, with per-sub queue depth, "
-                     "drop counts, and overflow-reason — without draining any queues. Diagnostic for "
-                     "'what streams are currently open?' and 'is my probe still alive?'. Wraps the "
-                     "`re-frame2-pair.runtime/subscription-info` runtime fn directly (no eval-cljs round-trip). "
-                     "NOT the reactive sub-cache — for 'what reactive subscriptions are active?' use `list-subscriptions` (rf2-qicji). "
-                     "Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes "
-                     ":dropped-events :dropped-bytes :overflow-reason :created-at}]}` — one entry per "
-                     "currently-registered streaming subscription. Empty `:subs` vector when no streams are open. "
-                     "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error` / `:frameless`) narrows to "
-                     "a single topic; `sub-id` returns only the matching sub. A non-nil `:overflow-reason` "
-                     "indicates the queue has been evicting older events to stay inside its budget — tune "
-                     "`max-buffered-events` / `max-buffered-bytes` on the next `subscribe` call. "
-                     "Examples: "
-                     "1. No streams open: {} -> {:ok? true :subs []}. "
-                     "2. Healthy probe alive: {:sub-id \"abc-123\"} -> {:ok? true :subs [{:id \"abc-123\" :topic :epoch :filter {} :queue-depth 0 :queue-bytes 0 :dropped-events 0 :overflow-reason nil :created-at 1234567890}]}. "
-                     "3. Pressured queue: {:topic \"trace\"} -> {:ok? true :subs [{:id \"xyz-789\" :topic :trace :queue-depth 487 :queue-bytes 2400000 :dropped-events 12 :overflow-reason :max-buffered-bytes}]}.")
-   :typicalTokens 500
-   :annotations streaming-info-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema {:type "object"
-                 :properties {:topic  {:type "string"
-                                       :description "Optional filter — only return subs on this topic. One of trace, epoch, fx, error, frameless."
-                                       :enum ["trace" "epoch" "fx" "error" "frameless"]}
-                              :sub-id {:type "string"
-                                       :description "Optional filter — only return the sub with this uuid."}
-                              :build  {:type "string"}}
-                 :additionalProperties false}})
-
-;; ---------------------------------------------------------------------------
-;; get-stream-controls
-;; ---------------------------------------------------------------------------
-
-(def get-stream-controls
-  {:name "get-stream-controls"
-   :description (str "Report the SERVER-SIDE streaming resource-control state (rf2-a0kxsb): effective caps, "
-                     "active stream slots vs limit, token-bucket pressure, and abuse-window count vs threshold. "
-                     "The diagnostic for 'why was my stream denied / why is it quiet / why did it terminate?'. "
-                     "Reads the server's resource-controls atoms IN-PROCESS — NO nREPL round-trip — so it answers "
-                     "even when the runtime is down (exactly when you're diagnosing a stalled stream). "
-                     "Complements `list-streams`: that tool reads the RUNTIME streaming-tap registry (what trace/epoch/fx "
-                     "streams are open in the browser); this tool reads what the SERVER's resource controller believes. "
-                     "Cross-check `:concurrent-streams :active` against the `list-streams` row count — a server :active "
-                     "with no matching list-streams row signals a LEAKED server slot; the reverse signals a stale runtime "
-                     "subscription. Carries NO event payloads or app-db data (control state only), so it is unconditionally "
-                     "safe — no --allow-sensitive-reads gate. Returns `{:ok? true :config {<four caps>} "
-                     ":concurrent-streams {:active :limit :at-capacity?} :rate-limit {:capacity :tokens :initialized? :throttling?} "
-                     ":abuse-window {:count :threshold :window-ms :tripped?} :cross-check <hint>}`. "
-                     "Examples: "
-                     "1. Healthy idle session: {} -> {:ok? true :config {:max-concurrent-streams 10 :max-events-per-sec 100 :abuse-overflow-threshold 50 :abuse-window-ms 10000} :concurrent-streams {:active 0 :limit 10 :at-capacity? false} :rate-limit {:capacity 100 :tokens 100 :initialized? false :throttling? false} :abuse-window {:count 0 :threshold 50 :window-ms 10000 :tripped? false}}. "
-                     "2. At the concurrent cap (next subscribe will be denied): {} -> {... :concurrent-streams {:active 10 :limit 10 :at-capacity? true} ...}. "
-                     "3. Rate-throttled: {} -> {... :rate-limit {:capacity 100 :tokens 0.3 :initialized? true :throttling? true} ...} — the next poll cycle defers (rate-dropped).")
-   :typicalTokens 250
-   :annotations stream-controls-annotations
-   :outputSchema envelope-or-marker
-   :inputSchema {:type "object"
-                 :properties {:build {:type "string"}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
@@ -2030,12 +1804,6 @@
                      "so you can confirm the pin took. The pin persists for the session "
                      "(implicit-until-reset); clear it with reset-operating-frame, or a runtime reload "
                      "clears it automatically. "
-                     "ONE EXCEPTION — subscribe: it takes no :frame argument and the pin does not scope "
-                     "its delivery, so a pinned session still streams events from EVERY frame. Scope a "
-                     "stream with the subscribe filter instead: {:frame :foo}. The one place the pin does "
-                     "reach a stream is the drain's elision registry — the fallback frame for a genuinely "
-                     "frameless event, which selects whose sensitive/large declarations apply, never which "
-                     "events arrive. "
                      "Examples: "
                      "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories ...}. "
                      "2. Unknown frame: {:frame \":nope\"} -> {:ok? false :reason :no-such-frame :frame :nope :frames [:rf/default :stories]}. "
@@ -2101,7 +1869,7 @@
   {:name "get-re-frame2-pair-instructions"
    :description (str "Return the re-frame2-pair-mcp agent-onboarding text (rf2-fnpqg): six routing rules "
                      "(which tool to reach for at each decision), EDN posture, "
-                     "tagged-mutation conventions, streaming subscribe semantics, the wire-boundary "
+                     "tagged-mutation conventions, the wire-boundary "
                      "pipeline. It does NOT enumerate the tools (rf2-wyza) — you already hold every "
                      "descriptor from tools/list, and a name that misses returns :unknown-tool with the "
                      "live name list; what the text adds is the CROSS-tool judgement no single "
@@ -2120,7 +1888,7 @@
    ;; size` holds this figure to `cap/sum-payload-tokens` of the real result
    ;; (within 10%) and prints the measurement when it drifts. Edit
    ;; `instructions-text` and expect that red — copy the figure it names.
-   :typicalTokens 2300
+   :typicalTokens 2000
    :annotations inline-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"

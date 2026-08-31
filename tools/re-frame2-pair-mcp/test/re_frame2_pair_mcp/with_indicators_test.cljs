@@ -12,8 +12,8 @@
   > the counts are zero.
 
   The re-frame2-pair-mcp impl centralises this rule at `wire/with-indicators`
-  — five tool emit sites (`snapshot`, `get-path`, `trace-window`,
-  `watch-epochs`, `subscribe`) route their envelope-tail through
+  — four tool emit sites (`snapshot`, `get-path`, `trace-window`,
+  `watch-epochs`) route their envelope-tail through
   it. The MUST-level contract lives in one `cond->` form; this
   conformance suite pins that contract so a future regression at
   the choke-point — or at any caller that bypasses it — fails
@@ -145,12 +145,3 @@
     (is (contains-with-indicators? src)
         "watch_epochs.cljs MUST route its envelope through wire/with-indicators")))
 
-(deftest subscribe-emit-site-routes-through-with-indicators
-  ;; Subscribe emits indicators on each progress tick AND on the
-  ;; final result. Either site routes through with-indicators; the
-  ;; module-level grep is fine. The emit helpers (progress-payload,
-  ;; emit-progress-tick!, final-summary) live in subscribe.cljs
-  ;; alongside the streaming-loop body.
-  (let [src (read-source "src/re_frame2_pair_mcp/tools/subscribe.cljs")]
-    (is (contains-with-indicators? src)
-        "subscribe.cljs MUST route its envelope through wire/with-indicators")))

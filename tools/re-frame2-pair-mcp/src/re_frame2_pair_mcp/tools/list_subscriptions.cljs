@@ -11,16 +11,6 @@
   `sub-cache` fn) — the SAME accessor `snapshot :sub-cache` uses, so the
   two never disagree.
 
-  ## Relationship to list-streams
-
-  `list-subscriptions` routes through `sub-cache-info`, reporting the
-  live reactive cache — the SAME source `snapshot :sub-cache` reads, so
-  the two never disagree. The complementary streaming-tap diagnostic
-  (the trace / epoch / fx / error queues opened by `subscribe`, read via
-  `subscription-info`) lives in the accurately-named `list-streams`
-  tool. The two are distinct concepts — reactive sub-cache vs streaming
-  tap — each with its own tool.
-
   ## Disposal
 
   The reactive sub-cache is ref-counted and live: an entry appears the

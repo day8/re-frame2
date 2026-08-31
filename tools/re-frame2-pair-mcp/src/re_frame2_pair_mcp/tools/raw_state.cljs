@@ -1,8 +1,8 @@
 (ns re-frame2-pair-mcp.tools.raw-state
   "Raw-state boot-gate.
 
-  re-frame2-pair-mcp's direct-read surfaces (`snapshot`, `get-path`, `subscribe`
-  on `:epoch`) can return verbatim slices of a live app's state. The
+  re-frame2-pair-mcp's direct-read surfaces (`snapshot`, `get-path`)
+  can return verbatim slices of a live app's state. The
   framework's per-call privacy table already defaults `:include-sensitive`
   to `false` and `:elision` to `true`, but a caller can still opt in
   to raw state by passing the args explicitly — and the preload runtime's

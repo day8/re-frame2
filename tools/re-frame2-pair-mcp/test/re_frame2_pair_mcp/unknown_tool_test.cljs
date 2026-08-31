@@ -68,7 +68,7 @@
         "hint inlines the nearest-match suggestion")))
 
 (deftest refuse-unknown-tool-passes-registered-names-through
-  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs" "subscribe"
+  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs"
                 "trace-window" "discover-app" "restore-epoch" "replace-app-db"
                 "list-handlers"]]
     (is (nil? (tools/refuse-unknown-tool tool))

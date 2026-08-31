@@ -10,10 +10,8 @@
     "get-operating-frame",
     "get-path",
     "get-re-frame2-pair-instructions",
-    "get-stream-controls",
     "handler-meta",
     "list-handlers",
-    "list-streams",
     "list-subscriptions",
     "orient",
     "read-dom",
@@ -28,10 +26,8 @@
     "restore-epoch",
     "set-operating-frame",
     "snapshot",
-    "subscribe",
     "tail-build",
     "trace-window",
-    "unsubscribe",
     "watch-epochs",
     "watch-until"
   ]
