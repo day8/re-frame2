@@ -66,7 +66,6 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]
             [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.tools.resource-controls :as resource]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]
@@ -499,8 +498,8 @@
         ;; MCP boundary. The tool body's own gate stays as defence in depth.
         (js/Promise.resolve refusal)
         (if (tools/closed-world-tool? name)
-          ;; A closed-world tool (get-stream-controls /
-          ;; get-re-frame2-pair-instructions) reads only server-local state —
+          ;; A closed-world tool (get-re-frame2-pair-instructions) reads
+          ;; only server-local state —
           ;; no nREPL round-trip — so it is DISPATCHED HERE, before
           ;; `ensure-connection!` (rf2-6amhbt). Otherwise a stock / degraded
           ;; install with no nREPL port would run discovery, REJECT with
@@ -588,8 +587,8 @@
 
 (defn- handle-call-local
   "Pre-connection dispatch for a closed-world tool (rf2-6amhbt). The
-  handler reads only server-local state (resource-control atoms /
-  inline text), so it is invoked WITHOUT `ensure-connection!` — no
+  handler reads only server-local state (inline text), so it is
+  invoked WITHOUT `ensure-connection!` — no
   discovery, no elicitation, no nREPL socket. Uses the cached conn from
   `session-state` (may be `nil` in degraded mode); the closed-world
   handlers ignore `conn`, so the nil-conn path is safe. This is what
@@ -821,8 +820,8 @@
                                --allow-writes gate would block, so the two
                                gates are not independent protections) lives
                                in `tools/eval_cljs.cljs`.
-    --allow-sensitive-reads  — opt-in to raw state on snapshot / get-path /
-                               subscribe AND raw-value `tap>` emissions from
+    --allow-sensitive-reads  — opt-in to raw state on snapshot / get-path
+                               AND raw-value `tap>` emissions from
                                the preload's `app-db-reset!`.
                                Default OFF. Canonical cross-MCP name —
                                matches story-mcp's identically named gate.
@@ -872,10 +871,9 @@
 ;; default for the wrapper-argv prelude (node passes the script path,
 ;; shadow passes its own args), but for an MCP server configured through
 ;; agent-host JSON it is a footgun: a one-character typo in a safety
-;; flag (`--no-eavl`) silently leaves the gate at its default, a
-;; misspelled `--port-file` falls through to discovery, and an invalid
-;; resource cap quietly reverts to the default. The operator believes
-;; they requested one posture; the server starts in another.
+;; flag (`--no-eavl`) silently leaves the gate at its default, and a
+;; misspelled `--port-file` falls through to discovery. The operator
+;; believes they requested one posture; the server starts in another.
 ;;
 ;; `launch-diagnostics` closes that gap. It runs over the SAME argv the
 ;; parsers consume and returns a vector of structured diagnostic maps —
@@ -895,8 +893,8 @@
 
 (def ^:private known-valued-flags
   "The recognised valued launch flags (`--name <v>` or `--name=<v>`).
-  These plus `known-boolean-flags` and `resource/flag->key` form the
-  full set of `--*` tokens the server understands."
+  These plus `known-boolean-flags` form the full set of `--*` tokens
+  the server understands."
   #{"--port-file" "--http-port"})
 
 (def ^:private removed-launch-flags
@@ -917,13 +915,12 @@
   (first (str/split token #"=" 2)))
 
 (defn- known-flag?
-  "Is `prefix` a flag this server recognises (boolean, valued, or a
-  resource-control flag)? Used to separate genuine unknown flags from
-  the recognised set when scanning for typos."
+  "Is `prefix` a flag this server recognises (boolean or valued)? Used
+  to separate genuine unknown flags from the recognised set when
+  scanning for typos."
   [prefix]
   (or (contains? known-boolean-flags prefix)
-      (contains? known-valued-flags prefix)
-      (contains? resource/flag->key prefix)))
+      (contains? known-valued-flags prefix)))
 
 (defn launch-diagnostics
   "Scan `argv` for misconfigured launch input and return a vector of
@@ -940,12 +937,7 @@
     - `:missing-value`       — a valued flag (`--port-file` / `--http-port`)
                                present with no value (trailing, or
                                immediately followed by another flag).
-    - `:malformed-value`     — `--http-port` with a non-numeric value,
-                               or a resource-control flag whose value
-                               isn't a positive integer.
-
-  Resource ENV vars are validated separately by
-  `resource-env-diagnostics` (they share the same diagnostic shape).
+    - `:malformed-value`     — `--http-port` with a non-numeric value.
 
   `argv` here is the launch argv AFTER node/shadow strip their own
   prelude — i.e. the same vector `parse-launch-flags` sees. Tokens that
@@ -999,61 +991,14 @@
                     :issue    :malformed-value
                     :effect   "non-numeric --http-port — falling back to the default shadow HTTP port (9630)"}
 
-                   ;; Resource-control flag in the SPACE form. The resource
-                   ;; parser only accepts `--name=N`, so a
-                   ;; space-form `--max-concurrent-streams 20` is silently
-                   ;; dropped — name it as a malformed usage.
-                   (and (contains? resource/flag->key prefix)
-                        (not has-inline?))
-                   {:severity :warn
-                    :input    token
-                    :issue    :malformed-value
-                    :effect   (str prefix " requires the equals form (" prefix "=N) — falling back to the documented default")}
-
-                   ;; Resource-control flag whose value isn't a positive int.
-                   (and (contains? resource/flag->key prefix)
-                        has-inline?
-                        (let [n (parse-long (or inline-val ""))]
-                          (not (and n (pos? n)))))
-                   {:severity :warn
-                    :input    token
-                    :issue    :malformed-value
-                    :effect   (str prefix " value must be a positive integer — falling back to the documented default")}
-
                    :else nil)))))
          (vec))))
-
-(defn resource-env-diagnostics
-  "Scan the resource-control ENV vars for set-but-invalid values and
-  return a vector of diagnostic maps (same shape as `launch-diagnostics`).
-  A blank, non-numeric, or non-positive env var is currently a SILENT
-  skip (`resource/read-resource-env`); this names it so an operator who
-  exported `RE_FRAME2_PAIR_MCP_MAX_STREAMS=0` learns their cap reverted
-  to the default rather than discovering it the hard way.
-
-  Takes the env object (`process.env`-shaped) so tests can stub it;
-  the 0-arity reads `process.env`."
-  ([] (resource-env-diagnostics (j/get js/process :env)))
-  ([env-obj]
-   (->> resource/env->key
-        (keep
-          (fn [[var-name _k]]
-            (let [raw (some-> env-obj (j/get var-name))]
-              (when (and (string? raw) (seq raw))
-                (let [n (parse-long raw)]
-                  (when-not (and n (pos? n))
-                    {:severity :warn
-                     :input    (str var-name "=" raw)
-                     :issue    :malformed-env
-                     :effect   (str var-name " must be a positive integer — falling back to the documented default")}))))))
-        (vec))))
 
 (defn- log-launch-diagnostics!
   "Emit each launch-config diagnostic to stderr at boot, BEFORE the
   transport announces readiness. No-op when the config is clean."
   [argv]
-  (doseq [{:keys [input issue effect]}
-          (into (launch-diagnostics argv) (resource-env-diagnostics))]
+  (doseq [{:keys [input issue effect]} (launch-diagnostics argv)]
     (log! (str "launch-config WARNING [" (name issue) "]: " input " — " effect))))
 
 (defn- apply-launch-flags!
@@ -1076,30 +1021,15 @@
   ;; writes); see `tools/eval_cljs.cljs` for the rationale.
   (log! "Writes:" (if allow-writes? "ENABLED (--allow-writes)" "disabled (default; pass --allow-writes to opt in)")))
 
-(defn- apply-resource-controls!
-  "Read resource-control config from env + CLI flags and push it into
-  the resource-controls atoms. Logs the effective values
-  so operators can confirm at startup which caps are in force."
-  [argv]
-  (let [env-cfg  (resource/read-resource-env)
-        flag-cfg (resource/parse-resource-flags argv)
-        merged   (resource/apply-resource-config! env-cfg flag-cfg)]
-    (log! (str "Resource controls:"
-               " max-concurrent-streams="    (:max-concurrent-streams merged)
-               " max-events-per-sec="        (:max-events-per-sec merged)
-               " abuse-overflow-threshold="  (:abuse-overflow-threshold merged)
-               " abuse-window-ms="           (:abuse-window-ms merged)))))
-
 (defn main [& args]
   (let [argv         (vec args)
         launch-flags (parse-launch-flags argv)]
     ;; Name any misconfigured launch input (typo'd flags, unaccepted
-    ;; legacy names, malformed values, invalid env vars) BEFORE the gates
+    ;; legacy names, malformed values) BEFORE the gates
     ;; are applied and the transport announces readiness, so a silent
     ;; posture-mismatch surfaces in the boot log.
     (log-launch-diagnostics! argv)
     (apply-launch-flags! launch-flags)
-    (apply-resource-controls! argv)
     (when-let [pf (:port-file launch-flags)]
       (log! "nREPL port-file (--port-file):" pf))
     (when-let [hp (:http-port launch-flags)]

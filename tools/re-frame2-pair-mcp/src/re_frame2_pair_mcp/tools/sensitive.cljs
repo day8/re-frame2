@@ -9,7 +9,7 @@
   such stamp (or `:sensitive? false`) is fine to forward.
 
   Opt-in escape hatch: an MCP arg of `:include-sensitive true` (on
-  any read/stream tool that surfaces trace-like data) removes the
+  any read tool that surfaces trace-like data) removes the
   filter for that call. The default is off — apps that want sensitive
   cascades visible to the pair tool configure the policy explicitly.
   The wire-key drops the trailing `?` because

@@ -67,14 +67,12 @@
   (is (cache/cacheable? "watch-epochs"))
   (is (cache/cacheable? "discover-app")))
 
-(deftest cacheable-excludes-action-and-streaming-tools
+(deftest cacheable-excludes-action-tools
   ;; Action tools' return values are the result of an action; their
   ;; hashes will differ even on \"identical\" state.
   (is (not (cache/cacheable? "dispatch")))
   (is (not (cache/cacheable? "eval-cljs")))
   (is (not (cache/cacheable? "tail-build")))
-  (is (not (cache/cacheable? "subscribe")))
-  (is (not (cache/cacheable? "unsubscribe")))
   (is (not (cache/cacheable? "unknown-tool"))))
 
 (deftest cacheable-excludes-get-operating-frame
@@ -87,12 +85,9 @@
   ;; registry/pin in (see `cache/cache-key`), and the result-hash cache
   ;; only flushes on an explicit operating-frame mutation — so caching
   ;; it could serve a stale `:rf.mcp/cache-hit` for byte-identical empty
-  ;; args. It must be non-cacheable, same posture as `get-stream-
-  ;; controls` / `list-streams`.
+  ;; args. It must be non-cacheable.
   (is (not (cache/cacheable? "get-operating-frame"))
-      "get-operating-frame must not consult the response cache")
-  (is (not (cache/cacheable? "get-stream-controls"))
-      "sibling volatile-state read stays non-cacheable too"))
+      "get-operating-frame must not consult the response cache"))
 
 ;; ---------------------------------------------------------------------------
 ;; args->fingerprint — stable across JS-object key order.

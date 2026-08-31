@@ -49,7 +49,7 @@
     (let [by-name (into {} (map (juxt :name :annotations)) tools/tool-descriptors)]
       ;; Read-only tools
       (doseq [n ["discover-app" "snapshot" "get-path" "trace-window"
-                 "watch-epochs" "list-subscriptions" "list-streams"
+                 "watch-epochs" "list-subscriptions"
                  "handler-meta" "list-handlers"
                  "get-re-frame2-pair-instructions" "tail-build"]]
         (is (true? (:readOnlyHint (by-name n)))
@@ -57,10 +57,4 @@
       ;; Destructive tools
       (doseq [n ["dispatch" "eval-cljs"]]
         (is (true? (:destructiveHint (by-name n)))
-            (str n " should have destructiveHint true")))
-      ;; Streaming tools — neither readOnly nor destructive by default;
-      ;; openWorldHint true because they touch the runtime's
-      ;; streaming bus.
-      (doseq [n ["subscribe" "unsubscribe"]]
-        (is (true? (:openWorldHint (by-name n)))
-            (str n " should have openWorldHint true"))))))
+            (str n " should have destructiveHint true"))))))

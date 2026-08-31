@@ -91,7 +91,7 @@
   ## Frame targeting
 
   `eval-cljs`, like every other structured op (`dispatch`, `snapshot`,
-  `get-path`, `trace-window`, `watch-epochs`, `subscribe`,
+  `get-path`, `trace-window`, `watch-epochs`,
   `replace-app-db`), accepts an optional `:frame` arg targeting a named
   frame.
 

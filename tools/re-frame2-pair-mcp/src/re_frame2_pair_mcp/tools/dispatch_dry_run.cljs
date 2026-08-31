@@ -31,8 +31,8 @@
   from app-db, so a stock MCP session could leak those to the model
   even though the `--allow-sensitive-reads` default is OFF.
 
-  It reuses the read-surface posture of snapshot / get-path /
-  subscribe rather than minting a new confirmation gate. The two egress
+  It reuses the read-surface posture of snapshot / get-path
+  rather than minting a new confirmation gate. The two egress
   slots egress under DIFFERENT policies because they are different
   keyspaces:
 
@@ -78,7 +78,7 @@
   The dry-run primitive internally calls `restore-epoch` to roll back,
   and the preload's tap-emitting surfaces default to RAW payloads until
   the server signals its boot-gate posture via `configure-raw-state!`.
-  Like snapshot / get-path / subscribe, this tool issues
+  Like snapshot / get-path, this tool issues
   `raw-state/signal-runtime!` between `ensure-runtime!` and the eval so
   the runtime's tap consumers see the gated (default-elided) posture
   too — not just the wire payload.
@@ -250,8 +250,8 @@
         cofx         (when (= :ok (first cofx-r)) (second cofx-r))
         ;; Dry-run is an AI-facing READ surface (it returns the would-be
         ;; app-db + recorded fx args). Gate its egress on the SAME
-        ;; `--allow-sensitive-reads` posture as snapshot / get-path /
-        ;; subscribe. Gate OFF (the
+        ;; `--allow-sensitive-reads` posture as snapshot / get-path.
+        ;; Gate OFF (the
         ;; default) forces the walker on (`elision` true) and forces
         ;; sensitive slots to redact (`include-sensitive` false); gate
         ;; ON lets the per-call args win.

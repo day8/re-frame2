@@ -12,7 +12,7 @@
   ## Why a conformance corpus for re-frame2-pair-mcp
 
   The unit suite covers each tool's INNER logic in isolation
-  (`get_path_test`, `snapshot_test`, `subscribe_test`, etc.) and the
+  (`get_path_test`, `snapshot_test`, etc.) and the
   pipeline wire-up (`invoke_test`, `cache_test`, `wire_cap_test`). This
   corpus pins the *outer* shape — for each MCP tool, given a canonical
   `tools/call` input and a deterministic stub `conn`, what wire envelope
@@ -290,7 +290,7 @@
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
   Coverage matrix. Every advertised tool (see
-  `test/fixtures/tool-names.json` — 33 today) appears below: either with a
+  `test/fixtures/tool-names.json` — 29 today) appears below: either with a
   fixture in THIS inline corpus, or in the `Not exercised here` note that
   follows — so a tool cannot silently drop out of the map by omission:
 
@@ -311,11 +311,7 @@
     | read-mounted-boundaries | yes  | n/a         | unavailable + empty-but-versioned + schema-mismatch |
     | read-read-attribution  | yes   | n/a         | tier-inactive     |
     | explain-render         | yes   | n/a         | cap-window + tier-error |
-    | subscribe              | n/a   | yes         | n/a               |
-    | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
-    | list-streams           | yes   | n/a         | n/a               |
-    | get-stream-controls    | yes   | n/a         | n/a (no nREPL round-trip) |
     | handler-meta           | yes   | yes         | (short-circuit)   |
     | list-handlers          | yes   | yes         | (short-circuit)   |
     | set-operating-frame    | yes   | yes         | no-such-frame     |
@@ -328,12 +324,7 @@
   corpus; coverage lives in the named dedicated per-tool test namespaces):
   `describe-image` (describe_image_test), `orient` (orient_test),
   `read-sub` (read_sub_test), `read-ui` (read_ui_test), `record` +
-  `read-recording` (record_test), `watch-until` (watch_until_test).
-
-  Streaming `subscribe` happy paths are covered exhaustively in
-  `subscribe_test`; here we pin only the missing-arg shape because the
-  full streaming machinery needs an actual `extra` payload the corpus
-  runner doesn't simulate."
+  `read-recording` (record_test), `watch-until` (watch_until_test)."
   [;; ---------- discover-app ----------------------------------------------
    ;; discover-app routes the runtime health map through several
    ;; precondition gates (`:debug-enabled?`, `:frames`,
@@ -1255,26 +1246,6 @@
     {:isError? true
      :edn-submap {:ok? false :reason :rf.error/read-dom-bad-selector}}}
 
-   ;; ---------- subscribe (missing-arg only — streaming path not simulated here)
-   {:fixture/id    :subscribe/missing-topic
-    :fixture/doc   "subscribe without :topic surfaces :missing-topic."
-    :fixture/tool  "subscribe"
-    :fixture/args  {}
-    :fixture/eval-script
-    [[:default nil]]
-    :fixture/expect
-    {:isError? true}}
-
-   ;; ---------- unsubscribe ------------------------------------------------
-   {:fixture/id    :unsubscribe/missing-sub-id
-    :fixture/doc   "unsubscribe without :sub-id surfaces :missing-sub-id."
-    :fixture/tool  "unsubscribe"
-    :fixture/args  {}
-    :fixture/eval-script
-    [[:default nil]]
-    :fixture/expect
-    {:isError? true}}
-
    ;; ---------- list-subscriptions (reactive sub-cache) -------------------
    {:fixture/id    :list-subscriptions/empty
     :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP (a real answer), not a blank eval — so it rides isError:false. (rf2-21vvfs: a blank/non-map eval is a DEGRADED read, not emptiness — see the /degraded-blank sibling.)"
@@ -1290,29 +1261,6 @@
    {:fixture/id    :list-subscriptions/degraded-blank
     :fixture/doc   "rf2-21vvfs: a BLANK/non-map eval (the runtime sentinel is present, but the browser tab closed/navigated in the race between the liveness re-check and the sub-cache drain) is a DEGRADED read — NOT an empty listing. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` masking a dead read."
     :fixture/tool  "list-subscriptions"
-    :fixture/args  {}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     [:default                    nil]]
-    :fixture/expect
-    {:isError? true
-     :reason  :unexpected-shape}}
-
-   ;; ---------- list-streams (streaming-tap diagnostic) -------------------
-   {:fixture/id    :list-streams/empty
-    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP, not a blank eval — so it rides isError:false. (rf2-21vvfs: a blank/non-map eval is a DEGRADED read — see the /degraded-blank sibling.)"
-    :fixture/tool  "list-streams"
-    :fixture/args  {}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     [:default                    {:ok? true :subs []}]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :subs []}}}
-
-   {:fixture/id    :list-streams/degraded-blank
-    :fixture/doc   "rf2-21vvfs: a BLANK/non-map eval on the very tool that diagnoses a dead/quiet stream is a DEGRADED read, not 'zero streams'. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` reporting a false-clean state."
-    :fixture/tool  "list-streams"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
@@ -1486,7 +1434,7 @@
 
    ;; ---------- raw-state boot-gate ---------------------------------------
    ;; The default-OFF gate forces `:include-sensitive false` AND
-   ;; `:elision true` on every snapshot / get-path / subscribe call,
+   ;; `:elision true` on every snapshot / get-path call,
    ;; regardless of the per-call arg. The gate-ON path defers to the
    ;; caller's args. The wire-key carries no trailing `?`; the namespaced
    ;; walker-option keyword `:rf.size/include-sensitive?` retains it
@@ -1666,24 +1614,6 @@
     :fixture/expect
     {:isError? true
      :reason :invalid-kind}}
-
-   ;; ---------- get-stream-controls ---------------------------------------
-   ;; Server-side resource-control diagnostic. No nREPL round-trip — the
-   ;; tool reads in-process atoms — so the eval-script is a bare default
-   ;; (the tool never asks the stub anything). Pins the outer envelope
-   ;; shape: :ok? true + the four control sections.
-   {:fixture/id    :get-stream-controls/happy
-    :fixture/doc   "get-stream-controls reports server-side caps + active/limit + rate-limit + abuse-window, no nREPL round-trip."
-    :fixture/tool  "get-stream-controls"
-    :fixture/args  {}
-    :fixture/eval-script
-    [[:default nil]]
-    :fixture/expect
-    {:isError?          false
-     :edn-submap        {:ok? true
-                         :concurrent-streams {:active 0 :limit 10 :at-capacity? false}
-                         :abuse-window {:count 0 :threshold 50 :tripped? false}}
-     :edn-contains-keys #{:config :rate-limit :cross-check}}}
 
    ;; ---------- orient ----------------------------------------------------
    ;; The first-contact app-shape summary. One nREPL round-trip

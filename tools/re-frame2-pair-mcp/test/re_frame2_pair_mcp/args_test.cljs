@@ -262,41 +262,6 @@
         (str "envelope for " (pr-str in) " is independent of the missing-hint"))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-filter-arg — the streaming filter map. Returns the tagged
-;; `[:ok m]` / `[:err :invalid-filter-edn]` shape (mirroring
-;; `read-edn-arg`) so a bad filter EDN surfaces as an honest
-;; `:ok? false` error rather than a nonsense filter the runtime applies.
-;; The nil / string / map arms are covered in subscribe_test; the
-;; `:else` arm (a JS object that is neither a string nor a CLJS map —
-;; the shape an MCP host sends a structured filter as) routes through
-;; `js->clj :keywordize-keys true` and is pinned here.
-;; ---------------------------------------------------------------------------
-
-(deftest parse-filter-arg-js-object-keywordizes
-  (let [obj #js {"op-type" "error" "frame" "rf/default"}
-        out (args/parse-filter-arg obj)]
-    (is (= [:ok {:op-type "error" :frame "rf/default"}] out)
-        "JS-object keys keywordized; values left as-is; wrapped in :ok tag")))
-
-(deftest parse-filter-arg-nested-js-object-keywordizes-deep
-  ;; `:keywordize-keys true` recurses — a nested JS object's keys are
-  ;; keywordized too.
-  (let [obj #js {"touches-path" #js ["cart" "items"]
-                 "meta" #js {"min-ms" 50}}
-        out (args/parse-filter-arg obj)]
-    (is (= [:ok {:touches-path ["cart" "items"] :meta {:min-ms 50}}] out))))
-
-(deftest parse-filter-arg-malformed-edn-is-err-tagged
-  ;; Regression: an unparseable EDN string must NOT
-  ;; become a `{:invalid-filter-edn raw}` map that rides into the runtime
-  ;; `:filter` slot. It returns the honest `[:err :invalid-filter-edn]`
-  ;; tag (mirroring read-edn-arg's :invalid arm) so the caller can
-  ;; short-circuit to an `:ok? false` envelope.
-  (is (= [:err :invalid-filter-edn]
-         (args/parse-filter-arg "(((")) ;; unbalanced delimiters
-      "unparseable filter EDN → honest :err tag, not a nonsense map"))
-
-;; ---------------------------------------------------------------------------
 ;; parse-timeout-arg — positive-millisecond deadline knobs.
 ;;
 ;; `tail-build :wait-ms` and `eval-cljs` / `dispatch :await-render`
@@ -304,7 +269,7 @@
 ;; deadline)` poll comparison. A non-numeric value made `(>= n NaN)`
 ;; never true ⇒ unbounded background polling; a zero / negative value
 ;; timed out immediately. These deadlines must be POSITIVE-ms integers
-;; (>= 1); 0 is NOT an unbounded sentinel here (unlike subscribe max-ms).
+;; (>= 1); 0 is NOT an unbounded sentinel here.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-timeout-arg-absent-is-ok-nil

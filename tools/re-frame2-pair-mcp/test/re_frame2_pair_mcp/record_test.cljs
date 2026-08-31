@@ -59,7 +59,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; `parse-stop-arg` returns the tagged `[:ok m]` /
-;; `[:err :invalid-stop-edn]` shape (mirroring `parse-filter-arg`). A
+;; `[:err :invalid-stop-edn]` shape (mirroring `read-edn-arg`). A
 ;; malformed `stop` EDN surfaces as an honest `:err` tag rather than
 ;; silently collapsing to `{}` (the default wall-clock window).
 

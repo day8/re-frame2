@@ -284,11 +284,10 @@
 (deftest every-catalogued-tool-has-an-overflow-hint
   ;; Sanity: the hint table covers the tools whose payload size is a
   ;; function of runtime state (the surfaces flagged in §Tight token
-  ;; budget). The streaming subscribe + always-tiny ops are covered
-  ;; explicitly so we never ship "Response over budget" generic when a
+  ;; budget), so we never ship "Response over budget" generic when a
   ;; sharper hint is available.
   (let [tools-with-data-volume #{"snapshot" "get-path" "trace-window" "watch-epochs"
-                                 "subscribe" "eval-cljs" "discover-app"
+                                 "eval-cljs" "discover-app"
                                  "dispatch"}]
     (doseq [t tools-with-data-volume]
       (is (contains? cap/overflow-hints t)
@@ -354,61 +353,3 @@
         "the raw over-budget lookalike body must NOT ride the wire")
     (is (<= (cap/sum-payload-tokens out) 500)
         "the overflow replacement itself stays under cap")))
-
-;; ---------------------------------------------------------------------------
-;; cap-message — per-notification wire-cap for a single serialised EDN
-;; message string.
-;;
-;; The `subscribe` streaming loop ships its per-tick payload as the
-;; `:message` of a `notifications/progress` notification — which NEVER
-;; crosses the `invoke` chokepoint where `apply-cap` runs on `tools/call`
-;; RESULTS. `cap-message` is the per-notification gate that closes that
-;; bypass: the SAME two-stage budget + the SAME `:rf.mcp/overflow` marker
-;; shape, applied to the one pre-serialised message string.
-;; ---------------------------------------------------------------------------
-
-(deftest cap-message-passes-under-budget-string-untouched
-  (let [msg (pr-str {:sub-id "s" :events [{:id 1} {:id 2}]})
-        out (cap/cap-message msg {:tool "subscribe" :cap cap/default-max-tokens})]
-    (is (= msg out) "an under-budget progress message rides the wire verbatim")))
-
-(deftest cap-message-nil-cap-disables-enforcement
-  ;; `max-tokens 0` resolves to a nil cap — the caller opted out; even a
-  ;; huge message passes through unchanged.
-  (let [msg (pr-str {:events [(big-string 100000)]})
-        out (cap/cap-message msg {:tool "subscribe" :cap nil})]
-    (is (= msg out) "nil cap disables the per-notification gate")))
-
-(deftest cap-message-nil-message-is-passthrough
-  (is (nil? (cap/cap-message nil {:tool "subscribe" :cap 500}))))
-
-(deftest cap-message-over-budget-emits-overflow-marker
-  ;; An oversized per-tick message is REPLACED with the
-  ;; `:rf.mcp/overflow` marker EDN, not shipped raw. Without this gate a
-  ;; progress notification bypasses the cap entirely and a multi-megabyte
-  ;; tick busts the per-notification token budget.
-  (let [big (apply str (repeat 8000 "x"))
-        msg (pr-str {:sub-id "s" :events [{:huge big}]})
-        out (cap/cap-message msg {:tool "subscribe" :cap 500})
-        edn (cljs.reader/read-string out)]
-    (is (contains? edn :rf.mcp/overflow)
-        "over-budget progress message MUST become the overflow marker")
-    (let [marker (:rf.mcp/overflow edn)]
-      (is (= :reached (:limit marker)))
-      (is (= "subscribe" (:tool marker)))
-      (is (= 500 (:cap-tokens marker)))
-      (is (> (:token-count marker) 500))
-      (is (string? (:hint marker)))
-      (is (re-find #"(?i)filter|max-events|max-buffered" (:hint marker))
-          "the marker carries the subscribe per-tool next-step hint"))
-    (is (<= (tu/token-estimate out) 500)
-        "the overflow-marker message itself stays under the cap")))
-
-(deftest cap-message-respects-custom-cap-override
-  ;; A small custom cap trips on a payload the default 5k would pass.
-  (let [msg (pr-str {:events (vec (range 400))})
-        under-default (cap/cap-message msg {:tool "subscribe" :cap cap/default-max-tokens})
-        over-tight    (cap/cap-message msg {:tool "subscribe" :cap 1})]
-    (is (= msg under-default) "passes the generous default")
-    (is (contains? (cljs.reader/read-string over-tight) :rf.mcp/overflow)
-        "trips the tight per-call override")))

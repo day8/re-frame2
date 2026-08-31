@@ -1,29 +1,24 @@
 (ns re-frame2-pair-mcp.list-subscriptions-test
-  "Unit tests for the `list-subscriptions` + `list-streams` MCP tools.
-
-  ## Two distinct sources
+  "Unit tests for the `list-subscriptions` MCP tool.
 
   `list-subscriptions` reads the LIVE reactive sub-cache (via the
   runtime's `sub-cache-info` fn, which reads the SAME
   `re-frame.subs.tooling/sub-cache-snapshot` source that `snapshot`'s
-  `:sub-cache` slice reads). `list-streams` wraps the streaming-tap
-  registry (`re-frame2-pair.runtime/subscription-info`). Keeping the
-  two separate means a frame with live reactive subscriptions reports
-  them accurately, with the streaming-tap diagnostic on its own
-  accurately-named tool.
+  `:sub-cache` slice reads), so a frame with live reactive
+  subscriptions reports them accurately and the two surfaces agree by
+  construction.
 
   These tests pin:
-   - the two descriptors (shape + arg contracts) so an accidental
+   - the descriptor (shape + arg contracts) so an accidental
      rename / arg-name slip breaks the test rather than silently
      shipping a broken tool;
    - the `list-subscriptions` eval form reads the reactive sub-cache via
-     `sub-cache-info` (NOT the streaming `subscription-info`) — the
-     wrong-source → right-source assertion;
+     `sub-cache-info` — the wrong-source → right-source assertion
+     (rf2-qicji);
    - that the `list-subscriptions` eval form and the `snapshot :sub-cache`
      slice route through the SAME runtime accessor for the same frame
      (`sub-cache` / `sub-cache-snapshot`), so the two agree by
-     construction;
-   - that `list-streams` still wraps the streaming `subscription-info`.
+     construction.
 
   The live end-to-end coverage runs against a real shadow-cljs runtime
   (`test/stdio-roundtrip.js`, the cross-server conformance harness)."
@@ -35,7 +30,6 @@
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.list-streams :as ls]
             [re-frame2-pair-mcp.tools.list-subscriptions :as lsub]))
 
 (defn- descriptor-named [nm]
@@ -65,32 +59,30 @@
         (is (contains? props :include-values)
             "optional :include-values arg toggles value+ref-count payload")
         (is (not (contains? props :topic))
-            "reactive list-subscriptions has NO :topic — that's the streaming list-streams")
+            "reactive list-subscriptions has NO :topic arg")
         (is (not (contains? props :sub-id))
-            "reactive list-subscriptions has NO :sub-id — that's the streaming list-streams")))))
+            "reactive list-subscriptions has NO :sub-id arg")))))
 
 (deftest list-subscriptions-description-names-reactive-source
-  (testing "the description points at the reactive sub-cache, not the streaming registry"
+  (testing "the description points at the reactive sub-cache"
     (let [desc (:description (descriptor-named "list-subscriptions"))]
       (is (re-find #"reactive" desc))
       (is (re-find #"sub-cache" desc))
       (is (re-find #"rf2-qicji" desc)))))
 
 ;; ---------------------------------------------------------------------------
-;; list-subscriptions — reads the reactive cache, not the streaming taps
+;; list-subscriptions — reads the reactive cache
 ;; ---------------------------------------------------------------------------
 
 (deftest list-subscriptions-eval-form-reads-reactive-sub-cache
-  (testing "the eval form calls the runtime's sub-cache-info (reactive cache), NOT subscription-info (streaming taps)"
+  (testing "the eval form calls the runtime's sub-cache-info (reactive cache)"
     ;; The tool builds `(re-frame2-pair.runtime/sub-cache-info <opts>)`.
     (let [form (ef/emit (ef/rt-call 'sub-cache-info {:frame :rf/default}))
           edn  (cljs.reader/read-string form)]
       (is (= 're-frame2-pair.runtime/sub-cache-info (first edn))
           "list-subscriptions routes through sub-cache-info — the reactive sub-cache reader")
       (is (= :rf/default (-> edn second :frame))
-          "the resolved frame threads into the opts map")
-      (is (not= 're-frame2-pair.runtime/subscription-info (first edn))
-          "NOT subscription-info — that reads the streaming-tap registry (the rf2-qicji bug)"))))
+          "the resolved frame threads into the opts map"))))
 
 (deftest list-subscriptions-include-values-threads-into-opts
   (testing ":include-values true sets :include-values? on the runtime opts"
@@ -131,45 +123,15 @@
           "snapshot's :sub-cache slice is the peer source list-subscriptions now reads"))))
 
 ;; ---------------------------------------------------------------------------
-;; list-streams — the streaming-tap diagnostic
-;; ---------------------------------------------------------------------------
-
-(deftest list-streams-descriptor-present
-  (testing "`list-streams` is registered in tool-descriptors"
-    (let [d (descriptor-named "list-streams")]
-      (is (some? d) "descriptor exists")
-      (is (string? (:description d)))
-      (is (integer? (:typicalTokens d)))
-      (is (pos? (:typicalTokens d)))
-      (is (nil? (:required (:inputSchema d)))
-          "descriptor has no required args — both filters optional")
-      (let [props (:properties (:inputSchema d))]
-        (is (contains? props :topic))
-        (is (contains? props :sub-id))
-        (is (= ["trace" "epoch" "fx" "error" "frameless"]
-               (:enum (:topic props)))
-            "topic enum lists the five runtime topics")))))
-
-(deftest list-streams-eval-form-reads-streaming-registry
-  (testing "list-streams wraps the streaming `subscription-info` runtime fn"
-    (let [form (ef/emit
-                 (ef/rt-let ['r    (ef/rt-call 'subscription-info)
-                             'subs (ef/rt-raw "(:subs r)")]
-                            (ef/rt-raw "(assoc r :subs subs)")))]
-      (is (re-find #"re-frame2-pair\.runtime/subscription-info" form)
-          "list-streams keeps the streaming-tap registry reader"))))
-
-;; ---------------------------------------------------------------------------
 ;; tools/list surface + naming hygiene
 ;; ---------------------------------------------------------------------------
 
-(deftest both-tools-surface-on-tools-list
-  (testing "tool-descriptors-js includes both list-subscriptions and list-streams"
+(deftest tool-surfaces-on-tools-list
+  (testing "tool-descriptors-js includes list-subscriptions"
     (let [arr   (tools/tool-descriptors-js)
           names (set (for [i (range (alength arr))]
                        (j/get (aget arr i) :name)))]
-      (is (contains? names "list-subscriptions"))
-      (is (contains? names "list-streams")))))
+      (is (contains? names "list-subscriptions")))))
 
 (deftest old-name-not-present
   (testing "the pre-rename `subscription-info` tool name was never reintroduced"
@@ -179,10 +141,9 @@
       (is (not (contains? names "subscription-info"))
           "old name was hard-renamed (pre-alpha, no back-compat shim)"))))
 
-(deftest tool-names-use-kebab-case
-  (testing "both descriptor names use kebab-case"
-    (is (= "list-subscriptions" (:name (descriptor-named "list-subscriptions"))))
-    (is (= "list-streams" (:name (descriptor-named "list-streams"))))))
+(deftest tool-name-uses-kebab-case
+  (testing "the descriptor name uses kebab-case"
+    (is (= "list-subscriptions" (:name (descriptor-named "list-subscriptions"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame-arg coercion (shared with snapshot / get-path)
@@ -196,28 +157,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Degraded-eval contract (rf2-21vvfs) — a blank/non-map eval must NOT be
 ;; fabricated into a fake `{:ok? true :subs []}` "everything fine, zero
-;; streams" answer on the very tools that diagnose a dead/quiet stream. A
-;; non-map surfaces as `:unexpected-shape` err-text (isError:true); a
-;; genuinely-empty read (the runtime's own `{:ok? true :subs []}` map) is
-;; unaffected.
+;; subscriptions" answer. A non-map surfaces as `:unexpected-shape`
+;; err-text (isError:true); a genuinely-empty read (the runtime's own
+;; `{:ok? true :subs []}` map) is unaffected.
 ;; ---------------------------------------------------------------------------
-
-(deftest list-streams-blank-eval-is-iserror-not-fabricated-empty
-  ;; The narrow race: the browser tab closes/navigates between the
-  ;; liveness re-check and the drain eval, so `cljs-eval-value` reads a
-  ;; blank shadow result as nil. The tool MUST surface that degraded read
-  ;; as an error, not manufacture "zero streams".
-  (async done
-    (-> (tu/with-stubbed-eval! nil
-          (fn [] (ls/list-streams-tool (fresh-conn) #js {})))
-        (.then (fn [r]
-                 (is (true? (tu/error? r))
-                     "a blank/non-map eval rides isError:true, not a fabricated empty success")
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :unexpected-shape (:reason edn))
-                       "the degraded read is :unexpected-shape, not a fake :subs []"))
-                 (done))))))
 
 (deftest list-subscriptions-blank-eval-is-iserror-not-fabricated-empty
   (async done
@@ -231,14 +174,14 @@
                    (is (= :unexpected-shape (:reason edn))))
                  (done))))))
 
-(deftest list-streams-genuine-empty-stays-ok
+(deftest list-subscriptions-genuine-empty-stays-ok
   ;; Non-regression: a genuinely-empty listing is the runtime's own
   ;; `{:ok? true :subs []}` MAP — a real success. `map-envelope-result`
   ;; only diverts a non-map or an explicit `:ok? false`, so real emptiness
   ;; must still ride as a non-error success.
   (async done
     (-> (tu/with-stubbed-eval! {:ok? true :subs []}
-          (fn [] (ls/list-streams-tool (fresh-conn) #js {})))
+          (fn [] (lsub/list-subscriptions-tool (fresh-conn) #js {})))
         (.then (fn [r]
                  (is (not (tu/error? r))
                      "an empty-but-ok listing is a success, not an error")

@@ -49,9 +49,8 @@
 (def dedup-property
   "Per-tool descriptor slot for the `:dedup` opt-out.
   Applied to surfaces that ship epoch slices (`snapshot`,
-  `trace-window`, `watch-epochs`) and to the `subscribe` streaming
-  channel — the surfaces where repeated subtrees dominate the wire
-  cost. Default `true`."
+  `trace-window`, `watch-epochs`) — the surfaces where repeated
+  subtrees dominate the wire cost. Default `true`."
   {:type        "boolean"
    :description (str "Apply structural dedup to the "
                      "epoch slice / event vector before the wire-cap "
@@ -68,7 +67,7 @@
   Applied to every surface that egresses an `:app-db`-rooted VALUE through
   the per-slot walker: the direct-read app-db readers (`snapshot`,
   `get-path`, `read-sub`), `list-subscriptions :include-values`' per-sub
-  `:value`, the streaming `subscribe` payload values,
+  `:value`,
   and the signal-recorder sample values — `record`'s `:app-db` / `:sub`
   samples and `watch-until`'s `:sample` / `:last-sample` —
   surfaces where a declared-`:large?` slot or a declared-`:sensitive?` leaf
@@ -126,8 +125,7 @@
                      "session per persistent-socket principle). Read "
                      "tools only (snapshot, get-path, trace-window, "
                      "watch-epochs, discover-app); action tools "
-                     "(dispatch, eval-cljs, tail-build) and streaming "
-                     "tools (subscribe) bypass.")})
+                     "(dispatch, eval-cljs, tail-build) bypass.")})
 
 ;; `with-budget-knob` and `with-cache-knob` splicers live in
 ;; `descriptors.cljs` — they consume `registry/cacheable?` and the

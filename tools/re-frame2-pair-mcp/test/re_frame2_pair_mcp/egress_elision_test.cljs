@@ -6,7 +6,7 @@
 
   Two pull-mode tools must NOT ship raw slices of a live app's state
   off-box; they route through the same redaction that snapshot /
-  get-path / the `:epoch` subscribe drain use:
+  get-path use:
 
     - `trace-window` / `watch-epochs` egress whole epoch records carrying
       `:db-before` / `:db-after` (and `:trigger-event` / `:trace-events`)
@@ -28,8 +28,7 @@
   The redaction runs SERVER-SIDE inside the eval form the tool ships
   over nREPL — `projected-record` / `elide-wire-value` read the live
   `[:rf.runtime/elision]` runtime-db registry, which only exists app-side. A unit
-  test can't run them (no live app), so — mirroring the discipline
-  `subscribe_test.cljs` uses for `drain-form` — these tests assert the
+  test can't run them (no live app), so these tests assert the
   FORM-LEVEL contract: with the `--allow-sensitive-reads` gate OFF (the
   published-build default), the epoch eval forms map the egress page
   through `re-frame.core/projected-record`, and the list-subscriptions
@@ -634,7 +633,7 @@
 ;; indicators a tool needs to reason about an elided slot's shape). The
 ;; profile lives in `egress-opts-edn`, so every epoch egress caller that
 ;; threads through it (trace-window / watch-epochs / snapshot :epochs /
-;; dispatch :trace / :settle / subscribe epoch-topic drain) inherits it.
+;; dispatch :trace / :settle) inherits it.
 ;;
 ;; These unit tests pin the helper directly — they PARSE the emitted EDN
 ;; (not just substring it) so the assertion is the actual data shape, and

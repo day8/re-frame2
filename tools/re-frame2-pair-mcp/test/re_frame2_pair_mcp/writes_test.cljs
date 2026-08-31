@@ -57,7 +57,7 @@
 
 (deftest refuse-pre-connection-never-gates-non-write-tools
   (writes/set-allow-writes! false)
-  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs" "subscribe"
+  (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs"
                 "trace-window" "discover-app"]]
     (is (nil? (writes/refuse-pre-connection tool))
         (str tool " is not a gated write tool — must proceed to dispatch"))))

@@ -62,7 +62,7 @@
 
   ## Named `:rf.egress/*` profiles (EP-0015 §10)
 
-  The direct-read surfaces (`snapshot` / `get-path` / `subscribe` /
+  The direct-read surfaces (`snapshot` / `get-path` /
   `read-sub` / `list-subscriptions` / `record` / `watch-until`) are an
   off-box **tool wire** — they hand live frame state to an LLM/MCP
   client. Per EP-0015 §10 the *named* boundary is the choice an egress

@@ -127,7 +127,7 @@
   into the runtime predicate below). Unknown keys are dropped.
 
   Returns the tagged `[:ok m]` / `[:err :invalid-stop-edn]` shape
-  (mirroring `parse-filter-arg`) so the caller can surface a malformed
+  (mirroring `read-edn-arg`) so the caller can surface a malformed
   `stop` EDN as an honest `:ok? false` error rather than recording with
   the silent default window. The success shapes:
 
@@ -269,7 +269,7 @@
         signals     (parse-signals-arg (wire/arg raw-args :signals))
         ;; `parse-stop-arg` returns the tagged
         ;; `[:ok m]` / `[:err :invalid-stop-edn]` shape (mirroring
-        ;; `parse-filter-arg`). A malformed `stop` EDN short-circuits to
+        ;; `read-edn-arg`). A malformed `stop` EDN short-circuits to
         ;; an honest `:ok? false` envelope below rather than silently
         ;; collapsing to `{}` (the default wall-clock window) — a typo'd
         ;; `stop {:ms 5000}` would otherwise record with the wrong stop
