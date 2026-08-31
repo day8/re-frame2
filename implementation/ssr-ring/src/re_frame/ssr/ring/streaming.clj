@@ -585,9 +585,13 @@
   Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:initial-events` /
   `:root-view` / `:payload` / `:on-error` /
   `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
-  `:content-type` / `:fx-overrides` / `:ssr` (the last two are threaded
+  `:content-type` / `:fx-overrides` / `:ssr` / `:url-strategy` (the last
+  three are threaded
   through the shared `pipeline/setup-request-frame!` into the per-request
-  `(rf/make-frame …)`, exactly as `ssr-handler` does) plus the four trusted
+  `(rf/make-frame …)`, exactly as `ssr-handler` does — a declared
+  `:url-strategy` encodes `route-link` hrefs in the streamed shell and is
+  validated at frame construction exactly as on the client, rf2-089dy)
+  plus the four trusted
   shell-hook opts (`:head` / `:body-end` / `:script-src` /
   `:app-element-id`, honoured by `default-streaming-prefix` /
   `default-streaming-suffix`). `:initial-events`

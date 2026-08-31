@@ -142,6 +142,19 @@
     :ssr            — per-frame `:ssr` config map (e.g.
                       `{:dev-error-detail? true
                         :public-error-id   :myapp/projector}`).
+    :url-strategy   — per-request frame `:url-strategy` (Spec 012 §URL
+                      strategies), e.g.
+                      `(with-base-path history-url-strategy \"/realworld\")`,
+                      threaded verbatim into `(rf/make-frame ...)` so
+                      `route-link` hrefs in the server shell encode
+                      exactly as the hydrated client re-encodes them.
+                      Validated at frame construction exactly as on the
+                      client: a malformed value — an explicit nil
+                      included — fails the request with
+                      `:rf.error/invalid-url-strategy` through
+                      `:on-error`. Omit the key to keep the default
+                      path-form history strategy. Declared by the
+                      programmer; never inferred from the request.
     :emit-hash?     — emit hydration hash markers (default true). Gates the
                       WIRE markers only; the payload's hash keys are driven
                       by whether a hash exists at all (see `:root-view`).
