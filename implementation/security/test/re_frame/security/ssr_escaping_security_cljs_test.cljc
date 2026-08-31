@@ -26,7 +26,10 @@
    "oncut" "onbeforeunload" "onunload" "onhashchange" "onpopstate"
    "onmessage" "onanimationstart" "ontransitionend" "onpointerdown"
    ;; Lower-case touch names rely on the allowlist, not the structural matcher.
-   "ontouchstart" "ontouchmove" "ontouchend" "ontouchcancel"])
+   "ontouchstart" "ontouchmove" "ontouchend" "ontouchcancel"
+   ;; The lower-case oncommand spelling (WHATWG `command` event) likewise
+   ;; relies on the allowlist alone.
+   "oncommand"])
 
 (defn- live-handler-attr?
   "True when `rendered` (the output of `attr-string` for ONE attr) contains
@@ -144,7 +147,9 @@
    :onsubmit :ONSUBMIT :onfocus :onFocus :onkeydown :onKeyDown
    ;; The structural matcher cannot catch these lower-case touch names.
    :ontouchstart :ontouchmove :ontouchend :ontouchcancel
-   :ONTOUCHSTART :OnTouchStart :onTouchStart])
+   :ONTOUCHSTART :OnTouchStart :onTouchStart
+   ;; Nor the lower-case oncommand spelling (WHATWG `command` event).
+   :oncommand :ONCOMMAND :OnCommand :oNcOmMaNd])
 
 (deftest hostile-handler-corpus-all-stripped
   (testing "every hostile handler key strips to an empty attribute string"
@@ -172,6 +177,44 @@
         (is (not (str/includes? html payload))
             (str "touch handler JS payload reached wire HTML for key "
                  (pr-str k) ": " html))))))
+
+(deftest oncommand-handler-stripped
+  (testing "the standardized oncommand handler (WHATWG `command` event)
+            strips in every HTML-equivalent casing - the all-lowercase
+            spelling has no upper-case letter and no hyphen, so only the
+            allowlist can catch it"
+    (let [payload "globalThis.pwned++"]
+      (doseq [k [:oncommand :ONCOMMAND :OnCommand :oNcOmMaNd]]
+        (let [out (h/attr-string {k payload})]
+          (is (= "" out)
+              (str "handler key " (pr-str k) " was NOT stripped - leaked: "
+                   (pr-str out)))
+          (is (not (str/includes? (str/lower-case out) "oncommand"))
+              (str "handler name oncommand survived for key " (pr-str k)
+                   ": " (pr-str out)))
+          (is (not (str/includes? out payload))
+              (str "JS payload survived for key " (pr-str k) ": "
+                   (pr-str out)))))
+      ;; Non-vacuity: the SAME payload under a benign key serialises, so the
+      ;; empty results above prove handler stripping, not value rejection.
+      (is (str/includes? (h/attr-string {:data-x payload}) payload)
+          "the payload under a benign attribute must serialise"))))
+
+(deftest oncommand-payload-never-reaches-wire-html
+  (testing "an emitted element carrying :oncommand renders its benign sibling
+            attribute and child text while omitting the handler name and the
+            JavaScript payload entirely"
+    (let [payload "globalThis.pwned++"
+          html    (emit/emit-element [:div {:oncommand payload :id "ok"}
+                                      "child"])]
+      (is (str/includes? html "id=\"ok\"")
+          "the benign sibling attr should survive")
+      (is (str/includes? html "child")
+          "the child text should survive")
+      (is (not (str/includes? (str/lower-case html) "oncommand"))
+          (str "oncommand leaked into wire HTML: " html))
+      (is (not (str/includes? html payload))
+          (str "oncommand JS payload reached wire HTML: " html)))))
 
 (deftest non-handler-on-prefix-keys-survive
   (testing "the matcher must NOT over-strip innocuous English-word keys -
