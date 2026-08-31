@@ -341,18 +341,21 @@ jobs:
         continue-on-error: true
         run: python scripts/check_skill_re_frame2_drift.py --verbose --ci
 
-      # Distribution-completeness guard (rf2-f14su): a published skill that
-      # loads a sibling `../shared/<leaf>` reference in normal operation can
-      # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`
-      # allow-list cannot reach a parent dir), so a non-link install silently
-      # drops the shared protocol. The gate requires every such skill's README
-      # to carry the link-only / bring-`skills/shared/`-along caveat.
+      # In-package link-resolution guard (rf2-deo2zp): every packaged skill
+      # (`package.json` + `.claude-plugin/plugin.json`) ships self-contained,
+      # so every intra-package relative link from a shipped doc (SKILL.md /
+      # README.md / references/**.md) must resolve to a file the `package.json`
+      # `files` allow-list ships — otherwise a packaged install resolves the
+      # link to a missing file at exactly the point a user is configuring the
+      # skill. Links that escape the package (`../`) are the repo-wide doc-slug
+      # gate's surface, not this one's; the former `../shared/` distribution
+      # caveat arm (rf2-f14su) was retired under rf2-fqjys.
       - name: Self-test the skill package-refs guard
         id: check_skill_package_refs_selftest
         continue-on-error: true
         run: python scripts/check_skill_package_refs.py --self-test
 
-      - name: Verify ../shared/-referencing skills carry the distribution caveat
+      - name: Verify packaged-skill doc links resolve in-package
         id: check_skill_package_refs
         continue-on-error: true
         run: python scripts/check_skill_package_refs.py --verbose --ci
