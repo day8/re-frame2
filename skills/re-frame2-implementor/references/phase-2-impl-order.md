@@ -1,6 +1,6 @@
 # phase-2-impl-order — the EP loop
 
-Phase 2 is one repeatable loop over the EP index below, driven by the **pinned owning Specs** and the **live conformance fixtures** — read the contract, not prose about the contract. Two standing anchors: [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) (which spec owns a surface, when unsure) and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) (the public signature for anything the port exposes).
+Phase 2 is one repeatable loop over the EP index below, driven by the **pinned owning Specs** and the **live conformance fixtures** — read the contract, not prose about the contract. Every owner named on this page is read from the profile's verified checkout at the recorded pin — `<path-to-re-frame2>/spec/<file>`, cardinal rule 1; the `day8.github.io` links are citations of live main for browsing, never the reading route. Two standing anchors: [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) (which spec owns a surface, when unsure) and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) (the public signature for anything the port exposes).
 
 ## Step 0 — bootstrap the feedback seam
 

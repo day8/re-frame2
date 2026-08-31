@@ -1,6 +1,6 @@
 # conformance
 
-How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL op table, capability tagging, versioning, the harness steps. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Where this leaf and the corpus README disagree, the README (at your pin) wins.
+How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL op table, capability tagging, versioning, the harness steps. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Read the README, like every owner, from the verified checkout at your pin (cardinal rule 1) — the links here are citations of live main. Where this leaf and the corpus README disagree, the README (at your pin) wins.
 
 ## What the corpus is
 

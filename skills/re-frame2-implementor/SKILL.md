@@ -43,7 +43,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile; when `implementation/` and `spec/` disagree, the spec wins.
+1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile, and resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
 2. **Phase 1 before Phase 2.** Record the profile before implementing.
 3. **Dependency order.** EP 001 → 002 → 006 → 009 → 015 are the foundation (015 Data Classification is v1-required — it rides the 009 emission boundary); optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.

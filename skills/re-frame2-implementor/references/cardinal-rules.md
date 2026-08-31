@@ -10,6 +10,8 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 **Pin the spec before reading it.** Phase 1 records a specific `day8/re-frame2` commit/tag in the port profile ([`phase-1-decisions.md`](phase-1-decisions.md)). Before reading the spec corpus, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin **and** that the origin is `https://github.com/day8/re-frame2`. An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
 
+**Resolve every contract read through that verified checkout.** Each `spec/…` owner this skill names — the EP-index rows, the fixed-obligation links, the conformance contract — is read from `<path-to-re-frame2>/spec/<file>` at the recorded pin. The `https://day8.github.io/re-frame2/spec/…` links beside them are **citations** for human browsing: they render live main, which can sit ahead of (or behind) your pin, so they are never the reading route. A session that reads the live site can implement a different contract than the one the profile pinned.
+
 ## 2. Phase 1 before Phase 2
 
 The profile's choices (host, mechanisms, scope, capability claim) are load-bearing for every line of Phase 2 code. Record them before implementing. If a Phase 2 slice forces a choice to change, stop the slice, revise the profile line, resume.
