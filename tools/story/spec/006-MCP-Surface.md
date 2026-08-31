@@ -144,34 +144,24 @@ data, so the egress classifies each payload as runtime/captured VALUE
   retired. The live-state tools (`run-variant` / `preview-variant` /
   `read-failures` / `explain-variant`) always hold a live variant frame, so
   they redact-by-path / fail-closed accordingly.
-  **Two surfaces — `record-as-variant` (global captured events) and
-  `read-a11y-violations` (browser-panel axe-core nodes) — scrub against a
-  routinely NON-LIVE variant frame, and their payloads are inherently
-  RE-KEYED** (event vectors, DOM `:html`): a path-scrub is a no-op for them
+  **One surface —
+  `read-a11y-violations` (browser-panel axe-core nodes) — scrubs against a
+  routinely NON-LIVE variant frame, and its payload is inherently
+  RE-KEYED** (DOM `:html`): a path-scrub is a no-op for it
   even under a live frame, so failing the whole payload closed would destroy
-  the tool without closing a real leak. These two re-keyed runtime payload
-  classes take a **named, narrow Story-MCP re-keyed-runtime egress exception**
+  the tool without closing a real leak. This re-keyed runtime payload
+  class takes a **named, narrow Story-MCP re-keyed-runtime egress exception**
   (`re-frame.story-mcp.tools.egress/scrub-re-keyed-runtime`, ruled by Mike
   2026-06-26): a live frame PATH-projects (re-keyed copies fail-open); a
   non-live frame returns the payload **raw** under the documented carve-out,
   because the path-scrub is a no-op even live, so the leak-delta versus the
   live case is zero. The exception is **NOT** a broad `:rf.egress/local-raw`
   profile and **NOT** a general raw escape hatch — it is narrow to exactly
-  these two inherently-re-keyed runtime classes; any other payload uses the
+  this inherently-re-keyed runtime class; any other payload uses the
   fail-closed boundary. The framework `project-egress` boundary STAYS
-  fail-closed; this is a story-mcp-local carve-out.
-  **Captured `:rf.cofx` maps are explicitly NOT in this exception.** A flat
-  `:rf.cofx` map is ordinary, possibly app-shaped EDN (a `reg-cofx` value
-  classified `:sensitive` mirrors the app-db shape), so under a live frame a
-  cofx value at a classified path WOULD path-redact. Cofx therefore routes
-  through the plain fail-closed boundary
-  (`re-frame.story-mcp.tools.egress/scrub-captured-cofx`): live ⇒ PATH-project;
-  **non-live ⇒ FAIL CLOSED** (the whole cofx map redacts to `:rf/redacted`)
-  rather than ship raw. EP-0017 names secrets-as-recordable-cofx a normative
-  rule and review discipline, not a structural guarantee; this fail-closed
-  boundary is the structural backstop. `record-as-variant`'s on-box write-back
-  uses the RAW cofx (an `--allow-writes` registration, not a wire egress), so
-  replay fidelity is untouched.
+  fail-closed; this is a story-mcp-local carve-out. (The exception's second
+  class — the retired `record-as-variant`'s captured event vectors — left
+  with that tool, rf2-5saz7.)
   The `--allow-sensitive-reads` + per-call `:include-sensitive`
   opt-in is the deliberate way to cross any payload raw.
   This path-projection covers the live-state tools' `:app-db` /
@@ -180,9 +170,8 @@ data, so the egress classifies each payload as runtime/captured VALUE
   `read-a11y-violations`'s `:violations` (axe-core nodes), AND the
   non-live value-bearing slots: `explain-variant`'s plan-RESOLVED
   `:effective-args` / `:args` / `:substitutions` / `:network` /
-  `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`, and
-  `record-as-variant`'s `:captured` event vectors + the `:play-snippet`
-  text. Plan step STRUCTURE is always preserved. The shared
+  `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`.
+  Plan step STRUCTURE is always preserved. The shared
   `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the
   one documented escape hatch (gate closed ⇒ the opt-in is omitted from
   `tools/list` and silently ignored at egress); note that the opt-in only
@@ -296,7 +285,7 @@ The MCP jar:
   `shutdown` dispatcher.
 - Owns the newline-delimited JSON-RPC over stdio transport.
 - Owns the protocol-version pin.
-- Owns the 20-tool registry (Dev / Docs / Testing / Write). The run/read
+- Owns the 19-tool registry (Dev / Docs / Testing / Write). The run/read
   tools (`run-variant` / `read-failures` / `preview-variant`) return the
   UNIFIED `re-frame.story.result/run-result` shape the human Story UI
   reads — top-level `:status` ∈ `#{:pass :fail :cannot-run :error}`,
