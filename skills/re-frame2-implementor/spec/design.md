@@ -16,7 +16,7 @@ The skill is **guidance + workflow** layered on top of `spec/`. The skill does n
 
 1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. Verification posture per L3 below.
 2. **Idiomaticness** — verified against `spec/` + `spec/Implementor-Checklist.md` + `spec/conformance/`. The skill is downstream of the spec; if the spec is authoritative, the skill is correct by construction.
-3. **Context economy** — `SKILL.md` is a router; four small leaves load on demand, each under the family's 16 KB ceiling. The leaves point at spec sections by URL and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
+3. **Context economy** — `SKILL.md` is a router; four small leaves load on demand, each under the family's 16 KB ceiling. The leaves cite spec sections by URL — citations of live main; every contract read resolves through the profile's verified checkout at the pin, per cardinal rule 1 — and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
 4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding**: which choices are real, which EPs depend on which, how the conformance corpus grades a claim.
 
 ## 3. Locked decisions

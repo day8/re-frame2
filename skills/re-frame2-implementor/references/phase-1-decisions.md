@@ -20,7 +20,7 @@ git -C <path-to-re-frame2> remote get-url origin   # expect: https://github.com/
 git -C <path-to-re-frame2> rev-parse HEAD          # expect: the chosen <SHA-or-tag>
 ```
 
-Record the pin in the profile. Retargeting to a newer upstream HEAD later is a deliberate event: update the pin line, re-derive the capability claim at the new pin, and re-run the harness.
+Record the pin **and the checkout path** in the profile: every contract read in both phases — EP owners, fixed obligations, the conformance README, the fixture corpus — resolves through that verified checkout at the pin (`<path-to-re-frame2>/spec/…`, cardinal rule 1). The `day8.github.io` links in this skill are citations of live main for browsing, never the reading route. Retargeting to a newer upstream HEAD later is a deliberate event: update the pin line, re-derive the capability claim at the new pin, and re-run the harness.
 
 ## The profile
 
@@ -29,7 +29,7 @@ Commit it to the port's repo (as `PORT-PROFILE.md`, or a section of the README).
 ```markdown
 # Port profile — <port name>
 
-- Spec pin: day8/re-frame2 @ <SHA-or-tag> (origin + pin verified <YYYY-MM-DD>)
+- Spec pin: day8/re-frame2 @ <SHA-or-tag>, read from the verified checkout at <path-to-re-frame2> (origin + pin verified <YYYY-MM-DD>)
 - Host: <language + version; runtime targets; build tool; test runner>
 - Mechanisms (actual choices only):
   - identity primitive: <e.g. branded strings with interning>
@@ -50,7 +50,7 @@ The claim and score lines change as the port grows; edit them in place.
 
 ## What is NOT in the profile
 
-Fixed obligations — decided by the spec, not selected by an implementor. Read them at their owners; do not transcribe them into fields:
+Fixed obligations — decided by the spec, not selected by an implementor. Read them at their owners — from the verified checkout at the pin, per cardinal rule 1 (the links below are citations); do not transcribe them into fields:
 
 - React + VDOM substrate and the eight-host scope — [`spec/000-Vision.md` §The pattern + scope footnote](https://day8.github.io/re-frame2/spec/000-Vision/#the-pattern-js-cross-compile-language-agnostic).
 - The JS event loop, no core.async, run-to-completion drain — [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) (cardinal rule 5).
