@@ -377,9 +377,9 @@
       caller-supplied string is echoed; we don't have a keyword form
       because the safe-keyword gate refused to intern one).
 
-  Crystallises the four-line prelude shared by seven tool handlers
+  Crystallises the four-line prelude shared by six tool handlers
   (`preview-variant`, `get-variant`, `explain-variant`, `variant->edn`,
-  `run-variant`, `snapshot-identity`, `record-as-variant`). Tools that
+  `run-variant`, `snapshot-identity`). Tools that
   tolerate a registered-but-never-run variant (`read-a11y-violations`,
   `read-failures`, `unregister-variant`) reach for `with-variant-id`
   instead."

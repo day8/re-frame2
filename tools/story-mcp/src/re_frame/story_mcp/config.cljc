@@ -2,7 +2,7 @@
   "Compile + runtime configuration for the Story-MCP server.
 
   Per spec/003-Write-Surface-Gating.md the write surface
-  (`register-variant`, `unregister-variant`, and recorder write-back) is
+  (`register-variant`, `unregister-variant`) is
   gated behind `allow-writes?`. The default is
   `false`: writes are dev-only and must be enabled explicitly. CI runs
   should always boot with the gate closed; an agent host that wants the
@@ -86,8 +86,7 @@
 
   The convention: every dispatching / writing surface picks one keyword
   so post-mortem queries can answer 'who wrote / dispatched this?'.
-  Story-MCP doesn't ship a dispatch tool, but the `register-variant` and
-  `record-as-variant`
+  Story-MCP doesn't ship a dispatch tool, but the `register-variant`
   writes stamp this value onto the registered variant body so
   inspection of `(story/variant->edn vk)` reveals which variants came
   from the MCP write surface.

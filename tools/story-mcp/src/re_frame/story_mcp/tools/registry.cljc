@@ -31,22 +31,16 @@
   (:require [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.docs :as docs]
-            [re-frame.story-mcp.tools.recorder :as recorder]
             [re-frame.story-mcp.tools.testing :as testing]
             [re-frame.story-mcp.tools.write :as write]))
 
 (def tool-registry
   "Canonical ordered vector of every tool the server exposes. Dev →
-  docs → testing → write. The recorder bridge
-  (`record-as-variant`) lives in `tools.recorder` for leaf-size
-  reasons but belongs at the tail of the write category —
-  `recorder/descriptors` is a one-element vec
-  so the assembly stays symmetric across every category ns."
+  docs → testing → write."
   (into [] cat [dev/descriptors
                 docs/descriptors
                 testing/descriptors
-                write/descriptors
-                recorder/descriptors]))
+                write/descriptors]))
 
 ;; Load-time invariant: every registry entry MUST carry a positive-integer
 ;; `:typicalTokens` hint. The same shape is asserted by
@@ -78,7 +72,7 @@
 (def gated-input-keys
   "The input-property keys the DEFAULT `tools/list` profile gates off
   behind an operator-only gate. Today: `:include-sensitive`
-  — baked into five value-surfacing tools' descriptors at load time and
+  — baked into four value-surfacing tools' descriptors at load time and
   stripped from the default wire surface by `strip-include-sensitive`
   when `--allow-sensitive-reads` is closed. As STRINGS (the
   descriptor-manifest row shape stringifies input keys), so the
@@ -131,9 +125,9 @@
   The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
-  affected tools — the five that surface live or plan-resolved frame
+  affected tools — the four that surface live or plan-resolved frame
   VALUES (`preview-variant`, `run-variant`, `read-failures`,
-  `read-a11y-violations`, `record-as-variant`) — silently ignore
+  `read-a11y-violations`) — silently ignore
   caller-supplied `:include-sensitive true` at the helper layer
   regardless (`explain-variant` is NOT in this set (rf2-7k5mce): it is
   a no-run projection over the registry, so it ships author data raw

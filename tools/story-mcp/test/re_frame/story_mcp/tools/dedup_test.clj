@@ -140,8 +140,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Eligibility gate — descriptors carry `:dedup-eligible? true` for the
-;; three surfaces that benefit (preview-variant, run-variant,
-;; record-as-variant); every other tool ignores the wire-boundary
+;; two surfaces that benefit (preview-variant, run-variant);
+;; every other tool ignores the wire-boundary
 ;; dedup transform. Pin via the registry-load.
 ;; ---------------------------------------------------------------------------
 
@@ -154,7 +154,7 @@
                       (filter :dedup-eligible?)
                       (map :name)
                       set)]
-    (is (= #{"preview-variant" "run-variant" "record-as-variant"} eligible)
+    (is (= #{"preview-variant" "run-variant"} eligible)
         (str "dedup-eligible set drifted; if extending the contract, "
              "update Principles.md §Structural dedup AND the canonical "
              "list documented here AND in tools.wire-pipeline/invoke-tool's "

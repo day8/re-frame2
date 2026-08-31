@@ -31,7 +31,6 @@
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.lifecycle :as lifecycle]
-            [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -64,14 +63,6 @@
 ;; `reset-story-and-config` can clear it.
 (def ^:private declared-class (atom {}))
 
-;; The single key every driven recorder push registers its `add-watch` under
-;; (see `drive-events-during-recording`). Fixed rather than generated on
-;; purpose: with one key there is at most one driver watch on the recorder at
-;; any moment, a second drive displaces the first instead of stacking, and the
-;; fixture can retract a straggler by name without knowing whether one exists.
-;; Defined here (above the fixture) for the same reason `declared-class` is.
-(def ^:private drive-watch-key ::drive-events-during-recording)
-
 (defn reset-story-and-config
   "Each test gets a fresh Story registry + write-gate set to false (the
   documented default per spec/003-Write-Surface-Gating.md). Tests that need writes flip
@@ -100,12 +91,6 @@
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
-  ;; And retract any driver watch whose window never opened, so a test that
-  ;; armed a push and then failed before invoking the tool cannot have that
-  ;; push fire into the NEXT test's recording (rf2-zrdog). The watch normally
-  ;; retracts itself the instant it fires; this covers the path where it never
-  ;; does. `remove-watch` on an absent key is a no-op.
-  (remove-watch recorder/state drive-watch-key)
   ;; Disable epoch-ring recording for the duration of each story-mcp test
   ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so a
   ;; standalone `cd tools/story-mcp && clojure -M:test` never loads
@@ -190,8 +175,8 @@
 
   ## Why `:dedup false` is the test-helper default
 
-  The three dedup-eligible tools (`preview-variant`, `run-variant`,
-  `record-as-variant`, per rf2-90eft) wrap their `:structuredContent`
+  The dedup-eligible tools (`preview-variant`, `run-variant`,
+  per rf2-90eft) wrap their `:structuredContent`
   under `{:rf.mcp/dedup-table <cache>}` at the wire boundary when
   `:dedup` defaults to `true`. The tests in this corpus assert against
   the raw structured shape (`(:variant-id (:structuredContent r))`,
@@ -307,7 +292,7 @@
   (testing "matrix: destructive tools have destructiveHint"
     (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
           dest-tools ["preview-variant" "run-variant" "register-variant"
-                      "unregister-variant" "record-as-variant"]]
+                      "unregister-variant"]]
       (doseq [n dest-tools]
         (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
             (str n " should have destructiveHint true (rf2-94p8q matrix)")))))
@@ -316,9 +301,7 @@
   ;; author's lifecycle events/fx, which can reach external systems unless
   ;; the author stubbed them (fx-stubbing is an opt-in authoring surface,
   ;; not a universal default), so they MUST be open-world. EVERY other
-  ;; tool is closed-world: reads, registry writes, static docs, and
-  ;; `record-as-variant` (which records an externally-driven canvas + an
-  ;; on-box registry write, never running the lifecycle itself).
+  ;; tool is closed-world: reads, registry writes, static docs.
   (testing "matrix: only the lifecycle-run tools are open-world (rf2-e6knrq)"
     (let [by-name      (into {} (map (juxt :name identity)) registry/tool-registry)
           open-world   #{"run-variant" "preview-variant"}]
@@ -374,7 +357,13 @@
       ;; Write
       (is (contains? names "register-variant"))
       (is (contains? names "unregister-variant"))
-      (is (contains? names "record-as-variant"))))
+      ;; Retired (rf2-5saz7): the blocking recorder bridge is NOT in the
+      ;; catalogue — its advertised capture window was transport-unreachable
+      ;; (the single stdio loop slept through it). An explicit rejection so
+      ;; a reintroduction of the descriptor turns this red, not just the
+      ;; fixture-equality net below.
+      (is (not (contains? names "record-as-variant"))
+          "record-as-variant was retired (rf2-5saz7); it must not reappear in the registry")))
   (testing "registry name set matches the shared fixture exactly (rf2-36upq TE7)"
     ;; The Node `stdio-roundtrip.js` round-trip asserts `tools/list`
     ;; against the same JSON file. A drift between code + tests on either
@@ -1725,36 +1714,6 @@
       (is (nil? (find-keyword "not-story" "tag30h-invalid-A"))
           "the rejected id MUST NOT leave an interned keyword"))))
 
-(deftest record-as-variant-invalid-new-id-does-not-intern
-  (testing "an invalid write-back :new-variant-id is rejected with NO interned keyword (rf2-tag30h)"
-    (config/set-allow-writes! true)
-    (is (nil? (find-keyword "not-story" "tag30h-wb-invalid-B")))
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :write-back     true
-                     :new-variant-id "not-story/tag30h-wb-invalid-B"
-                     :duration-ms    0})]
-      (is (error? r) "an invalid-grammar :new-variant-id is rejected")
-      (is (= :rf.error/variant-id-shape (-> r :structuredContent :rf.error))
-          "the reject carries the structured variant-id-shape error")
-      (is (nil? (find-keyword "not-story" "tag30h-wb-invalid-B"))
-          "the rejected write-back id MUST NOT leave an interned keyword"))))
-
-(deftest record-as-variant-snippet-only-unregistered-new-id-diagnostic
-  (testing "a snippet-only (no write-back) :new-variant-id naming an
-            UNREGISTERED variant is surfaced as a diagnostic rather than
-            silently titling the snippet with the SOURCE id (rf2-x76af2.33)"
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :new-variant-id "story.button/never-registered-x76af2"
-                     :duration-ms    0})]
-      (is (error? r) "an unregistered snippet-only :new-variant-id is refused")
-      (is (= :rf.story-mcp/new-variant-id-unregistered
-             (-> r :structuredContent :rf.error))
-          "the diagnostic carries the structured new-variant-id-unregistered error")
-      (is (re-find #":write-back" (-> r :content first :text))
-          "the message directs the caller to :write-back"))))
-
 (deftest register-variant-wide-object-body-rejected-without-interning
   (testing "an object-form body with too many string keys is rejected BEFORE keywordising (rf2-tag30h)"
     (config/set-allow-writes! true)
@@ -1826,7 +1785,7 @@
 (deftest gated-error-tool-slot-pins-caller
   ;; `assert-writes-allowed` must stamp the gated-error payload with the
   ;; ACTUAL invoking tool name. Hardcoding `:tool "register-variant"` would
-  ;; make the two other callers (`unregister-variant`, `record-as-variant`)
+  ;; make the other caller (`unregister-variant`)
   ;; return a gated error whose `:structuredContent :tool` slot LIED about
   ;; its origin. This test pins the slot to the actual tool name at each
   ;; callsite.
@@ -1841,437 +1800,51 @@
     (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
       (is (error? r))
       (is (true? (-> r :structuredContent :gated)))
-      (is (= "unregister-variant" (-> r :structuredContent :tool))))
-    (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
-                                         :write-back  true})]
-      (is (error? r))
-      (is (true? (-> r :structuredContent :gated)))
-      (is (= "record-as-variant" (-> r :structuredContent :tool))))))
+      (is (= "unregister-variant" (-> r :structuredContent :tool))))))
 
 ;; ---------------------------------------------------------------------------
-;; record-as-variant (rf2-luhdu)
+;; record-as-variant — RETIRED (rf2-5saz7)
 ;;
-;; The recorder normally captures events off the trace bus; for these tests
-;; we drive `recorder/record-event!` directly during the tool's blocking
-;; window so the assertions exercise the start → capture → snippet
-;; plumbing without needing a live trace emitter.
+;; The blocking recorder bridge advertised a capture window no MCP client
+;; could reach: its handler slept the server's ONLY stdio dispatch loop for
+;; `:duration-ms`, so every producer available through the catalogue was
+;; sequenced OUTSIDE the window and the tool returned a green EMPTY capture.
+;; The tool is retired from the catalogue. The recorder primitives stay in
+;; `tools/story/` for their in-process/browser consumers; interactive canvas
+;; recording is performed through Pair in the attached CLJS runtime.
+;; These tests pin the ABSENCE: the retired name takes the server's existing
+;; unknown-tool path, and the rejected call cannot start or alter a
+;; recording.
 ;; ---------------------------------------------------------------------------
 
-(defn- drive-events-during-recording
-  "Arrange for `events` to be pushed into the recorder's window the
-  instant that window opens, and return.
-
-  The push rides an `add-watch` on `recorder/state`. `start-recording!`
-  is one `(swap! state start …)`, so the watch runs SYNCHRONOUSLY on the
-  tool's own thread, inside that swap, with `:recording?` already true
-  and `stop-recording!` still an unreached line further down
-  `tool-record-as-variant`. The driver and the window therefore meet
-  causally: there is no interval in which the push can be early or late,
-  because there is no interval at all.
-
-  rf2-zrdog — what this replaces, and why the replacement is not another
-  timing assumption. The capture used to be driven from a worker thread
-  that polled `recording?`, and the flake was a scheduling race at the
-  START of the window: the caller opened a fixed 100 ms window while the
-  worker's start-to-first-poll latency was whatever the OS scheduler
-  felt like — under 1 ms idle, 82 ms measured with the cores saturated,
-  which is exactly what a full-namespace aggregate run does. Past 100 ms
-  the push landed after `stop-recording!`, `record-event!` no-opped
-  (`append` appends only while `:recording?`), and the test failed on
-  `(pos? 0)` having done nothing wrong.
-
-  A `CountDownLatch` handshake was added to close that (PR #7129) and did
-  not: the worker counted the latch down as its FIRST act, before
-  computing its deadline or probing `recording?`, so the caller was
-  released while the worker was merely live rather than actually polling
-  — one deschedule after `.countDown` and the window closed unattended.
-  Worse, the caller ignored `.await`'s boolean and opened the window
-  after a timeout anyway, while the worker's own 5 s deadline was created
-  only when the worker eventually ran; a late worker could therefore
-  still be alive and fire into a LATER test's window. A watch has no
-  thread, no deadline, no timeout path and nothing left running when this
-  fn returns, so all three failure modes are gone by construction rather
-  than by margin.
-
-  The watch retracts itself before pushing, which both keeps
-  `record-event!`'s own `swap!` from re-entering it and guarantees that
-  exactly one window is driven per call. `reset-story-and-config`
-  retracts it again for the case the window never opens at all.
-
-  Capture is now EXACT: every event in `events` lands, so a test may
-  assert the count it drove rather than deriving one from the result.
-
-  EP-0017: the 2-arity `(drive-events-during-recording events cofx-vec)`
-  pushes a parallel, index-aligned vector of captured flat `:rf.cofx`
-  maps (the framework `:rf/time-ms` + any provided facts a dispatch
-  carried) via the recorder's 2-arity `record-event!`, so a test can
-  exercise the capture→write-back cofx-preservation path the same way the
-  live trace listener does."
-  ([events] (drive-events-during-recording events nil))
-  ([events cofx-vec]
-   (let [cofx-vec (vec (or cofx-vec []))]
-     (add-watch recorder/state drive-watch-key
-                (fn [_ _ old new]
-                  (when (and (not (:recording? old)) (:recording? new))
-                    ;; Retract FIRST: `record-event!` swaps this same atom.
-                    (remove-watch recorder/state drive-watch-key)
-                    (doseq [[i ev] (map-indexed vector events)]
-                      (recorder/record-event! ev (get cofx-vec i))))))
-     nil)))
-
-(deftest record-as-variant-not-found
-  (testing "unknown source variant ⇒ tool-execution error"
-    (let [r (invoke "record-as-variant" {:variant-id "story.nope/missing"})]
-      (is (error? r))
-      (is (re-find #"not found" (-> r :content first :text))))))
-
-(deftest record-as-variant-missing-arg
-  (testing "missing :variant-id ⇒ tool-execution error"
-    (let [r (invoke "record-as-variant" {})]
-      (is (error? r))
-      (is (re-find #"variant-id" (-> r :content first :text))))))
-
-(deftest record-as-variant-zero-duration-empty-capture
-  (testing "duration 0 with no in-flight dispatches ⇒ empty public :script snippet"
-    ;; The recorder's `gen-play-snippet` emits the PUBLIC
-    ;; `:script {:auto-run? true :script [...]}` body, NOT the internal
-    ;; `:script` spelling. With zero captured events the inner
-    ;; `:script` vector is empty.
-    (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= :story.button/primary (:variant-id s)))
-      (is (= 0 (:recorded-event-count s)))
-      (is (false? (:written-back? s)))
-      (is (string? (:play-snippet s)))
-      (is (re-find #":script" (:play-snippet s)))
-      (is (not (re-find #":play-script" (:play-snippet s)))
-          "the snippet emits the :script slot, never the retired :play-script spelling (rf2-7mj4z, rf2-7dewo)")
-      (is (re-find #":script\s+\[\]" (:play-snippet s)))
-      (is (re-find #":story\.button/primary" (:play-snippet s))))))
-
-(deftest record-as-variant-captures-events-during-window
-  (testing "events pushed during the blocking window land in :captured"
-    (drive-events-during-recording [[:counter/inc] [:counter/by 7]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id  "story.button/primary"
-                     :duration-ms 100})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 2 (:recorded-event-count s)))
-      (is (= [[:counter/inc] [:counter/by 7]] (:captured s)))
-      (is (re-find #":counter/inc" (:play-snippet s)))
-      (is (re-find #":counter/by 7" (:play-snippet s))))))
-
-(deftest record-as-variant-write-back-gated-by-default
-  (testing "write-back true with allow-writes? false ⇒ gated error"
-    (is (false? (config/writes-allowed?)))
-    (let [r (invoke "record-as-variant" {:variant-id  "story.button/primary"
-                                         :write-back  true})]
-      (is (error? r))
-      (is (re-find #"Write surface disabled" (-> r :content first :text)))
-      (is (true? (-> r :structuredContent :gated))))))
-
-(deftest record-as-variant-write-back-overwrites-source
-  (testing "write-back true with gate open re-registers the source variant"
-    (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id  "story.button/primary"
-                     :duration-ms 100
-                     :write-back  true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r))
-      (is (true? (:written-back? s)))
-      (is (= :story.button/primary (:new-variant-id s)))
-      (is (pos? n) "the recorder captured at least one event")
-      ;; Write-back assocs `:script` and `reg-variant*` stores it under
-      ;; that same key — so the STORED body (`variant->edn`) reads
-      ;; `:script` carrying the captured events as a LIVE, replayable
-      ;; script. Each captured event becomes a `[:dispatch ...]` step.
-      ;; The count is read back from `:recorded-event-count` rather than
-      ;; hard-coded. It is now deterministic — the driver's push fires inside
-      ;; `start-recording!`'s own swap (rf2-zrdog), so all driven events land —
-      ;; but reading it keeps this test about the SHAPE of the written-back
-      ;; body, with the count itself pinned by the tests that assert it.
-      (let [body (story/variant->edn :story.button/primary)]
-        (is (nil? (:play body))
-            "the legacy dead :play slot must NOT be written")
-        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
-                :auto-run? true}
-               (:script body))
-            "the stored body carries the written-back :script slot")
-        ;; Pre-existing body keys survive (e.g. :doc).
-        (is (= "Primary button." (:doc body)))))))
-
-(deftest record-as-variant-write-back-new-id
-  (testing ":new-variant-id lands the capture under a fresh id"
-    (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :new-variant-id "story.button/recorded"
-                     :duration-ms    100
-                     :write-back     true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r))
-      (is (true? (:written-back? s)))
-      (is (= :story.button/recorded (:new-variant-id s)))
-      (is (pos? n) "the recorder captured at least one event")
-      ;; Write-back assocs `:script`, stored under that key (count read
-      ;; back from `:recorded-event-count`; deterministic since rf2-zrdog).
-      (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
-             (:script (story/variant->edn :story.button/recorded))))
-      (is (nil? (:play (story/variant->edn :story.button/recorded))))
-      ;; Source variant is untouched.
-      (is (nil? (:script (story/variant->edn :story.button/primary))))
-      (is (nil? (:play (story/variant->edn :story.button/primary)))))))
-
-(deftest record-as-variant-write-back-replaces-existing-script
-  (testing "rf2-f4e1xs: write-back against a source variant that ALREADY
-            carries a :script play surface must REPLACE it, not fail
-            validation — the recorded :script becomes the sole play
-            surface."
-    (config/set-allow-writes! true)
-    (story/reg-variant :story.button/with-script
-      {:doc    "Has an existing play surface."
-       :args   {:label "Scripted"}
-       :tags   #{:dev}
-       :script [[:dispatch [:noop]]]})
-    (is (= [[:dispatch [:noop]]] (:script (story/variant->edn :story.button/with-script)))
-        "precondition: the source variant stores its authored :script")
-    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id  "story.button/with-script"
-                     :duration-ms 100
-                     :write-back  true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r)
-          "write-back over an existing :script succeeds (was :isError pre-fix)")
-      (is (true? (:written-back? s)))
-      (is (= :story.button/with-script (:new-variant-id s)))
-      (is (pos? n) "the recorder captured at least one event")
-      (let [body (story/variant->edn :story.button/with-script)]
-        ;; The recorded script REPLACES the prior play surface — the body
-        ;; carries the recorded steps under :script, NOT the old
-        ;; [:dispatch [:noop]] script.
-        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
-                :auto-run? true}
-               (:script body))
-            "the stored :script is the recorded body, replacing the old script")
-        (is (nil? (:plays body))
-            "no second play surface survives (single play surface)")
-        ;; Unrelated body keys survive.
-        (is (= "Has an existing play surface." (:doc body)))))))
-
-(deftest record-as-variant-write-back-replaces-existing-plays
-  (testing "rf2-f4e1xs: write-back against a source variant carrying the
-            multi-play :plays surface also replaces it cleanly rather than
-            failing the mutual-exclusion check."
-    (config/set-allow-writes! true)
-    (story/reg-variant :story.button/with-plays
-      {:doc   "Has a :plays multi-play surface."
-       :args  {:label "Multiplay"}
-       :tags  #{:dev}
-       :plays [{:name "happy path" :script [[:dispatch [:noop]]]}]})
-    (is (some? (:plays (story/variant->edn :story.button/with-plays)))
-        "precondition: the source variant stores :plays")
-    (drive-events-during-recording [[:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id  "story.button/with-plays"
-                     :duration-ms 100
-                     :write-back  true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r)
-          "write-back over an existing :plays succeeds (was :isError pre-fix)")
-      (is (true? (:written-back? s)))
-      (is (pos? n))
-      (let [body (story/variant->edn :story.button/with-plays)]
-        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
-                :auto-run? true}
-               (:script body))
-            "the recorded :script is stored, replacing :plays")
-        (is (nil? (:plays body))
-            "the prior :plays surface is dropped (single play surface)")))))
-
-(deftest record-as-variant-write-back-round-trips-and-replays
-  (testing "rf2-50jzf: a written-back recording's :script body ACTUALLY replays"
-    ;; The headline acceptance criterion: a round-tripped recording
-    ;; actually replays. This test closes the loop end-to-end: record
-    ;; real dispatches →
-    ;; write them back under a fresh variant → run THAT variant through
-    ;; the MCP `run-variant` tool → assert the captured dispatches fired
-    ;; against the frame's app-db (proving the slot the runner executes
-    ;; is the one write-back wrote).
-    ;;
-    ;; The EXPECTED replay count is read back from `:recorded-event-count`
-    ;; rather than hard-coded, because the invariant under test is "`:n`
-    ;; after replay == number of captured `:test/bump` steps" and that is
-    ;; what should be asserted here whatever the capture was. Capture is no
-    ;; longer a race — the driver's push fires inside `start-recording!`'s own
-    ;; swap (rf2-zrdog), so all three driven events land — and the `(pos? n)`
-    ;; precondition below now reads as a guard on the replay path being
-    ;; genuinely exercised rather than as a hedge against a truncated window.
-    (config/set-allow-writes! true)
-    ;; A real event handler whose effect is observable in app-db.
-    (rf/reg-event :test/bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (drive-events-during-recording [[:test/bump] [:test/bump] [:test/bump]])
-    (let [rec (invoke "record-as-variant"
-                      {:variant-id     "story.button/primary"
-                       :new-variant-id "story.button/replayed"
-                       :duration-ms    100
-                       :write-back     true})
-          s   (:structuredContent rec)
-          n   (:recorded-event-count s)]
-      (is (success? rec))
-      (is (true? (:written-back? s)))
-      (is (pos? n) "the recorder captured at least one :test/bump step")
-      ;; The written-back body carries the LIVE play body under `:script`
-      ;; — n `[:dispatch [:test/bump]]` steps, NOT the dead `:play` slot.
-      (let [body (story/variant->edn :story.button/replayed)]
-        (is (nil? (:play body)) "no dead :play slot is written")
-        (is (= {:script    (vec (repeat n [:dispatch [:test/bump]]))
-                :auto-run? true}
-               (:script body))
-            "write-back stores :script, one :dispatch step per captured event"))
-      ;; Run the written-back variant: the replayed :test/bump dispatches
-      ;; must land on the frame's app-db. This is the load-bearing
-      ;; distinction — a dead `:play` slot is never executed by any runner,
-      ;; so :n would be nil; the live `:script` slot replays, so :n is
-      ;; a positive count.
-      ;;
-      ;; The recorder emits `:dispatch` (ASYNC) steps (per
-      ;; play-export/event->step), and on the JVM run-variant queues them
-      ;; via `re-frame.router/dispatch!` without an inter-step yield
-      ;; (runner_events run-loop! :clj branch). The single-threaded interop
-      ;; executor
-      ;; drains the router queue asynchronously, so the `:app-db` slot
-      ;; in `run-variant`'s wire response captures the value at the
-      ;; moment the play-promise resolves — which can race the async
-      ;; drain (observed CI flake). The qualitative pin under test is
-      ;; "the play-script ACTUALLY replays" — settled `:n` is read out-
-      ;; of-band by polling the frame's app-db until the drain lands at
-      ;; least one `:test/bump`, bounded by a 2-second deadline so a
-      ;; genuine dead-slot regression still surfaces as a failure
-      ;; rather than a hang. The dead-slot bug would leave :n nil
-      ;; forever; the live-slot fix lands :n as a positive integer no
-      ;; greater than the captured count.
-      (let [run    (invoke "run-variant" {:variant-id "story.button/replayed"})
-            run-n  (let [deadline (+ (System/nanoTime) (* 2 1000000000))]
-                     (loop []
-                       (let [v (:n (rf/app-db-value :story.button/replayed))]
-                         (cond
-                           (and (integer? v) (pos? v)) v
-                           (< (System/nanoTime) deadline)
-                           (do (Thread/sleep 1) (recur))
-                           :else v))))]
-        (is (success? run))
-        (is (and (integer? run-n) (pos? run-n) (<= run-n n))
-            (str "the recording replayed — :test/bump dispatches incremented :n to "
-                 (pr-str run-n) " (captured " n "); a dead :play slot would leave :n nil"))))))
-
-(deftest record-as-variant-preserves-captured-cofx
-  (testing "rf2-l2cn5d (EP-0017): a captured :rf.cofx envelope rides into BOTH
-            the rendered snippet AND the written-back :script body, so replay
-            re-presents the recorded recordable coeffects (provided facts +
-            the framework :rf/time-ms) rather than restamping"
-    (config/set-allow-writes! true)
-    ;; rf2-jwggld: cofx routes through the fail-closed `scrub-captured-cofx`
-    ;; boundary, so the snippet only carries the captured cofx when the source
-    ;; frame is LIVE (a non-live frame fails the cofx CLOSED — covered by the
-    ;; dedicated split tests below). Allocate the source frame so this test
-    ;; exercises the realistic live-frame snippet-cofx path. No path is
-    ;; classified, so the cofx (`:counter/delta`, not at a declared-sensitive
-    ;; path) ships raw under EP-0025 fail-open and surfaces in the snippet.
-    (rf/make-frame {:id :story.button/primary :doc "live source frame for the cofx-preservation test"})
-    (try
-      ;; Drive a single dispatch carrying a recorded flat :rf.cofx map.
-      (drive-events-during-recording
-        [[:counter/inc]]
-        [{:rf/time-ms 1781078400123 :counter/delta 7}])
-      (let [r (invoke "record-as-variant"
-                      {:variant-id     "story.button/primary"
-                       :new-variant-id "story.button/cofx-recorded"
-                       :duration-ms    100
-                       :write-back     true})
-            s (:structuredContent r)
-            n (:recorded-event-count s)]
-        (is (success? r))
-        (is (true? (:written-back? s)))
-        (is (pos? n) "the recorder captured at least one event")
-        ;; The written-back :script body carries the cofx envelope on each
-        ;; recorded dispatch step — [:dispatch [:counter/inc] {:rf.cofx {…}}].
-        ;; (Write-back uses the RAW cofx on-box, unaffected by wire egress.)
-        (let [body  (story/variant->edn :story.button/cofx-recorded)
-              steps (:script (:script body))]
-          (is (every? (fn [step]
-                        (and (= :dispatch (first step))
-                             (= [:counter/inc] (second step))
-                             (= {:rf/time-ms 1781078400123 :counter/delta 7}
-                                (:rf.cofx (nth step 2 nil)))))
-                      steps)
-              "every written-back dispatch step carries the recorded :rf.cofx map"))
-        ;; The rendered snippet text surfaces the cofx envelope too (it is
-        ;; rendered FROM the scrubbed events + parallel cofx). Under the LIVE
-        ;; frame with no classified path, the cofx path-projects to itself.
-        (is (re-find #":rf.cofx" (:play-snippet s))
-            "the snippet text carries the :rf.cofx envelope (live frame, no classified path)")
-        (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
-            "the recorded :rf/time-ms is surfaced verbatim (always-safe per EP-0017)"))
-      (finally
-        ((requiring-resolve 're-frame.frame/destroy-frame!) :story.button/primary)))))
-
-(deftest record-as-variant-no-cofx-is-byte-identical
-  (testing "rf2-l2cn5d: a recording with no captured coeffects writes the
-            pre-EP-0017 2-element dispatch steps (zero ceremony)"
-    (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :new-variant-id "story.button/no-cofx"
-                     :duration-ms    100
-                     :write-back     true})
-          s (:structuredContent r)
-          n (:recorded-event-count s)]
-      (is (success? r))
-      ;; Exactly the two events driven, not merely some (rf2-zrdog): the push
-      ;; now rides a watch that fires inside `start-recording!`'s own swap, so
-      ;; "how many landed" is not a scheduling outcome. `(pos? n)` here was
-      ;; what the old worker-thread race failed, and a derived count would
-      ;; have kept passing had the race merely truncated instead of emptying.
-      (is (= 2 n) "both driven events landed inside the window")
-      (let [body (story/variant->edn :story.button/no-cofx)]
-        (is (= {:script    [[:dispatch [:counter/inc]] [:dispatch [:counter/inc]]]
-                :auto-run? true}
-               (:script body))
-            "no captured cofx → bare 2-element dispatch steps, unchanged from pre-fix")
-        (is (not (re-find #":rf.cofx" (:play-snippet s)))
-            "the snippet carries no :rf.cofx slot when nothing was captured")))))
-
-(deftest record-as-variant-snippet-honours-doc-and-alias
-  (testing ":doc and :alias flow into the rendered snippet"
-    (let [r (invoke "record-as-variant"
-                    {:variant-id "story.button/primary"
-                     :doc        "Recorded counter run."
-                     :alias      "s"})
-          snippet (-> r :structuredContent :play-snippet)]
-      (is (success? r))
-      (is (re-find #"\(s/reg-variant" snippet))
-      (is (re-find #"Recorded counter run\." snippet))
-      ;; Default :extends = source variant id.
-      (is (re-find #":extends :story\.button/primary" snippet)))))
+(deftest record-as-variant-is-retired-method-not-found
+  ;; rf2-5saz7 acceptance 2: a tools/call naming the retired tool receives
+  ;; the server's EXISTING method-not-found response (-32601), and the Story
+  ;; recorder state is byte-equal before/after — the rejected call neither
+  ;; starts nor alters a recording.
+  (let [before (pr-str @recorder/state)
+        resp   (server/dispatch
+                 {:jsonrpc "2.0" :id 41 :method "tools/call"
+                  :params {:name "record-as-variant"
+                           :arguments {:variant-id  "story.button/primary"
+                                       :duration-ms 0}}})
+        after  (pr-str @recorder/state)]
+    (is (= vocab/code-method-not-found (-> resp :error :code))
+        "the retired tool name is an unknown tool at the protocol level")
+    (is (nil? (:result resp))
+        "no tool result envelope on the rejected call")
+    (is (= before after)
+        "recorder state must be byte-equal before/after the rejected call")
+    (is (not (:recording? @recorder/state))
+        "no recording window is open after the rejected call")))
 
 ;; ---------------------------------------------------------------------------
 ;; :origin :story-mcp stamping
 ;;
 ;; Per spec/Cross-Cutting-Designs.md §5 — every write surface tags its
 ;; writes with a single `:origin` keyword so post-mortem queries can
-;; answer "who wrote this?". Story-mcp's `register-variant` and
-;; `record-as-variant` (write-back path) stamp `:origin :story-mcp` onto
+;; answer "who wrote this?". Story-mcp's `register-variant`
+;; stamps `:origin :story-mcp` onto
 ;; the registered variant body. The keyword value is pinned in
 ;; `config/origin`; the registrar's open-shape variant schema admits
 ;; the extra slot.
@@ -2317,52 +1890,6 @@
       (is (success? r))
       (is (= :story-mcp (:origin body))
           "the write surface owns the :origin slot; an agent cannot claim a different origin"))))
-
-(deftest record-as-variant-write-back-stamps-origin
-  (testing "record-as-variant write-back lands :origin :story-mcp on the new body"
-    (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]])
-    (let [r    (invoke "record-as-variant"
-                       {:variant-id  "story.button/primary"
-                        :duration-ms 100
-                        :write-back  true})
-          n    (-> r :structuredContent :recorded-event-count)
-          body (story/variant->edn :story.button/primary)]
-      (is (success? r))
-      (is (true? (-> r :structuredContent :written-back?)))
-      (is (pos? n) "the recorder captured at least one event")
-      (is (= :story-mcp (:origin body))
-          "write-back body must carry :origin :story-mcp")
-      ;; Pre-existing body keys + the captured play body (stored under
-      ;; :script) still land (step count derived from
-      ;; `:recorded-event-count` — capture races the :duration-ms window).
-      (is (= "Primary button." (:doc body)))
-      (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
-             (:script body)))
-      (is (nil? (:play body))))))
-
-(deftest record-as-variant-write-back-new-id-stamps-origin
-  (testing ":new-variant-id write-back also carries :origin :story-mcp"
-    (config/set-allow-writes! true)
-    (drive-events-during-recording [[:counter/inc]])
-    (let [r    (invoke "record-as-variant"
-                       {:variant-id     "story.button/primary"
-                        :new-variant-id "story.button/origin-recorded"
-                        :duration-ms    100
-                        :write-back     true})
-          body (story/variant->edn :story.button/origin-recorded)]
-      (is (success? r))
-      (is (= :story-mcp (:origin body))))))
-
-(deftest record-as-variant-without-write-back-does-not-touch-source
-  (testing "without :write-back the source variant is untouched (no :origin landed)"
-    ;; This pins the contract: the write happens only on the write-back
-    ;; branch. The :origin stamp is the marker of a write — its absence
-    ;; on a non-write-back call is the marker of a no-write.
-    (let [_    (invoke "record-as-variant" {:variant-id "story.button/primary"})
-          body (story/variant->edn :story.button/primary)]
-      (is (nil? (:origin body))
-          "no write happened, so no :origin stamp lands on the source body"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server dispatcher (initialize, tools/list, tools/call, error paths)
@@ -3423,22 +2950,13 @@
               "no large-elided marker — the captured slot is not at the declared app-db path"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The re-keyed-runtime egress exception and captured-cofx split have
-;; two distinct postures:
+;; The re-keyed-runtime egress exception:
 ;;
-;;   (A) `scrub-re-keyed-runtime` — captured event vectors + axe DOM nodes.
+;;   `scrub-re-keyed-runtime` — axe DOM nodes.
 ;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, tested above);
 ;;       NON-LIVE frame ⇒ RAW under the NAMED, narrow carve-out (the path-scrub
 ;;       is a no-op even live, so fail-closing would destroy the tool with zero
 ;;       leak-delta).
-;;
-;;   (B) `scrub-captured-cofx` — a flat :rf.cofx map is ORDINARY, possibly
-;;       app-shaped EDN (a reg-cofx value classified :sensitive mirrors the
-;;       app-db shape), so it is NOT inherently re-keyed and does NOT take the
-;;       carve-out. LIVE frame ⇒ a classified cofx value path-redacts; NON-LIVE
-;;       frame ⇒ FAIL CLOSED (the whole cofx map → :rf/redacted) rather than
-;;       ship raw — EP-0017 names secrets-as-recordable-cofx review discipline,
-;;       not a structural guarantee; this is the structural backstop.
 ;;
 ;; A non-live frame is one that was never allocated (or has been destroyed);
 ;; `egress/variant-frame-live?` reads `re-frame.core/frame-ids`. These tests
@@ -3471,92 +2989,6 @@
             out                    (scrub-re-keyed-runtime tree vid true)]
         (is (identical? tree out) "include? true returns the input unchanged")))))
 
-(deftest scrub-captured-cofx-live-frame-app-shaped-value-redacts-by-path
-  (testing "rf2-jwggld: under a LIVE frame, an app-shaped cofx value at a declared-sensitive path IS redacted (the cofx is NOT carved out)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The cofx map mirrors the app-db shape: [:session :token] is the
-      ;; classified path, and the cofx carries :session {:token …} at exactly
-      ;; that position, so the PATH-walk reaches it and redacts. (This is the
-      ;; genuine gap the split closes — a cofx CAN be app-shaped EDN.)
-      (seed-app-db! vid {:session {:token "ok"}})
-      (declare-sensitive! vid [:session :token])
-      (is (contains? (rf/frame-ids) vid) "precondition: the frame is live")
-      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
-            cofx                {:rf/time-ms 1781078400123
-                                 :session    {:token "LIVE-COFX-SECRET"}}
-            out                 (scrub-captured-cofx cofx vid false)]
-        (is (= :rf/redacted (get-in out [:session :token]))
-            "the app-shaped cofx value at the classified path redacts under a live frame")
-        (is (= 1781078400123 (:rf/time-ms out))
-            ":rf/time-ms is always safe and surfaces verbatim (EP-0017 §3)")))))
-
-(deftest scrub-captured-cofx-non-live-frame-fails-closed
-  (testing "rf2-jwggld: under a NON-LIVE frame, the captured cofx map FAILS CLOSED to :rf/redacted (does NOT silently ship raw)"
-    (with-clean-frame [vid :story.nonlive/never-allocated]
-      (is (not (contains? (rf/frame-ids) vid))
-          "precondition: the variant frame is non-live (never allocated)")
-      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
-            cofx                {:rf/time-ms 1781078400123
-                                 :session    {:token "NONLIVE-COFX-SECRET"}}
-            out                 (scrub-captured-cofx cofx vid false)]
-        (is (= :rf/redacted out)
-            "non-live cofx fails CLOSED to :rf/redacted — NOT shipped raw (the structural backstop)")
-        (is (not (tree-contains? out "NONLIVE-COFX-SECRET"))
-            "no part of the cofx map crosses raw off a non-live frame")))))
-
-(deftest scrub-captured-cofx-non-live-frame-include?-true-forwards-raw
-  (testing "rf2-jwggld: include? true (the trusted-local opt-out) forwards the raw cofx even off a non-live frame"
-    (with-clean-frame [vid :story.nonlive/never-allocated]
-      (is (not (contains? (rf/frame-ids) vid)))
-      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)
-            cofx                {:rf/time-ms 1 :session {:token "NONLIVE-COFX-SECRET"}}
-            out                 (scrub-captured-cofx cofx vid true)]
-        (is (identical? cofx out)
-            "include? true returns the input cofx unchanged — the operator signed off")))))
-
-(deftest scrub-captured-cofx-nil-is-passthrough
-  (testing "rf2-jwggld: a nil cofx member (index-aligned padding) passes through untouched"
-    (with-clean-frame [vid :story.nonlive/never-allocated]
-      (let [scrub-captured-cofx (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-captured-cofx)]
-        (is (nil? (scrub-captured-cofx nil vid false))
-            "nil cofx returns nil (no fail-closed marker — there is nothing to redact)")))))
-
-(deftest record-as-variant-live-frame-app-shaped-cofx-redacts-on-wire-keeps-raw-on-box
-  (testing "rf2-jwggld: end-to-end — under a LIVE source frame, an app-shaped cofx
-            value at a declared-sensitive path is REDACTED on the wire snippet,
-            while the write-back body keeps the RAW value for replay fidelity"
-    (config/set-allow-writes! true)
-    (with-clean-frame [vid :story.button/primary]
-      ;; Classify an app-shaped cofx path on the LIVE source frame. The captured
-      ;; cofx mirrors the app-db shape (:session {:token …}), so the PATH-walk
-      ;; reaches it and redacts at egress — this is the genuine cofx gap closed.
-      (seed-app-db! vid {:session {:token "seed"}})
-      (declare-sensitive! vid [:session :token])
-      (is (contains? (rf/frame-ids) vid) "precondition: source frame is live")
-      (drive-events-during-recording
-        [[:counter/inc]]
-        [{:rf/time-ms 1781078400123 :session {:token "WIRE-COFX-SECRET"}}])
-      (let [r (invoke "record-as-variant"
-                      {:variant-id     "story.button/primary"
-                       :new-variant-id "story.button/cofx-redacted"
-                       :duration-ms    100
-                       :write-back     true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (pos? (:recorded-event-count s)) "the recorder captured the dispatch")
-        ;; WIRE: the snippet's cofx slot redacts the classified value at egress.
-        (is (not (re-find #"WIRE-COFX-SECRET" (:play-snippet s)))
-            "the app-shaped cofx secret is REDACTED out of the wire snippet (path-projected at egress)")
-        (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
-            ":rf/time-ms is always safe and surfaces verbatim under the live frame")
-        ;; ON-BOX: the write-back body keeps the RAW cofx for replay fidelity.
-        (let [body  (story/variant->edn :story.button/cofx-redacted)
-              steps (:script (:script body))]
-          (is (every? (fn [step]
-                        (= {:rf/time-ms 1781078400123 :session {:token "WIRE-COFX-SECRET"}}
-                           (:rf.cofx (nth step 2 nil))))
-                      steps)
-              "the write-back body re-registers the RAW cofx on-box (--allow-writes registration, not a wire egress)"))))))
 
 (deftest scrub-rendered-include?-true-forwards-raw-large
   (testing "include? true forwards the raw large value (trusted-local opt-out)"
@@ -4142,8 +3574,7 @@
 ;; lands verbatim in node :html, and read-a11y-violations is :readOnlyHint
 ;; true (agent hosts AUTO-APPROVE it). axe DOM nodes are an inherently RE-KEYED
 ;; runtime payload class, so :violations route through the named
-;; `egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the same exception
-;; record-as-variant's event vectors take.
+;; `egress/scrub-re-keyed-runtime` exception (rf2-jwggld).
 ;;
 ;; The helpers (`seed-app-db!` / `declare-sensitive!`) allocate the frame and
 ;; establish its declared-sensitive path; `scrub-re-keyed-runtime` reads that
@@ -4220,63 +3651,6 @@
             (is (success? r))
             (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
                 "fail-open: the re-keyed node :html ships raw whether the gate is open or closed (path is the only redaction route)")))))))
-
-(deftest record-as-variant-re-keyed-captured-event-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a captured event carrying a declared-sensitive value in its PAYLOAD is re-keyed off the app-db path, so it ships RAW in :captured AND :play-snippet — value-match removed"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The frame holds the secret at a declared-sensitive path; the recorded
-      ;; event carries the SAME literal in its event PAYLOAD — a non-app-db
-      ;; position. EP-0025 removed value-match, so the captured payload ships
-      ;; raw. The non-sensitive event id is preserved (it always was).
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
-      (let [r (invoke "record-as-variant"
-                      {:variant-id  "story.button/primary"
-                       :duration-ms 100})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 1 (:recorded-event-count s)) "the event was captured")
-        (is (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET")
-            "fail-open: the re-keyed captured-event payload ships RAW in :captured")
-        (is (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s))
-            "fail-open: the :play-snippet is rendered from the raw events, so the value rides it too")
-        (is (re-find #":auth/login" (:play-snippet s))
-            "the non-sensitive event id survives")))))
-
-(deftest record-as-variant-includes-sensitive-when-opted-in
-  (testing ":include-sensitive true forwards the raw captured event (gate open)"
-    (config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
-      (let [r (invoke "record-as-variant"
-                      {:variant-id        "story.button/primary"
-                       :duration-ms       100
-                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]] (:captured s))
-            "the documented opt-in surfaces the raw captured event")
-        (is (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s))
-            "and the raw value rides the snippet text")))))
-
-(deftest record-as-variant-gate-closed-re-keyed-event-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a captured-event PAYLOAD is re-keyed off the app-db path, so it ships RAW regardless of gate state — value-match removed"
-    (is (false? (config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
-      (let [r (invoke "record-as-variant"
-                      {:variant-id        "story.button/primary"
-                       :duration-ms       100
-                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET")
-            "fail-open: the re-keyed captured-event payload ships raw whether the gate is open or closed")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
@@ -4378,13 +3752,13 @@
 ;; (live `:app-db` / assertions OR a non-live captured runtime value) and so
 ;; must accept the `:include-sensitive` opt-in. The live three
 ;; (`preview-variant` / `run-variant` / `read-failures`) plus the non-live
-;; runtime pair (`record-as-variant`'s captured events,
-;; `read-a11y-violations`'s runtime DOM `:violations`). `explain-variant` is
+;; runtime tool
+;; (`read-a11y-violations`'s runtime DOM `:violations`). `explain-variant` is
 ;; NOT here (rf2-7k5mce): it is a no-run projection over the registry, so it
 ;; ships author data raw like `get-variant` and carries no gate knob.
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
-   "record-as-variant" "read-a11y-violations"])
+   "read-a11y-violations"])
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"
@@ -4396,7 +3770,7 @@
         (is (= "boolean" (-> props :include-sensitive :type))
             (str tname " :include-sensitive slot is not boolean-typed")))))
   ;; Pin the EXACT include-sensitive tool set against the
-  ;; registry so the spec's affected-tools prose (five) and the descriptor
+  ;; registry so the spec's affected-tools prose (four) and the descriptor
   ;; strip can't silently drift apart. The set is precisely the
   ;; descriptors that carry the slot — no more, no less.
   (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
@@ -4406,8 +3780,8 @@
                         set)]
       (is (= (set include-sensitive-tools) carriers)
           "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
-      (is (= 5 (count carriers))
-          "the affected set is five tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw (rf2-7k5mce)")
+      (is (= 4 (count carriers))
+          "the affected set is four tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw (rf2-7k5mce)")
       (is (not (contains? carriers "explain-variant"))
           "explain-variant no longer carries :include-sensitive — it is author data, shipped raw like get-variant (rf2-7k5mce)"))))
 
@@ -4466,9 +3840,9 @@
 ;; (`--allow-sensitive-reads`). When the gate is closed:
 ;;
 ;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
-;;      every affected tool — the five that surface live observed
-;;      VALUES (preview-variant / run-variant / read-failures / read-a11y-violations /
-;;      record-as-variant), i.e. every descriptor that
+;;      every affected tool — the four that surface live observed
+;;      VALUES (preview-variant / run-variant / read-failures /
+;;      read-a11y-violations), i.e. every descriptor that
 ;;      carries the slot (caller UX — no ghost knob). (explain-variant ships
 ;;      author data raw and is not among them, rf2-7k5mce.)
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at
@@ -4747,124 +4121,6 @@
         (if restore-s
           (System/setProperty "rf.story-mcp.allow-sensitive-reads" restore-s)
           (System/clearProperty "rf.story-mcp.allow-sensitive-reads"))))))
-
-;; ---------------------------------------------------------------------------
-;; record-as-variant write-back failure path (rf2-36upq TE6)
-;;
-;; The `write-back!` helper wraps the `reg-variant*` call in a try/catch
-;; that surfaces the registrar's `ex-data` (`:rf.error`/`:explain`) into
-;; the tool's error result. Mirrors `register-variant-rejects-bad-shape`
-;; — write-back is the SECOND write-surface tool that needs the same
-;; defensive-failure assertion.
-;; ---------------------------------------------------------------------------
-
-(deftest record-as-variant-write-back-failure-surfaces-explain
-  (testing "write-back failure surfaces the registrar's ex-data into the result"
-    (config/set-allow-writes! true)
-    ;; Drive the write-back into a registrar-level failure with a
-    ;; VALID-GRAMMAR `:new-variant-id` (so it passes the rf2-tag30h
-    ;; pre-intern grammar gate and the failure happens DOWNSTREAM in
-    ;; `reg-variant*`). We force the registrar to throw with structured
-    ;; ex-data and assert `write-back!` surfaces it. (The pre-intern
-    ;; grammar reject for a MALFORMED id is covered separately in the
-    ;; no-intern tests below — rf2-tag30h.)
-    (drive-events-during-recording [[:counter/inc]])
-    (with-redefs [story/reg-variant*
-                  (fn [_id _body]
-                    ;; The CANONICAL thrown-error shape, which is what
-                    ;; `registrar/validate-shape!` really throws:
-                    ;; `:rf.error/id`, not a bare `:rf.error`. This mock
-                    ;; used to fabricate the bare key — the same key the
-                    ;; relay harvested — so it proved the relay against a
-                    ;; shape no producer emits and the dead arm looked
-                    ;; alive (rf2-2nbck). The wire slot below is still
-                    ;; `:rf.error`: that rename is the relay's job.
-                    (throw (ex-info "Registration failed: boom"
-                                    {:rf.error/id :rf.error/variant-shape
-                                     :explain     {:why :forced-test-failure}})))]
-      (let [r (invoke "record-as-variant"
-                      {:variant-id     "story.button/primary"
-                       :new-variant-id "story.button/recorded"  ; valid grammar
-                       :duration-ms    50
-                       :write-back     true})]
-        (is (error? r) "a registrar write-back failure must surface as an error")
-        (is (re-find #"(?i)Write-back failed" (-> r :content first :text))
-            "the error text names the failure surface — agents pattern-match on this")
-        (let [s (:structuredContent r)]
-          (is (false? (:written-back? s))
-              ":written-back? false rides through so callers see the no-op")
-          (is (= :story.button/recorded (:new-variant-id s))
-              "the failing target id round-trips so the agent can localise")
-          (is (= :rf.error/variant-shape (:rf.error s))
-              "the registrar's structured ex-data is surfaced for localisation"))))))
-
-;; ---------------------------------------------------------------------------
-;; record-as-variant unregistered :extends (rf2-ynjts.20)
-;;
-;; recorder.cljc resolves the caller-supplied `:extends` id through
-;; `safe-keyword` against the registered-variant set; an unregistered id
-;; resolves to nil and the tool short-circuits with the structured
-;; `:rf.story-mcp/extends-not-registered` error (so the rendered snippet
-;; never carries a dangling `:extends` reference). This branch was
-;; untested — the only existing :extends test (`…-honours-doc-and-alias`)
-;; exercises the DEFAULT (omitted ⇒ source vk), never the reject path.
-;; ---------------------------------------------------------------------------
-
-(deftest record-as-variant-rejects-unregistered-extends
-  (testing ":extends naming an unregistered variant returns the structured reject"
-    (let [r (invoke "record-as-variant"
-                    {:variant-id "story.button/primary"
-                     :extends    "story.nope/missing"})]
-      (is (error? r))
-      (is (re-find #"(?i):extends references an unregistered variant"
-                   (-> r :content first :text)))
-      (let [s (:structuredContent r)]
-        (is (= :rf.story-mcp/extends-not-registered (:rf.error s))
-            "the structured payload names the canonical reject reason")
-        (is (= "record-as-variant" (:tool s)))
-        (is (= "story.nope/missing" (:extends s))
-            "the offending id round-trips so the agent can localise"))))
-  (testing "a registered :extends is accepted (the happy peer of the reject)"
-    (let [r (invoke "record-as-variant"
-                    {:variant-id "story.button/primary"
-                     :extends    "story.button/secondary"})
-          snippet (-> r :structuredContent :play-snippet)]
-      (is (success? r))
-      (is (re-find #":extends :story\.button/secondary" snippet)
-          "a registered :extends flows into the rendered snippet"))))
-
-;; ---------------------------------------------------------------------------
-;; record-as-variant :duration-ms ceiling (rf2-4yuhi)
-;;
-;; The MCP server's request loop is single-threaded; a `record-as-variant`
-;; call sleeps the whole loop for the full :duration-ms window. The tool
-;; validates against a hard ceiling (30000ms) and rejects abusive values.
-;; ---------------------------------------------------------------------------
-
-(deftest record-as-variant-rejects-duration-above-ceiling
-  (testing ":duration-ms above the ceiling returns a structured error (rf2-4yuhi)"
-    (let [over-ceiling (inc recorder-tool/max-duration-ms)
-          r            (invoke "record-as-variant"
-                               {:variant-id  "story.button/primary"
-                                :duration-ms over-ceiling})]
-      (is (error? r))
-      (is (re-find #"exceeds ceiling" (-> r :content first :text)))
-      (let [s (:structuredContent r)]
-        (is (= :rf.story-mcp/duration-ms-too-large (:rf.error s)))
-        (is (= "record-as-variant" (:tool s)))
-        (is (= over-ceiling (:duration-ms s)))
-        (is (= recorder-tool/max-duration-ms (:max-allowed s)))))))
-
-(deftest record-as-variant-accepts-duration-at-ceiling-schema
-  (testing "the schema's :maximum mirrors the runtime ceiling"
-    (let [t      (some #(when (= "record-as-variant" (:name %)) %)
-                       registry/tool-registry)
-          dur-schema (-> t :inputSchema :properties :duration-ms)]
-      (is (= recorder-tool/max-duration-ms (:maximum dur-schema))
-          (str "the schema's :maximum slot mirrors the runtime ceiling so MCP "
-               "clients can pre-validate without round-tripping a doomed call"))
-      (is (zero? (:minimum dur-schema))
-          ":minimum stays at 0 — the no-block default is canonical"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lifecycle :timeout-ms cap (rf2-g9fje fix 3/3 / rf2-ovmc5e)
@@ -5491,7 +4747,7 @@
 ;;
 ;; `protocol/normalize-frame` only drops keys outside the UNION of every
 ;; tool's argument keys (`protocol/arg-keys`). A key valid for ANOTHER
-;; tool — `:body` (register-variant), `:write-back` (record-as-variant),
+;; tool — `:body` (register-variant),
 ;; `:dedup` on a non-eligible tool — therefore SURVIVES normalisation as a
 ;; keyword entry and used to be silently ignored by the selected handler.
 ;; The per-tool check (`tool-invalid-arg-keys`) is the descriptor-level
@@ -5518,21 +4774,21 @@
       (is (not (contains? (set (:allowed s)) "body"))
           "the tool's allowed set does NOT include the rejected key"))))
 
-(deftest invoke-tool-rejects-write-back-on-run-variant
-  ;; rf2-an95jj acceptance — `run-variant` with `:write-back`. `:write-back`
-  ;; is advertised by record-as-variant; run-variant does not advertise it.
-  (testing "`:write-back` on run-variant rejects (globally-known, tool-invalid) (rf2-an95jj)"
+(deftest invoke-tool-rejects-body-on-run-variant
+  ;; rf2-an95jj acceptance — `run-variant` with `:body`. `:body`
+  ;; is advertised by register-variant; run-variant does not advertise it.
+  (testing "`:body` on run-variant rejects (globally-known, tool-invalid) (rf2-an95jj)"
     (let [r (wire-pipeline/invoke-tool "run-variant"
                                        {:variant-id "story.button/primary"
-                                        :write-back true})
+                                        :body "{}"})
           s (:structuredContent r)]
       (is (error? r))
       (is (= :rf.story-mcp/unknown-arguments (:rf.error s)))
       (is (= "run-variant" (:tool s)))
-      (is (= ["write-back"] (:unknown s))))))
+      (is (= ["body"] (:unknown s))))))
 
 (deftest invoke-tool-tolerates-dedup-on-non-eligible-tool
-  ;; rf2-an95jj — `:dedup` is advertised only on the three dedup-eligible
+  ;; rf2-an95jj — `:dedup` is advertised only on the two dedup-eligible
   ;; tools but is DOCUMENTED as silently ignored elsewhere (it is a
   ;; wire-managed knob the dispatcher gates on `:dedup-eligible?`). So a
   ;; `:dedup` on a non-eligible tool must NOT trip the per-tool diagnostic
@@ -5609,14 +4865,14 @@
   ;; rf2-p0eiq3 + rf2-an95jj — the per-tool unknown-arg diagnostic is
   ;; capped too. The diagnostic echoes the offending key names + the tool's
   ;; allowed set; throwing every globally-known key get-variant does NOT
-  ;; advertise (~18 of them) makes that echo exceed a 1-token cap, so the
+  ;; advertise makes that echo exceed a 1-token cap, so the
   ;; per-tool diagnostic must overflow rather than return uncapped.
   (testing "a per-tool unknown-arg diagnostic overflows under a tiny cap (rf2-p0eiq3)"
-    (let [tool-invalid {:story-id "x" :new-variant-id "x" :extends "x"
+    (let [tool-invalid {:story-id "x"
                         :substrate "x" :active-modes ["x"] :cell-overrides {}
-                        :base-url "x" :body "x" :doc "x" :alias "x"
-                        :tags ["x"] :kind "x" :write-back true
-                        :duration-ms 1 :timeout-ms 1}
+                        :base-url "x" :body "x"
+                        :tags ["x"] :kind "x"
+                        :timeout-ms 1}
           r (wire-pipeline/invoke-tool "get-variant"
                                        (assoc tool-invalid
                                               :variant-id "story.button/primary"

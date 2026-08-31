@@ -37,8 +37,11 @@
 //      the source-chain / merge / runner-requirement slots round-trip
 //   8. snapshot-identity — same args ⇒ stable content-hash twice in a
 //      row (live smoke #3)
-//   9. record-as-variant — zero-duration capture; proves the recorder
-//      bridge is wired into dispatch (live smoke #4)
+//   9. record-as-variant — RETIRED (rf2-5saz7): assert the name is absent
+//      from the catalogue and a tools/call naming it takes the server's
+//      existing method-not-found path. Ordered AFTER register-variant and
+//      run-variant so the absence is proven on a server whose catalogue
+//      and execution path demonstrably work (non-vacuity).
 //  10. unregister-variant — symmetric teardown + not-found verify
 //  11. JSON-RPC error-code conformance
 //  12. clean disconnect
@@ -97,9 +100,9 @@ const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 
 // Wire → semantic adapter (`structured`, _runner.cjs). Every assertion
 // below reaches for slots the SEMANTIC contract guarantees (e.g.
-// `:lifecycle` on `preview-variant`'s structuredContent). Three of
-// story-mcp's tools (`preview-variant`, `run-variant`,
-// `record-as-variant`) ship their payloads wrapped in
+// `:lifecycle` on `preview-variant`'s structuredContent). Two of
+// story-mcp's tools (`preview-variant`, `run-variant`)
+// ship their payloads wrapped in
 // `{:rf.mcp/dedup-table <cache>}` at the wire boundary — a real MCP
 // client decodes via `re-frame.mcp-base.dedup/expand` before user code sees it.
 // Routing every structuredContent read through `structured` mirrors that
@@ -180,7 +183,7 @@ runWithWatchdog(
     // Per-tool classification CONTENT ratchet. Pins WHICH classifier per
     // tool (the exact readOnly/destructive posture) + the budget-hint
     // prose — not just that SOME classifier is set. A gated write tool
-    // (register-variant, unregister-variant, record-as-variant) silently
+    // (register-variant, unregister-variant) silently
     // re-classified readOnly turns RED here.
     assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
     console.log(
@@ -630,27 +633,50 @@ runWithWatchdog(
     }
     console.log('OK   snapshot-identity -> stable hash: ' + h1);
 
-    // 9. record-as-variant — zero-duration capture; empty :play
-    // snippet. Proves the recorder bridge is wired into dispatch.
-    const recResp = await client.callTool({
-      name: 'record-as-variant',
-      arguments: { 'variant-id': FIXTURE_VARIANT },
-    });
-    if (recResp.isError) {
-      throw new Error('record-as-variant zero-duration failed: ' + JSON.stringify(recResp));
-    }
-    const recStruct = structured(recResp);
-    if (recStruct['recorded-event-count'] !== 0) {
+    // 9. record-as-variant — RETIRED (rf2-5saz7). The blocking recorder
+    // bridge advertised a capture window no MCP client could reach (its
+    // handler slept the server's only stdio dispatch loop for
+    // :duration-ms), so it could only ever return a green EMPTY capture.
+    // Interactive canvas recording is performed through Pair in the
+    // attached CLJS runtime. NON-VACUITY: this probe runs on the SAME
+    // launched server that just registered the fixture variant (step 3)
+    // and ran it to a "pass" verdict (step 6), so the absence assertions
+    // below cannot pass merely because initialization, registry loading,
+    // or tool dispatch is broken.
+    //
+    // 9a. The catalogue does not advertise the retired name (the
+    // fixture-equality check at step 2 already excludes it; this explicit
+    // rejection keeps the absence loud even if fixture and registry ever
+    // drift back in lockstep).
+    if (names.includes('record-as-variant')) {
       throw new Error(
-        'record-as-variant :recorded-event-count expected 0; got: ' + JSON.stringify(recResp),
+        'record-as-variant was retired (rf2-5saz7) but tools/list advertises it',
       );
     }
-    if (typeof recStruct['play-snippet'] !== 'string') {
+    // 9b. A tools/call naming the retired tool receives the server's
+    // EXISTING method-not-found response (-32601) — the same path any
+    // unknown tool takes; no tombstone, no alias.
+    let recErr = null;
+    try {
+      await client.callTool({
+        name: 'record-as-variant',
+        arguments: { 'variant-id': FIXTURE_VARIANT, 'duration-ms': 0 },
+      });
+    } catch (e) {
+      recErr = e;
+    }
+    if (recErr === null) {
       throw new Error(
-        'record-as-variant :play-snippet missing/non-string: ' + JSON.stringify(recResp),
+        'record-as-variant was retired (rf2-5saz7) but tools/call succeeded',
       );
     }
-    console.log('OK   record-as-variant -> recorded-event-count=0, play-snippet emitted');
+    if (recErr.code !== -32601) {
+      throw new Error(
+        'record-as-variant tools/call expected -32601 method-not-found; got: ' +
+          (recErr.code + ': ' + recErr.message),
+      );
+    }
+    console.log('OK   record-as-variant -> retired: absent from catalogue, tools/call is -32601 method-not-found (rf2-5saz7)');
 
     // 10. unregister-variant — symmetric teardown.
     const unregResp = await client.callTool({

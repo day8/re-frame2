@@ -34,7 +34,7 @@ allowed-tools:
   - Bash(shadow-cljs *)
   - Bash(clj-kondo *)
   # story-mcp author/refine tools only; the run-side tools (run-variant /
-  # read-failures / record-as-variant / …) live in re-frame2-pair. Split
+  # read-failures / …) live in re-frame2-pair. Split
   # pinned by scripts/check_skill_mcp_drift.py; see references/tooling/story-mcp-loop.md.
   - mcp__re-frame2-story-mcp__get-story-instructions
   - mcp__re-frame2-story-mcp__list-stories

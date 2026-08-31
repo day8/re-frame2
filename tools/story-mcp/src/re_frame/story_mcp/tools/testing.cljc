@@ -203,8 +203,7 @@
   attribute, a PII text node) lands verbatim in node `:html`. axe DOM nodes
   are an inherently RE-KEYED runtime payload class (the secret rides node
   `:html`, a non-app-db position), so `:violations` route through the NAMED
-  `egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the SAME projection
-  `record-as-variant`'s event vectors take. Under a LIVE variant frame
+  `egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
   EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
   (value-match removed; classify the app-db PATH to redact a value before it

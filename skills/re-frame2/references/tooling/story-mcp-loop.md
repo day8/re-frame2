@@ -20,8 +20,8 @@ Do **not** load this leaf to learn how to author a variant body's *contents* —
    │ register-variant   write the body     │        │ run-variant      execute, get :status │
    │ preview-variant    eyeball one render │  ───▶  │ read-failures    full :rf.assert/* set │
    │ get-variant        read it back        │  hand  │ (loop until :status :pass)             │
-   │ explain-variant    why did it resolve  │  off   │ record-as-variant  capture a cascade   │
-   │ unregister-variant tear down            │        │ read-a11y-violations / snapshot-identity           │
+   │ explain-variant    why did it resolve  │  off   │ read-a11y-violations                   │
+   │ unregister-variant tear down            │        │ snapshot-identity                      │
    └──────────────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@ The boundary is the **runtime**. `preview-variant` (this skill) renders one vari
 
 ## Authoring tools this skill can call — by step
 
-Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is twenty tools across four categories. The authoring subset `re-frame2` is allow-listed for:
+Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is nineteen tools across four categories. The authoring subset `re-frame2` is allow-listed for:
 
 | Step | Tool | Category | What it does |
 |---|---|---|---|
@@ -41,7 +41,7 @@ Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is twen
 | Onboard | `get-story-instructions` | Dev | the EDN-first constraint, canonical body keys, the seven `:rf.assert/*` events, the four-phase lifecycle, the inclusion-tag vocabulary — one self-contained string. Call once per session, before authoring. |
 | Enumerate | `list-stories` / `get-story` / `variant->edn` / `list-tags` / `list-modes` / `list-decorators` / `list-assertions` / `list-substrates` / `get-docs-markdown` | Docs / Dev | navigate an unfamiliar Story registry (and read its docs) while authoring |
 
-What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, and `read-a11y-violations` are the four **Testing**-category run tools, plus the **Write**-category recorder bridge `record-as-variant`. They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those five as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
+What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, and `read-a11y-violations` are the four **Testing**-category run tools. They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those four as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
 
 `preview-variant`, `run-variant`, and `read-failures` all speak the SAME unified run-result the human Story UI reads (spec/017 §Run result) — there is no agent-only result vocabulary. The headline is the top-level `:status` ∈ `{:pass :fail :cannot-run :error}`. You'll see that `:status` on a `preview-variant` here; the *verdict-driven loop* over it is the run side.
 
@@ -87,8 +87,8 @@ The agent reports the registered body + preview result back, and names the run-s
 - Full tool registry + per-tool I/O schemas → `tools/story-mcp/spec/002-Tool-Registry.md` and `tools/story-mcp/spec/API.md`.
 - Wire protocol (JSON-RPC over stdio, `initialize` handshake) → `tools/story-mcp/spec/001-Wire-Protocol.md`.
 - Write-surface gating → `tools/story-mcp/spec/003-Write-Surface-Gating.md`.
-- The **run-side** loop (`run-variant` / `read-failures` / `record-as-variant`) → the `re-frame2-pair` skill (it owns the live-runtime Story tools).
-- Recorder integration (`record-as-variant`) → `story-recorder.md` (sibling leaf — recording is a run-side capture).
+- The **run-side** loop (`run-variant` / `read-failures`) → the `re-frame2-pair` skill (it owns the live-runtime Story tools).
+- Recorder integration → `story-recorder.md` (sibling leaf — interactive canvas recording is performed through Pair in the attached CLJS runtime).
 - Variant body shape, `:rf.assert/*` vocabulary → `stories.md` (sibling leaf).
 
 ---

@@ -15,7 +15,6 @@
     "preview-variant",
     "read-a11y-violations",
     "read-failures",
-    "record-as-variant",
     "register-variant",
     "run-variant",
     "snapshot-identity",

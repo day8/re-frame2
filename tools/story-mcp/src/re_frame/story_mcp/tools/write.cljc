@@ -5,14 +5,7 @@
   short-circuits with a gate-denial error result when the flag is off.
 
   - `register-variant`   — register a variant programmatically.
-  - `unregister-variant` — symmetric removal.
-
-  The third write-surface tool, `record-as-variant` (the recorder
-  bridge), lives in `re-frame.story-mcp.tools.recorder` —
-  it has enough body to warrant its own ns under the
-  leaf-size ceiling. That ns exposes its own `descriptors` vec which
-  `tools.registry/tool-registry` concatenates after `write/descriptors`
-  so the documented Write-category order survives the file split."
+  - `unregister-variant` — symmetric removal."
   (:require [clojure.edn :as edn]
             [re-frame.error :as error]
             [re-frame.mcp-base.args :as args]
@@ -28,8 +21,8 @@
   caller's MCP tool name, sans namespace) through to the error's
   `:structuredContent :tool` slot so agents inspecting a gated-error
   payload see the tool that actually tripped the gate — not a hardcoded
-  string. Three callers today: `register-variant`, `unregister-variant`,
-  and `record-as-variant` (via the recorder ns)."
+  string. Two callers today: `register-variant` and
+  `unregister-variant`."
   [tool-name]
   (when-not (config/writes-allowed?)
     (result/error-result
@@ -376,12 +369,7 @@
 
 (def descriptors
   "Write-category descriptors for the in-ns tools (register /
-  unregister), in spec/002-Tool-Registry.md order.
-
-  `record-as-variant` lives in `re-frame.story-mcp.tools.recorder` and
-  is concatenated by `tools.registry/tool-registry` after this vec —
-  not by this ns — to avoid a load-time cycle (recorder requires
-  write for the gate fn)."
+  unregister), in spec/002-Tool-Registry.md order."
   [{:name           "register-variant"
     :category       :write
     :description    (str "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix. "

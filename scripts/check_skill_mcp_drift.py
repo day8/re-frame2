@@ -140,7 +140,7 @@ class Mapping:
 # directly.
 _STORY_MCP_LEAVES = tuple(
     REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools" / f"{leaf}.cljc"
-    for leaf in ("dev", "docs", "testing", "write", "recorder")
+    for leaf in ("dev", "docs", "testing", "write")
 )
 
 
@@ -167,11 +167,11 @@ MAPPINGS: list[Mapping] = [
         intentional_server_only=frozenset(),
     ),
     # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
-    # 17-tool surface, split along the authoring vs live-runtime axis.
+    # tool surface, split along the authoring vs live-runtime axis.
     # - re-frame2 (authoring) owns: get-story-instructions, list-*, get-*,
     #   variant->edn, preview-variant, register-variant, unregister-variant.
     # - re-frame2-pair (live-session) owns: run-variant, read-failures,
-    #   snapshot-identity, read-a11y-violations, record-as-variant.
+    #   snapshot-identity, read-a11y-violations.
     # Each mapping marks the OTHER skill's tools as `intentional_server_only`
     # so the gate only fires when the canonical owner forgets a tool.
     # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
@@ -192,7 +192,6 @@ MAPPINGS: list[Mapping] = [
             "read-failures",
             "snapshot-identity",
             "read-a11y-violations",
-            "record-as-variant",
         }),
     ),
     Mapping(
