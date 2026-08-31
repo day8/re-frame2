@@ -338,16 +338,18 @@
 ;;
 ;;   :component-did-mount         -> componentDidMount(this)
 ;;   :component-will-unmount      -> componentWillUnmount(this)
-;;   :component-did-update        -> componentDidUpdate(this, prev-argv, snapshot)
+;;   :component-did-update        -> componentDidUpdate(this, prev-argv, prev-state, snapshot)
 ;;   :reagent-render              -> render(this) — wrapped via wrap-render
 ;;   :display-name                -> displayName (static class field)
-;;   :get-snapshot-before-update  -> getSnapshotBeforeUpdate(this, prev-argv)
+;;   :get-snapshot-before-update  -> getSnapshotBeforeUpdate(this, prev-argv, prev-state)
 ;;   :component-did-catch         -> componentDidCatch(this, error, info)
 ;;
 ;; The user fns are called with `this` as the first arg to mirror
 ;; stock Reagent's convention (`(fn [this] ...)`). `componentDidUpdate`
-;; receives the previous argv (not React's prevProps) plus the snapshot
-;; from `getSnapshotBeforeUpdate`. Per IMPL-SPEC §6.6.
+;; receives the previous argv (not React's prevProps), React's prevState
+;; verbatim, and the snapshot from `getSnapshotBeforeUpdate`. Per
+;; IMPL-SPEC §6.6 and stock-Reagent 2.0.1 parity (its custom-wrapper
+;; forwards oldstate untranslated in both paired update lifecycles).
 ;;
 ;; All user-fn calls are wrapped in a `binding [*current-component* this]`
 ;; so re-frame's render-trace + `current-component` reads work.
@@ -443,21 +445,26 @@
 
     (when-let [f (:component-did-update spec)]
       ;; React calls componentDidUpdate(prevProps, prevState, snapshot).
-      ;; User fn signature: (this prev-argv snapshot) per IMPL-SPEC §6.6.
+      ;; User fn signature: (this prev-argv prev-state snapshot) per
+      ;; IMPL-SPEC §6.6. prevProps is translated to prev-argv; prevState
+      ;; and snapshot pass through verbatim (stock-Reagent parity: the
+      ;; 2.0.1 custom-wrapper calls f with c, props-argv, oldstate,
+      ;; snapshot).
       (set! (.-componentDidUpdate proto)
-            (fn [prev-props _prev-state snapshot]
+            (fn [prev-props prev-state snapshot]
               (this-as this
                 (bind-and-call this
-                  #(f this (prev-argv-from prev-props) snapshot))))))
+                  #(f this (prev-argv-from prev-props) prev-state snapshot))))))
 
     (when-let [f (:get-snapshot-before-update spec)]
-      ;; User fn: (this prev-argv) → snapshot; React then threads
-      ;; snapshot as the third arg to componentDidUpdate.
+      ;; User fn: (this prev-argv prev-state) → snapshot; React then
+      ;; threads snapshot as componentDidUpdate's third argument (the
+      ;; user fn's fourth). prevState passes through verbatim, as stock.
       (set! (.-getSnapshotBeforeUpdate proto)
-            (fn [prev-props _prev-state]
+            (fn [prev-props prev-state]
               (this-as this
                 (bind-and-call this
-                  #(f this (prev-argv-from prev-props)))))))
+                  #(f this (prev-argv-from prev-props) prev-state))))))
 
     (when-let [f (:component-did-catch spec)]
       ;; Error-boundary logging half — user fn: (this error info).

@@ -78,7 +78,7 @@
                        (swap! render-count inc)
                        [:span "child-v=" v])
                      :component-did-update
-                     (fn [_this _prev-argv _snapshot]
+                     (fn [_this _prev-argv _prev-state _snapshot]
                        (swap! update-count inc))})]
         (rf/make-frame {:id frame-kw :doc "sCU argv-gate probe frame"})
         (rf/reg-event ::seed       (fn [_ _] {:db {:tick 0 :child-v 1}}))
