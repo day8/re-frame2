@@ -36,4 +36,4 @@ Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / Th
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
 - [`skills/re-frame2/patterns/`](../../re-frame2/patterns) — the canonical-idiom leaves each anti-pattern routes to.
-- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, shared-protocol extraction, growth procedure, deferred candidates).
+- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, correction contract, growth procedure, deferred candidates).

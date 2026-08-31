@@ -103,7 +103,7 @@ skills/re-frame2-improver/
 │   ├── evals.json (trigger + behavioural critique fixtures — evals.json is the sole inventory; see evals/README.md §Coverage)
 │   └── README.md (coverage table + grading guidance + release threshold)
 ├── references/
-│   ├── README.md (catalogue index + routing table + shared-protocol pointer)
+│   ├── README.md (catalogue index + routing table)
 │   └── <six anti-pattern leaves>.md
 └── spec/
     ├── design.md (this file)
@@ -113,7 +113,7 @@ skills/re-frame2-improver/
 
 ## 6. Discovery surface (frontmatter `description`)
 
-Triggers on explicit critique pull about the user's own re-frame2 code with source in scope ("review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "spot any anti-patterns"). Discriminates against: `re-frame2` (authoring, `reg-*` verbs), `re-frame2-pair` (live runtime, dispatch/app-db/epoch verbs), `re-frame2-pair-retro` (pair-session retro), `re-frame-migration` (v1→v2), and `re-frame2-implementor` (porting the framework — the near-homograph trap).
+Triggers on explicit critique pull about the user's own re-frame2 code with source in scope ("review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "spot any anti-patterns"). Discriminates against: `re-frame2-setup` (greenfield bootstrap), `re-frame2` (authoring, `reg-*` verbs), `re-frame-migration` (v1→v2), `reagent-migration` (Reagent views → Hicasso — a porting ask even on an already-re-frame2 app), `re-frame2-xray` (the human panel tour), `re-frame2-pair` (live runtime, dispatch/app-db/epoch verbs), `re-frame2-pair-retro` (pair-session retro), and `re-frame2-implementor` (porting the framework — the near-homograph trap). The full boundary is stated locally in SKILL.md §Trigger semantics filter 3 — a packaged install routes without `skills/README.md`, whose matrix is an optional supporting reference kept aligned.
 
 ## 7. Why this design diverges from `re-frame2-pair-retro`
 

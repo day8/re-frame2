@@ -17,7 +17,7 @@ A self-contained **orchestration** prompt that re-authors the `re-frame2-improve
 > *3. `skills/re-frame2-improver/references/README.md` — the **catalogue contract**: the anti-pattern index, the load-only-what-matches routing table, the co-occurring-finding consolidation rule, and the locked five-section leaf format.*
 > *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/patterns/` + `skills/re-frame2/references/` — the canonical-idiom source of truth every cross-link routes to.*
 > *5. `skills/re-frame2-pair-retro/` — the structural sibling sharing the `spec/` triad shape; mirror its voice / structure.*
-> *6. `skills/README.md` §Skill routing — the disambiguation matrix the trigger semantics defer to.*
+> *6. `skills/README.md` §Skill routing — the monorepo's trigger matrix. SKILL.md states the sibling boundary in full locally (the packaged install routes without the monorepo); keep the local boundary aligned with this matrix rather than deferring to it.*
 >
 > ### Deliverables
 >
