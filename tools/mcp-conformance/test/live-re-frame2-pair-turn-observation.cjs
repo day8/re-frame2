@@ -16,8 +16,10 @@
 //      completed tool result (the settled epoch's summary — not a
 //      progress frame).
 //   2. `watch-epochs` reads the RETAINED epoch history and returns the
-//      cascade we caused — causally attributed via a per-run NONCE
-//      riding the trigger-event vector.
+//      cascade we caused — causally attributed via the `:epoch-id` the
+//      dispatch consequence returned (minted by OUR cascade's settle;
+//      trigger-event args do not egress raw off-box, so the id is the
+//      correlation key the wire affords).
 //   3. `watch-until` blocks server-side on a DATA predicate over an
 //      app-db signal and returns the satisfying sample as the tool
 //      result.
@@ -76,12 +78,10 @@ const {
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
-// Per-run unique nonce. We dispatch `[:counter/inc "<NONCE>"]` — the
-// `:counter/inc` handler ignores its event args, so the extra string is
-// inert, but the FULL event vector rides into the recorded epoch's
-// trigger-event slot. Asserting the watch-epochs pull carries this nonce
-// makes the retained-history gate CAUSAL: it proves the returned epoch
-// is the cascade from OUR dispatch, not a pre-existing ring entry.
+// Per-run unique nonce riding the dispatch (the `:counter/inc` handler
+// ignores its event args, so the extra string is inert). Causality is
+// carried by the `:epoch-id` the consequence returns — event ARGS are
+// egress-protected off-box, so the nonce never appears in a pull.
 const NONCE = 'rf2-turn-probe-' + crypto.randomUUID();
 const PROBE_EVENT = '[:counter/inc "' + NONCE + '"]';
 
@@ -195,32 +195,56 @@ runWithWatchdog(
           'contract. Got: ' + dispText.slice(0, 400),
       );
     }
+    const eidMatch = /:epoch-id (\d+)/.exec(dispText);
+    if (!eidMatch) {
+      throw new Error(
+        'dispatch consequence MUST carry a parseable :epoch-id <int>; got: ' +
+          dispText.slice(0, 400),
+      );
+    }
+    const epochId = eidMatch[1];
     console.log(
-      'OK   dispatch (sync) -> completed result carries :cascade-summary + :epoch-id',
+      'OK   dispatch (sync) -> completed result carries :cascade-summary + :epoch-id ' +
+        epochId,
     );
 
     // ---- 2. watch-epochs -> the RETAINED epoch, causally ours ----
     //
     // A bounded pull over retained history: one completed call returns
-    // the matching epochs. `epochs-mode "full"` ships the whole record
-    // so the trigger-event (carrying our NONCE — not a declared-
-    // sensitive path, so it rides raw) is visible in the result text.
+    // the matching epochs. `event-id-prefix` is the str-coerced pred
+    // axis (a JSON pred value arrives as a string; exact `event-id`
+    // compares keyword-to-keyword and can never match from a JSON
+    // object). `dedup: false` keeps the record literal so the id and
+    // event-id are directly greppable in the result text. Causality:
+    // the pull must contain the `:epoch-id` OUR dispatch consequence
+    // minted — a pre-existing ring entry cannot carry it.
     const weResp = await client.callTool({
       name: 'watch-epochs',
-      arguments: { pred: { 'event-id': ':counter/inc' }, 'epochs-mode': 'full' },
+      arguments: {
+        pred: { 'event-id-prefix': ':counter/inc' },
+        'epochs-mode': 'full',
+        dedup: false,
+      },
     });
-    fatalIfError('watch-epochs {pred {:event-id :counter/inc}}', weResp);
+    fatalIfError('watch-epochs {pred {:event-id-prefix ":counter/inc"}}', weResp);
     const weText = responseText(weResp) || '';
-    if (!weText.includes(NONCE)) {
+    if (!weText.includes(':epoch-id ' + epochId)) {
       throw new Error(
         'watch-epochs pull MUST return the retained epoch for OUR dispatch ' +
-          '(trigger-event carrying nonce ' + NONCE + '). A pull without the ' +
-          'nonce is a pre-existing ring entry, not proof the retained-history ' +
-          'read observes the cascade we caused. Got: ' + weText.slice(0, 500),
+          '(:epoch-id ' + epochId + ' from the consequence). A pull without ' +
+          'it reads a different ring entry, not the cascade we caused. Got: ' +
+          weText.slice(0, 500),
+      );
+    }
+    if (!weText.includes(':counter/inc')) {
+      throw new Error(
+        'watch-epochs pull MUST carry the :counter/inc event-id on the ' +
+          'matched epoch; got: ' + weText.slice(0, 500),
       );
     }
     console.log(
-      'OK   watch-epochs -> completed pull carries the nonce-tagged retained epoch',
+      'OK   watch-epochs -> completed pull carries retained epoch :epoch-id ' +
+        epochId + ' (:counter/inc)',
     );
 
     // ---- 3. watch-until -> the satisfying sample as the result ----
