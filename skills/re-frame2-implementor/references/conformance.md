@@ -79,12 +79,15 @@ The framing from the corpus README is normative here: *"A fixture an AI cannot r
 
 The corpus grows with the spec. A spec-mandated surface with no fixture yet is a **corpus gap**: self-test the behaviour from the owning Spec with the port's own unit tests, record the capability as *fixture-less self-tested* in the profile, and file the gap upstream (ideally with a draft fixture in the body) per rules 8–9. A missing fixture is never a reason to skip the behaviour.
 
+A fixture that **exists but observes only a prerequisite** is the same gap wearing a green tick, and one such case is named by the Spec itself: the two `:identity/cedn1` cache-key fixtures assert canonical-identity — the pure mechanism a value-keyed sub-cache rests on — not live cache wiring, and the corpus subscribes each query once, so it cannot see a reference-keyed live cache ([`spec/006-ReactiveSubstrate.md` §Value-keyed cache-key contract](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#value-keyed-cache-key-contract), conformance-observability note). The port-owned proof for that surface is the required [EP-006 live sub-cache witness](phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned) — already specified, no upstream filing needed.
+
 ## Reporting conformance
 
-The port's README states three things, copied from the profile:
+The port's README states four things, copied from the profile:
 
 - **Claimed capability tags.**
 - **Conformance score** — `passed / claimed-applicable` from the most recent harness run.
 - **The corpus commit** the score was measured against — the corpus changes, so an unpinned score is unverifiable.
+- **The EP-006 live sub-cache witness result** — its own pass/fail line beside the score (see above), never inside the fraction.
 
-When the score is `N / N`, the port is a conformant re-frame2 implementation against its claim; when it's `N-k / N`, it is k fixtures from conformant. Either way, the consumer knows where they stand.
+When the score is `N / N`, the port is fixture-conformant against its claim; when it's `N-k / N`, it is k fixtures from conformant. Either way, the consumer knows where they stand. The score stays a **fixture** result: on a host whose cache mechanism does not intrinsically key by `rf=`, `N / N` alone does not make the port v1-complete while the live witness is red or unrun.
