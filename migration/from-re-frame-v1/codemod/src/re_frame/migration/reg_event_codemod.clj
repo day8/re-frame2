@@ -18,7 +18,9 @@
 
   * reg-event-fx  -> reg-event
       A pure symbol rename. `reg-event` IS today's `reg-event-fx`, so the body
-      is byte-for-byte unchanged. Always safe; always applied.
+      is byte-for-byte unchanged — UNLESS the middle slot carries a v1
+      interceptor chain, which is normalized (or flagged) per the middle-slot
+      rules below.
 
   * reg-event-db  -> reg-event, when the form is the SIMPLE, FAITHFUL shape:
       (reg-event-db ID (fn [DB EV] BODY))            ;; 2-arg handler fn
@@ -28,9 +30,38 @@
       BODY always evaluates to the new app-db (that IS the reg-event-db
       contract), so wrapping it in `{:db BODY}` is mechanical regardless of how
       complex BODY is. The first handler param (`DB`) is rebound so the renamed
-      handler reads the db out of the coeffects map. Path-interceptor metadata in
-      the optional middle slot (`{:interceptors [(rf/path ...)]}`) is PRESERVED
-      untouched.
+      handler reads the db out of the coeffects map.
+
+  * MIDDLE SLOT (interceptor chain) — the M-70 x M-73 composition (rf2-8odvg).
+      v2 chains are REFERENCE-ONLY (EP-0022): a chain entry is a bare keyword
+      id or an `[id arg]` 2-vector, carried in metadata `:interceptors`. v1
+      chains carried inline VALUES — `(rf/path ...)` calls, custom interceptor
+      vars — in a positional vector middle slot or a metadata `:interceptors`
+      vector. Leaving those untouched emits output v2 REJECTS at namespace
+      load (`:rf.error/path-removed` / `:rf.error/reg-event-bad-middle-slot` /
+      `:rf.error/inline-interceptor-removed`), so the codemod now normalizes
+      what is mechanical and flags the rest:
+
+      - The standard `path` constructor is the ONE mechanical lowering:
+        `(rf/path p...)` (any alias; v1 flattens its args) becomes the
+        framework factory ref `[:rf.interceptor/path [p...]]` — recognized in
+        metadata-`:interceptors`, positional-vector, bare-middle, and
+        metadata-plus-vector source shapes. Positional chains are wrapped into
+        (or merged into) the ONE metadata-map `:interceptors` form; entry
+        declaration order is preserved.
+      - Entries that are ALREADY v2 refs are preserved verbatim.
+      - Any OTHER inline interceptor (a custom value, a var, `(rf/debug)`, a
+        call whose registered id cannot be derived without author intent) makes
+        the WHOLE site an unresolved M-70 Type-B finding (`:flag
+        :interceptors`) and the source is left unchanged — a codemod must never
+        certify output the target rejects.
+
+  * reg-event (already renamed) — RESCANNED for invalid middle-slot survivors.
+      A partially migrated tree (e.g. one produced by the pre-rf2-8odvg
+      head-only rewrite) carries `reg-event` forms whose chains still hold
+      inline values / positional vectors. Those sites get the same
+      normalize-or-flag treatment (`:form :reg-event`), so a re-run recovers
+      them. Valid `reg-event` forms produce NO finding.
 
       FIRST-PARAM REBIND: when the first param is literally `db` (or an `_`/`_x`
       binding that is genuinely never read in the body), it becomes `{:keys [db]}`.
@@ -79,9 +110,10 @@
     {:file       \"path or nil\"
      :line       42
      :col        3
-     :form       :reg-event-db | :reg-event-fx | :reg-event-ctx
+     :form       :reg-event-db | :reg-event-fx | :reg-event-ctx | :reg-event
      :action     :rewrite | :rename | :flag
-     :flag       nil | :nil-capable | :complex | :ctx          ;; when :action :flag
+     :flag       nil | :nil-capable | :complex | :ctx
+                 | :interceptors                               ;; unresolved M-70 Type B
      :target     :reg-event | nil                              ;; suggested target form
      :note       \"human-readable explanation\"}"
   (:require [clojure.java.io :as io]
@@ -95,14 +127,19 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private registrar-forms
-  "Maps a recognised registrar (by its *simple* name) to the v1 form keyword."
+  "Maps a recognised registrar (by its *simple* name) to its form keyword. The
+  three retired v1 registrars are rewrite/flag candidates; `reg-event` itself
+  is RESCANNED for invalid middle-slot survivors (rf2-8odvg) — a valid
+  `reg-event` produces no finding."
   {"reg-event-db"  :reg-event-db
    "reg-event-fx"  :reg-event-fx
-   "reg-event-ctx" :reg-event-ctx})
+   "reg-event-ctx" :reg-event-ctx
+   "reg-event"     :reg-event})
 
 (defn- registrar-of
   "If `sym` (a clojure symbol like `rf/reg-event-db`, `re-frame.core/reg-event-fx`,
-  or bare `reg-event-db`) names one of the three retired registrars, return its
+  or bare `reg-event-db`) names a recognised registrar (the three retired v1
+  forms, or `reg-event` itself for the invalid-survivor rescan), return its
   form keyword; else nil. Matches on the symbol's *name* (post-`/`) so any
   namespace alias is recognised."
   [sym]
@@ -272,6 +309,238 @@
       p0)))
 
 ;; ---------------------------------------------------------------------------
+;; Middle-slot (interceptor chain) analysis — the M-70 x M-73 composition
+;; ---------------------------------------------------------------------------
+;;
+;; v2 chains are REFERENCE-ONLY (EP-0022): an entry is a bare keyword id or an
+;; `[id arg]` 2-vector, and the chain lives in metadata `:interceptors`. v1
+;; chains carried inline VALUES. The ONE mechanical (Type A) lowering is the
+;; standard `path` constructor — `(path p...)` (any alias; v1 flattens its
+;; args) becomes the framework factory ref `[:rf.interceptor/path [p...]]`.
+;; Any other inline entry has no derivable registered id (author intent), so
+;; it is surfaced as an unresolved M-70 Type-B finding (`:flag :interceptors`)
+;; and the site is left unchanged — the codemod must never certify output the
+;; target rejects (rf2-8odvg).
+
+(defn- path-literal?
+  "A value usable as a literal path segment: keyword / string / number /
+  boolean."
+  [v]
+  (or (keyword? v) (string? v) (number? v) (boolean? v)))
+
+(defn- path-call-info
+  "If `node` is a call of the v1 standard `path` interceptor constructor —
+  `(rf/path :counter)`, `(re-frame.core/path :a :b)`, bare `(path [:a :b])` —
+  return `{:path-vec [...]}` when the path vector derives mechanically (every
+  arg a literal segment, or a vector of literal segments — spliced, matching
+  v1 `path`'s arg flatten); `:unresolved-args` when it IS a path call whose
+  args cannot be derived (a symbol / call / nested shape); nil when the node
+  is not a path call at all."
+  [node]
+  (when (and node (= :list (n/tag node)))
+    (let [kids (sig-children node)
+          hd   (first kids)]
+      (when (and hd (= :token (n/tag hd)))
+        (let [hv (try (n/sexpr hd) (catch Exception _ nil))]
+          (when (and (symbol? hv) (= "path" (name hv)))
+            (loop [args (rest kids)
+                   acc  []]
+              (if-let [a (first args)]
+                (let [v (try (n/sexpr a) (catch Exception _ ::err))]
+                  (cond
+                    (path-literal? v)
+                    (recur (rest args) (conj acc v))
+
+                    (and (vector? v) (every? path-literal? v))
+                    (recur (rest args) (into acc v))
+
+                    :else :unresolved-args))
+                {:path-vec acc}))))))))
+
+(defn- ref-entry-node?
+  "Is `node` ALREADY a v2 interceptor reference (mirrors the runtime's
+  `interceptor-ref?`): a keyword token, or a 2-element vector whose first
+  element is a keyword?"
+  [node]
+  (case (n/tag node)
+    :token  (keyword? (try (n/sexpr node) (catch Exception _ nil)))
+    :vector (let [es (sig-children node)]
+              (and (= 2 (count es))
+                   (= :token (n/tag (first es)))
+                   (keyword? (try (n/sexpr (first es)) (catch Exception _ nil)))))
+    false))
+
+(defn- path-ref-node
+  "The `[:rf.interceptor/path [p...]]` factory-reference node for a derived
+  path vector."
+  [path-vec]
+  (n/coerce [:rf.interceptor/path path-vec]))
+
+(defn- convert-entry
+  "Classify ONE chain-entry node:
+     {:kind :keep}                       — already a v2 ref; preserved verbatim
+     {:kind :convert :node <ref-node>}   — standard path call, lowered
+     {:kind :unresolved :offending node} — no derivable stable id (M-70 Type B)"
+  [node]
+  (if (ref-entry-node? node)
+    {:kind :keep}
+    (let [pc (path-call-info node)]
+      (if (map? pc)
+        {:kind :convert :node (path-ref-node (:path-vec pc))}
+        {:kind :unresolved :offending node}))))
+
+(defn- convert-chain-vector
+  "Convert the entries of a chain VECTOR node (a positional middle slot, or a
+  metadata `:interceptors` value). Whitespace/comments between entries are
+  preserved; entry declaration order is preserved.
+     {:kind :ok}                          — every entry already a v2 ref
+     {:kind :convert :node <new-vector>}  — >=1 path call lowered
+     {:kind :unresolved :offending node}  — >=1 underivable entry"
+  [vec-node]
+  (let [res (reduce
+              (fn [acc kid]
+                (if (n/whitespace-or-comment? kid)
+                  (update acc :kids conj kid)
+                  (let [{:keys [kind node offending]} (convert-entry kid)]
+                    (case kind
+                      :keep       (update acc :kids conj kid)
+                      :convert    (-> acc
+                                      (update :kids conj node)
+                                      (assoc :changed? true))
+                      :unresolved (reduced
+                                    (assoc acc :offending (or offending kid)))))))
+              {:kids [] :changed? false}
+              (n/children vec-node))]
+    (cond
+      (:offending res) {:kind :unresolved :offending (:offending res)}
+      (:changed? res)  {:kind :convert
+                        :node (n/replace-children vec-node (:kids res))}
+      :else            {:kind :ok})))
+
+(defn- meta-map-interceptors-value
+  "The VALUE node of the `:interceptors` key inside a metadata MAP node, or nil
+  when the map carries no `:interceptors` key."
+  [map-node]
+  (loop [pairs (partition 2 (sig-children map-node))]
+    (when-let [[k v] (first pairs)]
+      (if (= :interceptors (try (n/sexpr k) (catch Exception _ nil)))
+        v
+        (recur (rest pairs))))))
+
+(defn- analyse-meta-map
+  "Analyse a metadata MAP node's `:interceptors` chain.
+     {:kind :ok}   — no `:interceptors` key, or all entries already refs
+     {:kind :convert :node <new-map-node>}
+     {:kind :unresolved :offending node}"
+  [map-node]
+  (if-let [v (meta-map-interceptors-value map-node)]
+    (if (not= :vector (n/tag v))
+      ;; a non-vector `:interceptors` value cannot be certified (v2 rejects it)
+      {:kind :unresolved :offending v}
+      (let [res (convert-chain-vector v)]
+        (if (= :convert (:kind res))
+          {:kind :convert
+           :node (n/replace-children
+                   map-node
+                   (map (fn [c] (if (identical? c v) (:node res) c))
+                        (n/children map-node)))}
+          res)))
+    {:kind :ok}))
+
+(defn- wrap-chain-in-meta-node
+  "Build the one metadata-map node `{:interceptors <vec-node>}`."
+  [vec-node]
+  (n/map-node
+    [(n/keyword-node :interceptors) (n/spaces 1) vec-node]))
+
+(defn- merge-vector-into-meta
+  "Merge a positional chain VECTOR node `vec-node` into metadata MAP node
+  `map-node` (the historical metadata-plus-vector shape), converting entries on
+  both sides. The map's own `:interceptors` entries come first, the positional
+  entries are appended — declaration order preserved. Returns
+     {:kind :convert :node <new-map-node>} | {:kind :unresolved :offending _}."
+  [map-node vec-node]
+  (let [vec-res (convert-chain-vector vec-node)]
+    (if (= :unresolved (:kind vec-res))
+      vec-res
+      (let [conv-vec (if (= :convert (:kind vec-res)) (:node vec-res) vec-node)]
+        (if-let [existing (meta-map-interceptors-value map-node)]
+          (if (not= :vector (n/tag existing))
+            {:kind :unresolved :offending existing}
+            (let [ex-res (convert-chain-vector existing)]
+              (if (= :unresolved (:kind ex-res))
+                ex-res
+                (let [conv-existing (if (= :convert (:kind ex-res))
+                                      (:node ex-res)
+                                      existing)
+                      ex-kids  (n/children conv-existing)
+                      merged   (n/replace-children
+                                 conv-existing
+                                 (concat ex-kids
+                                         (when (seq ex-kids) [(n/spaces 1)])
+                                         (n/children conv-vec)))]
+                  {:kind :convert
+                   :node (n/replace-children
+                           map-node
+                           (map (fn [c] (if (identical? c existing) merged c))
+                                (n/children map-node)))}))))
+          ;; no `:interceptors` key yet — append one to the map
+          {:kind :convert
+           :node (let [kids (vec (n/children map-node))
+                       sep  (when (seq (remove n/whitespace-or-comment? kids))
+                              [(n/spaces 1)])]
+                   (n/replace-children
+                     map-node
+                     (concat kids sep [(n/keyword-node :interceptors)
+                                       (n/spaces 1)
+                                       conv-vec])))})))))
+
+(defn- analyse-middle
+  "Analyse the middle-slot node(s) between ID and HANDLER of a registrar call.
+  Returns one of
+     {:kind :none}       — no middle slot
+     {:kind :ok}         — already valid v2 (metadata map; chain refs-only)
+     {:kind :convert :replace {<old-node> <new-node>} :remove #{<node>}}
+     {:kind :unresolved :offending <node>}   — M-70 Type B"
+  [middles]
+  (case (count middles)
+    0 {:kind :none}
+    1 (let [m (first middles)]
+        (case (n/tag m)
+          :map    (let [res (analyse-meta-map m)]
+                    (if (= :convert (:kind res))
+                      {:kind :convert :replace {m (:node res)}}
+                      res))
+          ;; a positional chain is invalid v2 even when every entry is already
+          ;; a ref — always wrap the (converted) vector into the metadata form
+          :vector (let [res (convert-chain-vector m)]
+                    (if (= :unresolved (:kind res))
+                      res
+                      {:kind :convert
+                       :replace {m (wrap-chain-in-meta-node
+                                     (if (= :convert (:kind res))
+                                       (:node res)
+                                       m))}}))
+          ;; bare middle: v1 flattened chains, so a single bare interceptor
+          ;; value was legal — mechanical only for the standard path call
+          (let [pc (path-call-info m)]
+            (if (map? pc)
+              {:kind :convert
+               :replace {m (wrap-chain-in-meta-node
+                             (n/vector-node
+                               [(path-ref-node (:path-vec pc))]))}}
+              {:kind :unresolved :offending m}))))
+    2 (let [[a b] middles]
+        (if (and (= :map (n/tag a)) (= :vector (n/tag b)))
+          (let [res (merge-vector-into-meta a b)]
+            (if (= :convert (:kind res))
+              {:kind :convert :replace {a (:node res)} :remove #{b}}
+              res))
+          {:kind :unresolved :offending a}))
+    ;; >2 middle nodes — a shape neither v1 nor v2 accepts; never certify
+    {:kind :unresolved :offending (first middles)}))
+
+;; ---------------------------------------------------------------------------
 ;; Finding construction
 ;; ---------------------------------------------------------------------------
 
@@ -289,57 +558,112 @@
 ;; Per-call-site analysis + rewrite
 ;; ---------------------------------------------------------------------------
 
+(defn- interceptors-flag-finding
+  "The unresolved-M-70 (`:flag :interceptors`) finding for a site whose
+  interceptor chain carries an entry with no mechanically derivable v2
+  reference. The site is left unchanged: inline values and positional chains
+  are rejected by v2 `reg-event` at namespace load, so a head-only rewrite
+  would certify output the target rejects."
+  [base form-kw offending]
+  (let [got (some-> offending n/string str/trim)]
+    (finding base
+             {:action :flag :flag :interceptors :target :reg-event
+              :note (str (name form-kw)
+                         " carries an interceptor chain entry with no mechanically"
+                         " derivable v2 reference"
+                         (when got (str ": `" got "`"))
+                         " — unresolved M-70 (Type B). v2 chains are"
+                         " reference-only: register the interceptor with"
+                         " reg-interceptor and reference it by id (a bare keyword,"
+                         " or [id arg] like [:rf.interceptor/path [:counter]]),"
+                         " then re-run the codemod. Left unrewritten — inline"
+                         " values / positional chains hard-fail v2 registration"
+                         " at namespace load.")})))
+
 (defn- analyse-call
-  "Analyse a registrar call-site list zipper `zloc` (head already known to be a
-  retired registrar `form-kw`). Returns {:finding f :rewrite-fn (fn [zloc] zloc')}.
-  `rewrite-fn` mutates the zipper at this node when the action is a structural
-  rewrite; for :flag / :rename-symbol-only it may be nil (handled by caller)."
+  "Analyse a registrar call-site list zipper `zloc` (head already known to be
+  `form-kw` — a retired registrar, or `reg-event` itself for the
+  invalid-survivor rescan). Returns
+    {:finding f :kind :flag}                              — source unchanged
+    {:finding f :kind :rewrite
+     :rename-head? bool                                   — retired head -> reg-event
+     :simple-fn m|nil                                     — db-handler rewrite
+     :middle analyse-middle-result|nil}                   — middle-slot conversion
+  or nil — a `reg-event` site whose middle slot is already valid (no finding)."
   [zloc form-kw {:keys [file force-db-wrap?]}]
   (let [{:keys [line col]} (pos-of zloc)
-        base {:file file :line line :col col :form form-kw}]
+        base    {:file file :line line :col col :form form-kw}
+        kids    (sig-children (z/node zloc))
+        ;; kids: (HEAD ID middle... HANDLER)
+        middles (vec (drop 2 (or (butlast kids) ())))]
     (case form-kw
-      :reg-event-fx
-      {:finding (finding base {:action :rename :target :reg-event
-                               :note "reg-event-fx -> reg-event (pure rename; same semantics)"})
-       :kind :rename}
-
       :reg-event-ctx
       {:finding (finding base {:action :flag :flag :ctx :target nil
                                :note "reg-event-ctx removed from the public surface; rewrite to a registered interceptor (reg-interceptor, referenced by id in :interceptors; EP-0022) by hand"})
        :kind :flag}
 
+      :reg-event-fx
+      (let [mid (analyse-middle middles)]
+        (case (:kind mid)
+          :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
+                       :kind :flag}
+          :convert    {:finding (finding base {:action :rewrite :target :reg-event
+                                               :note "reg-event-fx -> reg-event; v1 interceptor chain normalized to metadata :interceptors references (M-70 x M-73)"})
+                       :kind :rewrite :rename-head? true :middle mid}
+          ;; :none / :ok
+          {:finding (finding base {:action :rename :target :reg-event
+                                   :note "reg-event-fx -> reg-event (pure rename; same semantics)"})
+           :kind :rewrite :rename-head? true}))
+
+      ;; already-renamed reg-event: rescan the middle slot only. A valid site
+      ;; (no middle, or a metadata map whose chain is refs-only) yields NO
+      ;; finding — the rescan exists to recover partially migrated trees.
+      :reg-event
+      (let [mid (analyse-middle middles)]
+        (case (:kind mid)
+          :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
+                       :kind :flag}
+          :convert    {:finding (finding base {:action :rewrite :target :reg-event
+                                               :note "reg-event carries a v1 interceptor middle slot (partially migrated site); normalized to metadata :interceptors references (M-70)"})
+                       :kind :rewrite :middle mid}
+          nil))
+
       :reg-event-db
-      (let [kids        (sig-children (z/node zloc))
-            ;; kids: (reg-event-db ID ?meta HANDLER)
-            handler-node (last kids)
-            simple-fn    (simple-handler-fn? handler-node)]
-        (cond
-          (nil? simple-fn)
-          {:finding (finding base {:action :flag :flag :complex :target nil
-                                   :note "reg-event-db handler is not a literal single-arity (fn [db ev] ...) — review by hand (var/higher-order/multi-arity/anon-shorthand)"})
+      (let [mid (analyse-middle middles)]
+        (if (= :unresolved (:kind mid))
+          {:finding (interceptors-flag-finding base form-kw (:offending mid))
            :kind :flag}
+          (let [handler-node (last kids)
+                simple-fn    (simple-handler-fn? handler-node)
+                mid*         (when (= :convert (:kind mid)) mid)]
+            (cond
+              (nil? simple-fn)
+              {:finding (finding base {:action :flag :flag :complex :target nil
+                                       :note "reg-event-db handler is not a literal single-arity (fn [db ev] ...) — review by hand (var/higher-order/multi-arity/anon-shorthand)"})
+               :kind :flag}
 
-          ;; first param not a plain symbol => unsafe to rebind to {:keys [db]}
-          (nil? (params-simple? (:params simple-fn)))
-          {:finding (finding base {:action :flag :flag :complex :target nil
-                                   :note "reg-event-db handler's first param is destructured (or absent) — db-rebinding is unsafe; review by hand"})
-           :kind :flag}
+              ;; first param not a plain symbol => unsafe to rebind to {:keys [db]}
+              (nil? (params-simple? (:params simple-fn)))
+              {:finding (finding base {:action :flag :flag :complex :target nil
+                                       :note "reg-event-db handler's first param is destructured (or absent) — db-rebinding is unsafe; review by hand"})
+               :kind :flag}
 
-          ;; D7: body can evaluate to nil => flag, do not rewrite — UNLESS the
-          ;; caller opts into `:force-db-wrap?` (the EP-0018 Slice-Z framework
-          ;; corpus sweep; `{:db BODY}` is the faithful reading for our own test
-          ;; handlers — the D7 author-choice gate is a v1-MIGRATION default, not
-          ;; relevant to in-repo test code we control).
-          (and (not force-db-wrap?) (body-nil-capable? (last (:body simple-fn))))
-          {:finding (finding base {:action :flag :flag :nil-capable :target :reg-event
-                                   :note "reg-event-db body can evaluate to nil; under v2 a bare nil is a no-op and {:db nil} coerces to {:db {}} -- choose the intended reading by hand (D7)"})
-           :kind :flag}
+              ;; D7: body can evaluate to nil => flag, do not rewrite — UNLESS the
+              ;; caller opts into `:force-db-wrap?` (the EP-0018 Slice-Z framework
+              ;; corpus sweep; `{:db BODY}` is the faithful reading for our own test
+              ;; handlers — the D7 author-choice gate is a v1-MIGRATION default, not
+              ;; relevant to in-repo test code we control).
+              (and (not force-db-wrap?) (body-nil-capable? (last (:body simple-fn))))
+              {:finding (finding base {:action :flag :flag :nil-capable :target :reg-event
+                                       :note "reg-event-db body can evaluate to nil; under v2 a bare nil is a no-op and {:db nil} coerces to {:db {}} -- choose the intended reading by hand (D7)"})
+               :kind :flag}
 
-          :else
-          {:finding (finding base {:action :rewrite :target :reg-event
-                                   :note "reg-event-db -> reg-event: db -> {:keys [db]}, body wrapped {:db BODY}"})
-           :kind :rewrite-db
-           :simple-fn simple-fn})))))
+              :else
+              {:finding (finding base {:action :rewrite :target :reg-event
+                                       :note (str "reg-event-db -> reg-event: db -> {:keys [db]}, body wrapped {:db BODY}"
+                                                  (when mid*
+                                                    "; v1 interceptor chain normalized to metadata :interceptors references (M-70 x M-73)"))})
+               :kind :rewrite :rename-head? true :simple-fn simple-fn :middle mid*})))))))
 
 (defn- underscore-prefixed-symbol?
   "Is `sym` an `_` or an `_`-prefixed name (the conventional \"ignore me\"
@@ -662,39 +986,61 @@
                :else                    c))
            (n/children handler-node)))))
 
+(defn- remove-with-preceding-ws
+  "Drop the nodes in `remove-set` (matched by identity) from `kids`, together
+  with the whitespace run immediately preceding each removed node — so a
+  merged-away positional vector does not leave a doubled gap behind."
+  [kids remove-set]
+  (if (empty? remove-set)
+    (vec kids)
+    (reduce (fn [acc kid]
+              (if (some #(identical? % kid) remove-set)
+                (loop [a acc]
+                  (if (and (seq a) (n/whitespace? (peek a)))
+                    (recur (pop a))
+                    a))
+                (conj acc kid)))
+            []
+            kids)))
+
 (defn- apply-rewrite-at
   "At the registrar call-site zipper `zloc`, apply the structural rewrite for
-  `analysis`. Returns the (possibly mutated) zipper positioned at the call-site."
-  [zloc form-kw analysis]
-  (case (:kind analysis)
-    :flag zloc                          ;; leave source unchanged
-    :rename
-    ;; rename the head symbol reg-event-fx -> reg-event
-    (let [head-z (z/down zloc)
-          sym    (z/sexpr head-z)]
-      (z/up (z/replace head-z (n/token-node (replace-registrar-name sym)))))
-    :rewrite-db
-    (let [head-z   (z/down zloc)
-          sym      (z/sexpr head-z)
-          ;; rename head
-          zloc1    (z/up (z/replace head-z (n/token-node (replace-registrar-name sym))))
-          ;; rewrite handler node (the last child)
-          node     (z/node zloc1)
-          kids     (n/children node)
-          simple   (:simple-fn analysis)
-          old-h    (:fn-node simple)
-          new-h    (rewrite-db-handler old-h simple)
-          new-kids (map (fn [c] (if (identical? c old-h) new-h c)) kids)]
-      (z/replace zloc1 (n/replace-children node new-kids)))
-    zloc))
+  `analysis` — any combination of a head rename (`:rename-head?`), a
+  middle-slot conversion (`:middle`, per `analyse-middle`), and a db-handler
+  rewrite (`:simple-fn`). Returns the (possibly mutated) zipper positioned at
+  the call-site. `:flag` analyses leave the source unchanged."
+  [zloc _form-kw {:keys [kind rename-head? simple-fn middle]}]
+  (if (not= :rewrite kind)
+    zloc
+    (let [node        (z/node zloc)
+          kids        (n/children node)
+          head        (first (remove n/whitespace-or-comment? kids))
+          replacement (cond-> (or (:replace middle) {})
+                        rename-head?
+                        (assoc head
+                               (n/token-node
+                                 (replace-registrar-name
+                                   (try (n/sexpr head) (catch Exception _ nil)))))
+                        simple-fn
+                        (assoc (:fn-node simple-fn)
+                               (rewrite-db-handler (:fn-node simple-fn) simple-fn)))
+          kids'       (remove-with-preceding-ws kids (:remove middle))
+          kids''      (map (fn [c]
+                             (or (some (fn [[old new*]]
+                                         (when (identical? old c) new*))
+                                       replacement)
+                                 c))
+                           kids')]
+      (z/replace zloc (n/replace-children node kids'')))))
 
 ;; ---------------------------------------------------------------------------
 ;; Traversal
 ;; ---------------------------------------------------------------------------
 
 (defn- registrar-call?
-  "If zloc is positioned at a list whose head token names a retired registrar,
-  return its form keyword; else nil."
+  "If zloc is positioned at a list whose head token names a recognised
+  registrar (a retired v1 form, or `reg-event` itself for the rescan), return
+  its form keyword; else nil."
   [zloc]
   (when (and (= :list (z/tag zloc)))
     (let [head (z/down zloc)]
@@ -709,10 +1055,12 @@
   (loop [zloc     zroot
          findings (transient [])]
     (let [form-kw (registrar-call? zloc)
-          [zloc' fs] (if form-kw
-                       (let [{:keys [finding] :as analysis} (analyse-call zloc form-kw opts)
-                             z* (if rewrite? (apply-rewrite-at zloc form-kw analysis) zloc)]
-                         [z* (conj! findings finding)])
+          ;; analyse-call may return nil: a `reg-event` site whose middle slot
+          ;; is already valid v2 yields no finding and no rewrite.
+          analysis (when form-kw (analyse-call zloc form-kw opts))
+          [zloc' fs] (if analysis
+                       (let [z* (if rewrite? (apply-rewrite-at zloc form-kw analysis) zloc)]
+                         [z* (conj! findings (:finding analysis))])
                        [zloc findings])
           nxt (z/next zloc')]
       (if (z/end? nxt)

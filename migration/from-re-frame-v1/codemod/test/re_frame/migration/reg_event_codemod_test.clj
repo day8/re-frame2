@@ -6,7 +6,13 @@
     | v1 snippet                       | scanner finding   | codemod action        |
     |----------------------------------|-------------------|-----------------------|
     | simple reg-event-db              | :reg-event-db     | rewrite {:db BODY}    |
-    | reg-event-db w/ path interceptor | :reg-event-db     | rewrite, meta kept    |
+    | reg-event-db w/ path interceptor | :reg-event-db     | rewrite; chain LOWERED|
+    |   (metadata / positional /       |                   |   to [:rf.interceptor |
+    |    bare / metadata-plus-vector)  |                   |   /path [p...]] refs  |
+    | any form w/ custom inline        | (that form)       | FLAG (:interceptors)  |
+    |   interceptor (no derivable id)  |                   |   — unresolved M-70   |
+    | reg-event w/ v1 chain survivor   | :reg-event        | rewrite (rescan) /    |
+    |   (partially migrated tree)      |                   |   FLAG (:interceptors)|
     | reg-event-fx                     | :reg-event-fx     | rename only           |
     | reg-event-ctx                    | :reg-event-ctx    | FLAG (:ctx)           |
     | nil-capable -db body (when/if/   | :reg-event-db     | FLAG (:nil-capable)   |
@@ -15,7 +21,10 @@
     |   destructured db param)         |                   |                       |
 
   Plus: shape-non-corruption (round-trips of untouched code), alias-agnostic
-  detection, scan-file/scan-paths over the filesystem, and idempotence."
+  detection, scan-file/scan-paths over the filesystem, and idempotence. The
+  RUNTIME proof that the emitted chain shapes register against the real v2
+  reg-event contract lives in the `:integration` alias
+  (test-integration/, rf2-8odvg) so this default suite stays self-contained."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.java.io :as io]
@@ -99,19 +108,196 @@
       (is (str/includes? out "{:db (assoc db :logged true)}")))))
 
 ;; ---------------------------------------------------------------------------
-;; reg-event-db — path interceptor metadata preserved
+;; reg-event-db — path interceptor chains NORMALIZED (M-70 x M-73, rf2-8odvg)
 ;; ---------------------------------------------------------------------------
+;; v2 chains are reference-only (EP-0022): `rf/path` is a throwing removal stub
+;; (:rf.error/path-removed), inline values are rejected
+;; (:rf.error/inline-interceptor-removed), and the positional vector middle
+;; slot is rejected (:rf.error/reg-event-bad-middle-slot). The codemod lowers
+;; the standard path constructor to the framework factory ref
+;; `[:rf.interceptor/path [p...]]` in every mechanical source shape; the
+;; runtime proof these emitted shapes actually REGISTER lives in the
+;; `:integration` alias.
 
-(deftest db-path-interceptor-preserved
-  (testing "path-interceptor metadata is preserved; the handler returns {:db slice}"
+(deftest db-path-interceptor-normalized
+  (testing "the canonical metadata path chain lowers to the standard factory ref"
     (let [src "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
           {:keys [source findings]} (cm/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
-      ;; the metadata middle slot survives untouched
-      (is (str/includes? source "{:interceptors [(rf/path :counter)]}"))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
+      ;; no executable rf/path call survives (v2 makes it a throwing stub)
+      (is (not (str/includes? source "(rf/path")))
       (is (str/includes? source "rf/reg-event "))
       (is (str/includes? source "{:keys [db]}"))
       (is (str/includes? source "{:db (update db :value inc)}")))))
+
+(deftest db-positional-path-vector-normalized
+  (testing "the historical positional chain becomes the one metadata-map form"
+    (let [src "(rf/reg-event-db :counter/inc\n  [(rf/path :counter)]\n  (fn [db _] (update db :value inc)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
+      (is (not (str/includes? source "(rf/path")))
+      (is (str/includes? source "{:db (update db :value inc)}")))))
+
+(deftest db-positional-multi-entry-order-preserved
+  (testing "multiple positional entries keep their declaration order"
+    (let [src "(rf/reg-event-db :x [(rf/path :a) (rf/path :b)] (fn [db _] (assoc db :k 1)))"
+          out (rewrite src)]
+      (is (str/includes? out "{:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}")))))
+
+(deftest db-bare-path-call-middle-normalized
+  (testing "a single bare (rf/path ...) middle slot (v1 flattened chains) wraps into metadata"
+    (let [src "(rf/reg-event-db :x (rf/path :a) (fn [db _] (assoc db :k 1)))"
+          out (rewrite src)]
+      (is (str/includes? out "{:interceptors [[:rf.interceptor/path [:a]]]}"))
+      (is (not (str/includes? out "(rf/path"))))))
+
+(deftest db-metadata-plus-vector-merged
+  (testing "the metadata-plus-vector shape merges into ONE metadata map, map entries first"
+    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]} [(rf/path :b)]\n  (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]] [:rf.interceptor/path [:b]]]}"))
+      ;; exactly one :interceptors key survives — the positional vector is gone
+      (is (= 1 (count (re-seq #":interceptors" source))))
+      (is (str/includes? source "{:db (assoc db :k 1)}")))))
+
+(deftest db-metadata-plus-vector-no-existing-chain
+  (testing "a metadata map WITHOUT :interceptors gains the merged chain"
+    (let [src "(rf/reg-event-db :x {:doc \"d\"} [(rf/path :b)] (fn [db _] (assoc db :k 1)))"
+          out (rewrite src)]
+      (is (str/includes? out "{:doc \"d\" :interceptors [[:rf.interceptor/path [:b]]]}")))))
+
+(deftest path-arg-variants-lower-mechanically
+  (testing "variadic, vector, and mixed path args flatten as v1 path did"
+    (doseq [[middle expected]
+            {"{:interceptors [(rf/path :a :b)]}"   "[[:rf.interceptor/path [:a :b]]]"
+             "{:interceptors [(rf/path [:a :b])]}" "[[:rf.interceptor/path [:a :b]]]"
+             "{:interceptors [(rf/path [:a] :b)]}" "[[:rf.interceptor/path [:a :b]]]"}]
+      (let [src (str "(rf/reg-event-db :x " middle " (fn [db _] (assoc db :k 1)))")
+            out (rewrite src)]
+        (is (str/includes? out expected) (str "middle slot " middle))))))
+
+(deftest fx-with-path-chain-normalized
+  (testing "reg-event-fx with a convertible chain is a :rewrite (not a bare :rename)"
+    (let [src "(rf/reg-event-fx :x {:interceptors [(rf/path :a)]}\n  (fn [cofx _] {:db (:db cofx)}))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "rf/reg-event "))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}"))
+      ;; handler byte-for-byte preserved (reg-event IS reg-event-fx)
+      (is (str/includes? source "(fn [cofx _] {:db (:db cofx)})")))))
+
+(deftest already-canonical-ref-chain-kept-verbatim
+  (testing "a chain that is already refs-only is preserved byte-for-byte"
+    (let [src "(rf/reg-event-db :x {:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}\n  (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))) "handler rewrite still applies")
+      (is (str/includes? source "{:interceptors [:my/ic [:rf.interceptor/path [:cart]]]}")))))
+
+;; ---------------------------------------------------------------------------
+;; custom inline interceptors — unresolved M-70 Type B (:flag :interceptors)
+;; ---------------------------------------------------------------------------
+;; An inline entry with no mechanically derivable registered id (a var, a
+;; custom call, a dynamic path arg) makes the WHOLE site an unresolved M-70
+;; finding and the source is left unchanged: a head-only rewrite would certify
+;; output v2 rejects at namespace load.
+
+(deftest custom-inline-interceptor-flagged-db
+  (testing "a custom interceptor var in the chain -> :flag :interceptors, unchanged"
+    (let [src "(rf/reg-event-db :x {:interceptors [my-auth-interceptor]}\n  (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :reg-event-db (:form (first findings))))
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (str/includes? (:note (first findings)) "M-70"))
+      (is (= src source) "flagged site left byte-for-byte unchanged"))))
+
+(deftest custom-inline-interceptor-flagged-fx
+  (testing "a positional chain with a custom call (e.g. (rf/debug)) is NOT pure-renamed"
+    (let [src "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest path-dynamic-arg-flagged
+  (testing "(rf/path p) with a non-literal arg has no derivable path vector -> flag"
+    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path p)]} (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest mixed-chain-with-one-unresolved-entry-flags-whole-site
+  (testing "a chain mixing a convertible path with an underivable entry is NOT half-converted"
+    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest db-nil-capable-with-convertible-chain-still-gates-on-d7
+  (testing "a convertible chain does not bypass the D7 nil gate; source unchanged"
+    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a)]}\n  (fn [db _] (when true db)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :nil-capable (:flag (first findings))))
+      (is (= src source)))))
+
+;; ---------------------------------------------------------------------------
+;; reg-event rescan — recovering a partially migrated tree
+;; ---------------------------------------------------------------------------
+;; The pre-rf2-8odvg codemod renamed heads while preserving v1 chains, leaving
+;; `reg-event` forms v2 rejects. A re-run must find and repair those survivors
+;; — and must NOT report anything for valid v2 registrations.
+
+(deftest reg-event-rescan-recovers-metadata-inline
+  (testing "an already-renamed reg-event with a preserved (rf/path ...) chain is repaired"
+    (let [src "(rf/reg-event :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [{:keys [db]} _] {:db (update db :value inc)}))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= 1 (count findings)))
+      (is (= :reg-event (:form (first findings))))
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
+      ;; the handler is untouched — only the chain is normalized
+      (is (str/includes? source "(fn [{:keys [db]} _] {:db (update db :value inc)})")))))
+
+(deftest reg-event-rescan-recovers-positional
+  (testing "an already-renamed reg-event with a positional chain is repaired"
+    (let [src "(rf/reg-event :x [(rf/path :a)] (fn [{:keys [db]} _] {:db db}))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :reg-event (:form (first findings))))
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}")))))
+
+(deftest reg-event-rescan-flags-custom-inline
+  (testing "an already-renamed reg-event with an underivable inline entry is flagged"
+    (let [src "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :reg-event (:form (first findings))))
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest valid-reg-event-produces-no-finding
+  (testing "valid v2 registrations are not reported by the rescan"
+    (let [src (str "(rf/reg-event :a (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :b {:interceptors [:my/ic]} (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :c {:interceptors [[:rf.interceptor/path [:x]]]} (fn [{:keys [db]} _] {:db db}))\n"
+                   "(rf/reg-event :d {:doc \"plain metadata\"} (fn [{:keys [db]} _] {:db db}))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (empty? findings))
+      (is (= src source)))))
+
+(deftest normalized-output-idempotent-and-clean
+  (testing "the converted output rescans clean and a second rewrite is a no-op"
+    (let [src "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
+          once  (rewrite src)
+          twice (rewrite once)]
+      (is (= once twice))
+      (is (empty? (cm/scan-string once)) "normalized output yields no findings"))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-db — renamed (non-`db`) first param  (rf2-xhfxcs.15)
@@ -123,15 +309,17 @@
 ;; `{c :db}` — db value back under its original name — and leaves the body intact.
 
 (deftest db-renamed-param-path-interceptor
-  (testing "the bead example: path interceptor + first param `c` -> {c :db}, body untouched"
+  (testing "the bead example: path chain lowered + first param `c` -> {c :db}, body untouched"
     (let [src "(reg-event-db :inc {:interceptors [(rf/path :counter)]}\n  (fn [c _] (update c :n inc)))"
           {:keys [source findings]} (cm/rewrite-string src)]
       (is (= :reg-event-db (:form (first findings))))
       (is (= :rewrite (:action (first findings))) "renamed-db param is still a simple, faithful rewrite")
       (is (str/includes? source "(reg-event "))
       (is (not (str/includes? source "reg-event-db")))
-      ;; path-interceptor metadata preserved verbatim
-      (is (str/includes? source "{:interceptors [(rf/path :counter)]}"))
+      ;; the path chain is lowered to the standard factory ref (M-70 x M-73);
+      ;; the executable (rf/path ...) call must NOT survive
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
+      (is (not (str/includes? source "(rf/path")))
       ;; param rebinds the db value back under `c`; NOT {:keys [db]}
       (is (str/includes? source "{c :db}"))
       (is (not (str/includes? source "{:keys [db]}")))
