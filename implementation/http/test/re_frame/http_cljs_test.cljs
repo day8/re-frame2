@@ -1646,3 +1646,65 @@
             (.then (fn [_]
                      (set! (.-fetch js/globalThis) orig)
                      (done))))))))
+
+;; ---- rf2-lddbk -- a successful CLJS request exposes response metadata -----
+;;
+;; The CLJS counterpart of the JVM real-transport-success-reply-carries-
+;; response-meta: a successful request driven through the FULL :rf.http/managed
+;; pipeline (managed handler -> Fetch transport -> decode/accept -> canonical
+;; reply) delivers the ACTUAL response status, status text, and the
+;; transport's normalized headers at [:meta ...] on the canonical reply, with
+;; :value still the decoded payload. The Fetch Response is stubbed (the node
+;; lane has no network); the transport code path is the production one.
+
+(deftest cljs-success-reply-carries-response-meta
+  (testing "rf2-lddbk -- a successful managed request delivers the actual
+            response status/status-text/normalized headers at [:meta ...]"
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [replies (atom [])
+            orig    (.-fetch js/globalThis)
+            resp    #js {:ok         true
+                         :status     200
+                         :statusText "OK"
+                         ;; Fetch-`Headers`-like: `forEach (v k)` per
+                         ;; `fetch-headers->map` -- lower-cased names, as the
+                         ;; real Headers object iterates them.
+                         :headers    #js {:forEach
+                                          (fn [cb]
+                                            (cb "application/json" "content-type")
+                                            (cb "37" "x-ratelimit-remaining"))}
+                         :text       (fn [] (js/Promise.resolve "{\"title\":\"hello\"}"))}]
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue-meta
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/meta"}
+                    :decode     :json
+                    :on-success [:reply/recorder]
+                    :on-failure [:reply/recorder]}]]}))
+        (set! (.-fetch js/globalThis)
+              (fn [_url _init] (js/Promise.resolve resp)))
+        (rf/dispatch-sync [:issue-meta] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(seq @replies) {:timeout-ms 2000 :label "cljs success meta reply"})
+            (.then (fn [_]
+                     (let [reply (first @replies)]
+                       (is (= :ok (:status reply)))
+                       (is (= "hello" (get-in reply [:value :title]))
+                           ":value remains the decoded payload")
+                       (is (= 200 (get-in reply [:meta :status]))
+                           "the actual numeric wire status rides [:meta :status]")
+                       (is (= "OK" (get-in reply [:meta :status-text]))
+                           "the actual status text rides [:meta :status-text]")
+                       (is (= "37" (get-in reply [:meta :headers "x-ratelimit-remaining"]))
+                           "normalized (lower-cased) response headers ride [:meta :headers]")
+                       (is (= "application/json" (get-in reply [:meta :headers "content-type"]))))))
+            (.catch (fn [e]
+                      (is false (str "rf2-lddbk -- unexpected: " e))
+                      nil))
+            (.then (fn [_]
+                     (set! (.-fetch js/globalThis) orig)
+                     (done))))))))

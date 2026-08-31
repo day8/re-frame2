@@ -240,6 +240,10 @@
 ;; attempt]`, `:rf.reply/work-kind :http`, `:rf.reply/work-status`, `:attempt`,
 ;; `:rf.frame/id`, `:completed-at`, and `:correlation {:request-id …}` (the
 ;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
+;; A live-transport SUCCESS additionally carries the response wire facts under
+;; `:meta` — `{:status :status-text :headers}` as the transport normalized
+;; them (rf2-lddbk), so `:after` middleware and the app target can read the
+;; actual status/headers on success as the failure paths already do on `:error`.
 ;; The same canonical reply is delivered to the app target verbatim.
 ;; `:on-success` / `:on-failure`
 ;; are pure ROUTING sugar (both receive the canonical map) and the co-located
@@ -395,7 +399,17 @@
                           (contains? reply :value)
                           (privacy-body/schema-decode? (:decode ctx)))
                    (update reply :value privacy-body/classify-decoded (:decode ctx))
-                   reply)]
+                   reply)
+          ;; rf2-lddbk — the success reply's `:meta` carries the response
+          ;; wire facts (status / status-text / normalized headers). The
+          ;; DELIVERED reply rides raw (on-box app data — the caller's own
+          ;; response); the trace surface redacts every header whose name
+          ;; is in the merged denylist (immutable built-in defaults ∪ the
+          ;; app-declared `:carriers {:headers [..]}` extension) BEFORE the
+          ;; summary walk, matching the failure-map `:headers` posture.
+          ;; Per-call `:sensitive?` then force-redacts the whole `:meta`
+          ;; wire slot via `trace-reply` below, as for every wire slot.
+          reply' (privacy/redact-response-meta reply')]
       ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
       ;; frame resolves from the carried stamp; HTTP completions fire from the
       ;; transport callback, OUTSIDE any `with-frame` scope, so without an
@@ -503,9 +517,14 @@
   `:rf.reply/work-status
   :completed` canonical reply (`http-reply/success-reply`), a completion
   trace row is emitted from those canonical facts, and the SAME canonical
-  reply is delivered to the app target verbatim."
+  reply is delivered to the app target verbatim.
+
+  rf2-lddbk — the ctx's `:response-meta` (the successful response's
+  actual `:status` / `:status-text` / normalized `:headers`, threaded from
+  `handle-response!`'s 2xx branch) rides the canonical reply under `:meta`
+  so both the `:after` chain and the app reply target can read it."
   [ctx value]
-  (let [reply (http-reply/success-reply (reply-ctx ctx) value)]
+  (let [reply (http-reply/success-reply (reply-ctx ctx) value (:response-meta ctx))]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :success
@@ -1421,7 +1440,21 @@
           ;; (Spec 014 §Failure categories), so we route straight to
           ;; `finalise-failure!` — never `maybe-retry!`.
           (let [decoded (:decoded decode-result)
-                ctx'    (assoc ctx :decoded decoded)
+                ;; rf2-lddbk — carry the successful response's wire facts
+                ;; (actual status, status text, and the transport's already-
+                ;; normalized header map — the SAME cross-host shape the
+                ;; 4xx/5xx failure maps ride) forward to success
+                ;; finalisation, where they land on the canonical reply's
+                ;; `:meta` family-extension slot. Before this, the 2xx tail
+                ;; passed only the accepted value, so neither `:after` nor
+                ;; the app reply target could observe status or headers for
+                ;; a SUCCESSFUL request (the facts the spec's rate-limit /
+                ;; Cache-Control `:after` use cases parse).
+                ctx'    (assoc ctx
+                               :decoded decoded
+                               :response-meta {:status      status
+                                               :status-text status-text
+                                               :headers     headers})
                 ;; rf2-ppkh3v — RESPONSE-BODY classification (EP-0015 §8,
                 ;; issue 5). The pre-`:accept` decoded body rides at
                 ;; `:decoded` on an `:rf.http/accept-failure` trace; apply

@@ -27,6 +27,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
+   [re-frame.http.reply :as http-reply]
    #?(:clj  [re-frame.http.transport-jvm :as transport-jvm]
       :cljs [re-frame.http.transport-cljs :as transport-cljs]))
   #?(:clj (:import [java.net.http HttpHeaders]
@@ -113,3 +114,29 @@
       (is (= "application/json" (get out "content-type")))
       (is (not (contains? out "set-cookie"))
           "no spurious set-cookie key is synthesised"))))
+
+(deftest success-reply-meta-rides-host-normalized-headers-verbatim-cross-host
+  (testing "rf2-lddbk — the host transport's normalized header map (built here
+            from the host's REAL native headers object) rides the canonical
+            success reply's [:meta :headers] VERBATIM on both hosts — the
+            multi-valued vector shape included. One header representation,
+            end to end; no reshape at the reply boundary."
+    (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
+                   "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
+          headers (decode-headers {"Set-Cookie"             cookies
+                                   "Content-Type"           ["application/json"]
+                                   "X-RateLimit-Remaining"  ["37"]})
+          reply   (http-reply/success-reply
+                    {:request-id :parity/req :origin-event [:parity/load]
+                     :attempt 1 :frame :app/main :completed-at 1}
+                    {:ok true}
+                    {:status 200 :status-text "" :headers headers})]
+      (is (= headers (get-in reply [:meta :headers]))
+          "the normalized map threads verbatim — byte-identical shape on both hosts")
+      (is (= cookies (get-in reply [:meta :headers "set-cookie"]))
+          "the multi-valued vector-of-verbatim-lines shape survives onto the reply")
+      (is (= "37" (get-in reply [:meta :headers "x-ratelimit-remaining"]))
+          "single-valued headers stay strings under lower-cased names")
+      (is (= 200 (get-in reply [:meta :status])))
+      (is (= {:ok true} (:value reply))
+          ":value remains the accepted payload — metadata never displaces it"))))

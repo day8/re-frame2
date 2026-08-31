@@ -1210,18 +1210,22 @@
                      ;; can correlate; the real read happens in :after.
                      (assoc ctx ::rate-limit-aware true))
            :after  (fn [ctx resp]
-                     ;; The reply-payload's :value carries the decoded
-                     ;; body. Headers don't ride on the reply by default;
-                     ;; the load-bearing assertion is that :after CAN
-                     ;; reshape the reply with a structured `:rate-limit`
-                     ;; slot derived from the server-provided values + the
-                     ;; ctx-stashed `:before` mark, so downstream
-                     ;; `:on-success` handlers can throttle without
-                     ;; re-parsing the header per-call.
-                     (assoc resp :rate-limit
-                            {:remaining 37
-                             :limit     100
-                             :ctx-aware (::rate-limit-aware ctx)}))})
+                     ;; rf2-lddbk — the successful reply carries the
+                     ;; response wire facts under `:meta` (`:status` /
+                     ;; `:status-text` / normalized `:headers`), so the
+                     ;; `:after` parses the headers the server ACTUALLY
+                     ;; emitted (lower-cased names — the transport's
+                     ;; cross-host normalized shape) into a structured
+                     ;; `:rate-limit` slot. Downstream `:on-success`
+                     ;; handlers consume the structured form without
+                     ;; re-parsing per-call.
+                     (let [hs (get-in resp [:meta :headers])]
+                       (assoc resp :rate-limit
+                              {:remaining (some-> (get hs "x-ratelimit-remaining")
+                                                  Long/parseLong)
+                               :limit     (some-> (get hs "x-ratelimit-limit")
+                                                  Long/parseLong)
+                               :ctx-aware (::rate-limit-aware ctx)})))})
         (rf/reg-event :uheqq/load-rate
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -1232,11 +1236,13 @@
         (rf/dispatch-sync [:uheqq/load-rate])
         (let [reply (await-reply-with-payload!)]
           (is (= 37  (get-in reply [:rate-limit :remaining]))
-              "X-RateLimit-Remaining parsed and attached to the reply by :after")
+              "X-RateLimit-Remaining parsed FROM the server-emitted header riding [:meta :headers]")
           (is (= 100 (get-in reply [:rate-limit :limit]))
-              "X-RateLimit-Limit parsed and attached")
+              "X-RateLimit-Limit parsed from the actual response header")
           (is (true? (get-in reply [:rate-limit :ctx-aware]))
-              ":after read the :before's stashed ctx flag (request-correlation works)"))
+              ":after read the :before's stashed ctx flag (request-correlation works)")
+          (is (= 200 (get-in reply [:meta :status]))
+              "the actual response status rides [:meta :status] on the delivered reply"))
         (finally (stop-server! srv))))))
 
 ;; ---- USE-CASE 2. Response-time telemetry --------------------------------
@@ -1278,11 +1284,12 @@
 ;; ---- USE-CASE 3. Cache-Control inspection -------------------------------
 
 (deftest motivating-cache-control-inspection
-  (testing "rf2-uheqq use case 3 — an :after interceptor inspects a
-            simulated Cache-Control directive and tags the reply with a
-            structured :cache slot. Downstream `:on-success` handlers
-            consume the structured form without re-parsing the header
-            string at every dispatch site."
+  (testing "rf2-uheqq use case 3 / rf2-lddbk — an :after interceptor parses
+            the server-emitted Cache-Control header off the reply's
+            [:meta :headers] and tags the reply with a structured :cache
+            slot. Downstream `:on-success` handlers consume the structured
+            form without re-parsing the header string at every dispatch
+            site."
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders
@@ -1292,12 +1299,18 @@
       (try
         (rf/reg-http-interceptor :cache-control
           {:after (fn [_ctx resp]
-                    ;; The test-side server emits the header above; the
-                    ;; transport doesn't ride it on the reply, but the
-                    ;; load-bearing assertion is that :after CAN add a
-                    ;; structured :cache slot derived from a parse of
-                    ;; the canonical form.
-                    (assoc resp :cache {:max-age 600 :public? true}))})
+                    ;; rf2-lddbk — parse the Cache-Control header the
+                    ;; server ACTUALLY emitted off the reply's
+                    ;; [:meta :headers] into a structured :cache slot.
+                    ;; These assertions fail if the emitted header changes
+                    ;; without changing the expected parse.
+                    (let [cc (get-in resp [:meta :headers "cache-control"])]
+                      (assoc resp :cache
+                             {:max-age (some->> cc
+                                                (re-find #"max-age=(\d+)")
+                                                second
+                                                Long/parseLong)
+                              :public? (boolean (when cc (re-find #"\bpublic\b" cc)))})))})
         (rf/reg-event :uheqq/load-cache
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -1308,9 +1321,9 @@
         (rf/dispatch-sync [:uheqq/load-cache])
         (let [reply (await-reply-with-payload!)]
           (is (= 600 (get-in reply [:cache :max-age]))
-              "Cache-Control max-age parsed and attached")
+              "Cache-Control max-age parsed FROM the server-emitted header riding [:meta :headers]")
           (is (true? (get-in reply [:cache :public?]))
-              "Cache-Control 'public' flag attached"))
+              "Cache-Control 'public' directive parsed from the actual header value"))
         (finally (stop-server! srv))))))
 
 ;; ---- USE-CASE 4. 401 auth-token refresh ---------------------------------
