@@ -103,20 +103,15 @@ the situation they cover:
 
 ### Live-runtime devtools & pair programming
 
-- [`re-frame2-xray/`](re-frame2-xray) — read-only tour of
-  Xray, the re-frame2 in-app devtools panel. Answers how to launch
-  Xray (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
-  the Dynamic ↔ Static mode toggle) and which tab shows X — across the
-  10 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
-  Machine / Routes / Resources / Graph / Frames / Hicasso — Graph being
-  Xray's UI over the EP-0014 derivation/process graph, Frames its EP-0023
-  `image → frame → event stream` lens (which image loaded which frame,
-  L4-only), and Hicasso the Hicasso view substrate's evidence lens — 6
-  views over 4 evidence envelopes, L4-only)
-  and the 5 Static registry-browse
-  tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
-  Issues tab — issues surface inline. Xray owns
-  the seeing; `re-frame2-pair` owns the driving.
+- [`re-frame2-xray/`](re-frame2-xray) — question-first tour of
+  Xray, the re-frame2 in-app devtools panel. Routes a debugging
+  question to the one visible surface to open first — across the 10
+  Dynamic event-spine tabs and the 5 Static registry-browse tabs — and
+  answers how to launch Xray (true-inline panel, pop-out, programmatic
+  `init!`, wired hotkeys, the Dynamic ↔ Static mode toggle). The
+  canonical tab inventory + scope matrix live in the skill package
+  (`re-frame2-xray/references/panels.md`). Xray is the human's panel;
+  agent runtime access — read or write — is `re-frame2-pair`'s.
 
 - [`re-frame2-pair/`](re-frame2-pair) — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
@@ -156,7 +151,7 @@ migration report is signed off.
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
 | Migrate Reagent **view** code to **Hicasso**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Hicasso is wanted | "migrate my Reagent views to Hicasso", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Hicasso context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
-| Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](re-frame2-xray) |
+| Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user asks where a *human* looks in the visible panel; the moment they ask the agent to inspect or change the running app (read-only included), that's `re-frame2-pair` | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
 | Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](re-frame2-implementor) |
@@ -170,7 +165,7 @@ migration report is signed off.
 - Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame2-pair-retro` — there is no pair-tool surface to improve.
 - Mid-session pair work stays in `re-frame2-pair`; switch to `re-frame2-pair-retro` only when the user explicitly asks for a retro, or for a post-error post-mortem within the re-frame2-pair session — not as a default mode during routine pair work.
 - "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits once the counter mounts.
-- Xray vs re-frame2-pair: read vs drive. `re-frame2-xray` is a read-only tour of the panel — how to launch it and which tab/mode shows X. The moment the user wants to operate on a running runtime (dispatch an event, mutate `app-db`, hot-swap a handler, time-travel), that is `re-frame2-pair`, even if the word "Xray" appears in the prompt.
+- Xray vs re-frame2-pair: human panel vs agent runtime — not read vs write. `re-frame2-xray` tours the visible panel: how to launch it and which tab/mode a human opens first. The moment the user asks the agent to touch a running runtime — read-only included (read a sub, get a path, snapshot state, walk traces), as much as dispatching, mutating `app-db`, hot-swapping, or time-travelling — that is `re-frame2-pair`, even if the word "Xray" appears in the prompt.
 - `re-frame2-implementor` is scoped to the 8 in-scope hosts. Per [`spec/000-Vision.md`](../spec/000-Vision.md) §scope footnote, the only in-scope implementation targets are the 8 JS-cross-compile-to-React+VDOM host languages (ClojureScript, TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason). A prompt asking to implement re-frame2 against a non-React substrate (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a non-cross-compile-to-JS host (Python, Ruby, native Rust, Go, server-side Kotlin / Java / Swift) is out of scope — a deliberate scope choice, not an oversight. There is no implementation track to sequence: surface the scope footnote and stop, or route the architecture question to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — do not start Phase 1 / Phase 2 implementation work.
 
 ### Routing for friction found mid-pair retro
@@ -203,7 +198,7 @@ family rule — single source below:
 | `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
 | `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | one complete severity-ordered critique in the requesting turn, findings cross-linked to canonical idioms | read-only by default; a direct "review and apply/fix" request authorises safe in-scope `Edit`s (redesigns stay proposals); runs no suite |
-| `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |
+| `re-frame2-xray` | question-first tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the human panel tour; agent runtime access — read or write — is `re-frame2-pair`'s |
 | `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; read-only — drafts an issue the user files | a complete one-turn retrospective, with an optional copy-pasteable issue draft (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
 
 ## Layout convention
