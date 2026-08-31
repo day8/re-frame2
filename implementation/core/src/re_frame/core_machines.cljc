@@ -8,9 +8,7 @@
   plain-fn surface raise with their own faithful `:where` symbol). Machine
   reads use the `[:rf.machine/has-tag? …]` and `[:rf/machine …]`
   subscription vectors."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]
-            [re-frame.interop :as interop]
+  (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]))
 
@@ -20,57 +18,6 @@
   {:error-keyword :rf.error/machines-artefact-missing
    :maven         "day8/re-frame2-machines"
    :require-ns    "re-frame.machines"})
-
-(defwrapper make-machine-handler
-  "Build an event-fx handler from a machine spec. Per Spec 005
-  §Registration. Late-bound via :machines/make-machine-handler."
-  {:hook :machines/make-machine-handler :artefact machines-artefact :on-absent :throw}
-  ([machine] :delegate))
-
-(defwrapper machine-transition
-  "The pure transition: given a machine definition, the current snapshot
-  and an event vector, return one plain map — `{:status :ok :snapshot
-  <next-snapshot> :fx [...]}` on success, `{:status :error :error {:kind
-  ...}}` on an engine-reported failure. Per Spec 005 §Testing §Level 1.
-  Late-bound via :machines/machine-transition."
-  {:hook :machines/machine-transition :artefact machines-artefact :on-absent :throw}
-  ([machine snapshot event] :delegate))
-
-(defwrapper machines
-  "Return a sequence of registered machine ids. Per Spec 005
-  §Querying machines. Returns `[]` when the machines artefact is not
-  on the classpath."
-  {:hook :machines/machines :artefact machines-artefact :on-absent :empty-vec}
-  ([] :delegate))
-
-(defwrapper machine-meta
-  "Return the registered machine spec map for machine-id, or nil. Per
-  Spec 005 §Querying machines. Returns nil when the machines artefact
-  is not on the classpath."
-  {:hook :machines/machine-meta :artefact machines-artefact :on-absent :nil}
-  ([machine-id] :delegate))
-
-(defwrapper machine-by-system-id
-  "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
-
-  EP-0002 carried invariant: the 1-arity ambient form resolves the frame
-  through the scope/hold chain (`with-frame`, a `frame-provider` (SCOPE) or
-  a `frame-root` (ENSURE) boundary, or a carried stamp) via
-  `frame/require-current-frame!` — a lookup under no established
-  scope raises `:rf.error/no-frame-context`, with NO `:rf/default` floor.
-  Pass the public opts form `(machine-by-system-id system-id {:frame
-  target})` to name a frame explicitly (async callbacks / tools /
-  cross-frame lookups); `target` is a frame-id keyword or a live frame
-  value. The 2-arity is shape-discriminated on the second arg, mirroring
-  `subscribe`'s trailing opts-map form: an opts map ⇒ the public
-  form; a bare frame target ⇒ the internal frame-last plumbing.
-
-  Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
-  surface. Returns nil when the machines artefact is not on the classpath."
-  {:hook :machines/machine-by-system-id :artefact machines-artefact :on-absent :nil}
-  ([system-id]            :delegate)
-  ([system-id frame-or-opts] :delegate))
 
 ;; ---- machine guard/action handler-meta — DERIVED, not registered --------
 ;;
