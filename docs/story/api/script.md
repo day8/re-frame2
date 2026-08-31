@@ -4,16 +4,14 @@ This chapter is about a variant's **`:script`** — the slot that turns a varian
 
 The public authoring slots are **`:setup`** (preconditions) and **`:script`** (behaviour under test); you execute a variant with the three verbs `story/run` / `story/is` / `story/explain`.
 
-!!! note "One scoped spelling note — the recorder"
+!!! note "Where the normative contract lives"
 
-    The recorder still emits the older **`:play-script`** spelling for this slot,
-    which the registrar lowers to `:script` on registration. That is a clean
-    pre-alpha rename, not a long-lived compatibility layer. Everything you author
-    uses `:script`; you only see `:play-script` in the recorder's generated output
-    ([tutorial chapter 5](../05-recorder-and-cannot-run.md)). The normative contract
-    — the four-bucket plan, the three verbs, `:cannot-run`, composition, the schema
-    floor, and the epoch-tape evidence projection — lives in
+    The normative contract — the four-bucket plan, the three verbs, `:cannot-run`,
+    composition, the schema floor, and the epoch-tape evidence projection — lives in
     [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md).
+    `:script` is the only spelling there is: the recorder emits it too
+    ([tutorial chapter 5](../05-recorder-and-cannot-run.md)), and the registrar
+    rejects the retired `:play-script` key outright.
 
 ## The grammar — tagged step forms
 
