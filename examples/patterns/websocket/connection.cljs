@@ -97,6 +97,31 @@
   [data]
   (get-in data [:rf/spawned socket-invoke-id]))
 
+(defn- fail-in-flight
+  "The in-flight half of losing the wire, shared by every door out of
+   `:active` that destroys the socket: clear every `:in-flight` slot and
+   fire each waiting `:reply-event` with the documented
+   `{:ok false :error :ws/connection-lost}` failure body. Each of those
+   requests was already on the wire that is going away, so its reply can
+   never arrive on this connection; left in `:in-flight` the slot would
+   leak forever — its timeout is stamped with the dead socket id, so
+   `:current-socket?` drops that timeout after teardown and the slot never
+   clears. Termination semantics are FAIL, not replay: the server may
+   already have processed the request, so a blind re-send risks double
+   execution. Failing is the safe, explicit default, and the caller learns
+   the outcome instead of hanging. Returns an action result (`:data` +
+   `:fx`) for the calling action to build on."
+  [data]
+  {:data (assoc data :in-flight {})
+   :fx   (into []
+               (keep (fn [[rid {:keys [reply-event]}]]
+                       (when reply-event
+                         [:dispatch (conj reply-event
+                                          {:request-id rid
+                                           :ok         false
+                                           :error      :ws/connection-lost})])))
+               (:in-flight data))})
+
 (rf/defmachine connection-machine
   "The `:ws/connection` machine spec, kept in its own `defmachine` so we can
    hand it to `reg-machine` below with per-element source captured."
@@ -189,29 +214,27 @@
       ;; `:current-socket?`). Two things happen as we head to `:reconnecting`:
       ;;   1. Bump the retry counter — it drives the `:after` backoff and the
       ;;      `:max-retries-exceeded?` guard.
-      ;;   2. FAIL every in-flight request. Each was already put on the wire
-      ;;      that just died, so its reply can never arrive on this
-      ;;      connection; left in `:in-flight` it would leak forever — its
-      ;;      timeout is stamped with the now-dead socket id, so the
-      ;;      `:current-socket?` guard drops that timeout after we reconnect
-      ;;      and the slot never clears. Loss semantics are FAIL, not replay:
-      ;;      the server may already have processed the request before the
-      ;;      drop, so a blind re-send risks double execution — failing is the
-      ;;      safe, explicit default. Each waiting `:reply-event` is fired
-      ;;      with a `{:ok false :error :ws/connection-lost}` body so the
-      ;;      caller learns the outcome instead of hanging forever.
+      ;;   2. FAIL every in-flight request (`fail-in-flight`, the helper the
+      ;;      clean-disconnect door shares) — each was already put on the
+      ;;      wire that just died, so its reply can never arrive on this
+      ;;      connection. See the helper for the full leak/replay story.
       (fn action-on-socket-lost [{data :data}]
-        {:data (-> data
-                   (update :retries inc)
-                   (assoc :in-flight {}))
-         :fx   (into []
-                     (keep (fn [[rid {:keys [reply-event]}]]
-                             (when reply-event
-                               [:dispatch (conj reply-event
-                                                {:request-id rid
-                                                 :ok         false
-                                                 :error      :ws/connection-lost})])))
-                     (:in-flight data))})
+        (-> (fail-in-flight data)
+            (update :data update :retries inc)))
+
+      :fail-in-flight
+      ;; A clean `:ws/disconnect` out of `:active` destroys the socket just
+      ;; as surely as a drop does, so the SAME invariant applies: every
+      ;; request accepted into `:in-flight` settles exactly once. Without
+      ;; this, the slot and its waiting `:reply-event` survive teardown
+      ;; forever — the scheduled timeout carries the destroyed socket's id,
+      ;; so `:current-socket?` rejects it and the only cleanup path is
+      ;; gone, including across a later reconnect. Unlike `:on-socket-lost`
+      ;; there's no retry bump: the user asked for this disconnect, so it
+      ;; isn't a connection failure — only the requests still riding the
+      ;; wire fail, with the same documented `:ws/connection-lost` body.
+      (fn action-fail-in-flight [{data :data}]
+        (fail-in-flight data))
 
       :reset-retries
       (fn action-reset-retries [{data :data}]
@@ -379,7 +402,13 @@
                :ws/send     {:action :enqueue-message}
                :ws/request  {:action :enqueue-message}
                :ws/rotate-cred {:action :rotate-cred}
-               :ws/disconnect {:target :disconnected}
+               ;; Leaving :active by the clean door still kills the wire, so
+               ;; it settles the in-flight set on the way out (see the
+               ;; :fail-in-flight action). The :reconnecting / :failed
+               ;; :ws/disconnect transitions carry no such action — their
+               ;; in-flight was already settled when :active was left.
+               :ws/disconnect {:target :disconnected
+                               :action :fail-in-flight}
                ;; Subscribe before we're fully connected? Just note the
                ;; topic down; the next :connected entry will actually send
                ;; the subscribe.
