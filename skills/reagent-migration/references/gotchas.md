@@ -105,8 +105,10 @@ arrives at the handler as `:re-frame.hicasso/value`, silently, with no
 diagnostic. Restructure the event's payload instead:
 `[:form/set :title ::h/value]`.
 
-The reserved **heads** — `::h/prevent` and `::h/navigate` — are a separate,
-two-entry roster and sit at index 0. They do not nest inside each other.
+The reserved **head** an author writes is one — `::h/prevent` — and it sits at
+index 0; its payload cannot itself be a reserved head. Hicasso keeps a second,
+internal navigate head, but `h/route-link` mints it and it is not `::h/…` —
+never write it. Navigation is `h/route-link` or an ordinary routing event.
 
 Everything else spelled `::h/…` is not a dispatch marker: `::h/revision` is a
 controlled-input attribute, `::h/clear` is a registered event id. The presence
@@ -201,7 +203,7 @@ writing them produces a view that will not load:
 |---|---|
 | an `h/fn` spelling | shipped is `h/event`; `hfn` was swept to it |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
-| the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate` and `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
+| the reserved vocabulary as four keywords | stale twice over — its `::h/navigate` is now an internal head `h/route-link` mints (an author never writes it), it omits `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
 
 **Read the door** — `implementation/hicasso/src/re_frame/hicasso.cljc` — not a
 design page (cardinal rule 6).
