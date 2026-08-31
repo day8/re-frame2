@@ -94,7 +94,7 @@ body cites it the same way it cites any other decorator:
 ```clojure
 (story/reg-variant :story.auth.login-form/loading
   {:decorators [[:force-fx-stub :http {:status :pending}]]
-   :events     [[:auth/initialise]
+   :setup      [[:auth/initialise]
                 [:auth/login-pressed]]})
 ```
 
@@ -342,7 +342,7 @@ Three filter layers:
    another canvas while a recording is active) are dropped.
 3. **Event vocabulary** — `:rf.assert/*` events and Story-internal
    helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Authored
-   assertions are deliberate; recorded `:play-script` bodies capture
+   assertions are deliberate; recorded `:script` bodies capture
    user intent, and assertions get added by hand.
 
 #### Mid-recording assertion insertion (rf2-39u9e)
@@ -355,11 +355,11 @@ that enumerates the canonical seven `:rf.assert/*` ids from
 `re-frame.story.recorder/assertion-vocabulary` (one-click pick) and
 prompts for the assertion's EDN-typed payload fields. A live preview
 renders the event vector that will land in the captured
-`:play-script` body; clicking 'insert' appends it inline alongside the
+`:script` body; clicking 'insert' appends it inline alongside the
 dispatched events.
 
 The picker doesn't pause recording — the user can keep clicking the
-canvas after inserting. The captured `:play-script` body comes out
+canvas after inserting. The captured `:script` body comes out
 with assertions interleaved exactly where the user wanted them:
 
 ```clojure
@@ -420,7 +420,7 @@ the trace bus already projects those dispatches with `:rf.event/dispatched`
 emissions per Spec 009. Capturing the right value is one filter on the
 existing emit; the output shape is the exact vector the runtime will
 re-dispatch (wrapped as `[:dispatch-sync <vec>]`) under
-`:play-script`. The recorder is one screenful of code.
+`:script`. The recorder is one screenful of code.
 
 #### MCP wiring (adjacent bead)
 
@@ -442,7 +442,7 @@ against a stable surface.
 The `re-frame.story.recorder` namespace is **a facade over five
 cohesive sub-systems** plus parallel namespaces under
 `re-frame.story.recorder.*` for the DOM-capture layer and the
-`:play-script` v2 export pipeline. MCP tool builders, hot-reload
+`:script` v2 export pipeline. MCP tool builders, hot-reload
 tooling, and bespoke test integrations consume specific sub-systems;
 this section documents the boundary so a power user reads the right
 ns rather than scanning the facade alone.
@@ -575,7 +575,7 @@ The `:rf.story/save-current-as-variant` event id sits under the
 [spec/Conventions.md](../../../spec/Conventions.md) §Reserved namespaces)
 and is filtered by the Test Codegen recorder's `recordable-event?`
 predicate — a save dispatched during an active recording never appears
-in the recorded `:play-script` body.
+in the recorded `:script` body.
 
 #### MCP wiring
 
@@ -899,7 +899,7 @@ phase-2 SOTA adds that are cheap.
 | Per-variant share URL (address-bar surface; retired QR popover) | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
 | Xray epoch panel embed (stub + contract) | Stage 6 |
-| Test Codegen — record canvas dispatches as `:play-script` (rf2-5fc15) | Stage 6 |
+| Test Codegen — record canvas dispatches as `:script` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)
 

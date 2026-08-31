@@ -118,7 +118,7 @@ parses visually without reading text.
 glyphs wear warm amber; the workspace glyph wears cool info-cyan.
 The temperature contrast tells the eye "this row is a different
 category" without needing labels. Testable variants (carrying `:test`
-in `:tags` or a non-empty `:play-script` sequence) replace the muted variant
+in `:tags` or a non-empty `:script` sequence) replace the muted variant
 glyph with a **`status-dot`** that wears the semantic colour from
 the variant's last `run-variant` outcome
 (`:success`/`:danger`/`:warning`/pending).
@@ -421,7 +421,7 @@ The RHS stacks four regions vertically:
    `:dispatch-console?`).
 
 4. **Play status / viewport / backgrounds** — Story-unique chrome
-   chips for the active variant's `:play-script` status, viewport
+   chips for the active variant's `:script` status, viewport
    sizing, and background framing.
 
 The shell's `:panel-visibility` map drives Stage-6 registered
@@ -672,7 +672,7 @@ surface re-uses this contract.
 
 The story tool's "Open in editor" affordance (v1.1) reads `:source`
 off the variant registry record. The play-runner copies the `:source`
-of each `:play-script` step into the corresponding `:assertions` record
+of each `:script` step into the corresponding `:assertions` record
 so failure cards link back to source.
 
 ## Namespace layout

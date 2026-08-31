@@ -216,11 +216,12 @@ global vector so stale ref-by-id entries don't bleed across tests.
 ## Variant `:script` slot (rf2-0wrud)
 
 `:script` is the public phase-4 play surface (spec/017
-§Public vocabulary). `:play-script` is the transitional spelling the
-registrar still lowers from — author against `:script`. The legacy
-`:play` event-vector slot has been removed — pre-alpha posture, no
-transitional dual-acceptance. See [`001-Authoring.md`](001-Authoring.md)
-§`:script` for the full authoring contract.
+§Public vocabulary). The retired `:play-script` spelling fails shape
+validation at registration (rf2-7dewo) — author against `:script`. The
+legacy `:play` event-vector slot has been removed — pre-alpha posture,
+no transitional dual-acceptance. See
+[`001-Authoring.md`](001-Authoring.md) §`:script` for the full
+authoring contract.
 
 | Step                                 | Semantics                                                  |
 |--------------------------------------|------------------------------------------------------------|
@@ -244,8 +245,7 @@ loop executes — they are NOT a second assertion vocabulary. See
 [Canonical assertion events — the ONE assertion vocabulary](#canonical-assertion-events--the-one-assertion-vocabulary)
 for the fold table and author guidance.
 
-Body forms (shown against the public `:script` key; the registrar
-lowers the transitional `:play-script` spelling to the same shape):
+Body forms (the public `:script` key is the only accepted spelling):
 
 - Bare vector — `:script [[:dispatch-sync [:foo]] ...]`
 - Map         — `:script {:script [...] :auto-run? bool :name str}`
@@ -269,7 +269,7 @@ The pure runner lives at
 The recorder captures canvas-dispatched events into a play body for
 codegen back into a `reg-variant` snippet. The emitted snippet uses the
 PUBLIC `:script` authoring slot (spec/017 §Public vocabulary), not the
-transitional `:play-script` spelling — `gen-play-snippet` renders the
+retired `:play-script` spelling — `gen-play-snippet` renders the
 public spelling so pasted code reads the way the docs teach (rf2-7mj4z).
 The facade exposes seven entries on `re-frame.story` (per spec/005
 §Recorder + [001-Authoring.md](001-Authoring.md) §Recorder). Six are the

@@ -184,8 +184,8 @@ The posture is normative across Story's surfaces:
    `:source :effect`) right after frame creation, before its lifecycle / init
    events — there is **no durable frame annotation** (removed) and **no public
    post-creation `add-marks` / `set-marks` mutation surface** (the underlying
-   fns are framework-internal / test helpers only). The `:loaders` / `:events` /
-   `:play-script` registrations on a variant continue to accept
+   fns are framework-internal / test helpers only). The `:loaders` / `:setup` /
+   `:script` registrations on a variant continue to accept
    `:sensitive` / `:large` on their registration maps via the standard
    registration grammar for transient payloads (per
    [spec/001 §Registration grammar](../../../spec/001-Registration.md)).
