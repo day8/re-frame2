@@ -191,7 +191,11 @@ fail in opposite directions:**
   CI does not stall a whole queue in lockstep. Case-fold the comparison.
 * **Abbreviated revisions.** A run query filtered by an abbreviated revision may match
   nothing and return an empty list — which reads as "no live runs" and passes this
-  clause **vacuously**. Pass the full revision.
+  clause **vacuously**. Pass the full revision — **as read from the host, never one
+  extended by hand**: a fabricated full-length revision matches nothing identically,
+  while satisfying a "full revision" rule in form. The impossible pairing is the tell —
+  a change with a full rollup and an empty run list is not quiet, it is mis-queried;
+  re-read the head from the host and run the query again.
 
 ### Clause 5 — reading, not counting
 
