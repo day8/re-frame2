@@ -553,7 +553,7 @@
 ;;
 ;; These pieces compute the rolled-back runtime-db + the per-key dispositions
 ;; (for the trace + the `:reconciliation-refetches` evidence) + the
-;; per-conflicted-key invalidation fx; the pure decision lives in
+;; per-conflicted-key exact recovery-refetch fx; the pure decision lives in
 ;; `mstate/rollback-entry-disposition` / `mstate/restore-before`.
 
 (defn- recorded-rollback
@@ -564,24 +564,26 @@
   [inst]
   (-> inst :patch-summary :rollback seq))
 
-(defn- invalidate-conflicted-key-fx
-  "Build the `[:dispatch [:rf.resource/invalidate-tags …]]` fx that recovers
+(defn- conflicted-key-refetch-fx
+  "Build the `[:dispatch [:rf.resource/refetch …]]` fx that recovers
   authoritative truth for ONE conflicted rollback key under `:on-conflict
-  :invalidate` (EP-0019 Decision 3). Marks the entry stale in its OWN scope by
-  ITS OWN tags (the read path then refetches the authoritative value), through
-  the SAME single scoped invalidation engine the success path uses — never a
-  blind restore of the stale recorded inverse. Reads the entry's CURRENT tags +
-  scope from `runtime-db` (the moved entry the concurrent write left, NOT the
-  stale snapshot). Returns nil when the (moved) entry has since vanished or
-  carries no tags — there is nothing to invalidate (the read path will reload on
-  the next ensure). `scoped-key` is `[scope resource-id params]`."
+  :invalidate` (EP-0019 Decision 3), addressed by the EXACT `:resource/key` the
+  rollback disposition carries — never rediscovered through the entry's tags
+  (`:tags` is OPTIONAL registration metadata and an exact-target optimistic
+  write needs none, so tag metadata must not gate rollback recovery —
+  rf2-wcdj4). The caller has already marked the surviving entry durably stale
+  in the settle pass (`state/entry-invalidate`); this arms the ordinary exact
+  refetch ONLY when the entry has ACTIVE OWNERS (a live owner needs fresh data
+  now — Spec 016 §Invalidation 3/4). Returns nil when the (moved) entry has
+  since vanished or is owner-free — an owner-free entry stays durably stale
+  for its next ensure. `scoped-key` is `[scope resource-id params]`."
   [runtime-db scoped-key cause]
   (let [entry (get-in runtime-db (state/entry-path scoped-key))
-        tags  (seq (:tags entry))
-        scope (first scoped-key)]
-    (when (and entry tags (some? scope))
-      [:dispatch [:rf.resource/invalidate-tags
-                  {:scope scope :tags (set tags) :cause cause}]])))
+        [scope resource-id params] scoped-key]
+    (when (and entry (seq (:active-owners entry)))
+      [:dispatch [:rf.resource/refetch
+                  {:resource resource-id :scope scope :params params
+                   :cause cause}]])))
 
 (defn- settle-optimistic-rollback
   "ROLL BACK the recorded optimistic apply on a FAILED / cancelled / dangled
@@ -589,57 +591,73 @@
   conflict-aware disposition (`mstate/rollback-entry-disposition` against the
   CURRENT entry + the resolved `on-conflict` policy), then either RESTORE the
   recorded `:before` verbatim (`mstate/restore-before` — an unmoved revision, or
-  `:force`) or leave the moved entry in place and emit a scoped invalidation that
-  refetches the authoritative value (`:invalidate`, the default). Recomputes the
-  reverse indexes once after the restore pass (a restore may re-create / drop
+  `:force`) or keep the moved entry's current owner/work facts, mark it durably
+  STALE at its EXACT carried `:resource/key`, and arm the ordinary exact
+  refetch when it has active owners — an owner-free entry stays durably stale
+  for its next ensure (`:invalidate`, the default). Recomputes the reverse
+  indexes once after the restore pass (a restore may re-create / drop
   entries + tags).
 
   `inverse` is the recorded `:rollback` vector; `runtime-db` is the live cache at
-  settle time; `on-conflict` is the resolved policy; `cause` is the invalidation
-  `:cause`. Returns `{:runtime-db <rdb'> :dispositions [<disp> …] :invalidate-fx
+  settle time; `on-conflict` is the resolved policy; `cause` is the recovery
+  refetch `:cause`; `clock-ms` is the reply's causal completion time (the
+  durable stale `:invalidated-at` stamp — EP-0010, off the reply token). Returns
+  `{:runtime-db <rdb'> :dispositions [<disp> …] :recovery-fx
   [<fx> …] :restored-keys [<sk> …] :conflicted-keys [<sk> …] :refetched-keys
-  [<sk> …]}`. PURE w.r.t. trace (the caller emits `:rf.mutation/optimistic-
-  rolled-back`)."
-  [inverse runtime-db on-conflict cause]
+  [<sk> …]}` — `:refetched-keys` names ONLY the keys whose recovery refetch was
+  actually enqueued (never a stale-only / vanished key — rf2-wcdj4). PURE
+  w.r.t. trace (the caller emits `:rf.mutation/optimistic-rolled-back`)."
+  [inverse runtime-db on-conflict cause clock-ms]
   (let [dispositions (mapv (fn [{scoped-key :resource/key :as recorded}]
                              (mstate/rollback-entry-disposition
                                (get-in runtime-db (state/entry-path scoped-key))
                                recorded on-conflict))
                            inverse)
-        ;; apply every :restore disposition to the cache (an :invalidate
-        ;; disposition leaves the moved entry in place — the read path recovers).
         restored?    #(= :restore (:disposition %))
         ;; rf2-2c2mkh — capture the pre-rollback entries so the index delta is
         ;; reconciled against them. Only the recorded inverse's keys can change
-        ;; (a :restore re-creates / drops an entry; an :invalidate leaves the
-        ;; moved entry untouched here), so reconcile that bounded key set
-        ;; incrementally rather than full-rebuilding from all entries.
+        ;; (a :restore re-creates / drops an entry; an :invalidate keeps the
+        ;; moved entry's current owner/work facts, only staling it), so
+        ;; reconcile that bounded key set incrementally rather than
+        ;; full-rebuilding from all entries.
         old-entries  (get-in runtime-db (state/entries-path))
         changed-ids  (mapv (fn [{scoped-key :resource/key}] (state/key-id scoped-key))
                            inverse)
-        rdb'         (reduce (fn [rdb disp]
-                               (if (restored? disp)
-                                 (mstate/restore-before rdb disp)
-                                 rdb))
+        ;; apply each disposition to the cache: a :restore restores the recorded
+        ;; :before verbatim; an :invalidate KEEPS the moved entry's current
+        ;; owner/work facts and marks it durably STALE at its EXACT carried
+        ;; :resource/key (`state/entry-invalidate` — the same in-place exact-key
+        ;; staling the EP-0019 restore-dangle reconciler uses), never
+        ;; rediscovered through the entry's tags (`:tags` is optional and must
+        ;; not gate rollback recovery — rf2-wcdj4). A vanished entry no-ops.
+        rdb'         (reduce (fn [rdb {scoped-key :resource/key :as disp}]
+                               (case (:disposition disp)
+                                 :restore    (mstate/restore-before rdb disp)
+                                 :invalidate (if (get-in rdb (state/entry-path scoped-key))
+                                               (update-in rdb (state/entry-path scoped-key)
+                                                          state/entry-invalidate clock-ms)
+                                               rdb)))
                              runtime-db dispositions)
         rdb''        (update rdb' state/resources-key state/reindex-keys
                              old-entries changed-ids)
-        ;; one scoped invalidation per :invalidate (conflicted, non-:force) key,
-        ;; computed against the ROLLED-BACK runtime-db (`rdb''` — the restores are
-        ;; in, so the invalidate reads the moved entries that stayed). Drops a key
-        ;; whose moved entry vanished / has no tags (nothing to invalidate).
-        inval-fxs    (into []
+        ;; one ordinary EXACT refetch per :invalidate (conflicted, non-:force)
+        ;; key WITH ACTIVE OWNERS, computed against the ROLLED-BACK runtime-db
+        ;; (`rdb''` — the restores + stale marks are in, so the decision reads
+        ;; the moved entries that stayed). A vanished / owner-free key arms no
+        ;; refetch (the owner-free entry stays durably stale for its next
+        ;; ensure), and is therefore NEVER listed in `:refetched-keys`.
+        recoveries   (into []
                            (keep (fn [{scoped-key :resource/key :keys [disposition]}]
                                    (when (= :invalidate disposition)
-                                     (invalidate-conflicted-key-fx rdb'' scoped-key cause))))
+                                     (when-let [fx (conflicted-key-refetch-fx rdb'' scoped-key cause)]
+                                       [scoped-key fx]))))
                            dispositions)]
     {:runtime-db      rdb''
      :dispositions    dispositions
-     :invalidate-fx   inval-fxs
+     :recovery-fx     (mapv second recoveries)
      :restored-keys   (into [] (comp (filter restored?) (map :resource/key)) dispositions)
      :conflicted-keys (into [] (comp (filter :conflict?) (map :resource/key)) dispositions)
-     :refetched-keys  (into [] (comp (filter #(= :invalidate (:disposition %)))
-                                     (map :resource/key)) dispositions)}))
+     :refetched-keys  (mapv first recoveries)}))
 
 (defn- rollback-trace-dispositions
   "PURE: the per-key disposition rows for the `:rf.mutation/optimistic-rolled-back`
@@ -2005,15 +2023,18 @@
             ;; `:revision`) or, on a CONFLICT (a competing authoritative write
             ;; bumped the entry's `:revision` since the apply), defers to
             ;; `:on-conflict` — `:invalidate` (default) marks the moved entry
-            ;; stale + refetches the authoritative value (never resurrecting the
-            ;; stale inverse), `:force` restores the inverse anyway (single-writer
+            ;; durably stale at its EXACT carried key + arms the ordinary exact
+            ;; refetch when it has active owners (never resurrecting the stale
+            ;; inverse, never keyed off the entry's optional tags — rf2-wcdj4),
+            ;; `:force` restores the inverse anyway (single-writer
             ;; last-write-wins, with the tooling warning below). Runs BEFORE the
             ;; failure-time invalidation so that pass reads the ROLLED-BACK cache.
             ;; A purely-pessimistic mutation (no recorded inverse) skips this.
             rollback-inverse (recorded-rollback inst)
             on-conflict      (mstate/on-conflict-policy spec)
             rolled  (when rollback-inverse
-                      (settle-optimistic-rollback rollback-inverse runtime-db on-conflict cause))
+                      (settle-optimistic-rollback rollback-inverse runtime-db on-conflict
+                                                  cause clock-ms))
             ;; the cache the failure-time invalidation + the final instance write
             ;; settle against — the rolled-back cache when an optimistic apply
             ;; existed, else the unchanged reply cache.
@@ -2160,10 +2181,10 @@
                         :instance-id instance-id :work-id work-id
                         :status (:status reply) :reply-to reply-to})
         {:rf.db/runtime rdb'
-         ;; EP-0019: the conflict-rollback invalidations (the `:invalidate`
-         ;; disposition's refetch dispatches) run alongside any failure-time
-         ;; invalidation, before the continuation.
+         ;; EP-0019: the conflict-rollback recoveries (the `:invalidate`
+         ;; disposition's exact refetch dispatches) run alongside any
+         ;; failure-time invalidation, before the continuation.
          :fx (cond-> []
-               (seq (:invalidate-fx rolled)) (into (:invalidate-fx rolled))
+               (seq (:recovery-fx rolled)) (into (:recovery-fx rolled))
                inv-fxs (into inv-fxs)
                cont-fx (conj cont-fx))}))))

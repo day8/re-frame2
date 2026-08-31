@@ -248,16 +248,15 @@
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   ;; a CONCURRENT authoritative write moves the entry's :revision past the apply.
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
-  (rf/reg-fx :rf.resource/refetch (fn [_ _] nil))
-  (let [traces (traces-of [:rf.mutation/optimistic-rolled-back :rf.resource/invalidated]
-                 #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
-        rb     (:rf.mutation/optimistic-rolled-back traces)
-        inval  (:rf.resource/invalidated traces)]
+  (let [muta @last-managed-args
+        _    (reset! last-managed-args nil)
+        rb   (trace-of :rf.mutation/optimistic-rolled-back
+               #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
     (testing "the stale inverse (9) was NOT restored over the concurrent write"
       (is (not= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
-    (testing "the conflicted entry's tags were INVALIDATED (read path recovers truth)"
-      (is (some? inval))
-      (is (contains? (set (:matched inval)) article-key)))
+    (testing "the conflicted entry started an EXACT recovery refetch (read path
+              recovers truth — rf2-wcdj4: keyed by the carried :resource/key)"
+      (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))
     (testing "the trace reports the conflict + :invalidate + refetch"
       (is (= [article-key] (:conflicted rb)))
       (is (= [article-key] (:refetched rb)))
@@ -446,8 +445,8 @@
       ;; a competing authoritative write moves ONLY the FEED entry's revision (a
       ;; populate of the feed key) — so on rollback the DETAIL is unmoved
       ;; (restores) while the FEED is conflicted (invalidates), each disposed
-      ;; INDEPENDENTLY. The feed's conflict invalidation uses its own [:feed-w]
-      ;; tag, disjoint from the detail, so it cannot cross-stale the restore.
+      ;; INDEPENDENTLY. The feed's conflict recovery is keyed by its EXACT
+      ;; carried :resource/key (rf2-wcdj4), so it cannot cross-stale the restore.
       (let [saved @last-managed-args]
         (rf/reg-mutation :m/touch-feed
           {:scope :rf.scope/global

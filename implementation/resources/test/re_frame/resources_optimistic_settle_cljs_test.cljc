@@ -249,17 +249,16 @@
   ;; a CONCURRENT authoritative write lands (a populate-mutation returns NEWER
   ;; server truth) — it bumps the entry's :revision past the apply baseline.
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
-  ;; the :invalidate conflict rule dispatches a scoped invalidate-tags that marks
-  ;; the moved entry stale (an active owner then refetches) — capture any refetch
-  ;; fx + the invalidated trace so we prove the read-path-recovery path ran.
-  (let [refetched? (atom false)]
-    (rf/reg-fx :rf.resource/refetch (fn [_ _] (reset! refetched? true) nil))
+  ;; the :invalidate conflict rule marks the moved entry durably stale at its
+  ;; EXACT carried :resource/key and — because owner [:v :d] is active — arms
+  ;; the ordinary exact refetch (rf2-wcdj4: recovery is keyed by the carried
+  ;; exact key, never rediscovered through the entry's optional tags). Capture
+  ;; the recovery request the refetch lowers into managed HTTP.
+  (let [muta @last-managed-args]
     (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
-    (let [traces (traces-of [:rf.mutation/optimistic-rolled-back
-                             :rf.resource/invalidated]
-                   #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
-          rb     (:rf.mutation/optimistic-rolled-back traces)
-          inval  (:rf.resource/invalidated traces)]
+    (reset! last-managed-args nil)
+    (let [rb (trace-of :rf.mutation/optimistic-rolled-back
+               #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
       (testing "the rollback did NOT restore the stale inverse (the optimistic 9
                 inverse never clobbered the concurrent authoritative value)"
         (let [e (entry article-key)]
@@ -268,11 +267,10 @@
           ;; or a fresh in-flight refetch — never the stale snapshot.
           (is (not= 9 (get-in e [:data :article :favoritesCount]))
               "the stale inverse (9) was NOT restored over the concurrent write")))
-      (testing "the conflicted entry's tags were INVALIDATED → the read path
-                recovers authoritative truth (the article key was matched stale)"
-        (is (some? inval) "the conflict :invalidate dispatched a scoped invalidate-tags")
-        (is (contains? (set (:matched inval)) article-key)
-            "the moved article entry was marked stale by the conflict invalidation"))
+      (testing "the conflicted entry started an EXACT recovery refetch → the read
+                path recovers authoritative truth (an active owner needs it now)"
+        (is (= {:method :get :url "/a/w"} (:request @last-managed-args))
+            "the recovery request re-fetches the exact conflicted key"))
       (testing "the rolled-back trace reports the conflict + :invalidate + refetch"
         (is (= [article-key] (:conflicted rb)))
         (is (= [article-key] (:refetched rb)))
@@ -488,3 +486,148 @@
                    (state/key-id article-key)))
     (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :first]))
                    (state/key-id article-key)))))
+
+;; ===========================================================================
+;; 7. EXACT-KEY CONFLICT RECOVERY (rf2-wcdj4) — rollback recovery is keyed by
+;;    the carried exact :resource/key, NEVER rediscovered through the entry's
+;;    OPTIONAL :tags. A resource that legitimately omits :tags gets the SAME
+;;    stale+refetch recovery as a tagged one (before the fix, the tagless
+;;    conflicted entry was silently left FRESH with the failed optimistic value
+;;    as cache truth, no recovery request — yet reported refetched). An
+;;    owner-free conflicted entry stays durably stale (no immediate fetch) and
+;;    recovers on its next public ensure.
+;; ===========================================================================
+
+(def ^:private profile-key
+  (state/scoped-resource-key :rf.scope/global :r/profile {}))
+
+(def ^:private profile-q
+  {:resource :r/profile :scope :rf.scope/global :params {}})
+
+(defn- reg-profile-resource!
+  "Register the exact-target settings/profile resource — required :scope +
+  :params-schema only (its ONE cache entry is addressed exactly, so it
+  legitimately declares no :tags). `tags?` adds the OPTIONAL :tags fn — the
+  paired control proving tag metadata no longer changes recovery."
+  [tags?]
+  (rf/reg-resource :r/profile
+    (cond-> {:scope :rf.scope/global
+             :params-schema [:map]}
+      tags? (assoc :tags (fn [_p _] #{[:profile]})))
+    (fn [_p _] {:request {:method :get :url "/profile"}})))
+
+(defn- reg-save-profile-mutation! []
+  (rf/reg-mutation :m/save-profile
+    {:scope :rf.scope/global
+     :params-schema [:map]
+     ;; exact-target optimistic write — needs no tags (Spec 016 §Optimistic).
+     :optimistic (fn [_p]
+                   {{:resource :r/profile :params {} :scope :rf.scope/global}
+                    (fn [p] (assoc p :saved? true))})}
+    (fn [_p _] {:request {:method :post :url "/profile"}})))
+
+(defn- contested-save-failure!
+  "Drive the rf2-wcdj4 reproduction through PUBLIC surfaces only: load server
+  value A under owner [:v :a], execute the exact-target optimistic save (A→B),
+  move the entry's :revision mid-flight via a SECOND owner attach (a fresh-skip
+  cache-hit ensure — state/attach-owner advances :revision, rf2-cxwuhl), then
+  deliver the accepted mutation failure. Returns the rolled-back trace tags;
+  `@last-managed-args` afterwards holds the recovery request (or nil)."
+  []
+  (own-loaded! {:resource :r/profile :scope :rf.scope/global :params {} :owner [:v :a]}
+               {:saved? false})
+  (reg-save-profile-mutation!)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1}])
+  (is (= true (get-in (entry profile-key) [:data :saved?]))
+      "precondition: the optimistic value B is showing")
+  ;; MID-FLIGHT: a second component ensures the (fresh) entry — the contested case.
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/profile :scope :rf.scope/global
+                                          :params {} :owner [:v :b]}])
+  (is (= #{[:v :a] [:v :b]} (:active-owners (entry profile-key)))
+      "precondition: both owners are live before the reply settles")
+  (let [muta @last-managed-args]
+    (reset! last-managed-args nil)
+    (trace-of :rf.mutation/optimistic-rolled-back
+      #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))))
+
+(defn- assert-exact-key-recovery!
+  "The rf2-wcdj4 acceptance assertions — IDENTICAL for the tagless resource and
+  its tagged control, because recovery is keyed by the carried exact
+  :resource/key and must not depend on the optional :tags."
+  [rb]
+  (testing "both owners survive the conflicted rollback"
+    (is (= #{[:v :a] [:v :b]} (:active-owners (entry profile-key)))))
+  (testing "the failed optimistic value is NOT left as fresh cache truth — the
+            exact entry is stale + recovering (a current work id is armed)"
+    (let [e (entry profile-key)]
+      (is (= :fetching (:status e)))
+      (is (some? (:current-work e)))))
+  (testing "an active-owner recovery request was issued for the exact key"
+    (is (= {:method :get :url "/profile"} (:request @last-managed-args))))
+  (testing "the trace + :reconciliation-refetches name ONLY the actually-enqueued
+            recovery (never a key left fresh with zero requests)"
+    (is (= [profile-key] (:refetched rb)))
+    (is (= [profile-key] (:conflicted rb)))
+    (is (= [] (:restored rb)))
+    (is (= [profile-key] (:reconciliation-refetches (patch-summary :s1)))))
+  (testing "settling the recovery with server value A → the public sub returns A,
+            never the server-rejected B"
+    (reply-success! @last-managed-args {:saved? false})
+    (is (= {:saved? false} @(rf/subscribe [:rf.resource/data profile-q])))
+    (is (= :loaded (:status @(rf/subscribe [:rf/resource profile-q]))))))
+
+(deftest tagless-conflict-rollback-recovers-by-the-exact-key
+  ;; THE BUG (rf2-wcdj4): before the fix, the tag-based rediscovery returned nil
+  ;; for this tagless entry — the failed optimistic B stayed FRESH cache truth,
+  ;; no recovery request was emitted, and the key was STILL listed refetched.
+  (reg-profile-resource! false)
+  (assert-exact-key-recovery! (contested-save-failure!)))
+
+(deftest tagged-control-conflict-rollback-recovers-identically
+  ;; THE PAIRED CONTROL: adding ONLY a :tags fn must not change recovery — the
+  ;; same observable outcomes as the tagless arm, proving :tags is no longer an
+  ;; undocumented correctness prerequisite for rollback recovery.
+  (reg-profile-resource! true)
+  (assert-exact-key-recovery! (contested-save-failure!)))
+
+(deftest owner-free-conflict-leaves-the-exact-entry-durably-stale
+  ;; A conflicted entry with NO active owners at settle stays durably stale in
+  ;; place — no liveness created, no immediate fetch — and recovers on its next
+  ;; public ensure. This distinguishes STALE from REFETCHED and prevents an
+  ;; always-fetch fix.
+  (reg-profile-resource! false)
+  (own-loaded! {:resource :r/profile :scope :rf.scope/global :params {} :owner [:v :a]}
+               {:saved? false})
+  (reg-save-profile-mutation!)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1}])
+  ;; the sole owner leaves mid-flight — state/detach-owner advances :revision
+  ;; (rf2-cxwuhl), so the settle sees a conflict on an OWNER-FREE entry.
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:v :a]}])
+  (is (empty? (:active-owners (entry profile-key)))
+      "precondition: the entry is owner-free before the reply settles")
+  (let [muta @last-managed-args
+        _    (reset! last-managed-args nil)
+        rb   (trace-of :rf.mutation/optimistic-rolled-back
+               #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
+    (testing "the exact entry is made durably STALE in place — owners/work facts
+              preserved, no liveness created, no immediate fetch"
+      (let [e (entry profile-key)]
+        (is (some? e) "the entry survives")
+        (is (some? (:invalidated-at e)) "durably stale (:invalidated-at stamped)")
+        (is (empty? (:active-owners e)) "no owner was resurrected")
+        (is (nil? (:current-work e)) "no fetch was started — no owner needs it now")))
+    (testing "the public sub derives :stale? from the durable fact"
+      (is (true? (:stale? @(rf/subscribe [:rf/resource profile-q])))))
+    (testing "NO recovery request was issued for the owner-free entry"
+      (is (nil? @last-managed-args)))
+    (testing "the trace + :reconciliation-refetches do NOT report a refetch that
+              never happened (the key is conflicted, not refetched)"
+      (is (= [profile-key] (:conflicted rb)))
+      (is (= [] (:refetched rb)))
+      (is (= [] (:restored rb)))
+      (is (= [] (:reconciliation-refetches (patch-summary :s1)))))
+    (testing "a LATER public ensure starts recovery (the stale entry refetches)"
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :r/profile :scope :rf.scope/global
+                                              :params {} :owner [:v :c]}])
+      (is (= {:method :get :url "/profile"} (:request @last-managed-args))
+          "the next live-owner ensure issued the recovery request"))))
