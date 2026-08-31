@@ -268,20 +268,46 @@
       (and (some? authored) (ref= override-key authored))
       :else false)))
 
+(defn- registration-coords
+  "The registration-site source coords the `reg-interceptor` MACRO captured
+  into the registry slot's metadata (`reg-interceptor*` →
+  `source-coords/merge-coords` stores them FLAT on the meta map per Spec 001
+  §Source-coordinate capture), re-nested as the `{:ns :file :line :column}`
+  `:source-coord` map shape the interceptor error-record carries
+  (`interceptor/->interceptor*` §`:source-coord`). Returns nil when the slot
+  carries no coords — a programmatic `reg-interceptor*` call, a framework
+  standard (`:rf.interceptor/path`), or a production build whose
+  `merge-coords` elided the public coords (rf2-3un2g)."
+  [meta]
+  (not-empty (select-keys meta [:ns :file :line :column])))
+
 (defn- descriptor->interceptor
   "Lower a registered static descriptor (`{:before}` / `{:after}` /
   `{:before :after}`, or an interceptor value carrying `:before` / `:after`)
   into an executable interceptor value, stamping `id` so chain tooling +
   override-by-id matching see the registered id. An interceptor value that
   already carries its own `:id` keeps it (the migration boundary guarantees it
-  equals `id`)."
-  [id descriptor]
+  equals `id`).
+
+  `coords` is the registration-site `:source-coord` map ([[registration-coords]]
+  off the registry slot's meta; nil when none were captured). It is stamped
+  onto the built value — the value's OWN `:source-coord` (a migration-boundary
+  interceptor value carrying one) wins over it — so a throwing interceptor
+  authored the supported way (`reg-interceptor` + a descriptor, EP-0022)
+  threads its registration coord onto the error-record → the
+  `:rf.error/interceptor-exception` trace's `:source-coord` tag, and the Xray
+  Epoch INTERCEPTOR row renders its jump-to-source chip (rf2-tq26u; the coord
+  used to stop at the registry meta and the chip degraded to plain text)."
+  [id descriptor coords]
   (if (contains? descriptor :id)
-    descriptor
+    (cond-> descriptor
+      (and coords (nil? (:source-coord descriptor)))
+      (assoc :source-coord coords))
     (interceptor/->interceptor*
-      :id     id
-      :before (:before descriptor)
-      :after  (:after descriptor))))
+      :id           id
+      :before       (:before descriptor)
+      :after        (:after descriptor)
+      :source-coord (or (:source-coord descriptor) coords))))
 
 (defn- throw-unregistered-interceptor!
   [ref id]
@@ -348,8 +374,14 @@
   "Resolve a parameterized `[id arg]` ref against its registered `:factory`
   descriptor. The factory receives the single `arg` and returns a static
   descriptor or an executable interceptor value, which we lower to an
-  executable interceptor (stamped with `id`)."
-  [ref id arg descriptor]
+  executable interceptor (stamped with `id`). `coords` is the factory
+  registration's [[registration-coords]] (nil when none) — stamped as the
+  built value's `:source-coord` fallback so a throwing factory-built
+  interceptor's exception-trace chip jumps to the factory's `reg-interceptor`
+  site (a built value carrying its OWN `:source-coord` keeps it; the
+  framework `:rf.interceptor/path` registers programmatically, so it stays
+  coord-free)."
+  [ref id arg descriptor coords]
   (when-not (factory-descriptor? descriptor)
     (throw-factory-arity!
       ref id
@@ -380,10 +412,14 @@
       ;; :before / :after / :id) — STAMP the registry id over it so the
       ;; resolved chain entry carries the registered factory id (e.g.
       ;; `:rf.interceptor/path`) for override-by-id matching + tooling, even
-      ;; when the built interceptor stamped its own internal id.
-      (interceptor-value? built) (assoc built :id id)
+      ;; when the built interceptor stamped its own internal id. The factory
+      ;; registration's coords ride as the `:source-coord` fallback
+      ;; (rf2-tq26u; the built value's own coord wins).
+      (interceptor-value? built) (cond-> (assoc built :id id)
+                                   (and coords (nil? (:source-coord built)))
+                                   (assoc :source-coord coords))
       ;; Factory returned a static descriptor — lower it.
-      (static-descriptor? built) (descriptor->interceptor id built)
+      (static-descriptor? built) (descriptor->interceptor id built coords)
       :else
       (throw-factory-arity!
         ref id
@@ -401,7 +437,15 @@
 
   Per Spec 002 §Validation and resolution timing: resolution happens at
   chain assembly, so a hot-reloaded interceptor descriptor is picked up on the
-  next dispatch without re-registering the event."
+  next dispatch without re-registering the event.
+
+  The resolved value carries the registration-site `:source-coord`
+  ([[registration-coords]] off the registry slot's meta — captured by the
+  `reg-interceptor` MACRO; absent for programmatic `reg-interceptor*` /
+  framework / production-elided registrations) unless the registered value
+  carries its own, so a throwing interceptor's error-record →
+  `:rf.error/interceptor-exception` trace names the registration site
+  (rf2-tq26u — the Xray Epoch INTERCEPTOR row's jump-to-source chip)."
   [ref]
   (cond
     (keyword? ref)
@@ -415,14 +459,15 @@
             (str "interceptor reference `" ref "` is a bare keyword, but id `" ref
                  "` is registered as a `:factory` interceptor — a factory MUST be "
                  "referenced as `[" ref " arg]`.")))
-        (descriptor->interceptor ref descriptor)))
+        (descriptor->interceptor ref descriptor (registration-coords meta))))
 
     (and (vector? ref) (= 2 (count ref)) (keyword? (first ref)))
     (let [[id arg] ref
           meta     (registrar/lookup interceptor-kind id)]
       (when (nil? meta)
         (throw-unregistered-interceptor! ref id))
-      (resolve-factory ref id arg (:rf/interceptor-descriptor meta)))
+      (resolve-factory ref id arg (:rf/interceptor-descriptor meta)
+                       (registration-coords meta)))
 
     :else
     (throw-invalid-ref! ref)))
