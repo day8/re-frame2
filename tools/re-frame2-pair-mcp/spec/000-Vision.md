@@ -85,7 +85,7 @@ added.
 Concern namespaces sit alongside the per-tool bodies. Each owns
 one cross-cutting concern; new tools `:require` from these rather than
 reinventing the lens. The principal lenses (the wire-pipeline core; the
-src tree carries further concern ns — `resource_controls`, `source_uri`,
+src tree carries further concern ns — `source_uri`,
 `freshness`, `reserved_frame_guard`, `await_promise`, `result_envelope`,
 … — each owning a narrower slice):
 

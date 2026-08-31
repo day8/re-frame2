@@ -17,8 +17,7 @@ against the **exact shipped code** rather than a copied mirror (rf2-etsj8p):
 - The genuinely-pure decision logic lives in a shipped preload namespace,
   `preload/re_frame2_pair/pure.cljc` (`re-frame2-pair.pure`) — the cascade /
   consequence projections, the multi-frame operating-frame resolver, the
-  id-validation core, the streaming queue transforms (routing / eviction /
-  drain), the epoch timing + matcher, the snapshot-scope resolver, and the
+  id-validation core, the epoch timing + matcher, the snapshot-scope resolver, and the
   orient assembler. `re-frame2-pair.runtime` `:require`s it and delegates,
   threading the live session gates (raw-state posture, privacy posture,
   operating frame, `frame-ids`) in as arguments.
@@ -74,7 +73,7 @@ for f in tests/runtime/*_test.clj; do bb "$f"; done
 ```
 
 The retired Babashka *behaviour mirrors* (app-db hash, cascade outcome/redaction,
-multi-frame, read-sub, sub-cache, streaming, snapshot, orient,
+multi-frame, read-sub, sub-cache, snapshot, orient,
 source-coord/view parse) were DELETED: their behaviour is now tested against the
 shipped `pure.cljc` in §1a, and the source-coord/view parsers are canonical
 core aliases (`re-frame.source-coords/*`) covered by
