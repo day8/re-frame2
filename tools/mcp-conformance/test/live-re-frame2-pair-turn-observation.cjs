@@ -354,6 +354,41 @@ runWithWatchdog(
       'OK   record + read-recording -> driven change captured and returned as a completed read',
     );
 
+    // ---- Restore the fixture's boot posture (shared-runtime hygiene) ----
+    //
+    // The hermetic suite drives EVERY live harness against ONE fixture
+    // runtime, sequentially. This harness enabled epoch recording
+    // (depth 50) and landed several cascades in the ring; left behind,
+    // those records ride into the next harness's `trace-window` /
+    // `watch-epochs` pulls and push its payloads over the wire cap
+    // (observed: the redaction harness's trace-window overflowed at
+    // 6741 tokens against the 5000 cap). Drop the recorded history and
+    // return the depth to the boot default (0 — recording disabled) so
+    // the next harness meets the same pristine runtime this one did.
+    // `re-frame.epoch` is already module-loaded (the enable phase above),
+    // so a single `(do ...)` is safe here — the two-separate-evals rule
+    // only guards a fresh runtime `require`.
+    const tdResp = await client.callTool({
+      name: 'eval-cljs',
+      arguments: {
+        form:
+          "(do (re-frame.epoch/clear-history!) " +
+          "(re-frame.core/configure! {:epoch-history {:depth 0}}) " +
+          "{:cleared? (empty? (re-frame.epoch/epoch-history " +
+          "(re-frame2-pair.runtime/current-frame))) " +
+          ":depth (:depth (re-frame.epoch/current-config))})",
+      },
+    });
+    fatalIfError('eval-cljs (epoch teardown)', tdResp);
+    const tdText = responseText(tdResp) || '';
+    if (!tdText.includes(':cleared? true') || !tdText.includes(':depth 0')) {
+      throw new Error(
+        'epoch teardown did not restore the boot posture (need ' +
+          ':cleared? true + :depth 0); got: ' + tdText.slice(0, 300),
+      );
+    }
+    console.log('OK   teardown -> epoch ring cleared, depth restored to boot default (0)');
+
     // ---- Flag-gate WIRE riders on a second, opt-out server ----
     //
     // Boot a SECOND server WITH `--no-eval` and WITHOUT `--allow-writes`
