@@ -19,6 +19,14 @@ Resolution: accepted 2026-07-22 (D001–D021 ratified and folded); withdrawn 202
 > remains a durable frozen record per
 > [§Design-record posture](#design-record-posture) below, re-affirmed by the
 > `rf2-0moc4` ruling of 2026-08-18.
+>
+> **Successor record — 2026-08-31.**
+> [EP-0038](EP-0038-the-hicasso-view-layer-programme.md) was filed later on
+> 2026-07-30 as a separate, bounded view-layer experiment and its 2026-08-13
+> operator fork graduated Hicasso successfully. This EP remains `withdrawn`:
+> the later experiment does not rewrite the terminal Freehand outcome. The
+> withdrawal banner's “There is no successor EP” sentence records the state at
+> that ruling and is retained as historical text, not current corpus guidance.
 
 > **Withdrawn — 2026-07-30 (operator ruling, Mike).** The Freehand
 > view-substrate programme is closed as a failed experiment. No further work is

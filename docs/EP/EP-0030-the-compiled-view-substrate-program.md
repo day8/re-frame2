@@ -1,9 +1,9 @@
 # EP-0030: The Compiled-View Substrate Program (re-frame.ui)
 
-Status: accepted
+Status: superseded-by EP-0036
 Type: standards-track
 Created: 2026-07-16
-Resolution: accepted 2026-07-11 (program ratification); adapter disposition reframed 2026-07-17
+Resolution: accepted 2026-07-11 (program ratification); adapter disposition reframed 2026-07-17; superseded by EP-0036 2026-07-22
 
 > **Historical record — 2026-08-16.** This programme's compiled substrate was
 > absorbed into Freehand, and Freehand
@@ -12,7 +12,10 @@ Resolution: accepted 2026-07-11 (program ratification); adapter disposition refr
 > the tree** on 2026-08-16 under the operator ruling recorded as `rf2-0yp7w` —
 > `implementation/ui/` and `implementation/freehand/` return nothing from
 > `git ls-files`. Nothing is in flight under this EP or its siblings
-> EP-0031–EP-0035; they are kept as the record of the donor programme.
+> EP-0031–EP-0035; they are kept as the record of the donor programme. The
+> later successful view-layer programme is
+> [EP-0038](EP-0038-the-hicasso-view-layer-programme.md); it is a new bounded
+> adapter experiment, not a revival of this compiled-substrate contract.
 
 ## Abstract
 

@@ -1,9 +1,9 @@
 # EP-0033: re-frame.ui View Evidence and Debugging
 
-Status: accepted
+Status: superseded-by EP-0036
 Type: standards-track
 Created: 2026-07-16
-Resolution: accepted 2026-07-11
+Resolution: accepted 2026-07-11; superseded by EP-0036 2026-07-22
 
 > **Historical record — 2026-08-16.** This EP's programme
 > ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into

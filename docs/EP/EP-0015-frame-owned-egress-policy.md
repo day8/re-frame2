@@ -3,6 +3,17 @@
 Status: final
 Type: standards-track
 
+> **Follow-up record — 2026-08-31 (EP-0025 graduated 2026-06-24).**
+> [EP-0025](EP-0025-data-classification.md) supersedes this EP's durable
+> classification mechanism. It removes frame-owned app-db annotations,
+> durable-state schema-prop classification, the per-egress fold, and derived
+> sensitivity propagation; durable facts are now declared at their definition
+> sites and one `project-egress` boundary applies them. This EP's centralized
+> projection principle, transient classification, and validation-failure
+> redaction survive. The body below remains the record of the earlier ruling;
+> [`spec/015-Data-Classification.md`](../../spec/015-Data-Classification.md)
+> governs the live contract.
+>
 > This EP defines one public model for sensitive/large classification,
 > trust-boundary projection, and observability sink policy.
 >

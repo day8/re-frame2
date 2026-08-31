@@ -23,6 +23,14 @@ Status: final
 > errata); the remaining items there are cross-cutting hardening and
 > spec-coherence follow-ups in other subsystems, not contract gaps. Slices are
 > tracked per [§Bead Structure](#bead-structure).
+>
+> **Route-planning follow-up — 2026-08-31.**
+> [EP-0037](EP-0037-route-planning-and-activation-ownership.md), accepted
+> 2026-07-24, turns this EP's route integration into one canonical route-plan
+> boundary: parent-chain resource composition, intent prefetch,
+> resource-derived readiness, and explicit activation ownership. It amends the
+> routing/resource seam in `spec/012-Routing.md` and `spec/016-Resources.md`;
+> this EP remains the historical record of the original Resources cut.
 
 ## Implementation errata
 
@@ -3280,6 +3288,37 @@ re-frame2 runtime process.
     separate EP only when later work actually extends it beyond resources and
     managed HTTP to timers, streams, spawned actors, route loaders, or machine
     async work.
+
+## Resolved Decisions
+
+> **Corpus-coherence record — 2026-08-31.** This section records the decisions
+> already embodied by the 2026-06-11 finalization and the graduated Spec 016;
+> it introduces no new resource contract. The questions above are retained as
+> the design record, while the normative specs govern.
+
+1. The public API says **resources**; comparative documentation may say
+   **resource queries**.
+2. The read-resource MVP landed first; mutations and focus/reconnect followed
+   at the first public-beta gate, as the Open Issue already records.
+3. Client navigation commits the URL without waiting; route transition and SSR
+   waiting expose blocking-resource readiness. EP-0037 subsequently refined
+   this into the canonical route-plan/readiness boundary noted above.
+4. Hydration uses the explicit resource projection and never serializes the
+   runtime partition wholesale.
+5. There is no `:cache-key` escape hatch in v1; canonical params are identity.
+6. Reads remain passive: subscription-driven fetching is not a v1 surface.
+7. Refresh failures use the resource error envelope while preserving usable
+   data; `:status :error` remains the no-usable-data first-load state.
+8. GraphQL remains deferred until a concrete consumer needs the transport.
+9. Cache scope is explicit and fail-closed, exactly as recorded in Open Issue
+   9 and [`spec/016-Resources.md`](../../spec/016-Resources.md).
+10. Owners express liveness; causes express why work happened.
+11. Xray inspection does not acquire ownership; an explicit future debug pin
+    would be a traced mutation, not an implicit read side effect.
+12. `:keep-previous?` is the bounded previous-data surface; arbitrary
+    placeholders remain deferred.
+13. Resources introduced the neutral work-ledger slice. EP-0006 and EP-0011
+    later generalized its subsystem and managed-reply contracts.
 
 ## Recommendation
 

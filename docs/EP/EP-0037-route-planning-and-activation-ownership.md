@@ -3,6 +3,7 @@
 Status: accepted
 Type: standards-track
 Created: 2026-07-24
+Resolution: accepted 2026-07-24
 
 > This EP makes routing one inspectable planning boundary. A route address is
 > resolved once into a target, an active branch, managed resource requirements,
