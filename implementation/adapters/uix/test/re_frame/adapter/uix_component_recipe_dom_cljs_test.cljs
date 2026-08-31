@@ -56,8 +56,9 @@
 ;; `flush-views!`, and stood down while the test waits for an update that
 ;; arrives on React's own schedule (`wait-for` below) — the discipline
 ;; Testing Library's `waitFor` follows. The flag is a global, so `mount!`
-;; captures the value it finds and `unmount!` puts that value back — the
-;; recipe leaves the suite's act environment exactly as it found it.
+;; captures the value it finds and `unmount!` puts that value back in a
+;; `finally` — the recipe leaves the suite's act environment exactly as it
+;; found it, even when a render or a teardown throws.
 
 (defn- act-environment! [on?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) on?))
@@ -73,23 +74,34 @@
 (defn- mount!
   "Render `element` under `:rf/default` into a fresh node on the page, inside
    `flush-views!`, so the tree is committed when this returns. Captures the
-   act-environment flag as it stood; `unmount!` restores it."
+   act-environment flag as it stood; `unmount!` restores it. A render that
+   throws restores the flag and removes the node before rethrowing, so a
+   failed mount leaves nothing behind."
   [element]
   (let [act-prev (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
         node     (.createElement js/document "div")
         root     (uix-dom/create-root node)]
     (.appendChild js/document.body node)
-    (act-environment! true)
-    (uix-adapter/flush-views!
-      #(uix-dom/render-root
-         ($ uix-adapter/frame-provider {:frame :rf/default} element)
-         root))
-    {:node node :root root :act-prev act-prev}))
+    (try
+      (act-environment! true)
+      (uix-adapter/flush-views!
+        #(uix-dom/render-root
+           ($ uix-adapter/frame-provider {:frame :rf/default} element)
+           root))
+      {:node node :root root :act-prev act-prev}
+      (catch :default e
+        (act-environment! act-prev)
+        (.remove node)
+        (throw e)))))
 
 (defn- unmount! [{:keys [node root act-prev]}]
-  (uix-adapter/flush-views! #(uix-dom/unmount-root root))
-  (.remove node)
-  (act-environment! act-prev))
+  (try
+    (uix-adapter/flush-views! #(uix-dom/unmount-root root))
+    (finally
+      ;; Even when React's unmount or an effect cleanup throws, the node
+      ;; leaves the page and the act flag goes back to what `mount!` found.
+      (.remove node)
+      (act-environment! act-prev))))
 
 (defn- by-testid [node id]
   (.querySelector node (str "[data-testid=\"" id "\"]")))
@@ -127,10 +139,32 @@
             (.then (fn [_] (is (= "1" (text node "counter-value")))))
             (.catch (fn [e] (is false (str "the +1 click never reached the DOM: " e))))
             (.finally (fn []
-                        (unmount! mounted)
-                        ;; The restore is part of the recipe's contract: the
-                        ;; suite sees the act flag this test found on entry.
-                        (is (= (:act-prev mounted)
-                               (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
-                            "unmount! restores the act-environment flag mount! captured")
-                        (done))))))))
+                        ;; Teardown cannot cost the suite its `done`: a throw
+                        ;; out of `unmount!` is reported as a failure, and
+                        ;; `done` runs regardless.
+                        (try
+                          (unmount! mounted)
+                          ;; The restore is part of the recipe's contract: the
+                          ;; suite sees the act flag this test found on entry.
+                          (is (= (:act-prev mounted)
+                                 (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+                              "unmount! restores the act-environment flag mount! captured")
+                          (catch :default e
+                            (is false (str "teardown threw: " e)))
+                          (finally (done))))))))))
+
+(deftest mount-unmount-hands-back-the-act-flag-it-found
+  (if-not (exists? js/document)
+    (is true "no DOM here — the browser lane runs this test")
+    ;; The regression pin for the restore itself. A runner whose flag already
+    ;; sits at `true` would let a teardown that merely forces `true` pass by
+    ;; coincidence — so plant a sentinel the runner would never set, run one
+    ;; mount/unmount round trip, and demand the sentinel back.
+    (let [ambient (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+      (try
+        (act-environment! "recipe-sentinel")
+        (unmount! (mount! ($ counter)))
+        (is (= "recipe-sentinel" (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+            "mount!/unmount! restore the exact pre-existing act-flag value")
+        (finally
+          (act-environment! ambient))))))
