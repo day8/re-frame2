@@ -40,7 +40,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Inspect the live sub cache | *done* | `list-subscriptions` (and `snapshot`'s `:sub-cache` slice) return the per-frame materialised cache `{query-v {:value v :ref-count n}}` (CLJS-only) |
 | Show subs that re-ran for one epoch | *done* | `:sub-runs` projection per epoch (Spec-Schemas) |
 | Show effects fired for one epoch | *done* | `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` egresses as `:rf/redacted` by default (`:include-fx-args?` opt-in), and `:trace-events` carries richer per-fx detail |
-| Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; the `:event-bundles` slot on the `subscribe` trace topics walks the tree |
+| Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation over the per-frame trace-ring event bundles |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
 | Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is a finalised **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` — resolve coords from `(first render-key)` via `handler-meta {kind: "view"}`, or `read-ui`'s `:source-coord` for anonymous fns (see `references/recipes.md` "Explain this dispatch") |
 | List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `re-frame.machines/machines` / `re-frame.machines/machine-meta` / `(:rf.db/runtime (rf/frame-state-value frame-id))` |
@@ -87,7 +87,6 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
 | `snapshot` `:machines` slice is runtime-db state, redacted off-box by default | *done* | The `:machines` slice is runtime-db-partition state; per Spec 011 ruling #14 it egresses as `:rf/redacted` unless the operator opted in. The opt-in is **folded onto the existing sensitive axis** (`redact-runtime-db? = (not incl?)`, `incl?` = `--allow-sensitive-reads` gate + `:include-sensitive`) — there is **no separate `:include-runtime-db?` arg** (deliberately asymmetric with Xray's dedicated `:include-runtime-db?` axis; both fail closed, both satisfy ruling #14). See SKILL.md §privacy posture and `skills/re-frame2/references/cross-cutting/privacy-and-elision.md`. |
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |
-| Streaming subscriptions terminate cleanly | *done* | A `subscribe` stream closes on `unsubscribe` / client cancel, or when an explicitly-supplied `:max-ms` / `:max-events` trips (both default 0 = unbounded). Server-side protection is the buffered-queue caps (500 events / ~5 MB, drop-oldest) plus `--max-concurrent-streams` — there is no idle or hard-cap default |
 | Restore-failure traces are structured | *done* | Seven `:rf.epoch/*` operations with `:tags` — Tool-Pair contract |
 | Time-travel does NOT reverse side effects — surface limit | *guardrail* | SKILL.md style guidance + recipe text. (Restore *does* rewind durable frame-state — both partitions — but not the fx the cascade already fired or transient host state.) |
 
@@ -124,4 +123,4 @@ Full procedures in [`references/recipes.md`](../references/recipes.md).
 
 ---
 
-Notes column tracks the MCP-primary 33-tool surface. Complements [`STATUS.md`](../STATUS.md) (per-surface implementation state).
+Notes column tracks the MCP-primary 29-tool surface. Complements [`STATUS.md`](../STATUS.md) (per-surface implementation state).

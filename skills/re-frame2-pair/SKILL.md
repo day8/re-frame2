@@ -15,7 +15,7 @@ description: >
 allowed-tools:
   # Pair-MCP — single persistent nREPL connection per session
   # (not yet on npm — build/run from a re-frame2 clone; see docs/LOCAL_DEV.md).
-  # All 33 server tools are reachable; the body + references explain each surface.
+  # All 29 server tools are reachable; the body + references explain each surface.
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch
@@ -34,12 +34,7 @@ allowed-tools:
   - mcp__re-frame2-pair__record
   - mcp__re-frame2-pair__read-recording
   - mcp__re-frame2-pair__watch-until
-  - mcp__re-frame2-pair__subscribe
-  - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions
-  - mcp__re-frame2-pair__list-streams
-  # get-stream-controls: streaming resource-control diagnostic (in-process)
-  - mcp__re-frame2-pair__get-stream-controls
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
   # orient: first-contact app-shape summary
@@ -148,7 +143,7 @@ On any failed precondition, discover-app returns structured edn (`{:ok? false :r
 
 The nREPL session persists between turns. A full page refresh drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) first; if missing, the op refuses with the runtime-side `:runtime-not-preloaded` hint pointing here. (That per-op check is distinct from `discover-app`'s richer ladder, which on the same missing-marker condition reports the more precise `:runtime-loaded-but-preload-missing` — see [references/errors.md](references/errors.md#discover-app-preload-failure-ladder).)
 
-For a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (six routing rules for which tool to reach for, then the EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip. It does not list the tools; `tools/list` already gave you every descriptor.
+For a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (six routing rules for which tool to reach for, then the EDN posture, tagged-mutation conventions, the wire pipeline) with no nREPL round-trip. It does not list the tools; `tools/list` already gave you every descriptor.
 
 ---
 
@@ -178,8 +173,6 @@ re-frame2 supports multiple, named frames (Spec 002). Most apps run one app fram
 
 **Set the session pin with the dedicated operating-frame tools** — three MCP tools surface tier 2 directly, no eval round-trip: `set-operating-frame {frame: ":foo"}` (pin — the escape from the tier-4 refusal; validates the id, returns the `{:frames :selected :operating}` triple), `reset-operating-frame {}` (clear), `get-operating-frame {}` (read; `:operating nil` means ambiguous). These three are NOT subject to the `:ambiguous-frame` refusal — they *resolve* it.
 
-**`subscribe` is the exception** — it has **no `frame` arg**, so the operating-frame pin does *not* scope a streaming subscription; scope a stream with `filter {:frame ":foo"}` instead.
-
 When the operating frame is ambiguous (two-plus **app** frames, no pin), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write into the wrong frame is unrecoverable without `restore-epoch`. Reads refuse too (the validated read helpers return `:reason :ambiguous-frame` rather than silently reading `:rf/default`). Mirrors Spec 002 §Frame presets / lifecycle convention.
 
 ---
@@ -200,8 +193,6 @@ Read the leaf matching the task. Most references are ≤250 lines; the two catal
 | Record signals while the human interacts, or block until a condition lands | `record` / `read-recording` / `watch-until` — see [references/ops.md §Signal recording](references/ops.md#signal-recording--blocking-waits) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
 | Drive a Story variant from a re-frame2-pair session — the variant *is* a frame; variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
-| Open a push-mode subscription on the trace or epoch bus (topics, filters, termination) | [references/streaming-subscriptions.md](references/streaming-subscriptions.md) |
-| Diagnose a stream that was **refused / went quiet / terminated** — server-side caps, slot leaks, rate-limit/abuse pressure (answers even when the runtime is down) | `get-stream-controls` / `list-streams` — see [references/streaming-subscriptions.md §Diagnostics](references/streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered) |
 | Decode a deduped wire payload (`:rf.mcp/dedup-table`) or pick the right size-conscious arg (`max-tokens`, `path`, `mode`, `dedup`, `elision`, `limit`/`cursor`, `cache`, `max-buffered-*`) | [references/wire-size-budget.md](references/wire-size-budget.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
@@ -228,7 +219,7 @@ Load at most two references for a single task. Wanting three means the request s
 - **Surface restore limits.** Before any time-travel experiment, walk the cascade's effects and tell the user which effects already fired and cannot be reversed.
 - **Use the assembled epoch stream by default; reach for the raw trace stream when you need detail the projection drops.** `:sub-runs`, `:renders`, `:effects` are the routing surface; `:trace-events` is the escape hatch for detail the projection omits (e.g. per-interceptor timing, or the raw fx `:args` the `:effects` projection redacts off-box).
 - **One trace listener per skill.** This skill registers one listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`). Multi-tool coexistence is the default — don't worry about other listeners; per Spec 009 §Listener ordering, ordering is not contract.
-- **Structured MCP reads/streams elide by default; raw `eval-cljs` does NOT.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), the structured read/stream tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `subscribe`, `dispatch-dry-run`, and the recorders) force wire-boundary elision server-side under the `--allow-sensitive-reads` gate (**OFF by default**) — sensitive → `:rf/redacted`, large → `:rf.size/large-elided`, epoch records additionally route through `projected-record`. So structured reads/streams are safe to fire by default. But `eval-cljs` is **default-ON** (governed only by `--no-eval`) and **NOT governed by this gate** — it returns the form's value **without running the elision walker**, so a raw `(re-frame2-pair.runtime/snapshot)` / `(rf/epoch-history …)` can ship verbatim app-db / trace / epoch state — secrets included. This is the **raw-eval carve-out**: don't reach for raw eval to read a sensitive path / sub / trace / epoch when a structured tool fits — reserve it for forensics, cross-referencing, and recovery. Full mechanism in [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out).
+- **Structured MCP reads elide by default; raw `eval-cljs` does NOT.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), the structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `dispatch-dry-run`, and the recorders) force wire-boundary elision server-side under the `--allow-sensitive-reads` gate (**OFF by default**) — sensitive → `:rf/redacted`, large → `:rf.size/large-elided`, epoch records additionally route through `projected-record`. So structured reads are safe to fire by default. But `eval-cljs` is **default-ON** (governed only by `--no-eval`) and **NOT governed by this gate** — it returns the form's value **without running the elision walker**, so a raw `(re-frame2-pair.runtime/snapshot)` / `(rf/epoch-history …)` can ship verbatim app-db / trace / epoch state — secrets included. This is the **raw-eval carve-out**: don't reach for raw eval to read a sensitive path / sub / trace / epoch when a structured tool fits — reserve it for forensics, cross-referencing, and recovery. Full mechanism in [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out).
 - **Route named writes through the dedicated, gated tools.** Time-travel undo and state injection have dedicated tools — `restore-epoch` and `replace-app-db` — both allow-listed and the **canonical path** (validate, append a synthetic undoable epoch, `tap>`, return a `:cascade-summary`). Both are gated by the server's `--allow-writes` flag (default **OFF**); the **server's gate, not the allow-list, is the write boundary**. Raw eval of a write form (`(rf/restore-epoch! …)` / `app-db-reset!`) is the **backstop, not the default** — reach for the dedicated tool first. Full detail: [references/ops.md §Time-travel](references/ops.md#time-travel-epoch-restore).
 
 ---

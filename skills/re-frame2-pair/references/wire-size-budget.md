@@ -45,12 +45,7 @@ return the input unchanged. The expand is local to the agent host;
 no extra round-trip to the runtime.
 
 **Where it fires.** `:epochs` slice on `snapshot`, `trace-window`,
-`watch-epochs`; the per-tick subscribe payload slot on `subscribe`.
-That slot is **topic-dependent** (per `streaming-subscriptions.md`):
-`:events` for the flat topics (`:epoch` / `:frameless`), `:event-bundles`
-for the event-bundle topics (`:trace` / `:fx` / `:error`). A host
-decoding subscribe dedup must look under whichever slot the topic
-delivers, not `:events` alone. Opt out via `dedup false` if your host hasn't been taught the marker.
+`watch-epochs`. Opt out via `dedup false` if your host hasn't been taught the marker.
 
 **Empty / scalar inputs** pass through unmodified (no marker) — the only thing that ever needs `expand` is something that already benefits from sharing.
 
@@ -70,16 +65,11 @@ narrowest one first.
 | `modes {"app-db" "full", ...}` | `snapshot` | per-slice | Mix: e.g. live state `"full"`, history `"summary"`. |
 | `include ["app-db"]` | `snapshot` | all 5 slices | Drop slices you don't need (`app-db`, `sub-cache`, `machines`, `epochs`, `traces`). |
 | `epochs-mode "diff"` / `"full"` | `snapshot`, `trace-window`, `watch-epochs` | `"diff"` | Keep diff (default). Only opt back to `"full"` when you need it for **time-travel restore** — the diffed `:db-after` can't drive `restore-epoch`. |
-| `dedup` | epoch-carrying tools + `subscribe` | `true` | Keep on. Pass `false` only if your host can't `expand`, or for round-trip debugging. |
+| `dedup` | epoch-carrying tools | `true` | Keep on. Pass `false` only if your host can't `expand`, or for round-trip debugging. |
 | `elision` | `snapshot`, `get-path` | `true` | Keep on. Pass `false` only when you have explicit override permission and need the raw bytes of a `:large?` slot. |
 | `limit` + `cursor` | `trace-window`, `watch-epochs` | 50 / nil | Paginated epoch streams. First call returns up-to-`limit` records and a `:next-cursor`; pass that back to consume the next page. A stale cursor (id aged out of the ring) surfaces as `:reason :rf.mcp/cursor-stale` — drop it and restart. |
 | `cache` | `snapshot`, `get-path`, `trace-window`, `watch-epochs`, `discover-app` | `false` | Repeated reads of the same (tool, args) within a session. On a hit the payload is replaced with `{:rf.mcp/cache-hit {:hash ... :unchanged-since <ms> :tool ... :hint ...}}` — you already have the byte-identical prior payload locally. 8-slot LRU, scoped to one MCP-server process. |
-| `max-buffered-events` | `subscribe` | 500 | Runtime-side queue cap in **event count**. Overflow evicts oldest (drop-oldest FIFO) and reports `:overflow-reason :max-buffered-events`. |
-| `max-buffered-bytes` | `subscribe` | 5_000_000 (~5MB) | Same queue, byte cap. OR-combined with the event cap; whichever trips first evicts. |
-| `max-events` | `subscribe` | 0 (unbounded) | Terminate the subscription after N delivered events. Cheap kill-switch on a chatty stream. |
-| `max-ms` | `subscribe` | 0 (unbounded) | Hard time-bound on the subscription. |
-| `poll-ms` | `subscribe` | 100 | Server poll cadence. Raise to coalesce ticks; lower for tighter latency. |
-| `include-sensitive` | epoch-carrying tools + `subscribe` | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the runtime `configure-privacy!` opt and the walker option `:rf.size/include-sensitive?`, which keep the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
+| `include-sensitive` | epoch-carrying tools | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the walker option `:rf.size/include-sensitive?`, which keeps the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
 
 ### Quick decision tree
 
@@ -89,10 +79,8 @@ narrowest one first.
 - **Same read twice in a row?** Add `cache true` on the second call.
 - **Investigating recent activity?** `trace-window` with default
   `limit 50`; paginate via `cursor` if `:has-more?`.
-- **Live-watching an event landing?** `watch-epochs` (pull) or
-  `subscribe topic "epoch"` (push). For push, set
-  `max-buffered-events`/`max-buffered-bytes` to your wire budget and
-  `max-events` or `max-ms` as a kill-switch.
+- **Live-watching an event landing?** `watch-epochs` — poll in a loop,
+  advancing `since-id` to each response's `:head-id`.
 - **Got an `{:rf.size/large-elided ...}` marker?** Re-call `get-path`
   on the handle's `:path` to drill into a non-elided child, or pass
   `elision false` if you actually need the raw slot.
@@ -128,8 +116,6 @@ inside the relevant slice) before treating a result as raw data:
 
 ## See also
 
-- `references/streaming-subscriptions.md` — full `subscribe` lifecycle
-  and filter vocab.
 - `references/ops.md` — the structured op catalogue (the args above
   are the descriptor knobs; the ops are how the agent invokes them).
 - `references/errors.md` — translating `:reason` codes to recovery.

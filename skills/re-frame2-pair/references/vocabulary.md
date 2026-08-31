@@ -82,15 +82,14 @@ This is the operational summary for a pair session.
 **The contract.** Per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md),
 the re-frame2-pair-mcp server defaults to a redacting wire boundary. The
 `--allow-sensitive-reads` boot gate is **OFF by default** (CLI flag aligned
-across the day8 MCP family). With it OFF, every **structured read / stream tool**
-— `snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`, `watch-epochs`,
+across the day8 MCP family). With it OFF, every **structured read tool**
+— `snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`,
 `dispatch-dry-run`, and the signal recorders `record` / `read-recording` / `watch-until`
 — applies wire-boundary elision server-side: declared-sensitive slots → `:rf/redacted`,
 declared-large → `:rf.size/large-elided`. The epoch-egressing tools additionally route
 each record through `projected-record` / `elide-wire-value`, so a sensitive slot inside
 `:db-before` / `:db-after` redacts and a whole epoch the runtime stamped `:rf.epoch/sensitive?`
-drops entirely. Streaming additionally drops trace events whose top-level `:sensitive?` is
-`true` before they queue. Net: structured reads/streams are safe to fire by default.
+drops entirely. Net: structured reads are safe to fire by default.
 
 ### The raw-eval carve-out — eval-cljs is OUTSIDE the structured guarantee
 
@@ -105,7 +104,7 @@ to the AI host even with `--allow-sensitive-reads` OFF.
 So **do not reach for raw `eval-cljs` to read a privacy-sensitive app-db
 path, sub value, trace event, or epoch payload when a structured elided
 tool fits** — use `get-path` / `read-sub` / `snapshot {path}` / `trace-window` /
-`watch-epochs` / `subscribe`. Reserve raw eval for forensics / cross-referencing /
+`watch-epochs`. Reserve raw eval for forensics / cross-referencing /
 recovery, and pour raw state into an eval only on explicit user/operator request. The
 same carve-out applies to the time-travel **eval forms** (`app-db-reset!`, `rf/restore-epoch!`):
 un-elided and un-gated, so for a *named* write prefer the dedicated `--allow-writes`-gated
@@ -129,6 +128,6 @@ The three server gates, for reference:
 - `--allow-writes` — opt-in for the two state-mutating tools
   `restore-epoch` + `replace-app-db` (default OFF; without it both return
   `{:ok? false :reason :rf.error/writes-disabled}`). Both ARE allow-listed
-  by the skill (all 33 server tools are reachable) — the **server's gate,
+  by the skill (all 29 server tools are reachable) — the **server's gate,
   not the allow-list**, is the write boundary. See
   [mcp-transport.md](mcp-transport.md) §MCP tool reference.

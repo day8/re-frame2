@@ -188,7 +188,7 @@ When the user mentions a state machine (Spec 005), chain:
    mcp__re-frame2-pair__read-sub {sub: "[:rf/machine :auth]"}
    ```
    or eval `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or the runtime-db partition of `frame-state-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
-4. To watch transitions live: `subscribe {topic: "epoch", filter: {":event-id-prefix": ":auth/"}}` and inspect each emitted epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the subscribe layer isn't supported; combine `:event-id-prefix` (to narrow by trigger) with caller-side filtering of the streamed epochs.
+4. To watch transitions live: poll `watch-epochs {pred: {"event-id-prefix": ":auth/"}}` (advancing `since-id` each call) and inspect each returned epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the pred layer isn't supported; combine `:event-id-prefix` (to narrow by trigger) with caller-side filtering of the returned epochs.
 5. The canonical machine sub is `[:rf/machine :auth]` — `read-sub {sub: "[:rf/machine :auth]"}` reads its current value (validated + elided).
 
 ## "Dead code scan"
@@ -267,33 +267,23 @@ For `:rf.http/managed` failure-category experiments (Spec 014 §Failure categori
 
 ## "Narrate the next N events"
 
-Prefer the push-mode MCP path: call `mcp__re-frame2-pair__subscribe` with `{topic: "epoch", max-events: N}`. Each batch arrives as a `notifications/progress` tick; report each epoch as a short paragraph (event id, `:trigger-event`, key entries from `:effects` and `:sub-runs`, `app-db` diff summary) as it fires. The tool resolves with a summary once `max-events` is reached.
-
-Fallback (host doesn't surface progress notifications): poll `mcp__re-frame2-pair__watch-epochs {}` (no filter) repeatedly, passing the previous response's `:head-id` back as `since-id`, narrating each pull's `:matches`; stop once you've narrated N events. (`watch-epochs` is poll-only — there is no `count` arg.)
-
-See [streaming-subscriptions.md](streaming-subscriptions.md) for topic / filter / termination detail.
+Poll `mcp__re-frame2-pair__watch-epochs {}` (no filter) repeatedly, passing the previous response's `:head-id` back as `since-id`; report each pull's `:matches` as short paragraphs (event id, `:trigger-event`, key entries from `:effects` and `:sub-runs`, `app-db` diff summary); stop once you've narrated N events. (`watch-epochs` is poll-only — "run for N" is the loop you run, not a tool arg.)
 
 ## "Alert me on slow events"
 
-Prefer `mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":timing-ms": ">100"}}` — the `:timing-ms` predicate rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`); see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape. On each `notifications/progress` tick, narrate matches and pull per-interceptor timings from the raw trace if needed. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
-
-Fallback (pull-mode, no host progress notifications): poll `mcp__re-frame2-pair__watch-epochs {pred: {"timing-ms": ">100"}}` repeatedly, advancing `since-id` to the previous response's `:head-id` each time.
+Poll `mcp__re-frame2-pair__watch-epochs {pred: {"timing-ms": ">100"}}` repeatedly, advancing `since-id` to the previous response's `:head-id` each time — the `:timing-ms` predicate rides server-side so only slow cascades cross the wire. Accepts a number (sugar for `>= N`) or a comparison string (`">100"`, `"<=50"`, `">=100"`, `"<200"`, `"=42"`). Narrate matches and pull per-interceptor timings from the raw trace if needed.
 
 ## "Watch for X while I interact"
 
-Prefer `mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":event-id-prefix": ":checkout/"}}` (or other predicate from the `epoch-matches?` vocab — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). Narrate each match as it arrives via `notifications/progress`; summarise when the stream goes idle. Close with `unsubscribe` (or `max-events` / `max-ms`) when the user moves on.
-
-Fallback: poll `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":checkout/"}}` in a loop, passing the previous response's `:head-id` as `since-id` so each call only returns new matches. (There is no `stream` arg — looping the poll is the pull-mode equivalent.)
+Poll `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":checkout/"}}` (or another predicate from the `epoch-matches?` vocab) in a loop, passing the previous response's `:head-id` as `since-id` so each call only returns new matches. Narrate each match as it lands; summarise when the pulls go quiet or the user moves on.
 
 ### Inspect what's currently subscribed
 
 For the **live reactive sub-cache** — "what subscriptions are active in this frame?" — call `mcp__re-frame2-pair__list-subscriptions {frame: ":rf/default"}`. It reads the same source as `snapshot :sub-cache` and returns the cached query-vectors (reflecting disposal); pass `include-values: true` for current values + ref-counts.
 
-When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__list-streams {}` to confirm it's still registered and check its `:queue-depth` before assuming the bus is dry. Full return shape and filters: see [streaming-subscriptions.md §Diagnostics](streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered).
-
 ## "Record while I interact" / "Wait until X happens"
 
-**When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `subscribe` / `watch-epochs` stream *epochs*; the `record` / `watch-until` family observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
+**When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `watch-epochs` returns *epochs*; the `record` / `watch-until` family observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
 
 > **Privacy:** the `{:app-db [...]}` / `{:sub [...]}` signals sampled below are app-db-derived values that `read-recording` / `watch-until` ship back to the model, so they ride the same `--allow-sensitive-reads` posture as `get-path` / `read-sub` / `snapshot`. With the gate OFF (the published default), each `:app-db` / `:sub` sample is walked through `re-frame.core/elide-wire-value` server-side — declared-sensitive slots land as `:rf/redacted`, declared-large slots as `:rf.size/large-elided` — so a sensitive path (`[:auth :token]`) is safe to record by default. `{:dom ...}` / `{:focus true}` signals are host reads, not app-db slots, and pass through. To see the unmasked sample, the operator launches with `--allow-sensitive-reads` and you pass `:include-sensitive true`.
 
@@ -398,23 +388,23 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 **Procedure:**
 
 1. **(authoring skill)** Read the current body — `get-variant` is the `re-frame2` skill's surface, so reach it from there: `register-variant`/`get-variant {variant-id ...}` returns the current body to refine.
-2. **(re-frame2-pair)** Open a watch scoped to the variant before re-running, so you see every dispatch the play-runner makes:
+2. **(re-frame2-pair)** Note the variant frame's current epoch head before re-running, so the post-run poll returns only the play-runner's dispatches:
    ```
-   mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":frame": ":story.counter/loaded"}}
+   mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.counter/loaded"}}
    ```
-   Each `notifications/progress` tick carries one epoch record from the variant's cascade.
+   Keep the response's `:head-id` — it is the `since-id` for the post-run read.
 3. **(authoring skill)** Re-register with the refined body via the `re-frame2` skill's `register-variant` (e.g. extend `:story.counter`, set `:setup [[:counter/initialise 7]]`, set `:script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`). `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then the setup events.
 4. **(re-frame2-pair)** Run it — `run-variant` IS in re-frame2-pair's allow-list:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
    ```
-   As the play-runner drives each `:script` step, the re-frame2-pair subscription emits its epoch. Narrate them in order.
+   Then poll `watch-epochs {since-id: <head-id>, pred: {"frame": ":story.counter/loaded"}}` — each `:script` step the play-runner drove is one returned epoch. Narrate them in order.
 5. **(re-frame2-pair)** Read failures:
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
    ```
-6. If `:status :fail` (`result-passed?` is false), hand back to the authoring skill and repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
+6. If `:status :fail` (`result-passed?` is false), hand back to the authoring skill and repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. Carry the newest `:head-id` forward as the next iteration's `since-id`.
 
-**Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
+**Expected output shape.** A `watch-epochs` pull of epoch records (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
 
 **Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. a `replace-app-db` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.

@@ -125,15 +125,16 @@ trace/last-epoch                         ;; epoch history from the variant's fra
 
 Then run the story tool against the same id and the results line up with what you just read.
 
-**Watch-epochs scoped to a variant's frame-id.** Open a re-frame2-pair subscription before the play-runner fires so you see every dispatch in order:
+**Watch-epochs scoped to a variant's frame-id.** Note the frame's epoch head before the play-runner fires, then poll for everything after it:
 
 ```
-mcp__re-frame2-pair__subscribe
-  {topic: "epoch" filter: {":frame": ":story.counter/loaded"}}
+mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.counter/loaded"}}   ;; keep :head-id
 mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
+mcp__re-frame2-pair__watch-epochs
+  {since-id: <head-id> pred: {"frame": ":story.counter/loaded"}}
 ```
 
-Each `notifications/progress` tick on the subscription carries one epoch record from the variant's cascade — including every `:script` step the runner drove. The streaming view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
+The post-run pull returns one epoch record per dispatch in the variant's cascade — including every `:script` step the runner drove. That epoch view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
 
 **Dispatch-from-pair into the variant's frame.** Mid-loop intervention — between iterations of `run-variant`, inject a probe dispatch directly:
 
