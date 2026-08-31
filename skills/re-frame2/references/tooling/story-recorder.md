@@ -16,7 +16,7 @@ Do **not** load this leaf to learn what a story is, or to author a variant body 
 
 A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:setup` reaches the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches as `:op-type :rf.event` + `:operation :rf.event/dispatched` emissions per Spec 009 §Listener contract.
 
-So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The codegen emits the PUBLIC `:script` authoring slot directly (the registrar still accepts and lowers `:play-script` if you hand-write it, but the authored/public target is `:script`). No DOM-event capture, no Testing-Library translation, no page-object layer.
+So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The codegen emits the PUBLIC `:script` authoring slot directly — the only spelling the registrar accepts (the retired `:play-script` key fails shape validation). No DOM-event capture, no Testing-Library translation, no page-object layer.
 
 ## Public surface
 

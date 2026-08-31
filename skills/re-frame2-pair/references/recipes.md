@@ -353,7 +353,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
    Subsequent reads/writes/watches inherit this frame.
 4. Operate normally — `snapshot`, `read-sub`, `dispatch`, `eval-cljs {form: "(re-frame2-pair.runtime/last-epoch)"}`, etc. The variant's isolated state is what you see.
 
-**Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `last-epoch` returns the last dispatch (often the last `:play-script` step if the variant just mounted).
+**Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `last-epoch` returns the last dispatch (often the last `:script` step if the variant just mounted).
 
 **Gotcha.** Forget to pin (`set-operating-frame`) or pass a per-call `frame:`, and the op resolves by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app frame both live, that's two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
 
@@ -393,7 +393,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Skill-boundary handoff.** Editing a variant body — reading it (`get-variant`) and re-registering it (`register-variant`) — is the **Story authoring** surface, allow-listed by the `re-frame2` skill, **not** re-frame2-pair (see `SKILL.md` frontmatter + `stories.md §The five tools`). re-frame2-pair's Story allow-list is the five live-session tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`). So the body-editing steps below are a **handoff to the authoring skill**: drive them under `re-frame2` (its `register-variant`/`get-variant` are reachable there); let re-frame2-pair watch + run + diagnose against the live runtime. re-frame2-pair drives the runtime; `re-frame2` owns the source-of-truth variant body.
 
-**Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play-script` body to make an assertion pass.
+**Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:script` body to make an assertion pass.
 
 **Procedure:**
 
@@ -403,12 +403,12 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
    mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":frame": ":story.counter/loaded"}}
    ```
    Each `notifications/progress` tick carries one epoch record from the variant's cascade.
-3. **(authoring skill)** Re-register with the refined body via the `re-frame2` skill's `register-variant` (e.g. extend `:story.counter`, set `:events [[:counter/initialise 7]]`, set `:play-script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`). `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
+3. **(authoring skill)** Re-register with the refined body via the `re-frame2` skill's `register-variant` (e.g. extend `:story.counter`, set `:setup [[:counter/initialise 7]]`, set `:script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`). `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then the setup events.
 4. **(re-frame2-pair)** Run it — `run-variant` IS in re-frame2-pair's allow-list:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
    ```
-   As the play-runner drives each `:play-script` step, the re-frame2-pair subscription emits its epoch. Narrate them in order.
+   As the play-runner drives each `:script` step, the re-frame2-pair subscription emits its epoch. Narrate them in order.
 5. **(re-frame2-pair)** Read failures:
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
@@ -417,4 +417,4 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
 
-**Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. a `replace-app-db` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:events` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.
+**Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. a `replace-app-db` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.
