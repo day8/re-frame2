@@ -14,7 +14,7 @@ The success criterion: `npx shadow-cljs watch app` compiles cleanly, the browser
 
 The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
-1. **Correctness — recipes over explanations.** Walks through the exact deps, the exact `shadow-cljs.edn` shape, the exact entry-namespace contract. The author copies the recipe; doesn't re-derive it. **Q14 lock applies: NO verification module** — the author runs the build; the skill doesn't.
+1. **Correctness — recipes over explanations.** Walks through the exact deps, the exact `shadow-cljs.edn` shape, the exact entry-namespace contract. The skill applies the recipe and verifies it: it runs `npm install` and a terminating `npx shadow-cljs compile app` itself, starts the watch, and reports the URL (L6). **Q14 lock still applies: NO verification module** — no `references/verify.md` leaf; the browser-mount confirmation stays the author's, and compile success is never presented as a mount claim.
 2. **Idiomaticness — verified against `examples/core/counter/` and the canonical artefacts.** The first-counter shape mirrors `examples/core/counter/core.cljs` trimmed for greenfield. Dep coords match what `day8/re-frame2` ships.
 3. **Context economy — `SKILL.md` is a router; four one-level-deep leaves carry the depth.** SKILL.md walks the six-step canonical path; leaves carry per-step depth.
 4. **Assume training knowledge.** The author knows `deps.edn`, `npm`, `shadow-cljs`, what a Reagent component is. The skill teaches only the **re-frame2-specific wiring** — which artefacts to add, the `rf/init!` contract, the order of operations between adapter install and React mount.
@@ -43,9 +43,9 @@ Unless the author explicitly says UIx, scaffold against Reagent — Reagent v2 i
 
 The skill stops at "the counter mounts". Anything after that — events, subs, machines, schemas, test-authoring — is the main `re-frame2` skill (which itself defers test-writing to the author per its own Q14 lock).
 
-### L6 — Q14 — NO verification module
+### L6 — Q14 — NO verification module; the skill still runs the build
 
-Consistent with the `re-frame2` skill: no `references/verify.md`, no "verify before claiming done" hard rule. The Done checklist in SKILL.md lists the conditions; the author confirms. The skill never asserts completion.
+No `references/verify.md` leaf. But the skill is the **executor** (re-locked 2026-08-31, rf2-rc0yh — the earlier "the author runs the build; the skill doesn't" posture is retired, not wrapped in compatibility wording): it writes the files, runs `npm install`, runs a terminating `npx shadow-cljs compile app`, starts the dev server, and reports the actual URL. What it never does is claim the browser mounted from compile success alone — the Done checklist in SKILL.md lists the mount conditions and the author confirms them in the open page.
 
 ### L7 — No bead-ids in user-facing skill content
 
@@ -61,7 +61,15 @@ The first-counter recipe imports `re-frame.core` as `rf` and `re-frame.adapter.r
 
 ### L10 — Clean hand-off on exit; cross-skill routing is single-sourced in `skills/README.md`
 
-SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-frame2-xray` for the panel, `re-frame2-pair` for live REPL) plus an "anything else → `re-frame2` / `SKILL-REDIRECT.md`" line. It carries **no** per-skill routing table — cross-skill routing is single-sourced in [`skills/README.md` §Skill routing](../../README.md#skill-routing--single-source) per the family convention. The author leaves this skill confidently for the next one rather than stretching it to cover authoring questions.
+SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-frame2-xray` for the panel, `re-frame2-pair` for live REPL) plus an "anything else → `re-frame2` / `SKILL-REDIRECT.md`" line. The hand-off leads with the facts: files written, the verification command that succeeded, the served URL (L6). It carries **no** per-skill routing table — cross-skill routing is single-sourced in [`skills/README.md` §Skill routing](../../README.md#skill-routing--single-source) per the family convention. The author leaves this skill confidently for the next one rather than stretching it to cover authoring questions.
+
+### L11 — Zero-interview default (one prompt, one served SPA)
+
+An unqualified greenfield request ("scaffold a re-frame2 app for me") takes **no clarification round**: Reagent substrate (L4), the generator template's pinned baseline as the version pin (`tools/template` `hooks.clj` — see `references/deps-versions.md` §Choosing the coordinate), the conventional `your-app` namespace / `:app` build id / dev port `8280`, and the smallest runnable counter. An author-supplied pin, an explicit "latest", or an explicit UIx request overrides the matching default; absence of any of them is never a reason to stop and ask. No wizard, no option matrix, no `:minimal?` flag, no compatibility aliases (rf2-rc0yh).
+
+### L12 — Both routes are the skill's to execute
+
+The manual scaffold is the default's exact-files path; the generator template is the one-command alternative the skill runs **itself** when the author asks for it (`clojure -Tnew create …` — the `allowed-tools` grant covers it; pre-publish via the `:local/root` invocation). The earlier user-run-only prohibition (the original drift-test Lock 12, retired by rf2-rc0yh) is no longer policy: nothing in the skill hands the author a command the skill could run.
 
 ## 4. Audience and scope
 
@@ -118,6 +126,8 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 - **Mixing versions across the ten artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts defensively** — L3 cardinal rule + `references/deps-versions.md`'s "pay-as-you-go" framing.
 - **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx is a documented recipe (single-sourced shared dataflow + a small substrate delta), not a branching interview.
+- **Interviewing the author when a reviewed default exists** — L11. A missing pin / substrate / tooling answer is a default, not a question; the only stops are the explicit-latest confirmation and a genuinely non-greenfield project.
+- **Handing the author a command the skill can run** — L12/L6. Install, the terminating compile, the watch, and (on request) the generator are the skill's to execute.
 - **Writing tests for the author** — L5 cardinal rule.
 - **Drifting into application-code authoring** — L5/L10; the exit hand-off routes past-setup work to `re-frame2`.
 
@@ -134,7 +144,7 @@ The skill's load-bearing snippets are compile-tested and drift-guarded in re-fra
 
 - **`setup-skill-scaffold-compiles-test`** (`tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj`) — materialises the fenced code blocks straight from the skill markdown (`references/first-counter.md` → `src/your_app/core.cljs`; `references/shadow-cljs.md` → `shadow-cljs.edn` + `index.html` + `css/app.css`), rewrites framework coords to `:local/root`, links `node_modules`, and runs `clojure -M:shadow compile app`. Behind the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate (runs in the `jvm-tools-template` CI job). It proves the snippets compile against in-repo coords — **not** that a published Clojars/git coordinate resolves from a fresh project (that buildability gate stays deferred to publication).
 - **`scripts/check_skill_setup_counter_drift.py`** — repo-level Python gate (`verify-skill-mcp-drift` CI job): counter-id vocabulary containment (first-counter.md ↔ entry-namespace.md ↔ template), the `:init-fn` hot-reload lifecycle wording, and Spec 006 adapter-key vocabulary.
-- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): locks the build-discipline framing, UIx template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload, the user-run-generator framing, the substrate-neutral namespace graph (the UIx `core.cljs` `:require`s the shared events/subs/schema from `shared-dataflow.md` and calls `register-schema!` under `with-frame` before `dispatch-sync`), the UIx-route Xray-free contract (no preload/host/coord/npm pair on the UIx path, premised on the template's `_uix/deps.edn` staying Xray-free), and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
+- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): locks the build-discipline framing, UIx template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload, the zero-interview pin default + executor posture (no stop-and-ask pin interview; the skill runs install/compile itself and reports the URL), the substrate-neutral namespace graph (the UIx `core.cljs` `:require`s the shared events/subs/schema from `shared-dataflow.md` and calls `register-schema!` under `with-frame` before `dispatch-sync`), the UIx-route Xray-free contract (no preload/host/coord/npm pair on the UIx path, premised on the template's `_uix/deps.edn` staying Xray-free), and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
 
 Both prose guards assert the skill teaches the right shapes; broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`).
 

@@ -210,7 +210,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
 - everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **What differs is the view layer and the Xray-free build wiring** — do not reach for the Reagent `reg-view` first-counter leaf (or its Xray-wired build shapes) on a UIx app; use the substrate views and the build wiring above (or take the complete generator route below).
 
-The fastest path for a non-Reagent greenfield is the **generator template**, which ships a complete `_uix/` variant. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
+The fastest path for a non-Reagent greenfield is the **generator template**, which ships a complete `_uix/` variant: `clojure -Tnew create … :substrate :uix`. The skill runs that command itself when the author asks for the generator route (the `allowed-tools` grant covers `-Tnew`); the manual scaffold above stays the default because it owns the exact files. Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 

@@ -31,7 +31,7 @@ The skill auto-triggers on greenfield-setup phrasings. To force-load:
 /skill re-frame2-setup
 ```
 
-The skill walks six steps in order: discover the current artefact VERSION, add deps to `deps.edn`, add npm deps to `package.json`, write `shadow-cljs.edn`, write `core.cljs` (the whole counter in one file), run and verify. The Reagent adapter is the default reference substrate; UIx is supported but only on explicit request. The skill stops at *"the counter mounts"* — writing tests, schemas, or further features is the next skill's job.
+The skill walks six steps in order: pin the artefact VERSION (defaulting to the generator template's pinned baseline — no question asked), add deps to `deps.edn`, add npm deps to `package.json`, write `shadow-cljs.edn`, write `core.cljs` (the whole counter in one file), then verify and serve — the skill itself runs `npm install` and a terminating `npx shadow-cljs compile app`, starts the watch, and reports the URL. An unqualified request takes no clarification round; the Reagent adapter is the default reference substrate, and UIx is supported only on explicit request. The skill stops at *"the counter mounts"* — the author confirms the mount in the open page, and writing tests, schemas, or further features is the next skill's job.
 
 ## Where the skill lives
 
