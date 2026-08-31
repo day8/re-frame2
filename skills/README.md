@@ -45,9 +45,11 @@ the situation they cover:
   `patterns/`, and `decision-trees/`.
 
 - [`re-frame2-setup/`](re-frame2-setup) — scaffold a fresh
-  re-frame2 ClojureScript project by hand. Walks the author from an empty
-  directory to a working `shadow-cljs watch` counter via the canonical
-  6-step path. Complementary to the generator template under
+  re-frame2 ClojureScript project. One unqualified prompt takes an empty
+  directory to a served `shadow-cljs watch` counter via the canonical
+  6-step path — zero-interview default (Reagent, the generator template's
+  pinned baseline), with the skill running the install and the terminating
+  compile itself and reporting the URL. Complementary to the generator template under
   [`tools/template/`](../tools/template): use the template when you want a
   one-shot scaffold. (Pre-split, the published `:template` coordinate can't
   resolve — [`tools/template/README.md`](../tools/template/README.md)
@@ -196,7 +198,7 @@ family rule — single source below:
 | `re-frame-migration` | migrate v1 code on an existing codebase | **split** — the skill runs the project's discovered noninteractive install / compile / test gates; the programmer owns the boot smoke when no drivable runtime is connected | compile + tests clean by the skill's own run, **and** the boot smoke-test clean — driven through a connected runtime, or run by the programmer from the skill's checklist and reported as pending until then | trust-the-explicit-invoker baseline — an explicit "migrate this repo" authorises the Type-A edits and the project's own gates; Type-B rewrites stay ask-first, batched into one checkpoint |
 | `reagent-migration` | migrate Reagent views to Hicasso on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Hicasso moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
-| `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
+| `re-frame2-setup` | scaffold greenfield | **split** — the skill writes the files, runs `npm install` + a terminating `npx shadow-cljs compile app`, starts the watch, and reports the URL; the programmer confirms the counter in the browser | the skill's own install + compile pass and the dev server is serving, **and** the author sees the counter advance 0→1 (compile success alone is not a mount claim) | one prompt produces one served SPA — zero-interview default (Reagent + the template-baseline pin); the browser confirmation stays the author's because the skill drives no runtime of its own |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | one complete severity-ordered critique in the requesting turn, findings cross-linked to canonical idioms | read-only by default; a direct "review and apply/fix" request authorises safe in-scope `Edit`s (redesigns stay proposals); runs no suite |
 | `re-frame2-xray` | question-first tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the human panel tour; agent runtime access — read or write — is `re-frame2-pair`'s |
 | `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; read-only — drafts an issue the user files | a complete one-turn retrospective, with an optional copy-pasteable issue draft (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
