@@ -29,7 +29,7 @@ allowed-tools:
 
 # re-frame2-pair-retro
 
-Turns a `re-frame2-pair` session — the one happening now (post-error), a just-finished one, or one summarised by the user as a recap — into a product retrospective for `re-frame2-pair`. One explicit request over one clear session returns the complete retrospective in that same response; when asked, the same response also carries one focused, copy-pasteable GitHub issue draft. The skill is read-only: it never files issues, never edits a repo, and never probes a runtime.
+Turns a `re-frame2-pair` session — the one happening now (post-error), a just-finished one, or one summarised by the user as a recap — into a product retrospective for `re-frame2-pair`. One explicit request over one clear session returns the complete retrospective in that same response; when asked, the same response also carries one focused, copy-pasteable GitHub issue draft. The skill is read-only and self-contained: it never files issues, never edits a repo, never probes a runtime, and every instruction it runs on ships under its own directory.
 
 ## Two entry modes
 
@@ -42,7 +42,15 @@ When you cannot tell which mode you are in, treat it as post-error: offer rather
 
 **Story recorder-session retros are out of scope.** A retro on a Story Test Codegen recording belongs in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:play-script` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
 
-Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers. A real `re-frame2-pair` session must have occurred or be recapped. When in doubt, ask: *"Was there a `re-frame2-pair` session you want me to retrospect on? If you can paste a short recap I can work from that."* Decline rather than fabricate evidence.
+The remaining routing decisions are local and short — each of these is someone else's job, not a retro subject:
+
+- **Mid-session pair work** stays in `re-frame2-pair`; this skill enters only on an explicit retro request or the post-error offer above.
+- **App-authoring without a live runtime** (writing events, subs, views, schemas) is application work for the `re-frame2` authoring skill.
+- **Framework / spec feedback** with no pair session behind it (API-reference reading, architecture or design discussion) is not this skill's input — it turns *session evidence* into framework feedback, never free-floating opinion.
+- **App-bug help** belongs to `re-frame2-pair` (live) or ordinary debugging; the retro's subject is workflow friction, never the application bug.
+- **Vocabulary-only matches** ("retro", "what went wrong", "any improvements?") never activate this skill on their own.
+
+A real `re-frame2-pair` session must have occurred or be recapped. When in doubt, ask: *"Was there a `re-frame2-pair` session you want me to retrospect on? If you can paste a short recap I can work from that."* Decline rather than fabricate evidence.
 
 ## Guard rails
 
