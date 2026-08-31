@@ -41,10 +41,11 @@
       the gate. NOTE that this makes the NEGATIVE controls (`(empty? (filterv
       …))`) vacuous there, which is why they sit inside the arm too rather than
       standing outside it looking load-bearing.
-    * `:source-coord`. The `->interceptor` MACRO's production branch omits the
-      `:source-coord` kwarg entirely (core.cljc §`->interceptor`), so the coord
-      is absent under the gate — and so is the fn-path's, which is what makes
-      the macro-vs-fn discriminator dev-only as a pair.
+    * `:source-coord`. The trace tag rides the dev-only trace surface, and
+      the REGISTRATION coord is production-elided too: under the gate
+      `source-coords/merge-coords` strips the coords from the public registry
+      meta (rf2-3un2g), so the resolver has nothing to stamp on the built
+      value (rf2-tq26u) — the coord discriminators are dev-only as a pair.
 
   The rf2-mszrz ATTRIBUTION contract (`:failing-id` = the true failing
   component) is production-real on the always-on error-emit axis, which lifts
@@ -58,6 +59,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.interop :as interop]
             [re-frame.std-interceptors :as std-interceptors]
             [re-frame.trace :as trace]
@@ -960,12 +962,16 @@
           (is (= probe-coord (get-in (first ix) [:tags :source-coord]))
               "the trace carries the interceptor's :source-coord tag")))))
 
-  (testing "a throwing ->interceptor*-built interceptor threads NO
+  (testing "a throwing interceptor with NO captured coord threads NO
             :source-coord tag (degrades to plain text in the panel)"
-    ;; The fn-built (`->interceptor*`) value carries NO :source-coord;
-    ;; register it verbatim + reference it so the "no coord" intent rides
-    ;; through resolution.
-    (rf/reg-interceptor :siheh/fn-before-icpt
+    ;; The fn-built (`->interceptor*`) value carries NO :source-coord, and
+    ;; registering it via the PROGRAMMATIC `reg-interceptor*` fn (no macro,
+    ;; no `*pending-coords*`) captures no registration coord either — so
+    ;; nothing rides through resolution onto the trace. (A `reg-interceptor`
+    ;; MACRO registration now stamps its registration-site coord onto the
+    ;; resolved value — rf2-tq26u — so the no-coord degradation is pinned on
+    ;; the programmatic path, the one Xray spec 021 documents as plain-text.)
+    (icpt-reg/reg-interceptor* :siheh/fn-before-icpt
                          (interceptor/->interceptor*
                            :id     :siheh/fn-before-icpt
                            :before (fn [_] (throw (ex-info "fn before blew up" {})))))

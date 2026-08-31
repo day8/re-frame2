@@ -20,6 +20,7 @@
             [re-frame.core :as rf]
             [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -313,3 +314,108 @@
       (is (nil? (registrar/lookup :event :rint/run)))
       (is (some? (get-in @realm-reg [:event :rint/run]))
           "the event + interceptor are seated in the realm registrar"))))
+
+;; ---------------------------------------------------------------------------
+;; 5. registration coords ride resolution onto the exception trace (rf2-tq26u)
+;; ---------------------------------------------------------------------------
+;;
+;; The `reg-interceptor` MACRO (the ONE supported authoring form, EP-0022)
+;; captures its call-site coords into the REGISTRY meta (`reg-interceptor*` →
+;; `source-coords/merge-coords`), and the resolver threads them onto the BUILT
+;; interceptor value as `:source-coord` — so a throwing descriptor-authored
+;; interceptor's error-record → `:rf.error/interceptor-exception` trace
+;; carries the coord tag the Xray Epoch INTERCEPTOR row's jump-to-source chip
+;; reads (Xray spec 021 §INTERCEPTOR step). Before rf2-tq26u the coords
+;; stopped at the registry meta — the built value carried none, so the chip
+;; degraded to plain text for the supported authoring form and only a
+;; migration-boundary VALUE carrying its own `:source-coord` got the chip.
+;;
+;; Posture split (rf2-d2841): the trace stream is dev-only, and the PUBLIC
+;; registry coords are production-elided (`merge-coords`, rf2-3un2g) — so the
+;; coord assertions sit inside `(when interop/debug-enabled? …)` arms. The
+;; no-coord degradations (programmatic registration, framework standard) hold
+;; in both postures and stand outside the gate.
+
+(defn- capture-error-traces
+  "Dispatch `event` and return the vector of emitted `:op-type :error` trace
+  events (failure rides the trace stream per the runtime's no-abort contract;
+  `dispatch-sync` settles normally)."
+  [event]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::tq26u
+                           (fn [ev] (when (= :error (:op-type ev))
+                                      (swap! traces conj ev))))
+    (rf/dispatch-sync event)
+    (rf/unregister-listener! :trace ::tq26u)
+    @traces))
+
+(defn- registered-coord
+  "The `{:ns :file :line :column}` coord the `reg-interceptor` macro captured
+  into `id`'s registry meta — the shape the resolver stamps as `:source-coord`."
+  [id]
+  (select-keys (rf/handler-meta :interceptor id) [:ns :file :line :column]))
+
+(deftest descriptor-authored-coord-rides-the-exception-trace
+  (testing "a throwing reg-interceptor DESCRIPTOR-authored interceptor threads its
+            registration coord onto the :rf.error/interceptor-exception trace"
+    (rf/reg-interceptor :tq26u/boom
+      {:before (fn [_] (throw (ex-info "descriptor before blew up" {})))})
+    (rf/reg-event :tq26u/run
+      {:interceptors [:tq26u/boom]}
+      (fn [{:keys [db]} _] {:db db}))
+    (let [errs (capture-error-traces [:tq26u/run])]
+      ;; Dev-instrumentation arm — see the section comment. The registry-meta
+      ;; sanity check sits inside too: production strips the public coords.
+      (when interop/debug-enabled?
+        (let [coord (registered-coord :tq26u/boom)
+              ix    (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
+          (is (int? (:line coord))
+              "the reg-interceptor macro captured the registration line into the registry meta")
+          (is (= 1 (count ix)) "exactly one interceptor-exception")
+          (is (= coord (get-in (first ix) [:tags :source-coord]))
+              "the trace's :source-coord tag is the registration-site coord — the slot the Xray chip reads"))))))
+
+(deftest factory-authored-coord-rides-the-built-value
+  (testing "an [id arg] factory ref resolves to a value carrying the factory's
+            registration coord as :source-coord"
+    (rf/reg-interceptor :tq26u/fac
+      {:factory (fn [tag] {:before (fn [ctx] (assoc ctx :tag tag))})})
+    (when interop/debug-enabled?
+      (let [resolved (icpt-reg/resolve-ref [:tq26u/fac :x])]
+        (is (= :tq26u/fac (:id resolved)))
+        (is (= (registered-coord :tq26u/fac) (:source-coord resolved))
+            "the factory registration's coord rides the built value"))))
+
+  (testing "the framework :rf.interceptor/path factory stays coord-free
+            (programmatic registration — no captured coord, nothing to jump to)"
+    (let [resolved (icpt-reg/resolve-ref [:rf.interceptor/path [:cart]])]
+      (is (= :rf.interceptor/path (:id resolved)))
+      (is (nil? (:source-coord resolved))
+          "framework standards register via the reg-interceptor* fn — no coord is stamped"))))
+
+(deftest programmatic-registration-resolves-coord-free
+  (testing "an interceptor registered via the plain reg-interceptor* FN resolves
+            with no :source-coord (the plain-text degradation Xray spec 021 documents)"
+    (icpt-reg/reg-interceptor* :tq26u/plain {:before identity})
+    (let [resolved (icpt-reg/resolve-ref :tq26u/plain)]
+      (is (= :tq26u/plain (:id resolved)))
+      (is (nil? (:source-coord resolved))
+          "no macro path, no coords in the registry meta, nothing stamped"))))
+
+(deftest migration-value-coord-precedence
+  (let [own-coord {:ns 'tq26u.own :file "tq26u/own.cljc" :line 7 :column 3}]
+    (testing "a migration-boundary VALUE carrying its own :source-coord keeps it
+              over the registration coord (the authoring site is more specific)"
+      (rf/reg-interceptor :tq26u/own-coord
+        (interceptor/->interceptor* :id :tq26u/own-coord :before identity
+                                    :source-coord own-coord))
+      (is (= own-coord (:source-coord (icpt-reg/resolve-ref :tq26u/own-coord)))
+          "the value's own coord wins"))
+    (testing "a migration-boundary VALUE without its own coord falls back to the
+              registration coord (the best available jump target)"
+      (rf/reg-interceptor :tq26u/no-coord
+        (interceptor/->interceptor* :id :tq26u/no-coord :before identity))
+      (when interop/debug-enabled?
+        (is (= (registered-coord :tq26u/no-coord)
+               (:source-coord (icpt-reg/resolve-ref :tq26u/no-coord)))
+            "the registration site rides as the fallback")))))
