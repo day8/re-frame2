@@ -7,6 +7,17 @@
   The header reads:
 
       <machine-id> · <source-coord ↗> · <N> states · <M> live (→ Dynamic)
+        · [Copy Mermaid]
+
+  The trailing Copy Mermaid button (rf2-sxw06) is the one-gesture
+  \"registered topology → fenced ```mermaid block on the clipboard\"
+  action. It renders only when the selected definition passes
+  `grammar/valid-definition?` (no valid definition ⇒ no actionable
+  control), dispatches `:rf.xray.static.machines/copy-mermaid` with the
+  definition the host already holds, and surfaces the settled outcome
+  as one inline `role=\"status\"` span beside the button — cleared on
+  selection change, never a toast, and a failed/unavailable clipboard
+  write is never reported as copied.
 
   ## 4-mode sub-strip
 
@@ -34,6 +45,7 @@
   empty-state hint; the right pane mounts a matching empty surface
   to keep the visual balance."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-machines-viz.grammar :as grammar]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.machines.cascade-dimmed
              :as cascade-dimmed]
@@ -48,10 +60,63 @@
 
 ;; ---- header -------------------------------------------------------------
 
+(defn- copy-mermaid-button
+  "The Copy Mermaid action + its inline feedback span (rf2-sxw06).
+
+  Renders nothing unless `definition` passes the shared
+  `grammar/valid-definition?` gate (nil-safe; desugars internally), whose
+  truth is exactly the condition under which `mermaid/emit` cannot
+  throw — so a rendered button is always an actionable one. The click
+  passes the definition the host view already holds; the copy itself and
+  the outcome bookkeeping live in the `:rf.xray.static.machines/copy-
+  mermaid` event (panel.cljs).
+
+  `copy-status` is the settled outcome for THIS machine (`:copied` /
+  `:failed`, nil otherwise) from the `copy-mermaid-status` sub. The span
+  is `role=status` + `aria-live=polite` so the outcome is announced
+  without stealing focus — non-modal by design."
+  [dispatch {:keys [machine-id definition copy-status]}]
+  (when (grammar/valid-definition? definition)
+    [:<>
+     [:button
+      {:data-testid "rf-xray-static-machines-copy-mermaid"
+       :type        "button"
+       :aria-label  "Copy Mermaid diagram to clipboard"
+       :title       (str "Copy this machine's topology as a fenced Mermaid "
+                         "stateDiagram-v2 markdown block")
+       :on-click    (fn [_]
+                      (dispatch [:rf.xray.static.machines/copy-mermaid
+                                 machine-id definition]))
+       :style {:background    "transparent"
+               :border        (str "1px solid " (:border-default tokens))
+               :border-radius "10px"
+               :color         (:text-secondary tokens)
+               :cursor        "pointer"
+               :font-family   sans-stack
+               :font-size     (:caption type-scale)
+               :padding       "3px 12px"
+               :white-space   "nowrap"}}
+      "Copy Mermaid"]
+     (when (some? copy-status)
+       [:span
+        {:data-testid "rf-xray-static-machines-copy-mermaid-status"
+         :role        "status"
+         :aria-live   "polite"
+         :style {:font-family mono-stack
+                 :font-size   (:caption type-scale)
+                 :white-space "nowrap"
+                 :color       (if (= :copied copy-status)
+                                (:success tokens)
+                                (:error tokens))}}
+        (if (= :copied copy-status) "Copied" "Copy failed")])]))
+
 (defn- header
   "Render the definition-detail header. Sticks at the top of the right
-  pane."
-  [{:keys [machine-id source-coord state-count live-count]}]
+  pane. `dispatch` is the frame-aware dispatcher threaded from the
+  `detail` reg-view (same convention as `sub-strip`) — the Copy Mermaid
+  button dispatches through it."
+  [dispatch {:keys [machine-id source-coord state-count live-count
+                    definition copy-status]}]
   [:header {:data-testid "rf-xray-static-machines-detail-header"
             :data-machine-id (str machine-id)
             :style {:display       "flex"
@@ -96,7 +161,10 @@
                             (:accent tokens)
                             (:text-tertiary tokens))
                    :margin-left "auto"}}
-    (str (or live-count 0) " live")]])
+    (str (or live-count 0) " live")]
+   [copy-mermaid-button dispatch {:machine-id  machine-id
+                                  :definition  definition
+                                  :copy-status copy-status}]])
 
 ;; ---- sub-strip ----------------------------------------------------------
 
@@ -242,6 +310,12 @@
         ;; `:sim` sub-mode so the Topology/Instances/Cascade modes don't
         ;; subscribe to sim state. The subs short-circuit to nil when sim
         ;; isn't active for the selected machine, so this is cheap.
+        ;; Copy-Mermaid settled outcome for the selected machine
+        ;; (rf2-sxw06) — nil unless a copy gesture on THIS machine has
+        ;; settled; cleared by `:rf.xray.static.machines/select`.
+        copy-status @(rf/subscribe
+                       [:rf.xray.static.machines/copy-mermaid-status
+                        selected-id])
         sim-values (when (= sub-mode :sim)
                      {:sim         @(rf/subscribe
                                       [:rf.xray.static.machines/sim-state])
@@ -265,10 +339,12 @@
                        :height         "100%"
                        :background     (:bg-2 tokens)
                        :color          (:text-primary tokens)}}
-         [header {:machine-id machine-id
-                  :source-coord source-coord
-                  :state-count state-count
-                  :live-count live-count}]
+         [header dispatch {:machine-id   machine-id
+                           :source-coord source-coord
+                           :state-count  state-count
+                           :live-count   live-count
+                           :definition   definition
+                           :copy-status  copy-status}]
          [sub-strip dispatch {:machine-id machine-id
                               :sub-mode   sub-mode
                               :live-count live-count}]

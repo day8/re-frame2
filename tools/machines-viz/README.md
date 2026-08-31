@@ -43,7 +43,12 @@ Surfaces that ship today:
   structurally — no session data crosses a share link.
 - Mermaid `stateDiagram-v2` emitter — a pure `definition → string`
   function kept in this tool jar so the runtime machines artefact stays
-  focused on execution.
+  focused on execution. The normal end-user workflow for it is Xray's
+  **Static → Machines → Copy Mermaid** header button (rf2-sxw06): one
+  click copies the selected registered machine's fenced ```` ```mermaid ````
+  block for paste into a README, a PR description, Notion, or an
+  AI-pair chat. The library API below is for hosts building their own
+  surface.
 - SCXML import / export — pure-data round-trip over the
   supported W3C SCXML subset.
 - AI-generate-a-machine — a pluggable LLM-resolver seam; the
