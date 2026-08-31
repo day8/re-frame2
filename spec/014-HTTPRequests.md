@@ -542,6 +542,7 @@ There is **one** reply shape. Every managed-HTTP completion delivers the framewo
 {:status       :ok            ;; one of :ok | :error | :cancelled | :stale (:stale is a suppression outcome — never delivered to an app target; see §Actor-destroyed suppression)
  :value        <decoded-and-accepted-payload>   ;; on :ok
  :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled — the classified failure map, verbatim
+ :meta         {:status 200 :status-text "OK" :headers {…}} ;; on a live-transport :ok — the successful response's wire facts (§Successful-response metadata)
  :rf.reply/work-id      [:rf.work/http logical-id issuance attempt] ;; the attempt identity
  :rf.reply/work-kind    :http
  :rf.reply/work-status  :completed | :failed | :timed-out | :cancelled
@@ -569,6 +570,31 @@ Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#statu
 - an **abort** → `:status :cancelled` with `:cancelled? true`, `:rf.reply/cancel-reason`, and the `:rf.http/aborted` shape under `:error`.
 
 **The priced wrinkle — `:status` at two levels on HTTP 4xx/5xx.** The reply's top-level `:status :error` and the `:error` map's own `:status` (the HTTP status code, e.g. `503`) are distinct facts at two levels — the reply-envelope status vs the wire status. This mirrors the pre-existing `:kind`-at-two-levels shape (the reply status vs the failure category `:kind`) and is accepted as the cost of one uniform envelope.
+
+#### Successful-response metadata — `:meta`
+
+A **successful live-transport completion** carries the response's wire facts on the envelope's `:meta` family-extension slot ([Managed-Effects §The reply map](Managed-Effects.md#the-reply-map): `:meta` is effect-family data):
+
+```clojure
+:meta {:status      200                     ;; the actual numeric wire status
+       :status-text "OK"                    ;; the transport's status text ("" on the JVM — HttpClient exposes no reason phrase)
+       :headers     {"content-type"          "application/json"
+                     "x-ratelimit-remaining" "37"
+                     "set-cookie"            ["a=1; Path=/" "b=2; Path=/"]}}
+```
+
+`:headers` is the transport's **already-normalized** response-header map — lower-cased names; `string → string`, or `string → vector of strings` for a multi-valued header — the **same** cross-host shape the [failure categories](#failure-categories-closed-set) carry (`:rf.http/http-4xx` / `:rf.http/http-5xx` `:headers`). There is one header representation, end to end; the reply boundary never reshapes it. `:value` remains the decoded-and-`:accept`-projected payload — metadata never displaces it. Both the [`:after` chain](#middleware) and the app reply target see the identical `:meta` (the reply threads verbatim), so response-header concerns — rate-limit parsing, `Cache-Control` inspection, an `ETag`/`Location` read — are ordinary map reads:
+
+```clojure
+;; e.g. inside an :after, or in the :on-success handler:
+(some-> (get-in reply [:meta :headers "x-ratelimit-remaining"]) parse-long)
+```
+
+Boundaries of the slot:
+
+- **Success only.** Failure and cancellation replies carry no `:meta` — their wire facts (`:status`, `:status-text`, `:headers`, raw `:body`) already ride the classified `:error` map, exactly as before.
+- **Live transports thread it; stubs may.** The [canned success / route-map stubs](#testing) accept the same shape as **optional** data; when a stub supplies none, `:meta` is **omitted**, never fabricated (Managed-Effects: omit optional fields when absent).
+- **Privacy.** The reply **delivered to the app** carries `:meta` raw — it is on-box app data, the caller's own response. On the trace surface (`:rf.http/replied`), header values whose names are in the merged denylist (the immutable built-in defaults ∪ the app-declared [`:carriers {:headers […]}`](#http-carriers-ep-0025) extension) are redacted to `:rf/redacted` before egress, matching the failure-map `:headers` posture ([§Privacy](#privacy)); ordinary headers stay useful on-box. `:meta` is a core **wire-bearing slot**, so a per-call `:sensitive?` request force-redacts it wholesale on the trace via the shared canonical-reply elider, exactly like `:value`.
 
 The HTTP `:request-id` is **correlation metadata** under `:correlation` — it is **not** a second stale-suppression key ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation); [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one `:work/id`). The single `:work/id` head is `[:rf.work/http logical-id issuance attempt]` (the `logical-id` is the caller's `:request-id` when supplied, else the originating event-id; `issuance` is the monotonic per-`request-id` re-issuance counter so a superseded request and the request that supersedes it carry **distinct** work ids even though both reset their retry `attempt` to 1; `attempt` discriminates transport retries within one issuance — retries of the same logical request are distinct work ids). The frame-qualified transport request-id `[:rf.req frame-id work-id]` (landed in [Spec 016](016-Resources.md#ledger-row-retention-and-identity)) is the sanctioned second identity for process-global transport correlation; intra-frame stale suppression still keys on `:work/id`.
 
@@ -802,15 +828,15 @@ Each `:after` receives `(fn [ctx response] response')`:
 | Slot | Type | Notes |
 |---|---|---|
 | `ctx` | map | The SAME ctx the `:before` chain produced for THIS request — `{:request :args :frame :event}` plus any keys `:before`s added. Carrying the request ctx forward is what makes request-correlated handling expressible: a `:before` that stamps `::started-at (System/nanoTime)` lets the same interceptor's `:after` read the start mark and compute a wall-clock delta without app-level state. Likewise per-request header parsing, correlation-id matching, and auth-refresh keyed off the originating event become single-interceptor concerns. |
-| `response` | map | The canonical reply envelope — `{:status :ok :value <decoded> …}`, `{:status :error :error <failure-map> …}`, or `{:status :cancelled :error <aborted-map> …}`. The shape matches the reply-payload `build-reply-event` appends to the user's `:on-success` / `:on-failure` event vector. |
+| `response` | map | The canonical reply envelope — `{:status :ok :value <decoded> :meta {…} …}`, `{:status :error :error <failure-map> …}`, or `{:status :cancelled :error <aborted-map> …}`. The shape matches the reply-payload `build-reply-event` appends to the user's `:on-success` / `:on-failure` event vector. On a successful live-transport completion `:meta` carries the actual response status / status text / normalized headers ([§Successful-response metadata](#successful-response-metadata--meta)), so a response-side transform reads real wire facts, not just the decoded `:value`. |
 
 Returns the (possibly-transformed) response map. The runtime threads each `:after`'s return value through the next `:after`, then substitutes the final response into the reply-payload before `:on-success` / `:on-failure` fire.
 
 #### Motivating use cases
 
-1. **Rate-limit header parsing.** Inspect `X-RateLimit-Remaining` once on the response, attach a structured `:rate-limit` slot to the reply; downstream handlers consume the structured form without re-parsing per-call.
+1. **Rate-limit header parsing.** Read `(get-in response [:meta :headers "x-ratelimit-remaining"])` once on the response ([§Successful-response metadata](#successful-response-metadata--meta)), attach a structured `:rate-limit` slot to the reply; downstream handlers consume the structured form without re-parsing per-call.
 2. **Response-time telemetry.** `:before` stamps a wall-clock mark on ctx; `:after` reads it and computes the elapsed delta. The ctx-carried-from-before contract is what makes this expressible in a single interceptor.
-3. **Cache-Control inspection.** Parse `Cache-Control` directives once; attach a structured `:cache` slot; downstream handlers consume `:max-age` / `:public?` / etc. without re-parsing the header.
+3. **Cache-Control inspection.** Parse the `(get-in response [:meta :headers "cache-control"])` directives once; attach a structured `:cache` slot; downstream handlers consume `:max-age` / `:public?` / etc. without re-parsing the header.
 4. **401 auth-token refresh.** Inspect the failure shape on a `:status :error` response whose `:error` is `:rf.http/http-4xx` with `(:status (:error response))` == 401; tag the reply with `:auth-refresh-required true` so a downstream handler can mint a refresh dispatch without every call site reimplementing the check.
 
 ### Chain order and frame scope
@@ -1091,10 +1117,10 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 
 | Stub fx-id | Behaviour |
 |---|---|
-| `:rf.http/managed-canned-success` | Synthesises a success reply. Args take `:value` (the payload under the canonical envelope's `:value`); defaults to a literal `{:stubbed true}`. Honours the same reply-addressing keys as the live fx (`:reply-to` / `:on-success`). |
+| `:rf.http/managed-canned-success` | Synthesises a success reply. Args take `:value` (the payload under the canonical envelope's `:value`); defaults to a literal `{:stubbed true}`. Optional `:meta` rides the reply's `:meta` slot verbatim (the [§Successful-response metadata](#successful-response-metadata--meta) shape — `{:status <int> :status-text <string> :headers <normalized map>}`), so header-dependent `:after` / handler code is testable without a network; absent means absent. Honours the same reply-addressing keys as the live fx (`:reply-to` / `:on-success`). |
 | `:rf.http/managed-canned-failure` | Synthesises a failure reply. Args take `:kind` (one of `:rf.http/*`; default `:rf.http/transport`) and `:tags` (the kind-specific tags map; defaults documented per row of [§Failure categories](#failure-categories-closed-set)). |
 
-The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). A stub has no real request lifecycle, so it omits the transport's identity facts (`:rf.reply/work-id`, `:attempt`, `:rf.reply/work-status`, `:completed-at`); those are exercised against the real transport. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
+The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). A stub has no real request lifecycle, so it omits the transport's identity facts (`:rf.reply/work-id`, `:attempt`, `:rf.reply/work-status`, `:completed-at`); those are exercised against the real transport. A success stub **may** opt into response metadata by supplying `:meta` (per the table above; the route-map form is `{:reply {:ok v :meta {…}}}`) — when omitted, no metadata is fabricated. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
 #### `:after-ms` — deferring a canned reply
 
@@ -1291,7 +1317,7 @@ The composers that orchestrate per-emit redaction + stamping — `request-sensit
 
 ### 1. Header denylist (always-on)
 
-A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot. Header-name matching is **case-insensitive**.
+A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot — the failure-map `:headers` on error events **and** the successful reply's `[:meta :headers]` on the `:rf.http/replied` completion row ([§Successful-response metadata](#successful-response-metadata--meta); the reply *delivered to the app* stays raw — redaction is a trace-egress concern). Header-name matching is **case-insensitive**.
 
 The v1 closed denylist:
 

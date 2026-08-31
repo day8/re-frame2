@@ -106,7 +106,7 @@ Every reply is the one **canonical reply envelope** — a plain map with a close
 
 | `:status` | Shape | Notes |
 |---|---|---|
-| `:ok` | `{:status :ok :value value …}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. |
+| `:ok` | `{:status :ok :value value :meta {…} …}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. `:meta` carries the response's wire facts — `{:status 200 :status-text "OK" :headers {…}}`, with headers under lower-cased names — so a handler (or [`:after` interceptor](http-going-further.md#interceptors-stamp-every-request-once)) can read a rate-limit or `Cache-Control` header without any extra plumbing. |
 | `:error` | `{:status :error :error failure-map …}` | `failure-map` is one of the [category maps below](#failures-are-a-closed-set). Branch on `(-> reply :error :kind)`. |
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancel/reason` alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |

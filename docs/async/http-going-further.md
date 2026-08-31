@@ -35,9 +35,20 @@ transforms the request on the way out; `:after` transforms the reply on the way 
 The two phases:
 
 - The `:before` fn receives a ctx of `{:request :args :frame :event}` and returns a ctx whose `:request` is the modified envelope. (Above, `cond-> ctx` adds the header only when a token is present, leaving the ctx untouched otherwise.) It reads app state through `rf/app-db-value` — an accessor that hands you the frame's current [app-db](../core/glossary.md#app-db) value, never a live subscription.
-- The `:after` fn is `(fn [ctx response] response')`. It sees the *same* ctx its `:before` produced — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries.
+- The `:after` fn is `(fn [ctx response] response')`. It sees the *same* ctx its `:before` produced — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries. On success the response also carries the wire facts under `:meta` — the actual status, status text, and the response headers as a plain map with lower-cased names — so header-driven concerns need no side channel.
 
-That ctx-carried-forward shape is what makes per-request concerns — response-time telemetry, rate-limit header parsing, flagging a 401 for an auth refresh — single-interceptor jobs.
+That ctx-carried-forward shape, plus the `:meta` wire facts, is what makes per-request concerns — response-time telemetry, rate-limit header parsing, flagging a 401 for an auth refresh — single-interceptor jobs. Here is rate-limit parsing as a working registration — one parse per response, and every `:on-success` handler downstream reads the structured slot instead of a header string:
+
+```clojure
+(rf/reg-http-interceptor
+  :app/rate-limit
+  {:doc   "Parse X-RateLimit-* once; downstream handlers read :rate-limit."
+   :after (fn [_ctx response]
+            (let [remaining (some-> (get-in response [:meta :headers "x-ratelimit-remaining"])
+                                    parse-long)]
+              (cond-> response
+                remaining (assoc :rate-limit {:remaining remaining}))))})
+```
 
 The rules that matter:
 
