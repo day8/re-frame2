@@ -91,6 +91,10 @@ const TESTS = [
     argv: ['test/end-to-end-story.cjs'],
   },
   {
+    name: 'story-mcp project-stories golden path (consumer launch alias)',
+    argv: ['test/end-to-end-project-stories.cjs'],
+  },
+  {
     name: 'CLI flag-vocabulary conformance (story-mcp --allow-writes default-OFF + rename rejection)',
     argv: ['test/end-to-end-flag-gates.cjs'],
   },

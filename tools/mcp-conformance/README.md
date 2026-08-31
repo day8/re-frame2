@@ -32,6 +32,16 @@ checks the catalogue and descriptors, then drives the closed-world reads
 and the complete register, inspect, preview, run, record, and unregister
 workflow.
 
+`test/end-to-end-project-stories.cjs` starts story-mcp through a
+consumer project's own launch alias (`clojure -M:story-mcp` from the
+fixture project in `test/fixtures/project-stories/`), whose
+`:main-opts` require the project's pre-authored Hicasso-substrate
+`.cljc` story namespace before the server takes the stdio loop. With no
+write surface open, it proves the first connect discovers, reads, and
+runs the project's story, and that a launch requiring a missing
+namespace exits non-zero on the ordinary `require` failure instead of
+booting over an empty registry.
+
 `test/end-to-end-flag-gates.cjs` owns the cross-server launch-flag
 contract that can be exercised without a browser runtime. In particular,
 it checks story-mcp's default-closed `--allow-writes` surface, opt-in
