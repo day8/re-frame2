@@ -159,7 +159,7 @@ runWithWatchdog(
       throw new Error('get-story on the fixture story failed: ' + JSON.stringify(storyResp));
     }
     const storyText = storyResp.content?.[0]?.text || '';
-    if (!/pre-authored project\s+story/.test(storyText)) {
+    if (!/pre-authored project story/.test(storyText)) {
       throw new Error(
         'get-story text payload missing the pre-authored :doc; got: ' + storyText.slice(0, 300),
       );

@@ -19,15 +19,12 @@
   (:require [re-frame.story :as story]))
 
 (story/reg-story :story.fixture-app
-  {:doc        "The fixture app's article card — the pre-authored project
-               story the golden-path launch must expose on first connect."
+  {:doc        "The fixture app's article card — the pre-authored project story the golden-path launch must expose on first connect."
    :component  :fixture-app.views/article-card
    :substrates #{:hicasso}
    :tags       #{:dev}})
 
 (story/reg-variant :story.fixture-app/default
-  {:doc  "Default article card. No :setup and no :script, so the variant
-         is vacuously runnable on the headless JVM host; :component and
-         :substrates fold down from the parent story."
+  {:doc  "Default article card. No :setup and no :script, so the variant is vacuously runnable on the headless JVM host; :component and :substrates fold down from the parent story."
    :args {:title "Hello from the fixture project"}
    :tags #{:dev}})
