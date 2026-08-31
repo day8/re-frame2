@@ -2,14 +2,13 @@
 ;;;;
 ;;;; This namespace holds the pure, side-effect-free helpers `runtime.cljs`
 ;;;; delegates to: cascade / consequence projections, the multi-frame
-;;;; operating-frame resolver, the id-validation core, the streaming
-;;;; subscription queue transforms (routing / eviction / drain), the epoch
+;;;; operating-frame resolver, the id-validation core, the epoch
 ;;;; timing + matcher, the snapshot-scope resolver, and the orient assembler.
 ;;;;
 ;;;; WHY IT EXISTS. `runtime.cljs` is the SHIPPED preload; it reads live
 ;;;; framework surfaces (`rf/frame-ids`, `rf/epoch-history`, …) and mutates
 ;;;; session atoms (the operating-frame pin, the app-db-hash cache, the
-;;;; streaming-subs registry). None of that runs deterministically off-box.
+;;;; recorder registry). None of that runs deterministically off-box.
 ;;;; The DECISION logic underneath, however, is pure data → data. Extracting
 ;;;; it here lets the tests exercise the EXACT code the runtime ships (the
 ;;;; runtime `:require`s this ns and calls these fns) under a `:node-test`
@@ -18,27 +17,18 @@
 ;;;;
 ;;;; PURITY CONTRACT. Every fn here is a pure function of its arguments — no
 ;;;; atom reads, no clock, no DOM, no randomness. Where the runtime consults a
-;;;; session gate (the raw-state posture, the privacy posture, the operating
+;;;; session gate (the raw-state posture, the operating
 ;;;; frame), the gate is threaded in as an ARGUMENT (`allow-raw-state?`,
-;;;; `include-sensitive?`, `selected`, the live `frame-ids`) so the caller in
+;;;; `selected`, the live `frame-ids`) so the caller in
 ;;;; `runtime.cljs` supplies the live value and the tests supply a fixture
-;;;; value. The one framework dependency is `re-frame.trace/trace-event-frame`
-;;;; — the CANONICAL raw-trace-event frame reader (Spec 009 §Core fields; the
-;;;; contract owner mandates tools read frame identity through it rather than
-;;;; hardcoding `[:tags :frame]`). It is a pure reader with no session state.
+;;;; value.
 ;;;;
 ;;;; `.cljc` so the pure core is source-portable; the shipped preload and the
 ;;;; node-test build both compile it for CLJS.
 
 (ns re-frame2-pair.pure
   (:require [clojure.set :as set]
-            [clojure.string :as str]
-            ;; The single canonical raw-trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`, Spec 009). A pure reader —
-            ;; no session state — so it does not break the purity contract.
-            ;; `trace-matches?` routes its frame axis through it rather than
-            ;; hardcoding `[:tags :frame]`, per the contract owner's mandate.
-            [re-frame.trace :as trace]))
+            [clojure.string :as str]))
 
 ;; ===========================================================================
 ;; Operating-frame resolution (multi-frame)
@@ -150,262 +140,6 @@
                            (str/join ", " (map pr-str near)) "?")
                       (str "unknown " kind " " (pr-str id)
                            "; nothing is registered under " kind "."))})))
-
-;; ===========================================================================
-;; Streaming subscriptions — routing, budget/eviction, drain
-;; ===========================================================================
-
-(def default-max-buffered-events 500)
-
-(def default-max-buffered-bytes
-  ;; ~5 MB of TRUE UTF-8 bytes — sized to the MCP egress wire-cap posture
-  ;; scaled by the per-tick batching ratio. See runtime.cljs §Streaming
-  ;; subscriptions for the sizing. The value is UNCHANGED by rf2-2rtt6.135:
-  ;; 5 MB was always the chosen BYTE budget, and only the ruler underneath it
-  ;; (`event-byte-size`) was wrong.
-  5000000)
-
-(defn streaming-drop?
-  "True when the streaming surface should drop `ev` for privacy reasons given
-   the resolved `include-sensitive?` posture. Pure — the caller supplies the
-   live privacy-config value."
-  [include-sensitive? ev]
-  (and (true? (:sensitive? ev))
-       (not (true? include-sensitive?))))
-
-(defn topic->base-filter
-  "Map a topic keyword to its base trace-filter constraints. `:fx` / `:error`
-   are sugar over `:op-type`; other topics add no base constraint."
-  [topic]
-  (case topic
-    :fx    {:op-type :rf.fx}
-    :error {:op-type :error}
-    {}))
-
-(defn frameless-event?
-  "True when `ev` carries no `:rf.trace/dispatch-id` tag (a registration /
-   REPL / lifecycle emit outside any cascade run)."
-  [ev]
-  (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
-
-(defn compose-trace-filter
-  "Compose the topic's base trace-filter with the user-supplied filter. User
-   keys win on conflict — the topic is a default, not a lock."
-  [topic user-filter]
-  (merge (topic->base-filter topic) (or user-filter {})))
-
-(defn trace-matches?
-  "Test a raw trace event against a filter map. Composes AND-wise; an absent
-   filter key means no constraint on that axis. The frame axis reads through
-   the canonical `re-frame.trace/trace-event-frame` reader (a raw trace event
-   carries frame identity ONLY under `[:tags :frame]`)."
-  [filter-map ev]
-  (let [{:keys [operation op-type frame severity
-                event-id handler-id source origin
-                dispatch-id since-ms between]}
-        filter-map
-        [t0 t1] (when (and (sequential? between) (= 2 (count between)))
-                  between)]
-    (boolean
-      (and (or (nil? operation)  (= operation (:operation ev)))
-           (or (nil? op-type)    (= op-type   (:op-type ev)))
-           (or (nil? severity)   (= severity  (:op-type ev)))
-           (or (nil? frame)      (= frame (trace/trace-event-frame ev)))
-           (or (nil? event-id)   (= event-id
-                                    (get-in ev [:tags :rf.trace/event-id])))
-           (or (nil? handler-id) (= handler-id
-                                    (get-in ev [:tags :handler-id])))
-           (or (nil? source)     (= source
-                                    (or (:source ev)
-                                        (get-in ev [:tags :source]))))
-           (or (nil? origin)     (= origin
-                                    (get-in ev [:tags :rf.event/origin])))
-           (or (nil? dispatch-id)(= dispatch-id
-                                    (get-in ev [:tags :rf.trace/dispatch-id])))
-           (or (nil? since-ms)   (and (number? (:time ev))
-                                      (> (:time ev) since-ms)))
-           (or (nil? t0)         (and (number? (:time ev))
-                                      (<= t0 (:time ev) t1)))))))
-
-(defn event-byte-size
-  "UTF-8 BYTE cost of `event`'s `pr-str` form — the figure `evict-oldest`
-   enforces `:max-buffered-bytes` against, and the one `:queue-bytes` /
-   `:dropped-bytes` publish to the agent.
-
-   BYTES, not `count`'s UTF-16 code units (rf2-2rtt6.135). The sum used to be
-   `(count (pr-str event))`, which agrees with UTF-8 only on ASCII — so the
-   budget failed OPEN: an em-dash-heavy payload held up to 3x the intended
-   5 MB before eviction began, and the published figures under-reported by the
-   same margin. This is the one site in that class where honesty TIGHTENS a
-   LIVE gate — heavy non-ASCII now evicts sooner, which is the intended
-   conduct arriving late. ASCII traffic is unchanged, byte for byte.
-
-   The name was right and the ruler was wrong, so `max-buffered-bytes` /
-   `:queue-bytes` / `:dropped-bytes` keep their names and
-   `default-max-buffered-bytes` keeps its 5,000,000: the cap bounds MEMORY,
-   and the bug under-delivered eviction rather than the intent. The old
-   docstring's \"same units as the wire-cap helper\" claim is TRUE again —
-   `re-frame2-pair-mcp.tools.summary/utf8-bytes` has counted UTF-8 since
-   rf2-2rtt6.132.
-
-   `TextEncoder` and not `Buffer.byteLength`: this ns ships as a browser
-   PRELOAD and compiles under `:advanced`, where `Buffer` is absent.
-   `TextEncoder` is UTF-8 BY DEFINITION — no encoding argument a later edit
-   can silently drop — and is a global in every browser and in Node; the `^js`
-   hints keep `:advanced` from renaming the interop call. Same shape as
-   `re-frame.elision/pr-str-bytes`, which this figure must not drift from.
-
-   `pr-str` (or encode) failure still falls back to 0 rather than blowing up
-   enqueue."
-  [event]
-  (try (let [s (pr-str event)]
-         #?(:clj  (alength (.getBytes ^String s "UTF-8"))
-            :cljs (let [^js enc (js/TextEncoder.)
-                        ^js buf (.encode enc s)]
-                    (.-length buf))))
-       (catch #?(:cljs :default :clj Throwable) _ 0)))
-
-(defn evict-oldest
-  "Drop events from the FRONT of `sub`'s queue until BOTH budgets hold (or the
-   queue is empty). Returns the updated sub with the queue/byte-total trimmed
-   and `:dropped-events` / `:dropped-bytes` / `:overflow-reason` updated.
-   Drop-oldest is the only sensible policy for a byte budget."
-  [sub max-events max-bytes]
-  (loop [q       (:queue sub)
-         bytes   (:queue-bytes sub 0)
-         dropped-n 0
-         dropped-b 0
-         reason    nil]
-    (let [n (count q)
-          over-events? (> n max-events)
-          over-bytes?  (> bytes max-bytes)]
-      (if (and (or over-events? over-bytes?)
-               (pos? n))
-        (let [head     (nth q 0)
-              head-bs  (event-byte-size head)]
-          (recur (subvec q 1)
-                 (max 0 (- bytes head-bs))
-                 (inc dropped-n)
-                 (+ dropped-b head-bs)
-                 ;; bytes wins ties — a byte-budget trip signals a
-                 ;; large-payload storm the agent likely needs to know about.
-                 (cond over-bytes?  :max-buffered-bytes
-                       over-events? :max-buffered-events
-                       :else        reason)))
-        (cond-> (assoc sub :queue q :queue-bytes bytes)
-          (pos? dropped-n)
-          (-> (update :dropped-events (fnil + 0) dropped-n)
-              (update :dropped-bytes  (fnil + 0) dropped-b)
-              (assoc :overflow-reason reason)))))))
-
-(defn enqueue
-  "Append `event` to subscription `sub-id`'s queue in `sub-state`, honouring
-   the byte+event budget with drop-oldest semantics: admit the newcomer, then
-   evict from the FRONT until both budgets hold. No-op when the sub is absent."
-  [sub-state sub-id event]
-  (update sub-state sub-id
-          (fn [sub]
-            (when sub
-              (let [max-events (:max-buffered-events sub default-max-buffered-events)
-                    max-bytes  (:max-buffered-bytes  sub default-max-buffered-bytes)
-                    ev-bytes   (event-byte-size event)
-                    sub'       (-> sub
-                                   (update :queue       conj event)
-                                   (update :queue-bytes (fnil + 0) ev-bytes))]
-                (evict-oldest sub' max-events max-bytes))))))
-
-(defn dispatch-trace-to-subs
-  "Fan a raw trace event into the matching trace-like subscriptions of
-   `subs`, returning the updated subs map. Cascade-bundle topics
-   (`:trace`/`:fx`/`:error`) never receive frameless events; the `:frameless`
-   topic receives only those. Pure — the runtime's `!` wrapper swaps this over
-   the live atom."
-  [subs ev]
-  (let [frameless? (frameless-event? ev)]
-    (reduce-kv
-      (fn [acc sub-id sub]
-        (let [topic (:topic sub)
-              routes? (cond
-                        (contains? #{:trace :fx :error} topic)
-                        (and (not frameless?)
-                             (trace-matches? (:compiled-filter sub) ev))
-
-                        (= :frameless topic)
-                        (and frameless?
-                             (trace-matches? (:compiled-filter sub) ev))
-
-                        :else
-                        false)]
-          (if routes?
-            (enqueue acc sub-id ev)
-            acc)))
-      subs subs)))
-
-(defn dispatch-epoch-to-subs
-  "Fan an assembled epoch record into the matching `:epoch` subscriptions of
-   `subs`, returning the updated subs map. Pure."
-  [subs epoch-matches?-fn record]
-  (reduce-kv
-    (fn [acc sub-id sub]
-      (if (and (= :epoch (:topic sub))
-               (epoch-matches?-fn (or (:filter sub) {}) record))
-        (enqueue acc sub-id record)
-        acc))
-    subs subs))
-
-(defn make-subscription
-  "Build a fresh subscription map for `sub-id` from `opts`. `created-at` is
-   supplied by the caller (the runtime stamps `js/Date.now`). Pure."
-  [sub-id {:keys [topic filter max-buffered-events max-buffered-bytes]} created-at]
-  (let [compiled (when (#{:trace :fx :error :frameless} topic)
-                   (compose-trace-filter topic filter))]
-    {:id              sub-id
-     :topic           topic
-     :filter          (or filter {})
-     :compiled-filter compiled
-     :queue           []
-     :queue-bytes     0
-     :dropped-events  0
-     :dropped-bytes   0
-     :overflow-reason nil
-     :created-at      created-at
-     :max-buffered-events (or max-buffered-events default-max-buffered-events)
-     :max-buffered-bytes  (or max-buffered-bytes  default-max-buffered-bytes)}))
-
-(defn drain
-  "Drain subscription `sub-id` from `subs`. Returns `[envelope subs']` where
-   `envelope` carries the raw `:events` queue + the eviction counters and
-   `:gone?`, and `subs'` has the sub's queue + counters reset (or is `subs`
-   unchanged when the sub is gone). Pure — the runtime post-projects
-   `:events` into `:event-bundles` for cascade-bundle topics, and threads the
-   result over the live atom."
-  [subs sub-id]
-  (if-let [{:keys [queue topic dropped-events dropped-bytes overflow-reason]}
-           (get subs sub-id)]
-    [{:events          queue
-      :topic           topic
-      :dropped-events  (or dropped-events 0)
-      :dropped-bytes   (or dropped-bytes  0)
-      :overflow-reason overflow-reason
-      :gone?           false}
-     (update subs sub-id #(-> %
-                              (assoc :queue [])
-                              (assoc :queue-bytes 0)
-                              (assoc :dropped-events 0)
-                              (assoc :dropped-bytes 0)
-                              (assoc :overflow-reason nil)))]
-    [{:events          []
-      :dropped-events  0
-      :dropped-bytes   0
-      :overflow-reason nil
-      :gone?           true}
-     subs]))
-
-(defn unsubscribe
-  "Remove `sub-id` from `subs`. Returns `[{:existed? bool} subs']`."
-  [subs sub-id]
-  [{:existed? (contains? subs sub-id)}
-   (dissoc subs sub-id)])
 
 ;; ===========================================================================
 ;; Epoch timing + matcher

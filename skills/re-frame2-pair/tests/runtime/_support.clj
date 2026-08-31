@@ -49,7 +49,7 @@
    `:read-cond :allow :features #{:cljs}` keeps reader conditionals on the
    `:cljs` branch. `*default-data-reader-fn*` swallows unknown tagged
    literals — notably the `#js {...}` / `#js [...]` the CLJS preload
-   carries in its streaming section. Without it the bb reader (which has
+   carries. Without it the bb reader (which has
    no `js` tag) HALTS on the first `#js`, silently dropping every form
    after it — including defns near the end of the file."
   [^String src]
