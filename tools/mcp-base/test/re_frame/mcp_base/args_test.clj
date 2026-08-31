@@ -190,7 +190,7 @@
   ;; existing one). Pin the intern so a future refactor that swaps the
   ;; body for a `safe-keyword`-only path trips this gate before
   ;; reaching the operator-gated write callers (story-mcp's
-  ;; register-variant, record-as-variant).
+  ;; register-variant).
   (let [novel-name "rf2-xxtrz-fresh-keyword-intern-pin"]
     (is (nil? (find-keyword novel-name))
         "precondition: the novel name is not in the keyword table")

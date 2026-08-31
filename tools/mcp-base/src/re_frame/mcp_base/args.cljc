@@ -284,8 +284,7 @@
 
     - **Operator-gated write paths** that allocate a NEW identifier —
       story-mcp's `--allow-writes` flag plus `:story.<path>/<name>`
-      grammar bound; `register-variant`'s `:variant-id`,
-      `record-as-variant`'s `:new-variant-id`.
+      grammar bound; `register-variant`'s `:variant-id`.
   Grammar validation alone does not bound the number of valid names.
   For registry lookups, finite option sets, mode keywords, and slice
   keywords, use `safe-keyword` against the live finite allowlist;

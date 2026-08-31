@@ -541,7 +541,7 @@ trust the developer — and stays a *helper*, not a contract.
 
 *Final means the decisions are settled; it does not assert the build is gap-free (EP-0009). Rows are struck as they close.*
 
-- **Open (P2 decision)** — Story-MCP's two inherently re-keyed, routinely non-live scrub surfaces (`record-as-variant`, `read-a11y-violations`) meet the now fail-closed `project-egress` boundary, which would redact their whole re-keyed payload to `:rf/redacted` without closing any leak the live-frame case would have. An **explicit, tracked interim** ships those payloads raw when the variant frame is non-live; the framework boundary itself stays fail-closed. The permanent option (require a live frame / structured refusal / a trusted-local-raw profile) awaits an operator ruling. Tool-local — it does not change the EP-0025 contract.
+- **Open (P2 decision)** — Story-MCP's inherently re-keyed, routinely non-live scrub surface (`read-a11y-violations`; the second surface, `record-as-variant`, was retired with the blocking recorder under rf2-5saz7) meets the now fail-closed `project-egress` boundary, which would redact its whole re-keyed payload to `:rf/redacted` without closing any leak the live-frame case would have. An **explicit, tracked interim** ships that payload raw when the variant frame is non-live; the framework boundary itself stays fail-closed. The permanent option (require a live frame / structured refusal / a trusted-local-raw profile) awaits an operator ruling. Tool-local — it does not change the EP-0025 contract.
 
 ## Guide impact
 

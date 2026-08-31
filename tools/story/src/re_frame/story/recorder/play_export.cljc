@@ -221,8 +221,8 @@
 
   `cofx` (EP-0017) is the captured flat recordable-coeffect map for THIS
   member of a parallel bare-events / cofx pair; when non-empty it rides
-  onto the lifted entry under `:rf.cofx` so the bare `:events` path (the
-  MCP `record-as-variant` surface) preserves cofx the same way the rich
+  onto the lifted entry under `:rf.cofx` so the bare `:events` path
+  preserves cofx the same way the rich
   `:entries` path does."
   ([x] (coerce-entry x nil))
   ([x cofx]

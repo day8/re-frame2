@@ -230,7 +230,7 @@ wired into the build, and consumers can use it today.
   `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
   `get-docs-markdown`), Testing (`run-variant`, `snapshot-identity`,
   `read-a11y-violations`, `read-failures`), and Write (`register-variant`,
-  `unregister-variant`, `record-as-variant`, gated on
+  `unregister-variant`, gated on
   `--allow-writes`). Lands as Stage 7 of the Story epic (`rf2-tgci`).
   See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 

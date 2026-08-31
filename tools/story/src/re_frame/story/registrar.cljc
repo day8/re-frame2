@@ -307,8 +307,8 @@
       ;; ex-message, with `:rf.error/id` the sole machine discriminator.
       ;; NOT decorative here (rf2-jquiy): story-mcp relays `(ex-message e)`
       ;; verbatim onto the MCP tool surface — `tools/write.cljc`
-      ;; register-variant and `tools/recorder.cljc` record-as-variant both
-      ;; wrap this call in `(str "… " (ex-message e))` — so the consumer AI
+      ;; register-variant
+      ;; wraps this call in `(str "… " (ex-message e))` — so the consumer AI
       ;; on the other end of the wire reads THIS text. A bare `(str error-kw)`
       ;; shipped it `:rf.error/variant-shape` and nothing else.
       ;; Caveat, until rf2-2z9u3 lands: a client cannot yet SEE this
@@ -387,8 +387,8 @@
       ;; Canonical thrown-error shape — see `validate-shape!` above.
       ;; The reachability here is NARROWER than its siblings', and rf2-jquiy
       ;; established that by driving the wire rather than reading the call
-      ;; graph: both story-mcp entry points (`tools/write.cljc`
-      ;; register-variant, `tools/recorder.cljc` record-as-variant) pre-check
+      ;; graph: the story-mcp entry point (`tools/write.cljc`
+      ;; register-variant) pre-checks
       ;; the id grammar on the STRING shape — `fresh-keyword-checked` against
       ;; `story/valid-variant-id?`, single-sourced with the `schemas/…-id?`
       ;; predicates below — before interning, and answer with their own
