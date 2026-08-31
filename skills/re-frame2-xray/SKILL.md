@@ -182,8 +182,11 @@ the control-by-control inventory.
  ribbon — `restore-epoch!` reinstalls the focused epoch's WHOLE
  frame-state, both app-db AND runtime-db, not the `:db-after` projection
  alone.
-- **Filter pills** — IN / OUT pills, a mute set, an `N hidden by filters`
- count, `Clear Filters`; transient, reset on load.
+- **Filter pills** — IN / OUT pills + an `N events filtered out` count;
+ remove each pill via its trailing `×` (the bulk `Clear Filters` button
+ is retired — there is none). Muted event ids are a separate state: the
+ L1 `🔇 N` chip opens the mute manager (per-row unmute / `Unmute all`).
+ Transient, reset on load.
 - **Command palette (`Cmd/Ctrl+K`)** — fuzzy-ranked over six source kinds
  (panel jumps · recent events · frame switch · registered handlers ·
  settings · command verbs), mode-aware.

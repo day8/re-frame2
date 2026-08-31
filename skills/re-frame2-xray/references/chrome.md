@@ -91,9 +91,16 @@ works today. Do not teach `r` / `R` / `*` as live keys.
 
 ## Filter pills
 
-The L1.5 events ribbon carries IN / OUT pills, a mute set, an `N events
-hidden by filters` count, and `Clear Filters`. Pills are transient and
-reset on load. Each pill is a typed predicate (`:event-id-pattern` /
+The L1.5 events ribbon carries the active IN / OUT pills and, pushed to
+its trailing edge, an `N events filtered out` warning count (renders
+only when N > 0). There is **no bulk `Clear Filters` control** — that
+button was deliberately retired: remove each pill individually via its
+trailing `×`, and removing the last pill collapses the ribbon (the
+hidden events return as the pills go). Muted event ids are a *separate*
+suppression state the ribbon pills do not manage: click the L1 `🔇 N`
+indicator to open the mute manager, which offers per-row unmute and an
+`Unmute all` bulk action. Pills are transient and reset on load. Each
+pill is a typed predicate (`:event-id-pattern` /
 `:machine` / `:http-correlation` / `:fx`). Spec
 [`020-Filter-Predicates.md`](../../../tools/xray/spec/020-Filter-Predicates.md);
 source `src/filters/`. *(These are L1-ribbon filters — distinct from the
