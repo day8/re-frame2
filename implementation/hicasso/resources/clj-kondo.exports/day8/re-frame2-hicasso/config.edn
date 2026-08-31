@@ -1,4 +1,5 @@
-;; clj-kondo export for day8/re-frame2-hicasso (rf2-hic-022).
+;; clj-kondo export for day8/re-frame2-hicasso (rf2-hic-022; reduced to
+;; macro-shape analysis under rf2-r3r00).
 ;;
 ;; A consumer picks this up with clj-kondo's ordinary dependency import —
 ;; nothing here is re-frame2-specific plumbing:
@@ -6,41 +7,18 @@
 ;;   clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs
 ;;
 ;; which copies this directory to `.clj-kondo/day8/re-frame2-hicasso/` and
-;; adds it to the consumer's `:config-paths`. See README.md beside this file
-;; for what each check knows, and — the more useful half — what it refuses to
-;; know.
+;; adds it to the consumer's `:config-paths`. See README.md beside this file.
 ;;
-;; SEVERITY LAW (operator ruling, rf2-hic-022, 2026-08-10): ERRORS only for
-;; TRUE INVARIANTS; WARNINGS for heuristics; nothing blocks a build.
-;; Assistance, not enforcement.
-;;
-;; So two errors, and they are the two forms that are wrong under every
-;; circumstance and that the runtime itself refuses: a view called like a
-;; function, and a function where a hiccup head belongs. The rest are advice,
-;; and a warning cannot red the repo's own gate either — `clj-kondo` runs
-;; `--fail-level error`, so items 3-5 are advisory by construction.
-;;
-;; The `:&`-carrying-a-non-map check was here and is GONE: the `:&` grammar key
-;; is retired from the end-state design in favour of the owned-wins merge
-;; recipe, and a lint layer must not police a ghost.
-;;
-;; Every level is a consumer's to change, and turning one off is a supported
-;; answer:
-;;
-;;   {:linters {:re-frame.hicasso/unkeyed-mapped-child {:level :off}}}
-{:linters
- {:re-frame.hicasso/direct-view-call               {:level :error}
-  :re-frame.hicasso/function-in-head-position      {:level :error}
-  :re-frame.hicasso/deferred-read                  {:level :warning}
-  :re-frame.hicasso/unkeyed-mapped-child           {:level :warning}
-  :re-frame.hicasso/nameless-interactive-element   {:level :warning}
-  :re-frame.hicasso/parked-read                    {:level :warning}}
-
- ;; `re-frame.hicasso.native` is two React hooks, `use-sub` and
+;; The hooks give `defview`, `event` and `defhost` their `defn`, `fn` and
+;; `def` shapes, so kondo's ordinary analysis applies: names resolve,
+;; destructured props are neither unresolved nor unused, arities are checked.
+;; No custom findings ship — behavior is the runtime's law, refused loudly at
+;; its execution boundary, not re-derived in a lint layer.
+{;; `re-frame.hicasso.native` is two React hooks, `use-sub` and
  ;; `use-frame` — ordinary functions, so they need neither a `:lint-as`
  ;; nor a hook (rf2-6c12m.3).
  :hooks
  {:analyze-call
   {re-frame.hicasso/defview hooks.re-frame.hicasso/defview
-   re-frame.hicasso/event     hooks.re-frame.hicasso/event
+   re-frame.hicasso/event   hooks.re-frame.hicasso/event
    re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost}}}

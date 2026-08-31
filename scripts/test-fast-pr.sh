@@ -1528,13 +1528,15 @@ if [ "$run_node" = true ]; then
   run "hicasso invariants gate" "cd implementation && npm run test:hicasso-invariants" \
     bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-invariants"
 
-  # Hicasso lint export gate (rf2-hic-022).  The artefact publishes six
-  # clj-kondo checks from `resources/clj-kondo.exports/`, and this is their
-  # witness: each check must fire at its exact rows in `lint-fixtures/
-  # positive.cljs`, `negative.cljs` must produce NO finding of ANY kind, and
-  # the artefact's own testbeds must stay quiet.  It runs the real clj-kondo
-  # at the version lint.yml pins, with the SHIPPED export as its --config-dir,
-  # so a rule that passes here is the rule a consumer gets.
+  # Hicasso lint export gate (rf2-hic-022; reduced to macro shapes under
+  # rf2-r3r00).  The artefact publishes a clj-kondo export from
+  # `resources/clj-kondo.exports/` giving `defview` / `event` / `defhost`
+  # their `defn` / `fn` / `def` shapes, and this is its smoke:
+  # `lint-fixtures/macro_shapes.cljs` linted through the SHIPPED export must
+  # produce exactly its one sentinel finding, and the `--self-test` proves
+  # the smoke reds when any of the three rewrites is unavailable.  It runs
+  # the real clj-kondo at the version lint.yml pins, with the export as its
+  # --config-dir, so what passes here is what a consumer gets.
   #
   # THIS IS THE ONLY LANE IT HAS.  A `deftest` witness would run in no lane at
   # all: a JVM lane exists only through the artefact rosters

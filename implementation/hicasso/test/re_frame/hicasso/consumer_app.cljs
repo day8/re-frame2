@@ -106,10 +106,8 @@
   reads the same subscription to show it.
 
   The `<label>` is not decoration either: an interactive element with no
-  accessible name is a warning under this package's own clj-kondo export
-  (`:re-frame.hicasso/nameless-interactive-element`), and an
-  exemplar that trips the lint it ships would be a poor first thing to
-  copy."
+  accessible name reads to a screen reader as an unlabelled control, and
+  an exemplar that models one would be a poor first thing to copy."
   [_]
   [:main#hicasso-consumer-app
    [:h1 "Hicasso"]
