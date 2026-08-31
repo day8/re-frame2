@@ -2,7 +2,7 @@
   "Standard interceptors. Per Spec 002 / API.md §Standard interceptors and
   Spec 001 §Hot-reload semantics M-21.
 
-  Ships one framework-standard interceptor plus the ->interceptor primitive:
+  Ships one framework-standard interceptor:
     :rf.interceptor/path — focus a handler on an app-db sub-slice, referenced
                            as `[:rf.interceptor/path <path-vector>]` (this ns)
 

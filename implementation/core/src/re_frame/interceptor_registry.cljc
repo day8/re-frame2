@@ -35,7 +35,7 @@
   - `resolve-chain` — the chain-assembly seam (EP-0022 reference-only
     grammar). Walk an event/frame `:interceptors` chain and resolve every
     REFERENCE to its registered interceptor value. An INLINE interceptor
-    value (a map carrying `:before` / `:after` / `:id`, a `->interceptor` call
+    value (a map carrying `:before` / `:after` / `:id`, a `->interceptor*` call
     result, a value-Var) in a chain position fails LOUD with
     `:rf.error/inline-interceptor-removed` — chains are reference-only. The ONE
     inline value that flows through is the framework's own appended handler-
@@ -350,7 +350,7 @@
   interceptor value found in a chain position. Per EP-0022 §Event and frame
   chain grammar: event/frame `:interceptors` chains carry REFERENCES only —
   a bare keyword id or an `[id arg]` 2-vector. An inline interceptor map /
-  value / Var (an `->interceptor` result, a `(path …)` value, a
+  value / Var (an `->interceptor*` result, a `(path …)` value, a
   `(redact-interceptor …)` value, a locally-bound interceptor symbol) is not
   accepted; it must be registered with `reg-interceptor` and referenced by
   id. Loud-fail at chain assembly rather than a silent no-op (Conventions §No
@@ -479,7 +479,7 @@
   interceptor values. REFERENCE-ONLY (EP-0022): a REFERENCE
   (keyword / `[id arg]`) resolves to its registered interceptor value. An
   INLINE interceptor value (a map carrying `:before` / `:after` / `:id`, an
-  `->interceptor` result, a value-Var) in a chain position fails LOUD with
+  `->interceptor*` result, a value-Var) in a chain position fails LOUD with
   `:rf.error/inline-interceptor-removed` — chains are reference-only. A
   structurally-malformed entry (neither a ref, an inline value, nor the
   framework default) is `:rf.error/invalid-interceptor-ref`.

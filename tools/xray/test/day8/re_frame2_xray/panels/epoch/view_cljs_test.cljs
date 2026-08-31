@@ -3306,8 +3306,8 @@
             carries a `:coord`: the id slot renders as a clickable
             `<button>`. rf2-rvxem FIX 1 — the redundant standalone
             `coord-chip` (a SECOND ↗) is GONE; `coord-link` already emits
-            the single glyph. The `->interceptor` macro captures the coord;
-            the projection lifts it onto the row."
+            the single glyph. The interceptor value carries an explicit
+            `:source-coord` (rf2-siheh); the projection lifts it onto the row."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray

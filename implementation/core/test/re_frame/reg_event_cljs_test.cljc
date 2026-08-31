@@ -236,7 +236,8 @@
   ;; Cross-wave coherence (rf2-0adhqs.12): EP-0022 demoted `->interceptor` to a
   ;; framework-internal lowering constructor and made `reg-interceptor` the ONE
   ;; public authoring form. The EP-0018 reg-event-ctx-removed stub must therefore
-  ;; point users at `reg-interceptor`, NOT the now-internal `->interceptor`.
+  ;; point users at `reg-interceptor`, NOT the internal lowering constructor
+  ;; (`->interceptor*`; the coord-capturing macro itself is deleted — rf2-93sxp).
   (testing "the reg-event-ctx-removed :reason names reg-interceptor"
     (let [reason (stub-throw-reason
                    #(rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil)))]

@@ -576,7 +576,8 @@
   ;; Full-context work that the retired `reg-event-ctx` form once expressed is
   ;; now done with a registered interceptor (authored with `reg-interceptor`,
   ;; referenced by id from a `reg-event` registration's `:interceptors` chain;
-  ;; `->interceptor` is internal-only post-EP-0022). This pins that an
+  ;; the lowering constructor `->interceptor*` is internal-only post-EP-0022).
+  ;; This pins that an
   ;; interceptor :before can read a coeffect
   ;; and set a :db effect via the public interceptor API, threaded ahead of the
   ;; one `:rf/event-handler` wrapper.
@@ -915,7 +916,7 @@
 ;; interceptors still works.
 
 (def ^:private bare-icpt
-  ;; A bare interceptor map — what `(->interceptor :after …)` returns. This
+  ;; A bare interceptor map — what `(->interceptor* :after …)` returns. This
   ;; is exactly the shape that used to be silently dropped.
   {:id     :test.3ut12/bare
    :before identity
@@ -1017,7 +1018,8 @@
 ;; fails LOUDLY with an actionable hard error naming the replacement — never an
 ;; opaque "no such var". They register NOTHING. The -db / -fx errors name
 ;; `reg-event`; the -ctx error names `reg-interceptor` (the public interceptor
-;; authoring form post-EP-0022 — `->interceptor` is internal-only).
+;; authoring form post-EP-0022 — the lowering constructor `->interceptor*`
+;; is internal-only).
 
 (defn- stub-throw-id
   "Call `reg-fn` (one of the retired throwing stubs) and return the

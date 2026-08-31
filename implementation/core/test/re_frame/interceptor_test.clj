@@ -4,7 +4,7 @@
   v2 trims the v1 interceptor stdlib down to a tiny retained set:
     - the framework-standard `[:rf.interceptor/path <path-vector>]` ref
       (its consumer `standard-path-interceptor`)
-    - ->interceptor (and the supporting context plumbing)
+    - ->interceptor* (and the supporting context plumbing)
 
   (`inject-cofx` is removed — EP-0017 / rf2-w9xyx1 — not on the facade;
   coeffect delivery is the `:rf.cofx/requires` declaration. The public
@@ -466,12 +466,11 @@
       (is (= "hello" @seen)
           "the parameterized declaration threads the arg into the supplier"))))
 
-;; ---- ->interceptor primitive ----------------------------------------------
+;; ---- custom interceptors: chain order ---------------------------------------
 
 (deftest make-interceptor-via-primitive
-  (testing "->interceptor builds a custom interceptor whose :before runs in
-            chain order and whose :after runs in reverse — both can mutate
-            the context."
+  (testing "registered custom interceptors run :before in chain order and
+            :after in reverse — both can mutate the context."
     (let [trail (atom [])
           ;; Three custom interceptors, named A / B / C, that each push a
           ;; tagged entry into `trail` from both their :before and :after

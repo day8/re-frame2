@@ -375,9 +375,9 @@ Per EP-0022 (registered interceptors), re-frame2 interceptor chains carry
 by id (`{:interceptors [:rf/redact-interceptor :app/unwrap]}`), and an
 inline interceptor value in a chain is rejected loud at registration with
 `:rf.error/inline-interceptor-removed`. An interceptor is authored once
-with `reg-interceptor` and referenced by its id everywhere; `->interceptor`
-is the internal constructor, not an authoring surface. Story inherits this
-model directly:
+with `reg-interceptor` and referenced by its id everywhere; the lowering
+constructor (`re-frame.interceptor/->interceptor*`) is framework-internal,
+not an authoring surface. Story inherits this model directly:
 
 - a story plan never carries an **inline interceptor chain** — there is no
   `:interceptors [...]` plan slot. The only story interceptor surface is

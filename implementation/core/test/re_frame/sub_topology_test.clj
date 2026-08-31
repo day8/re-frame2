@@ -41,7 +41,7 @@
   production by design: `:doc`, and the `:ns` / `:line` / `:file`
   source-coords `reg-sub` auto-captures. They exist for tooling (the same
   class as the registry-entry `:doc` covered by
-  `re-frame.doc-metadata-prod-elision-test` and the `->interceptor`
+  `re-frame.doc-metadata-prod-elision-test` and the `->interceptor*`
   `:source-coord`), so under the real gate the entry simply does not carry
   them. Their assertions are kept verbatim inside a
   `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — INCLUDING the

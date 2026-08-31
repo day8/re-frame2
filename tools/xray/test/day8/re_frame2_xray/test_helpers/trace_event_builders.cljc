@@ -644,8 +644,10 @@
   'Exception Thrown' card (rf2-yz57h).
 
   rf2-siheh — the optional `coord` map (`{:ns :file :line}`) rides
-  `[:tags :source-coord]`, mirroring what the router threads from a
-  `->interceptor`-macro-built interceptor's captured `:source-coord`. The
+  `[:tags :source-coord]`, mirroring what the router threads from an
+  interceptor value carrying an explicit `:source-coord` (handed to
+  `re-frame.interceptor/->interceptor*`; the coord-capturing `->interceptor`
+  macro is deleted — rf2-93sxp). The
   projection lifts it onto the INTERCEPTOR row's `:coord` so the view can
   render a jump-to-source chip (parity with EVENT HANDLER / SUBSCRIPTIONS /
   VIEWS). Absent → no chip (the `->interceptor*` fn / framework-interceptor
