@@ -23,8 +23,10 @@
        `append-audit-row` /
        `record-error` /
        `clear-error`             — sim-state lifecycle ops
-    6. `step-sim`                — fold an `rf/machine-transition` result
-                                   (the Spec 005 §Level 1 map) into sim-state
+    6. `step-sim`                — fold an
+                                   `re-frame.machines/machine-transition`
+                                   result (the Spec 005 §Level 1 map)
+                                   into sim-state
     7. `format-state-display` /
        `format-event-display`    — UI-facing formatters"
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -190,8 +192,9 @@
 
 ;; ---- (6) step-sim ----------------------------------------------------------
 ;;
-;; Stub results in the Spec 005 §Level 1 public shape `rf/machine-transition`
-;; returns — plain keys, no machines artefact on the test classpath.
+;; Stub results in the Spec 005 §Level 1 public shape
+;; `re-frame.machines/machine-transition` returns — plain keys, no
+;; machines artefact on the test classpath.
 
 (def ^:private ok-result
   {:status :ok
