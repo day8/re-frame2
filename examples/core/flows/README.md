@@ -63,6 +63,8 @@ shadow-cljs watch examples/flows
 
 Then open the served build. Bump a cart quantity to watch the subtotal and total update together. Toggle the discount to add and remove a flow live.
 
+Hot reload works on the flows too: edit a `:derive` body in `core.cljs` and save, and the watch reload swaps the new derivation into the live frame — your cart state survives, and the next quantity nudge computes with the edited formula. (The example's `reload!` re-registers the flows on each rebuild; same-id `reg-flow` is a surgical replace.)
+
 ## Cross-references
 
 - [`spec/013-Flows.md`](../../../spec/013-Flows.md) — the normative spec for everything above.

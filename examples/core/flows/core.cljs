@@ -69,7 +69,11 @@
 ;; treatment — it registers later, via `:rf.fx/reg-flow` from inside a
 ;; handler, and that route carries the dispatching frame along for you.
 ;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
-(defn- install-flows! []
+;;
+;; Two callers: `run` (MOUNT, below) installs the flows at boot, before the
+;; cart is seeded; `reload!` re-invokes the CURRENT definition on every
+;; Shadow watch rebuild, swapping edited derives into the live frame.
+(defn install-flows! []
   (rf/with-frame :rf/default
 
     (rf/reg-flow :cart/subtotal
@@ -301,12 +305,13 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
-;; each reload so your edited views re-render into the same root and — since the
-;; ENSURE root reuses the frame `run` already created — the same frame.
-;; This is the canonical mount/boot shape, spelled the same in the counter and
-;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
-(defn ^:dev/after-load mount! []
+;; inside the frame-root. Re-running it re-renders into the same root and —
+;; since the ENSURE root reuses the frame `run` already created — the same
+;; frame. It's the same mount shape the counter and todomvc examples spell
+;; (see `docs/core/how-to/boot-and-mount-an-app.md`), with one difference: the
+;; `^:dev/after-load` marker is NOT on `mount!` here — it's on `reload!`,
+;; below, because this example has more to do on a hot reload than re-render.
+(defn mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (when-not @react-root
@@ -314,6 +319,24 @@
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame}
                  [cart-app]])))
+
+;; The hot-reload seam. Most examples mark `mount!` itself `^:dev/after-load`:
+;; all their registrations are top-level forms, so reloading the namespace
+;; re-registers everything and re-rendering is the only work left. This
+;; example's two named flows are different. They live inside `install-flows!`
+;; (they need a live frame — see FLOWS, above), and a Shadow watch rebuild
+;; only REPLACES that function; nothing calls the new one. Re-render alone and
+;; the live frame keeps computing with the PREVIOUS build's `:derive` fns —
+;; exactly the stale split the flows guide's hot-reload contract rules out.
+;;
+;; So the after-load work here is: re-register the CURRENT flow definitions
+;; into the live frame, then re-render. Same-id `reg-flow` against the same
+;; frame is a surgical replace (docs/core/flows.md, Spec 013): the frame and
+;; its app-db stay put — no re-seed, no frame teardown — and the next cart
+;; event computes with the fresh derives.
+(defn ^:dev/after-load reload! []
+  (install-flows!)
+  (mount!))
 
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through —
