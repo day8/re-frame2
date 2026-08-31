@@ -429,8 +429,7 @@ The `:violations` vec is live runtime DOM state — each axe-core node
 carries `:html` (the violating element's outerHTML), so a value
 rendered into the DOM lands verbatim there. axe DOM nodes are an
 inherently RE-KEYED runtime payload class, so `:violations` route through
-the named re-keyed-runtime egress exception (rf2-jwggld) — the same one
-`record-as-variant`'s event vectors take. Under a LIVE variant frame
+the named re-keyed-runtime egress exception (rf2-jwggld). Under a LIVE variant frame
 **EP-0025 FAIL-OPEN** holds: a value rendered into a node `:html` is a
 RE-KEYED DOM position the classification path cannot reach, so it ships
 RAW — value-match was removed; classify the app-db PATH to redact a value
@@ -439,9 +438,9 @@ process) the nodes ship raw under the documented carve-out — path-scrub is a
 no-op even live, so fail-closing would destroy the tool with zero
 leak-delta. `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
-(rf2-g9fje) — one of the five value-surfacing tools that carry the
-opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
-`record-as-variant`; `explain-variant` is NOT among them — it ships author
+(rf2-g9fje) — one of the four value-surfacing tools that carry the
+opt-in (the others: `preview-variant`, `run-variant`, `read-failures`;
+`explain-variant` is NOT among them — it ships author
 data raw, rf2-7k5mce).
 
 **Output.** `{:variant-id keyword :violations [map]}` from a REACHED a11y
@@ -499,12 +498,14 @@ actually sees (a dropped sensitive failure does not quietly flip
 
 ## Write tools (gated)
 
-Three tools form the Write category. `register-variant` and
+Two tools form the Write category. `register-variant` and
 `unregister-variant` require `:rf.story-mcp/allow-writes?` to be true
-outright. `record-as-variant` is **partially** gated: the read-only
-recording path (snippet only) is ungated, and only the `:write-back`
-re-registration sits behind the same flag. See
+outright. See
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
+(The former third write tool, the blocking recorder bridge
+`record-as-variant`, was retired under rf2-5saz7 — see
+[`002-Tool-Registry.md`](002-Tool-Registry.md) §What's NOT in the
+registry.)
 
 ### `register-variant`
 
@@ -580,59 +581,6 @@ not because the relay would otherwise fail. See
 **Errors.** `isError: true` when gate is closed; `isError: true`
 when variant is not registered.
 
-### `record-as-variant`
-
-Bridges `re-frame.story`'s recorder primitives (per
-[`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
-§Test Codegen) across the MCP boundary.
-
-**Input.**
-
-```clojure
-{:variant-id     keyword (required)
- :duration-ms    integer (optional, default 0)    ; ms to block between start and stop
- :new-variant-id keyword (optional)                ; defaults to :variant-id
- :doc            string  (optional)                ; embedded in snippet
- :extends        keyword (optional)                ; defaults to :variant-id
- :alias          string  (optional, default "story")
- :write-back     boolean (optional, default false) ; re-register under the public :script authoring slot with <captured>
-}
-```
-
-The input-schema property key is `:write-back` (no `?`) per the
-Anthropic `^[a-zA-Z0-9_.-]{1,64}$` regex on tool input-property
-names (rf2-pmwgn) — the same wire-key rule that motivates
-`:include-sensitive` (no `?`). Response-payload keys are not bound
-by the regex; the structuredContent slot `:written-back?` retains
-the `?` per Clojure idiom.
-
-**Output.**
-
-```clojure
-{:variant-id           keyword           ; the source variant id
- :play-snippet         string            ; (reg-variant ...) form, read-string-able
- :recorded-event-count integer
- :duration-ms          integer           ; actual ms blocked
- :captured             [event-vec]       ; the recorded event vectors
- :written-back?        boolean
- :new-variant-id       keyword (when :written-back? is true)}
-```
-
-**Errors.**
-- `isError: true` when the source `:variant-id` is not registered.
-- `isError: true` when `:write-back` is true but the gate is closed
-  (`{:gated true}` in `structuredContent`).
-- `isError: true` when the write-back `reg-variant*` call fails (shape
-  validation, unresolved `:extends`, etc.). Same projection as
-  `register-variant`: a shape failure ships `:explain-humanized`
-  alongside the recorder payload, never the raw `:explain`.
-
-Filter layers (op-type `:event/dispatched`, frame scope, internal-ns
-skip) are inherited from the recorder; this tool does not expose a
-free-form filter knob.
-
-**Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Write.
-
 ## Protocol-level methods
 
 Not tools per se, but documented here for completeness:
@@ -654,7 +602,7 @@ Full wire details in
 - [`000-Vision.md`](000-Vision.md) — what this jar is for.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) — JSON-RPC envelope
   + framing.
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 20 tools in
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools in
   prose.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   write-gate behaviour.

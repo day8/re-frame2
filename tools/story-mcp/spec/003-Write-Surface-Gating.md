@@ -33,8 +33,6 @@ The Write category sits behind the gate (see
 
 - `register-variant`
 - `unregister-variant`
-- `record-as-variant` — only when `:write-back` is set; the read-only
-  recording path (snippet only) is ungated.
 
 Read tools are never gated. The 17 Dev / Docs / Testing tools (Dev 3 +
 Docs 10 + Testing 4) work regardless of `allow-writes?`.
@@ -52,7 +50,7 @@ calls a write tool, the response is:
 ```
 
 The `:tool` slot names the gated tool that tripped the gate
-(`register-variant` / `unregister-variant` / `record-as-variant`), so an
+(`register-variant` / `unregister-variant`), so an
 agent inspecting the structured payload sees which call was refused
 (rf2-c52j0 — the slot was once hardcoded and lied about its origin).
 

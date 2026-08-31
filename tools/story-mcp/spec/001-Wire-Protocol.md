@@ -73,8 +73,8 @@ before the bounded allowlists run.** Concretely:
 
   **Two-level enforcement (rf2-an95jj).** The global allowlist
   (`protocol/arg-keys`) is the UNION of every tool's argument keys, so it
-  only rejects keys no tool reads. A key valid for ANOTHER tool — `:body`
-  (register-variant), `:write-back` (record-as-variant) — survives
+  only rejects keys no tool reads. A key valid for ANOTHER tool — e.g.
+  `:body` (register-variant) on a read tool — survives
   normalisation as a keyword entry and would be silently ignored by the
   selected handler. The dispatcher therefore runs a SECOND, per-tool
   check (`wire-pipeline/tool-invalid-arg-keys`) AFTER global
@@ -124,7 +124,7 @@ before the bounded allowlists run.** Concretely:
     rejected it. The EDN-string body path is unchanged (the hardened
     `clojure.edn` reader yields keyword data directly).
   - the fresh **id** a write path mints — `register-variant`'s
-    `:variant-id` and `record-as-variant`'s write-back `:new-variant-id`
+    `:variant-id`
     — is validated against the canonical `:story.<path>/<name>` grammar
     on the STRING shape (`mcp-base.args/fresh-keyword-checked` +
     `re-frame.story.schemas/variant-id-shape?`, single-sourced with the
@@ -164,7 +164,7 @@ the contract is "tools only."
 | JSON-RPC method | Behaviour |
 |---|---|
 | `initialize` | Performs handshake; returns advertised capabilities + protocol version + server info. |
-| `tools/list` | Returns the full 20-tool registry (Dev / Docs / Testing / Write). |
+| `tools/list` | Returns the full 19-tool registry (Dev / Docs / Testing / Write). |
 | `tools/call` | Dispatches the named tool with `arguments`; returns content + structuredContent + optional `isError`. |
 | `ping` | Returns `{}`. Health check. |
 | `shutdown` | Cleanly stops the run-loop. |
@@ -275,7 +275,7 @@ Returns the tool registry verbatim — name, description, JSON-Schema
 input schema, optional output schema. Order is stable but not
 contractually relevant; agents iterate by name.
 
-The 20 tools are enumerated in
+The 19 tools are enumerated in
 [`002-Tool-Registry.md`](002-Tool-Registry.md).
 
 ## `tools/call`
@@ -336,7 +336,7 @@ itself.
 
 ## Cross-references
 
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 20 tools.
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) — the 19 tools.
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   how the gate fails (clean error, not no-op).
 - [`API.md`](API.md) — per-tool input/output shapes.
