@@ -346,7 +346,9 @@ work cannot run in parallel.
 
 **Shape 1 — Solo.** One item, one change. Item id and verbatim title; two to four paragraphs of
 context with `file:line` citations; numbered concrete steps; a dedicated worktree and branch; the
-boundary block; claim the item; gates with exact commands; push and open the change **as a draft**
+boundary block; claim the item — unless it is a slice of a split item, which nobody claims (see
+*Choosing solo or cluster*): a slice's worker appends a claim note and a result note, and the
+mayor closes the item when the last slice lands; gates with exact commands; push and open the change **as a draft**
 with a `## Quality gates` section; report the change URL, a per-step summary and test deltas.
 
 *A coverage or rigour pass must add at least one adversarial or negative case per surface.*
@@ -791,6 +793,15 @@ rule named a monitor. So name the class rather than the instances: a Monitor, a 
 subscription, a background task you expect to wake you — every one of these is the same strand,
 because you are the only thing that can read the exit file, and you can only read it while your
 turn is still running.
+
+**And refute the belief that keeps re-arming it, because the rule alone has not held.** Your own
+tooling likely documents that a backgrounded command "notifies you when it completes" or
+"re-invokes you" — a true statement about a LIVE session, and the reason a worker reads its wait
+as sanctioned rather than forbidden: it is trusting its harness's promise over this block. That
+promise does not survive the end of your turn; once you stop, the completion event goes to your
+coordinator, not to you. Measured after the class was already named here: four stranded
+turn-endings across two workers in one session, each ending on exactly that promise, each
+recovered only by the coordinator sending a status message.
 
 **A gate heavy enough that two cannot coexist WEDGES rather than fails** — no progress, no exit
 file, no error, from a run that was healthy a minute ago. This is contention for the MACHINE, so
