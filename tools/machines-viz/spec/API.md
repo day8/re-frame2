@@ -2102,6 +2102,16 @@ and emits a string suitable for paste. It is substrate-independent
 and DOM-independent — callable from JVM tests, from the JS bundle,
 and from the read-only viewer.
 
+The shipped end-user workflow over this emitter is **Xray's Static →
+Machines → Copy Mermaid** header button (rf2-sxw06): the Xray host
+passes the selected registered machine's definition to `mermaid/emit`
+and copies the fenced block in one accessible gesture — see Xray
+`spec/003-Machine-Inspector.md` §Static Machines surface. The fns in
+this section are the library seam beneath that workflow (and beneath
+any host-built surface); `chart-as-mermaid` /
+`copy-mermaid-to-clipboard!` remain chart-element conveniences for
+hosts that already hold a mounted chart.
+
 The emitter is **static-topology only**:
 
 - States render as Mermaid nodes; compound `:states` render as

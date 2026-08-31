@@ -31,13 +31,34 @@
   ;; rendering — the panel's view layer hard-wires that posture and
   ;; this install no longer registers the sub/event/slot trio.
 
+  ;; `:on-success` / `:on-failure` (optional event vectors, rf2-sxw06) let a
+  ;; caller surface honest copy feedback: `navigator.clipboard.writeText`
+  ;; returns a Promise that REJECTS on a denied/unavailable clipboard, and
+  ;; the pre-fix fx swallowed that settlement entirely — a caller could
+  ;; never distinguish "copied" from "silently dropped". The follow-up
+  ;; dispatch is pinned to the fx-context frame (`(:frame ctx)` — the
+  ;; active frame id per the v2 reg-fx contract) because the Promise
+  ;; callback runs long after the dispatching frame's dynamic context has
+  ;; unwound. Callers that pass no callbacks keep the original
+  ;; best-effort/fire-and-forget contract unchanged.
   (rf/reg-fx :rf.xray.fx/copy-to-clipboard
-    (fn [_ctx {:keys [text]}]
-      (try
-        (when (and (exists? js/navigator)
+    (fn [ctx {:keys [text on-success on-failure]}]
+      (let [frame-id (:frame ctx)
+            notify!  (fn [ev]
+                       (when (vector? ev)
+                         (try
+                           (if (some? frame-id)
+                             (rf/with-frame frame-id (rf/dispatch ev))
+                             (rf/dispatch ev))
+                           (catch :default _ nil))))]
+        (try
+          (if (and (exists? js/navigator)
                    (.-clipboard js/navigator))
-          (.writeText (.-clipboard js/navigator) (str text)))
-        (catch :default _ nil))))
+            (-> (.writeText (.-clipboard js/navigator) (str text))
+                (.then (fn [_] (notify! on-success))
+                       (fn [_] (notify! on-failure))))
+            (notify! on-failure))
+          (catch :default _ (notify! on-failure))))))
 
   ;; ---- universal copy-to-clipboard — OFF-BOX EGRESS (rf2-uo0rc.2) ----------
   ;;

@@ -1290,7 +1290,14 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 
 **Left pane — browse-all list.** Scrollable list of every registered machine; search box + sort-cycle button (`Name → States → Live → Name`) at the top. Each row carries: a selection glyph (`◉` active / `○` inactive — same vocabulary as the Static tab-bar), the machine-id rendered in monospace accent-violet, a source-coord chip (jump-to-source via the existing open-in-editor affordance), a state-count chip, a live-instance pip cluster (capped at 12; beyond that → textual count), and a per-row `→ Dynamic` JUMP chip. Empty-state: "No machines registered. `rf/reg-machine` to add the first."
 
-**Right pane — definition detail.** Header carries `<machine-id> · <source-coord ↗> · <N> states · <M> live`. Below the header, the **4-mode sub-strip** drives the per-mode body.
+**Right pane — definition detail.** Header carries `<machine-id> · <source-coord ↗> · <N> states · <M> live · [Copy Mermaid]`. Below the header, the **4-mode sub-strip** drives the per-mode body.
+
+**Copy Mermaid (rf2-sxw06).** The header's trailing `Copy Mermaid` button is the one-gesture "registered topology → clipboard" workflow: activating it passes the selected machine's definition (which the host view already holds) straight to the pure `day8.re-frame2-machines-viz.mermaid/emit` and writes the returned fenced ```` ```mermaid ```` `stateDiagram-v2` markdown block to the clipboard through the Xray-owned `:rf.xray.fx/copy-to-clipboard` fx — paste into a GitHub README / PR description / Notion / an AI-pair chat and it renders inline. Contract:
+
+- **Host-owned gesture.** The Static Machines host dispatches `:rf.xray.static.machines/copy-mermaid` with the definition it already subscribes to; `MachineChart` stays presentation-only (no registry subscription, no data prop, no built-in toolbar) and no rendered chart DOM node is required.
+- **Static topology only.** The copied text is the registered definition's structure — state / event / guard / action *names*, never live-snapshot state, trace history, or runtime/definition `:data` values (`mermaid/emit` is value-free by contract, and its lossy-semantics caveat comment ships in the block by default). Like the path-copy event, this is not a value-egress site.
+- **Gated on projectability.** The button renders only when the selected definition passes the shared `grammar/valid-definition?` predicate — no selected/valid definition ⇒ no actionable control; the empty and malformed-definition header paths are unchanged.
+- **Honest, non-modal feedback.** The settled outcome renders as one inline `role="status"` / `aria-live="polite"` span beside the button — `Copied` on a resolved clipboard write, `Copy failed` on rejection/unavailability (the fx reports Promise settlement via `:on-success` / `:on-failure` callback events). An in-flight write shows nothing; a failed write is never reported as copied; selection change clears the span; there is no toast, no modal, no format chooser.
 
 ### 4-mode sub-strip
 
@@ -1826,20 +1833,17 @@ a flat, human-legible query-string and restored it on load via
 mount, so the round-trip's read half was already inert before this
 removal.
 
-### Not built — Copy machine as PNG / SVG / Mermaid
+### Copy machine as PNG / SVG / Mermaid — Mermaid built; PNG / SVG not built
 
-Right-click on the machine chart (or use the panel header's `⋯`
-overflow menu) surfaces a **Copy machine as…** sub-menu:
+Copy-as formats let a user drop a machine into a pull-request
+description, a design doc, a Slack thread, or an AI-pair chat.
+Inspired by Stately Visualizer's registry-style share.
 
-| Format | Output |
-|---|---|
-| **PNG** | Rasterised chart at 2x DPR, transparent background, current-state highlight included. Copied to clipboard as an image. |
-| **SVG** | Vector chart with embedded fonts (so it renders identically when pasted into a doc or a Figma frame), current-state highlight included. Copied to clipboard as `image/svg+xml`. |
-| **Mermaid text** | Markdown-friendly Mermaid block. Emitted by `day8.re-frame2-machines-viz.mermaid/emit` (lives in `tools/machines-viz/` per rf2-sqhqu). Copied as plain text. |
-
-Inspired by Stately Visualizer's registry-style share. Use cases:
-dropping a chart into a pull-request description, into a design doc,
-into a Slack thread, or onto a whiteboard during a design discussion.
+| Format | Output | Status |
+|---|---|---|
+| **Mermaid text** | Markdown-friendly Mermaid block. Emitted by `day8.re-frame2-machines-viz.mermaid/emit` (lives in `tools/machines-viz/` per rf2-sqhqu). Copied as plain text. | **Built (rf2-sxw06)** — the `Copy Mermaid` button in the Static Machines definition-detail header (see §Static Machines surface → Copy Mermaid above). This is the normal workflow for copying a registered topology; no right-click menu or `⋯` overflow menu was built, because one explicit header action needs neither. |
+| **PNG** | Rasterised chart at 2x DPR, transparent background, current-state highlight included. Copied to clipboard as an image. | Not built. |
+| **SVG** | Vector chart with embedded fonts (so it renders identically when pasted into a doc or a Figma frame), current-state highlight included. Copied to clipboard as `image/svg+xml`. | Not built. |
 
 ### No Stately compatibility
 

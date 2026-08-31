@@ -383,6 +383,9 @@
    ;; rf2-o5f5f.2 — Static Machines sub-tab subs (browse-all + per-
    ;; machine sub-mode). Composite + raw slots feeding the L4 master-
    ;; detail surface.
+   ;; rf2-sxw06 — Copy Mermaid settled-outcome feedback for one machine
+   ;; (nil for every other machine, and for an unsettled/pending copy).
+   :rf.xray.static.machines/copy-mermaid-status
    :rf.xray.static.machines/data
    :rf.xray.static.machines/rows
    :rf.xray.static.machines/search
@@ -699,6 +702,12 @@
    ;; click affordances land on a known handler rather than emitting
    ;; `:rf.warning/no-handler`.
    :rf.xray.static.machines/clear-search
+   ;; rf2-sxw06 — Copy Mermaid: the definition-detail header's one-
+   ;; gesture "registered topology → fenced ```mermaid block on the
+   ;; clipboard" action (emit + copy), and the settled-outcome recorder
+   ;; the clipboard fx's on-success/on-failure callbacks dispatch.
+   :rf.xray.static.machines/copy-mermaid
+   :rf.xray.static.machines/copy-mermaid-done
    :rf.xray.static.machines/cycle-sort
    :rf.xray.static.machines/hydrate
    :rf.xray.static.machines/open-chart-popout

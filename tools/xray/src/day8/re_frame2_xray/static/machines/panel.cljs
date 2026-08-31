@@ -30,6 +30,7 @@
     `:rf.xray.static.machines/sim-active?`            — sim on for selected machine?
     `:rf.xray.static.machines/sim-available-transitions` — picker source
     `:rf.xray.static.machines/sim-event-suggestions`  — datalist source
+    `:rf.xray.static.machines/copy-mermaid-status`    — copy feedback for a machine
 
   Events:
     `:rf.xray.static.machines/select`         — set selected-id
@@ -45,6 +46,8 @@
     `:rf.xray.static.machines/sim-step`       — fire one event into sim
     `:rf.xray.static.machines/sim-set-pending-event` — controlled input
     `:rf.xray.static.machines/sim-set-pending-data`  — controlled input
+    `:rf.xray.static.machines/copy-mermaid`          — emit + copy to clipboard
+    `:rf.xray.static.machines/copy-mermaid-done`     — record copy outcome
 
   Fxs:
     `:rf.xray.static.machines/persist-selection` — write selected-id to LS
@@ -56,6 +59,7 @@
   `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs` scopes
   subscribes / dispatches to Xray's frame."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
             [day8.re-frame2-xray.static.machines.definition-detail
@@ -135,6 +139,22 @@
       (h/normalise-sub-mode
         (get by-id machine-id h/default-sub-mode))))
 
+  ;; Copy-Mermaid feedback for ONE machine (rf2-sxw06). The db slot is a
+  ;; single `{:machine-id <mid> :status :pending|:copied|:failed}` map —
+  ;; keyed answers for any OTHER machine read nil, so a stale outcome can
+  ;; never masquerade as feedback about the machine on screen. `:pending`
+  ;; is deliberately surfaced as nil too: the header span only ever
+  ;; renders a SETTLED outcome, so an in-flight write can't be mistaken
+  ;; for a completed copy.
+  (rf/reg-sub :rf.xray.static.machines/copy-mermaid-status
+    (fn [db [_ machine-id]]
+      (let [{mid :machine-id status :status}
+            (get db :rf.xray.static.machines/copy-mermaid-status)]
+        (when (and (some? machine-id)
+                   (= mid machine-id)
+                   (contains? #{:copied :failed} status))
+          status))))
+
   ;; Composite — feeds the browse-list + detail header. Reads the
   ;; existing :rf.xray/registered-machines + machine-definitions +
   ;; machine-snapshots subs registered by panels.machine-inspector
@@ -166,7 +186,12 @@
 (defn- install-events! []
   (rf/reg-event :rf.xray.static.machines/select
     (fn [{:keys [db]} [_ machine-id]]
-      (let [next-db (assoc db :rf.xray.static.machines/selected-id machine-id)]
+      ;; Selection change also clears the Copy-Mermaid feedback span
+      ;; (rf2-sxw06) — feedback is about ONE machine's copy gesture and
+      ;; must not survive onto another machine's header.
+      (let [next-db (-> db
+                        (assoc :rf.xray.static.machines/selected-id machine-id)
+                        (dissoc :rf.xray.static.machines/copy-mermaid-status))]
         {:db next-db
          :fx [[:rf.xray.static.machines/persist-selection machine-id]]})))
 
@@ -218,6 +243,57 @@
   ;; orchestration rides the second-window UX bead.
   (rf/reg-event :rf.xray.static.machines/open-chart-popout
     (fn [{:keys [db]} [_ _machine-id]] {:db db}))
+
+  ;; ---- Copy Mermaid (rf2-sxw06) -----------------------------------------
+  ;;
+  ;; The definition-detail header's one-gesture "copy this registered
+  ;; topology as Mermaid" action. The HOST owns the gesture: the view
+  ;; passes the selected machine's definition (which it already holds)
+  ;; straight to the pure `mermaid/emit`, and the fenced markdown block
+  ;; crosses the clipboard through the existing Xray-owned
+  ;; `:rf.xray.fx/copy-to-clipboard` fx — MachineChart stays
+  ;; presentation-only and gains no registry subscription.
+  ;;
+  ;; Egress posture: the copied text is STATIC TOPOLOGY ONLY — state /
+  ;; event / guard / action NAMES from the registered definition, never
+  ;; runtime or definition `:data` values (`mermaid/emit` is value-free
+  ;; by contract; its invalid-definition diagnostic is value-free too,
+  ;; rf2-8nzxib). Like `:rf.xray/copy-path-to-clipboard`, this is NOT a
+  ;; value-egress site, so the text rides the fx directly rather than
+  ;; through `runtime/egress-value` — routing it there would `pr-str` the
+  ;; block (breaking the exact-emit contract) without ever finding a
+  ;; value to elide.
+  ;;
+  ;; `emit` throws on a definition it cannot project. The header already
+  ;; gates the control on `grammar/valid-definition?` (whose truth means
+  ;; emit cannot throw), but the handler still catches — a race between
+  ;; render and a registry mutation must land as honest `:failed`
+  ;; feedback, never as an unhandled event error.
+  (rf/reg-event :rf.xray.static.machines/copy-mermaid
+    (fn [{:keys [db]} [_ machine-id definition]]
+      (let [md (try (mermaid/emit definition) (catch :default _ nil))]
+        (if (some? md)
+          {:db (assoc db :rf.xray.static.machines/copy-mermaid-status
+                      {:machine-id machine-id :status :pending})
+           :fx [[:rf.xray.fx/copy-to-clipboard
+                 {:text       md
+                  :on-success [:rf.xray.static.machines/copy-mermaid-done
+                               machine-id :copied]
+                  :on-failure [:rf.xray.static.machines/copy-mermaid-done
+                               machine-id :failed]}]]}
+          {:db (assoc db :rf.xray.static.machines/copy-mermaid-status
+                      {:machine-id machine-id :status :failed})}))))
+
+  ;; Records the SETTLED clipboard outcome. The write is guarded on the
+  ;; machine still being selected: the async settlement can land after
+  ;; the user has moved on, and feedback about a machine no longer on
+  ;; screen must not repopulate the slot `select` just cleared.
+  (rf/reg-event :rf.xray.static.machines/copy-mermaid-done
+    (fn [{:keys [db]} [_ machine-id status]]
+      (if (= machine-id (get db :rf.xray.static.machines/selected-id))
+        {:db (assoc db :rf.xray.static.machines/copy-mermaid-status
+                    {:machine-id machine-id :status status})}
+        {:db db})))
   nil)
 
 ;; ---- public install -----------------------------------------------------
