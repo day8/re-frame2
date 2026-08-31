@@ -1323,6 +1323,16 @@ item that owned a residual. **The reflex to re-close a "reverted" item destroys 
 like tidiness.** Expect chains — a fix lands, its audit reopens for a second carrier, that fix's audit
 reopens for a third. Two or three rounds converge.
 
+**A reopen that records no finding is not yet a finding.** The rule above assumes the reopen carries its
+residual; sometimes one arrives as a bare status flip — close reason wiped, nothing appended, no new item
+filed — and then there is nothing to read and nothing to dispatch. Both reflexes are wrong: re-closing on
+the bare flip destroys a finding the reopening process may still be mid-writing, and treating the item as
+ready dispatches a worker at work nobody has named. Mark it as awaiting its finding, in the same scan-findable
+words each time, and give the writer one full pass of this loop. If nothing has landed by then, re-close,
+restoring the original close reason — the flip cleared it — and recording the reopen's emptiness alongside.
+Measured against the twelve above: two such flips in one session, distinguishable from the legitimate
+reopens around them only by the absence of any recorded residual.
+
 **Checkpoint tracker state on the heartbeat.** Many trackers auto-stage but never commit, so a long
 session's state strands locally. Commit and push it each cycle.
 
