@@ -51,7 +51,7 @@
  ;; under `test/` (deps.edn `:paths`) exercise the EXACT pure fns
  ;; `re-frame2-pair.runtime` delegates to — cascade / consequence
  ;; projections, the multi-frame resolver, the id-validation core, the
- ;; streaming queue transforms, the epoch timing + matcher, the snapshot
+ ;; epoch timing + matcher, the snapshot
  ;; scope resolver, and the orient assembler — rather than a Babashka mirror
  ;; that could drift from the shipped code (rf2-etsj8p). Run with
  ;; `shadow-cljs compile pure-test && node target/pure-test.js`.

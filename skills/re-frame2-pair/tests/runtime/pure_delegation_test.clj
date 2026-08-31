@@ -5,7 +5,7 @@
 ;;;;
 ;;;; The genuinely-pure decision logic — the cascade / consequence projections,
 ;;;; the multi-frame operating-frame resolver, the id-validation core, the
-;;;; streaming queue transforms (routing / eviction / drain), the epoch timing +
+;;;; epoch timing +
 ;;;; matcher, the snapshot-scope resolver, and the orient assembler — lives in
 ;;;; `preload/re_frame2_pair/pure.cljc` and is exercised DIRECTLY by the CLJS
 ;;;; node-test build (`tests/fixture/`, `npm run test:pure`). That is the "test
@@ -69,14 +69,10 @@
     cascade-summary              pure/cascade-summary
     consequence-from-summary     pure/consequence-from-summary
     restore-cascade-summary      pure/restore-cascade-projection
-    dispatch-trace-to-subs!      pure/dispatch-trace-to-subs
-    dispatch-epoch-to-subs!      pure/dispatch-epoch-to-subs
     epoch-elapsed-ms             pure/epoch-elapsed-ms
     epoch-matches?               pure/epoch-matches?
     attribute-pair-epoch!        pure/attribute-pair-epoch
     last-pair-epoch              pure/pick-pair-epoch
-    subscribe!                   pure/make-subscription
-    drain-subscription!          pure/drain
     all-snapshot-slices          pure/all-snapshot-slices
     snapshot-state               pure/resolve-snapshot-frames
     orient-registrar-kinds       pure/orient-registrar-kinds
@@ -90,13 +86,7 @@
             (str "runtime.cljs must define `" rt-name "`."))
         (is (form-contains? #(= pure-sym %) form)
             (str "`" rt-name "` MUST delegate to `" pure-sym
-                 "` — the SHIPPED pure helper the node-test exercises (rf2-etsj8p).")))))
-  ;; The buffer-budget defaults are pure-core aliases too.
-  (doseq [rt-name '[default-max-buffered-events default-max-buffered-bytes]]
-    (let [form (named-form rt-name)]
-      (is (and (some? form) (form-contains? #(and (symbol? %)
-                                                  (= "pure" (namespace %))) form))
-          (str "`" rt-name "` MUST alias the pure-core constant (rf2-etsj8p).")))))
+                 "` — the SHIPPED pure helper the node-test exercises (rf2-etsj8p)."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate injection — the parameterised fns must thread the LIVE session gate in
@@ -106,10 +96,6 @@
   (doseq [rt-name '[redact-sensitive-event-vector cascade-summary restore-cascade-summary]]
     (is (form-contains? #(= :allow-raw-state? %) (named-form rt-name))
         (str "`" rt-name "` MUST thread the live `:allow-raw-state?` gate into the pure fn (rf2-etsj8p)."))))
-
-(deftest privacy-gate-is-threaded-into-the-streaming-drop
-  (is (form-contains? #(= :include-sensitive? %) (named-form 'on-trace-streaming))
-      "on-trace-streaming MUST thread the live `:include-sensitive?` privacy posture into pure/streaming-drop? (rf2-etsj8p)."))
 
 (let [{:keys [fail error]} (run-tests 'pure-delegation-test)]
   (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))

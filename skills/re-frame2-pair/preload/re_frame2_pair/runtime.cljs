@@ -16,11 +16,6 @@
 ;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
 ;;;;     ordering, listener ordering is not contract.
-;;;;   - Streaming subscriptions ride those same single
-;;;;     listener slots — the listener fans matching events into per-
-;;;;     subscription queues. `subscribe!` / `drain-subscription!` /
-;;;;     `unsubscribe!` are the public surface the MCP server's
-;;;;     `subscribe` op consumes.
 ;;;;   - The `session-id` sentinel below is read by the MCP server's
 ;;;;     preload probe. A mirror is also set on
 ;;;;     `js/globalThis.__re_frame2_pair_runtime` at load time so the
@@ -38,7 +33,6 @@
 ;;;;     | MCP tool name           | Runtime fn name             |
 ;;;;     |-------------------------|-----------------------------|
 ;;;;     | `list-subscriptions`    | `sub-cache-info`            |
-;;;;     | `list-streams`          | `subscription-info`         |
 ;;;;     | `list-handlers`         | `rf/registrations`          |
 ;;;;     | `read-dom`              | `dom-read`                  |
 ;;;;     | `read-ui`               | `ui-read`                   |
@@ -47,8 +41,7 @@
 ;;;;   and both ship a thin `(…/dom-read …)` / `(…/ui-read …)` call via the
 ;;;;   same eval-form plumbing, so neither op's eval form can rot
 ;;;;   independently. `list-subscriptions` reads the live reactive sub-cache
-;;;;   via `sub-cache-info`; `list-streams` carries the streaming-tap
-;;;;   diagnostic, wrapping `subscription-info`.
+;;;;   via `sub-cache-info`.
 ;;;;
 ;;;;   An agent generating an eval form via `eval-cljs` uses the
 ;;;;   right-hand column; the same agent calling the MCP tool surface
@@ -63,10 +56,10 @@
   (:require [re-frame.core :as rf]
             ;; The genuinely-pure core of this runtime — cascade/consequence
             ;; projections, the multi-frame operating-frame resolver, the
-            ;; id-validation core, the streaming queue transforms, the epoch
+            ;; id-validation core, the epoch
             ;; timing + matcher, the snapshot-scope resolver, and the orient
             ;; assembler. The stateful/DOM wrappers below thread the live gates
-            ;; (raw-state posture, privacy posture, operating frame, frame-ids)
+            ;; (raw-state posture, operating frame, frame-ids)
             ;; into these pure fns, so the SHIPPED decision logic is exactly the
             ;; code the `:node-test` build exercises directly (rf2-etsj8p).
             [re-frame2-pair.pure :as pure]
@@ -85,11 +78,6 @@
             ;; dev-only, so requiring the tooling ns directly here is
             ;; bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
-            ;; The canonical RAW trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`) is consumed by the pure
-            ;; streaming filter (`re-frame2-pair.pure/trace-matches?`), which
-            ;; requires `re-frame.trace` itself — the runtime no longer
-            ;; references the alias directly.
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -1000,12 +988,6 @@
    consumer disposes the reaction — so a disposed sub no longer shows
    here, matching the framework's ref-counted lifecycle.
 
-   Distinct from `subscription-info` (the streaming-tap registry that
-   `subscribe` / `unsubscribe` mutate — trace/epoch/fx/error queues, NOT
-   reactive subs). The two surfaces answer different questions: this one
-   is the reactive sub-cache; that one is the MCP streaming-tap
-   diagnostic.
-
    Frame resolution mirrors every other read op — no-arg uses the
    operating frame, arity-1 takes an explicit frame-id. Returns
    `{:ok? false :reason :ambiguous-frame}` when no frame can be resolved
@@ -1199,7 +1181,7 @@
 ;; only fills while a listener is attached, so it would return EMPTY while
 ;; the ring HELD epochs — a silent-WRONG-read. The epoch
 ;; listener below drives ONLY the per-frame app-db-hash cache (a derived
-;; scalar, not a record copy) and the streaming-subs fan-out.
+;; scalar, not a record copy) and the pair-epoch attribution.
 
 (defonce ^:private pair-epochs
   ;; Frame-qualified attribution of epochs THIS skill dispatched (`:origin
@@ -1233,7 +1215,7 @@
 ;; The cache is updated whenever an epoch settles — every mutation path
 ;; (dispatch via the router, `rf/replace-frame-state!` synthetic `:rf.epoch/
 ;; db-replaced`, `rf/restore-epoch!`) produces an assembled-epoch record
-;; that arrives at `on-epoch-streaming`. We update the cache there from
+;; that arrives at `on-epoch-settled`. We update the cache there from
 ;; `(:db-after record)`. On the first read for a frame, if the slot is
 ;; absent (no epoch has fired yet for this frame), we compute it lazily
 ;; from `(rf/app-db-value frame-id)` and stash it.
@@ -1273,24 +1255,21 @@
            (swap! frame-db-hashes assoc frame-id h)
            h)))))
 
-;; The per-frame app-db-hash cache and the streaming dispatch both ride
+;; The per-frame app-db-hash cache and the pair-epoch attribution ride
 ;; the same `register-epoch-listener!` slot — combined into
-;; `on-epoch-streaming` below to keep listener ordering deterministic.
-;; The listener derives a scalar hash and fans events to subscribers; it
+;; `on-epoch-settled` below to keep listener ordering deterministic.
+;; The listener derives a scalar hash and remembers attribution; it
 ;; does NOT retain a copy of the ring (reads go straight to
 ;; `(rf/epoch-history frame-id)`).
 
-(declare on-epoch-streaming)
+(declare on-epoch-settled)
 
 (defn- ensure-epoch-listener!
   "Register the assembled-epoch listener if it isn't already. Idempotent —
-   passing the same id twice replaces (per the `:epoch` listener-stream contract).
-
-   Installs the streaming-aware listener. The streaming
-   dispatch is a no-op when no subscriptions are active, so this is
-   safe to install unconditionally."
+   passing the same id twice replaces (per the `:epoch` listener-stream
+   contract)."
   []
-  (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-streaming))
+  (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-settled))
 
 (defn epoch-history
   "Pass-through to (rf/epoch-history frame-id) — the framework's
@@ -1427,21 +1406,20 @@
 
 (defonce ^:private last-trace-id (atom 0))
 
-;; The `last-trace-id` cursor and the streaming dispatch both ride the
-;; same `register-listener!` slot — combined into `on-trace-streaming`
-;; below.
-
-(declare on-trace-streaming)
+(defn- on-trace-event
+  "Raw-trace listener — advances the `last-trace-id` cursor so
+   `last-trace-event-id` stays a monotonic `:since` anchor for
+   ring-buffer reads."
+  [ev]
+  (when-let [id (:id ev)]
+    (when (number? id) (reset! last-trace-id id))))
 
 (defn- ensure-trace-listener!
-  "Register the raw-trace listener if it isn't already.
-
-   Installs the streaming-aware listener. The streaming
-   dispatch is a no-op when no subscriptions are active, so this is
-   safe to install unconditionally — `last-trace-event-id` keeps
-   working through it."
+  "Register the raw-trace listener if it isn't already. Idempotent —
+   re-registration replaces the same listener id, and
+   `last-trace-event-id` keeps working through it."
   []
-  (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming))
+  (trace-tooling/register-listener! :re-frame2-pair on-trace-event))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
@@ -1449,263 +1427,6 @@
    (`:since` is a `:flat-only` filter; frame-id is the first positional arg)."
   []
   @last-trace-id)
-
-;; ---------------------------------------------------------------------------
-;; Streaming subscriptions
-;; ---------------------------------------------------------------------------
-;;
-;; A subscription is a server-side filtered tap on the trace bus or the
-;; epoch bus. The MCP server registers a subscription via `subscribe!`,
-;; then polls `drain-subscription!` in a tight loop to retrieve queued
-;; events between polls; each batch is pushed back to the MCP client as
-;; a `notifications/progress` notification.
-;;
-;; Why poll-from-server rather than push-from-runtime? The runtime lives
-;; in the browser tab; the only side-channel back to the MCP server is
-;; the nREPL socket (controlled by the server). Polling at ~100ms is
-;; well below the perceptual threshold for the agent loop, costs one
-;; bencode round-trip per tick, and stays correct across page reloads
-;; (a reload wipes the runtime's subscription registry along with
-;; everything else; the server's poll loop sees an empty drain + the
-;; sub-id absent from `subscription-info`, and exits cleanly).
-;;
-;; Per-subscription state:
-;;   {:id <uuid>
-;;    :topic    :trace | :epoch | :fx | :error
-;;    :filter   <filter-map>         ;; vocab depends on topic
-;;    :queue    <vector of events>   ;; appended-to by the cb, drained by the server
-;;    :queue-bytes <integer>         ;; running sum of the UTF-8 BYTE size of
-;;                                   ;; (pr-str ev) over the queued events
-;;                                   ;; (`pure/event-byte-size`; rf2-2rtt6.135)
-;;    :dropped-events <integer>      ;; events evicted because EITHER budget tripped
-;;    :dropped-bytes  <integer>      ;; UTF-8 bytes evicted alongside :dropped-events
-;;    :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
-;;                                   ;; budget that tripped LAST — surfaced verbatim
-;;                                   ;; so the AI client knows WHICH limit it should
-;;                                   ;; tune. Reset at every drain alongside the
-;;                                   ;; counters.
-;;    :created-at <ms>
-;;    :max-buffered-events <integer> ;; queue cap in events; default 500
-;;    :max-buffered-bytes  <integer>} ;; queue cap in UTF-8 bytes of pr-str;
-;;                                   ;; default 5_000_000 (~5 MB)
-;;
-;; Overflow policy (drop-oldest, byte+event budget):
-;;   On enqueue, we first append the new event, then evict from the
-;;   FRONT until BOTH budgets hold. Event-count overflow trips
-;;   `:overflow-reason :max-buffered-events`; byte overflow trips
-;;   `:overflow-reason :max-buffered-bytes`. When both trip on the
-;;   same enqueue, the more-recently-tripped budget wins (typically
-;;   bytes — a single fat event can put us over bytes while still
-;;   inside events). Drop-oldest is the only sensible policy for a
-;;   byte budget: a single fat newcomer can require evicting many
-;;   small predecessors to fit, and there's no way to know that on
-;;   entry without already having admitted it.
-;;
-;; Topic semantics:
-;;   :trace     — every event in the raw trace stream matching `:filter`
-;;                (filter map mirrors `(re-frame.trace.tooling/trace-buffer)` filter vocab —
-;;                see the trace-buffer surface). Event-bundle delivery:
-;;                per drain, matched events are grouped by
-;;                `:rf.trace/dispatch-id` and projected into one event
-;;                bundle per run (`group-by-event` shape with a
-;;                `:trace-events` slot carrying the raw events). Events
-;;                without a `:rf.trace/dispatch-id` tag (frameless
-;;                registry / lifecycle emits) NEVER ride this topic —
-;;                consumers wanting those subscribe to `:frameless`.
-;;   :epoch     — every assembled `:rf/epoch-record` matching `:filter`
-;;                (filter map mirrors `epoch-matches?` — see watch-epochs).
-;;                One event per committed epoch. `:rf/epoch-record` is
-;;                already an event-bundle by construction.
-;;   :fx        — sugar for `:topic :trace :filter {:op-type :rf.fx}` with
-;;                optional `:fx-id` and `:event-id` axes from the trace
-;;                filter vocabulary. Event-bundle delivery as for :trace.
-;;   :error     — sugar for `:topic :trace :filter {:op-type :error}`,
-;;                with `:event-id`/`:handler-id`/`:source` available.
-;;                Event-bundle delivery as for :trace.
-;;   :frameless — every trace event matching `:filter` whose
-;;                `:rf.trace/dispatch-id` tag is absent. Registration
-;;                emits, REPL evals, lifecycle outside any cascade flow
-;;                here per Spec 002 / Tool-Pair §Frameless trace events.
-;;                Single-event delivery (no cascade to bundle).
-;;
-;; The :fx and :error topics compose with axes from the trace filter
-;; vocabulary verbatim — they just default `:op-type` to `:rf.fx` /
-;; `:error` and let callers override the rest.
-;;
-;; Cascade-bundle wire format — emitted on `:trace`/`:fx`/
-;; `:error` drain ticks:
-;;
-;;   {:dispatch-id        <id>                  ;; cascade id
-;;    :frame              <frame-id or nil>
-;;    :event              <event-vector or nil> ;; from :rf.event/dispatched :tags
-;;    :dispatched         <trace-event or nil>  ;; the full :rf.event/dispatched event
-;;    :handler            <trace-event or nil>  ;; the :rf.event/run-end emit
-;;    :fx                 <trace-event or nil>  ;; :rf.fx/do-fx
-;;    :effects            [<trace-event> ...]   ;; :op-type :rf.fx (other ops)
-;;    :subs               [<trace-event> ...]   ;; :rf.sub/run + :rf.sub/skip + :rf.sub/create
-;;    :renders            [<trace-event> ...]   ;; :rf.view/render
-;;    :other              [<trace-event> ...]   ;; everything else
-;;    :trace-events       [<trace-event> ...]   ;; raw events for the cascade
-;;    :parent-dispatch-id <id or nil>}          ;; causal-parent link
-;;
-;; Mirrors the framework's `(rf/trace-buffer frame-id)` shape so an
-;; agent that already pattern-matches on the in-process per-frame
-;; trace-ring sees the same shape on the wire (per Spec 009 §Cascade
-;; projection + Tool-Pair §Reading the per-frame trace ring).
-;;
-;; Cross-frame cascade reconstruction — a cascade can fan
-;; out across frames; every emit on every frame shares the same
-;; `:rf.trace/dispatch-id`. Consumers merge by `:dispatch-id` across
-;; per-frame bundles to reconstruct the cross-frame view (per Tool-Pair
-;; §Cross-frame cascade reconstruction). The runtime emits one bundle
-;; per (frame, dispatch-id) pair per drain — the merge is the
-;; consumer's job, cheap because the key is already on each bundle.
-
-(defonce ^:private subscriptions
-  ;; sub-id -> subscription map (see above)
-  (atom {}))
-
-;; Buffer budget defaults live in `re-frame2-pair.pure` (the pure streaming
-;; core) — aliased here so any runtime-side reference resolves to the same
-;; constant the eviction transforms use.
-(def ^:private default-max-buffered-events pure/default-max-buffered-events)
-(def ^:private default-max-buffered-bytes  pure/default-max-buffered-bytes)
-
-;; ---------------------------------------------------------------------------
-;; Privacy posture for the streaming surface
-;; ---------------------------------------------------------------------------
-;;
-;; Per Spec 009 §Privacy / sensitive data: framework-published listener
-;; integrations — including the re-frame2-pair server — MUST default-suppress
-;; `:sensitive? true` trace events before forwarding to the AI surface.
-;;
-;; The trust boundary is "any trace data that leaves the browser tab and
-;; reaches the LLM-facing channel". Streaming subscriptions are how that
-;; happens in re-frame2-pair: the MCP server registers a subscription, polls
-;; `drain-subscription!`, and forwards every drained event back to the
-;; agent as a `notifications/progress` payload. The retain-N ring buffer
-;; reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit read surface;
-;; agents asking for it are making a deliberate request and the filter
-;; vocabulary already exposes `:sensitive? false` for tools that want to
-;; pre-filter (see Spec 009 §Filter vocabulary).
-;;
-;; The default is **drop**. Apps that need sensitive cascades visible to
-;; the pair tool (rare; only when the tool is itself the trust boundary)
-;; opt in explicitly via `configure-privacy!`.
-;;
-;; The flag is consulted at `on-trace-streaming` entry — before any
-;; subscription's queue sees the event. Dropped events still update the
-;; `last-trace-id` cursor (so `last-trace-event-id` keeps incrementing
-;; monotonically) and still ride `(re-frame.trace.tooling/trace-buffer)` unchanged — only
-;; the streaming dispatch is gated.
-
-(defonce ^:private privacy-config
-  ;; {:include-sensitive? bool}
-  ;; Default: false — suppress `:sensitive? true` events from the
-  ;; streaming dispatch path. See namespace docs above.
-  (atom {:include-sensitive? false}))
-
-(defn configure-privacy!
-  "Set the privacy posture for the streaming surface. Opts:
-
-     :include-sensitive?  boolean — when true, `:sensitive? true` trace
-                          events ride the streaming dispatch unchanged.
-                          Default: **false** (drop) per Spec 009 §Privacy.
-
-   Returns the merged config map. Idempotent. Use sparingly — the
-   default exists because re-frame2-pair forwards events to an LLM-facing
-   channel, and the framework's privacy contract is that sensitive
-   data does not cross that boundary by accident."
-  [{:keys [include-sensitive?] :as opts}]
-  (swap! privacy-config merge (select-keys opts [:include-sensitive?]))
-  (assoc @privacy-config :ok? true))
-
-;; The privacy drop-decision (`pure/streaming-drop?`), the topic→base-filter
-;; sugar (`pure/topic->base-filter`), the filter matcher (`pure/trace-matches?`),
-;; the frameless gate (`pure/frameless-event?`), and the byte+event eviction
-;; (`pure/event-byte-size` / `pure/evict-oldest` / `pure/enqueue`) are the pure
-;; streaming core in `re-frame2-pair.pure`. The stateful dispatchers below thread
-;; the live privacy posture in and swap the pure transforms over the
-;; `subscriptions` atom.
-
-;; ---------------------------------------------------------------------------
-;; Cascade-bundle projection
-;; ---------------------------------------------------------------------------
-;;
-;; Per Spec 009 §Event-bundle projection and Tool-Pair §Reading the
-;; per-frame trace ring, the wire-delivery unit for the streaming
-;; subscribe is the event bundle (one entry per `:rf.trace/dispatch-id`)
-;; rather than the flat per-event slice. We mirror the framework's
-;; per-frame trace-ring shape: `rf/group-by-event` projection PLUS a
-;; `:trace-events` slot carrying the raw events.
-;;
-;; The bundling happens at drain time (not enqueue), so the per-event
-;; queue's byte+event budget still works as the upstream bound — an
-;; oversized run still evicts oldest events per the documented
-;; policy. Each bundle's `:trace-events` slot carries ONLY the events
-;; that survived eviction.
-;;
-;; Frameless events (`:rf.trace/dispatch-id` tag absent) NEVER ride
-;; event-bundle topics — `dispatch-trace-to-subs!` filters them out
-;; for those topics. The `:frameless` topic exists to deliver them
-;; explicitly (Tool-Pair §Frameless trace events — live channel only).
-
-(defn- event-bundle-events
-  "Group a vector of raw trace events into event-bundle maps matching
-   the framework's `(rf/trace-buffer frame-id)` shape — the
-   `group-by-event` projection PLUS a `:trace-events` slot carrying the
-   raw events for the run. The returned vector is sorted by emission
-   order (lowest `:id` first, the order the projection returns).
-
-   Delegates the grouping entirely to `rf/group-by-event-with-events` —
-   the framework projection that keys bundles by `[frame dispatch-id]`.
-   This is load-bearing: dispatch ids are unique only WITHIN a frame
-   (the portable trace contract), so two runs sharing a dispatch id
-   across frames are distinct bundles, each carrying only its own frame's
-   raw `:trace-events`. Grouping by `:rf.trace/dispatch-id` alone would
-   merge foreign-frame events into both bundles the moment per-frame id
-   allocation lets two frames collide on a dispatch id — so reuse the
-   framework key, never re-derive a weaker one.
-
-   Events whose `:rf.trace/dispatch-id` tag is missing are NOT included
-   — the caller is expected to have filtered them upstream (event-
-   bundle topics) or routed them to the frameless channel."
-  [events]
-  (->> (rf/group-by-event-with-events events)
-       (remove #(= :ungrouped (:dispatch-id %)))
-       vec))
-
-(defn- dispatch-trace-to-subs!
-  "Fan a raw trace event into the matching trace-like subscriptions —
-   swaps the pure routing transform (`pure/dispatch-trace-to-subs`, which
-   applies the frameless gate, the topic filter matcher, and the byte+event
-   eviction budget) over the live `subscriptions` atom. Cheap when no subs
-   exist (the common path)."
-  [ev]
-  (swap! subscriptions #(pure/dispatch-trace-to-subs % ev)))
-
-(defn- dispatch-epoch-to-subs!
-  "Fan an assembled epoch record into the matching `:epoch` subscriptions —
-   swaps the pure epoch-routing transform over the live `subscriptions` atom,
-   threading `pure/epoch-matches?` as the per-sub predicate."
-  [record]
-  (swap! subscriptions #(pure/dispatch-epoch-to-subs % pure/epoch-matches? record)))
-
-(defn- on-trace-streaming
-  "Raw-trace listener that drives both the last-trace-id cursor and the
-   streaming subs dispatch.
-
-   Privacy filter: trace events stamped `:sensitive? true`
-   at the top level are dropped from the streaming dispatch by default,
-   per Spec 009 §Privacy. The `last-trace-id` cursor still advances so
-   the `since`-based ring-buffer reads remain monotonic — only
-   the LLM-facing streaming surface is gated. Opt in via
-   `(configure-privacy! {:include-sensitive? true})`."
-  [ev]
-  (when-let [id (:id ev)]
-    (when (number? id) (reset! last-trace-id id)))
-  (when-not (pure/streaming-drop? (:include-sensitive? @privacy-config) ev)
-    (dispatch-trace-to-subs! ev)))
 
 (defn- attribute-pair-epoch!
   "Assembled-epoch listener hook — the SINGLE pair-attribution point. Runs when
@@ -1721,184 +1442,17 @@
           live-ids   (into #{} (map :epoch-id) (rf/epoch-history frame-id))]
       (swap! pair-epochs pure/attribute-pair-epoch record registered live-ids))))
 
-(defn- on-epoch-streaming
+(defn- on-epoch-settled
   "Assembled-epoch listener. Drives derived state only — the per-frame
-   app-db-hash cache (a scalar, for the precheck cache-hit decision), the
-   frame-qualified pair-epoch attribution (`attribute-pair-epoch!`), and the
-   streaming-subs fan-out. It does NOT retain a copy of the epoch ring: every
+   app-db-hash cache (a scalar, for the precheck cache-hit decision) and the
+   frame-qualified pair-epoch attribution (`attribute-pair-epoch!`). It does
+   NOT retain a copy of the epoch ring: every
    epoch read hits `(rf/epoch-history frame-id)` directly, so there is no
    session-side buffer to drift."
   [record]
   (when-let [frame-id (:frame record)]
     (update-frame-db-hash! frame-id (:db-after record)))
-  (attribute-pair-epoch! record)
-  (dispatch-epoch-to-subs! record))
-
-(defn subscribe!
-  "Open a streaming subscription on the trace or epoch bus. Returns
-   `{:ok? true :sub-id <uuid>}`. Subsequent calls to
-   `drain-subscription!` return queued events matching `:filter`.
-
-   Opts:
-     :topic   :trace | :epoch | :fx | :error | :frameless  (required)
-     :filter  filter map — vocab depends on topic. See namespace docs.
-     :max-buffered-events  cap on the in-runtime queue in events.
-                           Default 500. When either budget trips, the
-                           OLDEST events are evicted (drop-oldest FIFO).
-     :max-buffered-bytes   cap on the in-runtime queue in UTF-8 BYTES of
-                           each event's `pr-str` form (rf2-2rtt6.135).
-                           Default 5_000_000 (~5 MB). Same drop-oldest
-                           policy. The two budgets are OR-combined:
-                           whichever trips first evicts.
-
-   Drop counts surface on `drain-subscription!` as `:dropped-events`
-   and `:dropped-bytes`, with `:overflow-reason` carrying the budget
-   keyword (`:max-buffered-events` or `:max-buffered-bytes`) that
-   tripped LAST. The bookkeeping reset happens on drain — each tick
-   reports the deltas since the previous tick.
-
-   Idempotency: each call returns a fresh sub-id — repeated `subscribe!`
-   calls do not share state. Use `unsubscribe!` to release.
-
-   Topic delivery shape:
-     :trace / :fx / :error — drain returns `:event-bundles [<bundle> ...]`
-                             with each bundle in the `(rf/trace-buffer
-                             frame-id)` shape (per Spec 009 §Event-bundle
-                             projection). One bundle per event per
-                             drain.
-     :epoch                — drain returns `:events [<:rf/epoch-record>
-                             ...]` unchanged.
-     :frameless            — drain returns `:events [<trace-event>
-                             ...]` for events with no
-                             `:rf.trace/dispatch-id` tag (registration
-                             emits, REPL evals, lifecycle outside any
-                             run)."
-  [{:keys [topic] :as opts}]
-  (cond
-    (not (contains? #{:trace :epoch :fx :error :frameless} topic))
-    {:ok? false :reason :unknown-topic
-     :hint "Recognised topics: :trace :epoch :fx :error :frameless"
-     :given topic}
-
-    :else
-    (let [sub-id (str (random-uuid))
-          ;; The pure subscription builder composes the topic base-filter
-          ;; and applies the buffer-budget defaults; the runtime supplies the
-          ;; load-time `js/Date.now` stamp (the one non-pure input).
-          sub    (pure/make-subscription sub-id opts (js/Date.now))]
-      ;; Make sure the upgraded listeners are wired (idempotent — same
-      ;; id, replaces the basic listeners installed by `health`).
-      (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming)
-      (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-streaming)
-      (swap! subscriptions assoc sub-id sub)
-      {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))
-
-(defn unsubscribe!
-  "Drop subscription `sub-id`. Returns `{:ok? true :sub-id ...}` even
-   if the id was unknown — callers (the MCP server's poll loop) want
-   idempotent close."
-  [sub-id]
-  (let [existed? (contains? @subscriptions sub-id)]
-    (swap! subscriptions dissoc sub-id)
-    {:ok? true :sub-id sub-id :existed? existed?}))
-
-(defn drain-subscription!
-  "Pop every queued event for `sub-id` and return them in order.
-   Returns one of two envelopes per the sub's topic:
-
-   - Event-bundle topics (`:trace`/`:fx`/`:error`):
-     `{:ok? true :sub-id ... :event-bundles [<bundle> ...] :dropped-events <n>
-       :dropped-bytes <m> :overflow-reason <kw|nil> :gone? bool}`
-     — queued raw events are grouped by `:rf.trace/dispatch-id` and
-     projected into event bundles (`group-by-event` shape with a
-     `:trace-events` slot) per Spec 009 §Event-bundle projection.
-
-   - Flat topics (`:epoch`/`:frameless`):
-     `{:ok? true :sub-id ... :events [...] :dropped-events <n>
-       :dropped-bytes <m> :overflow-reason <kw|nil> :gone? bool}`
-     — `:epoch` ships `:rf/epoch-record`s; `:frameless` ships raw
-     trace events with no `:rf.trace/dispatch-id` tag.
-
-   If the subscription doesn't exist (already unsubscribed or runtime
-   was reloaded), `:gone? true` (envelope shape: `:events []`).
-
-   The `:dropped-events`, `:dropped-bytes`, and `:overflow-reason`
-   counters report what got EVICTED from the QUEUE between drains —
-   they reset on every drain so the next tick reports the delta. AI
-   clients pattern-match on `:overflow-reason` to know which budget
-   tripped (`:max-buffered-events` or `:max-buffered-bytes`); the
-   `:dropped-bytes` figure tells them how much state they missed.
-
-   Note on event-bundle counters: `:dropped-events` counts the raw
-   trace events evicted from the queue, NOT bundles. An evicted event
-   may have left its sibling run-members in place — consumers
-   reconstructing a run should be tolerant of partially-truncated
-   bundles when `:dropped-events` is non-zero."
-  [sub-id]
-  ;; The pure `drain` computes the drained envelope (raw `:events` + the
-  ;; eviction counters + `:gone?`) and the reset subs-map in one shot; we
-  ;; swap the reset over the atom, then post-project the raw `:events` into
-  ;; `:event-bundles` for the cascade-bundle topics (the projection rides
-  ;; `rf/group-by-event-with-events`, a framework surface). `swap-vals!`
-  ;; captures the PRE-drain map so the pure drain reads the un-reset queue.
-  (let [[old _] (swap-vals! subscriptions #(second (pure/drain % sub-id)))
-        [{:keys [events topic dropped-events dropped-bytes overflow-reason gone?]} _]
-        (pure/drain old sub-id)
-        base {:ok?             true
-              :sub-id          sub-id
-              :dropped-events  dropped-events
-              :dropped-bytes   dropped-bytes
-              :overflow-reason overflow-reason
-              :gone?           gone?}]
-    (cond
-      gone?
-      (assoc base :events [])
-
-      ;; Event-bundle delivery — group raw queued trace events by
-      ;; `:rf.trace/dispatch-id` into bundles. The event-bundle topics never
-      ;; enqueue frameless events (the pure router filters them out at the
-      ;; gate), so `event-bundle-events`'s `:ungrouped`-drop is defensive.
-      (contains? #{:trace :fx :error} topic)
-      (assoc base :event-bundles (event-bundle-events events))
-
-      ;; Flat delivery — :epoch and :frameless.
-      :else
-      (assoc base :events events))))
-
-(defn subscription-info
-  "Return active STREAMING-tap subscription metadata — the trace / epoch
-   / fx / error queues opened via `subscribe!` and torn down by
-   `unsubscribe!`. Handy for diagnostics: confirm a stream is still
-   alive, inspect its queue depth / overflow-reason. Does not drain.
-
-   NOT the reactive sub-cache — for \"what reactive subscriptions are
-   currently materialised in a frame?\" use `sub-cache-info`, which
-   reads the per-frame reactive cache `snapshot`'s `:sub-cache` slice
-   reads. The MCP `list-streams` tool wraps THIS fn; the MCP
-   `list-subscriptions` tool wraps `sub-cache-info`.
-
-   Returns
-   `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes
-                       :dropped-events :dropped-bytes :overflow-reason
-                       :created-at}]}`.
-
-   `:queue-bytes` and `:dropped-bytes` are UTF-8 BYTES of each event's
-   `pr-str` form — the same ruler `:max-buffered-bytes` is enforced against
-   (`pure/event-byte-size`; rf2-2rtt6.135), so an agent comparing the two
-   is comparing like with like."
-  []
-  {:ok? true
-   :subs (mapv (fn [[sub-id sub]]
-                 {:id              sub-id
-                  :topic           (:topic sub)
-                  :filter          (:filter sub)
-                  :queue-depth     (count (:queue sub))
-                  :queue-bytes     (:queue-bytes sub 0)
-                  :dropped-events  (:dropped-events sub 0)
-                  :dropped-bytes   (:dropped-bytes  sub 0)
-                  :overflow-reason (:overflow-reason sub)
-                  :created-at      (:created-at sub)})
-               @subscriptions)})
+  (attribute-pair-epoch! record))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch correlation (Spec 009 §Dispatch correlation)
@@ -3825,8 +3379,8 @@
     {:ok? true :recording-id recording-id :existed? (some? rec)}))
 
 (defn recording-info
-  "List active / stopped recordings — diagnostic counterpart to
-   `subscription-info`. Returns `{:ok? true :recordings [{:id :status
+  "List active / stopped recordings — the recorder-registry
+   diagnostic. Returns `{:ok? true :recordings [{:id :status
    :signals :count :frames-sampled :frame :started-at :stopped-reason}]}`.
    Does not drain or stop."
   []
@@ -3887,7 +3441,7 @@
    `:rf.event/run-start` / `:rf.event/run-end` trace pair (see
    `epoch-elapsed-ms`). Filtering rides server-side so the wire
    payload shrinks before bytes cross the boundary — matters for the
-   'alert me on slow events' recipe under streaming subscriptions.
+   'find the slow events' `watch-epochs` recipe.
 
    Prefix matching uses `str` on both sides so `:cart` matches
    `:cart/apply-coupon`."
@@ -4091,7 +3645,7 @@
     :epochs     (vec (rf/epoch-history frame-id))
     ;; The trace ring is per-frame and event-bundle-shaped: this slot
     ;; delivers bundles (the storage unit), matching the event-bundle
-    ;; wire format emitted by the streaming subscribe surface (Tool-Pair
+    ;; read shape (Tool-Pair
     ;; §Reading the per-frame trace ring + Tool-Pair §`watch-epochs` /
     ;; `trace-window` consumer shape).
     :traces     (vec (trace-tooling/trace-buffer frame-id))
