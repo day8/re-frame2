@@ -37,7 +37,13 @@
    the page count is computed from. It's optional because only the paginated
    list slices (`:articles`, `:feed`, `:profile.articles`,
    `:profile.favorites`) carry it; the single-resource slices (`:article`,
-   `:profile`) have no use for it."
+   `:profile`) have no use for it.
+
+   `:slug` is the ACTIVE ROUTE IDENTITY a route-keyed slice is loading — the
+   correlation fact `reply-for-current-slug?` (comments.cljs) gates every
+   article/comments settle against, so a late reply for a slug the reader has
+   left can't overwrite the current page. Optional because only the
+   `/article/:slug`-driven slices (`:article`, `:comments`) carry it."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
@@ -45,6 +51,7 @@
    [:loaded-at      {:default nil} [:maybe :int]]
    [:attempt        {:default 0}   :int]
    [:articles-count {:optional true} :int]
+   [:slug           {:optional true} [:maybe :string]]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice
