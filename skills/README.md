@@ -30,8 +30,7 @@ edit routing here first).
 
 ## Current skills
 
-re-frame2 ships 9 skills plus a shared protocol layer
-([`shared/`](shared) — see §Layout convention), grouped by
+re-frame2 ships 9 skills, each self-contained, grouped by
 the situation they cover:
 
 ### Authoring on the CLJS reference
@@ -181,7 +180,7 @@ Both kinds of friction target the same repo and carry the tool-vs-framework
 distinction in the draft's title + body:
 
 - pair-tool friction — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
-- framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](shared/tool-pair-surfaces.md).
+- framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from the consolidated capability table in [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) (the shipped tool catalogue is [`re-frame2-pair/README.md`](re-frame2-pair/README.md)).
 
 The draft contract lives in [`re-frame2-pair-retro/SKILL.md` §Issue drafts](re-frame2-pair-retro/SKILL.md#issue-drafts).
 
@@ -220,22 +219,10 @@ Each skill subdir contains, at minimum:
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
-`re-frame2-pair/`, `shared/`, and `re-frame2-setup/` run in
+`re-frame2-pair/` and `re-frame2-setup/` run in
 `.github/workflows/test.yml` when those skill paths change;
 behavioural replay fixtures remain manual/diagnostic and are not required
 PR coverage.
-
-### `shared/` — the common protocol layer (not a skill)
-
-[`shared/`](shared) has no `SKILL.md` of its own; it is the corpus's
-common protocol layer, installed alongside the skills by the installer.
-3 leaves: [`retro-protocol.md`](shared/retro-protocol.md) (the
-diagnosis-first retrospective protocol — a security boundary,
-test-backed), [`issue-filing.md`](shared/issue-filing.md)
-(the shell-safe `gh issue` filing recipe for every consumer granting a
-`gh issue` write surface), and [`tool-pair-surfaces.md`](shared/tool-pair-surfaces.md)
-(the canonical Tool-Pair surface enumeration upstream findings route
-through).
 
 ### Leaf size discipline
 
@@ -285,8 +272,8 @@ rather than theoretical attacks.
   carries a one-line reminder that nREPL is a remote-evaluation
   surface and must stay bound to `localhost` in dev.
 - Shell-safety pattern for transcript-derived text. 2 policy
-  rules, single-sourced as a worked recipe in
-  [`shared/issue-filing.md`](shared/issue-filing.md):
+  rules, carried as a local worked recipe by every skill that files
+  (`scripts/check_skill_mcp_drift.py` pins the clauses per consumer):
   - bodies: never interpolate transcript-derived text inline
     (where `$`, `` ` ``, or `\` would expand). `Write` the body to a
     fresh, per-filing temp file in the host OS's temp directory
@@ -303,8 +290,8 @@ rather than theoretical attacks.
     from transcripts, error strings, or suggested titles, and re-read
     in the pre-emission reviewer pass.
 
-  The skill files affected are the improvement-filing skills
-  (`re-frame2-implementor`).
+  The skill files affected are the issue-filing skills
+  (`re-frame2-implementor`, `re-frame-migration`).
 
 ### Test-fixture discipline — which skills ship tests
 
@@ -317,15 +304,11 @@ conventions (leaf size discipline, single-source routing, one-level
 routing) are the test — a `tests/` dir there would test prose, not
 behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
-3 skills qualify today:
+2 skills qualify today:
 
 - [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`e2e/`, `fixture/`,
   `prompts/`, `runtime/`, `shim/`) — clause (a): the one skill driving a
   live runtime, so its surface is conventionally testable.
-- [`shared/tests/`](shared/tests) (`retro_protocol_test.clj`,
-  `tool_pair_surfaces_test.clj`, `fixtures/`, `evals/`) — clause (b):
-  `retro-protocol.md` is a security boundary; the structural tests pin
-  its load-bearing phrasings, the fixtures cover the behavioural axis.
 - [`re-frame2-setup/tests/`](re-frame2-setup/tests)
   (`setup_drift_test.clj`) — clause (b): the setup prose is a contract
   boundary with the generator template; the drift guard pins the
