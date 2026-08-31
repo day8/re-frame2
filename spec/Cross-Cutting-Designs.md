@@ -34,13 +34,13 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** Multiple skills produce structured critiques of a body of evidence — `re-frame2-pair-retro` retrospects on a `re-frame2-pair` session; `re-frame2-improver` critiques a body of re-frame2 source code; future skills will follow (error-trace retros, schema-violation post-mortems). Each shares the same workflow shape — read evidence, classify against a catalogue, route findings to the layer where the fix lives, offer fixes / draft beads only with opt-in — but each carries a *different domain catalogue*. The protocol must be extracted once so new retro-style skills inherit the discipline without re-deriving it.
 
 **Canonical home.**
-- [`skills/shared/retro-protocol.md`](../skills/shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules (consuming tool / upstream re-frame2 / the author's code / both), opt-in bead protocol, and output shape (seven slots: `Goal/Scope`, `Observed`, `Causes`, `Improvements`, `Bolder ideas`, `Bead candidates`, `Other possibilities`).
+- Retired 2026-08-31 (rf2-fqjys): the shared `skills/shared/retro-protocol.md` leaf is removed — each retro-style skill now inlines its complete workflow (diagnosis-first cadence, evidence discipline, layer routing, opt-in drafting) in its own `SKILL.md`, so there is no runtime protocol leaf to cite.
 
 **Consumers.**
 - [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
 - [`skills/re-frame2-improver/`](../skills/re-frame2-improver) — code-shaped consumer; supplies its own catalogue under `references/`.
 
-**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free.
+**The result.** The shared leaf is retired: each consumer carries the discipline inline and stays executable from the files its own package ships. A future retro-shaped skill copies the workflow shape from an existing consumer rather than loading a common leaf.
 
 ## 3. Token budgets
 
