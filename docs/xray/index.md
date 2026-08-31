@@ -17,7 +17,7 @@ Xray's main UI is built around that fact:
 - The tab strip chooses which lens you want.
 - The detail panel shows that lens for the focused epoch.
 
-When you click a row in the event spine, every tab rebinds to that same epoch. `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, `Routes`, `Resources`, `Graph`, `Frames`, and `Hicasso` stop disagreeing because they are all projections of the same record.
+When you click a row in the event spine, the six event lenses — `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` — rebind to that same epoch and stop disagreeing, because they are all projections of the same record. The other Dynamic tabs read live structure rather than the focused epoch: `Resources` mixes the registry with the observed frame's live state, and `Graph`, `Frames`, and `Hicasso` do not follow the row you pick.
 
 ## Two Modes
 
