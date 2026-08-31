@@ -133,9 +133,11 @@ The 4 categories, at a glance:
 - **Testing** (4) — `run-variant`, `snapshot-identity`, `read-a11y-violations`,
   `read-failures`.
 - **Write** (2, gated) — `register-variant`, `unregister-variant`.
-  (The former blocking recorder bridge `record-as-variant` was retired —
-  rf2-5saz7; interactive canvas recording is performed through Pair in
-  the attached CLJS runtime.)
+
+The former blocking recorder bridge `record-as-variant` was retired
+(rf2-5saz7; see [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md)
+§What's NOT in the registry); interactive canvas recording is performed
+through Pair in the attached CLJS runtime.
 
 ## File layout
 
