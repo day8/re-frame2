@@ -8,9 +8,9 @@ from the migration itself.
 
 1. **Search before filing.** `gh issue list --repo day8/re-frame2 --search
    "<keywords>"` — if an existing issue matches, reference it instead of
-   duplicating. `--search` is an inline shell argument (there is no
-   `--search-file`), so author the keywords from the safe alphabet below;
-   never paste transcript, code, or error text into it.
+   duplicating. `--search` is an inline shell argument —
+   there is no `--search-file` — so author the keywords from the safe
+   alphabet below; never paste transcript, code, or error text into it.
 2. **Compose the body with the `Write` tool** into a fresh, per-filing temp
    file (nonce-carrying `${TMPDIR:-/tmp}/…` on POSIX, `$env:TEMP\…` on
    Windows — never a fixed, predictable name). Never interpolate
