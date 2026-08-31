@@ -12,9 +12,7 @@ All are catalogued below; the
 read-side ops `read-sub` (rf2-3bu3d.7 — the validated one-shot
 subscription read, no-silent-swallow parity with `dispatch`) and
 `orient` (rf2-3bu3d.8 — the app-shape orientation summary, one
-round-trip first-contact on an unfamiliar app), the streaming-control
-diagnostic `get-stream-controls` (rf2-a0kxsb — the server-side
-resource-control read), the
+round-trip first-contact on an unfamiliar app), the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance; both grow an
@@ -68,7 +66,7 @@ full payload is genuinely needed.
 
 Every tool that ships epoch slices or events vectors —
 `snapshot` (the `:epochs` slot of each frame), `trace-window`,
-`watch-epochs`, and `subscribe` (per-tick `:events` vector) —
+and `watch-epochs` —
 applies structural dedup after diff-encoding and before the
 wire-cap check (see
 [`Principles.md` §Structural dedup](Principles.md#structural-dedup-rf2-obpa9)).
@@ -136,8 +134,8 @@ the shape is shared across re-frame2-pair-mcp and story-mcp.
 
 Every tool that ships `:rf/epoch-record` values — `dispatch`
 (trace AND settle modes, rf2-8fin7.3), `trace-window`,
-`watch-epochs`, `snapshot` (the `:epochs` slot of each frame), and
-`subscribe` (the `epoch` event-kind) — delivers whatever shape the
+`watch-epochs`, and `snapshot` (the `:epochs` slot of each frame) —
+delivers whatever shape the
 framework's app-installed `:redact-fn` produced (per [Tool-Pair §Time-travel
 §Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
 and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)).
@@ -309,10 +307,9 @@ first. Cache lifetime is the MCP server process (= one MCP
 session per the [persistent-socket principle](Principles.md#single-persistent-nrepl-socket));
 no cross-process leak, no manual invalidation.
 
-Action tools (`dispatch`, `eval-cljs`, `tail-build`) and
-streaming tools (`subscribe`, `unsubscribe`, `list-streams`,
-`get-stream-controls`) bypass the cache — their return value is the
-result of an action / a read of the volatile streaming-tap registry,
+Action tools (`dispatch`, `eval-cljs`, `tail-build`)
+bypass the cache — their return value is the
+result of an action,
 not frame state. `get-operating-frame` bypasses for the same reason:
 its resolved triple is a function of the live **frame registry** plus
 the per-session **pin**, both of which can move WITHOUT an app-db
@@ -352,7 +349,7 @@ load-bearing: each carries different recovery semantics.
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
 | **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:no-such-frame`, `:reserved-tool-frame`, `:no-new-epoch`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
-| `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
+| `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
 ### Rationale for the split
@@ -360,8 +357,8 @@ load-bearing: each carries different recovery semantics.
 **Why `:rf.error/*` and not bare for operator-gated denials?** The
 `:rf.error/*` namespace carries a distinct recovery shape: the operator
 must change a server-launch flag (`--allow-sensitive-reads`,
-`--allow-writes`, or remove a `--no-eval` opt-out) or raise an integer
-cap (`--max-concurrent-streams`) before the call will succeed. Bare
+`--allow-writes`, or remove a `--no-eval` opt-out) before the call
+will succeed. Bare
 reasons are recoverable by adjusting per-call args; `:rf.error/*`
 reasons are recoverable only by adjusting server configuration. An
 agent host that sees `:rf.error/eval-cljs-disabled` knows to surface a
@@ -687,15 +684,13 @@ CLI flags:
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot`, `get-path`, `read-sub`, `list-subscriptions :include-values`, `subscribe`, `trace-window`, `watch-epochs`), the signal recorders (`record`/`read-recording`, `watch-until`), `dispatch`'s epoch-bearing `:trace`/`:settle` modes (rf2-olvr5 / rf2-m9duxl), AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. The control-state-only diagnostics (`get-stream-controls`, `list-streams`) carry no payloads and are ungated. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot`, `get-path`, `read-sub`, `list-subscriptions :include-values`, `trace-window`, `watch-epochs`), the signal recorders (`record`/`read-recording`, `watch-until`), `dispatch`'s epoch-bearing `:trace`/`:settle` modes (rf2-olvr5 / rf2-m9duxl), AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
 ### Launch-config validation (rf2-a0kxsb)
 
-The launch flags above — plus the resource-control flags / env vars in
-[§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces)
-— are parsed against a **declared schema** (boolean flags, valued flags,
-resource-control flags, resource env vars). The parsers themselves stay
+The launch flags above are parsed against a **declared schema**
+(boolean flags, valued flags). The parsers themselves stay
 permissive (a `--*` token the server doesn't understand is plucked
 past, not fatal — node / shadow-cljs pass their own argv prelude), but a
 separate validation pass scans the same argv at boot and emits an
@@ -730,9 +725,8 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    `:include-sensitive true` is dropped before reaching the walker —
    declared-sensitive slots in `:app-db` / `:sub-cache` reads (and
    `dispatch-dry-run`'s `:db-state-after-simulation` /
-   `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel;
-   sensitive trace events / epochs are stripped from streaming
-   payloads. The `:cascade-summary` `:event-vector` slot — which copies
+   `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel.
+   The `:cascade-summary` `:event-vector` slot — which copies
    the epoch's raw `:trigger-event` — FAILS CLOSED on its ARGS: the head
    `<event-id>` keyword is retained while every arg redacts to
    `:rf/redacted` (`[:login "topsecret"]` → `[:login :rf/redacted]`),
@@ -796,113 +790,6 @@ Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx /
 rf2-g9fje). The same canonical flag name across MCP servers (rf2-2x3ql)
 gives operators one posture vocabulary.
 
-## Universal: server resource controls (streaming surfaces)
-
-Four operator-configurable integer caps bound the server's exposure
-to a runaway or hostile client of the streaming `subscribe` surface
-(rf2-3ijbl, follow-on to the rf2-7adwg MEDIUM finding). Each cap has
-a documented default, an override CLI flag (`--<name>=N`), and an
-override env var (`<ENV_NAME>=N`). CLI flags win over env vars on
-conflict. Values must be positive integers; a non-positive or
-unparseable value falls back to the default — and, since rf2-a0kxsb,
-that fall-back is **named at boot** by the launch-config validator
-(`:malformed-value` / `:malformed-env`) rather than discarded silently.
-See [§Launch-config validation](#launch-config-validation-rf2-a0kxsb).
-
-| Cap                          | Default | CLI flag                          | Env var                                          |
-|------------------------------|---------|-----------------------------------|--------------------------------------------------|
-| max-concurrent-streams       | 10      | `--max-concurrent-streams=N`      | `RE_FRAME2_PAIR_MCP_MAX_STREAMS`                 |
-| max-events-per-sec           | 100     | `--max-events-per-sec=N`          | `RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC`          |
-| abuse-overflow-threshold     | 50      | `--abuse-overflow-threshold=N`    | `RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD`    |
-| abuse-window-ms              | 10000   | `--abuse-window-ms=N`             | `RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS`             |
-
-### Concurrent-stream cap
-
-`subscribe` calls allocate a runtime-side queue + a server-side poll
-loop. The cap bounds the number of simultaneously-open streams per
-MCP session (= per server process). When the cap is reached, the
-next `subscribe` call rejects WITHOUT touching the nREPL socket:
-
-```clojure
-{:ok?    false
- :reason :rf.error/concurrent-stream-limit
- :limit  10
- :active 10
- :hint   "max-concurrent-streams cap reached. Close an existing
-          subscription (via the `unsubscribe` tool or by cancelling
-          its `tools/call`) before opening another, or raise the
-          cap with --max-concurrent-streams=N at server launch."}
-```
-
-The slot is released on every stream-termination path (client
-cancel, `unsubscribe`, `:max-events` / `:max-ms` / `:sub-gone` /
-`:rf.error/stream-abuse-detected`, probe / signal / subscribe-eval
-failure).
-
-### Per-session event rate-limit
-
-A session-wide token bucket caps the rate of progress-notification
-ticks emitted across all open streams. Refill rate = bucket capacity
-= `max-events-per-sec`. The bucket is checked once per poll cycle
-**before** the destructive drain: when a token is available the cycle
-drains + emits; when the bucket is empty the cycle is **deferred** —
-the server does NOT drain, so the runtime-side queue stays intact and
-its events ride a later cycle once a token refills. Deferral, not
-loss: no queued event is discarded by the rate cap (the runtime's own
-per-sub queue budget still bounds memory via drop-oldest if a consumer
-never catches up). The `tools/call` final summary surfaces the
-cumulative count of deferred cycles as `:rate-dropped` (omitted when
-zero) — a "cap was tripped, consider raising `--max-events-per-sec`"
-signal, not a lost-event tally.
-
-Token-bucket over leaky-bucket: streaming trace events are bursty
-by nature (one event triggers a cascade of fx + sub-runs + renders
-in one drain). Token-bucket allows brief bursts up to the cap while
-still bounding the long-run rate.
-
-### Disconnect-on-abuse heuristic
-
-Whenever a drain reports `:overflow-reason` non-nil (the runtime's
-per-sub queue evicted), the server records the overflow on a
-session-wide rolling window of length `abuse-window-ms`. When the
-count over the window exceeds `abuse-overflow-threshold`, the stream
-terminates with `:reason :rf.error/stream-abuse-detected` and a
-stderr log line. The default (50 overflows in 10s ≈ sustained
-5/sec eviction) indicates the consumer can't keep up; continuing
-the stream burns CPU + wire bandwidth.
-
-The abuse window is session-wide (not per-stream): a hostile client
-that opens one abusive stream, hits the threshold, then opens
-another starts with a non-empty window. Resetting requires either
-ending the session (closing the MCP-server process) or letting the
-window expire naturally.
-
-### Observability (rf2-a0kxsb)
-
-All three gates enforce server-side, but the controller's live state —
-effective caps, active slot count, token-bucket pressure, abuse-window
-count — was historically reachable only through the rejection envelopes
-themselves, the passive boot banner, and code-level test seams. The
-[`get-stream-controls`](#get-stream-controls) tool surfaces that state
-as a first-class read-only MCP diagnostic: it answers "why was my stream
-denied / why is it quiet / why did it terminate?" by reporting the
-controller's current beliefs. It reads the resource-control atoms
-**in-process** (no nREPL round-trip), so it answers even when the
-runtime is down — exactly when an operator is diagnosing a stalled
-stream. Cross-check its `:concurrent-streams :active` against the
-[`list-streams`](#list-streams) row count: a server `:active` with no
-matching runtime row signals a leaked server slot; the reverse signals
-a stale runtime subscription.
-
-### Symmetric with sibling DoS bounds
-
-Mirrors story-mcp's rf2-g9fje DoS-bounds shape (JSON frame size,
-timeout caps, cancellation) — same posture vocabulary across MCP
-servers: operator-configurable bounds with documented defaults,
-structured rejection envelopes, indicator-field counters on the
-result. The `:rf.error/*` keyword vocabulary stays consistent
-across the cross-MCP error surface.
-
 ## eval-cljs
 
 Evaluate a CLJS form in the connected browser runtime via
@@ -921,7 +808,7 @@ Evaluate a CLJS form in the connected browser runtime via
 ### Frame targeting (rf2-ntuzf)
 
 Every other structured op (`dispatch`, `snapshot`, `get-path`,
-`trace-window`, `watch-epochs`, `subscribe`, `replace-app-db`) accepts
+`trace-window`, `watch-epochs`, `replace-app-db`) accepts
 a `:frame` arg that targets a named frame. Pre-rf2-ntuzf `eval-cljs`
 did NOT — its form ran against the MCP server's ambient frame
 context (`:rf/default`), so `(rf/subscribe ...)` / `(rf/dispatch ...)`
@@ -1510,7 +1397,7 @@ app-db, so an unredacted dry-run could leak those to the model even
 though the `--allow-sensitive-reads` default is OFF.
 
 It is therefore governed by the SAME `--allow-sensitive-reads` posture
-as the direct-read surfaces (`snapshot` / `get-path` / `subscribe`;
+as the direct-read surfaces (`snapshot` / `get-path`;
 see §`--allow-sensitive-reads`), reusing the existing model rather than
 minting a new confirmation gate:
 
@@ -2861,8 +2748,8 @@ string that failed to parse — or read clean but was not a map, e.g.
 `"[:ms 5000]"` (rf2-e2i29). Surfaced as `isError: true` WITHOUT touching
 the nREPL socket; the error echoes the offending `:given` string. A
 malformed `stop` is rejected up front rather than silently collapsing to
-the default wall-clock window — the same honest-error posture
-`subscribe`'s `:invalid-filter-edn` adopts. `:reason :ambiguous-frame`
+the default wall-clock window — an honest-error posture rather than a
+silent fallback. `:reason :ambiguous-frame`
 when an `:app-db` / `:sub` signal needs a frame but none resolves
 (multi-frame session, no selection) — this runtime refusal rides
 `isError: true` too (rf2-5m2oi1), per the universal `:ok? false` rule,
@@ -2973,363 +2860,6 @@ malformed / zero / negative / fractional `timeout-ms`. A runtime /
 preflight rejection (no live runtime for the build) rides back via the
 shared `probe/err->result` path as an `isError` result too.
 
-## subscribe
-
-Streaming subscription on the trace or epoch bus (rf2-hq49). Push-mode
-replacement for the polling-shaped `watch-epochs` op. The MCP
-`tools/call` request stays open for the lifetime of the subscription;
-each batch of matching events is emitted as a
-`notifications/progress` notification correlated to the original call
-via `extra._meta.progressToken`. The final `tools/call` result is a
-summary `{:ok? true :sub-id :delivered N :dropped-events N
-:dropped-bytes M :overflow-reason <kw> :ticks K :reason
-<terminated-reason>}`.
-
-### Topics
-
-| Topic       | What gets pushed                                                                                                |
-|-------------|-----------------------------------------------------------------------------------------------------------------|
-| `trace`     | Every raw trace event matching `filter` — grouped into event bundles keyed by `:frame` + `:dispatch-id`; consumers may merge by `:dispatch-id` (rf2-mscih).  |
-| `epoch`     | Every assembled `:rf/epoch-record` matching `filter`. Already event-bundle-shaped by construction.                   |
-| `fx`        | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`. Event-bundle delivery as for `:trace`.            |
-| `error`     | Sugar — `topic :trace` with base filter `{:op-type :error}`. Event-bundle delivery as for `:trace`.            |
-| `frameless` | Every trace event matching `filter` whose `:rf.trace/dispatch-id` tag is absent — registration emits, REPL evals, lifecycle outside any cascade (per [Tool-Pair.md §Frameless trace events — live channel only](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only)). Single-event delivery. |
-
-User-supplied filter keys win over the topic's base filter on conflict
-— the topic is a default, not a lock. So `subscribe {:topic :fx
-:filter {:op-type :info}}` actually streams `:info` traces (the user
-filter wins). Don't do this — but the substrate doesn't refuse it.
-
-### Event-bundle wire format (rf2-mscih)
-
-On the event-bundle topics (`:trace`, `:fx`, `:error`) every
-progress payload's `:event-bundles` slot is a vector of event bundles
-keyed by `:dispatch-id`. Each bundle matches the framework's
-`(rf/trace-buffer frame-id)` shape per [spec/009 §Event-bundle projection](../../../spec/009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket)
-and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--event-bundles--flat-opt-in):
-
-```clojure
-{:dispatch-id        <id>                  ; dispatch id
- :frame              <frame-id or nil>
- :event              <event-vector or nil> ; from :rf.event/dispatched :tags
- :dispatched         <trace-event or nil>  ; full :rf.event/dispatched event
- :handler            <trace-event or nil>  ; :rf.event/run-end emit (last wins)
- :fx                 <trace-event or nil>  ; :rf.fx/do-fx
- :effects            [<trace-event> ...]   ; :op-type :rf.fx (other operations)
- :subs               [<trace-event> ...]   ; :rf.sub/run + :rf.sub/skip + :rf.sub/create
- :renders            [<trace-event> ...]   ; :rf.view/render
- :other              [<trace-event> ...]   ; everything else (errors, machine, …)
- :trace-events       [<trace-event> ...]   ; raw events for the run
- :parent-dispatch-id <id or nil>}          ; causal-parent link
-```
-
-One tick = one drain's worth of event bundles. An event bundle is the
-"atomic" delivery unit — consumers can reason about cause→effect at
-the granularity of `:dispatch-id` without re-folding flat-event
-streams (the pre-rf2-mscih posture).
-
-Each bundle is grouped by `(frame, dispatch-id)` — `:dispatch-id` is
-unique only *within* a frame, so a bundle's `:trace-events` are scoped
-to its own frame (the framework projection `group-by-event-with-events`
-keys on `[frame dispatch-id]`; consumers MUST NOT re-derive the grouping
-with a weaker `:dispatch-id`-only key). Trace-event elision is likewise
-**per-bundle-frame**: each bundle is run through the egress walker against
-*its own* `:frame`'s declared sensitive/large registry (the operating
-frame is only a fallback for genuinely frameless values). Eliding a
-foreign-frame bundle against one shared operating frame would mis-redact
-across the per-frame EP-0015 classification — the under-redaction
-direction leaks declared-sensitive slots off-box.
-
-Events with no `:rf.trace/dispatch-id` tag (registration emits, REPL
-evals, lifecycle outside any cascade) NEVER ride the event-bundle
-topics; the framework filters them at the dispatch gate. Consumers
-that need them subscribe to `:frameless` explicitly.
-
-The `:dropped-events` / `:dropped-bytes` / `:overflow-reason`
-counters on the progress payload count the raw queued events that
-were EVICTED by the byte+event budget — not event bundles. A non-zero
-`:dropped-events` means consumers reconstructing an event bundle should
-tolerate partially-truncated bundles (some of the run's
-constituent events may have aged out).
-
-### Cross-frame event reconstruction
-
-A dispatched event can fan out across frames per [spec/002 §Cross-frame
-dispatch](../../../spec/002-Frames.md). Every emit on every frame
-shares the same `:rf.trace/dispatch-id`, so the runtime emits one
-bundle per `(frame, dispatch-id)` pair per drain. Consumers that
-watch multiple frames merge by `:dispatch-id` to reconstruct the
-cross-frame view (per [Tool-Pair.md §Cross-frame run
-reconstruction](../../../spec/Tool-Pair.md#cross-frame-run-reconstruction--merge-by-dispatch-id)).
-In practice, each event bundle lives in exactly one frame (re-frame2 does
-not route a single dispatch across multiple frames per [Spec 002
-§Routing](../../../spec/002-Frames.md#routing-the-dispatch-envelope)),
-so the multi-frame view is interleaved rather than overlapping;
-`dispatch-id` ordering renders the correct turn-by-turn timeline.
-
-### Frameless channel
-
-The `:frameless` topic delivers events whose `:rf.trace/dispatch-id`
-tag is absent — registration / hot-reload / REPL emits that never
-rode a dispatch. The progress payload's load slot is
-`:events` (flat); the event-bundle shape doesn't apply (there is
-no event to bundle).
-
-Frameless events bypass every ring per [Tool-Pair.md §Frameless
-trace events](../../../spec/Tool-Pair.md#frameless-trace-events--live-channel-only)
-— they stream live to listeners only. The `:frameless` topic is the
-MCP-side surface for that live channel; consumers MUST opt in
-explicitly per the framework's "separate channel" ruling
-(rf2-g1b2m-B3).
-
-### Cursor staleness on event-bundle streams
-
-Streaming subscriptions are forward-only — there is no cursor to
-become stale. The `:rf.mcp/cursor-stale` reason value applies to
-the cursor-paginated tools (`trace-window`, `watch-epochs`) whose
-cursors key on `:epoch-id` in `epoch-history`. The event-bundle
-wire format reshape (rf2-mscih) does NOT introduce a new cursor
-surface; it changes the unit of streaming delivery and the
-per-tick payload slot.
-
-### Filter vocabulary
-
-For `topic` of `:trace`, `:fx`, or `:error`, the filter map mirrors the
-`(re-frame.core/trace-buffer opts)` filter vocabulary (rf2-97ah0).
-Recognised keys (all AND-compose; absent key means "no constraint on
-that axis"):
-
-| Key              | Match against (`ev` is the event)                                 |
-|------------------|-------------------------------------------------------------------|
-| `:operation`     | `(= operation (:operation ev))`                                   |
-| `:op-type`       | `(= op-type (:op-type ev))`                                       |
-| `:severity`      | Alias for `:op-type`, restricted to `:error` / `:warning` / `:info`. |
-| `:frame`         | `(:frame ev)` or `(get-in ev [:tags :frame])`                     |
-| `:event-id`      | `(get-in ev [:tags :rf.trace/event-id])`                          |
-| `:handler-id`    | `(get-in ev [:tags :handler-id])`                                 |
-| `:source`        | `(:source ev)` or `(get-in ev [:tags :source])` — one of `:rf/dispatch-envelope`'s `:source` enum (`:ui` / `:after-timer` / `:http` / `:repl` / `:machine-action` / `:machine-spawn` / `:fx-dispatch` / `:fx-dispatch-later` / `:always` / `:frame-init` / `:ssr-hydration` / `:test` / `:unknown` / `:other`). See [Spec-Schemas §`:rf/dispatch-envelope`](../../../spec/Spec-Schemas.md#rfdispatch-envelope). |
-| `:origin`        | `(get-in ev [:tags :rf.event/origin])` — `:app` / `:pair` / `:story` / `:test`. |
-| `:dispatch-id`   | `(get-in ev [:tags :rf.trace/dispatch-id])`                       |
-| `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
-| `:between`       | `[t0 t1]` — `(<= t0 (:time ev) t1)` host-clock ms.                |
-| `:sensitive?`    | `(:sensitive? ev)` — boolean. **Default forwarder posture:** events with `:sensitive? true` are dropped at the MCP boundary before any data reaches the agent surface (per [spec/009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The runtime stamps the flag on every trace event emitted inside a `:sensitive? true` registration's handler scope. Opt back in per-call with `include-sensitive true` (an MCP tool arg on `trace-window`, `watch-epochs`, `snapshot`, `subscribe`). Dropped count surfaces as `:dropped-sensitive` on the result / progress payload when non-zero. |
-
-For `topic :epoch`, the filter map mirrors `epoch-matches?` (same
-vocab `watch-epochs` already accepts):
-
-| Key                  | Match against (`e` is the `:rf/epoch-record`)                 |
-|----------------------|---------------------------------------------------------------|
-| `:event-id`          | `(:event-id e)`                                               |
-| `:event-id-prefix`   | `(str/starts-with? (str event-id) (str prefix))`              |
-| `:effects`           | `(some #(= effects (:fx-id %)) (:effects e))`                 |
-| `:touches-path`      | `(:db-before e)` or `(:db-after e)` carries something at path |
-| `:sub-ran`           | `(some #(or (= sub-ran (:sub-id %)) (= sub-ran (first (:query-v %)))) (:sub-runs e))` |
-| `:render`            | `(some #(= render (str (:render-key %))) (:renders e))`       |
-| `:origin`            | One of the `:rf.event/dispatched` traces has `(:tags :rf.event/origin)` = `origin`. |
-| `:frame`             | `(= frame (:frame e))`                                        |
-| `:timing-ms`         | Cascade elapsed-ms (first `:rf.event/run-start` → last `:rf.event/run-end` on `:time`) matches the threshold. Number `N` is sugar for `>= N`; strings `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` set the comparator. Epochs with no derivable timing never match (rf2-r3azh). |
-
-### Args
-
-- `topic` (string, **required**) — one of `"trace"`, `"epoch"`, `"fx"`,
-  `"error"`.
-- `filter` (object **or** string, optional) — filter map. Accepted as
-  a JSON object or an EDN-encoded string. EDN is preferred when the
-  filter carries keywords or namespaced ids (a JSON object can't
-  carry `:cart/add` natively).
-- `max-buffered-events` (integer, default `500`) — runtime-side queue
-  cap in EVENTS. OR-combined with `max-buffered-bytes` — whichever
-  budget trips first evicts. On overflow the OLDEST events are
-  evicted (drop-oldest FIFO); the count and which budget tripped
-  surface on the next progress tick as `:dropped-events` and
-  `:overflow-reason :max-buffered-events`.
-- `max-buffered-bytes` (integer, default `5_000_000` ≈ 5 MB) —
-  runtime-side queue cap in UTF-8 BYTES of each event's `pr-str`
-  form, the same unit as the wire-boundary cap. Same drop-oldest
-  policy; reports
-  `:dropped-bytes` and `:overflow-reason :max-buffered-bytes`. This
-  exists (rf2-ho4ve) because an event-count-only budget can't bound
-  memory pressure under large payloads — 500 small events fit in a
-  few KB, while 500 large events can be tens of MB. The byte budget
-  is the load-bearing bound; the event budget is a coarse backstop.
-- `poll-ms` (integer, default `100`) — server-side poll cadence. The
-  MCP server polls the runtime's drain at this interval and emits a
-  progress notification per non-empty batch.
-- `max-ms` (integer, default `0` = unbounded) — hard upper-bound on
-  how long the subscription stays open. `0` = stay open until the
-  client cancels.
-- `max-events` (integer, default `0` = unbounded) — terminate after
-  this many events have been delivered.
-- `include-sensitive` (boolean, default `false`) — opt back in to
-  forwarding events carrying `:sensitive? true`. Per [spec/009
-  §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
-  the forwarder default-drops these events at the MCP boundary; pass
-  `true` to disable the gate for this subscription. Dropped count
-  surfaces as `:dropped-sensitive` on each progress payload (when
-  non-zero) and the final summary. Honoured only under
-  `--allow-sensitive-reads`; otherwise forced `false` (rf2-c2dtu).
-- `elision` (boolean, default `true`) — apply the size/sensitive
-  elision walker (`re-frame.core/elide-wire-value`, rf2-vr2hn) to each
-  streamed event's payload **values** server-side, before the batch
-  crosses the wire — declared-`:large?` slots collapse to
-  `{:rf.size/large-elided ...}` markers and declared-`:sensitive?`
-  leaves redact to `:rf/redacted`, the same walker `snapshot` /
-  `get-path` / `record` use. Pass `false` to stream raw values;
-  honoured only under `--allow-sensitive-reads`, otherwise forced
-  `true`. **Orthogonal** to `include-sensitive`: that governs
-  whole-event drop, `elision` governs per-value walking of the events
-  that DO ride — a gate-ON caller wanting full-raw streamed events
-  passes BOTH `elision false` and `include-sensitive true`.
-- `dedup` (boolean, default `true`) — apply structural dedup
-  (rf2-obpa9) to each progress payload's `:events` vector. See
-  §Structural dedup at the top of this catalogue. The cache is
-  per-tick (each `notifications/progress` frame carries its own
-  table; no cross-tick refs). Pass `false` to skip.
-- `build` (string, default `"app"`) — shadow-cljs build id.
-
-### Returns
-
-While the subscription is open, each non-empty batch tick emits
-
-```jsonc
-{
-  "method": "notifications/progress",
-  "params": {
-    "progressToken": "<token>",  // echoed from the call's _meta
-    "progress": <tick-number>,   // monotonic, 1-based
-    "message": "{:sub-id \"...\" :event-bundles [...] :dropped-events 0 :dropped-bytes 0}",
-    "_meta": {
-      "data": {
-        "dropped-events": 0,                    // events evicted this tick
-        "dropped-bytes":  0,                    // UTF-8 bytes of pr-str evicted this tick
-        "overflow-reason": null                 // ":max-buffered-events" | ":max-buffered-bytes" | null
-      }
-    }
-  }
-}
-```
-
-`message` is an EDN-printed string carrying the event batch — the
-same shape the runtime's `drain-subscription!` returns. The
-payload-slot name reflects the topic's wire shape (rf2-mscih):
-
-- `:event-bundles` — vector of event bundles, on event-bundle topics
-  (`:trace` / `:fx` / `:error`). See §Event-bundle wire format above.
-- `:events` — flat vector, on `:epoch` (one `:rf/epoch-record` per
-  entry) and `:frameless` (one trace event per entry).
-
-Capable MCP clients can also inspect the `_meta.data` slot for the
-structured drop counts. `_meta` is used because the official MCP SDK
-preserves it in progress callbacks while stripping unknown top-level
-progress fields. `overflow-reason` carries the stringified EDN
-keyword of the budget that tripped LAST (`":max-buffered-events"` or
-`":max-buffered-bytes"` — see [`Principles.md` §Streaming subscribe
-byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)
-for the policy). `null` when no eviction happened on this tick.
-
-On termination, the `tools/call` result is
-
-```clojure
-{:ok? true
- :sub-id <uuid>
- :topic  <keyword>
- :delivered      <integer>
- :dropped-events <integer>   ; total events evicted from the runtime queue
- :dropped-bytes  <integer>   ; total bytes evicted
- :overflow-reason :max-buffered-events | :max-buffered-bytes | (key absent)
- :rate-dropped   <integer>   ; poll cycles DEFERRED by the per-session rate cap — events stayed queued for a later cycle, not lost (omitted when zero)
- :ticks     <integer>
- :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached |
-            :rf.error/stream-abuse-detected | :rf.error/drain-failed}
-```
-
-`:reason` is `:aborted` when the client cancelled the call,
-`:sub-gone` when the runtime's subscription disappeared (typically a
-full page reload, or an `unsubscribe` op fired separately),
-`:max-ms-reached` / `:max-events-reached` when the caller's
-upper-bounds fire, `:rf.error/stream-abuse-detected` when the
-session's rolling-window overflow count exceeded
-`abuse-overflow-threshold` (rf2-3ijbl — see [§Universal: server
-resource controls](#universal-server-resource-controls-streaming-surfaces)),
-or `:rf.error/drain-failed` when consecutive nREPL drain rejections
-exceeded the internal retry cap (rf2-ajhwbm — a permanently-dead
-connection, e.g. shadow-cljs restarted onto a new port mid-session).
-
-### Termination paths
-
-1. **Client cancel** — the MCP client cancels the `tools/call`. The
-   server's `extra.signal` AbortSignal fires; the poll loop notices
-   on its next tick, evaluates `unsubscribe!` against the runtime,
-   and resolves with `:reason :aborted`.
-2. **Out-of-band `unsubscribe`** — a separate MCP call to the
-   `unsubscribe` tool removes the sub from the runtime registry.
-   The next drain returns `:gone? true`; the poll loop resolves
-   with `:reason :sub-gone`.
-3. **Cap reached** — `max-ms` or `max-events` is exceeded.
-4. **Abuse detected (rf2-3ijbl)** — sustained queue overflow exceeded
-   `abuse-overflow-threshold` over `abuse-window-ms`. The stream
-   terminates with `:reason :rf.error/stream-abuse-detected` and a
-   stderr log line; the operator can raise the threshold via
-   `--abuse-overflow-threshold=N` if the workload legitimately
-   produces high overflow rates.
-5. **Dead connection (rf2-ajhwbm)** — the drain eval rejects (nREPL
-   round-trip failure) on `max-consecutive-drain-errors` (5)
-   consecutive poll cycles in a row. A single rejection is treated as
-   a transient hiccup and the loop backs off and retries; only a
-   SUSTAINED run of rejections — the signature of a connection that
-   is never coming back, e.g. shadow-cljs restarted onto a new port —
-   terminates the stream with `:reason :rf.error/drain-failed`. Any
-   successful drain in between resets the counter, so isolated blips
-   never accumulate toward the cap. Without this cap, `max-ms`
-   defaults to 0 (unbounded), so a dead connection would otherwise
-   poll (and reject) forever, leaking the concurrent-stream slot for
-   the rest of the session.
-
-### Failure modes
-
-- `:reason :unknown-topic` if `topic` is missing or not one of the
-  four. Surfaced as `isError: true`.
-- `:reason :invalid-filter-edn` if the `filter` arg was supplied as an
-  EDN string that failed to parse (rf2-5kbkl). Surfaced as
-  `isError: true` WITHOUT touching the nREPL socket or reserving a
-  stream slot; the error echoes the offending `:given` string. A
-  malformed filter is rejected up front rather than streamed as a
-  nonsense filter that would silently match nothing.
-- `:reason :runtime-not-preloaded` if the preload hasn't run.
-- `:reason :subscribe-failed` on any other failure during subscribe.
-- A runtime `subscribe!` that returns `{:ok? false …}` AFTER the stream
-  slot is reserved (e.g. `:unknown-topic`, or a future resource-cap /
-  frame-resolution refusal) releases the reserved slot and rides back with
-  `isError: true` — the failure is never shipped as a success-shaped
-  envelope (rf2-yeuqhr), per the universal `:ok? false` rule.
-- `:reason :rf.error/concurrent-stream-limit` if the session already
-  has `max-concurrent-streams` open subscriptions. Surfaced as
-  `isError: true` WITHOUT touching the nREPL socket. The error
-  envelope carries `:limit` / `:active` / `:hint` for the operator
-  to act on. See [§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces).
-
-### Diagnostics
-
-When a stream seems quiet or stalled, the `list-streams` tool
-below lists every currently-registered streaming subscription with its
-queue-depth, drop counts, and overflow-reason — without draining
-queues. Use it to confirm the sub is still alive and to check
-whether the byte / event budget is evicting under pressure.
-(For reactive subscriptions — the per-frame sub-cache — use
-`list-subscriptions` instead; it reads a different surface.)
-
-## unsubscribe
-
-Close a streaming subscription out-of-band. Idempotent — closing an
-unknown sub-id returns `{:ok? true :sub-id <id> :existed? false}`
-rather than an error. Useful when an MCP client wants to stop a
-stream without cancelling the `tools/call` directly (e.g. when the
-agent host can't propagate cancellation cleanly).
-
-**Args**: `sub-id` (string, **required**), `build` (string).
-
-**Returns**: `{:ok? true :sub-id <id> :existed? <bool>}`.
-
 ## list-subscriptions
 
 List the **live reactive subscriptions** materialised in a frame's
@@ -3338,7 +2868,7 @@ surface. Reads the **same source** the `snapshot` tool's `:sub-cache`
 slice reads (`re-frame.subs.tooling/sub-cache-snapshot`, via the
 runtime's `sub-cache` fn → the runtime's `sub-cache-info` projection),
 so the two never disagree. Routes through the same Tool-Pair sub-cache
-read surface listed in the intro, not the streaming-tap registry.
+read surface listed in the intro.
 
 The reactive cache is **ref-counted and live**: an entry appears the
 moment a view subscribes and **disappears** when the last consumer
@@ -3346,18 +2876,15 @@ disposes the reaction — so a sub that's been disposed (its view
 unmounted, no other subscribers) no longer shows up here.
 
 > **rf2-qicji — wrong-source → right-source.** Before rf2-qicji this
-> tool wrapped `re-frame2-pair.runtime/subscription-info`, which reads
-> the **streaming-tap registry** (the trace / epoch / fx / error queues
-> opened by `subscribe`), NOT the reactive sub-cache. That registry is
-> empty unless a streaming `subscribe` is open, so
+> tool wrapped the runtime's since-retired streaming-tap registry read,
+> NOT the reactive sub-cache — so
 > `list-subscriptions {frame :rf/default}` returned `{:subs []}` even
 > when the frame had live reactive subscriptions — a false-empty
 > correctness bug (live evidence: `snapshot :sub-cache` showed
 > `[["mounted?"]]` for the same frame while this tool said `[]`). The
-> fix repoints `list-subscriptions` at the reactive sub-cache; the
-> streaming-tap diagnostic kept its behaviour and moved to the
-> accurately-named [`list-streams`](#list-streams) tool. No back-compat
-> shim (pre-alpha).
+> fix repointed `list-subscriptions` at the reactive sub-cache. No
+> back-compat shim (pre-alpha). (The streaming-tap registry and its
+> diagnostic tools were later deleted outright under rf2-ahjbc.)
 
 **Args** (all optional):
 
@@ -3424,169 +2951,6 @@ rule (rf2-21vvfs).
 
 [1]: #universal-size-elision-on-app-db-slots
 [2]: ../../../spec/Tool-Pair.md#how-ai-tools-attach
-
-## list-streams
-
-Diagnostic listing of currently-registered **streaming-tap**
-subscriptions — the "what streams are open right now?" surface (the
-streaming diagnostic [`list-subscriptions`](#list-subscriptions)
-formerly carried, before rf2-qicji repointed that tool at the reactive
-sub-cache). Pure read over the runtime's `subscriptions` atom — the
-trace / epoch / fx / error / frameless queues opened by `subscribe`
-and torn down by `unsubscribe`. **Does NOT drain any queues** and does
-NOT alter the stream contents that `subscribe` will see on its next
-tick. Wraps the `re-frame2-pair.runtime/subscription-info` runtime fn
-directly (one cheap nREPL eval — no `eval-cljs` round-trip needed; the
-runtime fn keeps its historical name).
-Useful when a streaming probe seems to have gone quiet: confirm the
-sub is still registered, inspect `:queue-depth` / `:queue-bytes` for
-evidence of a stuck consumer, or check `:overflow-reason` for budget
-pressure that needs tuning on the next `subscribe` call.
-
-Unlike the other read tools, `list-streams` reads the runtime's
-internal subscription registry rather than routing through one of the
-Tool-Pair primitives listed in the intro — its peer surface is the
-streaming registry that `subscribe` / `unsubscribe` mutate, not the
-app-db-value / epoch-history / trace-buffer / sub-cache surfaces.
-
-> **NOT the reactive sub-cache.** For "what reactive subscriptions are
-> currently active in a frame?" use
-> [`list-subscriptions`](#list-subscriptions) (or `snapshot :sub-cache`)
-> — that reads the live per-frame reactive cache. `list-streams` reads
-> the MCP streaming-tap registry, a different concept entirely.
-
-**Args** (all optional):
-
-- `topic` (string, optional) — narrow to one topic. One of `"trace"`,
-  `"epoch"`, `"fx"`, `"error"`, `"frameless"`.
-- `sub-id` (string, optional) — return only the sub with this uuid
-  (the uuid returned by `subscribe`). Convenient for "is this
-  specific stream still alive?" checks.
-- `build` (string, optional, default `"app"`) — shadow-cljs build id.
-
-Both filters compose with AND: passing both `topic` and `sub-id`
-returns the sub only if it matches on both axes.
-
-**Returns**:
-
-```clojure
-{:ok? true
- :subs [{:id              <uuid-string>
-         :topic           :trace | :epoch | :fx | :error | :frameless
-         :filter          <filter-map-as-supplied-to-subscribe>
-         :queue-depth     <integer>       ; events buffered server-side
-         :queue-bytes     <integer>       ; UTF-8 bytes of pr-str buffered server-side
-         :dropped-events  <integer>       ; cumulative drops by event-budget
-         :dropped-bytes   <integer>       ; cumulative drops by byte-budget
-         :overflow-reason :max-buffered-events | :max-buffered-bytes | nil
-         :created-at      <ms-since-epoch>}
-        ...]}
-```
-
-`:subs` is an empty vector when no streams are open (or when the
-filters match nothing) — never `:ok? false` for the empty case. Genuine
-emptiness is the runtime's OWN `{:ok? true :subs []}` MAP. A **blank /
-non-map** eval is NOT emptiness (rf2-21vvfs): on the very tool that
-diagnoses a dead / quiet stream, a degraded read (the browser tab closed
-mid-race) surfaces as `{:ok? false :reason :unexpected-shape :value …}`
-with `isError: true` — never a fabricated `{:ok? true :subs []}` reporting
-a false-clean "zero streams". A
-non-nil `:overflow-reason` is the load-bearing signal: the queue has
-been evicting older events under the byte or event budget configured
-on its `subscribe` call. Tune `max-buffered-events` /
-`max-buffered-bytes` on the next `subscribe` call when this fires
-unexpectedly; see `subscribe` above for the budget vocabulary and
-[`Principles.md` §Streaming subscribe byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)
-for the policy.
-
-The output is **not** routed through the universal dedup / elision /
-cache pipeline at the top of this catalogue — the payload is
-already a small flat vector of metadata records (no `:app-db`
-slices, no event vectors), so the wire-cap is the only universal
-that applies. `list-streams` does NOT carry sensitive event
-bodies; only registration metadata crosses the wire.
-
-`:reason :runtime-not-preloaded` if the preload hasn't run;
-`:reason :unexpected-shape` on a blank/non-map degraded eval (see above);
-`:reason :list-streams-failed` (with `:message`) on any other
-failure. All ride `isError: true` per the universal `:ok? false` rule
-(rf2-21vvfs).
-
-## get-stream-controls
-
-Report the **server-side** streaming resource-control state (rf2-a0kxsb)
-— the "why was my stream denied / why is it quiet / why did it
-terminate?" diagnostic. Where [`list-streams`](#list-streams) reads the
-**runtime** streaming-tap registry (what trace/epoch/fx streams are open
-in the browser), `get-stream-controls` reports what the **server's
-resource controller** currently believes: the effective caps, the active
-slot count versus the limit, the token-bucket pressure, and the
-abuse-window count versus the threshold (see
-[§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces)).
-
-Reads the resource-control atoms **in-process** — **no nREPL
-round-trip** — so it answers even when the runtime is down (exactly when
-an operator is most likely diagnosing a denied or stalled stream). It is
-the only read tool whose `:openWorldHint` is `false`: the state is
-server-local, the read never leaves the process.
-
-Because it needs no connection, the server dispatches it at the
-**pre-connection** boundary (rf2-6amhbt) — BEFORE `ensure-connection!`,
-symmetric with the unknown-tool (rf2-4mc6q1) and gated-write
-(rf2-wz66k7) pre-connection guards. So on a stock / degraded install with
-no nREPL port it returns its `:ok? true` payload rather than the shared
-`:nrepl-port-not-found` discovery error — the "answers even when the
-runtime is down" claim holds at the real MCP boundary, not merely at the
-tool-body layer. `get-re-frame2-pair-instructions` shares this
-closed-world pre-connection dispatch.
-
-**Privacy**: the payload is control state only — caps, counts, bucket
-pressure. No event payloads, no app-db data, so it is unconditionally
-safe (no `--allow-sensitive-reads` gate).
-
-**Args** (all optional):
-
-- `build` (string, optional) — accepted for shape uniformity; ignored
-  (the state is server-local, not per-build).
-
-**Returns**:
-
-```clojure
-{:ok?    true
- :config {:max-concurrent-streams   10
-          :max-events-per-sec       100
-          :abuse-overflow-threshold 50
-          :abuse-window-ms          10000}
- :concurrent-streams {:active       <integer>
-                      :limit        <integer>
-                      :at-capacity? <bool>}     ; true ⇒ next subscribe is denied
- :rate-limit {:capacity     <integer>           ; = :max-events-per-sec
-              :tokens       <float>             ; tokens remaining in the bucket
-              :initialized? <bool>              ; false until the first poll cycle
-              :throttling?  <bool>}             ; true ⇒ < 1 token, next cycle defers
- :abuse-window {:count     <integer>            ; overflows in the rolling window
-                :threshold <integer>            ; = :abuse-overflow-threshold
-                :window-ms <integer>            ; = :abuse-window-ms
-                :tripped?  <bool>}              ; true ⇒ count exceeded threshold
- :cross-check <hint-string>}
-```
-
-**Cross-check with `list-streams`**: compare `:concurrent-streams
-:active` here against the `list-streams` row count. They SHOULD agree.
-A server `:active` with NO matching `list-streams` row signals a
-**leaked server slot** (a stream that died without releasing its slot);
-the reverse signals a **stale runtime subscription**. `get-stream-controls`
-reports the server count and the cross-check hint but does NOT call the
-runtime itself (that would re-introduce the nREPL dependency it exists
-to avoid) — run `list-streams` to complete the cross-check.
-
-The token bucket is **lazily initialised** on the first poll cycle, so
-on a fresh session `:rate-limit :initialized?` is `false` and `:tokens`
-reports the full capacity (the lazy-init state) rather than a confusing
-`nil`.
-
-Always `:ok? true` — there is no failure mode for an in-process atom
-read.
 
 ## handler-meta
 
@@ -3910,7 +3274,7 @@ traps an agent in.
 ### Why these ship (rf2-zomfq)
 
 re-frame2 is multi-frame (Spec 002). Every frame-targeted op (`dispatch`,
-`snapshot`, `get-path`, `subscribe`, `list-subscriptions`, …) resolves an
+`snapshot`, `get-path`, `list-subscriptions`, …) resolves an
 *operating frame*: explicit per-call `frame` (tier 1) → **session pin
 (tier 2)** → sole-registered frame (tier 3) → nil (tier 4, ambiguous).
 When two-plus frames are registered and the call omits `frame` and no
@@ -4057,12 +3421,12 @@ idempotent-read-only annotation set.
 Agent-onboarding text (rf2-fnpqg). Returns inline prose: a
 `## Routing rules` section of six rules naming which tool to reach
 for at each decision, then the conventions — the EDN posture, the
-`:origin :pair` tagged-mutation convention, the streaming
-`subscribe` semantics, and the wire-boundary pipeline (precheck →
+`:origin :pair` tagged-mutation convention, and the wire-boundary
+pipeline (precheck →
 elision → diff-encode → dedup → cap).
 
 **It does not enumerate the tools** (rf2-wyza). It used to — a
-33-entry `## Tool catalogue` that was 75% of the blob and the only
+per-tool `## Tool catalogue` that was 75% of the blob and the only
 section indexed by the tool count, leaving 112 tokens of margin under
 the wire cap. That enumeration duplicated the `tools/list`
 descriptors an agent already holds from the handshake, and a name
@@ -4082,7 +3446,7 @@ the call is one MCP frame and zero socket bytes. The cache layer
 (`cache.cljs`) marks this tool `cacheable? true` since the text is
 a pure-data function of the bundle.
 
-Like `get-stream-controls`, it is a **closed-world** tool: the server
+It is a **closed-world** tool: the server
 dispatches it at the **pre-connection** boundary (rf2-6amhbt), BEFORE
 `ensure-connection!`, so an agent orienting on a fresh / degraded session
 with no shadow build running gets the onboarding text rather than a
@@ -4100,8 +3464,7 @@ with no shadow build running gets the onboarding text rather than a
 
 The `:text` slot is a single string the agent host renders
 verbatim. It carries no `:rf.size/large-elided` markers (no app-db
-slot), no `:rf.mcp/dedup-table` (no repeated subtrees), and no
-streaming machinery — just text.
+slot) and no `:rf.mcp/dedup-table` (no repeated subtrees) — just text.
 
 Maintenance: the text lives in
 `tools/get_re_frame2_pair_instructions.cljs` as the `instructions-text` def.

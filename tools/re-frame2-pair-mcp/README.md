@@ -56,18 +56,14 @@ cljs-eval compile.
 | `record`       | _(new — no bash equivalent)_ | First-class **signal recorder** (rf2-zo4b9): install a read-only rAF observer over a heterogeneous signal-set (`:app-db` path, `:sub`, `:dom`, `:focus`), return immediately with a `:recording-id`, and let a human interact. Records each *change* (deduped) until a `stop` condition (`:ms` / `:changes` / `:pred`) trips. The canonical move for intermittent / human-in-the-loop bugs. Read-only by construction. |
 | `read-recording`| _(new — no bash equivalent)_ | Read back a recording's change-log (rf2-zo4b9), paired with `record`. `drain` returns-and-clears the buffer (poll→consume→repeat live-watch); `stop` tears the recording down after reading. |
 | `watch-until`  | _(new — no bash equivalent)_ | Block until a data **predicate** over a signal-set holds (rf2-zo4b9) — the blocking counterpart to `record` ("wait until focus lands on the modal" / "wait until `[:upload :status]` flips to `:done`"). Server-polls a cheap runtime read on a ~100ms cadence until the condition trips or `timeout-ms` (default 30000) elapses. |
-| `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
-| `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
 | `list-subscriptions` | _(new — no bash equivalent)_ | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `frame` / `include-values`. |
-| `list-streams` | _(new — no bash equivalent)_ | List active **streaming-tap** subscriptions with per-sub queue depth, drop counts, and `:overflow-reason`. Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps `subscription-info` directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. (rf2-qicji: the streaming diagnostic `list-subscriptions` formerly carried.) |
-| `get-stream-controls` | _(new — no bash equivalent)_ | Report the **server-side** streaming resource-control state (rf2-a0kxsb): effective caps, active stream slots vs limit, token-bucket pressure, and abuse-window count vs threshold. The diagnostic for "why was my stream denied / quiet / terminated?". Reads the server's resource-control atoms IN-PROCESS — no nREPL round-trip — so it answers even when the runtime is down. Complements `list-streams` (which reads the runtime tap registry); cross-check the two `:active` counts to spot a leaked server slot or a stale runtime subscription. Control state only, no payloads — ungated. |
 | `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.mcp/source-uri` jump-to-editor link (rf2-pctf8). Fifteen supported kinds — the closed v1 registrar set: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`, `frame`, `route`, `flow`, `head`, `error-projector`, `resource`, `mutation`, `resource-scope`, `machine` (`interceptor` is the EP-0022 full-context registrar; the three resource kinds are EP-0016). See [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) for the authoritative per-kind detail. |
 | `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same fifteen supported kinds as `handler-meta`. |
 | `describe-image` | _(new — no bash equivalent)_ | Describe the image generation installed for a frame: composed image ids, registered kinds, per-kind counts, and optional registration provenance. |
 | `set-operating-frame` | _(new — no bash equivalent)_ | Pin the session's **operating frame** so frame-targeted ops resolve to it without a per-call `frame` (rf2-zomfq). The public address is the **frame** id (EP-0023's `image -> frame -> event stream` model; the old `(realm, frame)` two-part address collapses to one public frame-id space). The escape from `:ambiguous-frame` in multi-frame apps (tier 2 of the resolution table). Validates the frame-id is registered — unknown → `:reason :no-such-frame`. There is no public realm pin. |
 | `reset-operating-frame` | _(new — no bash equivalent)_ | Clear the session's operating-frame pin (rf2-zomfq); it also clears the runtime's internal installation-container pin. Subsequent ops resolve at tier 3 / 4 again. Returns the post-reset map. |
 | `get-operating-frame` | _(new — no bash equivalent)_ | Report the operating-frame state (rf2-zomfq) — `:frames` (all registered), `:selected` (session pin), `:operating` (resolved frame; `nil` = ambiguous), plus the **labeled-internal installation boundary** (EP-0023 §Surface dispositions — implementation structure, not the central model): `:realms` (internal installation-container ids), `:operating-realm` (the container tier-3 scopes to), and `:selected-realm` (tier-2 container pin). A single-realm app reports `:realms [:rf.realm/default]`. (The per-frame `:frame-realms` map was removed under rf2-70owfr — the single default realm makes it informationless.) Pure read. |
-| `get-re-frame2-pair-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for re-frame2-pair-mcp (rf2-fnpqg): six routing rules naming which tool to reach for at each decision, then the EDN posture, tagged-mutation conventions, streaming subscribe semantics, wire-boundary pipeline. It does **not** enumerate the tools (rf2-wyza) — `tools/list` ships every descriptor at handshake and the `:unknown-tool` hint carries the live name list; the routing rules add the cross-tool judgement no single descriptor can. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
+| `get-re-frame2-pair-instructions` | _(new — no bash equivalent)_ | Return the agent-onboarding prose for re-frame2-pair-mcp (rf2-fnpqg): six routing rules naming which tool to reach for at each decision, then the EDN posture, tagged-mutation conventions, wire-boundary pipeline. It does **not** enumerate the tools (rf2-wyza) — `tools/list` ships every descriptor at handshake and the `:unknown-tool` hint carries the live name list; the routing rules add the cross-tool judgement no single descriptor can. Inline text, no nREPL round-trip — call at session start to orient. Mirrors story-mcp's `get-story-instructions`. |
 
 ## Quick start
 
@@ -165,7 +161,7 @@ from (highest precedence first):
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
-| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot` / `get-path` / `read-sub` / `list-subscriptions :include-values` / `subscribe` / `trace-window` / `watch-epochs`), the signal recorders (`record` / `read-recording` / `watch-until`), `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 / rf2-m9duxl), and `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
+| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot` / `get-path` / `read-sub` / `list-subscriptions :include-values` / `trace-window` / `watch-epochs`), the signal recorders (`record` / `read-recording` / `watch-until`), `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 / rf2-m9duxl), and `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
 | `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe. Only consulted at port-discovery step 4; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
@@ -258,9 +254,6 @@ app's state, so all of them honour the same gate:
   `re-frame.core/projected-record`, whose app-db sensitive axis the
   per-call `:include-sensitive` governs. (These have no `:elision` knob —
   they egress whole records, not per-slot values.)
-- Streaming — `subscribe`: top-level `:sensitive? true` events
-  default-drop (opt back in with `:include-sensitive`), and the events
-  that ride are per-value walked (`:elision`, default on).
 - Signal recorders — `record` / `read-recording` and `watch-until`
   (rf2-8fin7.2): the `:app-db` / `:sub` sample values are walked before
   entering `read-recording` or returning as `:sample` / `:last-sample`.
@@ -271,10 +264,8 @@ app's state, so all of them honour the same gate:
   `--allow-writes`-gated.
 
 The reserved-frame tap surface (`app-db-reset!`, below) default-elides
-its `:previous` / `:next` payloads under the same posture. The
-control-state-only diagnostics (`get-stream-controls`, `list-streams`)
-carry no app-db / event payloads, so they are unconditionally safe — no
-gate. Spec 009 §Privacy mandates default-suppression:
+its `:previous` / `:next` payloads under the same posture.
+Spec 009 §Privacy mandates default-suppression:
 sensitive slots redact and large slots elide before any payload crosses
 the LLM-facing wire. Published builds ship with the gate off:
 
@@ -487,7 +478,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `replace-app-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `replace-app-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
 
 ## Development
 
@@ -576,15 +567,15 @@ the surface:
 | Layer | Server | Tools |
 |---|---|---|
 | Browser substrate | [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Click, type, navigate, screenshot, viewport |
-| re-frame2 runtime | **re-frame2-pair-mcp** (this artefact) | `dispatch`, `snapshot`, `get-path`, `subscribe`, `eval-cljs`, … |
+| re-frame2 runtime | **re-frame2-pair-mcp** (this artefact) | `dispatch`, `snapshot`, `get-path`, `watch-epochs`, `eval-cljs`, … |
 
 Browser-substrate ops and re-frame2-runtime ops are different
 contracts, and bundling them into one server would force every
 re-frame2 developer to take on the heavyweight Chromium dep just to
 read `app-db`.
 
-Example session: the browser MCP clicks a button → re-frame2-pair-mcp's
-`subscribe` receives the resulting `:rf/epoch-record` → the agent
+Example session: the browser MCP clicks a button → a
+`watch-epochs` poll returns the resulting `:rf/epoch-record` → the agent
 inspects the new app-db slice via `get-path`. Each server stays
 single-purpose; the agent host glues them at the workflow level.
 
@@ -592,20 +583,19 @@ single-purpose; the agent host glues them at the workflow level.
 
 v1 posture: single-agent per session. Today's re-frame2-pair-mcp assumes
 one agent host (Claude Code, Cursor, or Copilot) per running server
-process. The shared mutable state — the nREPL connection, the
-per-session response cache (`cache.cljs`), and the active
-subscription registry — is not partitioned by agent.
+process. The shared mutable state — the nREPL connection and the
+per-session response cache (`cache.cljs`) — is not partitioned by
+agent.
 
 Two agents attaching to the same re-frame2-pair-mcp instance simultaneously
 work today (no lock-out), but they will see each other's
 side-effects: a `dispatch` from agent A may show up in agent B's
-`watch-epochs` poll; a `subscribe` from agent A shows up in
-agent B's `list-streams`. For pre-alpha this is the documented
+`watch-epochs` poll. For pre-alpha this is the documented
 behaviour, not a bug — single-agent is the expected workflow.
 
 v2 sketch (not implemented; deferred). Multi-agent semantics
 would need: agent-scoped session ids on every `tools/call`,
-per-agent subscription tables, optional lock-out on mutating ops
+and optional lock-out on mutating ops
 (`dispatch` with `:trace` mode + `eval-cljs` + `tail-build`), and
 either per-agent response caches or a shared cache keyed by the
 agent's request hash. The cache layer (`cache.cljs`) already keys
@@ -622,9 +612,9 @@ multiple concurrent clients.
 Status: deferred to a future drop. Playwright MCP can record a
 session (every click + viewport state) into a replayable artefact;
 re-frame2-pair-mcp has no peer surface today. The existing surfaces give
-agents push-mode visibility (`subscribe`) and pull-mode replay over
-the epoch ring (`watch-epochs`, `trace-window`), but neither
-persists across server lifetimes.
+agents pull-mode replay over
+the epoch ring (`watch-epochs`, `trace-window`), but that does not
+persist across server lifetimes.
 
 v2 sketch (not implemented). Two paired tools would round it
 out:

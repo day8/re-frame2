@@ -278,47 +278,6 @@
   map (see `Overflow`)."
   [:map {:closed true} [:rf.mcp/cache-hit CacheHitBody]])
 
-(def ReFrame2PairProgressNotificationParams
-  "Canonical `notifications/progress` params shape for re-frame2-pair-mcp's
-  `subscribe` streaming tool (per `tools/subscribe.cljs/
-  progress-payload`).
-
-  The MCP envelope shape is:
-
-      {:method \"notifications/progress\"
-       :params {:progressToken <opaque>          ;; echoed from caller's _meta
-                :progress      <tick :int>        ;; monotonically increasing
-                :message       <edn-string>       ;; EDN-printed batch
-                :_meta        {:data {:dropped-events  :int
-                                      :dropped-bytes   :int
-                                      :overflow-reason [:maybe :string]}}}}
-
-  `:dropped-events` / `:dropped-bytes` ride non-negative; the runtime
-  emits them on every tick (zero values are valid — the slot is the
-  load-bearing shape). `:overflow-reason` is the `pr-str` of the
-  runtime sentinel keyword (`:max-buffered-events` /
-  `:max-buffered-bytes`) or null when no overflow tripped
-  this tick.
-
-  Pinned cross-server today as a re-frame2-pair-mcp-only shape; if a future
-  MCP server ships a `subscribe`/`unsubscribe` pair (per NAMING.md),
-  its emit MUST satisfy this schema or extend it as a `[:or ...]`
-  (same posture as `ReFrame2PairOverflowBody`)."
-  [:map
-   {:closed false}
-   [:progressToken :any]                          ;; opaque per MCP spec
-   [:progress      :int]
-   [:message       :string]
-   [:_meta
-    [:map
-     {:closed false}
-     [:data
-      [:map
-       {:closed false}
-       [:dropped-events nat-int?]
-       [:dropped-bytes  nat-int?]
-       [:overflow-reason [:maybe :string]]]]]]])
-
 (def CursorStaleResult
   "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
   signals a cursor no longer addresses a valid position. The canonical

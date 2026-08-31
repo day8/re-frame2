@@ -71,10 +71,6 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Final-fallback build id passed to `cljs-eval`. See §Build-id resolution below for the full precedence ladder. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
-| `RE_FRAME2_PAIR_MCP_MAX_STREAMS` | `10` | Max concurrent open streaming subscriptions per session (rf2-3ijbl). |
-| `RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC` | `100` | Per-session rate-limit on progress-notification ticks (rf2-3ijbl). |
-| `RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD` | `50` | Overflow events over the rolling window beyond which a stream is terminated for abuse (rf2-3ijbl). |
-| `RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS` | `10000` | Rolling-window length for abuse detection, in milliseconds (rf2-3ijbl). |
 
 ### Build-id resolution
 
@@ -185,32 +181,24 @@ session; this cache memoises only the resolved build-id.
 | Flag | Default | Purpose |
 |---|---|---|
 | `--no-eval`               | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-sensitive-reads` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--allow-writes` | OFF | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection), rf2-ee38b.18. Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
-| `--max-concurrent-streams=N` | `10` | Resource control: cap concurrent open streaming subscriptions per session (rf2-3ijbl). CLI value wins over the matching env var. |
-| `--max-events-per-sec=N` | `100` | Resource control: token-bucket rate-limit on progress-notification ticks emitted across all open streams (rf2-3ijbl). Checked before the destructive drain: a denied cycle is deferred (the runtime queue is preserved for a later cycle, no event loss — rf2-uvfph) and tallied as `:rate-dropped` on the final summary. |
-| `--abuse-overflow-threshold=N` | `50` | Resource control: rolling-window overflow count beyond which the offending stream terminates with `:reason :rf.error/stream-abuse-detected` (rf2-3ijbl). |
-| `--abuse-window-ms=N` | `10000` | Resource control: abuse-detection window length in milliseconds (rf2-3ijbl). |
 
-Boolean flags + integer caps pass after the binary name:
+Flags pass after the binary name:
 
 ```json
 {
   "mcpServers": {
     "re-frame2-pair": {
       "command": "re-frame2-pair-mcp",
-      "args": ["--no-eval", "--allow-sensitive-reads",
-               "--max-concurrent-streams=20",
-               "--max-events-per-sec=200"]
+      "args": ["--no-eval", "--allow-sensitive-reads"]
     }
   }
 }
 ```
 
 The normative contract for both gates lives in
-[`003-Tool-Catalogue.md` §Universal: server launch flags](./003-Tool-Catalogue.md#universal-server-launch-flags);
-the resource-control caps live in
-[`003-Tool-Catalogue.md` §Universal: server resource controls](./003-Tool-Catalogue.md#universal-server-resource-controls-streaming-surfaces).
+[`003-Tool-Catalogue.md` §Universal: server launch flags](./003-Tool-Catalogue.md#universal-server-launch-flags).
 
 ### nREPL port discovery
 
@@ -289,10 +277,7 @@ Argument schemas and result shapes are specified there.
 | `record` | First-class **signal recorder** (rf2-zo4b9) — install a read-only observer over a signal-set (`:app-db [path]` / `:sub [query-v]` / `:dom "sel"` / `:focus true`) with a stop condition (`:ms` / `:changes` / `:pred`), let the human interact, then read the change-log back. Returns immediately with a `:recording-id`; the runtime samples each signal per animation frame, records each change with a timestamp, dedups, and tears itself down at the stop condition — the rAF/dedup/teardown footguns solved once. The canonical move for intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing race). |
 | `read-recording` | Read back a recording's change-log (rf2-zo4b9) — paired with `record`. `drain true` consumes the buffered entries (the live-watch poll→consume→repeat idiom); `stop true` reads-and-closes. Returns `:status` + per-change `:entries` with `:t` timestamps + rAF `:frame` counters. |
 | `watch-until` | Block until a **predicate over a signal holds** (rf2-zo4b9) — the blocking counterpart to `record` ("wait until `[:upload :status]` flips to `:done`"). Server-polls (~100 ms, like `tail-build`) until the data predicate (`{:signal 0 :equals <v>}` / `:changed` / `:path` / `:contains`) holds or `timeout-ms` elapses. Returns the satisfying `:sample`, or `:reason :watch-timeout` with the final `:last-sample`. |
-| `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
-| `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
 | `list-subscriptions` | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `include-values` adds value + ref-count. |
-| `list-streams` | Diagnostic peer for `subscribe` / `unsubscribe` — "what streaming taps are open?" snapshot of the active streaming-subscription set (rf2-qicji; the streaming diagnostic `list-subscriptions` formerly carried, wrapping `subscription-info`). |
 | `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Fifteen accepted kinds: the fourteen registrar-backed kinds (event, sub, fx, cofx, interceptor, view, frame, route, flow, head, error-projector, resource, mutation, resource-scope — the three resources-artefact kinds are EP-0016 / rf2-f8s9g6; `interceptor` is EP-0022) plus the virtual `machine` kind. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
 | `list-handlers` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same fifteen accepted kinds as `handler-meta`: fourteen registrar-backed kinds plus the virtual `machine` kind (rf2-pctf8; renamed from `registry-list` per rf2-4y595). |
 | `get-re-frame2-pair-instructions` | Returns the agent-onboarding text — how re-frame2-pair connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |
@@ -386,7 +371,6 @@ analogues. Listed here for reference:
 | `re-frame2-pair.runtime/watch-epochs` | preload/re_frame2_pair/runtime.cljs | Poll for epochs after id. |
 | `re-frame2-pair.runtime/probe` | preload/re_frame2_pair/runtime.cljs | Hot-reload landed signal. |
 | `re-frame2-pair.runtime/snapshot-state` | preload/re_frame2_pair/runtime.cljs | Per-frame slice composer fed by `:include` / `:frames` opts; backs the `snapshot` MCP tool. |
-| `re-frame2-pair.runtime/subscribe!` / `drain-subscription!` / `unsubscribe!` | preload/re_frame2_pair/runtime.cljs | Per-subscription filtered queue on the trace + epoch bus; backs the `subscribe` MCP tool (rf2-hq49). |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
 | `:rf.event/origin :pair` (in event tags) | framework | The pair tool's dispatches surface in the trace stream distinguishably. |
@@ -406,7 +390,6 @@ identical between the two surfaces.
 | `watch-epochs.sh` | `watch-epochs` |
 | `tail-build.sh` | `tail-build` |
 | _(none — MCP-only)_ | `snapshot` |
-| _(none — MCP-only)_ | `subscribe` / `unsubscribe` |
 
 The `snapshot` mega-op has no bash equivalent — it's a coarse-grained
 composition of the existing per-slice runtime readers, shipped as
@@ -446,10 +429,7 @@ vocabulary changes.
   [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); there are no
   hidden tools, no internal-only endpoints.
 - **No raw streaming transport.** MCP isn't a streaming protocol per
-  se. The streaming-shaped tools (`subscribe`, `unsubscribe`, rf2-hq49)
-  layer over MCP's `notifications/progress` mechanism: the server polls
-  the runtime's drain at `poll-ms` and emits one progress notification
-  per non-empty batch. The poll cadence is well below the agent loop's
-  perceptual threshold; the `tools/call` stays open for the lifetime
-  of the subscription and resolves on cancel / `unsubscribe` /
-  caller-supplied caps.
+  se, and this server ships no push channel: every observation arrives
+  as a completed tool result (the push-mode `subscribe` / `unsubscribe`
+  pair that once layered over `notifications/progress` was retired
+  under rf2-ahjbc).

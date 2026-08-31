@@ -198,12 +198,11 @@ wired into the build, and consumers can use it today.
   persistent nREPL socket. The one implementation of every pair
   operation — it replaced (and the project has since removed) the
   earlier bash-shim → babashka → nREPL transport.
-  Twenty-two tools — the per-op set (`discover-app`, `eval-cljs`,
+  The per-op set (`discover-app`, `eval-cljs`,
   `dispatch`, `dispatch-dry-run`, `trace-window`, `watch-epochs`,
   `tail-build`), the mega-op reads (`snapshot`, `get-path`), the
   view-plane read `read-dom`, the signal recorder
-  (`record` / `read-recording` / `watch-until`), the streaming triad
-  (`subscribe` / `unsubscribe` / `list-streams`), the reactive-sub-cache
+  (`record` / `read-recording` / `watch-until`), the reactive-sub-cache
   read `list-subscriptions`, the write pair (`restore-epoch` /
   `replace-app-db`, gated behind `--allow-writes`), the
   registrar-introspection pair (`handler-meta` / `list-handlers`), and

@@ -281,14 +281,19 @@ decomposition; bounded surface) still holds — both amendments are
 - **rf2-hq49** added `subscribe` / `unsubscribe`: streaming
   subscription on the trace + epoch bus, layered over MCP's
   `notifications/progress` mechanism. Push-mode replacement for the
-  polling-shaped `watch-epochs`. No bash-shim equivalent.
+  polling-shaped `watch-epochs`. No bash-shim equivalent. (The whole
+  push-streaming subsystem — these two tools plus the later
+  `list-streams` / `get-stream-controls` diagnostics — was retired
+  under rf2-ahjbc: live observation is turn-shaped, every result a
+  completed tool call.)
 
 Net: by the first post-Lock wave re-frame2-pair-mcp shipped **fourteen
 ops** (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
 `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`,
 `unsubscribe`, `list-subscriptions`, `handler-meta`, `list-handlers`,
 `get-re-frame2-pair-instructions`); subsequent additive drops (below)
-carried the catalogue to **thirty ops** total — canonical count in
+grew the catalogue further, and the rf2-ahjbc streaming retirement
+shrank it — the canonical count lives in
 the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs),
 full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 The bash shims ship six. The shim catalogue is a strict subset of the
@@ -302,6 +307,10 @@ Post-Lock additions accumulated as follows:
   bare-noun read shape. Renamed to `list-subscriptions` per rf2-4y595
   for cross-server NAMING.md conformance per
   [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md).
+  (rf2-qicji later repointed `list-subscriptions` at the reactive
+  sub-cache and split the streaming diagnostic into `list-streams`,
+  which rf2-ahjbc then deleted with the rest of the streaming
+  subsystem.)
 - **rf2-fnpqg** added `get-re-frame2-pair-instructions` — the
   agent-onboarding text blob read once at session start. Mirrors
   story-mcp's `get-story-instructions` under the cross-MCP `get-`
@@ -369,8 +378,7 @@ Post-Lock additions accumulated as follows:
   cache only flushes on an explicit operating-frame mutation — so a
   cacheable `get` could serve a stale `:rf.mcp/cache-hit` for byte-
   identical empty args, masking a newly ambiguous session or a newly
-  available app frame. It is non-cacheable, same posture as
-  `get-stream-controls` (the recording/streaming volatile-state reads).
+  available app frame. It is non-cacheable — a volatile-state read.
   An earlier revision marked `get` `:cacheable? true` on the theory that
   set/reset cache-flushes covered every pin change; that missed the
   registry-mutation axis above. If caching is ever wanted here, add a
@@ -492,7 +500,7 @@ changes.
   (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
   `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
   with identical names and arg shapes. Every other tool in the
-  catalogue (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
+  catalogue (`snapshot`, `get-path`,
   `list-subscriptions`, `handler-meta`, `list-handlers`,
   `get-re-frame2-pair-instructions`, and the later additive drops —
   full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md))

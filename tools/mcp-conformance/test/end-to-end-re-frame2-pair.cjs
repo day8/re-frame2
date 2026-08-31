@@ -85,7 +85,7 @@ delete env.SHADOW_CLJS_NREPL_PORT;
 // pre-connection) — so a degraded probe proves the descriptor reaches the
 // SDK, the dispatch-table entry is wired, the arg shape is accepted, and
 // the SDK's CallToolResultSchema parses the envelope. The genuinely
-// LIVE-only behaviours (streaming progress frames, overflow markers,
+// LIVE-only behaviours (overflow markers,
 // redaction, the eval/write gates' SUCCESS/refusal under a real runtime)
 // are pinned by the gated live harnesses. This table is EMPTY: the
 // degraded walk below drives a cheap probe for every advertised tool, so
@@ -182,28 +182,18 @@ runWithWatchdog(
     //                        string parsed server-side. (Degraded-mode
     //                        returns :nrepl-port-not-found regardless of
     //                        args, so arg-shape regressions surface in the
-    //                        live subscribe gate, not here.)
+    //                        live gates, not here.)
     //   - watch-epochs       pull-mode tool.
     //   - snapshot           mega-op tool.
-    //   - subscribe          streaming-shaped tool. In connected mode it
-    //                        would open a notification stream; degraded it
-    //                        returns the same error envelope.
     //   - list-subscriptions lists the LIVE reactive sub-cache for a frame
     //                        — the same source as `snapshot :sub-cache`,
     //                        via the runtime's `sub-cache-info` fn.
     //                        Pure-read, optional :frame / :include-values.
-    //   - list-streams       the streaming-tap diagnostic list. Wraps
-    //                        `re-frame2-pair.runtime/subscription-info` so
-    //                        AI clients can list active streaming
-    //                        subscriptions without an eval-cljs round-trip.
-    //                        Pure-read, optional :topic / :sub-id filters.
     const DEGRADED_TOOLS = [
       { name: 'dispatch', arguments: { event: '[:rf-conformance/probe]' } },
       { name: 'watch-epochs', arguments: { 'max-ms': 50 } },
       { name: 'snapshot', arguments: { frames: 'all' } },
-      { name: 'subscribe', arguments: { topic: 'trace' } },
       { name: 'list-subscriptions', arguments: {} },
-      { name: 'list-streams', arguments: {} },
       // read-dom (and its read-ui sibling + orient) MUST produce an
       // SDK-valid result envelope, never a null structuredContent that the
       // SDK's outputSchema validation rejects at the transport layer
@@ -240,18 +230,18 @@ runWithWatchdog(
       // (restore-epoch / replace-app-db) are NOT here — they are refused
       // PRE-connection with `:writes-disabled`, not `:nrepl-port-not-found`
       // (writes/refuse-pre-connection fires before ensure-connection!), so
-      // they get their own assertion block below. The two CLOSED-WORLD
-      // tools (get-re-frame2-pair-instructions / get-stream-controls) are
-      // ALSO not here (rf2-6amhbt): they read only server-local state (no
-      // nREPL), so the server dispatches them at the pre-connection
-      // boundary — they SUCCEED degraded and are covered by the
+      // they get their own assertion block below. The CLOSED-WORLD
+      // tool (get-re-frame2-pair-instructions) is
+      // ALSO not here (rf2-6amhbt): it reads only server-local state (no
+      // nREPL), so the server dispatches it at the pre-connection
+      // boundary — it SUCCEEDS degraded and is covered by the
       // closed-world success block below, not this degraded walk.
       { name: 'discover-app', arguments: {} },
       // eval-cljs is default-ON (no pre-connection gate unless --no-eval),
       // so degraded it routes through ensure-connection! and returns the
       // shared :nrepl-port-not-found envelope. Its LIVE success / overflow
       // behaviour is covered by live-re-frame2-pair-overflow.cjs and its
-      // --no-eval refusal by live-re-frame2-pair-subscribe.cjs; this
+      // --no-eval refusal by live-re-frame2-pair-turn-observation.cjs; this
       // degraded probe pins the callTool envelope + dispatch wiring.
       { name: 'eval-cljs', arguments: { form: '(+ 1 2)' } },
       { name: 'dispatch-dry-run', arguments: { event: '[:rf-conformance/probe]' } },
@@ -286,7 +276,6 @@ runWithWatchdog(
       { name: 'set-operating-frame', arguments: { frame: ':rf/default' } },
       { name: 'tail-build', arguments: {} },
       { name: 'trace-window', arguments: { 'max-ms': 50 } },
-      { name: 'unsubscribe', arguments: { 'sub-id': 'rf2-conformance-no-such' } },
       {
         name: 'watch-until',
         arguments: { signals: '[[:rf-conformance/probe]]', pred: '(constantly true)' },
@@ -328,22 +317,21 @@ runWithWatchdog(
 
     // 3b-closed-world. Closed-world success path (rf2-6amhbt). Unlike
     // every tool in the degraded walk above, `get-re-frame2-pair-instructions`
-    // and `get-stream-controls` read ONLY server-local state — inline
-    // onboarding text / the in-process resource-control atoms — with NO
-    // nREPL round-trip. The server dispatches them at the pre-connection
+    // reads ONLY server-local state — inline
+    // onboarding text — with NO
+    // nREPL round-trip. The server dispatches it at the pre-connection
     // boundary (bypassing `ensure-connection!`), so even in THIS degraded
-    // harness (no nREPL) they MUST SUCCEED (isError:false) rather than
+    // harness (no nREPL) it MUST SUCCEED (isError:false) rather than
     // return the shared `:nrepl-port-not-found` envelope. This pins the
     // spec/003 "answers even when the runtime is down" contract at the real
     // MCP boundary — the exact behaviour the earlier harness mis-encoded as
-    // a degraded failure. Each still routes through the SDK's
+    // a degraded failure. It still routes through the SDK's
     // CallToolResultSchema + the declared outputSchema parse, so a
     // structuredContent regression turns RED. Mirrors the analogous Story
-    // closed-world block in end-to-end-story.cjs. These two calls also keep
-    // both tools SDK-covered for the callTool coverage ratchet below.
+    // closed-world block in end-to-end-story.cjs. This call also keeps
+    // the tool SDK-covered for the callTool coverage ratchet below.
     for (const readTool of [
       'get-re-frame2-pair-instructions',
-      'get-stream-controls',
     ]) {
       const r = await client.callTool({ name: readTool, arguments: {} });
       if (r.isError) {
@@ -372,8 +360,8 @@ runWithWatchdog(
       assertIsErrorMatchesOk('tools/call ' + readTool + ' (closed-world)', r);
     }
     console.log(
-      'OK   closed-world tools (get-re-frame2-pair-instructions/' +
-        'get-stream-controls) -> success envelopes with no nREPL (rf2-6amhbt)',
+      'OK   closed-world tool (get-re-frame2-pair-instructions)' +
+        ' -> success envelope with no nREPL (rf2-6amhbt)',
     );
 
     // 3c. Gated WRITE tools — pre-connection refusal. The two
@@ -388,10 +376,8 @@ runWithWatchdog(
     // flipped the default ON, renamed the gate flag, or dropped the
     // pre-connection guard surfaces RED. The args are well-formed but
     // inert: the guard fires before the arg is read or any nREPL touched.
-    // (The LIVE, non-degraded refusal — gate-OFF with a runtime attached —
-    // is additionally pinned by live-re-frame2-pair-subscribe.cjs, which
-    // also asserts the `:tool` slot; here we pin the degraded/pre-connection
-    // path the live test cannot reach.)
+    // (Here we pin the degraded/pre-connection
+    // path the live harnesses do not reach.)
     for (const probe of [
       { name: 'restore-epoch', arguments: { 'epoch-id': '0' } },
       { name: 'replace-app-db', arguments: { db: '{}' } },
@@ -530,8 +516,8 @@ runWithWatchdog(
     // slot — the canonical mcp-builder pattern. The SDK already
     // surfaces the structured slot through `result.structuredContent`
     // when present; assert it for one tool per category: read
-    // (snapshot, list-subscriptions), action (dispatch), streaming-
-    // shaped (subscribe). All four degraded responses above route
+    // (snapshot, list-subscriptions) and action (dispatch).
+    // All the degraded responses above route
     // through wire/err-text which now emits both slots; we spot-
     // check the assembled spool here. The responses come from the
     // `degradedResp` map keyed by tool name (filled by the loop above).
@@ -539,7 +525,6 @@ runWithWatchdog(
       'dispatch',
       'watch-epochs',
       'snapshot',
-      'subscribe',
       'list-subscriptions',
       // the read-family envelopes must carry a non-null object
       // structuredContent through the SDK like every other tool.

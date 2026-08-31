@@ -2,7 +2,7 @@
 
 `re-frame2-pair-mcp` and `story-mcp` share a bounded tool-name
 vocabulary. A tool's leading verb should tell a client whether it reads,
-enumerates, executes, mutates, waits, or streams without requiring
+enumerates, executes, mutates, or waits without requiring
 server-specific guesswork.
 
 Each server's canonical `tool-names.json` fixture owns its complete
@@ -15,7 +15,7 @@ repeat either full catalogue.
 | Shape | Meaning | Examples |
 |---|---|---|
 | `get-<thing>` | Read one addressed record or value. | `get-path`, `get-story`, `get-operating-frame` |
-| `list-<things>` | Enumerate a collection. | `list-handlers`, `list-stories`, `list-streams` |
+| `list-<things>` | Enumerate a collection. | `list-handlers`, `list-stories`, `list-subscriptions` |
 | `read-<thing>` | Re-read already computed or rendered diagnostic state; do not imply a fresh run. | `read-sub`, `read-dom`, `read-failures` |
 | `discover-<surface>` | Bootstrap health and connection discovery. | `discover-app` |
 | `restore-<thing>` | Restore a prior state. | `restore-epoch` |
@@ -35,7 +35,6 @@ The following names are intentionally bare:
 
 - `dispatch` and `dispatch-dry-run`: the framework event primitives.
 - `eval-cljs`: the browser-runtime evaluation primitive.
-- `subscribe` and `unsubscribe`: the streaming pair.
 - `snapshot`, `trace-window`, `watch-epochs`, `orient`, and `record`:
   coarse projections or recorders that span several registry kinds.
 
@@ -59,7 +58,7 @@ Do not introduce alternate verbs for an existing semantic:
 - reserve `set-` for `set-operating-frame`, rather than generic state
   mutation;
 - use `eval-cljs` or `dispatch`, not `call-`, `invoke-`, or `run-fn`;
-- use `subscribe`/`unsubscribe` for streams, `tail-` for one external
+- use `tail-` for one external
   change, `watch-` for a predicate, and `record` for a bounded live
   change log.
 

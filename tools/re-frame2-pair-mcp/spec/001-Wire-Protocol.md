@@ -54,7 +54,6 @@ If the nREPL endpoint cannot be found on the first app-facing call, the
 server remains available and continues to answer `tools/list`. Calls that
 need the app return an `isError: true` tool result containing the structured
 `:nrepl-port-not-found` reason, and discovery is retried on the next call.
-Server-local tools (`get-stream-controls` and
-`get-re-frame2-pair-instructions`) still run. Unknown-tool and disabled-write
+Server-local tools (`get-re-frame2-pair-instructions`) still run. Unknown-tool and disabled-write
 guards also run before discovery, so their local errors are not masked by
 transport state.

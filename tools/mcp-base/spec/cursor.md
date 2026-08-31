@@ -22,7 +22,6 @@ Per `spec/Principles.md` §Pagination and `spec/Tool-Pair.md` §Cursor paginatio
 
 - The cursor PAYLOAD shape — that's consumer-side. `decode-cursor` takes a `valid?` predicate so each server validates its own payload map.
 - The wire envelope shape — `cursor-stale-result` takes the consumer's `error-result` fn so each server shapes the envelope its own way.
-- The cursor *resource controls* (concurrent-stream cap, token-bucket rate-limit, abuse window) — those live consumer-side in pair-mcp's `resource_controls.cljs`.
 
 ## Surface
 

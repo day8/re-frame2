@@ -86,13 +86,7 @@
   {:snapshot     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/snapshot.cljs"
    :get-path     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/get_path.cljs"
    :trace-window "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/trace_window.cljs"
-   :watch-epochs "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/watch_epochs.cljs"
-   ;; subscribe-emit owns BOTH the streaming progress payload AND the
-   ;; final summary payload for `subscribe` — they each splice the
-   ;; helper independently (per Conventions:159 — "Streaming payloads.
-   ;; Subscribe-style notifications ... carry the same two slots on
-   ;; each progress payload and on the final summary").
-   :subscribe    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"})
+   :watch-epochs "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/watch_epochs.cljs"})
 
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
@@ -111,32 +105,6 @@
                  "tool that inlines `(assoc :dropped-sensitive ...)` or "
                  "`(assoc :elided-large ...)` directly violates the MUST-"
                  "level parity rule per Conventions:154 / Spec 009:1411."))))))
-
-(deftest subscribe-emit-carries-both-streaming-and-final-splice
-  ;; Streaming-payload extra pin (Conventions:159): subscribe-emit
-  ;; MUST splice the helper TWICE — once for per-tick progress, once
-  ;; for the final summary. A regression that dropped the streaming
-  ;; splice would silently ship per-tick payloads without indicator
-  ;; counts on the streaming path while still showing them on the
-  ;; final summary — invisible to single-payload conformance.
-  ;; Count over `fx/strip-comments-and-strings`-neutered source (rf2-qyfy1m):
-  ;; subscribe.cljs mentions `wire/with-indicators` in TWO docstrings
-  ;; (terminal-summary + streaming) on top of the two REAL splices. A raw
-  ;; `re-seq` counts all four, so deleting BOTH real splices — the exact
-  ;; regression this pin names — still counts the two docstrings and stays
-  ;; `>= 2` green. Stripping drops the prose to spaces, so the count reflects
-  ;; only the two genuine call-sites and falls to 0 when they are removed.
-  (let [rel      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"
-        src      (fx/read-source rel)
-        stripped (fx/strip-comments-and-strings src)
-        n        (count (re-seq #"wire/with-indicators" stripped))]
-    (is (>= n 2)
-        (str "Expected `subscribe-emit` to call `wire/with-indicators` "
-             "at least twice (once on the per-tick progress payload, "
-             "once on the final summary) per Conventions:159 "
-             "streaming-payload rule, but found " n " call-sites in "
-             rel ". Drift here means streaming progress payloads ship "
-             "without indicator counts."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pair-mcp delegation pin — the per-tool call-sites read
@@ -175,7 +143,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Inline-emit anti-pin — neither slot literal may appear inline in any
 ;; re-frame2-pair-mcp source file OTHER than the helper itself (and the
-;; descriptors / subscribe-tool internal-state file, both whitelisted
+;; descriptors file, whitelisted
 ;; below). A tool that bypasses the helper to `(assoc envelope
 ;; :dropped-sensitive N)` directly violates the MUST-level parity rule
 ;; — the helper exists precisely to centralise the omit-when-zero rule
@@ -191,18 +159,9 @@
   - `descriptors.cljs` — tool-descriptor docstrings reference the slot
                          names; these are documentation strings shipped
                          in the `tools/list` response shape, not envelope
-                         emissions.
-  - `subscribe.cljs`   — internal mutable-atom names carry a
-                         `-sensitive*` / `-large*` suffix to mirror the
-                         envelope slots they feed into; the literals
-                         appear as KEYS of an INTERNAL options map
-                         passed to `subscribe-emit`, never as keys of
-                         an emitted envelope. The emit happens in
-                         `subscribe.cljs` and goes through the
-                         helper."
+                         emissions."
   #{"tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"
-    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
-    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"})
+    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"})
 
 (defn- mcp-source-files
   "Walk `src-rel` (a repo-relative subdir) and return every `.cljs`
@@ -234,9 +193,7 @@
   ;; descriptions ship the slot names as user-visible documentation
   ;; (e.g. `"Dropped count surfaces as `:dropped-sensitive` ..."` in
   ;; `descriptors_data.cljs`), and tool-source docstrings cross-link the
-  ;; helper they delegate to (e.g. `subscribe.cljs`'s
-  ;; `final-summary` docstring names both slots while the actual emit
-  ;; goes through `wire/with-indicators`). Those are documentation, not
+  ;; helper they delegate to. Those are documentation, not
   ;; emissions; the strip-then-grep posture catches real inline emits
   ;; (`(assoc envelope :dropped-sensitive N)`) while letting prose
   ;; through. Same posture as the wire-vocab gate's source-text pin
