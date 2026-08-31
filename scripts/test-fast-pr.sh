@@ -1486,8 +1486,8 @@ fi
 # owning scripts / build config change — exactly the cljs_node_test surface).
 # ---------------------------------------------------------------------------
 if [ "$run_node" = true ]; then
-  run "implementation JS harness helpers" "cd implementation && npm run test:script-policy && npm run test:script-helpers" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:script-policy && npm run test:script-helpers"
+  run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
 
   run "CLJS node integration" "cd implementation && npm run test:cljs" \
     bash -lc "cd '$spine_root/implementation' && npm run test:cljs"

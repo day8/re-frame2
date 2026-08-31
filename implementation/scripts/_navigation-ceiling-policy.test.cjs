@@ -55,7 +55,7 @@
  * `run-browser-tests.cjs`). Both are sound. What the second gate below forbids
  * is DESCRIBING the second as the first — see its own header.
  *
- * Wired into `package.json` via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

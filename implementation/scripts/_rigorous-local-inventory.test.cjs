@@ -59,7 +59,7 @@
  * CAPTURE the B5 records, but its assertions already gated every PR through
  * the `:node-test` build, which `test:cljs` runs — test.yml calls that "the
  * cheap NAMED surface for local + worker iteration, not a second gate".
- * (`test:cljs` and `test:script-helpers` reach here transitively anyway, via
+ * (`test:cljs` and `test:scripts` reach here transitively anyway, via
  * `test-fast-pr.sh`, which the rigorous script runs first.)
  *
  * `bench:freehand-browser` was the one command that satisfied both, which is
@@ -106,7 +106,7 @@
  * mentioning a command can neither satisfy lockstep nor a direct pin, nor trip
  * the one-command-per-step rule.
  *
- * Wired into `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 'use strict';

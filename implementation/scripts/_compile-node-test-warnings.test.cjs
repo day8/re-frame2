@@ -19,7 +19,7 @@
  * pair of runs the header of compile-node-test.cjs cites, one over a clean
  * checkout and one with a bare double-quote planted in a deftest docstring.
  *
- * Wired into package.json via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

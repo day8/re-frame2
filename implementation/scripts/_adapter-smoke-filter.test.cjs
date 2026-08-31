@@ -18,8 +18,7 @@
  *     spec set by construction), and
  *   - the declared manifest matches the spec.cjs files on disk.
  *
- * Standalone node-runnable suite — no external test framework. Wire into
- * package.json via `test:script-policy`.
+ * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

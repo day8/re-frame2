@@ -45,7 +45,7 @@
  * behaviour of the helper itself is covered by
  * _local-browser-harness.test.cjs.
  *
- * Wired into `package.json` via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

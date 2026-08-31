@@ -13,8 +13,7 @@
  * deployments.
  *
  * TEXT/policy assertions over the committed workflow — no Actions runtime
- * needed — mirroring `_lint-workflow-policy.test.cjs`. Wired into
- * `test:script-policy`.
+ * needed — mirroring `_lint-workflow-policy.test.cjs`. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

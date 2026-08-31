@@ -7,7 +7,7 @@
  * examples/scripts/ (rf2-wf5al). Lives in implementation/scripts/ (NOT
  * under examples/) so it respects the "examples are test-free / no
  * *.spec.cjs under examples/" lock while still pinning the runner
- * behaviour. Wired into package.json via `test:script-policy`.
+ * behaviour. Discovered by `npm run test:scripts`.
  *
  * Covers all three rf2-wf5al findings:
  *

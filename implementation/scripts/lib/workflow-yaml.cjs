@@ -24,7 +24,7 @@
  *
  * The CI job that runs these suites (`js-harness-self-tests` in
  * .github/workflows/test.yml) does no `npm ci` — it sets up Node and runs
- * `npm run test:script-policy` straight away. Every suite it runs is
+ * `npm run test:scripts` straight away. Every suite it runs is
  * therefore Node-stdlib-only, and a `require('yaml')` here would go red on
  * the runner while passing locally. The Python checkers have the same
  * constraint from the other side ("pure Python stdlib, no setup beyond

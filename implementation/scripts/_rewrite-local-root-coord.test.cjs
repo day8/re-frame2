@@ -20,7 +20,7 @@
  * Pattern mirrors `_transform-reagent-slim-ns.test.cjs`: spawn the real
  * shell script via `bash` with repo-relative paths and a cwd of REPO_ROOT
  * (the cross-platform form — see that file's `run()` comment for the Git
- * Bash / WSL rationale, rf2-6m7pn4). Wired into `test:script-policy`.
+ * Bash / WSL rationale, rf2-6m7pn4). Discovered by `npm run test:scripts`.
  */
 
 'use strict';

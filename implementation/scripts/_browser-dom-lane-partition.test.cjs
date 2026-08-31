@@ -37,7 +37,7 @@
  * files themselves. A copy of either would be a second authority with nothing
  * holding it in step with the first.
  *
- * Wired into package.json via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

@@ -172,7 +172,7 @@
 // caught one gate earlier by `no-unused-vars`. The variant that binds nothing is
 // the one no linter can see, so it is the one this gate has to own.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Discovered by `npm run test:scripts`.
 
 const assert = require('node:assert');
 const fs = require('node:fs');

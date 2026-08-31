@@ -30,7 +30,7 @@
  *
  * DERIVED, NOT RE-DECLARED. Every arm below expands the REAL ROSTER rather than
  * carrying a second hardcoded list, so a roster edit is checked automatically
- * instead of drifting away from a copy. Wired into `test:script-policy`.
+ * instead of drifting away from a copy. Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

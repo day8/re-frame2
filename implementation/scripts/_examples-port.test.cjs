@@ -14,7 +14,7 @@
  * (rf2-ewnznu).
  *
  * Standalone node-runnable suite (no test framework), matching
- * _story-feature-load-port.test.cjs. Wired into package.json test:script-policy.
+ * _story-feature-load-port.test.cjs. Discovered by `npm run test:scripts`.
  */
 
 'use strict';

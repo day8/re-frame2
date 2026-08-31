@@ -166,7 +166,7 @@
  *
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free
  * (rf2-8cevm). It is a pure static scanner, wired into the always-run
- * `test:script-policy` gate (see implementation/scripts/
+ * `test:scripts` gate (see implementation/scripts/
  * check-examples-assets.test.cjs) so a missing/broken _shared asset turns
  * that gate RED in CI without a new .github workflow job.
  *

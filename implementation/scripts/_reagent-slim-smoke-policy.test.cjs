@@ -24,7 +24,8 @@
  *   4. The smoke scenario asserts the slim example's dataflow: initial
  *      value 5, click-driven inc AND dec.
  *   5. npm `test:reagent-slim:smoke` exists and runs the adapter-owned
- *      runner; `test:script-policy` runs THIS policy test.
+ *      runner. (This file itself needs no enrolment pin: `npm run
+ *      test:scripts` discovers every `scripts/*.test.cjs` by name.)
  *   6. The slim smoke is a DISTINCT surface from the shared adapter-smoke
  *      manifest: its driver file is not named
  *      spec.cjs/*.spec.cjs (so the shared adapter-smoke spec-walker never
@@ -34,8 +35,9 @@
  *      two-way drift guard.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * check-reagent-slim-boundary.test.cjs. Wired into package.json via
- * `test:script-policy`.
+ * check-reagent-slim-boundary.test.cjs. Discovered by `npm run test:scripts`
+ * (Node's built-in runner globs `scripts/*.test.cjs`; a correctly named file
+ * is registered by existing).
  */
 
 const fs = require('fs');
@@ -197,15 +199,6 @@ it('npm `test:reagent-slim:smoke` exists and runs the adapter-owned runner', () 
   assert.ok(
     /serve-and-run-reagent-slim-smoke\.cjs/.test(s),
     `test:reagent-slim:smoke does not run the slim smoke runner: ${s}`,
-  );
-});
-
-it('`test:script-policy` runs THIS policy test', () => {
-  const s = scripts['test:script-policy'] || '';
-  assert.ok(
-    /_reagent-slim-smoke-policy\.test\.cjs/.test(s),
-    'test:script-policy does not run _reagent-slim-smoke-policy.test.cjs — ' +
-      'the slim smoke wiring is unguarded',
   );
 });
 

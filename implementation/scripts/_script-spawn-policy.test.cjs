@@ -43,7 +43,7 @@
  * test-mcp-conformance.cjs (resolveTrustedExe + cross-spawn for
  * system binaries). New launchers must follow one of those.
  *
- * Wired into `package.json` via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');

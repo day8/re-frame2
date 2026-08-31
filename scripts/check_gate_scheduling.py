@@ -22,8 +22,8 @@ must either
 
   (a) be reachable from a `npm run` in an EXECUTABLE `run:` value of some
       `.github/workflows/*.yml` — direct, or through another npm script's
-      command body (the closure is walked, so `test:script-policy` chaining
-      thirty-odd checkers counts for all of them); or
+      command body (the closure is walked, so a wrapper script that chains
+      other npm scripts counts for all of them); or
 
   (b) carry an entry in `DISPOSITIONS` below, declaring WHY, in a kind whose
       premise this script then CHECKS.

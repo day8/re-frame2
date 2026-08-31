@@ -37,7 +37,7 @@
  * `reagent2.*` rule.
  *
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free (rf2-8cevm).
- * It is a pure static scanner, wired into the always-run `test:script-policy`
+ * It is a pure static scanner, wired into the always-run `test:scripts`
  * gate (see implementation/scripts/check-reagent-slim-boundary.test.cjs) so a
  * slim require leaking into the stock-Reagent examples turns that gate RED in CI without
  * a new .github workflow job.

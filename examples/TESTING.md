@@ -17,9 +17,9 @@ see [`../TESTING.md`](../TESTING.md).
 | `npm run test:examples-compile` | Compiles every declared `:examples/*` shadow-cljs build and fails on any error **or warning**. The build list is derived from `shadow-cljs.edn`, so a newly declared example is swept automatically. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 | `npm run test:cljs` | The shadow-cljs `:node-test` bundle, run on Node. `:ns-regexp` is `cljs-test$`, so it picks up every `*-cljs-test` wrapper — including the **example wrappers**, which require their example's `core` ns and drive its events, subs and fixtures headlessly (no DOM). This is where the example wrappers actually run. | [`implementation/package.json` `test:cljs`](../implementation/package.json) |
 | `npm run test:browser` | The shadow-cljs `:browser-test` bundle in one Chromium page. `:ns-regexp` is narrowed to `-dom-cljs-test$`, so it runs **only** the DOM-dependent wrappers (those that mount real React via `react-dom/client`). The example wrappers do **not** mount the DOM, so they keep the plain `-cljs-test` suffix and run under `test:cljs`, not here. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs) |
-| `npm run test:script-policy` | Static scanners over the example tree: `check-examples-assets.cjs` (shared stylesheet asset presence + WCAG palette-contrast / focus-ring contracts on each `index.html`) and `check-reagent-slim-boundary.cjs` (the stock Reagent tree never requires `reagent2.*` / the slim adapter). | [`examples/scripts/`](scripts/) |
+| `npm run test:scripts` | Static scanners over the example tree, among the JS-harness self-tests it discovers: `check-examples-assets.cjs` (shared stylesheet asset presence + WCAG palette-contrast / focus-ring contracts on each `index.html`) and `check-reagent-slim-boundary.cjs` (the stock Reagent tree never requires `reagent2.*` / the slim adapter). | [`examples/scripts/`](scripts/) |
 
-`test:examples-compile` and the `test:script-policy` scanners add nothing under
+`test:examples-compile` and the `test:scripts` scanners add nothing under
 `examples/` — they keep the test-free policy intact.
 
 Real-regression coverage for framework behaviour lives in the framework gates —

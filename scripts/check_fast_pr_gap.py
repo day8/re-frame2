@@ -294,8 +294,8 @@ SPINE_LANES = (
     ),
     Lane(
         "js-harness-self-tests",
-        r"^npm run test:script-policy && npm run test:script-helpers$",
-        "spine node tier: 'implementation JS harness helpers' -- run CHAINED, as CI does",
+        r"^npm run test:scripts$",
+        "spine node tier: 'implementation JS harness self-tests' -- the one discovery command, as CI runs it",
     ),
     Lane(
         "cljs-node-test",
@@ -1313,7 +1313,7 @@ def run_self_tests(verbose: bool) -> int:
     )
     check("real repo: the clj-kondo pin was derived", bool(real.kondo_pin))
     check(
-        "real repo: the chained JS harness gate IS covered (the spine runs it chained)",
+        "real repo: the JS harness gate IS covered (the spine runs the one discovery command)",
         "js-harness-self-tests" in real.matched_lanes,
     )
     if verbose:

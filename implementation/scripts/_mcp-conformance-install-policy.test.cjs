@@ -30,7 +30,7 @@
  *      (a deliberately lock-gitignored published package) is exempt and
  *      may bootstrap via a skip-if-present `npm install`.
  *
- * Wired into `package.json` via `test:script-policy`.
+ * Discovered by `npm run test:scripts`.
  */
 
 const assert = require('assert/strict');
