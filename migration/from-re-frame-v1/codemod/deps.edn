@@ -25,6 +25,19 @@
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
 
+  ;; `clojure -M:integration` — the rf2-8odvg RUNTIME integration proof: the
+  ;; codemod's emitted output is evaluated against the REAL v2 re-frame.core
+  ;; reg-event contract (registration at namespace load), with negative
+  ;; controls proving the harness observes registration rather than parsing.
+  ;; Deliberately a SEPARATE alias so the default `:test` suite keeps the
+  ;; self-containment property pinned in the header comment above (no
+  ;; re-frame2 on its classpath); only this alias pulls implementation/core.
+  :integration {:extra-paths ["test-integration"]
+                :extra-deps  {day8/re-frame2-core {:local/root "../../../implementation/core"}
+                              io.github.cognitect-labs/test-runner
+                              {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                :main-opts   ["-m" "cognitect.test-runner" "-d" "test-integration"]}
+
   ;; `clojure -M:run <path> ...` — scan a file set and print findings.
   ;; `clojure -M:run --rewrite <path> ...` — apply the conservative codemod.
   :run {:main-opts ["-m" "re-frame.migration.reg-event-codemod"]}}}
