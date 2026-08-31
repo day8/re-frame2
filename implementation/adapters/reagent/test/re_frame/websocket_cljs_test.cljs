@@ -21,6 +21,7 @@
    the example's ns-load registrations, and the restore on the way out
    leaves them intact for any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.subs :as subs]
@@ -148,7 +149,14 @@
 
   ;; --- websocket.messages -------------------------------------------------
   (rf/reg-machine :websocket/socket messages/socket-actor-machine)
+  ;; UNTRUSTED INGRESS — mirrors the example's registration exactly: the
+  ;; closed InboundMessage wire union as :schema plus the
+  ;; :rf.schema/at-boundary interceptor, so the check is release-resident
+  ;; (rf2-iyjae). The boundary-rejection tests below exercise THIS
+  ;; registration (register-all! is last-write-wins over the ns-load one).
   (rf/reg-event :ws/handle-message
+    {:schema       [:cat [:= :ws/handle-message] ws.schema/InboundMessage]
+     :interceptors [:rf.schema/at-boundary]}
     (fn handler-ws-handle-message [{:keys [db]} [_ body]]
       {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
         (-> db
@@ -182,7 +190,13 @@
                                                    :body body}
                                       :reply      [:ws.app/request-reply]
                                       :timeout-ms 5000}]]]]}))
+  ;; The SECOND untrusted ingress — a correlated reply is still the
+  ;; server's bytes. RequestOutcome admits exactly the closed wire :reply
+  ;; arm OR the machine's locally synthesised loss/timeout failure shape
+  ;; (rf2-iyjae). Mirrors the example's registration.
   (rf/reg-event :ws.app/request-reply
+    {:schema       [:cat [:= :ws.app/request-reply] ws.schema/RequestOutcome]
+     :interceptors [:rf.schema/at-boundary]}
     (fn handler-app-request-reply [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :last-reply] body)}))
   (rf/reg-event :ws.app/subscribe-demo
@@ -268,6 +282,25 @@
     (finally
       (messages/set-mock-sync! false))))
 
+(defn- fire-after-timer!
+  "Synthesise `:reconnecting`'s `:after` timer-elapsed event so the machine
+   re-enters `:active` deterministically. The synthetic event must carry
+   the SAME delay-key the runtime armed with — for a fn-form `:after`
+   entry that is the FN itself (the `:after` table's key), because
+   `pick-after-transition` resolves the table BY that key
+   (`(get-in node [:after delay-key])`, Spec 005 §Hierarchy interaction);
+   a resolved-ms NUMBER matches nothing and silently no-ops. Read the key
+   straight off the registered spec, plus the node's current per-path
+   epoch from the runtime-maintained `:rf/after-epoch` slot."
+  [f]
+  (let [snap      (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+        epoch     (get-in snap [:data :rf/after-epoch [:reconnecting]])
+        delay-key (first (keys (get-in ws.connection/connection-machine
+                                       [:states :reconnecting :after])))]
+    (rf/dispatch-sync [:ws/connection
+                       [:rf.machine.timer/after-elapsed delay-key epoch [:reconnecting]]]
+                      {:frame f})))
+
 ;; ============================================================================
 ;; CONNECTION LIFECYCLE
 ;; ============================================================================
@@ -291,7 +324,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         ;; Sync-mode mock: the actor's open-then-send-auth-then-auth-ok
         ;; chain runs to completion inside the dispatch-sync stack.
@@ -303,10 +336,13 @@
           (is (false? (machine-has-tag? f :websocket/failed)))
           (is (= 0    (get-in s [:data :retries])))
           (is (some?  (socket-id-of s)))
-          ;; URL + token were recorded in :data — they survive across
-          ;; reconnects.
-          (is (= "ws://mock" (get-in s [:data :url])))
-          (is (= "demo"      (get-in s [:data :auth-token]))))))))
+          ;; URL + the OPAQUE credential reference were recorded in :data —
+          ;; they survive across reconnects. Only the reference: the machine
+          ;; never sees the bearer (rf2-iyjae).
+          (is (= "ws://mock"      (get-in s [:data :url])))
+          (is (= :ws.demo/cred-a  (get-in s [:data :cred-ref])))
+          (is (not (contains? (:data s) :auth-token))
+              "no raw-token field survives in machine :data"))))))
 
 (defn- offline-queue-test []
   (with-sync-mock!
@@ -334,7 +370,7 @@
         ;; queue-flush on :connected drains both messages.
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (true? (machine-has-tag? f :websocket/connected)))
@@ -348,7 +384,7 @@
         ;; Connect, then drop.
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [pre-snap   (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -371,46 +407,22 @@
             ;; :on-socket-lost bumped the retry counter (and cleared the
             ;; then-empty in-flight map).
             (is (= 1 (get-in s [:data :retries]))))
-          ;; Fire the :after timer to re-enter :active. The :after key
-          ;; is the fn-form delay; the runtime stamps the matching key
-          ;; into the synthetic timer event. We need to pull the same
-          ;; descriptor — for an fn-form :after the key is the fn
-          ;; itself; but for the synthetic event the runtime passes
-          ;; the resolved-delay-ms as the second slot. Look up the
-          ;; current :after-epoch from :data and fire the after-elapsed
-          ;; event keyed by the fn-form spec.
-          (let [snap-now (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                ;; Per Spec 005 §Hierarchy interaction the epoch is
-                ;; per-decl-path; :reconnecting is the :after-bearing node.
-                epoch    (get-in snap-now [:data :rf/after-epoch [:reconnecting]])
-                ;; The :after table on :reconnecting has exactly one
-                ;; entry — the fn-form delay. Pull it out so we can
-                ;; replay the matching synthetic event.
-                base-ms        (get-in snap-now [:data :base-ms])
-                resolved-delay (long (* base-ms (Math/pow 2 (max 0 (dec (get-in snap-now [:data :retries]))))))]
-            ;; Synthesise the timer-elapsed event. The matching
-            ;; semantics: `:rf.machine.timer/after-elapsed delay epoch`
-            ;; where `delay` is either the literal ms key (when the
-            ;; :after entry is keyed by a literal) or the fn-form key
-            ;; (when keyed by an fn). Our spec is fn-keyed.
-            (rf/dispatch-sync [:ws/connection
-                               [:rf.machine.timer/after-elapsed resolved-delay epoch [:reconnecting]]]
-                              {:frame f}))
-          ;; After firing the :after timer the machine re-enters :active.
-          ;; In sync-mode the open-auth-ok cascade runs to :connected
-          ;; inside the synthetic-timer dispatch.
+          ;; Fire the :after timer to re-enter :active — `fire-after-timer!`
+          ;; carries the fn-form delay-key the runtime armed with (a
+          ;; resolved-ms number matches nothing — see the helper), so the
+          ;; re-entry is deterministic and the assertions below are
+          ;; unconditional. In sync-mode the open-auth-ok cascade runs to
+          ;; :connected inside the synthetic-timer dispatch.
+          (fire-after-timer! f)
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            ;; Either :active is re-entered (and in sync-mode runs to
-            ;; :connected) OR the synthetic event was dropped as stale
-            ;; (in which case the test asserts the precondition only).
-            ;; The richer assertion is the connection-epoch one in the
-            ;; staleness test.
-            (when (= [:active :connected] (:state s))
-              (is (true? (machine-has-tag? f :websocket/connected)))
-              ;; A NEW socket id is in the :rf/spawned slot (a fresh actor,
-              ;; so a different id from pre-socket).
-              (is (not= pre-socket (socket-id-of s))
-                  "reconnect spawned a fresh socket"))))))))
+            (is (= [:active :connected] (:state s))
+                (str "the :after re-entry ran to :connected, got " (:state s)))
+            (is (true? (machine-has-tag? f :websocket/connected)))
+            ;; A NEW socket id is in the :rf/spawned slot (a fresh actor,
+            ;; so a different id from pre-socket).
+            (is (some? (socket-id-of s)))
+            (is (not= pre-socket (socket-id-of s))
+                "reconnect spawned a fresh socket")))))))
 
 (defn- max-retries-failed-test []
   ;; The `:max-retries-exceeded?` guard on `:reconnecting`'s
@@ -426,7 +438,7 @@
         ;; Connect to spawn the actor.
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         ;; Seed the snapshot's :data :retries past :max-retries via a
         ;; direct write to the machine's :data slot. This is a test
@@ -457,7 +469,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (let [live-socket-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
               stale-id       (str "stale-" (random-uuid))]
@@ -474,35 +486,41 @@
               (is (= pre-msgs post-msgs)
                   "stale :ws/received was suppressed by :current-socket?")))
           ;; A :ws/received event with the LIVE source-socket-id lands
-          ;; — the :messages slice grows.
+          ;; — the :messages slice grows. (The body is a valid :push wire
+          ;; frame — the closed InboundMessage union now rejects unknown
+          ;; :type values at the boundary, which the boundary-rejection
+          ;; test pins.)
           (let [pre-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
             (rf/dispatch-sync [:ws/connection
                                [:ws/received {:source-socket-id live-socket-id
-                                              :body {:type :live-push :note "hi"}}]]
+                                              :body {:type :push :note "hi"}}]]
                               {:frame f})
             (let [post-msgs (count (get-in (rf/app-db-value f) [:messages :received]))]
               (is (= (inc pre-msgs) post-msgs)
                   "live :ws/received passed the :current-socket? guard"))))))))
 
-(defn- refresh-token-test []
-  ;; :ws/refresh-token works from every state — :disconnected,
-  ;; :active/*, :reconnecting, :failed. The next :active entry's
-  ;; :spawn :data fn reads the refreshed token.
+(defn- rotate-cred-test []
+  ;; :ws/rotate-cred works from every non-disconnected state — :active/*,
+  ;; :reconnecting, :failed. Only the OPAQUE reference crosses the dispatch
+  ;; boundary; the next :active entry's :spawn :data fn reads the rotated
+  ;; reference and the new socket resolves it host-side (rf2-iyjae).
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "old-token"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
-        (is (= "old-token" (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                                   [:data :auth-token])))
-        ;; Refresh from :connected.
+        (is (= :ws.demo/cred-a
+               (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                       [:data :cred-ref])))
+        ;; Rotate from :connected.
         (rf/dispatch-sync [:ws/connection
-                           [:ws/refresh-token "new-token"]]
+                           [:ws/rotate-cred :ws.demo/cred-b]]
                           {:frame f})
-        (is (= "new-token" (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                                   [:data :auth-token])))))))
+        (is (= :ws.demo/cred-b
+               (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                       [:data :cred-ref])))))))
 
 (defn- disconnect-cleanly-test []
   (with-sync-mock!
@@ -510,7 +528,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
@@ -537,7 +555,7 @@
     (fn []
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [s0       (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -615,7 +633,7 @@
     (fn []
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         ;; A request whose wire :type the mock does NOT echo, so it sits
@@ -657,7 +675,7 @@
     (fn []
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [live-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
@@ -720,7 +738,7 @@
           ;; :register-request; the mock echoes and the reply correlates, all
           ;; inside this sync dispatch.
           (rf/dispatch-sync [:ws/connection
-                             [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                             [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                             {:frame f})
           (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                 db (rf/app-db-value f)]
@@ -757,7 +775,7 @@
    `:max-retries-exceeded?` `:always` cascade."
   [f]
   (rf/dispatch-sync [:ws/connection
-                     [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                     [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                     {:frame f})
   (re-frame.frame/swap-runtime-db! f
     (fn [rt]
@@ -810,7 +828,7 @@
           ;; :record-and-reset (the :ws/connect action out of :failed) leaves
           ;; :queue untouched, so the :connected entry's :always flush finds it.
           (rf/dispatch-sync [:ws/connection
-                             [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                             [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                             {:frame f})
           (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                 db (rf/app-db-value f)]
@@ -874,7 +892,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         ;; Issue a request. Sync-mode mock echoes immediately, so the
         ;; reply lands inside the dispatch-sync stack — :in-flight
@@ -945,7 +963,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (let [pre-count (count (get-in (rf/app-db-value f) [:messages :received]))]
           (messages/send-server-push! (rf/capture-frame f)
@@ -964,7 +982,7 @@
       (with-new-frame [f (new-frame)]
         (rf/dispatch-sync [:ws/connection
                            [:ws/connect {:url "ws://mock"
-                                         :auth-token "demo"}]]
+                                         :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (rf/dispatch-sync [:ws.app/subscribe-demo] {:frame f})
         ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
@@ -1000,6 +1018,175 @@
       (is (= [2 1 0] (mapv :rx-seq received))
           ":rx-seq is a stable, monotonic, newest-first identity"))))
 
+;; ----------------------------------------------------------------------------
+;; TRUST BOUNDARIES (rf2-iyjae) — inbound frames + credential discipline
+;; ----------------------------------------------------------------------------
+
+(defn- inbound-boundary-structural-test []
+  ;; The RELEASE-build half of the inbound contract, pinned structurally.
+  ;; In this dev lane the router's step-1 validation enforces the :schema
+  ;; (the :rf.schema/at-boundary interceptor is a deliberate dev no-op —
+  ;; the framework pins that split in re-frame.schemas-cljs-test
+  ;; boundary-interceptor-noop-in-dev-cljs), so behavioural rejection
+  ;; alone cannot distinguish a dev-only :schema tripwire from a
+  ;; release-resident boundary: drop the interceptor and every dev-lane
+  ;; rejection test stays green while the production build loses the
+  ;; check entirely. What makes the check release-resident is the
+  ;; registration carrying BOTH the :schema and the :rf.schema/at-boundary
+  ;; reference — this is the assertion that goes red if someone removes
+  ;; the interceptor and leaves the dev tripwire.
+  (doseq [ingress [:ws/handle-message :ws.app/request-reply]]
+    (let [m (rf/handler-meta :event ingress)]
+      (is (some? (:schema m))
+          (str ingress " declares a :schema (the closed wire contract)"))
+      (is (some #{:rf.schema/at-boundary} (:interceptors m))
+          (str ingress " attaches :rf.schema/at-boundary — the release-resident half")))))
+
+(defn- inbound-boundary-rejection-test []
+  ;; Malformed and unknown frames from the LIVE socket are refused at the
+  ;; ingress: the handler never runs, [:messages :received] and
+  ;; [:messages :last-reply] don't move, and each refusal is observable as
+  ;; the :rf.error/schema-validation-failure signal attributed to the
+  ;; ingress event. Both app-db-writing ingresses are exercised — the
+  ;; push path (:ws/handle-message) and the correlated-reply path
+  ;; (:ws.app/request-reply). A valid frame still lands afterwards.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              traces  (atom [])]
+          (rf/register-listener! :trace ::boundary-traces
+                                 (fn [r] (swap! traces conj r)))
+          (try
+            (let [pre-db    (rf/app-db-value f)
+                  pre-msgs  (get-in pre-db [:messages :received])
+                  pre-reply (get-in pre-db [:messages :last-reply])
+                  rid       (random-uuid)]
+              ;; Park a request in-flight (the mock doesn't echo this
+              ;; :type), so a malformed correlated reply has a slot to
+              ;; target and reaches the SECOND ingress too.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/request {:request-id rid
+                                               :body       {:type :silent-no-echo}
+                                               :reply      [:ws.app/request-reply]
+                                               :timeout-ms 5000}]]
+                                {:frame f})
+              ;; (1) unknown :type — the closed union has no arm for it.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/received {:source-socket-id live-id
+                                                :body {:type :evil/exec :cmd "drop tables"}}]]
+                                {:frame f})
+              ;; (2) malformed :push — :note must be a string.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/received {:source-socket-id live-id
+                                                :body {:type :push :note 42}}]]
+                                {:frame f})
+              ;; (3) malformed correlated :reply — right :request-id, but
+              ;; missing :ok. :receive-message routes it to BOTH ingresses;
+              ;; each must refuse it (it fails ReplyMessage, and carrying a
+              ;; :type means it can't pose as a local loss body either).
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/received {:source-socket-id live-id
+                                                :body {:type :reply :request-id rid}}]]
+                                {:frame f})
+              (let [db (rf/app-db-value f)]
+                (is (= pre-msgs (get-in db [:messages :received]))
+                    "no malformed/unknown frame reached [:messages :received]")
+                (is (= pre-reply (get-in db [:messages :last-reply]))
+                    "no malformed/unknown frame moved [:messages :last-reply]"))
+              ;; The refusals are observable — the schema-validation
+              ;; failure signal fired, attributed to EACH ingress. (In this
+              ;; dev lane the signal is step-1's :where :event emission; the
+              ;; :source :boundary spelling is the production build's, where
+              ;; the interceptor takes over — see the structural test.)
+              (let [rejections (filter #(= :rf.error/schema-validation-failure
+                                           (:operation %))
+                                       @traces)
+                    by-event   (into #{} (keep #(-> % :tags :event-id)) rejections)]
+                (is (contains? by-event :ws/handle-message)
+                    "the push-path refusal is observable and attributed")
+                (is (contains? by-event :ws.app/request-reply)
+                    "the correlated-reply-path refusal is observable and attributed"))
+              ;; Control: a VALID push still lands after all that.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/received {:source-socket-id live-id
+                                                :body {:type :push :note "still fine"}}]]
+                                {:frame f})
+              (is (= (inc (count pre-msgs))
+                     (count (get-in (rf/app-db-value f) [:messages :received])))
+                  "a valid frame still lands — the boundary rejects, it doesn't block"))
+            (finally
+              (rf/unregister-listener! :trace ::boundary-traces))))))))
+
+(defn- credential-discipline-test []
+  ;; AC 2 (rf2-iyjae): the resolved bearer is a distinctive sentinel
+  ;; ("demo-bearer-secret-…", websocket.messages/resolve-credential). It
+  ;; must be absent from the machine snapshot, app-db, and the whole
+  ;; exercised event/trace surface across connect, drop/reconnect, and
+  ;; rotation — and resolution must genuinely GATE authentication.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (let [traces (atom [])
+              events (atom [])]
+          (rf/register-listener! :trace  ::cred-traces (fn [r] (swap! traces conj r)))
+          (rf/register-listener! :events ::cred-events (fn [r] (swap! events conj r)))
+          (try
+            ;; Initial connect authenticates via the closure-resolved bearer.
+            (rf/dispatch-sync [:ws/connection
+                               [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                              {:frame f})
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "initial connect authenticates through the resolver seam")
+            ;; Rotate to cred-b, then drop: the reconnect's fresh spawn must
+            ;; read the ROTATED reference out of :data and still authenticate.
+            (rf/dispatch-sync [:ws/connection [:ws/rotate-cred :ws.demo/cred-b]]
+                              {:frame f})
+            (messages/simulate-disconnect! (rf/capture-frame f))
+            (is (true? (machine-has-tag? f :websocket/reconnecting)))
+            (fire-after-timer! f)
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "reconnect after rotation authenticates with the rotated reference")
+            (is (= :ws.demo/cred-b
+                   (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                           [:data :cred-ref])))
+            ;; The negative arm — rotate to an UNKNOWN reference and drop:
+            ;; the fresh socket resolves nil, the mock's server side refuses
+            ;; the auth frame, and the machine lands in :failed. This is
+            ;; what proves the rotated reference actually REACHED the next
+            ;; socket and that authentication depends on resolution — the
+            ;; seam is load-bearing, not decorative.
+            (rf/dispatch-sync [:ws/connection [:ws/rotate-cred :ws.demo/revoked]]
+                              {:frame f})
+            (messages/simulate-disconnect! (rf/capture-frame f))
+            (is (true? (machine-has-tag? f :websocket/reconnecting)))
+            (fire-after-timer! f)
+            (is (true? (machine-has-tag? f :websocket/failed))
+                "an unresolvable reference fails authentication — resolution gates auth")
+            ;; The sentinel sweep: nothing the framework can inspect ever
+            ;; saw a bearer. Sweep the machine snapshot, app-db, and every
+            ;; captured trace + event record in one pr-str.
+            (let [surface (pr-str {:snapshot (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                   :app-db   (rf/app-db-value f)
+                                   :traces   @traces
+                                   :events   @events})]
+              ;; Control for the sweep itself: it must be able to SEE
+              ;; content that is genuinely on the surface — the opaque
+              ;; references are (they ride :data and dispatches by design).
+              (is (str/includes? surface ":ws.demo/cred-b")
+                  "sweep control: the sweep sees the opaque reference that IS on the surface")
+              (is (not (str/includes? surface "demo-bearer-secret"))
+                  "the raw bearer sentinel appears NOWHERE on the exercised snapshot/app-db/event/trace surface")
+              (is (not (str/includes? surface ":auth-token"))
+                  "no raw-token field anywhere on the exercised surface"))
+            (finally
+              (rf/unregister-listener! :trace  ::cred-traces)
+              (rf/unregister-listener! :events ::cred-events))))))))
+
 ;; ============================================================================
 ;; DEFTESTS — one per fixture so the :each fixture (which resets mock state
 ;; + re-registers everything) runs around each individually.
@@ -1029,9 +1216,9 @@
   (testing "connection epoch — stale :ws/received from a prior socket is dropped"
     (connection-epoch-staleness-test)))
 
-(deftest websocket-refresh-token
-  (testing ":ws/refresh-token — updates :data :auth-token"
-    (refresh-token-test)))
+(deftest websocket-rotate-cred
+  (testing ":ws/rotate-cred — updates :data :cred-ref (the opaque reference only)"
+    (rotate-cred-test)))
 
 (deftest websocket-disconnect-cleanly
   (testing "clean :ws/disconnect — :connected → :disconnected, socket-id cleared"
@@ -1097,3 +1284,22 @@
 (deftest websocket-handle-message-newest-first
   (testing ":ws/handle-message keeps the [:messages :received] log newest-first"
     (handle-message-newest-first-test)))
+
+(deftest websocket-inbound-boundary-structural
+  (testing "rf2-iyjae — both app-db-writing ingresses declare the closed wire
+            :schema AND attach :rf.schema/at-boundary, the release-resident
+            half a dev-lane rejection test cannot see"
+    (inbound-boundary-structural-test)))
+
+(deftest websocket-inbound-boundary-rejection
+  (testing "rf2-iyjae — malformed bodies and unknown :type values from the
+            live socket are refused at both ingresses, observably, without
+            touching :messages or :last-reply; a valid frame still lands"
+    (inbound-boundary-rejection-test)))
+
+(deftest websocket-credential-discipline
+  (testing "rf2-iyjae — connect/reconnect/rotation authenticate through the
+            opaque :cred-ref seam; an unresolvable reference fails auth; the
+            raw bearer sentinel is absent from the exercised snapshot,
+            app-db, event and trace surface"
+    (credential-discipline-test)))
