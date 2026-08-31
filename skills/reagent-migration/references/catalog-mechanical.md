@@ -58,9 +58,8 @@ deref'd is derived state (MIG-19). A read that runs **after** the render — in 
 callback, a timer, a foreign listener — is MIG-26: hoist it to render time and
 close over the value.
 
-`h/use-subs` takes the whole query collection at one fixed site and returns a
-snapshot. It is a deliberate control on edge sets, not the default translation —
-do not reach for it during a migration pass.
+There is no grouped-read form. A view reading several subscriptions is several
+`h/sub` calls, one per read site — that is the whole translation.
 
 ## MIG-04 / 05 — dispatch-lifting
 

@@ -81,10 +81,9 @@ so a branch not taken contributes no edge. That is a real difference from
 Reagent, where a deref inside a conditional still built a reaction the moment it
 ran.
 
-`h/use-subs` is the deliberate control: one fixed site takes the whole query
-collection and returns the snapshot the body destructures, so a boundary's edge
-set becomes a function of its declaration rather than of its control flow. Reach
-for it when you *want* that property, not by default.
+There is no grouped-read form. A body with several subscriptions is several
+`h/sub` calls, one at each read site — in a `when`, a `for`, or a helper
+alike — and a boundary's edge set follows its control flow by design.
 
 A `subscribe` that is *stored* rather than immediately deref'd (a held reaction,
 a cursor) is derived-state territory (MIG-19), not a deref-drop.
