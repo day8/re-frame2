@@ -93,7 +93,7 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```clojure
   (lifecycle-state variant-id) → keyword
   ```
-- **Description**: The current state of the variant's lifecycle machine — one of `:idle` / `:loading` / `:events` / `:rendering` / `:playing` / `:done` / `:error`.
+- **Description**: The current state of the variant's lifecycle machine — one of `:pre-mount` / `:mounting` / `:loading` / `:ready` / `:error`. Returns `:pre-mount` when the variant has not been run yet.
 
 The `opts` map for `run-variant` accepts:
 

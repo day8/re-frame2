@@ -154,7 +154,7 @@ Durable app-db classification is declared on the variant body and lowered into t
 
 ## `re-frame.story.recorder.play-export`
 
-The rich DOM-capture-aware recorder translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection. (The fn names below carry the recorder's transitional `play-script` spelling, which the registrar lowers to `:script`.)
+The rich DOM-capture-aware recorder translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection.
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |

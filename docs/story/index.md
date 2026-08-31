@@ -144,9 +144,9 @@ tags, and decorators usually live.
 They run a registered variant or an inline plan, report through the test
 framework, or show how the final plan was assembled.
 
-The tutorial teaches the public `:setup` and `:script` vocabulary. Some
-recorder and internal surfaces still mention the older `:play-script` spelling;
-the registrar lowers that shape while the tree finishes the pre-alpha rename.
+The tutorial teaches the public `:setup` and `:script` vocabulary — the only
+one there is. The pre-alpha rename is complete: the recorder emits the same
+keys you author, and the retired `:play-script` spelling is rejected outright.
 
 ## Chapters
 

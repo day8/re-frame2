@@ -34,10 +34,6 @@ that the output is data. It is not a generated JavaScript function. That makes
 it easy to diff, copy, send over MCP, and normalize through the same plan
 compiler as hand-written scripts.
 
-During the pre-alpha rename, some recorder output and internal tooltips still
-say `:play-script`. The public authoring slot is `:script`; the registrar lowers
-the older spelling while the tree finishes converging.
-
 ## What belongs in `:setup` and what belongs in `:script`
 
 Setup establishes the state the viewer should land on. Script is the behaviour
