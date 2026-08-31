@@ -41,7 +41,7 @@ when the eval shape changes in a way that breaks readers.
 ## Coverage
 
 32 evals, covering Xray's trigger surface and answer quality: 23 positives
-(skill should fire) and 9 negatives (skill should stay quiet). 18
+(skill should fire) and 9 negatives (skill should stay quiet). 19
 positives carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves, plus the
 route-quality contract (one first surface in the first paragraph, no
@@ -61,6 +61,7 @@ only the focused family leaf):
 | 11 | `panel-route-schema` | yes | Schema violations → Epoch inline + L2 pink-wash; registry → Static Schemas; no Issues tab, no Dynamic Schemas tab. |
 | 12 | `panel-route-hydration` | yes | No standalone Hydration tab; mismatches → Epoch inline + issues-ribbon signal. |
 | 21 | `chrome-rewind` | yes | Passive inspect (live frame unmoved) vs explicit `Reset` button (`restore-epoch!` reinstalls the whole frame-state — both app-db and runtime-db — not just `:db-after`); `r`/`R`/`*` are NOT wired. |
+| 22 | `chrome-filters` | yes | No `Clear Filters` control (retired) — remove each IN/OUT pill via its trailing `×` (the warning copy is `N events filtered out`); muted event ids route separately through the L1 `🔇 N` chip → mute manager (per-row unmute / `Unmute all`). |
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
@@ -68,13 +69,15 @@ only the focused family leaf):
 | 29 | `tab-inventory-count` | yes | The full ordered **10-tab** Dynamic list incl. Frames and Hicasso (count is 10, not 9); correct `:order`; no retired label ("Modules"); no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
 | 32 | `panel-route-resources` | yes | Route quality: server-state staleness / in-flight → the Dynamic **Resources** tab; live instances follow the L1 frame picker, not the epoch; a deep follow-up loads only `references/panels-resources.md`. |
-| 4, 5, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
+| 4, 5, 10, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
 | 13–20, 31 | `neg-*` | no | Negatives — adjacent surfaces (agent runtime → pair, whether mutating (13) or read-only (31); implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
 
 The Layer-2 set covers two contracts. The high-drift facts:
 launch-default, launch-overlay, launch-popout-button, launch-programmatic,
-config-init-vs-settings, chrome-rewind, chrome-palette,
-panel-route-machine-canvas, panel-route-schema, panel-route-hydration —
+config-init-vs-settings, chrome-rewind, chrome-palette, chrome-filters
+(the retired bulk Clear Filters vs per-pill `×` removal + the separate
+`🔇 N` mute-manager route), panel-route-machine-canvas,
+panel-route-schema, panel-route-hydration —
 plus launch-popout (the paired programmatic counterpart to the button
 prompt), the tab-inventory pair panel-route-frames +
 tab-inventory-count that pin the 10-tab Dynamic surface (including Frames
