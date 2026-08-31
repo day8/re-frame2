@@ -6,7 +6,7 @@
 
 - A re-frame2-pair session needs to *drive* a Story variant (mount it, run it, re-run after a fix) — not just observe a variant the user is already poking at in the canvas.
 - A re-frame2-pair session needs to *assert* against a variant — was the play sequence valid? did the cascade meet `:rf.assert/*` expectations? did axe-core find a regression?
-- The user wants to capture a live cascade back into a `:play-script` snippet to bake the current interaction into a variant body.
+- The user wants to capture a live cascade back into a `:script` snippet to bake the current interaction into a variant body.
 
 Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the browser-native `eval-cljs` path below, the five live-session story-mcp tools, and the composition patterns with re-frame2-pair's reads/writes/watches.
 
@@ -51,7 +51,7 @@ mcp__re-frame2-pair__read-sub {sub: "[:auth.login/status]"}
 mcp__re-frame2-pair__dispatch {event: "[:auth.login/submit]", frame: ":story.login/success"}
 ```
 
-A fresh `run-variant` calls `reset-frame!` and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:events`, not a REPL dispatch.
+A fresh `run-variant` calls `reset-frame!` and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:setup`, not a REPL dispatch.
 
 ### Verified transcript (condensed)
 
@@ -133,7 +133,7 @@ mcp__re-frame2-pair__subscribe
 mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
 ```
 
-Each `notifications/progress` tick on the subscription carries one epoch record from the variant's cascade — including every `:play-script` step the runner drove. The streaming view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
+Each `notifications/progress` tick on the subscription carries one epoch record from the variant's cascade — including every `:script` step the runner drove. The streaming view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
 
 **Dispatch-from-pair into the variant's frame.** Mid-loop intervention — between iterations of `run-variant`, inject a probe dispatch directly:
 
@@ -168,11 +168,11 @@ A `:status :cannot-run` is the distinct third verdict — the runner could not e
 
 What re-frame2-pair adds over the bare loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` probes candidate fixes without re-registering the variant; `trace/last-epoch` shows the cascade `read-failures` won't (it reads only the assertion accumulator, not the trace stream).
 
-When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:play-script` snippet — the user lands it back in source.
+When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:script` snippet — the user lands it back in source.
 
 ## Common gotchas — live-session specific
 
-- **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + events + play. REPL-only state you'd injected via re-frame2-pair `dispatch` between iterations is gone. Bake setup into `:loaders` / `:events` if you need it to survive (`variant-as-frame.md §Common gotchas`).
+- **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + setup + play. REPL-only state you'd injected via re-frame2-pair `dispatch` between iterations is gone. Bake setup into `:loaders` / `:setup` if you need it to survive (`variant-as-frame.md §Common gotchas`).
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
 - **`read-a11y-violations` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
 - **`record-as-variant`'s filter layers are not free-form.** Filtering is inherited verbatim from `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). You can't widen the filter via tool input.
