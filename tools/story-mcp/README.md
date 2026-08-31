@@ -119,7 +119,7 @@ this jar is decomposed into [`spec/`](./spec/):
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this jar is, why it's separate from Story. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; `initialize`; `tools/list`; `tools/call`; protocol-version pin. |
-| [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md) | The 20 tools across Dev / Docs / Testing / Write categories. |
+| [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md) | The 19 tools across Dev / Docs / Testing / Write categories. |
 | [`spec/003-Write-Surface-Gating.md`](./spec/003-Write-Surface-Gating.md) | The `allow-writes?` config; what's gated; how the gate fails. |
 | [`spec/API.md`](./spec/API.md) | Consolidated tool surface (each tool's input/output schemas). |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | Why Cheshire over data.json; why stage-marker is independent; why protocol-version pinned. |
@@ -132,8 +132,10 @@ The 4 categories, at a glance:
   `explain-variant`, `get-docs-markdown`.
 - **Testing** (4) — `run-variant`, `snapshot-identity`, `read-a11y-violations`,
   `read-failures`.
-- **Write** (3, gated) — `register-variant`, `unregister-variant`,
-  `record-as-variant`.
+- **Write** (2, gated) — `register-variant`, `unregister-variant`.
+  (The former blocking recorder bridge `record-as-variant` was retired —
+  rf2-5saz7; interactive canvas recording is performed through Pair in
+  the attached CLJS runtime.)
 
 ## File layout
 
@@ -159,8 +161,7 @@ tools/story-mcp/
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
         ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, explain-variant, get-docs-markdown
         ├── testing.cljc                          ; run-variant, snapshot-identity, read-a11y-violations, read-failures
-        ├── write.cljc                            ; gated: register-variant, unregister-variant
-        └── recorder.cljc                         ; gated: record-as-variant
+        └── write.cljc                            ; gated: register-variant, unregister-variant
 └── test/
     ├── fixtures/tool-names.json                  ; canonical tool-name list (shared JVM + Node fixture)
     ├── stdio-roundtrip.js                        ; Node stdio JSON-RPC roundtrip (initialize → tools/list → tools/call)

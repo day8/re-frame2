@@ -121,12 +121,10 @@ changes.
 
 ## Write surface gated by default
 
-The Write category — `register-variant`, `unregister-variant`, and
-`record-as-variant` — sits behind
+The Write category — `register-variant` and
+`unregister-variant` — sits behind
 `re-frame.story-mcp.config/allow-writes?` (default `false`).
-`register-variant` / `unregister-variant` are gated outright;
-`record-as-variant` is gated only on its `:write-back`
-re-registration path (the snippet-only recording read is ungated).
+Both are gated outright.
 Three input paths flip the gate at boot: `--allow-writes` CLI flag,
 `-Drf.story-mcp.allow-writes=true` sysprop,
 `RF_STORY_MCP_ALLOW_WRITES=true` env var. Read tools are never
@@ -218,10 +216,9 @@ The discipline applies across three axes:
   single record bounded by the body size, not a function of
   registry size; the wire-boundary cap catches overruns there.
 - **Cap + dedup + per-call override for rich payloads.** Ops with
-  rich per-item shape (`preview-variant`, `run-variant`,
-  `record-as-variant`) re-key the same value into multiple derived
-  slots (`:app-db` + `:rendered-hiccup` + `:snapshot`; repeated event
-  records in the recorder's `:captured` vector). Those three carry
+  rich per-item shape (`preview-variant`, `run-variant`)
+  re-key the same value into multiple derived
+  slots (`:app-db` + `:rendered-hiccup` + `:snapshot`). Those carry
   `:dedup-eligible? true`: their `:structuredContent` is run through
   `re-frame.mcp-base.dedup` (collapsing repeated subtrees into a flat cache map
   under the cross-MCP `{:rf.mcp/dedup-table …}` marker) BEFORE the
@@ -258,11 +255,11 @@ single op blow the session.
 
 ## Structural dedup at the wire boundary
 
-Three tools — `preview-variant`, `run-variant`, `record-as-variant` —
+Two tools — `preview-variant` and `run-variant` —
 pass their `:structuredContent` payload through `re-frame.mcp-base.dedup` before
 the wire-boundary token-cap check. Repeated subtrees in the payload —
 the same `:app-db` slice reappearing in `:rendered-hiccup` and
-`:snapshot`, the same argument map repeating across recorder captures
+`:snapshot`
 — collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
 namespaced symbols.
 

@@ -1,10 +1,10 @@
 # Story-MCP — Tool Registry
 
-> The 20 tools the server exposes, across four categories — Dev (3),
-> Docs (10), Testing (4), Write (3). One section per category, one
+> The 19 tools the server exposes, across four categories — Dev (3),
+> Docs (10), Testing (4), Write (2). One section per category, one
 > paragraph per tool. The wire-shape for each tool (input schema,
 > output shape) lives in [`API.md`](API.md); this document is the
-> orientation read. The canonical 20-tool name list ships as the
+> orientation read. The canonical 19-tool name list ships as the
 > shared fixture `test/fixtures/tool-names.json` (rf2-36upq TE7); JVM
 > and Node test corpora compare against it so the spec text and the
 > running registry can't drift independently.
@@ -130,30 +130,26 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
 | **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain-variant`'s ENTIRE `:explain` map — plan-STRUCTURE (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. `explain-variant` is a NO-RUN projection over the registry side-table (rf2-7k5mce, Mike 2026-07-08): even its plan-RESOLVED value slots are static author data resolved from the variant's own registration, so the WHOLE `:explain` map ships raw like `get-variant` / `variant->edn` — the over-redaction of resolved args / setup-order / network stubs to `:rf/redacted` on the common no-run inspection path is retired. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
-`read-failures` / `read-a11y-violations` / `record-as-variant`) advertise
+`read-failures` / `read-a11y-violations`) advertise
 the `:include-sensitive` opt-in slot in `tools/list` only when the
 `--allow-sensitive-reads` gate is open; the docs-discovery tools —
 `explain-variant` included, since it ships author data raw (rf2-7k5mce) —
 never advertise it (they have no value-bearing slot to gate). The egress scrubs
 keep the live and non-live cases coherent — a declared-sensitive value
 redacts and a declared-large value elides identically (i.e. neither crosses
-raw, by default) whether it reaches the wire via a live derived tree, a
-plan-resolved arg, or a captured event. **Non-live posture:** two surfaces
-(`record-as-variant`'s captured event vectors, `read-a11y-violations`'s axe
-DOM nodes) carry inherently RE-KEYED runtime payloads whose path-scrub is a
-no-op even live; they take the **named, narrow re-keyed-runtime egress
+raw, by default) whether it reaches the wire via a live derived tree or a
+plan-resolved arg. **Non-live posture:** one surface
+(`read-a11y-violations`'s axe
+DOM nodes) carries an inherently RE-KEYED runtime payload whose path-scrub is a
+no-op even live; it takes the **named, narrow re-keyed-runtime egress
 exception** (`egress/scrub-re-keyed-runtime`) — live ⇒ PATH-project; non-live
 ⇒ raw under the documented carve-out (zero leak-delta, since the live case
 already ships these re-keyed copies raw). This is **not** a broad
-`:rf.egress/local-raw` profile. `record-as-variant`'s captured `:rf.cofx`
-maps are **not** re-keyed (a `reg-cofx` value classified `:sensitive` mirrors
-the app-db shape), so they route through `egress/scrub-captured-cofx`, which
-**fails closed** on a non-live frame (the whole cofx map → `:rf/redacted`)
-rather than ship raw. The framework `project-egress` boundary stays
+`:rf.egress/local-raw` profile. The framework `project-egress` boundary stays
 fail-closed.
 
 ## Dev — for agents helping build new stories
@@ -261,10 +257,8 @@ into the outside world. Marking these tools closed-world would tell a
 host the call is contained on-box and let it under-gate a call that
 reaches external systems. **Every other tool stays closed-world**
 (`:openWorldHint false`): the read tools, the registry write tools
-(`register-variant` / `unregister-variant`), the static docs tools, and
-`record-as-variant` (which records an externally-driven canvas and
-optionally writes the captured snippet to the on-box registry — it never
-runs the variant lifecycle itself). The split is pinned by the JVM
+(`register-variant` / `unregister-variant`), and the static docs
+tools. The split is pinned by the JVM
 `annotations-on-every-tool` open-world matrix and the
 `tools/mcp-conformance` classification ratchet
 (`story-classifications.json` `closed-world` list + the open-world
@@ -476,8 +470,7 @@ violating element's outerHTML), `:target` (CSS selectors) and
 `<input value="<token>">`, a `data-*` attribute, a PII text node) lands
 verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime
 payload class, so `:violations` route through the named
-`egress/scrub-re-keyed-runtime` exception (rf2-jwggld) — the SAME exception
-`record-as-variant`'s event vectors take. Under a LIVE variant frame
+`egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
 **EP-0025 FAIL-OPEN** holds: a sensitive value rendered into a node `:html`
 is a RE-KEYED DOM position the classification path cannot reach, so it ships
 RAW — value-match was removed; classify the app-db PATH to redact a value
@@ -516,8 +509,8 @@ same `--allow-sensitive-reads` boot gate as `preview-variant` /
 ## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
 
 The tools that surface live observed frame VALUES
-(`preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
-`record-as-variant`) all accept a per-call
+(`preview-variant`, `run-variant`, `read-failures`,
+`read-a11y-violations`) all accept a per-call
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
 §Direct-read privacy posture). Per the rf2-uaymx (b) decision that
@@ -547,9 +540,9 @@ data key.
 Closed by default. When closed:
 
 - `tools/list` omits the `:include-sensitive` slot from the input
-  schemas of every affected tool — the five that surface live observed
+  schemas of every affected tool — the four that surface live observed
   frame VALUES (`preview-variant`, `run-variant`,
-  `read-failures`, `read-a11y-violations`, `record-as-variant`),
+  `read-failures`, `read-a11y-violations`),
   i.e. every descriptor that carries the slot. (`explain-variant` is NOT
   among them — it ships author data raw, rf2-7k5mce.) Agents never see an
   opt-in they couldn't exercise.
@@ -566,11 +559,9 @@ off on the egress posture by passing the flag.
 
 ## Write — v1.1, dev-only, gated
 
-Three write tools. `register-variant` and `unregister-variant` are
+Two write tools. `register-variant` and `unregister-variant` are
 both gated behind `re-frame.story-mcp.config/allow-writes?` per
-[`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md);
-`record-as-variant` is ungated for the recording path and gated only
-when `:write-back` is set.
+[`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
 
 ### `register-variant`
 
@@ -583,113 +574,26 @@ string.
 Invokes `re-frame.story/unregister! :variant <id>`. Symmetric to
 `register-variant`. Same gate.
 
-### `record-as-variant`
-
-Bridges the recorder primitives (`start-recording!` → `stop-recording!`
-→ `gen-play-snippet`) across the MCP boundary. The agent calls the tool
-naming an existing variant id; the server starts a recording against
-that variant's frame, blocks for `:duration-ms` while the agent (or
-human-in-canvas) drives dispatches, stops the recording, and returns
-the `(reg-variant ...)` snippet `gen-play-snippet` emits.
-
-Filter layers are inherited verbatim from
-`re-frame.story.recorder/recordable-event?` — op-type `:event/dispatched`,
-frame scope match against the recording target, and an internal-namespace
-skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). The tool
-does not expose a free-form filter knob; the recorder owns that
-contract per
-[`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
-§Test Codegen.
-
-Wire-egress posture (rf2-12f2q, EP-0025 fail-open + the narrowed-hybrid
-rule rf2-jwggld): the captured event vectors cross the AI/off-box boundary
-in BOTH the `:captured` slot and the `:play-snippet` text. Event vectors are
-an inherently RE-KEYED runtime payload class, so they route through the
-named `egress/scrub-re-keyed-runtime` exception: a live source frame
-PATH-projects against its declared-`:sensitive?` paths (the SAME PATH-based
-projection the live-state tools apply to their derived trees), and a
-**non-live** source frame returns the events raw under the documented
-carve-out. **EP-0025 FAIL-OPEN:** an event PAYLOAD is a re-keyed position the
-app-db path cannot reach, so a declared-sensitive value dispatched into an
-event ships RAW even under a live frame (the value-match engine that used to
-chase re-keyed copies is removed) — which is exactly why fail-closing the
-non-live case would destroy the tool with zero leak-delta. To redact such a
-value, classify its app-db PATH so it is redacted before it is dispatched
-into an event. Pass `:include-sensitive true` (gated by
-`--allow-sensitive-reads`) to opt out. The WRITE-BACK path (below)
-re-registers the RAW events on-box for replay fidelity — that is an
-operator-gated registration via `--allow-writes`, not a wire egress.
-
-**Recordable-coeffect replay fidelity (EP-0017).** Each captured
-dispatch carries its flat `:rf.cofx` envelope — the framework-stamped
-`:rf/time-ms` plus any provided recordable facts the dispatch supplied
-(EP-0017 §3). The recorder reads that envelope off the same
-`:rf.event/dispatched` trace event and threads it through both emission
-surfaces: the rendered `:play-snippet` and the write-back `:script`
-body render the matching dispatch step as `[:dispatch evec {:rf.cofx
-…}]` (a 3-element step; the bare 2-element step is emitted only when
-nothing was captured — zero ceremony for a no-coeffect recording). On
-replay the runner re-supplies the recorded envelope via the dispatch
-opts, so a handler that declares `:rf.cofx/requires` re-presents the
-recorded value rather than restamping a fresh `:rf/time-ms` or failing
-`:rf.error/missing-required-cofx` for a provided fact. The captured
-`:rf.cofx` maps are value-bearing but, unlike the event payloads, are NOT
-inherently re-keyed — a flat `:rf.cofx` map is ordinary, possibly app-shaped
-EDN (a `reg-cofx` value classified `:sensitive` mirrors the app-db shape), so
-under a live frame a cofx value at a classified path WOULD path-redact. Cofx
-therefore does NOT take the re-keyed-runtime carve-out: it routes through
-`egress/scrub-captured-cofx`, which path-projects under a live source frame
-(a classified cofx value → `:rf/redacted`; a re-keyed cofx value ships raw,
-EP-0025 fail-open) and **FAILS CLOSED** on a **non-live** source frame (the
-whole cofx map → `:rf/redacted`) rather than ship raw. EP-0017 names
-secrets-as-recordable-cofx a normative rule and review discipline, not a
-structural guarantee; this fail-closed boundary is the structural backstop.
-`:rf/time-ms` is always safe to surface under a live frame (EP-0017 §3); a
-non-live `event->step` drops a redacted (non-map) cofx to the bare 2-element
-step so the snippet stays valid. The write-back threads the RAW (unscrubbed)
-envelope on-box for full replay fidelity (an operator-gated `--allow-writes`
-registration, not a wire egress). No `:rf.world/inputs` naming is
-introduced — the retired predecessor spelling does not appear on any
-surface.
-
-Optional `:write-back` re-registers the source variant with the
-captured recording translated to a live play body via
-`reg-variant*` (preserving the existing `:component`, `:args`,
-`:decorators`, etc.). The translation routes through
-`re-frame.story/recording->script-body` — each captured event becomes
-a `[:dispatch ...]` step (carrying its captured `:rf.cofx` envelope as a
-trailing opts map where one was recorded) — and the write-back assocs
-the result under the `:script` slot (rf2-7mj4z; spec/017 §Public
-vocabulary). The registrar stores that key verbatim, so `variant->edn`
-of the written-back body reads `:script` — the write/read round trip
-is an identity on the key, and a body carrying the retired
-`:play-script` spelling is rejected by the closed variant schema
-(rf2-7dewo). The legacy `:play` slot was removed (rf2-0wrud) and no
-runner executes it. This branch is gated behind the same
-`allow-writes?` flag as `register-variant`; the read-only path
-(snippet only) needs no gate.
-
-Wire-key shape (rf2-pmwgn): the input-schema property key is
-`:write-back` (no `?`) — the same Anthropic `^[a-zA-Z0-9_.-]{1,64}$`
-constraint that mandates `:include-sensitive` (no `?`) applies here.
-The response-payload key `:written-back?` retains the `?`: response
-keys are NOT bound by the input-schema regex. The Clojure-idiomatic
-`?` belongs on predicates and on response data, not on input-schema
-property keys whose wire form disallows it.
-
-`:new-variant-id` lets the write-back land under a different id (the
-default is to overwrite the source). `:extends` defaults to the source
-variant so the emitted snippet re-uses its `:component` / `:args` /
-`:decorators` rather than duplicating them.
-
-The agent's self-healing loop (write story → run → read failures →
-fix) activates with the write surface; without it the loop is
-read-only.
-
 ## What's NOT in the registry
 
 Each of these is a deliberate omission:
 
+- **No `record-as-variant`** — RETIRED (rf2-5saz7, 2026-09-01). The
+  blocking recorder bridge advertised a successful capture while making
+  the actor that must produce the events unreachable: its handler ran
+  `start-recording!`, slept the server's ONLY stdio dispatch loop for
+  `:duration-ms`, then `stop-recording!` — so no MCP client could drive
+  a dispatch during the window, the shipped headless JVM has no
+  JVM-to-browser bridge, and the tool could only ever return a green
+  EMPTY capture. That violates the tool-boundary invariant (every
+  advertised success path must be exercisable through the published
+  transport). The recorder primitives stay in `tools/story/` for their
+  in-process/browser consumers; interactive canvas recording is
+  performed through Pair in the attached CLJS runtime. A `tools/call`
+  naming the retired tool takes the server's existing `-32601
+  method-not-found` path — no tombstone, no alias. A future headless
+  capture surface requires an executable SDK witness with a
+  transport-reachable event producer first.
 - **No `register-story`** at v1.1. The agent registers a story by
   inference: it calls `register-variant` against a variant id whose
   `:story.<path>` parent doesn't yet exist; Story's reg-variant
@@ -713,6 +617,6 @@ Each of these is a deliberate omission:
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   how the Write category gates.
 - [`API.md`](API.md) — per-tool input / output schemas.
-- [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md) §Test Codegen — the recorder primitives `record-as-variant` wraps.
+- [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md) §Test Codegen — the Story recorder primitives (in-process/browser recording; their MCP bridge was retired under rf2-5saz7).
 - [`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md) —
   Story's side of the read/write primitives.
