@@ -1258,7 +1258,17 @@ Watch specifically for:
   this loop is the only place that checks whether it does.
 
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
-file — do not just note it. **And the fix is bounded in change, not in search.** What this loop finds is
+file — do not just note it.
+
+**Where the project arms a mayor-side commit guard, the mayor's own repair goes through a
+mayor-occupied worktree** — the guard refuses the mayor checkout for every non-tracker surface,
+these documents included, and that refusal is the guard working, not an exemption to negotiate.
+Author the fix in a worktree of your own, publish it as an ordinary change, and merge it on the
+ordinary criterion; the dispatch ledger's mayor-row convention already names such a tree. Two
+mechanical gotchas, measured: the refused commit exits non-zero with the files still STAGED, so
+read the commit's own exit rather than the output tail — the refusal scrolls away under later
+lines; and those staged files then abort the next rebase-pull with a message that never names
+the refusal that caused it, so restore them before pulling rather than diagnosing the pull. **And the fix is bounded in change, not in search.** What this loop finds is
 mechanical, so a defect in one place usually has siblings: [*"Bounded repair" bounds the change, not the
 search*](dispatch-prompt-template.md#name-the-discriminator) is set out for the worker and binds the
 mayor's own repairs exactly as it binds a worker's. Measured here: a pointer repaired in this loop left
