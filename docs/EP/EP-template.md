@@ -60,6 +60,8 @@ require the header; the gate enforces it).
 `Created:` is the date this EP file was first added (ISO `YYYY-MM-DD`). Add a
 `Resolution:` line when the operator rules — the acceptance or finalisation date
 (the six re-frame.ui EPs carry both). A `proposal` has no `Resolution:` yet.
+For EP-0030 and later the metadata gate requires `Created:` and, for every
+non-`proposal` status, a non-empty `Resolution:` chronology.
 
 ==== Not every EP graduates into spec/ ====
 
@@ -147,4 +149,7 @@ Resolved Decisions as its ruling lands. -->
 <!-- Dependencies, cross-references, and provenance live HERE (not scattered in
 prose): the EPs and specs this builds on, supersedes, or is constrained by, plus
 supporting spikes/findings and the beads/program record that tracks
-implementation. The README index row carries only status + a one-line summary. -->
+implementation. A material successor relationship is bidirectional: link the
+predecessor here and add a dated follow-up note in that predecessor at the same
+time (EP-0009 §Durability rules 3). The README index row carries only status +
+a one-line summary. -->

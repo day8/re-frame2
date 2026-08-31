@@ -123,6 +123,12 @@ The `Status:` line is machine-readable. Its value MUST be one of:
    ruling, or scope; anything past that line is recorded as a dated
    erratum/addendum beside the affected passage, preserving the original text —
    freeze meaning, not bytes (rf2-r7ahi).
+   **Relationship history is bidirectional:** when a later EP changes an
+   accepted/final predecessor, the successor cites the predecessor and the
+   predecessor gains a dated follow-up note linking back to the successor. If
+   a successor absorbs a non-terminal EP, that EP and the README index move to
+   `superseded-by EP-NNNN`; a terminal predecessor keeps its historical status
+   and records the later relationship in an addendum instead.
 4. **One EP, one decision surface.** Bundling independent decisions invites
    all-or-nothing rulings; prefer narrow EPs and cross-references.
 5. **Graduation includes a guide-impact assessment:** the graduating EP names
@@ -144,6 +150,10 @@ The `Status:` line is machine-readable. Its value MUST be one of:
   apply. This is the compact PEP shape the EP-0030..EP-0035 corpus adopted, and
   it is the authoring default. Older EPs (this one included) keep their existing
   sections — their bodies are a historical record, not a migration backlog.
+- EP-0030 and later carry an ISO `Created: YYYY-MM-DD` line. Once such an EP is
+  no longer `proposal`, it also carries a non-empty `Resolution:` line recording
+  the ruling chronology. `check_ep_status_sync.py` enforces this transition
+  boundary; older omissions remain historical rather than a retrofit project.
 - Where the older house sections now live: **scope** (goals/non-goals) opens the
   Specification, and the **ownership** half of the old Relationships section
   joins it there; **relationships/provenance** — dependencies, cross-references,
@@ -155,12 +165,19 @@ The `Status:` line is machine-readable. Its value MUST be one of:
   Decisions once the operator rules.
 - New EPs carry `Type: standards-track` or `Type: process`. EPs predating this
   process may omit `Type:` and are treated as standards-track.
+- This is a PEP-shaped house process, not Python's repository wire format.
+  The H1 owns number/title; Git history, the `Resolution:` chronology, and
+  linked programme records supply provenance; dated errata/addenda are the
+  local `Post-History` equivalent. Do not mint empty Python-governance fields
+  such as Sponsor or Discussions-To merely to resemble an RFC preamble.
 - State the positive principle first; subtractive framing is migration
   mechanics, not the rule (the EP-0002 lesson).
-- Dependencies live in `References`; the index row in `docs/EP/README.md`
-  carries status + one-line summary. `check_ep_status_sync.py` enforces README
-  status sync, the status grammar, and the `Type:` header rule for post-EP-0005
-  EPs.
+- Dependencies live in `References`; material successor relationships are
+  linked in both directions per durability rule 3. The index row in
+  `docs/EP/README.md` carries status + one-line summary.
+  `check_ep_status_sync.py` enforces README status sync, status/type grammar,
+  the EP-0030 metadata boundary, supersession-target existence, and index-link
+  numbering.
 
 ## Backwards Compatibility
 
@@ -173,10 +190,12 @@ as standards-track. The README remains an index, not a second normative home.
 1. **Done.** README bead: `docs/EP/README.md` is the per-type authority summary,
    lifecycle vocabulary, and index, pointing here for the full process.
 2. **Done.** Tooling bead: `check_ep_status_sync.py` enforces README/header
-   status sync, status grammar, and the post-EP-0005 `Type:` header rule.
-3. **Open.** Template/update bead: update any EP authoring
-   template or implementor skill that still treats `Status:` as free text or
-   assumes every successful EP graduates into `spec/`.
+   status sync, status grammar, the post-EP-0005 `Type:` header rule, the
+   EP-0030+ transition metadata, supersession targets, and index numbering.
+3. **Done.** `EP-template.md` encodes the controlled status/type vocabulary,
+   per-type graduation, created/resolution metadata, and bidirectional
+   successor-record rule. Implementor guidance points to this process rather
+   than maintaining a second lifecycle.
 
 ## Recommendation
 
@@ -184,3 +203,8 @@ Keep this EP `active`. It codifies the model the corpus already de-facto
 follows (stable numbers, graduation into spec, resolved-decision records, the
 errata ledger) and adds the missing pieces: the worthiness bar, the type split,
 the terminal statuses, and the never-delete rule.
+
+## References
+
+- [PEP 1 — PEP Purpose and Guidelines](https://peps.python.org/pep-0001/)
+- [PEP 12 — Sample reStructuredText PEP Template](https://peps.python.org/pep-0012/)

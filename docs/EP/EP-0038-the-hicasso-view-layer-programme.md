@@ -5,6 +5,14 @@ Type: standards-track
 Created: 2026-07-30
 Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Hicasso graduates, as a success)
 
+> **Status-bookkeeping erratum — 2026-08-31.** The Go-path text below says
+> EP-0036 would be marked superseded by this EP. EP-0036 was already in the
+> terminal `withdrawn` state when this programme began, so its status remains
+> the historical Freehand outcome; a reciprocal successor note now points here.
+> The non-terminal donor records actually absorbed by Freehand — EP-0030,
+> EP-0033, and EP-0034 — are `superseded-by EP-0036`. This corrects lifecycle
+> bookkeeping only; HD-029 and Hicasso's successful graduation are unchanged.
+
 ## Abstract
 
 **Hicasso** (`re-frame.hicasso`, alias `h`) is re-frame2's third and final native

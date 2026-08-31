@@ -392,3 +392,14 @@ Adopt `:initial-events` as the single declarative frame-setup surface, with `:rf
 for app-db seeding, and retire `:on-create` and `:initial-db`. Keep it exactly as light as
 the loop it replaces — the value is in the readable, complete, replayable declaration, not
 in new lifecycle machinery.
+
+## References
+
+- [EP-0023 — Images And Frame-Loaded Instruction Sets](EP-0023-image-loaded-frames.md),
+  whose original `:initial-db` construction surface this EP supersedes.
+- [EP-0018 — One Event Registration Surface](EP-0018-one-event-registration.md),
+  which supplies the single event contract used during setup.
+- [`spec/002-Frames.md`](../../spec/002-Frames.md) — live frame construction
+  and lifecycle contract.
+- [`spec/007-Stories.md`](../../spec/007-Stories.md) — the deliberately richer,
+  separate Story setup grammar.

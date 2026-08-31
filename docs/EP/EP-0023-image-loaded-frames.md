@@ -32,6 +32,15 @@ Type: standards-track
 > model; status stays `final`.
 >
 > **Supersession addendum 2026-07-09:** two APIs shown live in the body below were subsequently retired — `reload-images!` folded into `re-make-frame` (generation-diff reload) per rf2-lxwpob, and `:initial-db` retired by EP-0027 in favour of a `{}` start plus `:rf/set-db` via `:initial-events`; the historical body is left as authored (retro-stamp only).
+>
+> **Successor record — 2026-08-31.** Three final successor EPs refine this
+> public surface: [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md)
+> collapses frame identity/lifecycle to one live frame value and registry;
+> [EP-0026](EP-0026-image-api-simplification.md) replaces the original image
+> selection, replacement, and capability vocabulary; and
+> [EP-0027](EP-0027-frame-initial-events.md) supplies the events-only strict
+> construction rule already retro-stamped above. The historical examples below
+> are read through those successor records and the governing specs.
 
 ## Abstract
 

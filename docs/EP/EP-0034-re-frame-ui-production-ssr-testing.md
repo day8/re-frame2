@@ -1,9 +1,9 @@
 # EP-0034: re-frame.ui Production, SSR, and Testing Posture
 
-Status: accepted
+Status: superseded-by EP-0036
 Type: standards-track
 Created: 2026-07-16
-Resolution: accepted 2026-07-11; component-library gates added 2026-07-16
+Resolution: accepted 2026-07-11; component-library gates added 2026-07-16; superseded by EP-0036 2026-07-22
 
 > **Historical record — 2026-08-16.** This EP's programme
 > ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into
