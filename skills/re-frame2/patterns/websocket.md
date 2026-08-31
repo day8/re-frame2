@@ -22,7 +22,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 | `:spawn` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
 | `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
-| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/send`, `:ws/refresh-token` declared once on `:active`, inherited by every leaf. |
+| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/send`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. |
 | Connection-epoch staleness check | Live socket-actor's `:rf/self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
 
 ## Credential discipline (load-bearing — read before the snippet)
@@ -31,7 +31,7 @@ Bearer tokens, cookies, refresh tokens, and similar credentials **must never liv
 
 > **The credential cofx/fx live under YOUR app's prefix, not `:rf/*`.** re-frame2 ships **no** credential surface, and the `:rf/*` root is framework-reserved (`spec/Conventions.md` §single-root reserved set). Register the credential cofx/fx under your auth slice's own feature prefix — the `:auth.cred/fetch` / `:auth.cred/store` names in this leaf are illustrative placeholders for *your* registrations, not framework-provided surfaces.
 
-For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), classify the secret's path at its owner (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). Here the bearer rides the **event payload**, so name it in the registration's `:sensitive` metadata — `(rf/reg-event :ws/refresh-token {:sensitive [[:bearer]]} handler)`; a bearer that instead lands at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** — `{:db … :sensitive [[:auth :bearer]]}`.
+For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/rotate-cred-from-bearer` propagating a freshly minted bearer — the escape hatch worked below), classify the secret's path at its owner (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). Here the bearer rides the **event payload**, so name it in the registration's `:sensitive` metadata — `(rf/reg-event :ws/rotate-cred-from-bearer {:sensitive [[:bearer]]} handler)`; a bearer that instead lands at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** — `{:db … :sensitive [[:auth :bearer]]}`.
 
 The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaque key your auth slice already issues (a UUID, a `(random-uuid)` index into a host-side credential vault, a session id, etc.). The crucial property: the value in `:data` is **not** the bearer itself.
 
