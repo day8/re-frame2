@@ -8,9 +8,9 @@ decisions (L1–L11), file structure, cardinal rules, and verification posture;
 `spec/inputs.md` owns the canonical inputs and update procedure. The
 `spec/authoring-prompt.md` launcher orchestrates a reauthoring pass by
 *pointing at* those two files — it must not carry a second, drift-prone copy of
-the tree, the rules, or the locks. This guard protects four regressions the
-existing automated guards did not catch (the no-bead-id guard was scoped to
-`skills/re-frame2-implementor` only):
+the tree, the rules, or the locks. This guard protects the regressions below,
+each one the existing automated guards did not catch (the no-bead-id guard was
+scoped to `skills/re-frame2-implementor` only):
 
   1. **Bead-id leaks in user-facing leaves.** Two leaves carried
      `EP-0008 (rf2-hhutya)` — an internal `bd` tracker id. The skill's own
@@ -142,6 +142,22 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      400s every hydrated-client submission in the release build. Rules 1-6 all
      exited 0 over both. Rule 7 checks the two invariants inside code fences, at
      BOTH ends of the projection — the skill leaves and the spec page.
+
+  8. **The JVM `with-frame` thunk "function form" (rf2-jwmkq).** The testing
+     leaf told JVM authors to use `(rf/with-frame frame-id (fn [] ...))` as a
+     "function form". No such function exists: `with-frame` is the same
+     body-splicing macro on JVM and CLJS, so the fn literal is a legal body
+     expression that the macro evaluates and returns UNINVOKED — in a
+     `use-fixtures` wrapper this silently skips every test body ("Ran 0 tests
+     containing 0 assertions.", zero failures, exit 0). Rule 8 rejects a fn
+     literal (or `#(...)` reader lambda) in `with-frame`'s DIRECT body-head
+     position, scanned over the whole body — fenced and inline alike, because
+     the original defect was an inline POSITIVE instruction a fence-only rule
+     exits 0 over, and a lawful warning never needs the full compound shape
+     (it quotes the bare fn literal, as the repaired leaf does). Ordinary fn
+     literals nested deeper in the body (a `reg-sub` handler, an event fn)
+     never match, and `with-new-frame` is a different head token, out of
+     scope.
 
 WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
     Rules 1-6 are *retrospective token patterns*. Each encodes one regression
@@ -958,6 +974,51 @@ def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
+# --- Rule 8: the JVM `with-frame` thunk "function form" (rf2-jwmkq).
+#     `rf/with-frame` is the same body-splicing macro on JVM and CLJS (there
+#     is no function twin): it binds the frame and splices `~@body`, so a fn
+#     literal supplied AS the body is evaluated and returned UNINVOKED. The
+#     testing leaf taught exactly that shape to JVM authors, and a
+#     `use-fixtures` wrapper written from it silently skipped every test body
+#     — "Ran 0 tests containing 0 assertions.", zero failures, exit 0. The
+#     regex matches a fn literal (or `#(...)` reader lambda) in `with-frame`'s
+#     DIRECT body-head position only: ordinary fn literals nested deeper in
+#     the body (a `reg-sub` handler, an event fn) sit behind a different head
+#     token and never match, and `with-new-frame`'s binding-vector form is a
+#     different macro name that never matches. Scanned over the WHOLE body —
+#     fenced and inline alike — because the original defect was an inline
+#     positive instruction ("On JVM use the ... function form"), which a
+#     fence-only rule exits 0 over; a lawful warning quotes the bare fn
+#     literal, never the full compound shape, so no negation carve is needed.
+WITHFRAME_THUNK_RE = re.compile(
+    r"\((?:rf/)?with-frame\s+[^\s()\[\]{}]+\s+(?:\(fn[\s(\[]|#\()"
+)
+WITHFRAME_THUNK_MSG = (
+    "WITHFRAME-THUNK-RECIPE: a fn literal (or `#(...)` reader lambda) sits in "
+    "`with-frame`'s direct body-head position — the retired JVM \"function "
+    "form\" teaching. `rf/with-frame` is the same body-splicing MACRO on JVM "
+    "and CLJS (there is no function twin): it evaluates the fn literal and "
+    "returns it UNINVOKED, so a clojure.test fixture written this way "
+    "silently skips every test body (\"Ran 0 tests containing 0 "
+    "assertions.\", exit 0). Put the forms directly in the macro body; a "
+    "fixture invokes `(test-fn)` INSIDE the binding: "
+    "`(rf/with-frame :app/test (test-fn))`."
+)
+
+
+def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 8 — a fn literal in `with-frame`'s direct body-head position is
+    the uninvoked-thunk footgun. Returns (lineno, message) tuples. Takes the
+    whole file body (the shape spans lines inside a fence) and scans fenced
+    and inline text alike — see the rule comment for why there is no
+    negation/warning carve."""
+    problems: list[tuple[int, str]] = []
+    for m in WITHFRAME_THUNK_RE.finditer(text):
+        lineno = text.count("\n", 0, m.start()) + 1
+        problems.append((lineno, WITHFRAME_THUNK_MSG))
+    return problems
+
+
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
 #     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
@@ -1093,6 +1154,11 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             problems.append(f"{rel}:{start_lineno}: {label}")
         for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
+        # Rule 8 — the JVM with-frame thunk "function form", scanned over the
+        # WHOLE body (fenced and inline alike — the original defect was an
+        # inline positive instruction); lineno computed from the match offset.
+        for lineno, label in withframe_thunk_problems(body):
+            problems.append(f"{rel}:{lineno}: {label}")
         # Rule 7 — the form-action fail-open shapes, per fenced block.
         for start_lineno, label in csrf_fence_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
@@ -1204,7 +1270,7 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
             "machine-handler-recipe + managed-http-recipe + uix-helix-hooks + "
-            "form-action-csrf guard: scanned "
+            "form-action-csrf + withframe-thunk guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines), "
             f"{len(HOOKS_ANCHORED_BLOCKS)} bounded hooks-recipe blocks, "
             f"{len(CSRF_EXTRA_FILES)} spec-side CSRF authority file(s), plus "
@@ -1226,7 +1292,10 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "'Reagent only' warning, and the Spec 006 UIx/Helix paragraph) "
                 "each still state that recipe in place, no code fence carries "
                 "a fail-open CSRF compare or a required `:csrf-token` field "
-                "(leaves and spec page alike), and the launcher points at "
+                "(leaves and spec page alike), no `with-frame` recipe parks a "
+                "fn literal in the macro's body-head position (the JVM thunk "
+                "\"function form\" — the macro would return it uninvoked and "
+                "every test under it would silently skip), and the launcher points at "
                 "design.md + inputs.md without regrowing the tree / locks. "
                 "NOTE: this guard is a catalogue of known regressions, not a "
                 "skill/spec equivalence check — see the module docstring."
@@ -1250,8 +1319,12 @@ def run(*, verbose: bool, ci: bool) -> int:
         "bounded recipe block stating that recipe IN PLACE (a correct paragraph "
         "elsewhere in the file does not cover the table cell), keep every CSRF "
         "compare in a code fence failing CLOSED on both limbs with the token "
-        "off the field schema, and keep the launcher pointing at the canonical "
-        "design.md + inputs.md instead of re-holding the tree / locks."
+        "off the field schema, pin frames with the `with-frame` macro BODY — "
+        "never a fn-literal thunk in its body-head position (the macro splices "
+        "on JVM and CLJS alike and would return the thunk uninvoked; a fixture "
+        "invokes `(test-fn)` inside the binding) — and keep the launcher "
+        "pointing at the canonical design.md + inputs.md instead of re-holding "
+        "the tree / locks."
     )
     return 1
 
@@ -1928,6 +2001,103 @@ def _self_test() -> int:
                 print(f"SELF-TEST FAIL (Y {mut_label} mutation not caught): "
                       f"{rel}")
                 failures += 1
+
+    # --- Rule 8: the JVM with-frame thunk "function form" (rf2-jwmkq).
+    #     `withframe_thunk_problems` takes the WHOLE body (the shape spans
+    #     lines inside a fence) and scans fenced and inline text alike — the
+    #     original defect was an inline positive instruction.
+    expect(
+        withframe_thunk_problems,
+        "On CLJS reach the macro via `rf/with-frame` after `(:require "
+        "[re-frame.core :as rf])`. On JVM use the `(rf/with-frame frame-id "
+        "(fn [] ...))` function form.",
+        dirty=True, label="Z1 the exact shipped inline positive instruction",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n"
+        "(use-fixtures :each\n"
+        "  (fn [test-fn]\n"
+        "    (rf/with-frame :app/test\n"
+        "      (fn [] (test-fn)))))\n"
+        "```\n",
+        dirty=True, label="Z2 fenced fixture wrapping test-fn in a thunk",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n(rf/with-frame :app/test #(test-fn))\n```\n",
+        dirty=True, label="Z3 reader-lambda thunk in body-head position",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n"
+        "(use-fixtures :each\n"
+        "  (fn [test-fn]\n"
+        "    (rf/make-frame {:id :app/test})\n"
+        "    (rf/with-frame :app/test\n"
+        "      (test-fn))))\n"
+        "```\n",
+        dirty=False, label="Z4 corrected fixture — (test-fn) invoked in the body",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n"
+        "(rf/with-frame :stories\n"
+        "  (rf/dispatch-sync [:counter/inc])\n"
+        "  (ts/assert-path-equals [:n] 1))\n"
+        "```\n",
+        dirty=False, label="Z5 plain multi-form macro body",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n"
+        "(rf/with-frame :app/test\n"
+        "  (rf/reg-sub :total (fn [db _] (:total db)))\n"
+        "  (rf/dispatch-sync [:seed]))\n"
+        "```\n",
+        dirty=False, label="Z6 fn literal nested deeper in the body is ordinary",
+    )
+    expect(
+        withframe_thunk_problems,
+        "Never wrap the body in a `(fn [] ...)` thunk — the macro would "
+        "return it uninvoked.",
+        dirty=False, label="Z7 warning quoting the bare fn literal alone",
+    )
+    expect(
+        withframe_thunk_problems,
+        "```clojure\n"
+        "(rf/with-new-frame [f (rf/make-frame {:id :stories})]\n"
+        "  (is (= :stories (rf/current-frame-id))))\n"
+        "```\n",
+        dirty=False, label="Z8 with-new-frame binding-vector form out of scope",
+    )
+
+    # --- Rule 8 against the REAL corpus, with the reintroduction mutation:
+    #     the shipped testing leaf must be green, and mutating ONLY its fixture
+    #     back to the thunk form must be caught (rf2-jwmkq acceptance 4).
+    target = REPO_ROOT.joinpath(
+        "skills", "re-frame2", "references", "cross-cutting", "testing.md")
+    if not target.is_file():
+        print("SELF-TEST FAIL (Z real testing leaf missing): "
+              "skills/re-frame2/references/cross-cutting/testing.md")
+        failures += 1
+    else:
+        shipped = _slurp(target)
+        if withframe_thunk_problems(shipped):
+            print("SELF-TEST FAIL (Z shipped testing leaf flagged): "
+                  f"{withframe_thunk_problems(shipped)}")
+            failures += 1
+        old = "(rf/with-frame :app/test\n      (test-fn))"
+        new = "(rf/with-frame :app/test\n      (fn [] (test-fn)))"
+        if old not in shipped:
+            print("SELF-TEST FAIL (Z thunk mutation was a no-op): the shipped "
+                  "fixture no longer carries the anchored (test-fn) body — "
+                  "re-point the Rule 8 mutation anchor in the same change")
+            failures += 1
+        elif not withframe_thunk_problems(shipped.replace(old, new)):
+            print("SELF-TEST FAIL (Z thunk mutation not caught): "
+                  "skills/re-frame2/references/cross-cutting/testing.md")
+            failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
