@@ -68,7 +68,7 @@ After connect, work in structured ops (read, write, trace, DOM bridge, watch, ho
 
 - Source: [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
 - `SKILL.md`: [`skills/re-frame2-pair/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
-- Reference leaves: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `mcp-transport.md` (transport contract), `ops.md` (structured ops catalogue), `recipes.md` (named procedures: *"why didn't my view update?"*, post-mortem, experiment loop), `errors.md` (structured-error → plain-English recovery), `streaming-subscriptions.md`, `vocabulary.md`, `wire-size-budget.md`, `variant-as-frame.md`, `stories.md`.
+- Reference leaves: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `mcp-transport.md` (transport contract), `ops.md` (structured ops catalogue), `recipes.md` (named procedures: *"why didn't my view update?"*, post-mortem, experiment loop), `errors.md` (structured-error → plain-English recovery), `vocabulary.md`, `wire-size-budget.md`, `variant-as-frame.md`, `stories.md`.
 - Tool-Pair contract: [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
 - Narrative companion: [Xray](../xray/index.md).
 - Retrospective companion skill: [`re-frame2-pair-retro`](re-frame2-pair-retro.md).
