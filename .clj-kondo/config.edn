@@ -14,7 +14,8 @@
 ;; follow the same shape and get lint-as'd here too.
 {;; Hicasso ships its own clj-kondo export from the artefact
  ;; (`implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso/`,
- ;; rf2-hic-022) — the three macro shapes plus six bounded checks. Pointing
+ ;; rf2-hic-022; macro shapes only since rf2-r3r00) — `defview`, `event` and
+ ;; `defhost` rewritten to their `defn` / `fn` / `def` shapes. Pointing
  ;; `:config-paths` at it makes this repo the export's FIRST CONSUMER rather
  ;; than a second, divergent description of the same macros: the `:lint-as`
  ;; entries below cover the retired bench spelling
@@ -26,34 +27,6 @@
  ;; Relative to THIS directory, per clj-kondo's `:config-paths` contract.
  :config-paths
  ["../implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso"]
-
- ;; THE REFUSAL SUITES — the one class of file where these checks are wrong.
- ;;
- ;; A suite that proves the runtime REFUSES a form has to write that form. So
- ;; the checks fire there, correctly about the code and wrongly about the
- ;; situation: `read_extent_cljs_test` writes `h/sub` inside `h/hfn` for
- ;; rf2-hic-011's I7 legality matrix, and `error_shape_cljs_test` writes a
- ;; plain function in head position for rf2-hic-007's HD-016 refusal shape,
- ;; docstring and all. Both are true positives; neither is a defect.
- ;;
- ;; Silenced HERE, by namespace and by the single check involved, rather than
- ;; by editing those suites — they belong to other beads, and a
- ;; `#_:clj-kondo/ignore` sprinkled through them would be a worse record than
- ;; this paragraph. Enumerated rather than pattern-matched on purpose: a
- ;; `*-cljs-test$` rule would blind the checks across every hicasso suite,
- ;; where an authoring mistake is still a mistake. A new refusal suite
- ;; therefore reds on arrival and has to be declared here deliberately, which
- ;; is the right amount of friction — someone must confirm the form really is
- ;; a fixture rather than a bug.
- :config-in-ns
- {re-frame.hicasso.read-extent-cljs-test
-  {:linters {:re-frame.hicasso/deferred-read {:level :off}}}
-
-  re-frame.hicasso.read-extent-dom-cljs-test
-  {:linters {:re-frame.hicasso/deferred-read {:level :off}}}
-
-  re-frame.hicasso.error-shape-cljs-test
-  {:linters {:re-frame.hicasso/function-in-head-position {:level :off}}}}
 
  :linters
  {:unresolved-symbol {:level :warning}
@@ -224,12 +197,13 @@
  ;; compiled or wired into a build (the prior TSX reference was never linted
  ;; either). Exclude it from clj-kondo so the mockup's illustrative ns/shape
  ;; doesn't gate production lint. Per rf2-7sxsz (Mike 2026-05-24).
- ;; `implementation/hicasso/lint-fixtures/` holds the POSITIVE fixtures for the
- ;; Hicasso lint export (rf2-hic-022) — code that is wrong on purpose, so that
- ;; `re_frame/hicasso/lint_export_test.clj` can prove each check fires. Linting
- ;; the repo's own counter-examples would red the gate by design. The directory
- ;; sits beside `src/` and `test/` rather than inside either, so nothing
- ;; compiles it; this keeps the linter off it too.
+ ;; `implementation/hicasso/lint-fixtures/` holds the macro-shape smoke fixture
+ ;; for the Hicasso lint export (rf2-r3r00), linted by the export's own gate
+ ;; (`check_lint_export.py`) with the SHIPPED config as `--config-dir` — a
+ ;; consumer's view of the export, not this repo's. It carries a deliberate
+ ;; sentinel finding, so linting it here would be a second, disagreeing reading
+ ;; of one file. The directory sits beside `src/` and `test/` rather than
+ ;; inside either, so nothing compiles it; this keeps the linter off it too.
  :output {:exclude-files ["tools/template/resources/"
                           ;; separator-agnostic (matches both / and \ paths)
                           "design-reference"

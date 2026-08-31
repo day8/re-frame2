@@ -69,9 +69,8 @@
 
   Two reads, both its own — the field's value and the reset counter. The
   `<label>` is not decoration: an interactive element with no accessible
-  name is a warning under this package's own clj-kondo export
-  (`:re-frame.hicasso/nameless-interactive-element`), and a witness that
-  tripped the lint it ships would be poor evidence."
+  name reads to a screen reader as an unlabelled control, and a witness
+  that models one would be poor evidence."
   [{:keys [field label]}]
   (let [id (name field)]
     [:p.field

@@ -1,50 +1,45 @@
 #!/usr/bin/env python3
-"""The Hicasso lint export's witness: each check fires, and correct code is silent.
+"""The Hicasso lint export's smoke: a consumer's copied config analyses the three macro shapes.
 
-WHY THIS EXISTS (rf2-hic-022).  A lint rule with no test is a rumour, and the
-half that decides whether a lint layer is worth shipping is not the positive
-case.  A rule with only positive fixtures fires on valid code and nobody
-notices until it is annoying people, at which point the whole layer gets
-ignored.  So every check the export publishes is asserted twice:
+WHY THIS EXISTS (rf2-hic-022, reduced under rf2-r3r00).  The export's whole
+job is macro-shape analysis: `defview`, `event` and `defhost` are rewritten to
+their `defn` / `fn` / `def` shapes so kondo's ordinary analysis applies.  The
+failure mode of a packaged config is SILENCE — an export off the classpath, or
+a hook that stops loading, reds nothing on its own; every view name just goes
+back to reading as `Unresolved symbol` in consumers' editors.  So this gate
+lints one fixture of correct declarations, every documented shape of all three
+macros, through the SHIPPED export directory as `--config-dir` — exactly how a
+consumer's copied config is loaded — and requires the result to be exactly the
+fixture's one sentinel finding.
 
-  * a POSITIVE case in `lint-fixtures/positive.cljs` that must trip it, at the
-    exact source rows named below;
-  * a NEGATIVE case in `lint-fixtures/negative.cljs` -- correct code written to
-    sit as close to the mistake as correct code can get -- which must produce
-    NO finding of ANY kind.  Not merely none of ours: the export also supplies
-    `defview` / `event` / `defhost` their `defn` / `fn` / `def` shapes, so an
-    `Unresolved symbol` there would mean a view's props had stopped resolving.
+THE SENTINEL.  `lint-fixtures/macro_shapes.cljs` ends with a view declaring a
+prop its body never reads, and the gate pins that `:unused-binding` finding by
+row.  Pure silence would also be the output of linting nothing at all; the
+sentinel is the proof that kondo's analysis actually ran over the rewritten
+forms.
 
-WHY A CHECKER AND NOT A `deftest` SUITE.  It was a `deftest` suite first, in
-`test/re_frame/hicasso/lint_export_test.clj`, and two of the repo's own gates
-refused it -- correctly.  A JVM lane exists only via the artefact rosters in
-`scripts/test-jvm-implementation.sh` (`check_test_lane_bijection.py`, rf2-4hc9p:
-"a file selected by nothing runs nowhere, in any lane, ever"), and a roster
-entry is only legal with a matching `test.yml` job
-(`check_jvm_lane_rosters.py`, rf2-as6bg).  `.github/workflows/` is hot-zone, so
-that pair is a scheduling decision rather than something rf2-hic-022 could
-take, and the two rules are circular for anything shaped like a deftest.
+NO SECOND ANALYZER.  The six custom `:re-frame.hicasso/*` behavioral findings
+this gate once witnessed were retired (rf2-r3r00): behavior is the runtime's
+law, refused loudly at its execution boundary.  The gate now also asserts the
+export STAYS macro-shape-only — no `:re-frame.hicasso/*` linter in config.edn,
+no `reg-finding!` in the hook — so the analyzer cannot ride back in
+unwitnessed.
 
-A checker is not a workaround for that -- it is this artefact's OWN idiom.
-`check_freeze.py` sits beside this file and is the same shape: a gate over the
-package, with a `--self-test` that proves its own red.  This one runs the real
-clj-kondo, with the SHIPPED export directory as its `--config-dir`, which is
-exactly how a consumer's copied config is loaded.  There is no second
-description of the rules here and no mock: a rule that passes this gate is the
-rule the artefact publishes.
+WHY A CHECKER AND NOT A `deftest` SUITE.  A JVM lane exists only via the
+artefact rosters in `scripts/test-jvm-implementation.sh`
+(`check_test_lane_bijection.py`, rf2-4hc9p), and a roster entry is only legal
+with a matching `test.yml` job (`check_jvm_lane_rosters.py`, rf2-as6bg).
+`.github/workflows/` is hot-zone, so that pair is a scheduling decision, and
+the two rules are circular for anything shaped like a deftest.  A checker is
+this artefact's own idiom — `check_freeze.py` beside this file is the same
+shape, a gate over the package with a `--self-test` that proves its own red.
 
-AT THE VERSION CI PINS -- WHEN IT CAN GET IT (rf2-x1mz).  This paragraph used
-to say so flatly, and it was TRUE ONLY IN CI, where the job installs the pin
-before running.  Locally the resolver took whatever was on PATH, and the two
-versions do not agree: measured on one line of `overlay.cljs`, 2025.10.23
-reports `errors: 0, exit 0` where 2026.04.15 reports `Expected: array,
-received: function` and exits 3.  The binary is now resolved through
-`scripts/lint_kondo.py`, which reads the pin off `lint.yml` and provisions it
--- the npm distribution stops at 2025.10.23, so there is no other way to get
-it.  Where that fails (no network, an unpublished platform) the gate still runs
-on whatever is available, because a fixture witness at the wrong version is
-weaker evidence rather than none -- but it SAYS SO, loudly, naming both
-versions.  A quiet fallback is what made the old sentence a lie.
+AT THE VERSION CI PINS -- WHEN IT CAN GET IT (rf2-x1mz).  The binary is
+resolved through `scripts/lint_kondo.py`, which reads the pin off `lint.yml`
+and provisions it -- the npm distribution stops at 2025.10.23, so there is no
+other way to get it.  Where that fails (no network, an unpublished platform)
+the gate still runs on whatever is available, because a smoke at the wrong
+version is weaker evidence rather than none -- but it SAYS SO, loudly.
 
     python scripts/check_lint_export.py             run the gate
     python scripts/check_lint_export.py --self-test prove the gate fires
@@ -65,23 +60,14 @@ ARTEFACT_ROOT = os.path.dirname(HERE)
 EXPORT_DIR = os.path.join(ARTEFACT_ROOT, "resources", "clj-kondo.exports",
                           "day8", "re-frame2-hicasso")
 FIXTURES = os.path.join(ARTEFACT_ROOT, "lint-fixtures")
+FIXTURE = os.path.join(FIXTURES, "macro_shapes.cljs")
 HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
+CONFIG_FILE = os.path.join(EXPORT_DIR, "config.edn")
 
-# The rows each check must fire on, in `lint-fixtures/positive.cljs`. Rows
-# rather than a bare count: a check that starts firing somewhere ELSE while
-# still firing the right NUMBER of times is precisely the collapse a count
-# cannot see.
-EXPECTED = {
-    # ERRORS -- true invariants (operator ruling, rf2-hic-022).
-    "direct-view-call":             [25, 144, 162, 167, 170, 174, 181, 186,
-                                     191, 195, 199, 202, 218, 222],
-    "function-in-head-position":    [99, 102, 105, 110, 114],
-    # WARNINGS -- heuristics and assistance. Nothing blocks a build.
-    "deferred-read":                [32, 37, 43],
-    "parked-read":                  [52, 56, 60, 235, 244],
-    "unkeyed-mapped-child":         [68, 73, 76, 79],
-    "nameless-interactive-element": [86, 89, 92, 123, 126],
-}
+# The one finding the fixture must produce: its sentinel view's unread prop.
+# A row rather than a count, so the finding drifting somewhere else cannot
+# pass as the finding staying put.
+SENTINEL = {"type": "unused-binding", "row": 55, "name": "unread"}
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(ARTEFACT_ROOT))
@@ -107,9 +93,8 @@ def _pinned_kondo():
         return None
     if proc.returncode != 0:
         print("NOTE: clj-kondo at lint.yml's pin is unavailable here, so this "
-              "witness runs at whatever version is on PATH. Versions disagree "
-              "about which findings are errors (rf2-x1mz), so a green below is "
-              "weaker than CI's.")
+              "smoke runs at whatever version is on PATH. Versions disagree "
+              "about findings (rf2-x1mz), so a green below is weaker than CI's.")
         for line in (proc.stderr or "").splitlines():
             print("      " + line)
         return None
@@ -120,14 +105,14 @@ def _kondo_command():
     """How to invoke clj-kondo here, preferring the PINNED NATIVE BINARY.
 
     The binary is what `.github/workflows/lint.yml` installs, at the pin this
-    gate asserts against, and it needs no JDK — which is what lets the fixture
-    witness run as a step of the existing `clj-kondo` job rather than waiting
-    for a JVM lane that does not exist. The artefact's `:clj-kondo` alias is
-    the last fallback, so a developer with neither still gets the gate.
+    gate asserts against, and it needs no JDK — which is what lets the smoke
+    run as a step of the existing `clj-kondo` job rather than waiting for a
+    JVM lane that does not exist. The artefact's `:clj-kondo` alias is the
+    last fallback, so a developer with neither still gets the gate.
     """
-    # Memoised: `check()` lints three times and the self-test calls `check()`
-    # once per mutation, so resolving afresh each time would spawn a process
-    # per lint AND repeat the notice above dozens of times.
+    # Memoised: the self-test calls `check()` once per mutation, so resolving
+    # afresh each time would spawn a process per lint AND repeat the notice
+    # above several times.
     if _KONDO_COMMAND:
         return list(_KONDO_COMMAND[0])
     pinned = _pinned_kondo()
@@ -155,7 +140,7 @@ def _kondo_command():
 def _kondo(paths, config_dir=EXPORT_DIR):
     """Every finding clj-kondo reports for `paths`, as data.
 
-    `:output {:format :edn}` rather than parsing the human line format, and
+    `:output {:format :json}` rather than parsing the human line format, and
     `:cache false` because clj-kondo otherwise writes an analysis cache into
     whatever `--config-dir` names -- which here is the directory a consumer
     copies.
@@ -180,30 +165,7 @@ def _kondo(paths, config_dir=EXPORT_DIR):
             % (proc.returncode, out[:2000], proc.stderr[:2000]))
 
 
-def _ours(findings):
-    """Findings keyed by our short check name -> sorted rows."""
-    by_check = {}
-    for f in findings:
-        t = f.get("type", "")
-        if t.startswith("re-frame.hicasso/"):
-            by_check.setdefault(t.split("/", 1)[1], []).append(f["row"])
-    return {k: sorted(v) for k, v in by_check.items()}
-
-
-def _configured_checks():
-    """The checks the shipped config.edn declares, read from the file.
-
-    Read rather than listed, so a check added to the export without a fixture
-    here cannot ride in unwitnessed.
-    """
-    with open(os.path.join(EXPORT_DIR, "config.edn"), encoding="utf-8") as fh:
-        text = fh.read()
-    return {line.split(":re-frame.hicasso/", 1)[1].split()[0]
-            for line in text.splitlines()
-            if ":re-frame.hicasso/" in line and "{:level" in line}
-
-
-def check(export_dir=EXPORT_DIR, fixtures=FIXTURES):
+def check(export_dir=EXPORT_DIR):
     """Every failure this gate can report, as a list of strings."""
     failures = []
 
@@ -228,43 +190,45 @@ def check(export_dir=EXPORT_DIR, fixtures=FIXTURES):
         failures.append("deps.edn must put \"resources\" on :paths, or the "
                         "export is not on a consumer's classpath")
 
-    # --- every configured check has a fixture -----------------------------
-    configured = _configured_checks()
-    if configured != set(EXPECTED):
-        failures.append(
-            "the export declares %s but this gate witnesses %s -- a check "
-            "with no fixture is a rumour"
-            % (sorted(configured), sorted(EXPECTED)))
-
-    # --- positive: each check fires, at its exact rows --------------------
-    positive = _ours(_kondo([os.path.join(fixtures, "positive.cljs")],
-                            config_dir=export_dir))
-    for name, rows in sorted(EXPECTED.items()):
-        got = positive.get(name, [])
-        if got != rows:
+    # --- the export stays macro-shape-only (rf2-r3r00) --------------------
+    with open(os.path.join(export_dir, "config.edn"), encoding="utf-8") as fh:
+        config = fh.read()
+    for line in config.splitlines():
+        line = line.split(";;", 1)[0]
+        if ":re-frame.hicasso/" in line:
             failures.append(
-                "%s: expected rows %s in lint-fixtures/positive.cljs, got %s"
-                % (name, rows, got or "nothing -- the check did not fire"))
-
-    # --- negative: correct code produces NO finding of any kind -----------
-    negative = _kondo([os.path.join(fixtures, "negative.cljs")],
-                      config_dir=export_dir)
-    for f in negative:
+                "config.edn declares a behavioral :re-frame.hicasso/* linter; "
+                "the export is macro-shape analysis only, and a custom "
+                "analyzer must not ride back in unwitnessed (rf2-r3r00): %s"
+                % line.strip())
+    with open(os.path.join(export_dir, "hooks", "re_frame", "hicasso.clj"),
+              encoding="utf-8") as fh:
+        hook = fh.read()
+    if "reg-finding!" in hook:
         failures.append(
-            "lint-fixtures/negative.cljs:%s:%s fired %s -- correct code must "
-            "be silent: %s" % (f["row"], f["col"], f.get("type"),
-                               f.get("message", "")[:120]))
+            "the hook calls reg-finding!; the export is macro-shape analysis "
+            "only, and a behavioral finding must not ride back in unwitnessed "
+            "(rf2-r3r00)")
 
-    # --- the corpus: silent on code nobody wrote to pass ------------------
-    # The bead's acceptance names "the tiny consumer app". Until one exists
-    # (rf2-hic-008) the artefact's testbeds are the closest real thing: an
-    # ordinary Hicasso application, written before any of these checks did.
-    corpus = _ours(_kondo([os.path.join(ARTEFACT_ROOT, "testbed")],
-                          config_dir=export_dir))
-    if corpus:
+    # --- the smoke: correct declarations, and exactly the sentinel --------
+    findings = _kondo([FIXTURE], config_dir=export_dir)
+    expected = [f for f in findings
+                if f.get("type") == SENTINEL["type"]
+                and f.get("row") == SENTINEL["row"]
+                and SENTINEL["name"] in f.get("message", "")]
+    unexpected = [f for f in findings if f not in expected]
+    for f in unexpected:
         failures.append(
-            "the lint layer fires on the artefact's own testbed code: %s"
-            % sorted(corpus))
+            "lint-fixtures/macro_shapes.cljs:%s:%s fired %s -- correct "
+            "declarations must produce nothing but the sentinel: %s"
+            % (f.get("row"), f.get("col"), f.get("type"),
+               f.get("message", "")[:120]))
+    if not expected:
+        failures.append(
+            "the sentinel did not fire: expected %(type)s at row %(row)d "
+            "(unused binding %(name)r). Silence here means kondo's analysis "
+            "never ran over the rewritten forms -- a smoke that expected "
+            "nothing would stay green while linting nothing." % SENTINEL)
 
     return failures
 
@@ -273,24 +237,17 @@ def check(export_dir=EXPORT_DIR, fixtures=FIXTURES):
 # The self-test -- proving the gate's red, not merely its green
 # ---------------------------------------------------------------------------
 
-def _mutate(original, old, new):
-    with open(HOOK_FILE, "w", encoding="utf-8") as fh:
-        fh.write(original.replace(old, new))
-
-
 def self_test():
     """Break the export one way at a time and prove the gate reds on each.
 
     A gate that has only ever been observed green is a gate nobody has tested.
-    The first cases are the controls run by hand while the checks were being
-    written, made permanent; the rest are the defects that reached main anyway,
-    each pinned by the mutation that would bring it back. No count is stated
-    here on purpose — the list grows, and a number in prose does not.
+    The first three cases are the acceptance's negative control (rf2-r3r00):
+    each of the three rewrites made unavailable in turn must red the smoke.
     """
     # AND A GATE NOBODY HAS TESTED IS ALSO WHAT THIS BECOMES UNDER `python -O`
     # (rf2-uyhh) — or `PYTHONOPTIMIZE` in the environment, which needs no flag
-    # at the call site. Either strips every `assert` below, leaving a function
-    # that runs to its success line having verified nothing: a control failing
+    # at the call site. Either strips every `assert`, leaving a function that
+    # runs to its success line having verified nothing: a control failing
     # GREEN, the one direction that never announces itself. The check is
     # empirical rather than a reading of `__debug__`, so it also catches a
     # `.pyc` compiled under `-O` and run without it.
@@ -304,144 +261,60 @@ def self_test():
             "self-test would prove nothing. Re-run without -O."
         )
 
-    with open(HOOK_FILE, encoding="utf-8") as fh:
-        original = fh.read()
-
     cases = [
-        ("a disabled check reds the positive half", "hook",
-         "    (run! check-nameless-interactive! elements)\n", "",
-         "nameless-interactive-element"),
-        # The false positive the negative fixtures caught while the checks were
-        # being written: every `:on-click [:a]` in the corpus read as an
-        # unnamed anchor, because an event vector and a hiccup element are the
-        # same three characters.
-        ("an element check reading props maps reds the negative half", "hook",
-         "(mapcat element-subforms body)", "(mapcat subforms body)",
-         "negative.cljs"),
-        # Rows, not counts: deleting one positive case must red even though
-        # the check itself still fires four more times.
-        ("a check firing at the wrong ROWS reds", "fixture",
-         '  [:a {:href "/help"}])', '  [:a {:href "/help"} "Help"])',
-         "nameless-interactive-element"),
-        # The ERROR-level rule that blocked correct code (merged-PR audit
-        # #7794): a self-call check comparing SPELLING alone reports every
-        # local that happens to share the view's name -- a parameter, a
-        # `let`, a `for` binding. Blind the one helper that reads a binding
-        # target and the negative half must red, because an ERROR firing on
-        # somebody's `let` is the failure this whole layer exists to avoid.
-        ("a self-call check blind to lexical shadowing reds", "hook",
-         "  (into #{} (keep token-sexpr) (subforms node)))",
-         "  (do node #{}))",
-         "direct-view-call"),
-        # The SECOND false ERROR (merged-PR audit #7804), and the reason this
-        # case reads a fnspec's TAIL rather than its name: the repair above
-        # took a `letfn` fnspec to be `[nm params]`, which is the single-arity
-        # spelling and nothing else, so no arity of a MULTI-ARITY fnspec was
-        # read and every use of one blocked the build again. Hand `fn-locals`
-        # the name alone and the grammar rows in the negative half must red.
-        ("a letfn fnspec read past its NAME reds", "hook",
-         "(each-list fn-locals (:children (first more)))",
-         "(each-list #(fn-locals (take 1 %)) (:children (first more)))",
-         "direct-view-call"),
-        # The same claim, one notch narrower, and the reason a shape is not a
-        # witness (merged-PR audit #7818). "Every parameter of every arity"
-        # was true of the code and untested by the rows: each multi-arity row
-        # bound the view's name in EVERY arity, and one recognised arity
-        # silences the whole `letfn`, so skipping the first arity left the
-        # pinned gate at exit 0. The row that binds only in the first arity
-        # is what this mutation reds; `zero-arity`, whose first arity binds
-        # nothing, reds the opposite narrowing.
-        ("a letfn arity SKIPPED reds", "hook",
-         "(first (:children %))) forms)",
-         "(first (:children %))) (rest forms))",
-         "direct-view-call"),
-        # A binding form MISSING FROM THE ROSTER (rf2-ka4d). The hook has no
-        # scope table, so it knows a binding form by name; six were absent and
-        # each one blocked a build on correct code. Blind the arm that reads
-        # method parameters and the reify / specify! / extend-type /
-        # extend-protocol rows must red. The other arms of the same class --
-        # `dotimes` in the let-shaped set, `this-as`, `defmethod` -- are one
-        # mechanism with this one, and their rows pin them individually.
-        ("a binding form dropped from the roster reds", "hook",
-         "(each-list method-locals (rest more))",
-         "(do more #{})",
-         "direct-view-call"),
-        # The array pair, which the roster still had no name for after the six
-        # above went in (merged-PR audit #7829). `areduce` and `amap` expand
-        # into a `loop` binding an index and an accumulator, and an accumulator
-        # may be a function -- so calling one is ordinary code and was reported
-        # at ERROR. One arm reads both, because the two names sit at the same
-        # positions in both forms; drop the arm and the four grammar rows in
-        # the negative half must red.
-        ("the array-macro binding pair dropped from the roster reds", "hook",
-         "(contains? '#{areduce amap} core)",
-         "(contains? '#{} core)",
-         "direct-view-call"),
-        # The FALSE SILENCE a repair introduced (merged-PR audit #7829), and
-        # the reason a method is read differently from a fnspec. `letfn`
-        # expands a fnspec to `(fn f ...)`, so its name is a local; NOTHING
-        # binds a `reify` / `extend` method's name. Reading a method as a named
-        # `fn` tail invented that binding, and a binding silences the form it
-        # heads, so every genuine self-call inside such a form went unreported
-        # -- with no message, no failing build and nothing to notice. Hand the
-        # methods to `fn-locals` again and the two same-name POSITIVE rows must
-        # stop firing.
-        ("a method NAME read as a binding reds", "hook",
-         "(each-list method-locals (rest more))",
-         "(each-list fn-locals (rest more))",
-         "direct-view-call"),
-        # The opposite error, which repairing that one invites: a method's name
-        # sits in head position of a list, exactly where a callee sits, so a
-        # walk that reads every list head reports the DEFINITION as a call --
-        # a fresh false ERROR, at the level that stops a build. Walk the raw
-        # children and the two method-definition rows in the negative half must
-        # red.
-        ("a method NAME read as a call reds", "hook",
-         "(mapcat #(self-call-nodes nm %) (call-positions node))",
-         "(mapcat #(self-call-nodes nm %) (:children node))",
-         "negative.cljs"),
-        # A READ whose door a local has taken (rf2-c6t6). Same blindness, at
-        # warning level: `:refer [sub]` leaves a simple symbol and a local may
-        # be named `sub`, but `api/resolve` reads the ns form and never sees
-        # locals. Stop consulting the shadow roster and the read rows in the
-        # negative half must red.
-        ("a read rule blind to a shadowed door reds", "hook",
-         "  (and (not (contains? locals (token-sexpr node)))",
-         "  (and (do locals true)",
-         "parked-read"),
+        # The negative control: each rewrite unavailable in turn. Dropping a
+        # hook registration from the shipped config is exactly what a consumer
+        # with a broken copy would have, and every name that macro defines or
+        # binds must go back to reading as unresolved.
+        ("the defview rewrite unavailable reds", CONFIG_FILE,
+         "re-frame.hicasso/defview hooks.re-frame.hicasso/defview\n   ", "",
+         "unresolved-symbol"),
+        ("the event rewrite unavailable reds", CONFIG_FILE,
+         "re-frame.hicasso/event   hooks.re-frame.hicasso/event\n   ", "",
+         "unresolved-symbol"),
+        ("the defhost rewrite unavailable reds", CONFIG_FILE,
+         "re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost", "",
+         "unresolved-symbol"),
+        # The sentinel gone silent: read the unread prop and no finding is
+        # left, which must red rather than pass -- pure silence is also what
+        # linting nothing at all produces.
+        ("a silent fixture reds", FIXTURE,
+         "[:p shown])", "[:p shown unread])",
+         "sentinel"),
+        # The floor: a behavioral linter riding back into the shipped config
+        # reds without needing a fixture to witness it.
+        ("a behavioral linter riding back in reds", CONFIG_FILE,
+         "{;; `re-frame.hicasso.native`",
+         "{:linters {:re-frame.hicasso/direct-view-call {:level :error}}\n"
+         " ;; `re-frame.hicasso.native`",
+         "behavioral"),
     ]
 
     ok = True
-    try:
-        for label, target, old, new, expect in cases:
-            path = HOOK_FILE if target == "hook" else os.path.join(
-                FIXTURES, "positive.cljs")
-            with open(path, encoding="utf-8") as fh:
-                source = fh.read()
-            if old not in source:
-                # A mutation whose target has moved proves nothing, and would
-                # otherwise report a cheerful `ok` forever.
-                print("  FAIL %s: the mutation target is gone from %s"
-                      % (label, os.path.basename(path)))
-                ok = False
-                continue
-            try:
-                with open(path, "w", encoding="utf-8") as fh:
-                    fh.write(source.replace(old, new, 1))
-                failures = check()
-            finally:
-                with open(path, "w", encoding="utf-8") as fh:
-                    fh.write(source)
+    for label, path, old, new, expect in cases:
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        if old not in source:
+            # A mutation whose target has moved proves nothing, and would
+            # otherwise report a cheerful `ok` forever.
+            print("  FAIL %s: the mutation target is gone from %s"
+                  % (label, os.path.basename(path)))
+            ok = False
+            continue
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(source.replace(old, new, 1))
+            failures = check()
+        finally:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(source)
 
-            hit = any(expect in f for f in failures)
-            print("  %s %s" % ("ok  " if hit else "FAIL", label))
-            if not hit:
-                ok = False
-                print("     expected a failure mentioning %r; got: %s"
-                      % (expect, failures or "NO FAILURES AT ALL"))
-    finally:
-        with open(HOOK_FILE, "w", encoding="utf-8") as fh:
-            fh.write(original)
+        hit = any(expect in f for f in failures)
+        print("  %s %s" % ("ok  " if hit else "FAIL", label))
+        if not hit:
+            ok = False
+            print("     expected a failure mentioning %r; got: %s"
+                  % (expect, failures or "NO FAILURES AT ALL"))
 
     # And green when nothing is broken, which is the other half of the claim.
     failures = check()
@@ -471,12 +344,12 @@ def main(argv=None):
         for f in failures:
             print("  " + f)
         print("\nSee implementation/hicasso/resources/clj-kondo.exports/day8/"
-              "re-frame2-hicasso/README.md for what each check knows -- and, "
-              "more usefully, what it refuses to know.")
+              "re-frame2-hicasso/README.md for what the export does -- and "
+              "what it deliberately does not.")
         return 1
 
-    print("OK: %d checks fire on their fixtures, correct code is silent, and "
-          "the artefact's own testbeds are quiet." % len(EXPECTED))
+    print("OK: the shipped export gives a consumer ordinary analysis of all "
+          "three macro shapes, and the sentinel proves the analysis ran.")
     return 0
 
 

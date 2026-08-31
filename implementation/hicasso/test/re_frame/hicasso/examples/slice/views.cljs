@@ -26,10 +26,9 @@
 
   That is the slice authoring report's third finding. It is a
   ONE-TIME cost — the mistake is loud when made, because a function in
-  head position is `:rf.error/hicasso-function-in-head-position` and the
-  clj-kondo export flags it before the build — but it is the only place
-  in this application where two things that do the same job are spelled
-  in two grammars.
+  head position is refused at runtime as `:rf.error/hicasso-bad-head` —
+  but it is the only place in this application where two things that do
+  the same job are spelled in two grammars.
 
   ## One read door
 

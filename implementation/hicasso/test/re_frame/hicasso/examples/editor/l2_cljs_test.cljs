@@ -215,7 +215,7 @@
     (is (= "title" (:for (ht/attrs (tagged (field-tree :title {:value "T" :revision 0})
                                            :label))))
         "and the label points at it, so the control has an accessible
-         name and the package's own clj-kondo export stays quiet")))
+         name")))
 
 (deftest the-slug-field-is-the-same-body-with-a-different-address
   ;; The fixture map is the proof: `[::subs/field :slug]` and nothing
