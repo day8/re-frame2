@@ -30,7 +30,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
 
-Everything the skill loads during normal operation ships under this directory — `SKILL.md` plus the one on-demand `references/` leaf. There is no runtime dependency on any sibling directory.
+Everything the skill loads during normal operation ships under this directory — `SKILL.md`, whose routing boundary is stated locally rather than linked from the repo-level skills index, plus the one on-demand `references/` leaf. There is no runtime dependency on any sibling directory.
 
 ## Relationship to other repos
 
