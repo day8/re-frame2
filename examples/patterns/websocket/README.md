@@ -90,16 +90,23 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   explicit `{:ok false :error :ws/connection-lost}` body — at-most-once
   semantics, no silent leak, and no double-execution from a blind replay.
 
-- Reconnect cascade with token refresh threaded through. Leaving `:active`
-  destroys the actor (the declarative `:spawn` desugars to a
-  `:rf.machine/destroy` on exit), and the runtime clears its id from the
-  `:rf/spawned` slot — so the connection machine needs no `:exit` action to
-  forget the id. The actor itself does carry one: an `:exit :close-socket` on
-  its `:open` state closes the host `WebSocket` on the way down, because a live
-  socket is a handle the runtime can't drop for you. After the `:after`
-  backoff, re-entering `:active` re-runs the `:spawn`'s `:data` function, which
-  re-reads the URL and token from `:data` — so a `:ws/refresh-token` arriving
-  between reconnects flows into the next socket with no extra wiring.
+- Reconnect cascade with credential rotation threaded through — and no raw
+  credential anywhere the framework can see. Machine `:data` is inspectable
+  (snapshots, traces, recorder fixtures), so it carries only an opaque
+  `:cred-ref`; the socket actor exchanges the reference for the real bearer
+  inside its private host closure at authentication time
+  (`resolve-credential` in `messages.cljs`), uses it for the one auth send,
+  and discards it. Leaving `:active` destroys the actor (the declarative
+  `:spawn` desugars to a `:rf.machine/destroy` on exit), and the runtime
+  clears its id from the `:rf/spawned` slot — so the connection machine needs
+  no `:exit` action to forget the id. The actor itself does carry one: an
+  `:exit :close-socket` on its `:open` state closes the host `WebSocket` on
+  the way down, because a live socket is a handle the runtime can't drop for
+  you. After the `:after` backoff, re-entering `:active` re-runs the
+  `:spawn`'s `:data` function, which re-reads the URL and credential
+  reference from `:data` — so a `:ws/rotate-cred` arriving between reconnects
+  flows into the next socket with no extra wiring, and the new socket
+  resolves the new reference.
 
 - An offline queue and a surviving subscription set. A `:ws/send` or
   `:ws/request` issued while off-connection buffers its whole event into

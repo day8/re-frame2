@@ -27,7 +27,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 
 ## Credential discipline (load-bearing — read before the snippet)
 
-Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised somewhere the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) — an opaque key the host-side socket actor exchanges for the real bearer at spawn time via a client-only cofx (`:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context and discards it; the bearer never re-enters the dispatch stream.
+Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised somewhere the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) — an opaque key the host-side socket actor exchanges for the real bearer at the moment it opens/authenticates the socket, via an app-owned, client-only resolver: a plain host-fn seam like the worked example's `resolve-credential` (`examples/patterns/websocket/messages.cljs`), or a client-only cofx (`:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context — its private socket closure — for the auth write and discards it; the bearer never re-enters the dispatch stream.
 
 > **The credential cofx/fx live under YOUR app's prefix, not `:rf/*`.** re-frame2 ships **no** credential surface, and the `:rf/*` root is framework-reserved (`spec/Conventions.md` §single-root reserved set). Register the credential cofx/fx under your auth slice's own feature prefix — the `:auth.cred/fetch` / `:auth.cred/store` names in this leaf are illustrative placeholders for *your* registrations, not framework-provided surfaces.
 
@@ -182,7 +182,7 @@ The `:connected` `:ws/received` handler branches on `:request-id`; a `:dispatch-
 
 ## Worked example
 
-`examples/patterns/websocket/` is the canonical worked example. `connection.cljs` holds the lifecycle machine (compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor, `:after` backoff, `:always` offline-queue flush, connection-epoch staleness, request/reply correlation); `messages.cljs`, `schema.cljs`, and `views.cljs` complete it. Read the source first; the declaration above is the leaf-level summary.
+`examples/patterns/websocket/` is the canonical worked example. `connection.cljs` holds the lifecycle machine (compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor, `:after` backoff, `:always` offline-queue flush, connection-epoch staleness, request/reply correlation); `messages.cljs`, `schema.cljs`, and `views.cljs` complete it, and both trust boundaries are implemented there: the opaque-`:cred-ref` seam (`resolve-credential`, bearer held in the socket closure only) and the closed inbound wire union enforced with `:rf.schema/at-boundary` on both app-db-writing ingress events. Read the source first; the declaration above is the leaf-level summary.
 
 ## Pointers
 

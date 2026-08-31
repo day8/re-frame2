@@ -24,10 +24,17 @@
    The two halves are kept apart on purpose. Swap the pretend server for a
    real `(js/WebSocket. url)` and the actor machine doesn't even notice.
    The shape stays put no matter the transport: the machine owns the actor,
-   the actor owns the host-side handle."
+   the actor owns the host-side handle.
+
+   Two trust boundaries also live here, because this is the host seam:
+   `resolve-credential` exchanges the machine's opaque `:cred-ref` for the
+   real bearer inside the socket closure (credentials leaving the app),
+   and `:ws/handle-message` / `:ws.app/request-reply` hold inbound frames
+   to the closed wire schemas with `:rf.schema/at-boundary` (frames
+   entering it)."
   (:require [re-frame.core :as rf]
             [re-frame.machines]
-            [websocket.schema]))
+            [websocket.schema :as schema]))
 
 ;; ============================================================================
 ;; HOST-SIDE SOCKET STORE
@@ -50,6 +57,32 @@
 
 (defn- clear-socket! [actor-id]
   (swap! sockets-by-actor dissoc actor-id))
+
+;; ============================================================================
+;; CREDENTIAL SEAM
+;; ============================================================================
+;;
+;; The connection machine carries only an OPAQUE `:cred-ref` — never the
+;; bearer. This host-side, client-only seam is where the reference becomes
+;; the real credential, at the one moment it's needed: socket
+;; authentication. `mock-socket-for-actor` calls it as the socket opens,
+;; holds the result in the socket's private closure for the one auth send,
+;; and that is the bearer's whole life — it never enters machine `:data`,
+;; a dispatch payload, app-db, or anything the framework can serialise.
+;; See skills/re-frame2/patterns/websocket.md §Credential discipline.
+
+(defn resolve-credential
+  "Exchange an opaque credential reference for the real bearer. App-owned
+   and app-prefixed — re-frame2 ships no credential surface. The demo
+   recognises two references (so credential rotation has somewhere to
+   rotate TO); swap the body for your auth slice's real lookup. Returns
+   nil for an unknown reference, which the mock server then refuses —
+   authentication genuinely depends on resolution."
+  [cred-ref]
+  (case cred-ref
+    :ws.demo/cred-a "demo-bearer-secret-a"
+    :ws.demo/cred-b "demo-bearer-secret-b"
+    nil))
 
 ;; ============================================================================
 ;; MOCK WEBSOCKET SERVER
@@ -126,10 +159,20 @@
   "Open a fresh mock socket bound to this actor's id, and return its handle.
    The handle's `:send` fn fields every outbound message the actor makes;
    the mock knows how to answer two of them — `:auth` (→ `:auth-ok`) and
-   `:request` (→ a correlated `:type :reply` echo)."
-  [actor-id _url _auth-token]
-  (let [id   (next-mock-socket-id)
-        open? (atom true)
+   `:request` (→ a correlated `:type :reply` echo).
+
+   This is also where the opaque `:cred-ref` becomes a real credential:
+   `resolve-credential` runs right here, beside socket creation, and the
+   bearer lives only in this closure — attached to the one `:auth` wire
+   frame, then gone. A real socket would do the same with
+   `(js/WebSocket. url)` in hand."
+  [actor-id _url cred-ref]
+  (let [id     (next-mock-socket-id)
+        open?  (atom true)
+        ;; The bearer's whole life is this local: resolved as the socket
+        ;; opens, read once by the `:auth` send below, never stored
+        ;; anywhere the framework can inspect.
+        bearer (resolve-credential cred-ref)
         ;; We're inside the actor's `:open-socket` action right now, which
         ;; means a frame is in scope — but the deferred deliveries below
         ;; fire from a bare `setTimeout` callback, long after it's gone.
@@ -145,11 +188,20 @@
               (when @open?
                 (case (:type msg)
                   :auth
-                  ;; Auth: reply :auth-ok or :auth-failed on the same
-                  ;; channel, a tick later (via `later`).
-                  (later
-                    #(deliver-to-actor! dispatch actor-id :received
-                                        (mock-encode-auth-reply (:token msg))))
+                  ;; Auth: the machine's `:send-auth` sends a bare
+                  ;; `{:type :auth}` — no credential in the dispatch. THIS
+                  ;; is where the bearer joins: attached to the wire frame
+                  ;; from the closure, the way a real client would write
+                  ;; `(.send socket (encode (assoc msg :token bearer)))`.
+                  ;; The mock 'server' then reads the wire frame's `:token`
+                  ;; and replies :auth-ok or :auth-failed a tick later
+                  ;; (via `later`). An unresolvable `:cred-ref` means a
+                  ;; nil `:token` on the wire — refused, so authentication
+                  ;; genuinely depends on the credential seam.
+                  (let [wire-frame (assoc msg :token bearer)]
+                    (later
+                      #(deliver-to-actor! dispatch actor-id :received
+                                          (mock-encode-auth-reply (:token wire-frame)))))
 
                   :request
                   ;; Every :request gets the same treatment: "here's your
@@ -254,8 +306,13 @@
   "The `:websocket/socket` actor spec, in its own `defmachine` so `reg-machine`
    below can point at it with per-element source captured."
     {:initial :opening
-     :data    {:url        nil
-               :auth-token nil}
+     ;; Like the parent, the actor's `:data` carries only the URL and the
+     ;; OPAQUE `:cred-ref` — the real bearer exists solely inside the
+     ;; socket closure `mock-socket-for-actor` builds. Validated on every
+     ;; transition, same as the parent's `:data`.
+     :schemas {:data schema/SocketActorData}
+     :data    {:url      nil
+               :cred-ref nil}
 
      :actions
      {:open-socket
@@ -266,7 +323,7 @@
               parent-id (:rf/parent-id data)
               socket    (mock-socket-for-actor self-id
                                                (:url data)
-                                               (:auth-token data))]
+                                               (:cred-ref data))]
           (store-socket! self-id socket)
           ;; Notice we report `:opened` as a `:dispatch` *fx*, not a bare
           ;; `(rf/dispatch ...)` in the action body. The fx inherits the
@@ -385,14 +442,29 @@
 ;; For every message that comes in — a correlated reply or a server push —
 ;; the connection machine dispatches `[:ws/handle-message body]`, and this
 ;; handler is where it lands in app-db for the views to read.
+;;
+;; This is a SYSTEM BOUNDARY: the body is the server's bytes, and on a
+;; compromised or hostile server it is whatever the sender chose. The
+;; connection machine validated the socket id, never the payload — so the
+;; payload check lives here, and `:rf.schema/at-boundary` is what keeps it
+;; in the RELEASE build (a bare `:schema` is a dev diagnostic and elides
+;; under :advanced). A frame that fails the closed `InboundMessage` union
+;; is dropped whole: the handler never runs, nothing reaches app-db, and
+;; the always-on `:rf.error/schema-validation-failure` record is the
+;; counter to alert on. See spec/Pattern-WebSocket.md §Inbound frames are
+;; untrusted.
 (rf/reg-event :ws/handle-message
-  {:doc "Fold an inbound message into app-db. It joins the
+  {:doc "Fold one inbound frame into app-db. UNTRUSTED INGRESS — the body
+         is validated against the closed `InboundMessage` wire union, in
+         every build, before this handler runs. It joins the
          [:messages :received] log, and if it's a correlated reply it also
          lands at [:messages :last-reply]. Each one gets a monotonic
          `:rx-seq` stamp on the way in — that's the inbox's stable React
          `:key`. (Server pushes carry no `:request-id`, so we can't lean
          on identity from the wire, and list position shifts as new
-         messages arrive at the top.)"}
+         messages arrive at the top.)"
+   :schema       [:cat [:= :ws/handle-message] schema/InboundMessage]
+   :interceptors [:rf.schema/at-boundary]}
   (fn handler-ws-handle-message [{:keys [db]} [_ body]]
     {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
       (-> db
@@ -450,10 +522,22 @@
                                     :timeout-ms 5000}]]]]}))
 
 (rf/reg-event :ws.app/request-reply
-  {:doc "The reply finally arrived. The connection machine fires this once
-         the correlated reply lands, handing us the app's reply body (the
-         server's echo). We just file it at [:messages :last-reply].
-         See :ws.app/request for the correlation it completes."}
+  {:doc "The request's outcome arrived. Two producers reach this event,
+         and the schema admits exactly those two shapes. (1) The
+         correlated WIRE reply: the connection machine hands on the
+         server's bytes, so this is the SECOND untrusted ingress — a reply
+         arriving under a known :request-id is still the server's bytes,
+         and it's held to the closed `ReplyMessage` contract in every
+         build. (2) A LOCALLY synthesised failure: the machine's own
+         socket-drop / timeout paths mint a tight
+         `{:request-id … :ok false :error …}` body — local truth, valid
+         here without ever being dressed as server bytes (it never
+         traverses :ws/handle-message, so it can't masquerade as a wire
+         frame in the inbox either). Either way the outcome files at
+         [:messages :last-reply]. See :ws.app/request for the correlation
+         it completes."
+   :schema       [:cat [:= :ws.app/request-reply] schema/RequestOutcome]
+   :interceptors [:rf.schema/at-boundary]}
   (fn handler-app-request-reply [{:keys [db]} [_ body]]
     {:db (assoc-in db [:messages :last-reply] body)}))
 
