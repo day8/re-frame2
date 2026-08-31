@@ -1,7 +1,7 @@
 ---
 name: re-frame2-xray
 description: >
- Read-only tour of **Xray** — the re-frame2 devtools panel. Use when the
+ Question-first tour of **Xray** — the re-frame2 devtools panel. Use when the
  user wants to know how to *launch* Xray (in-app inline panel, the
  overlay fallback for hosts with no layout column / full-screen-canvas /
  no `[data-rf-xray-host]` — `open-overlay!`, pop-out window, programmatic
@@ -21,11 +21,13 @@ description: >
  loaded this frame", "how does this frame resolve its registrations",
  "Xray Hicasso tab", "which Hicasso boundaries are mounted", "what reads
  this subscription", "why did this boundary re-render", and similar.
- **Do not use** for: driving Xray
- programmatically from a live REPL (that's `re-frame2-pair`), authoring
- the host app (`re-frame2`), bootstrapping a new project
- (`re-frame2-setup`), or implementing Xray itself (no implementor skill
- exists).
+ **Do not use** when the user asks the AGENT to inspect or change their
+ running app — read-only included (read a sub, get a path, snapshot
+ state, walk traces, dispatch): that's `re-frame2-pair`, the
+ agent-facing runtime companion. Nor for authoring the host app
+ (`re-frame2`), bootstrapping a new project (`re-frame2-setup`), or
+ implementing Xray itself (no implementor skill exists — the spec is
+ the answer).
 allowed-tools:
  - Read
  - Grep
@@ -34,407 +36,226 @@ allowed-tools:
 
 # re-frame2-xray
 
-A tour skill for **Xray** — the re-frame2 in-app devtools panel.
+One debugging question, one first surface. This skill routes a concrete
+question to the one visible Xray mode/tab to open first, says why it is
+the first stop, and names the first interaction. Xray is the human-facing
+in-app devtools panel for re-frame2 — preloaded into dev builds via
+shadow-cljs `:preloads`, auto-opening into the host's
+`[data-rf-xray-host]` column, elided entirely from production builds.
 
-## Mental model: think in Redux DevTools, map onto Xray
+## First fork — who is looking?
 
-If you know **Redux DevTools** (and **React DevTools Profiler** for the
-re-render-cause surfaces), you know 80% of Xray: same genus — a
-state-debugging devtools panel with time-travel and an inspectable log of
-state changes — applied to re-frame2's event pipeline runs. Anchor on that,
-then note the deliberate divergences.
+- **A human looking at the visible Xray panel** — "where do I look?",
+ "which tab shows X?", "how do I launch it?" — stays here.
+- **The agent inspecting or changing the running app** — "read this sub
+ for me", "what's at `[:cart :items]` right now?", "dispatch this and
+ tell me what happens" — routes to
+ [`re-frame2-pair`](../re-frame2-pair/SKILL.md), **whether or not the
+ operation mutates anything**. Pair owns agent runtime access — read-sub,
+ get-path, snapshots, trace/epoch reads, DOM/UI reads, and writes alike.
+ The boundary is human panel vs agent runtime, not read vs write.
 
-| Redux DevTools concept | Xray counterpart | Deliberate divergence |
-|---|---|---|
-| Action log (the left-rail list of dispatched actions) | The **L2 event spine** — one row per dispatched event, live-tailing | Each row is an *epoch* (a full six-domino cascade), not a single reducer call — far richer than an action entry |
-| Inspecting one action's state diff | The **Epoch** tab (hero) — the focused dispatch's numbered cascade, DISPATCH → COEFFECT(s) → EVENT HANDLER → FLOW(s) → EFFECT HANDLERS → SUBSCRIPTIONS → VIEWS | Redux shows action + state diff; the Epoch cascade shows the *whole causal chain* (cofx, interceptors, fx, flows, sub recompute, re-render), not just before/after state |
-| Time-travel / "jump to state" replay | The **inspect · `Reset`-rewind** chrome | **Passive by default** — picking an epoch rebases the panels but does NOT move the live frame; live rewind is the explicit `Reset` button (see chrome.md §Time-travel). Redux's slider *replays dispatches* into the store; Xray inverts that. |
-| State tree inspector | The **app-db** tab — sectioned, lazy-tree, inline diff annotations | Sectioned by reserved area (machines, routes, system-ids…) with downstream-subs hover, not a raw single tree |
-| React DevTools Profiler "why did this render?" | The **Views** tab — render-cause chips (`← :sub-id` vs `← props`) on every re-render leaf | Built into the same panel and tied to the epoch, not a separate profiler tab |
-| *(no Redux equivalent)* | **Static mode** — event-INDEPENDENT browse of what's *registered* (machines / routes / schemas / flows / interceptors) | Redux has no "what's registered?" surface; this is the registry-catalogue half Xray adds |
+## The route card — question → first surface
 
-Xray is also the structural successor to **re-frame-10x** (re-frame2's
-v1-internal predecessor) and references it nowhere — matters mainly to
-v1-migrating users. The lineage fact + surface-by-surface "what replaces
-what" lives once in
-[`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md#supersedes-re-frame-10x);
-cite it, don't restate.
+Route a panel question by the evidence sought. Answer with the visible
+mode/tab, the reason, and the first interaction; name a second lens only
+when it is the natural next step. Do not enumerate the tab inventory
+unless the user asked for the inventory.
 
-This skill answers three questions, and only three:
+| The evidence sought | First surface | First interaction | Natural next step |
+|---|---|---|---|
+| What did this one dispatch do — the whole cascade, where it failed, what fx fired | **Dynamic → Epoch** (the default landing tab) | pick the frame, click the event row in the L2 list | **Trace** for raw op ordering |
+| What changed in state — is the value I expect actually there | **Dynamic → app-db** | pick the event; changed paths carry inline `← was X` diffs | hover a changed path for its downstream subs |
+| Why did this render — sub change or props, what recomputed | **Dynamic → Views** | pick the event; read the render-cause chips (`← :sub-id` vs `← props`) | **app-db** at the sub's input path |
+| Exact raw ordering / payloads the friendly views summarise | **Dynamic → Trace** | pick the event; click a row to expand it | — |
+| What this event did to a state machine — transition, guards, actions | **Dynamic → Machine** (event-driven; blank when the event touched no machine) | pick the event | **Static → Machines** to browse a full topology cold |
+| What route am I on / what did this event do to routing | **Dynamic → Routes** | pick the event | **Static → Routes** to rank a URL against the registry |
+| Server state — what owns it, is it stale, what's in flight, did my mutation's `:reply-to` fire | **Dynamic → Resources** | pick the frame — live instances follow the L1 frame picker, not the epoch | — |
+| Where does this value come from — the dependency graph across subs / flows / resources / routes / machines | **Dynamic → Graph** (does not follow the epoch) | flip its own Declared ↔ Realized projection toggle for registered-vs-observed | — |
+| Which image loaded which frame; how a frame resolves its registrations | **Dynamic → Frames** (process-global; does not follow the epoch) | open the tab | — |
+| Hicasso — which boundaries are mounted, what they read, why one re-rendered, which is hot | **Dynamic → Hicasso** (not epoch-coupled) | open the tab; pick the sub-view (Mounted · Reads · Intents · Why · Advisor · Causal) | — |
+| What's registered — machines / routes / schemas / flows / interceptors as catalogues | **Static mode** | flip the L1 mode pill or press `Cmd/Ctrl+Shift+M` | — |
+| Schema violations — what fired and when each started | **Dynamic → Epoch** (violations attach inline to the owning step) + the L2 pink-wash | pick the frame; scan the spine for washed rows | registered-schema *catalogue* → **Static → Schemas** |
+| SSR hydration mismatches | **Dynamic → Epoch** inline + the auto-open-on-error issues-ribbon signal — there is **no** Hydration tab | pick the washed event | — |
+| Anything broken in this epoch? / which epochs are broken? | **Dynamic → Epoch** (per-step ✓/✗ + inline exception cards) / the **L2 pink-wash** — there is **no** Issues tab | pick the frame; scan the spine | — |
+| A "panel" remembered from elsewhere — Subscriptions, Effects, Flows, Performance | not a tab — its content lives in the lenses above | see [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here) | — |
 
-1. **How do I launch Xray?** — inline panel, pop-out, programmatic entry
- points, wired hotkeys, the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose per tab across both modes
- (10 Dynamic event-spine + 5 Static registry-browse). In `:order`, with
- mnemonics `e a v t m r s g u h`: **Epoch · app-db · Views · Trace ·
- Machine · Routes · Resources · Graph · Frames · Hicasso** — the last of
- which is the Hicasso view substrate's evidence lens: six views (Mounted ·
- Reads · Intents · Why · Advisor · Causal) over four evidence envelopes
- taken in one turn, each naming what it cannot know rather than showing an
- empty list.
-3. **What's the chrome around the tabs for?** — time-travel inspect /
- `Reset`-rewind, the filter pills, the command palette, the Settings popup.
+The daily path in one line: **choose the frame → choose an event (only
+when the question is event-shaped) → start at Epoch for "what happened?"
+→ branch to the exact state/render/raw/specialist lens → use Static for
+definitions.** The non-epoch surfaces (Graph · Frames · Hicasso) never
+pretend to follow the event — route them by structure, not by dispatch.
 
-Deep workflow recipes (find-wrong-sub, redaction-marker grammar,
-click-to-source / open-in-editor internals) are **out of scope** —
-see *Out of scope* below.
+## The inventory (for explicit "list every tab" requests)
 
-### Which reference leaf to load
+Dynamic mode's L3 tab bar holds **10 tabs**, left-to-right (mnemonics
+`e a v t m r s g u h`): **Epoch · app-db · Views · Trace · Machine ·
+Routes · Resources · Graph · Frames · Hicasso**. Static mode holds **5**:
+**Machines · Routes · Schemas · Flows · Interceptors** (mnemonics are
+mode-scoped — `m` opens the active mode's tab). The compact canonical
+inventory — every tab's one-liner and the scope matrix in one place — is
+[`references/panels.md`](references/panels.md); load it for an explicit
+full-inventory request, not for routine routing.
 
-This body is a **compact tour/router** (launch quick-reference, mode/tab
-chooser, chrome one-liners). Maintained detail lives in the reference
-leaves — load the matching one when the question needs more than the
-router gives:
+### Scope model — what actually follows the event
 
-| The question is about… | Load |
-|---|---|
-| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, suppress-auto-open, CSS-variable / drag-handle resize, the **missing-host diagnostic + recovery** (`status()`), the `open-overlay!` fallback, pop-out lifecycle, the full wired-hotkey contract | [`references/launch-modes.md`](references/launch-modes.md) |
-| A tab in depth — per-tab layout, iconography, stripe tokens, the Epoch cascade steps, "open it when…" guidance | [`references/panels.md`](references/panels.md) |
-| First-screen chrome in depth — the **L1 frame picker**, Settings-popup tabs, command-palette sources, the rewind detail, the Snapshot redaction contract | [`references/chrome.md`](references/chrome.md) |
-| The components every L4 panel reuses + the glyph/icon reference | [`references/shared-components.md`](references/shared-components.md) |
-| The re-frame-10x lineage / surface-by-surface "what replaces what" | [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md#supersedes-re-frame-10x) |
+"Dynamic" names the 4-layer shell (L1 ribbon · L2 event list · L3 tab bar
+· L4 detail), not a uniform data scope:
 
----
-
-## What Xray is
-
-An in-app true-inline devtools panel for re-frame2 applications, preloaded
-into dev builds via shadow-cljs `:preloads`. The host app provides a
-right-side `[data-rf-xray-host]` column in its normal layout; Xray
-auto-opens there once the substrate adapter is ready. Production builds
-elide the entire surface through the universal `interop/debug-enabled?`
-gate — zero bytes ship to consumers.
-
-Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus,
-Tool-Pair epoch history, the registrar query API) — adding nothing the
-framework didn't already expose. The tabs are *presentation* of an
-already-structured runtime.
-
-### Two modes
-
-Xray runs in one of two modes at a time, flipped by the L1 mode pill or
-the `Cmd/Ctrl+Shift+M` chord:
-
-- **Dynamic** — the event-spine *shell* (4-layer chrome: L1 ribbon · L2
- event list · L3 tab bar · L4 detail). *Most* tabs are a *lens on the one
- focused event* — pick an event in the L2 list and they rebind ("what
- happened in **this** epoch?") — but Dynamic names the shell mode, **not** a
- guarantee that every panel is focused-epoch data: **Graph**, **Frames** and
- **Hicasso** are Dynamic-shell browse surfaces that read the process-global
- registry / the observed frame / the live Hicasso runtime and do **not**
- rebind when you pick an epoch (see the **scope matrix** below). 10 tabs
- (core 6 + cross-feature Resources + Graph + Frames + Hicasso).
-- **Static** — event-INDEPENDENT browse of what's *registered* (3-layer
- chrome, no L2 spine). Static is **mixed-scope**: the definition catalogues
- (events / subs / routes / interceptors / machine definitions) are
- **process-global** — the registrar is shared across every frame (Spec 001)
- — while the L1 frame picker scopes only the genuinely per-frame *live*
- projections each tab adds (machine snapshots, the flows registry, the
- app-db-schema side-table, the current-route slice). "What exists?", not
- "what just happened?". 5 tabs.
-
-Inspect a *single dispatch* → Dynamic; browse the *whole registry* →
-Static. For an AI agent surface against the running app, use
-`tools/re-frame2-pair-mcp/` — Xray is the human-facing panel;
-re-frame2-pair-mcp is the AI-facing one.
-
----
+- **Six focused-epoch lenses** — Epoch · app-db · Views · Trace ·
+ Machine · Routes — rebind when you pick an event in the L2 list.
+- **Resources is mixed** — a process-global resource registry plus the
+ observed frame's live cache/ledger (follows the L1 frame picker), with
+ per-epoch mutation evidence drawn from the trace stream.
+- **Graph, Frames and Hicasso do not follow the event.** Graph reads the
+ process-global registrar (Declared) or the observed frame (Realized) —
+ its Declared ↔ Realized projection toggle is a Graph-local control, NOT
+ the L1 Dynamic/Static mode pill (the shipped UI labels the toggle
+ static/live; Graph is always a Dynamic tab). Frames enumerates the
+ process-global live-frame registry (the `image → frame` model). Hicasso
+ re-takes its live evidence on each trace tick. "Select an epoch and
+ they update" is false — only the six lenses above rebind.
+- **Static's definition catalogues are process-global** — the registrar
+ is shared across every frame (Spec 001); the L1 frame picker moves only
+ each Static tab's per-frame *live* projections (machine snapshots, the
+ flows registry, the app-db-schema side-table, the current-route slice).
 
 ## Launching Xray — pick a mode
 
-Four launch surfaces ship today: one mount facade with three open verbs
-(inline / overlay / window) plus the programmatic `init!`. Pick the one
-that matches the user's situation.
+Four launch surfaces ship: one mount facade with three open verbs
+(inline / overlay / window) plus the programmatic `init!`.
 
 | User wants to … | Use | How |
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
-| Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §Mount facade). |
-| Put Xray on a second monitor with the app full-screen | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path — it dispatches `:rf.xray/popout-shell`). Or, as the secondary programmatic/devtools path, `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
-| Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
-| Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
-| Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp). |
-| Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
+| Mount where the host can't give Xray a layout column (full-screen canvas, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body`. The supported fallback — **not** the default path. |
+| Put Xray on a second monitor | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path). Secondary programmatic path: `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
+| Install Xray from code (no preload) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
+| Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. |
+| Have an AI agent inspect the runtime | **re-frame2-pair** | Out of scope here — see §First fork above. |
+| Debug a mobile browser | Not supported | Phones refuse to mount (`spec/011-Launch-Modes.md`). |
 
 **Most common launch failure — "the panel never appeared."** Preload in,
-page loaded, but no inline panel = a **missing layout host**: no element
-matched `[data-rf-xray-host]` when the adapter became ready. Xray fails
-loudly but safely — it logs a `console.error` and exposes the same
-diagnostic at **`window.day8.re_frame2_xray.status()`**. First response:
-check the console / call `status()`. The three recoveries (add the column ·
-point the selector · fall back to `open-overlay!`), the full `status()` map
-shape, and the distinct dev-build posture banner are in
-[`references/launch-modes.md` §Missing host](references/launch-modes.md).
-
-For the decision tree in depth (preload vs `init!`, suppress-auto-open,
-the `:rf.xray/layout-host-selector` knob, host-CSS-variable resize, the
-`open-overlay!` fallback, pop-out lifecycle), see
-[`references/launch-modes.md`](references/launch-modes.md).
+page loaded, no inline panel = a **missing layout host**: nothing matched
+`[data-rf-xray-host]` when the adapter became ready. Xray fails loudly but
+safely — a `console.error` plus the same diagnostic at
+**`window.day8.re_frame2_xray.status()`**. First response: check the
+console / call `status()`. The three recoveries (add the column · point
+the selector · fall back to `open-overlay!`) and the full decision tree
+(preload vs `init!`, suppress-auto-open, resize, pop-out lifecycle) live
+in [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys
 
-Four hotkey families have keydown listeners installed in `keybinding.cljs`
-today (three global, one focus-gated). Quick-reference below; full per-key
-contract + suppression knob in
+Four hotkey families are wired (three global, one focus-gated). Full
+per-key contract + suppression knob:
 [`references/launch-modes.md` §Wired hotkeys](references/launch-modes.md#wired-hotkeys).
-Spec [`007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
-catalogues a richer map; these are what is actually wired:
 
 | Key | Scope | Action |
 |---|---|---|
 | `Ctrl+Shift+C` | global | Toggle the Xray shell (`Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision). |
-| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). |
-| `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if hidden. |
-| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts — fire only when the shell is visible and focused (non-editable, non-modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event · `G` = fast-forward to head · `,`/`s` = Settings popup. |
+| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static. |
+| `Cmd/Ctrl+K` | global | Open the command palette (**wired** — don't tell users the K-binding is unavailable); opens the shell first if hidden. |
+| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts, only while the shell is visible and focused. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event · `G` = fast-forward to head · `,`/`s` = Settings popup. |
 
-`Cmd/Ctrl+K` **is** wired — don't tell users the K-binding is unavailable.
-`Esc` is modal-local,
-not a wired spine key. The **pop-out has no hotkey** — its canonical path is
-the visible **`⛶` pop-out button** (above), with `(xray/popout!)` as the
-secondary programmatic path. Source of truth:
-[`keybinding.cljs`](../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).
-
----
-
-## The tabs — what each surfaces
-
-<a id="the-tabs--what-each-surfaces"></a>
-
-Tabs split across the two modes. On "where is X?", first decide *which
-mode answers it* — Dynamic (one dispatch) or Static (the whole registry)
-— then route to the tab. For per-tab layout, iconography, stripe tokens,
-and "open it when…" depth see [`references/panels.md`](references/panels.md).
-
-### Dynamic mode — the event-spine shell (10 tabs)
-
-The L3 tab bar holds **10 tabs**, left-to-right (mnemonics `e a v t m r s g
-u h`): **Epoch · app-db · Views · Trace · Machine · Routes · Resources ·
-Graph · Frames · Hicasso** — the core 6 spine lenses (spec/018 §5 +
-spec/021 §9.1) plus the cross-feature Resources / Graph / Frames / Hicasso.
-*Most* answer "what happened in **this** epoch?"; the exceptions are
-**Graph**, **Frames** and **Hicasso**, which read the process-global
-registry / observed frame / live Hicasso runtime and do **not** rebind to
-the focused epoch (see the scope matrix below). Cross-epoch signal
-lives on the L2 timeline (badges + stripes); no Dynamic tab shows a
-cross-epoch *aggregate*. There is **no Issues tab** (see *Where issues
-surface now* below).
-
-#### Scope matrix — what each Dynamic tab actually reads
-
-"Dynamic" names the 4-layer *shell*, not a uniform data scope. Three
-authority axes:
-
-| Scope | Tabs | Picking an epoch in L2… |
-|---|---|---|
-| **Focused epoch** — the event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
-| **Observed frame** — live frame state, not the epoch | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
-| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Hicasso** · Resources (static registry) | does nothing; identical for every epoch (and the global catalogues read the same in every frame) |
-
-**Graph, Frames and Hicasso are the Dynamic-shell exceptions.** Graph reads
-the process-global registrar (Declared projection) or the observed frame's
-runtime-db (Realized projection); **Frames** enumerates the process-global
-live-frame registry (the EP-0023 `image -> frame` model); **Hicasso** takes
-the live Hicasso evidence door across every frame, re-taken on each trace
-tick. None of the three composes off the focused epoch. Resources is a mix —
-a process-global resource registry plus the observed frame's live
-cache/ledger; the per-epoch mutation- and scope-resolution evidence it also
-surfaces is drawn from the trace stream. So "select an epoch and
-Graph/Frames/Hicasso update" is **false** — only the six focused-epoch
-lenses rebind.
-
-Each row below is the one-line purpose + when-to-open; **depth for every
-tab lives in [`references/panels.md`](references/panels.md)** under the
-matching § heading.
-
-| Tab | Mnem · Icon · Stripe | One-line purpose | When you'd open it |
-|---|---|---|---|
-| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade** (rendered step labels per `epoch/badge.cljc`): DISPATCH → RECORDABLE COEFFECTS (conditional) → COEFFECT(s) → INTERCEPTORS (authored chain, conditional) → INTERCEPTOR (exception-only, phase-split around the handler) → EVENT HANDLER → FLOW(s) → EFFECT HANDLERS → SUBSCRIPTIONS → VIEWS. Only present steps render; each carries a ✓ / ✗ / ⊘ glyph; exceptions render under their step. Depth: panels.md §Epoch. | Default landing. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
-| **app-db** | `a` · `◐` · cyan | State sectioned by reserved area (APP STATE + per-machine + per-spawned + ROUTE + SYSTEM-IDS + …), each a collapsible lazy-tree with **inline** diff (`← was X`); hover a changed path for the downstream-subs popover. (Display label lowercase **app-db**; tab id `:app-db`.) Depth: panels.md §app-db. | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
-| **Views** | `v` · `◉` · cyan | The reactive cascade (SUBSCRIPTIONS + VIEWS) as a depth-first DAG with **render-cause chips** on every re-render leaf — `← :sub-id` (a deref'd sub changed) vs `← props` (the props channel); a first mount carries no cause. (Tab id `:views`.) Depth: panels.md §Views. | "Why didn't my view update?" / "Why did this re-render — sub or props?" / "Which views re-rendered this epoch?" |
-| **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — a **flat oldest-first row list**, each row carrying a **stage column** (DISPATCH·COEFFECT·EVENT HANDLER·FLOW·EFFECT HANDLERS·SUBSCRIPTIONS·VIEWS) + a colour-coded left edge reusing the Epoch badge taxonomy; the focused epoch IS the scope, click a row to expand. Depth: panels.md §Trace. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
-| **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation for the focused event; BLANK when the event had no machine activity. To browse a machine's **full topology cold** (picker + zoom / pan / fit), use **Static mode**'s Machines tab. (Singular **Machine**; tab id `:machines`.) Depth: panels.md §Machine. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
-| **Routes** | `r` · `🌐` · yellow | Focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input ranking every registered route, with `◉ TO` / `◇ FROM` overlay markers; silent when no routes registered. (Display label **Routes**; tab id `:routing`.) Depth: panels.md §Routes. | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
-| **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016) — static resource registry, per-frame live instances (state · owners · freshness), the in-flight work ledger, the scope-resolution timeline, and the EP-0016 mutation-completion evidence (`:reply-to` continuations · descriptor-level scoped-invalidation). **Read-only**, redaction-aware; decoupled (no `:require` on the resources artefact). Depth: panels.md §Resources. | "Where's my server state, what owns it, is it stale?" / "What's in flight?" / "Did my mutation's `:reply-to` fire and invalidate the right scopes?" |
-| **Graph** | `g` · cross-feature (violet) | Xray's UI over the **EP-0014 derivation/process graph** — every declared fact + process across all five families (subscriptions, flows, resources, routes, machines) as one node-and-edge graph over the frame fold. **Reads the process-global registrar (Declared) or the observed frame (Realized), not the focused epoch.** A per-panel **Declared ↔ Realized** projection toggle (a Graph-local control, **NOT** the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab) flips registration-derived vs observed. Depth (incl. the authority-axis + internal-accessor caveats): panels.md §Graph. | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families |
-| **Frames** *(internal id `:module-view` · `:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame`** model — each live frame as an execution context carrying its resolved image (`[kind id]` descriptors) + how it resolves `(kind id)` lookups. **Registry-wide, not epoch-coupled** — enumerates the process-global live-frame registry; picking an epoch does not rebind it. L4-only registry tab (focusable, **no** standalone `mount-*!` facade — there is no `mount-module-view!`). Depth: panels.md §Frames. | "What frames exist, and which image loaded each?" / "How does this frame resolve its registrations?" |
-| **Hicasso** *(`:order 10`)* | `h` · cross-feature | The evidence lens for **Hicasso**, re-frame2's re-frame-native view layer — a sub-strip of **six views** over one versioned, adapter-neutral schema: **Mounted** (which boundaries are mounted, over which frames) · **Reads** (which boundaries read each subscription) · **Intents** (what was dispatched, in order, in the retained window) · **Why** (which reads changed, and what that can and cannot prove) · **Advisor** (which boundary is hot and the smallest route that addresses it) · **Causal** (one dispatch walked link by link, every missing link named). The first four read the four evidence envelopes; Advisor and Causal are derivations over that **same one-turn take**. Every view states its own scope, basis, completeness and loss, and renders an absence as a **named loss state**, never an empty list — a host not running Hicasso shows the honest no-evidence state, which is distinct from *running with nothing mounted*. **Not epoch-coupled** — re-taken on each trace tick. L4-only registry tab (focusable, **no** standalone `mount-*!` facade). Depth: panels.md §Hicasso. | "Which boundaries are mounted, and what do they read?" / "Why did this boundary re-render?" / "Which boundary is hot?" |
-
-#### Where issues surface now (no Issues tab)
-
-**No Issues tab, no session-wide triage list.** Issues surface through
-three always-on inline channels: **this epoch** → Epoch-cascade per-step
-✓/✗ + the shared "Exception Thrown" card; **which epochs** → L2 event-row
-pink-wash; **cross-epoch watcher** → the `:rf.xray/issues-ribbon` signal
-(auto-open-on-error). Detail: [`references/panels.md` §Issues](references/panels.md).
-(A11y is **not** a Xray tab — it is Story's domain, `re-frame.story.ui.chrome-a11y`.)
-
-### Static mode — 5 registry-browse tabs (mixed-scope)
-
-**5 catalogue lenses** over what's *registered* (mnemonics mode-scoped —
-`m` here opens the Static Machines browse, not the Dynamic
-instance-inspector). Order per spec/007-UX-IA.md §Static mode:
-**Machines · Routes · Schemas · Flows · Interceptors**. **Mixed-scope:** the
-definition catalogues are **process-global** (the registrar is shared across
-every frame, Spec 001); the L1 frame picker scopes only the per-frame *live*
-projections each tab adds — machine snapshots, the flows registry, the
-app-db-schema side-table, the current-route slice (`static/shell.cljs`). It
-is **not** true that a picked frame owns all its registrations.
-
-> **The browse axis is `image -> frame`, full stop** — no realm / app /
-> module browse dimension; image assembly + frame isolation are the whole
-> composition story (EP-0023, `tools/xray/spec/007-UX-IA.md` §Static mode).
-
-| Tab | Mnem | One-line purpose (+ the question it answers) |
-|---|---|---|
-| **Machines** *(default)* | `m` | Registry browse of every registered machine + topology + a 4-mode sub-strip (incl. the Sim engine) — "browse my checkout machine's chart without picking an event." |
-| **Routes** | `r` | Every registered route + a Simulate-URL input (promoted from the Dynamic Routes lens) — "which route would `/orders/42` match?" |
-| **Schemas** | `c` | Every registered schema + sample data + jump-to-source — "show me the shape of `:order/schema`." |
-| **Flows** | `f` | Catalogue of every registered flow. |
-| **Interceptors** | `i` | Pure-browse lens over the registered interceptor chains — "what runs, and in what order?" |
-
-When a user asks "where do I see **all** my registered machines / routes /
-schemas / flows / interceptors?" the answer is **Static mode** — the
-focused-epoch Dynamic lenses show one event, not the registry (the Graph and
-Frames browse tabs aside).
-
-### Where familiar panels' content lives (these are not separate tabs)
-
-Subscriptions, Effects, Flows, Performance, Schemas, Hydration, and Issues
-are **not** separate Dynamic tabs. The four high-drift routes worth keeping
-in the body:
-
-- **Schemas** (violations) → **Epoch** inline + the L2 pink-wash; the
-  *registry* catalogue → **Static → Schemas**.
-- **Hydration** (SSR mismatches) → **Epoch** inline + the issues-ribbon
-  signal — there is **no** standalone Hydration tab.
-- **Flows** → **Epoch** FLOW step; the registry → **Static → Flows**.
-- **Effects** (`fx`) → **Epoch** EFFECT HANDLERS step + **Trace** raw ops.
-
-For the full panel → content-home mapping (Subscriptions,
-Performance, the rest), see
-[`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here)
-(the single maintained home; + spec/021 §15). The hero on first open is
-**Epoch** (`:order -1`).
-
----
+Only these are wired: `Esc` is modal-local, not a spine key; the
+**pop-out has no hotkey** (its canonical path is the visible `⛶`
+button); no `r`/`R`/`*` time-travel keys are live — the richer keymap in
+the spec is normative-future.
 
 ## The chrome around the tabs
 
-<a id="the-chrome-around-the-tabs"></a>
+One line each; load [`references/chrome.md`](references/chrome.md) for
+the control-by-control inventory.
 
-Beyond the tabs, the first screen carries navigation primitives the user
-meets immediately — one line each below. **Load
-[`references/chrome.md`](references/chrome.md) for the control-by-control
-inventory** (Settings-popup tabs, command-palette sources, the Snapshot
-redaction contract, the rewind detail) when the question needs more than
-the one-liner.
-
-- **L1 frame picker.** The Frame control on the L1 ribbon chooses *which
- frame* Xray observes — it moves the per-frame *live* projections and the
- spine's observed frame; the process-global catalogues (Graph Declared,
- Frames, the Static definition catalogues) read the same in every frame and
- do **not** follow the picker (see the scope matrix above). It is
- mode-independent: the frame-observation axis moves in both Dynamic and
- Static. It **always
- renders**; on a single-frame app it is a working one-entry dropdown (only a
- zero-frame state disables it). The button face shows the currently-selected
- frame id live (e.g. `:rf/default ▾`). The pin is a **transient view
- scope** — not persisted across reload (resets to the head-frame default).
- Tool frames (`:rf/xray` itself, `:rf/re-frame2-pair`) are **filtered out of
- the picker unconditionally** — invariant **I1**: Xray observes ANOTHER
- frame, never itself; they cannot currently be revealed from the UI. So "I
- can't find frame X in the picker" → it's a tool frame. (chrome.md §L1 frame
- picker.)
-- **LIVE vs RETRO spine.** The L2 spine live-tails at the head (**LIVE**)
- until you pick a historical event or pause (**RETRO**); `Space`
- pauses/resumes, `L` snaps back. (chrome.md §LIVE vs RETRO spine.)
-- **Time-travel: passive inspect vs explicit rewind.** Picking an epoch is
- *passive INSPECTION* — panels rebase, the live frame does NOT move; live
- rewind is the *separate, explicit* **`Reset` button** on the L3 ribbon
- (`restore-epoch!` reinstalls the focused epoch's WHOLE frame-state — both
- app-db AND runtime-db — via `replace-frame-state!`, not the `:db-after`
- projection alone). No wired `r`/`R`/`*` keys — those are spec-future only.
- (chrome.md §Time-travel.)
-- **Filter pills.** The L1.5 events ribbon carries IN / OUT pills, a mute
- set, an `N hidden by filters` count, and `Clear Filters`; transient,
- reset on load. (chrome.md §Filter pills.)
-- **Command palette (`Cmd/Ctrl+K`).** A fuzzy-ranked surface over six
- source kinds (panel jumps · recent events · frame switch · registered
- handlers · settings · command verbs), mode-aware. (chrome.md §Command
- palette — for the full command-verb list.)
-- **Settings popup (`,` / `s`).** A 4-tab modal (General · Keybindings ·
+- **L1 frame picker** — chooses *which frame* Xray observes, in both
+ modes. It moves the per-frame live projections; the process-global
+ catalogues read the same in every frame. Always renders; the pin is
+ transient (resets on reload); tool frames (`:rf/xray`,
+ `:rf/re-frame2-pair`) are filtered out unconditionally — "I can't find
+ frame X in the picker" → it's a tool frame.
+- **LIVE vs RETRO spine** — the L2 spine live-tails at the head until you
+ pick a historical event or pause; `Space` pauses/resumes, `L` snaps back.
+- **Time-travel: passive inspect vs explicit rewind** — picking an epoch
+ is *passive inspection*: panels rebase, the live frame does NOT move.
+ Live rewind is the separate, explicit **`Reset` button** on the L3
+ ribbon — `restore-epoch!` reinstalls the focused epoch's WHOLE
+ frame-state, both app-db AND runtime-db, not the `:db-after` projection
+ alone.
+- **Filter pills** — IN / OUT pills, a mute set, an `N hidden by filters`
+ count, `Clear Filters`; transient, reset on load.
+- **Command palette (`Cmd/Ctrl+K`)** — fuzzy-ranked over six source kinds
+ (panel jumps · recent events · frame switch · registered handlers ·
+ settings · command verbs), mode-aware.
+- **Settings popup (`,` / `s`)** — a 4-tab modal (General · Keybindings ·
  Buffer · Diff). **Density and panel-width are NOT popup controls** —
  density is a boot/`configure!` concern; width is the drag handle. Merge
- order is `defaults < configure! < Settings`. (chrome.md §Settings popup —
- for the per-tab control inventory + the layered-config story.)
-- **Snapshot app-db (the on-box share helper).** The on-box share helper is
- the **Snapshot app-db**
- palette verb — and it is **redacted by default** (sensitive ⇒
- `:rf/redacted`, large ⇒ `:rf.size/large-elided`, via
- `runtime/egress-value`). There is no Share-URL or EDN-export affordance; do
- **not** present Snapshot app-db as a raw-`app-db` /
- secret-egress path. (chrome.md §Snapshot app-db — for the egress contract.)
+ order is `defaults < configure! < Settings` (the popup wins at runtime
+ for the slots it exposes).
+- **Snapshot app-db** — the on-box share helper is the palette verb, and
+ it is **redacted by default** (sensitive ⇒ `:rf/redacted`, large ⇒
+ `:rf.size/large-elided`). Do not present it as a raw-`app-db` /
+ secret-egress path.
 
----
+## Which reference leaf to load
+
+Routine selection questions are answerable from this body alone. A
+deeper question loads at most **one** focused leaf:
+
+| Deep question about… | Load |
+|---|---|
+| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!`, pop-out lifecycle, the full hotkey contract | [`references/launch-modes.md`](references/launch-modes.md) |
+| The full tab inventory + scope matrix + the Static catalogues (explicit "list every tab") | [`references/panels.md`](references/panels.md) |
+| The Epoch cascade, Trace rows, or where issues surface | [`references/panels-epoch.md`](references/panels-epoch.md) |
+| app-db sections + diffs, or Views render causes | [`references/panels-state.md`](references/panels-state.md) |
+| Machine or Routes activity in depth | [`references/panels-domains.md`](references/panels-domains.md) |
+| Resources (server state) in depth | [`references/panels-resources.md`](references/panels-resources.md) |
+| Graph, Frames, or Hicasso in depth | [`references/panels-structure.md`](references/panels-structure.md) |
+| First-screen chrome in depth — the L1 frame picker, Settings tabs, palette sources, Snapshot redaction, the rewind detail | [`references/chrome.md`](references/chrome.md) |
+| The components every panel reuses + the glyph reference | [`references/shared-components.md`](references/shared-components.md) |
+
+## Mental model (for Redux DevTools users)
+
+If you know Redux DevTools (and the React DevTools Profiler), you know
+80% of Xray: the L2 spine is the action log, except each row is an
+*epoch* — a full cascade (dispatch → cofx → handler → flows → fx → subs →
+views), not one reducer call; the Epoch tab is "inspect one action" with
+the whole causal chain; Views is the "why did this render?" profiler tied
+to the same epoch. Two deliberate inversions: time-travel is **passive by
+default** (picking an epoch inspects; the explicit `Reset` button
+rewinds — Redux's slider replays into the store, Xray does not), and
+**Static mode** is the "what's registered?" catalogue half Redux never
+had. Xray is the structural successor to **re-frame-10x** and references
+it nowhere; the contract behind that claim is owned by
+[`spec/Tool-Pair.md` §Implications for downstream tools](../../spec/Tool-Pair.md#implications-for-downstream-tools).
 
 ## Out of scope
 
-For the following, this skill does not have the answer — point at the spec
-doc or pair-tool surface, don't improvise.
-
-- **Deep workflow recipes** (find-wrong-sub walker, redaction-marker
- grammar, click-to-source / "open in editor" internals, pop-out lifecycle
- gotchas, branch-and-explore). Source of truth:
- [`tools/xray/spec/007-UX-IA.md`](../../tools/xray/spec/007-UX-IA.md)
- and the per-panel specs (`tools/xray/spec/00N-*.md`) — the spec is the
- answer.
- (First-screen chrome — time-travel inspect / `Reset`-rewind, filter
- pills, the command palette, Settings — is **in scope**: §The chrome
- around the tabs above is the router; load
- [`references/chrome.md`](references/chrome.md) for the detail.)
-- **Driving Xray programmatically** (hot-swap a sub via REPL, time-
- travel from CLJS, dispatch into the runtime from a tool). Route to
- the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Xray
- owns the *seeing*; re-frame2-pair owns the *driving*.
-- **Implementing Xray** (panel-facade/leaf split, mount lifecycle
- internals, `frame-provider {:frame :rf/xray}` isolation, the epoch pump's contract).
- Source of truth:
- [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md)
- and the per-panel implementation specs. There is no Xray-implementor
- skill — the spec is the answer.
-- **Deep derivation-graph workflow recipes** (reading large cross-family
- graphs, the Declared↔Realized diffing workflow, the off-box egress
- grammar). The **Graph** Dynamic tab itself is **in scope** (§The tabs is
- the router); deferred here is the how-to-debug-with-it recipe layer. Cite
- [`spec/Derivations.md`](../../spec/Derivations.md) +
- [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md)
- for the algebra contract.
----
+- **Deep workflow recipes** (find-wrong-sub walking, redaction-marker
+ grammar, click-to-source internals, branch-and-explore). Source of
+ truth: [`tools/xray/spec/007-UX-IA.md`](../../tools/xray/spec/007-UX-IA.md)
+ and the per-panel specs — the spec is the answer.
+- **Agent runtime access** — inspecting or driving the running app on the
+ user's behalf, read-only or mutating. Route to
+ [`re-frame2-pair`](../re-frame2-pair/SKILL.md) (§First fork above).
+- **Implementing Xray** (mount lifecycle internals, panel seams). The
+ spec under `tools/xray/spec/` is the answer; no implementor skill
+ exists.
 
 ## Style guidance
 
-- **Cite the spec, don't paraphrase it.** When a user asks for normative
- detail (the mount contract, the epoch pump's ordering guarantees, the
- redaction marker's grammar), link to the relevant
- `tools/xray/spec/*.md` and quote sparingly.
-- **Pre-alpha hedge.** Some surfaces are partial: the Machine tab renders
- through the shared machines-viz **MachineChart** via
- `panels/machine_canvas.cljs` (still stabilising); the inline issue surfaces
- only populate the schema / hydration rows when the host wired those
- features; the Static Machines Sim engine is still stabilising. The Static
- catalogues themselves (Machines / Routes / Schemas / Flows / Interceptors)
- are full registry browsers, not stubs. When a user asks about an
- in-progress surface, say so and point at the spec.
-- **Don't invent hotkeys.** Only the four families in §Wired hotkeys (above)
- are wired; everything else in
- [`spec/007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
- is normative-future, not live. The full per-key contract + guardrails (no
- wired `r`/`R`/`*`, `Esc` modal-local, `Cmd/Ctrl+K` **is** wired) live in
- [`references/launch-modes.md` §Wired hotkeys](references/launch-modes.md#wired-hotkeys);
- cite `keybinding.cljs` when in doubt.
-- **Route, don't blur.** If the user wants to drive Xray, point at
- `re-frame2-pair`; if they want to implement it, point at the spec
- and note that no implementor skill exists yet. This skill is a tour.
+- **Cite the spec, don't paraphrase it.** For normative detail (the mount
+ contract, the epoch pump's ordering, the redaction grammar), link the
+ relevant `tools/xray/spec/*.md` and quote sparingly.
+- **Pre-alpha hedge.** Some surfaces are still stabilising (the Machine
+ tab's chart rendering, the Static Machines Sim engine, the schema /
+ hydration inline rows when the host wired those features). The Static
+ catalogues themselves are full registry browsers, not stubs. Say so and
+ point at the spec when asked about an in-progress surface.
+- **Don't invent controls.** Only the four hotkey families in §Wired
+ hotkeys are live; cite
+ [`keybinding.cljs`](../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs)
+ when in doubt.
 
 ---
 

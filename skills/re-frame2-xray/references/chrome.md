@@ -81,8 +81,9 @@ alongside app-db) — disabled when no epoch is focused; on the rare framework
 failure (epoch aged out) it shows a brief inline flash, never a modal.
 
 This passive-inspect-by-default / rewind-opt-in posture is the load-bearing
-inversion from re-frame-10x v1 (the lineage fact lives once in
-[`../../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../../shared/tool-pair-surfaces.md#supersedes-re-frame-10x)).
+inversion from re-frame-10x, Xray's structural predecessor — the contract
+behind that succession is owned by
+[`spec/Tool-Pair.md` §Implications for downstream tools](../../../spec/Tool-Pair.md#implications-for-downstream-tools).
 Spec [`002-Time-Travel.md`](../../../tools/xray/spec/002-Time-Travel.md)
 catalogues a richer keymap — `r` rewind, `R` re-dispatch, `*` pin — that is
 **normative for the future, not yet wired**; the `Reset` button is what

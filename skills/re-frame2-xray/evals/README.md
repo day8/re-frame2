@@ -40,10 +40,13 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-30 evals, covering Xray's trigger surface and answer quality: 22 positives
-(skill should fire) and 8 negatives (skill should stay quiet). 14
+32 evals, covering Xray's trigger surface and answer quality: 23 positives
+(skill should fire) and 9 negatives (skill should stay quiet). 18
 positives carry the Layer-2 answer-quality `expectations[]`; they target the
-prompts whose answer drifts fastest as the Xray UI moves:
+prompts whose answer drifts fastest as the Xray UI moves, plus the
+route-quality contract (one first surface in the first paragraph, no
+full-inventory dump for a single routed question, deep follow-ups loading
+only the focused family leaf):
 
 | ID | Name | Layer 2? | What the answer-quality assertions pin |
 |---:|---|:---:|---|
@@ -52,6 +55,9 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 27 | `launch-popout-button` | yes | YES there is a visible `⛶` pop-out button — not programmatic-only, not an invented right-click path. |
 | 3 | `launch-programmatic` | yes | `init!` installs but does NOT open; a mount verb is still required; runs after `rf/init!`. |
 | 8 | `panel-route-machine-canvas` | yes | Full topology → Static Machines tab, not the event-driven Dynamic Machine tab; no standalone Machines-Canvas tab. |
+| 6 | `panel-route-state` | yes | Route quality: first paragraph → the Dynamic **app-db** tab (+ the L2 spine to find the changing epoch); first interaction (the inline `← was X` diff); no full-inventory dump. |
+| 7 | `panel-route-machine` | yes | Route quality: first surface → the Dynamic **Machine** tab (event-driven; blank without machine activity); Static Machines is the browse-cold *next* step, not the first surface; no inventory dump. |
+| 9 | `static-browse-registry` | yes | Route quality: whole-registry questions → **Static mode** (the L1 pill / `Cmd/Ctrl+Shift+M`), not the focused-epoch lenses; definition catalogues are process-global. |
 | 11 | `panel-route-schema` | yes | Schema violations → Epoch inline + L2 pink-wash; registry → Static Schemas; no Issues tab, no Dynamic Schemas tab. |
 | 12 | `panel-route-hydration` | yes | No standalone Hydration tab; mismatches → Epoch inline + issues-ribbon signal. |
 | 21 | `chrome-rewind` | yes | Passive inspect (live frame unmoved) vs explicit `Reset` button (`restore-epoch!` reinstalls the whole frame-state — both app-db and runtime-db — not just `:db-after`); `r`/`R`/`*` are NOT wired. |
@@ -61,10 +67,11 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 28 | `panel-route-frames` | yes | The which-image-loaded-which-frame / how-a-frame-resolves question → the Dynamic **Frames** tab (internal id `:module-view`, EP-0023 image→frame lens, no realm/app/module browse dimension); Frames is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
 | 29 | `tab-inventory-count` | yes | The full ordered **10-tab** Dynamic list incl. Frames and Hicasso (count is 10, not 9); correct `:order`; no retired label ("Modules"); no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
-| 4, 5, 6, 7, 9, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
-| 13–20 | `neg-*` | no | Negatives — adjacent surfaces (drive→pair, implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
+| 32 | `panel-route-resources` | yes | Route quality: server-state staleness / in-flight → the Dynamic **Resources** tab; live instances follow the L1 frame picker, not the epoch; a deep follow-up loads only `references/panels-resources.md`. |
+| 4, 5, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
+| 13–20, 31 | `neg-*` | no | Negatives — adjacent surfaces (agent runtime → pair, whether mutating (13) or read-only (31); implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
 
-The Layer-2 set is exactly the high-drift list the bead called for:
+The Layer-2 set covers two contracts. The high-drift facts:
 launch-default, launch-overlay, launch-popout-button, launch-programmatic,
 config-init-vs-settings, chrome-rewind, chrome-palette,
 panel-route-machine-canvas, panel-route-schema, panel-route-hydration —
@@ -76,7 +83,15 @@ revert to 9 tabs, fails the
 answer-quality layer, and graph-projection-vs-static-mode that pins the
 Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
 the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
-re-route a user to the wrong control.
+re-route a user to the wrong control. And the route-quality contract
+(rf2-0mw10): panel-route-state, panel-route-machine, static-browse-registry
+and panel-route-resources grade one representative question per scope
+family — focused-epoch, observed-frame/live-structure, Static-definition,
+and (via panel-route-frames) process-global/registry — each requiring one
+existing first surface in the first paragraph, the first interaction, no
+full-inventory dump, and (where deep) only the focused
+`references/panels-*.md` family leaf loaded. The read-only agent boundary
+is pinned from the negative side by neg-agent-readonly-inspect.
 
 ## How to run
 
@@ -134,8 +149,8 @@ as the discipline of updating them alongside the product.
 
 The tour skill's Dynamic tab inventory (the `e a v t m r s g u h` set across
 `SKILL.md`, `README.md`, `references/panels.md`,
-`references/shared-components.md`, `package.json`, and
-`.claude-plugin/plugin.json`) is checked against the live Xray registry by
+`references/shared-components.md`, and the eval fixtures — `references/panels.md`
+is the canonical complete inventory) is checked against the live Xray registry by
 `scripts/check_skill_xray_tab_inventory_drift.py` — a structural drift gate
 that parses the shipped `reg-l4-tab!` metadata and fails if any Dynamic
 tab's `:id` / `:label` / `:mnem` / `:order` diverges from the skill + eval
