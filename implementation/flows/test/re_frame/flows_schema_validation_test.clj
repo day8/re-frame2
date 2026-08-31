@@ -229,3 +229,31 @@
     (let [ids (set (map #(get-in % [:tags :rf.flow/id]) (violations)))]
       (is (= #{:cart/subtotal :cart/total} ids)
           "both flows' bad outputs surface, each attributed to its own id"))))
+
+;; ---------------------------------------------------------------------------
+;; 7. rf2-6eh5h — declaration presence is KEY-presence, not value truthiness.
+;;    A flow registered with an explicit {:schema nil} DELEGATES the exact
+;;    nil token to the registered validator (the value is opaque per Spec
+;;    010); only an ABSENT key skips validation (case 3 above is the
+;;    control).
+;; ---------------------------------------------------------------------------
+
+(deftest present-nil-schema-is-delegated-not-skipped
+  (testing "an explicit {:schema nil} flow declaration reaches the validator
+            verbatim; the false verdict emits :where :flow-output"
+    (let [seen (atom [])]
+      (schemas/set-schema-fns!
+        {:validate (fn [schema _value] (swap! seen conj schema) false)})
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
+      (rf/reg-flow :area
+                   {:inputs [[:w] [:h]] :output-path [:rect :area] :schema nil}
+                   (fn [w h] (* w h)))
+      (rf/dispatch-sync [:seed])
+      (is (= [nil] @seen)
+          "the EXACT nil token reached the validator, exactly once")
+      (is (= 1 (count (violations)))
+          "the false verdict emitted exactly one flow-output violation")
+      (is (= :flow-output (get-in (first (violations)) [:tags :where]))
+          ":where :flow-output — the flow surface's own discriminator")
+      (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
+          "the value is still written — flow validation stays observational"))))

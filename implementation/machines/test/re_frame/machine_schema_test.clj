@@ -316,3 +316,63 @@
         ;; `:recovery` rides the trace envelope, not :tags.
         (is (contains? trace-ev :recovery) ":recovery present on trace envelope")
         (is (string? (:reason tag))       ":reason is a human-readable string")))))
+
+;; ---- (7) rf2-6eh5h — declaration presence is KEY-presence ------------------
+;;
+;; A schema value is OPAQUE to re-frame (Spec 010): an ABSENT [:schemas :data]
+;; key means "no declaration" (case 5 above), while a PRESENT key must hand
+;; its exact value — nil included — to the registered validator. Before
+;; rf2-6eh5h the machine seams tested the value for truthiness (if-let /
+;; `(and (continue?) schema)`), so `{:schemas {:data nil}}` silently
+;; validated nothing.
+
+(deftest present-nil-data-schema-is-delegated-not-skipped
+  (testing "a machine registered with {:schemas {:data nil}} delegates the
+            exact nil token to a custom validator at the bootstrap commit;
+            the false verdict emits :where :machine-data and rolls back"
+    (let [seen (atom [])]
+      (re-frame.schemas/set-schema-validator!
+        (fn [schema _value] (swap! seen conj schema) false))
+      (try
+        (let [spec {:initial :idle
+                    :data    {:n 1}
+                    :schemas {:data nil}
+                    :states  {:idle {}}}]
+          (rf/reg-machine :rf.machine-schema/nil-declared spec)
+          (let [traces (collect-traces!
+                         #(rf/dispatch-sync [:rf.machine-schema/nil-declared [:noop]]))]
+            (is (= [nil] @seen)
+                "the EXACT nil token reached the validator, exactly once")
+            (is (= 1 (count traces))
+                "the false verdict emitted the :where :machine-data boundary trace")
+            (is (= :machine-data (-> traces first :tags :where)))
+            (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                              [:rf.runtime/machines :snapshots
+                               :rf.machine-schema/nil-declared]))
+                "rolled back: the violating snapshot never installed")))
+        (finally
+          (re-frame.schemas/reset-schema-validator!))))))
+
+(deftest present-nil-data-schema-fails-closed-under-default-malli
+  (testing "with the DEFAULT Malli validator a present nil [:schemas :data]
+            fails CLOSED: Malli throws on the non-schema form, the
+            `:schemas/validate-with-registered-fn` seam isolates the throw
+            to a false verdict (its documented malformed-schema fail-closed
+            contract — the seam is a pure check surface, so the failure
+            surfaces as the boundary's own :where :machine-data trace), and
+            the bootstrap commit is rejected — never silently installed
+            unvalidated"
+    (let [spec {:initial :idle
+                :data    {:n 1}
+                :schemas {:data nil}
+                :states  {:idle {}}}]
+      (rf/reg-machine :rf.machine-schema/nil-malli spec)
+      (let [traces (collect-traces!
+                     #(rf/dispatch-sync [:rf.machine-schema/nil-malli [:noop]]))]
+        (is (= 1 (count traces))
+            "exactly one :where :machine-data boundary trace — fail closed")
+        (is (= :machine-data (-> traces first :tags :where))))
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/machines :snapshots
+                         :rf.machine-schema/nil-malli]))
+          "rejected: the snapshot never installed (fail closed, not fail open)"))))

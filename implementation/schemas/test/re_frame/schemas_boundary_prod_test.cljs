@@ -278,3 +278,48 @@
         "no humanizer in a production build")
     (is (fn? (late-bind/get-fn :schemas/malli-validate))
         "the validator from the same adapter ns-load IS bound — the absence above is the gate, not a missing adapter")))
+
+;; ---- rf2-6eh5h — a present NIL :schema cannot run a boundary handler -----
+;;
+;; Declaration presence is KEY-presence, not value truthiness. The
+;; registrar accepts `{:schema nil :interceptors [:rf.schema/at-boundary]}`
+;; (it checks `contains?`), and before rf2-6eh5h the boundary interceptor's
+;; production branch treated nil as impossible and returned the context
+;; unchanged — in THIS build configuration (step-1 DCE'd, boundary as the
+;; only guard) the handler ran UNGUARDED on the untrusted payload the
+;; interceptor exists to gate. These pins are the release-resident
+;; regression: the boundary must delegate the exact nil token and reject.
+
+(deftest boundary-rejects-explicit-nil-schema-in-prod
+  (testing "rf2-6eh5h — under `:advanced` + `goog.DEBUG=false` a handler
+            registered with {:schema nil} + the boundary interceptor does
+            NOT run on dispatch: the nil delegates to default Malli, which
+            fails CLOSED through the seam's malformed-schema isolation"
+    (let [calls (atom 0)]
+      (rf/reg-event :wire/received
+        {:schema       nil
+         :interceptors [:rf.schema/at-boundary]}
+        (fn [_ _] (swap! calls inc) {}))
+      (rf/dispatch-sync [:wire/received {:untrusted "payload"}])
+      (is (= 0 @calls)
+          "handler NOT invoked — the present-nil declaration fails closed, never fail-open"))))
+
+(deftest boundary-delegates-nil-token-to-custom-validator-in-prod
+  (testing "rf2-6eh5h — the production path hands the EXACT nil token to a
+            substituted validator (the value is opaque per Spec 010); its
+            false verdict rejects the event and the handler is not invoked"
+    (let [seen  (atom [])
+          calls (atom 0)]
+      (schemas/set-schema-validator!
+        (fn [schema _value] (swap! seen conj schema) false))
+      (try
+        (rf/reg-event :wire/custom
+          {:schema       nil
+           :interceptors [:rf.schema/at-boundary]}
+          (fn [_ _] (swap! calls inc) {}))
+        (rf/dispatch-sync [:wire/custom {:untrusted 1}])
+        (is (= 0 @calls) "handler NOT invoked — rejected on the false verdict")
+        (is (= [nil] @seen)
+            "the validator RECEIVED the exact nil token in the production path")
+        (finally
+          (schemas/reset-schema-validator!))))))
