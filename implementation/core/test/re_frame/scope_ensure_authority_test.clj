@@ -98,11 +98,13 @@
     :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
 
-   {:file      "implementation/core/src/re_frame/core_machines.cljc"
-    :why       "machine-by-system-id's scope/hold chain"
-    :forbidden [[stale-token "a provider-only scope-chain inventory"]]
-    :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
-                 "the SCOPE/ENSURE boundary pair"]]}
+   ;; core_machines.cljc's row ("machine-by-system-id's scope/hold chain")
+   ;; retired WITH its subject (rf2-0dcoa): the unreachable machine-by-system-id
+   ;; defwrapper whose docstring carried the boundary-pair inventory is deleted,
+   ;; and no surviving form in that file enumerates the frame scope/hold chain.
+   ;; The surviving carriers (re-frame.machines/machine-by-system-id, Spec 005
+   ;; §Named addressing) cite the chain without a member inventory, which
+   ;; cannot carry the provider-only claim this table retires.
 
    {:file      "implementation/core/src/re_frame/router.cljc"
     :why       "the dispatch envelope's frame-resolution inventory (x2)"
