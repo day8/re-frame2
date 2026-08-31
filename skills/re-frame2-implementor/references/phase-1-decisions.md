@@ -1,6 +1,6 @@
 # phase-1-decisions — the port profile
 
-Phase 1 produces one small committed file — the **port profile** — and nothing else. The profile records only what the implementor actually **chose**. Everything the spec fixes is a link to its owner, never a field to copy back and reconfirm.
+Phase 1 produces one small file — the **port profile** — and nothing else. The profile records only what the implementor actually **chose**. Everything the spec fixes is a link to its owner, never a field to copy back and reconfirm.
 
 ## No interview by default
 
@@ -24,7 +24,7 @@ Record the pin **and the checkout path** in the profile: every contract read in 
 
 ## The profile
 
-Commit it to the port's repo (as `PORT-PROFILE.md`, or a section of the README). Shape, not ceremony — no fill-every-placeholder rule, no per-session log, no commit-hash chain:
+It lives in the port's repo (as `PORT-PROFILE.md`, or a section of the README). Persistence is a currentness concern, not a pre-code gate: the done checklist expects the profile committed and current, but no commit has to land before implementation starts. Shape, not ceremony — no fill-every-placeholder rule, no per-session log, no commit-hash chain:
 
 ```markdown
 # Port profile — <port name>

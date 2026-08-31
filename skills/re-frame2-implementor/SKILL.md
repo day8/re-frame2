@@ -32,7 +32,7 @@ This skill is **workflow + guidance** layered on the pinned spec corpus at [`spe
 
 Two phases:
 
-1. **Phase 1 — record the port profile** ([`references/phase-1-decisions.md`](references/phase-1-decisions.md)): one compact committed record of the spec pin and the choices the implementor actually made — host/toolchain, host mechanisms, capability claim, current score. No interview by default: a minimum-port request defaults every optional capability to no, picks host-idiomatic mechanisms, and asks only about a missing choice that materially changes the implementation. Fixed spec obligations are links, never confirmation fields.
+1. **Phase 1 — record the port profile** ([`references/phase-1-decisions.md`](references/phase-1-decisions.md)): one compact record of the spec pin and the choices the implementor actually made — host/toolchain, host mechanisms, capability claim, current score. No interview by default: a minimum-port request defaults every optional capability to no, picks host-idiomatic mechanisms, and asks only about a missing choice that materially changes the implementation. Fixed spec obligations are links, never confirmation fields. Persisting the profile is a currentness concern — "committed and current" is a §Done item, not a gate before code.
 2. **Phase 2 — the EP loop** ([`references/phase-2-impl-order.md`](references/phase-2-impl-order.md)): per EP — read the owner at the pin, enumerate the applicable fixtures/operators from that same pin, implement the smallest vertical slice, run the narrowest gate that covers it, repair or diagnose, update the profile only if a real choice changed. The feedback seam (the smallest conformance harness) bootstraps before or alongside the first foundation slice, and fails loud on unknown spec versions, capabilities, DSL ops, and call ops.
 
 > **Term: EP** = **Extension Point**, a numbered per-area Spec — EP 001 = [`spec/001-Registration.md`](../../spec/001-Registration.md), EP 002 = [`spec/002-Frames.md`](../../spec/002-Frames.md), etc. The spec calls these "numbered Specs"; this skill uses "EP" because the walking order, dependency graph, and conformance-fixture families are all keyed off the numbers.
@@ -44,7 +44,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
 1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile, and resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
-2. **Phase 1 before Phase 2.** Record the profile before implementing.
+2. **Phase 1 before Phase 2.** Record the profile before implementing; committing it is a done-gate concern, not a pre-code gate.
 3. **Dependency order.** EP 001 → 002 → 006 → 009 → 015 are the foundation (015 Data Classification is v1-required — it rides the 009 emission boundary); optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.
 5. **No core.async equivalents.** Async effects ride host primitives; cross-frame work is run-to-completion-drained.

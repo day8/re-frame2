@@ -14,7 +14,7 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 ## 2. Phase 1 before Phase 2
 
-The profile's choices (host, mechanisms, scope, capability claim) are load-bearing for every line of Phase 2 code. Record them before implementing. If a Phase 2 slice forces a choice to change, stop the slice, revise the profile line, resume.
+The profile's choices (host, mechanisms, scope, capability claim) are load-bearing for every line of Phase 2 code. Record them before implementing. If a Phase 2 slice forces a choice to change, stop the slice, revise the profile line, resume. Recording means writing the profile down — committing it is a currentness concern for the done gate ("committed and current" in `SKILL.md` §Done), never a gate before code.
 
 ## 3. Implement in dependency order
 
