@@ -98,7 +98,11 @@
         schema (:schema flow)]
     (cond
       (not (live?)) false
-      (nil? schema) true
+      ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+      ;; false `:schema` on the flow is a declaration whose exact token is
+      ;; delegated to the registered validator below; only an ABSENT key
+      ;; means no declaration.
+      (not (contains? flow :schema)) true
       :else
       (if-let [validate (late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]

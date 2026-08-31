@@ -104,7 +104,10 @@
   capture buffers only frame-tagged traces). Mirrors the `:where
   :app-db` / `:where :event` traces."
   [value query-v sub-id sub-meta frame-id]
-  (if (and sub-meta (:schema sub-meta))
+  ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil / false
+  ;; `:schema` is a declaration — consult the validator seam, which
+  ;; delegates the exact token. Only an ABSENT key skips the consult.
+  (if (and sub-meta (contains? sub-meta :schema))
     ;; Sticky hook — fires per-sub recompute.
     (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub!)]
       (if (try (validate sub-id query-v value sub-meta frame-id)

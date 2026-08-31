@@ -32,7 +32,9 @@
 (defn validate-sub-override!
   "Validate a resolved Story override HIT and RECOVER to nil on a violation.
 
-  When `sub-meta` declares an output `:schema`, validate `value` against it
+  When `sub-meta` declares an output `:schema` — declaration is KEY-presence,
+  not value truthiness (rf2-6eh5h); a present nil / false token is delegated
+  verbatim — validate `value` against it
   via the registered validator (`:schemas/validate-with-registered-fn`). On
   a mismatch, emit `:rf.error/schema-validation-failure` tagged `:where
   :sub-override` (value-bearing slots routed through the shared
@@ -51,8 +53,13 @@
   generation (a multi-image frame validates against its own image's schema);
   this primitive takes the already-resolved metadata."
   [value query-v sub-meta frame-id]
-  (let [schema (:schema sub-meta)]
-    (if (and schema (some? sub-meta))
+  ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil / false
+  ;; `:schema` is a declaration whose exact token is delegated to the
+  ;; registered validator; only an ABSENT key means no declaration.
+  ;; (`contains?` on a nil sub-meta is false, covering the frameless case.)
+  (if-not (contains? sub-meta :schema)
+    value
+    (let [schema (:schema sub-meta)]
       (if-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if (try (validate schema value)
                  (catch #?(:clj Throwable :cljs :default) _ true))
@@ -80,5 +87,4 @@
                                (cond-> tags
                                  redact (->> (redact schema))))
             nil))
-        value)
-      value)))
+        value))))

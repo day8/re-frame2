@@ -390,7 +390,14 @@
 
   Parameters:
     - `reg-meta`     the registration metadata (handler / sub /
-                     fx) — its `:schema` slot, if any, is the schema.
+                     fx) — its `:schema` entry, when PRESENT, is the
+                     declaration. Presence is KEY-presence, never value
+                     truthiness (rf2-6eh5h): a present nil / false is a
+                     declaration whose exact token is delegated to the
+                     registered validator (the value is opaque per Spec
+                     010), mirroring `validate-app-schema!`'s
+                     unconditional pass-through. Only an ABSENT key
+                     means no declaration.
     - `value`        the value being checked (event vector, sub
                      return value, fx args).
     - `walk-schema?` boolean — when true and the validator fails,
@@ -448,9 +455,14 @@
   (if-not (continue?)
     :rf/stale-incarnation
     (if-let [vf @validator/validator-fn]
-      (if-let [schema (:schema reg-meta)]
+      ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+      ;; false `:schema` is delegated verbatim — default Malli then throws
+      ;; on the non-schema form and the malformed isolation below fails
+      ;; CLOSED; a custom validator interprets its own token.
+      (if (contains? reg-meta :schema)
         ;; Isolate malformed schemas before a caller can treat a throw as pass.
-        (let [result (validate-entry-result vf schema value)]
+        (let [schema (:schema reg-meta)
+              result (validate-entry-result vf schema value)]
           ;; The registered validator is callback-bearing. A destroy+return or
           ;; destroy+throw makes its result inert before explanation, schema
           ;; walking, tag construction, or diagnostic delivery can begin.

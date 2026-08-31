@@ -1486,9 +1486,13 @@
         ;; failure :where :fx-args` trace; this caller only honours the
         ;; boolean.
         ;; Sticky hook (rf2-f72pd) — fires per-fx invocation.
+        ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+        ;; false `:schema` on the fx registration is a declaration — consult
+        ;; `validate-fx!`, which delegates the exact token to the registered
+        ;; validator. Only an ABSENT key short-circuits to pass.
         (let [validate-fx! (late-bind/get-fn-cached :schemas/validate-fx!)
               fx-ok?       (if (and validate-fx!
-                                    (:schema meta))
+                                    (contains? meta :schema))
                              (try
                                ;; rf2-9cm27 — pass the in-flight cascade's
                                ;; frame so the `:where :fx-args` failure trace

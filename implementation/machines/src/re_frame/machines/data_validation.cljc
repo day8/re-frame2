@@ -242,8 +242,11 @@
   resolves through the registered event handler (`:machines/machine-meta`);
   a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
   `:rf/machine-type` reserved slot, so it resolves through
-  `:machines/spec-from-snapshot`. Returns the schema or nil
-  (no schema / unresolvable spec).
+  `:machines/spec-from-snapshot`. Returns the `[:data schema]` MAP ENTRY
+  (presence-carrying — the entry exists exactly when the spec declares the
+  key, so a present nil / false schema token is distinguishable from no
+  declaration, rf2-6eh5h; read the schema with `val`) or nil
+  (no declaration / unresolvable spec).
 
   Both resolvers are consumed through the late-bind table to keep this
   leaf namespace free of a require cycle through `re-frame.machines` /
@@ -254,22 +257,24 @@
   ([machine-id snapshot]
    (resolve-data-schema machine-id snapshot (constantly true)))
   ([machine-id snapshot continue?]
-   (let [meta-schema
+   (let [meta-entry
          (when (continue?)
            (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
                      (try
                        (meta-fn machine-id)
                        (catch #?(:clj Throwable :cljs :default) e
                          (if (continue?) (throw e) nil))))
-                   (get-in [:schemas :data])))]
-     (or meta-schema
+                   (get :schemas)
+                   (find :data)))]
+     (or meta-entry
          (when (continue?)
            (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
                      (try
                        (spec-fn snapshot)
                        (catch #?(:clj Throwable :cljs :default) e
                          (if (continue?) (throw e) nil))))
-                   (get-in [:schemas :data])))))))
+                   (get :schemas)
+                   (find :data)))))))
 
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
@@ -319,10 +324,13 @@
         (nil? entries) ok?
         :else
         (let [[machine-id snapshot] (first entries)
-              schema (resolve-data-schema machine-id snapshot continue?)
-              result (if (and (continue?) schema)
+              ;; A presence-carrying [:data schema] map entry, or nil for no
+              ;; declaration (rf2-6eh5h) — so a present nil / false schema
+              ;; token is delegated to the validator rather than skipped.
+              schema-entry (resolve-data-schema machine-id snapshot continue?)
+              result (if (and (continue?) schema-entry)
                        (validate-snapshot-data!
-                         machine-id snapshot schema :macrostep continue?)
+                         machine-id snapshot (val schema-entry) :macrostep continue?)
                        true)]
           (if (or (= :rf/stale-incarnation result)
                   (not (continue?)))
@@ -359,11 +367,16 @@
    (validate-spawn-data! spawned-id spec snapshot (current-owner-continuation)))
   ([spawned-id spec snapshot continue?]
    (if interop/debug-enabled?
-     (if-let [schema (get-in spec [:schemas :data])]
+     ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+     ;; false `[:schemas :data]` is a declaration whose exact token is
+     ;; delegated to the registered validator; only an ABSENT key means
+     ;; no declaration.
+     (if (contains? (get spec :schemas) :data)
        ;; Returns true (conform) / false (schema violation, A still owns) /
        ;; :rf/stale-incarnation (the validator callback lost A). The no-schema
        ;; branch runs NO callback, so A cannot be lost here — `true`.
-       (validate-snapshot-data! spawned-id snapshot schema :spawn continue?)
+       (validate-snapshot-data! spawned-id snapshot (get-in spec [:schemas :data])
+                                :spawn continue?)
        true)
      true)))
 
@@ -403,8 +416,12 @@
   [machine-id merged-snapshot]
   (if interop/debug-enabled?
     (let [continue? (current-owner-continuation)]
-      (if-let [schema (resolve-data-schema machine-id merged-snapshot continue?)]
-        (let [result (validate-snapshot-data! machine-id merged-snapshot schema
+      ;; Presence-carrying [:data schema] map entry (rf2-6eh5h): the entry
+      ;; is truthy whenever the spec DECLARES [:schemas :data], so a
+      ;; present nil / false schema token is delegated rather than skipped.
+      (if-let [schema-entry (resolve-data-schema machine-id merged-snapshot continue?)]
+        (let [result (validate-snapshot-data! machine-id merged-snapshot
+                                              (val schema-entry)
                                               :update-snapshot continue?)]
           ;; Owner-loss (:rf/stale-incarnation) is truthy — collapse it to
           ;; `false` so the caller's `(when validator (write))` skips the write.
@@ -455,51 +472,58 @@
   `goog.DEBUG=false`, parity with the `:where :machine-data` boundaries."
   [machine-id spec result]
   (if interop/debug-enabled?
-    (if-let [schema (get-in spec [:schemas :output])]
-      (if-let [validate-fn (late-bind/get-fn-cached
-                             :schemas/validate-with-registered-fn)]
-        ;; A MALFORMED `[:schemas :output]` schema (a bad Malli form) makes the
-        ;; registered validator THROW at validate-time (Malli validates forms
-        ;; lazily). The macrostep `:where :machine-data` boundary leans on the
-        ;; router's defensive catch for that, but finalize has no such
-        ;; wrapper — an escaping throw here would break the auto-destroy
-        ;; cascade and leave the actor half-torn-down. Per the best-effort
-        ;; completion posture the throw is caught: emit the standard
-        ;; `:rf.error/malformed-schema :where :machine-output` trace and
-        ;; PROCEED (return true), so a schema typo surfaces loudly yet never
-        ;; deadlocks a finishing machine.
-        (let [continue? (current-owner-continuation)]
-          (try
-            (let [conforms? (validate-fn schema result)]
-              (cond
-                ;; The validator callback destroyed A / published same-id B —
-                ;; suppress the (now-stale) diagnostic; do not attribute it to B.
-                (not (continue?)) :rf/stale-incarnation
-                conforms?         true
-                :else
-                (do (emit-failure! machine-id :machine-output :completion result
-                                   schema nil false
-                                   (str "Machine " machine-id
-                                        " completion output (the :output-key payload) "
-                                        "failed schema at boundary :where "
-                                        ":machine-output (phase :completion).")
-                                   continue?)
-                    false)))
-            (catch #?(:clj Throwable :cljs :default) e
-              ;; Owner still live → a genuine malformed-schema diagnostic.
-              ;; Owner lost (the callback threw AND destroyed A) → suppress it.
-              (if (continue?)
-                (do (trace/emit-error! :rf.error/malformed-schema
-                                       {:where    :machine-output
-                                        :reason   (str "Machine " machine-id
-                                                       "'s [:schemas :output] schema is malformed — "
-                                                       "the registered validator threw: "
-                                                       #?(:clj (.getMessage e) :cljs (ex-message e))
-                                                       ". The completion proceeds (best-effort).")
-                                        :schema   schema
-                                        :rollback? false})
-                    true)
-                :rf/stale-incarnation))))
-        true)
-      true)
+    ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+    ;; false `[:schemas :output]` is a declaration whose exact token is
+    ;; delegated to the registered validator (default Malli then throws
+    ;; → the malformed-schema catch below surfaces it and proceeds,
+    ;; per the best-effort completion posture); only an ABSENT key
+    ;; means no declaration.
+    (if-not (contains? (get spec :schemas) :output)
+      true
+      (let [schema (get-in spec [:schemas :output])]
+        (if-let [validate-fn (late-bind/get-fn-cached
+                               :schemas/validate-with-registered-fn)]
+          ;; A MALFORMED `[:schemas :output]` schema (a bad Malli form) makes the
+          ;; registered validator THROW at validate-time (Malli validates forms
+          ;; lazily). The macrostep `:where :machine-data` boundary leans on the
+          ;; router's defensive catch for that, but finalize has no such
+          ;; wrapper — an escaping throw here would break the auto-destroy
+          ;; cascade and leave the actor half-torn-down. Per the best-effort
+          ;; completion posture the throw is caught: emit the standard
+          ;; `:rf.error/malformed-schema :where :machine-output` trace and
+          ;; PROCEED (return true), so a schema typo surfaces loudly yet never
+          ;; deadlocks a finishing machine.
+          (let [continue? (current-owner-continuation)]
+            (try
+              (let [conforms? (validate-fn schema result)]
+                (cond
+                  ;; The validator callback destroyed A / published same-id B —
+                  ;; suppress the (now-stale) diagnostic; do not attribute it to B.
+                  (not (continue?)) :rf/stale-incarnation
+                  conforms?         true
+                  :else
+                  (do (emit-failure! machine-id :machine-output :completion result
+                                     schema nil false
+                                     (str "Machine " machine-id
+                                          " completion output (the :output-key payload) "
+                                          "failed schema at boundary :where "
+                                          ":machine-output (phase :completion).")
+                                     continue?)
+                      false)))
+              (catch #?(:clj Throwable :cljs :default) e
+                ;; Owner still live → a genuine malformed-schema diagnostic.
+                ;; Owner lost (the callback threw AND destroyed A) → suppress it.
+                (if (continue?)
+                  (do (trace/emit-error! :rf.error/malformed-schema
+                                         {:where    :machine-output
+                                          :reason   (str "Machine " machine-id
+                                                         "'s [:schemas :output] schema is malformed — "
+                                                         "the registered validator threw: "
+                                                         #?(:clj (.getMessage e) :cljs (ex-message e))
+                                                         ". The completion proceeds (best-effort).")
+                                          :schema   schema
+                                          :rollback? false})
+                      true)
+                  :rf/stale-incarnation))))
+          true)))
     true))
