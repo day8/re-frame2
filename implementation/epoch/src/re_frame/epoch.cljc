@@ -429,34 +429,70 @@
 ;; the operation rather than installing state without an undo anchor.
 
 (defn- record-synthetic-replace-epoch!
-  "Record and fan out one synthetic pair-tool epoch.
+  "Record and fan out one synthetic pair-tool epoch, as an EXACT-incarnation
+  transaction keyed on `incarnation-token` — the token the replace's
+  preconditions resolved and its physical write already committed under
+  (rf2-gj2bo, following the `commit-record!` pattern above). Claiming
+  whichever same-id token happens to be CURRENT is the defect this guards
+  against: after A's write has linearized, a same-id successor B seated at
+  any callback boundary must never inherit A's synthetic record, ring entry,
+  last-settled anchor, trace, or listener delivery. So the claim, the digest
+  resolution, the record + anchor commit (`commit-frame-owner-record!`, one
+  owner-fenced transaction), and each callback-bearing tail (trace emit,
+  listener fan-out) all revalidate exact ownership; owner loss STOPS the
+  remaining bookkeeping rather than RETARGETING it onto B.
 
   The record remains raw for replay and becomes the frame's last-settled
   attribution anchor. With no application event in flight, `:committed-at`
   uses `epoch-now-ms`: a durable wall-clock value, not the elapsed-time clock."
-  [frame-id fs-before fs-after]
-  (when-let [owner-token (frame/frame-incarnation-token frame-id)]
-    (state/claim-frame-owner! frame-id owner-token))
-  (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
-                                             (interop/epoch-now-ms))
-                      :event-id      :rf.epoch/db-replaced
-                      :trigger-event [:rf.epoch/db-replaced])]
-    (state/record! record)
-    (state/set-last-settled-epoch! frame-id (:epoch-id record))
-    (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                 {:frame       frame-id
-                  :rf.epoch/id (:epoch-id record)})
-    (listeners/notify-listeners! record)
-    record))
+  [frame-id incarnation-token fs-before fs-after]
+  (let [continue? #(frame/event-continuation-live? frame-id incarnation-token)]
+    (when (and incarnation-token
+               (state/claim-frame-owner! frame-id incarnation-token continue?))
+      ;; Resolve the only callback-bearing assembly input before building —
+      ;; a digest hook that churns A to B fences every state write below.
+      (when (continue?)
+        (let [schema-digest (assembly/current-schema-digest frame-id continue?)]
+          (when (continue?)
+            (let [record     (assoc (assembly/build-record frame-id fs-before fs-after []
+                                                           (interop/epoch-now-ms)
+                                                           :ok nil schema-digest)
+                                    :event-id      :rf.epoch/db-replaced
+                                    :trigger-event [:rf.epoch/db-replaced])
+                  ;; Record + anchor publish as one exact-owner transaction:
+                  ;; cleanup-before-commit and B-before-commit reject,
+                  ;; commit-before-cleanup is erased by cleanup.
+                  published? (and (continue?)
+                                  (state/commit-frame-owner-record!
+                                    frame-id incarnation-token record))]
+              (when (and published? (continue?))
+                (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                             {:frame       frame-id
+                              :rf.epoch/id (:epoch-id record)}))
+              (when (and published? (continue?))
+                (listeners/notify-listeners! record continue?))
+              (when (and published? (continue?)) record))))))))
 
 (defn- perform-replace!
-  "Carry out a frame-state patch after preconditions pass.
+  "Carry out a frame-state patch after preconditions pass, FENCED to the
+  exact frame incarnation the preconditions resolved against
+  (`incarnation-token`, from `check-replace-frame-state-preconditions!` —
+  rf2-gj2bo, mirroring `perform-restore!`).
 
-  Liveness is checked again at the write boundary. The write result closes the
-  remaining teardown race: nil means the frame disappeared before the write
-  landed, while any non-nil changed-key set, including empty, is a successful
-  live-frame write. Failure is reported before telemetry, listener fan-out, or
-  a synthetic epoch can claim success.
+  Liveness is checked again at the write boundary, against the EXACT token
+  rather than the bare id: a same-id successor seated between validation and
+  this write can therefore never receive the patch — the gate refuses with
+  the SAME canonical `:rf.error/no-such-handler` failure a destroyed-frame
+  race produces, and `write-fn` (core's exact-incarnation 3-arity write)
+  closes the post-liveness half of the window. The write result settles the
+  remaining teardown race: nil means the exact incarnation was lost before
+  the write landed (destroyed, or reseated), while any non-nil changed-key
+  set, including empty, is a successful live-incarnation write. Failure is
+  reported before telemetry, listener fan-out, or a synthetic epoch can claim
+  success. Once the exact-incarnation write HAS linearized, the public result
+  stays `true`; the synthetic bookkeeping that follows is itself
+  token-fenced (`record-synthetic-replace-epoch!`), so post-write owner loss
+  STOPS the tail rather than retargeting it onto a successor.
 
   The coherent read (`fs-before`), the physical write, and the synthetic-epoch
   bookkeeping run under the frame's `:drain-lock` (`serialize-tool-write!`), so
@@ -466,31 +502,40 @@
   transition, and a concurrent event's update to an omitted partition is never
   lost or silently reverted (rf2-3fc89f.4). A replace invoked reentrantly from
   the active drainer refuses with `:rf.epoch/replace-during-drain`."
-  [frame-id fs-after-fn write-fn]
+  [frame-id incarnation-token fs-after-fn write-fn]
   (tool-pair/serialize-tool-write!
     frame-id
     :rf.epoch/replace-during-drain
     {:frame frame-id}
     (fn []
-      (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
-        (if (= :fail outcome)
-          (do (tool-pair/emit-precondition-failure! op tags)
-              false)
-          (let [;; Record the same coherent whole-frame value the write installs.
-                ;; Read under the drain lock so the write's own re-read (which
-                ;; preserves omitted partitions) sees this same state — fs-after
-                ;; then equals the installed value. Nil means teardown won the
-                ;; post-liveness race; an empty set is still a successful no-op
-                ;; write against a live frame.
-                fs-before (frame/frame-state-value frame-id)
-                fs-after  (fs-after-fn fs-before)
-                changed   (write-fn)]
-            (if (nil? changed)
-              (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
-                                                        {:kind :frame :frame frame-id})
-                  false)
-              (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
-                  true))))))))
+      (if-not (frame/event-continuation-live? frame-id incarnation-token)
+        ;; The incarnation these preconditions resolved against is no longer
+        ;; live — a same-id SUCCESSOR was seated (or the frame was destroyed /
+        ;; is being torn down) between validation and this write. Refuse via
+        ;; the SAME canonical no-such-handler failure a destroyed-frame write
+        ;; race uses (rf2-gj2bo). The successor stays byte-for-byte untouched;
+        ;; no success telemetry fires.
+        (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                  {:kind :frame :frame frame-id})
+            false)
+        (let [;; Record the same coherent whole-frame value the write installs.
+              ;; Read under the drain lock so the write's own re-read (which
+              ;; preserves omitted partitions) sees this same state — fs-after
+              ;; then equals the installed value. The write goes through the
+              ;; EXACT-INCARNATION arity: nil means the incarnation was lost
+              ;; after the gate (destroyed, or reseated — the post-liveness
+              ;; race); an empty set is still a successful no-op write against
+              ;; the live incarnation.
+              fs-before (frame/frame-state-value frame-id)
+              fs-after  (fs-after-fn fs-before)
+              changed   (write-fn)]
+          (if (nil? changed)
+            (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                      {:kind :frame :frame frame-id})
+                false)
+            (do (record-synthetic-replace-epoch! frame-id incarnation-token
+                                                 fs-before fs-after)
+                true)))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the partial frame-state patch once preconditions have passed.
@@ -499,11 +544,17 @@
   partition, an absent key is carried forward unchanged from `fs-before`.
   The recorded after-state (`merge fs-before
   new-frame-state`) mirrors that same contract so the synthetic epoch's
-  `:frame-state-after` matches exactly what the write installed."
-  [frame-id new-frame-state]
+  `:frame-state-after` matches exactly what the write installed.
+  `incarnation-token` (from the preconditions) keys the whole transaction to
+  the exact validated incarnation: the physical write goes through core's
+  EXACT-INCARNATION `replace-frame-state!` 3-arity, which returns nil unless
+  the token still names the live record — so a same-id successor can never
+  receive the patch (rf2-gj2bo)."
+  [frame-id incarnation-token new-frame-state]
   (perform-replace! frame-id
+                    incarnation-token
                     (fn [fs-before] (merge fs-before new-frame-state))
-                    #(frame/replace-frame-state! frame-id new-frame-state)))
+                    #(frame/replace-frame-state! frame-id incarnation-token new-frame-state)))
 
 (defn replace-frame-state!
   "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
@@ -547,9 +598,13 @@
   [frame-id new-frame-state]
   (if-not interop/debug-enabled?
     false
-    (let [{:keys [outcome op tags]} (tool-pair/check-replace-frame-state-preconditions! frame-id new-frame-state)]
+    (let [{:keys [outcome op tags incarnation-token]}
+          (tool-pair/check-replace-frame-state-preconditions! frame-id new-frame-state)]
       (case outcome
-        :ok   (perform-replace-frame-state! frame-id new-frame-state)
+        ;; Carry the EXACT incarnation token the preconditions resolved against
+        ;; to the write boundary, so a same-id successor seated in between never
+        ;; receives this injection or its synthetic bookkeeping (rf2-gj2bo).
+        :ok   (perform-replace-frame-state! frame-id incarnation-token new-frame-state)
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
