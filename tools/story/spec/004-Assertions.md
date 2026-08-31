@@ -156,11 +156,11 @@ through.
 ## Play sequence execution
 
 The runtime's phase 4 (per [`002-Runtime.md`](002-Runtime.md)
-§Four-phase lifecycle) drives the variant's `:play-script` (or each
+§Four-phase lifecycle) drives the variant's `:script` (or each
 entry in `:plays`) through the rich-DSL runner. Author event sequences
 by wrapping each entry in `[:dispatch-sync <event-vec>]` — the legacy
 `:play` event-vector slot was removed (rf2-0wrud); see
-[`001-Authoring.md`](001-Authoring.md) §`:play-script`. For each step:
+[`001-Authoring.md`](001-Authoring.md) §`:script`. For each step:
 
 1. `:dispatch` / `:dispatch-sync` steps fire their event vector into
    the variant's frame.
@@ -333,7 +333,7 @@ Stage 5 ships the `story/assertions-passing?` predicate as the canonical
   vector, it returns true iff every record has `:passed? true` (an empty
   vector is vacuously passing — the
   [spec/007 §Story-as-test duality](../../../implementation/...) contract:
-  a variant with no `:play-script` still "passes").
+  a variant with no `:script` still "passes").
 
 The result map's `:assertions` slot carries EVERY assertion outcome — both
 the `:rf.assert/*` dispatch-step records AND the rich-DSL `:assert-db` /
@@ -391,7 +391,7 @@ so neither can report a floor-blind false GREEN.
 
 ## Cross-references
 
-- [`001-Authoring.md`](001-Authoring.md) — how `:play-script` and
+- [`001-Authoring.md`](001-Authoring.md) — how `:script` and
   `:rf.assert/*` events appear in variant bodies.
 - [`002-Runtime.md`](002-Runtime.md) — the lifecycle phase 4 that
   executes the play sequence.

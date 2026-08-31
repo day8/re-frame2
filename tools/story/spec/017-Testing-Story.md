@@ -26,8 +26,9 @@ for P1; SHOULD expected unless a concrete implementation constraint says
 otherwise; MAY optional). Pre-alpha posture applies: the target API is
 built correctly rather than preserving legacy spellings through
 compatibility shims. The `:events` → `:setup` / `:play-script` →
-`:script` rename (§Public vocabulary) is a **clean pre-alpha rename, not
-a long-lived compatibility layer.**
+`:script` rename (§Public vocabulary) was executed as a **clean
+pre-alpha rename, not a long-lived compatibility layer** — the retired
+spellings fail shape validation at registration (rf2-7dewo).
 
 Where a rule changes shipping behaviour this document says so explicitly
 (§Shipping vs target). A reader must never assume a hook that does not
@@ -45,7 +46,7 @@ code migration is not confused with greenfield design.
 | `:rf.assert/*` family (7 dispatched ids) | SHIPS | The seven **dispatched** `reg-event` ids per [`004-Assertions.md`](004-Assertions.md); the canonical set is **eight** once the tape-evaluated `:rf.assert/schema-error` (next row, §Schema rule) is counted. |
 | `:assert-db` / `:assert-dom` script steps | SHIPS | Folded into the one assertion atom (§Assertions — one atom, two positions); do not drop them. |
 | bare event-vector script/setup shorthand | SHIPS (`play/runner.cljc` `coerce-script`) | P1 removes this authoring ambiguity; every setup/script step normalizes to a tagged step (§Script step grammar). |
-| `:events` / `:play-script` / `:plays` | SHIPS | Renamed to `:setup` / `:script` / named-scripts (§Public vocabulary). |
+| `:setup` / `:script` / `:plays` | SHIPS | The rename from the retired `:events` / `:play-script` spellings is complete (§Public vocabulary); the schema rejects the retired keys. |
 | `:extends` | SHIPS as **straight merge** (child replaces) | The per-field plan-time merge (§Merge rules) is a **replacement** of this, not a refinement; a test MUST pin parent+child `:setup` *append*. |
 | `:decorators` incl. `[:rf.story/force-fx-stub …]` | SHIPS | The **real** fx-override authoring surface; `:fx-overrides` is the derived frame slot (§The effect-override surface). |
 | run-result key | SHIPS as `:lifecycle` | This document's top-level `:status` is **NET-NEW** (§Run result); the runtime's record-result map uses `:lifecycle` today. |
@@ -79,45 +80,41 @@ P1 public authoring vocabulary is:
 - `:compose` for explicit fragment/check composition.
 - `:extends` for state/config specialization.
 
-Current implementation terms map as follows:
+The rename is complete; the retired spellings map as follows:
 
-| Current implementation term | P1 target term |
+| Retired spelling | Canonical term |
 |---|---|
 | `:events` | `:setup` |
 | `:play-script` | `:script` |
-| `:plays` | named scripts in the normalized plan |
+| `:plays` | named scripts in the normalized plan (the authoring key is unchanged) |
 
-The target public API uses `:setup` and `:script`. Because the project
-is pre-alpha, this is a clean rename, not a long-lived compatibility
-layer. Implementation commits MAY temporarily normalize current terms
-while the tree is migrated, but the accepted authoring surface after M0
-is the target vocabulary. Named `:plays` are preserved as named scripts
-in the normalized plan; they are not dropped in P1. The legacy `:play`
-event-vector slot was already removed (rf2-0wrud); P1 does not
-reintroduce it.
+The public API uses `:setup` and `:script`. Because the project is
+pre-alpha, this was a clean rename, not a long-lived compatibility
+layer: the accepted authoring surface is the canonical vocabulary, and
+the retired spellings fail shape validation at registration
+(rf2-7dewo). Named `:plays` are preserved as named scripts in the
+normalized plan; they are not dropped in P1. The legacy `:play`
+event-vector slot was removed earlier still (rf2-0wrud) and is not
+reintroduced.
 
-The variant schema (`re-frame.story.schemas/Variant`) accepts both
-spellings and enforces that an author picks ONE setup surface
-(`:setup` xor `:events`) and ONE play surface
-(`:script` xor `:play-script` xor `:plays`). The registrar's
-`schemas/lower-public-vocabulary` step folds `:setup` → `:events` and
-`:script` → `:play-script` into the stored body so every shipping slot
-reader sees the shipping spelling while the tree migrates. The
-**`run-variant` lifecycle runtime is now routed through the variant-plan
-compiler** (rf2-5x1wt.22): `re-frame.story.runtime/prepare-context`
-compiles the normalized plan once, phase 2 dispatches the plan's
-`[:world :setup]` (the parent story's id-grammar `:events` prepended),
-and phase 4 drives the plan's `[:world :scripts]` (the named plays,
-`:plays` preserved). The compiler normalizes both spellings, so the
-lifecycle no longer depends on the lowering. The lowering REMAINS for the
-remaining shipping-slot readers that are NOT yet plan-routed — snapshot
-identity (`re-frame.story.identity`), the workspace/canvas readers, and
-the recorder — and for the play-runner's `variant-body->plays` (still
-consulted by the live-canvas auto-run + step-debugger paths). It is fully
-removed once those readers also consume the plan. A variant authored with
-`:setup` / `:script` runs identically to one authored with the shipping
-slots, and through the plan-routed lifecycle a composed `:compose`
-fragment's `:setup` is now executed in phase 2.
+The variant schema (`re-frame.story.schemas/Variant`) accepts the
+canonical keys only: `:setup` is the one setup surface, and an author
+picks ONE play surface (`:script` xor `:plays`). The retired `:events`
+/ `:play-script` spellings are rejected like any other unknown key,
+with a nearest-key hint. The registrar stores the authored body
+verbatim — there is no lowering step — so registration round-trips are
+key-identical: `variant->edn` and `handler-meta` hand back what was
+authored. The **`run-variant` lifecycle runtime is routed through the
+variant-plan compiler** (rf2-5x1wt.22):
+`re-frame.story.runtime/prepare-context` compiles the normalized plan
+once, phase 2 dispatches the plan's `[:world :setup]`, and phase 4
+drives the plan's `[:world :scripts]` (the named plays, `:plays`
+preserved). The readers that are not plan-routed — snapshot identity
+(`re-frame.story.identity`), the workspace/canvas readers, the
+recorder, and the play-runner's `variant-body->plays` (consulted by
+the live-canvas auto-run + step-debugger paths) — read the canonical
+keys directly. Through the plan-routed lifecycle a composed `:compose`
+fragment's `:setup` is executed in phase 2.
 
 ### Four-bucket authoring model
 
@@ -216,8 +213,8 @@ merge.
 
 | Author key | Normalized slot |
 |---|---|
-| `:setup` / `:events` | `[:world :setup]` (both spellings; `:setup` is the target) |
-| `:script` / `:play-script` / `:plays` | `:script` (the primary play); the full named-play set is preserved under `[:world :scripts]` so `:plays` is not dropped |
+| `:setup` | `[:world :setup]` |
+| `:script` / `:plays` | `:script` (the primary play); the full named-play set is preserved under `[:world :scripts]` so `:plays` is not dropped |
 | `:checks` | `[:expect :checks]` |
 | `:assertions` | `[:expect :assertions]` |
 | `:args` / `:argtypes` | `[:world :args]` / `[:world :argtypes]` |
@@ -423,9 +420,9 @@ are otherwise flattened into one coarse fx replacement.
    :tags       #{:test}})
 ```
 
-The plan compiler MUST normalize legacy/source forms (`:events`,
-`:play-script`) into `:setup` / `:script` dispatch steps during
-migration.
+The plan compiler reads the canonical `:setup` / `:script` forms only;
+the retired spellings fail shape validation at registration, before
+any plan is compiled.
 
 ### Fragments
 
@@ -1117,7 +1114,7 @@ on caller.
   under a `:dom` / `:browser` runner it fires the synthetic focus event.
 
 **`[:assert …]` is illegal in `:setup`.** The plan compiler REJECTS an
-`[:assert …]` checkpoint in `:setup` (or its shipping `:events` spelling)
+`[:assert …]` checkpoint in `:setup`
 at plan-compile time with `:rf.error/story-assert-in-setup`. Setup
 establishes preconditions; it does not judge. The author resolves the
 error by moving the assertion to `:script` (as an `[:assert …]`
@@ -1445,13 +1442,12 @@ Fragment and check ids are bare keywords; the example shapes
 locked grammar.
 
 A **fragment body** carries world/behaviour only — `:args`, `:argtypes`,
-`:setup` (or `:events`), `:script` (or `:play-script`), `:network`,
+`:setup`, `:script`, `:network`,
 `:fx-overrides`, `:interceptor-overrides`, `:loaders`,
 `:loaders-teardown`, `:decorators`. It MUST NOT carry judgement
 (`:checks` / `:assertions`) and MUST NOT carry `:compose` or `:extends`
 (flat-fragment rule, below). The body is stored verbatim — the compiler
-normalizes both the public (`:setup` / `:script`) and shipping (`:events`
-/ `:play-script`) spellings at compose time.
+normalizes the `:setup` / `:script` forms at compose time.
 
 A **check body** carries `:assertions` (required) and an optional `:doc`.
 It carries no world or behaviour. Check identity is preserved end-to-end

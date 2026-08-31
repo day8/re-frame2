@@ -38,8 +38,8 @@ decorators by id; the closure is registered once and shared. The
 A corollary of EDN-first, but worth stating explicitly. None of:
 
 - `:render <fn>` (the CSF escape hatch)
-- `:setup <fn>` (where a function would replace `:events` /
-  `:loaders`)
+- `:setup <fn>` (where a function would replace the declarative
+  `:setup` / `:loaders` event vectors)
 - `:assertion <fn>` (where a function would replace
   `:rf.assert/*`)
 

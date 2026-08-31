@@ -217,7 +217,7 @@ Strict order, per spec/007:
 3. **Phase 3 — Render.** The view renders against the post-events
    `app-db`, with the effective args (above) and decorator stack
    (above) applied.
-4. **Phase 4 — Play.** Drive the variant's `:play-script` (or each
+4. **Phase 4 — Play.** Drive the variant's `:script` (or each
    entry in `:plays`) through the rich-DSL runner. `:dispatch` /
    `:dispatch-sync` steps fire their event vectors into the variant's
    frame, draining to completion between steps:
@@ -250,7 +250,7 @@ predicate. Default behaviour:
 - Long-lived fx (`:websocket`, `:interval`, `:firestore`, etc.) is
   "complete" when the **first message arrives** (i.e. the first event
   the fx dispatches into the frame is received). After that the loader
-  is considered complete and `:events` proceeds.
+  is considered complete and `:setup` proceeds.
 - Authors override either default via `:loaders-complete-when` — a
   vector-of-event-vectors or a registered predicate-event id; the
   predicate is invoked after each event drain settles; truthy result
@@ -432,7 +432,7 @@ exceptions!` capture path (the function takes a `phase` argument
 specifically so callers stamp the originating phase). Tools reading
 `[:rf.story/assertions]` filter on `:phase :phase-1-loaders` to
 isolate loader failures from event / render / play failures. Failures
-in phase 2 (`:events`) record with `:phase :phase-2-events`; render
+in phase 2 (`:setup`) record with `:phase :phase-2-events`; render
 errors in phase 3 record with `:phase :phase-3-render`; play errors
 in phase 4 record with `:phase :phase-4-play`. The shape uniformity
 makes assertion-list consumers shape-agnostic; the `:phase` tag is
@@ -484,7 +484,7 @@ torn-down frame and may either no-op or surface as
    (story/reg-variant :story.feed/live
      {:loaders [[:feed/subscribe]]
       :loaders-complete-when [[:feed/first-tick-received]]
-      :play-script [[:dispatch-sync [:rf.assert/path-equals [:feed :latest] :some/expected]]]})
+      :script [[:dispatch-sync [:rf.assert/path-equals [:feed :latest] :some/expected]]]})
    ```
 
    Reuses the framework's existing destroy contract; no new variant
@@ -671,7 +671,7 @@ Per
 the hash includes:
 
 - Variant id
-- `:events`, `:play-script` / `:plays`, `:loaders` /
+- `:setup`, `:script` / `:plays`, `:loaders` /
   `:loaders-complete-when` / `:loaders-teardown`, and the
   visual-chrome slots `:viewport` / `:background` (in order;
   canonicalised — per `re-frame.story.identity/variant-body-slice`)
@@ -737,14 +737,14 @@ baselines.
    variants rerun their loaders. Determinism by default.
 2. Run `:loaders` (phase 1), wait for `:loaders-complete-when`
    predicate.
-3. Run `:events` (phase 2).
-4. Optionally render (phase 3) and run `:play-script` / `:plays`
+3. Run `:setup` (phase 2).
+4. Optionally render (phase 3) and run `:script` / `:plays`
    (phase 4).
 5. Tear down or persist per opts.
 
 `run-variant` returns a promise-like object the host can await (it may
 resolve synchronously when no loaders are present and all fx in
-`:events` are synchronous). The async return-shape is **locked**: a
+`:setup` are synchronous). The async return-shape is **locked**: a
 native `js/Promise` on CLJS, and a `java.util.concurrent.CompletableFuture`
 on the JVM (manifold was considered and dropped — the two host runtimes
 already expose these, so no extra dependency is pulled). The two flavours
@@ -753,7 +753,7 @@ are abstracted behind `re-frame.story.async` (`promise` / `resolved` /
 tests / REPL via `deref-blocking`, CLJS callers chain with `then` / await.
 
 ```clojure
-(reset-variant variant-id)                       ; tear down + re-run :loaders + :events
+(reset-variant variant-id)                       ; tear down + re-run :loaders + :setup
 (watch-variant variant-id callback)              ; subscribe to lifecycle transitions;
                                                  ;   returns a 0-arity unsubscribe fn
                                                  ;   (call it to stop watching)

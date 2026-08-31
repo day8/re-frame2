@@ -381,8 +381,8 @@ no fn-slots):
 ```clojure
 {:doc                   "..."
  :extends               <variant-id>             ; parent variant; merged at registration
- :setup                 [[:event-id args ...]]   ; precondition events; phase 2 (PUBLIC; :events is the transitional spelling)
- :script                {:script [...steps]      ; post-render rich-DSL behaviour under test; phase 4 (PUBLIC; :play-script is the transitional spelling)
+ :setup                 [[:event-id args ...]]   ; precondition events; phase 2 (PUBLIC)
+ :script                {:script [...steps]      ; post-render rich-DSL behaviour under test; phase 4 (PUBLIC)
                          :auto-run? true
                          :name "happy path"}
  :args                  {<arg-key> <value>}      ; override/extend story args
@@ -486,23 +486,19 @@ Test mode / MCP / Xray can surface WHICH behaviour set ran.
 ### `:script` — the public phase-4 surface (rf2-5x1wt.11)
 
 `:script` is the **public** authoring key for the post-render
-behaviour-under-test sequence; `:play-script` is the transitional
-spelling accepted during the pre-alpha rename and lowered to the
-shipping slot by the registrar (`schemas/lower-public-vocabulary`).
-Per [`017-Testing-Story.md`](017-Testing-Story.md) §Public vocabulary,
-`:setup` / `:script` are the target authoring vocabulary; `:events` /
-`:play-script` are transitional spellings that lower to the shipping
-slots until the runtime is routed through the variant-plan compiler
-(rf2-5x1wt.17 / .22). A variant declares ONE play surface from
-`:script` / `:play-script` / `:plays` (mutually exclusive at the
-schema layer). The worked examples throughout this doc use the target
-`:setup` / `:script` spellings exclusively, and the recorder's codegen
-(`gen-play-snippet` / `render-variant-form`) now EMITS the public
-`:script` spelling too (rf2-7mj4z — the rename is finished on the
-author-facing emission surface). The transitional `:events` /
-`:play-script` spellings are still ACCEPTED by the schema (the registrar
-lowers them to the shipping slots), but nothing in Story authoring docs
-or recorder output teaches or emits them.
+behaviour-under-test sequence. Per
+[`017-Testing-Story.md`](017-Testing-Story.md) §Public vocabulary,
+`:setup` / `:script` are the one authoring vocabulary: the retired
+`:events` / `:play-script` spellings fail shape validation at
+registration (rf2-7dewo — the closed variant schema rejects them with
+a nearest-key hint), and the registrar stores the authored body
+verbatim. A variant declares ONE play surface from `:script` /
+`:plays` (mutually exclusive at the schema layer). The worked examples
+throughout this doc use the `:setup` / `:script` spellings
+exclusively, and the recorder's codegen (`gen-play-snippet` /
+`render-variant-form`) EMITS the public `:script` spelling too
+(rf2-7mj4z — the rename finished on the author-facing emission surface
+before the retired spellings were removed from the schema).
 
 Pre-alpha posture: the legacy `:play` event-vector slot has been
 removed — no transitional dual-acceptance (rf2-0wrud, 2026-05-20).
@@ -1574,7 +1570,7 @@ macro-expansion time. Story propagates this through:
 
 Stage 2's `reg-story*` / `reg-variant*` macros stamp `:source` from
 `&form`'s `:line` / `:file` meta into the registry entry. The
-play-runner copies the `:source` of each `:play-script` step into the
+play-runner copies the `:source` of each `:script` step into the
 corresponding `:assertions` record.
 
 ## Schema-derivation pipeline

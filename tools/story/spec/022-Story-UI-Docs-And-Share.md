@@ -298,7 +298,7 @@ Share semantics:
   pass 2 had reparsed the raw `substrate=` unvalidated and resurrected a
   stale value, and left an all-stale override slice live);
 - a shared link restores VIEW STATE (it lands the recipient on the cell);
-  it does not replay a run — that is the recorder's `:play-script` export;
+  it does not replay a run — that is the recorder's `:script` export;
 - the reproducibility status is computed (purely) by
   `re-frame.story.egress/classify` over the variant's compiled plan + the
   share params, and surfaced by `re-frame.story.ui.share` on each command.
