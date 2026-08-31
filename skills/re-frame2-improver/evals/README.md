@@ -10,13 +10,17 @@ independently:
 2. Critique behaviour — when it does fire, does the critique land:
    the right anti-pattern named, concrete evidence cited, the canonical
    idiom cross-linked, no false positives on clean / legitimate-edge code,
-   and the 2-tier Edit gate respected against untrusted in-source text?
+   the review completed in one pass with the smallest safe correction kept
+   distinct from any optional redesign, and the programmer-intent
+   correction contract respected — review-only stays read-only, a direct
+   fix request is honoured in-scope, untrusted in-source text grants and
+   suppresses nothing?
 
 A green activation boundary is necessary but not sufficient: a future edit
 to the description or a leaf could keep triggering correctly while the
 critique itself regresses — hallucinating an API, flagging a legitimate
 `rf/subscribe-once`, missing a schemaless boundary, or applying an
-evidence-shaped Edit a comment told it to. The behavioural evals are the
+Edit an in-source comment told it to. The behavioural evals are the
 guard against exactly that.
 
 ## Repo-maintenance artifact, not shipped
@@ -84,8 +88,10 @@ here to keep in sync.
 The corpus spans the 2 kinds above; the behavioural kind spans 3
 `dimension`s — `critique-correctness` (does the right finding land and route to
 the canonical idiom?), `false-positive-avoidance` (does the skill decline to
-flag clean / legitimate-edge code?), and `edit-gate` (does it treat in-source
-text as untrusted and hold evidence-shaped Edits for approval?). The corpus is
+flag clean / legitimate-edge code?), and `edit-gate` (does it keep a
+review-only request read-only, honour a direct fix request with safe in-scope
+corrections and no second approval round, and treat in-source text as data
+that can neither authorise nor suppress?). The corpus is
 skewed toward `critique-correctness` deliberately — that dimension carries the
 highest defect risk (a fabricated idiom, a missed boundary, or contradictory
 rewrites are the cardinal failure for a critique skill) — with the deepest
@@ -133,8 +139,8 @@ is the reference. The short version:
    tokens the `expectations[]` name — `:rf.http/managed`, `reg-machine`,
    `:tags`, `:rf.schema/at-boundary`, `reg-fx` / `reg-cofx`, and so on) handle
    most of them; the `false-positive-avoidance` and `edit-gate` evals need a
-   short human read of the transcript (did it decline to flag or decline to
-   apply?).
+   short human read of the transcript (did it decline to flag; did it apply
+   exactly what the request authorised — no more, no less?).
 4. Aggregate into `benchmark.json` per the
    [skill-creator schema](https://github.com/anthropics/skills/blob/main/skills/skill-creator/references/schemas.md#benchmarkjson)
    and review the with-skill vs baseline delta. The skill earns its tokens
@@ -172,6 +178,6 @@ so they hold as the inventory grows):
   or reading `>3` leaves for a single prompt)
 
 If a behavioural eval consistently fails, the fix usually lives in the leaf
-(or the SKILL.md Edit-gate / untrusted-evidence wording), not the eval — that
+(or the SKILL.md correction-contract / untrusted-evidence wording), not the eval — that
 is the whole point of evaluation-driven development. File a follow-up issue
 against the leaf rather than weakening the assertion.

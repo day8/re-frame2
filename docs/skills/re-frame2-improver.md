@@ -4,9 +4,9 @@
 
 ## What it does
 
-The `re-frame2-improver` skill is a focused code reviewer for **already-written** re-frame2 code. It reads a body of source files (or a user-supplied snippet), detects anti-patterns from a small catalogue, surfaces findings with concrete file/line evidence, cross-links each one to the canonical idiom under `skills/re-frame2/patterns/`, and — subject to an Edit-gate — may propose or apply an inline fix via `Edit`.
+The `re-frame2-improver` skill is a focused code reviewer for **already-written** re-frame2 code. It reads a body of source files (or a user-supplied snippet), detects anti-patterns from a small catalogue, and returns one complete, severity-ordered critique in the same turn — each finding with concrete file/line evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom under `skills/re-frame2/patterns/`. It applies fixes via `Edit` only when the request says to fix as well as review; broader redesigns stay proposals.
 
-It is **explicit-pull-only**: the user asks for a review, the skill activates, and it exits once findings have been presented (and optional fixes applied). Vocabulary alone ("review", "audit", "any improvements?") is not enough — a body of re-frame2 source must be in scope.
+It is **explicit-pull-only**: the user asks for a review, the skill activates, delivers the complete critique in that turn, and exits. Vocabulary alone ("review", "audit", "any improvements?") is not enough — a body of re-frame2 source must be in scope.
 
 ## When to reach for it
 
