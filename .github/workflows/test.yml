@@ -3128,7 +3128,7 @@ jobs:
           node-version: '24'
 
       - name: Run JS harness self-tests
-        run: npm run test:script-policy && npm run test:script-helpers
+        run: npm run test:scripts
 
   # ---------------------------------------------------------------------------
   # CLJS browser / prod Playwright jobs (rf2-f79t8 part c).
