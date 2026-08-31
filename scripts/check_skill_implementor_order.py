@@ -62,6 +62,24 @@ identity or leaking classified values and still declare "v1-core-complete". The
 three roots are cross-checked against the conformance owner at run time so this
 guard's constant can't drift from the family set it polices.
 
+Third scan — the **EP-006 live sub-cache witness** (rf2-3758j). The corpus's two
+`:identity/cedn1` cache-key fixtures call the canonical-identity primitive
+directly: they prove the cache-KEY prerequisite, never live cache wiring, and
+the corpus subscribes each query once (the owning Spec's
+conformance-observability note, `spec/006-ReactiveSubstrate.md` §Value-keyed
+cache-key contract). A port whose live sub-cache keys by host reference
+identity therefore passes every required fixture while equal freshly-allocated
+queries create separate derived containers forever — a corpus-green /
+runtime-red false completion. The skill closes that hole by requiring a
+port-owned live witness (one query through two distinct host allocations, one
+cache-slot creation, exactly-once disposal, a non-rf= negative control) on the
+completion surfaces: `SKILL.md` §Done, the EP-loop leaf (which owns the witness
+definition), and the conformance leaf (which owns scoring/reporting). This scan
+makes removing — or hollowing — that requirement a build failure: each
+completion surface must still reference the witness, and the owner's definition
+must keep its observable elements. It pins the skill's own contract language,
+never a fixture catalogue or an implementation token.
+
 Exit code:
     0  no drift detected
     1  drift detected (printed line-by-line; GitHub-Actions ::error:: under CI)
@@ -194,6 +212,48 @@ GATE_SCOPE_CUE_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# EP-006 live sub-cache witness scan (rf2-3758j).
+# ---------------------------------------------------------------------------
+
+# The completion surfaces that must carry the witness requirement: the
+# front-door Done gate, the EP-loop leaf (the witness definition's owner), and
+# the conformance leaf (scoring/reporting — where a fixture N/N could otherwise
+# read as whole-port completion).
+WITNESS_OWNER_FILE = SKILL_DIR / "references" / "phase-2-impl-order.md"
+WITNESS_REQUIRED_FILES = [
+    SKILL_DIR / "SKILL.md",
+    WITNESS_OWNER_FILE,
+    SKILL_DIR / "references" / "conformance.md",
+]
+
+# A line REFERENCES the witness when it names it. The pre-fix drift shape —
+# calling the :identity/cedn1 fixtures themselves "sub-cache fixtures" — does
+# NOT match: the witness term is "live sub-cache witness".
+WITNESS_REF_RE = re.compile(r"live sub-cache witness", re.IGNORECASE)
+
+# The owner's definition must keep the observable elements — a "run a live
+# test" sentence with no observed outcome is exactly the false-green being
+# policed. Each regex pins the skill's own contract language (markdown bold
+# tolerated), not fixture ids or implementation tokens.
+WITNESS_ELEMENT_RES = {
+    "two distinct host allocations": re.compile(
+        r"distinct host allocations", re.IGNORECASE
+    ),
+    "exactly one cache-slot creation": re.compile(
+        r"\*{0,2}one\*{0,2} cache-?slot creation", re.IGNORECASE
+    ),
+    "exactly-once disposal": re.compile(
+        r"disposal fires \*{0,2}exactly once\*{0,2}|exactly-once disposal",
+        re.IGNORECASE,
+    ),
+    "non-rf= negative control": re.compile(r"negative control", re.IGNORECASE),
+    "score honesty (beside, never inside/folded)": re.compile(
+        r"never (?:inside|folded into)", re.IGNORECASE
+    ),
+}
+
+
 def _slurp(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -306,6 +366,59 @@ def find_gate_drift(files: list[Path]) -> tuple[list[str], int]:
     return problems, checked
 
 
+def find_witness_drift() -> tuple[list[str], int]:
+    """Return (drift messages, number-of-witness-reference-lines-found).
+
+    Every completion surface must reference the EP-006 live sub-cache witness,
+    and the owner's definition must keep its observable elements (see
+    WITNESS_ELEMENT_RES). Removing the requirement — or hollowing the
+    definition — restores the rf2-3758j false-green, where a reference-keyed
+    host reports v1 completion off canonical-identity fixtures alone."""
+    problems: list[str] = []
+    referenced = 0
+    for path in WITNESS_REQUIRED_FILES:
+        if not path.is_file():
+            problems.append(
+                f"SETUP: expected implementor-skill file missing: "
+                f"{path.relative_to(REPO_ROOT)} — the witness scan's file list "
+                "drifted from the skill layout; update WITNESS_REQUIRED_FILES."
+            )
+            continue
+        hits = sum(
+            1
+            for line in _slurp(path).splitlines()
+            if WITNESS_REF_RE.search(line)
+        )
+        if hits == 0:
+            rel = path.relative_to(REPO_ROOT)
+            problems.append(
+                f"WITNESS-DRIFT: {rel} never references the EP-006 live "
+                "sub-cache witness. The :identity/cedn1 cache-key fixtures "
+                "prove canonical-identity only — the corpus subscribes each "
+                "query once, so it cannot see a reference-keyed live cache "
+                "(spec/006-ReactiveSubstrate.md §Value-keyed cache-key "
+                "contract, conformance-observability note). Each completion "
+                "surface must require the port-owned live witness before "
+                "EP-006 / foundation / v1 completion is declared."
+            )
+        referenced += hits
+    if WITNESS_OWNER_FILE.is_file():
+        owner = _slurp(WITNESS_OWNER_FILE)
+        for element, rx in WITNESS_ELEMENT_RES.items():
+            if not rx.search(owner):
+                problems.append(
+                    f"WITNESS-DRIFT: "
+                    f"{WITNESS_OWNER_FILE.relative_to(REPO_ROOT)} defines the "
+                    f"live sub-cache witness without its `{element}` element. "
+                    "The witness is only a proof while it observes one query "
+                    "through two distinct host allocations resolving to one "
+                    "cache-slot creation with exactly-once disposal, a non-rf= "
+                    "negative control, and a score reported beside — never "
+                    "inside — the corpus fraction. Restore the element."
+                )
+    return problems, referenced
+
+
 def verify_owner_declares_required_roots() -> list[str]:
     """Cross-check the guard's REQUIRED_ROOT_RES constant against the capability
     owner (references/conformance.md). If the owner stops declaring one of the
@@ -352,22 +465,27 @@ def run(*, verbose: bool, ci: bool) -> int:
 
     order_problems, order_checked = find_drift(SCANNED_FILES)
     gate_problems, gate_checked = find_gate_drift(SCANNED_FILES)
-    problems = order_problems + gate_problems
+    witness_problems, witness_refs = find_witness_drift()
+    problems = order_problems + gate_problems + witness_problems
 
     if verbose:
         print(
             f"implementor foundation guard: scanned {len(SCANNED_FILES)} files, "
-            f"found {order_checked} foundation-boundary statement(s) and "
-            f"{gate_checked} gate-1 fixture-scope statement(s)."
+            f"found {order_checked} foundation-boundary statement(s), "
+            f"{gate_checked} gate-1 fixture-scope statement(s), and "
+            f"{witness_refs} live-witness reference(s) across "
+            f"{len(WITNESS_REQUIRED_FILES)} completion surfaces."
         )
 
     if not problems:
         if verbose:
             print(
                 "foundation guard: every foundation-boundary statement keeps "
-                "Spec 015 inside the core gate, and every gate-1 fixture-scope "
+                "Spec 015 inside the core gate, every gate-1 fixture-scope "
                 "statement names all three v1-required families "
-                "(:core/* + :identity/* + :data-classification/*)."
+                "(:core/* + :identity/* + :data-classification/*), and every "
+                "completion surface requires the EP-006 live sub-cache witness "
+                "with its observable elements intact."
             )
         return 0
 
@@ -376,10 +494,13 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(f"{err_prefix}{p}")
     print(
         f"\nfoundation guard: {len(problems)} drift issue(s) "
-        f"({len(order_problems)} order, {len(gate_problems)} gate). Spec 015 is "
-        "v1-required and must sit inside the core gate, and acceptance gate 1 "
-        "must run all three v1-required families (:core/* + :identity/* + "
-        ":data-classification/*), not :core/* alone."
+        f"({len(order_problems)} order, {len(gate_problems)} gate, "
+        f"{len(witness_problems)} witness). Spec 015 is v1-required and must "
+        "sit inside the core gate; acceptance gate 1 must run all three "
+        "v1-required families (:core/* + :identity/* + "
+        ":data-classification/*), not :core/* alone; and completion requires "
+        "the port-owned EP-006 live sub-cache witness, not canonical-identity "
+        "fixtures alone."
     )
     return 1
 
@@ -531,6 +652,108 @@ def _self_test() -> int:
     expect_gate(
         "gate 2 runs the full claimed-capability set, a superset of `:core/*`",
         gate=False, all_roots=False, label="T gate-2 line (gate-1 cue absent)",
+    )
+
+    # -- EP-006 live sub-cache witness scan (rf2-3758j) --------------------
+    def expect_witness_ref(line: str, *, ref: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(WITNESS_REF_RE.search(line))
+        if got != ref:
+            print(
+                f"SELF-TEST FAIL ({label}): witness-reference classification "
+                f"expected {ref}, got {got} for: {line!r}"
+            )
+            failures += 1
+
+    def expect_element(
+        element: str, text: str, *, present: bool, label: str
+    ) -> None:
+        nonlocal failures
+        got = bool(WITNESS_ELEMENT_RES[element].search(text))
+        if got != present:
+            print(
+                f"SELF-TEST FAIL ({label}): element `{element}` presence "
+                f"expected {present}, got {got} for: {text!r}"
+            )
+            failures += 1
+
+    # Witness REFERENCES — the completion-surface shapes must match; the
+    # pre-fix drift shape (calling the fixtures themselves "sub-cache
+    # fixtures") shares the sub-cache token and must NOT.
+    expect_witness_ref(
+        "- [ ] EP-006 live sub-cache witness green "
+        "([`references/phase-2-impl-order.md`](...)) — required whenever ...",
+        ref=True, label="U Done-checklist witness item",
+    )
+    expect_witness_ref(
+        "live cache wiring is proved by the [live sub-cache witness](#...) below",
+        ref=True, label="V EP-006 row witness pointer",
+    )
+    expect_witness_ref(
+        "`:core/sub`, plus the `:identity/cedn1` sub-cache fixtures",
+        ref=False, label="W pre-fix fixture misnomer is not a witness reference",
+    )
+    expect_witness_ref(
+        "each frame holds one sub-cache, keyed by the query vector",
+        ref=False, label="X plain sub-cache prose is not a witness reference",
+    )
+
+    # Witness DEFINITION elements — each positive is the owner's contract
+    # shape (markdown bold included); each negative shares surface tokens.
+    expect_element(
+        "two distinct host allocations",
+        "Build `q1` and `q2` as two distinct host allocations of the same query value",
+        present=True, label="Y1 allocations element present",
+    )
+    expect_element(
+        "two distinct host allocations",
+        "two distinct cache entries are created",
+        present=False, label="Y2 distinct-entries prose is not the element",
+    )
+    expect_element(
+        "exactly one cache-slot creation",
+        "exactly **one** cache-slot creation, one derived container / first-run computation",
+        present=True, label="Z1 one-slot element present (bold tolerated)",
+    )
+    expect_element(
+        "exactly one cache-slot creation",
+        "two query vectors share one cache key",
+        present=False, label="Z2 one-cache-KEY prose is not the element",
+    )
+    expect_element(
+        "exactly-once disposal",
+        "the slot is removed and disposal fires **exactly once**",
+        present=True, label="AA1 disposal element present (bold tolerated)",
+    )
+    expect_element(
+        "exactly-once disposal",
+        "under reference keying, disposal never fires",
+        present=False, label="AA2 disposal-never-fires prose is not the element",
+    )
+    expect_element(
+        "non-rf= negative control",
+        "**Negative control.** A third query that is *not* `rf=` to `q1`",
+        present=True, label="AB1 negative-control element present",
+    )
+    expect_element(
+        "non-rf= negative control",
+        "a control run against the reference implementation",
+        present=False, label="AB2 generic control prose is not the element",
+    )
+    expect_element(
+        "score honesty (beside, never inside/folded)",
+        "**beside** the conformance score, never inside it",
+        present=True, label="AC1 score-honesty element present",
+    )
+    expect_element(
+        "score honesty (beside, never inside/folded)",
+        "Reported beside the corpus score, never folded into it",
+        present=True, label="AC2 score-honesty alternate phrasing present",
+    )
+    expect_element(
+        "score honesty (beside, never inside/folded)",
+        "the score is never below the fixture count",
+        present=False, label="AC3 never-below prose is not the element",
     )
 
     if failures:

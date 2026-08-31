@@ -72,6 +72,7 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 - [ ] Port profile committed and current (pin, choices, claim, score).
 - [ ] Foundation landed in order (001 → 002 → 006 → views → 009 → 015), on the shared path + identity foundation (EP-0012).
 - [ ] Acceptance gate 1 green: every fixture applicable to `:core/*` + `:identity/*` + `:data-classification/*` at the pin.
+- [ ] EP-006 live sub-cache witness green ([`references/phase-2-impl-order.md` §The EP-006 live sub-cache witness](references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned)) — required whenever the cache mechanism does not intrinsically key by `rf=`: one query through two distinct host allocations, one cache-slot, exactly-once disposal, non-`rf=` negative control. Reported beside the corpus score, never folded into it; the fixtures alone cannot see a reference-keyed live cache.
 - [ ] Optional EPs per the claim; acceptance gate 2 = `claimed-applicable / claimed-applicable`.
 - [ ] The port exposes [`spec/API.md`](../../spec/API.md), adapted to host idiom; tooling-security obligations honoured for any tooling shipped (the conformance harness counts).
 - [ ] Spec gaps filed upstream with approval; the port's README states the claimed tags, the score, and the corpus pin.
