@@ -63,6 +63,7 @@ Each row is isolated; the order minimises rework. Enumerate each claimed family'
 | **007 Stories** | Q5 | [`spec/007-Stories.md`](https://day8.github.io/re-frame2/spec/007-Stories/) | — |
 | **Tool-Pair attachment** | Q6 | [`spec/Tool-Pair.md`](https://day8.github.io/re-frame2/spec/Tool-Pair/) — mostly a coherent exposure of EP surfaces already built; the genuinely new piece is the time-travel/epoch surface, and direct tool reads fail closed through `project-egress` | the `:derivation/algebra-graph` split pair |
 | **016 Resources** | Q10 (presupposes Q9) | [`spec/016-Resources.md`](https://day8.github.io/re-frame2/spec/016-Resources/) | `:resources/*` (the mutation half is corpus-behind — self-test from the spec) |
+| **AI-Audit** | Q7 | [`spec/AI-Audit.md`](https://day8.github.io/re-frame2/spec/AI-Audit/) — a discipline tool, not a runtime surface: claiming yes means the port maintains its own AI-first audit doc per the Spec | — |
 
 **Acceptance gate 2.** The full claimed-capability fixture set at the pin; score `claimed-applicable / claimed-applicable`. A failure that is not a spec gap is a port bug; a spec gap is drafted and filed upstream with approval (cardinal rules 8–9).
 
