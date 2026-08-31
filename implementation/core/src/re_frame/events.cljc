@@ -15,7 +15,7 @@
   EP-0007 rule 2 — no working alias). Full-context work in application code
   is expressed with interceptors authored via the public `reg-interceptor`
   form and referenced by id from a `reg-event` registration's
-  `:interceptors` chain (`->interceptor` is the internal lowering
+  `:interceptors` chain (`->interceptor*` is the internal lowering
   constructor, not the application authoring form).
 
   All event registrations register under registry kind `:event` and share the
@@ -73,7 +73,7 @@
   EP-0022: an entry MUST be an interceptor REFERENCE —
   a bare keyword id or an `[id arg]` 2-vector. Refs resolve to their registered
   values at chain assembly. An INLINE interceptor value (a map carrying `:id` /
-  `:before` / `:after`, an `->interceptor` result, a value-Var) is not a
+  `:before` / `:after`, an `->interceptor*` result, a value-Var) is not a
   valid entry — register it with `reg-interceptor` and reference it by id. A
   non-ref entry is rejected at registration by `validate-meta-interceptors!`
   (an inline value gets the `:rf.error/inline-interceptor-removed`-aimed
@@ -102,7 +102,7 @@
   "Raise `:rf.error/inline-interceptor-removed` (ex-info) at registration when a
   metadata-map `:interceptors` chain carries an INLINE interceptor value. Per
   EP-0022 §Event and frame chain grammar: chains carry REFERENCES only. The
-  earliest, clearest fail point for a stale inline value (an `->interceptor`
+  earliest, clearest fail point for a stale inline value (an `->interceptor*`
   result, a `(path …)` / `(redact-interceptor …)` value, a value-Var) — a typo
   dies at `reg-event`, not at first dispatch. Mirrors the dispatch-time
   `interceptor-registry/resolve-chain` rejection with the same error id —
@@ -132,7 +132,7 @@
   Reference-only (EP-0022):
     - a non-vector value raises `:rf.error/reg-event-bad-interceptors`;
     - an INLINE interceptor value entry (a map carrying `:before` / `:after` /
-      `:id`, an `->interceptor` result, a value-Var) raises the dedicated
+      `:id`, an `->interceptor*` result, a value-Var) raises the dedicated
       `:rf.error/inline-interceptor-removed` — the loud, actionable signal that
       chains are reference-only (vs. the generic bad-interceptors message);
     - any OTHER non-ref entry (a string, number, …) raises the generic
@@ -750,8 +750,8 @@
 ;; A BARE interceptor —
 ;; `(reg-event id mw/some-interceptor handler)` rather than
 ;; `(reg-event id {:interceptors [mw/some-interceptor]} handler)` — is a
-;; recognised-but-unhonourable input: an interceptor built by `->interceptor` /
-;; `->interceptor*` is a *map* (`{:id … :before … :after …}`), so without this
+;; recognised-but-unhonourable input: an interceptor built by `->interceptor*`
+;; is a *map* (`{:id … :before … :after …}`), so without this
 ;; detection `normalise-args`' two-arg branch would read it as the
 ;; metadata-map, the chain would never reach the registrar, and the
 ;; interceptor would never run — a silent drop.
@@ -771,7 +771,7 @@
   A legitimate registration metadata-map (`:doc`,
   `:schema`, `:tags`, `:platforms`, …) never carries `:before` / `:after`,
   so those keys are an unambiguous bare-interceptor tell. Detection is by
-  shape (not by `->interceptor` provenance) so it catches HoF / hand-rolled
+  shape (not by `->interceptor*` provenance) so it catches HoF / hand-rolled
   interceptor maps too."
   [x]
   (and (map? x)

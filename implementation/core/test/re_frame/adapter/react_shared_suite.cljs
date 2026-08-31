@@ -970,7 +970,7 @@
 ;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
 ;; `:interceptors` chain now throws `:rf.error/inline-interceptor-removed` at
 ;; registration — chain entries must be REFERENCES. The formerly-inline
-;; `:test/noop` (and the `:test/ctx-probe` `->interceptor` value) are registered
+;; `:test/noop` (and the `:test/ctx-probe` interceptor value) are registered
 ;; up front via `reg-interceptor` and referenced by their bare keyword ids in
 ;; the chains below. The chain is stored UNRESOLVED in handler-meta, so a
 ;; referenced entry reads back as its bare keyword (NOT a resolved map) — hence

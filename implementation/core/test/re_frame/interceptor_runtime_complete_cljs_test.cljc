@@ -270,7 +270,7 @@
           "the [:cart] slice was NOT focused/spliced — the exact-ref override removed the path interceptor"))))
 
 ;; ===========================================================================
-;; PIECE 3 — ->interceptor is internal lowering only (not public authoring)
+;; PIECE 3 — ->interceptor* is internal lowering only (not public authoring)
 ;; ===========================================================================
 
 (deftest interceptor-lowering-constructor-still-works
@@ -312,7 +312,7 @@
           "the internal lowering constructor produced an executable interceptor"))))
 
 (deftest interceptor-public-authoring-is-reg-interceptor
-  (testing "reg-interceptor — NOT ->interceptor — is the public authoring surface"
+  (testing "reg-interceptor — NOT ->interceptor* — is the public authoring surface"
     ;; The public form names + registers the interceptor so it is referenced by id.
     (is (= :pub/authored
            (rf/reg-interceptor :pub/authored {:doc "public form"} {:before identity})))

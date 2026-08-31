@@ -59,7 +59,7 @@ implementation/
       events.cljc            reg-event (the one event form) + removed-name stubs.
       subs.cljc              Sub cache with ref-counting + hot-reload eviction.
       interceptor.cljc       Interceptor chain runtime.
-      std_interceptors.cljc  path, unwrap, ->interceptor primitive.
+      std_interceptors.cljc  :rf.interceptor/path standard + path/unwrap removed-value stubs.
       cofx.cljc              reg-cofx supplier + declared-only delivery (:rf.cofx/requires).
       trace.cljc             Trace event emission + listener API.
       late_bind.cljc         Late-binding hook table for cross-artefact references.

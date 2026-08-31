@@ -102,7 +102,7 @@ Two contract facts, each pinned against the shipped spec:
     state.md §M-11 is the canonical migration recipe. FORM-3.md recommends
     capturing the frame once in the outer `reg-view*` callable, but that handle is
     a LOCKED value that never re-resolves (`make-capture-frame` closes the captured
-    frame over every op — core.cljc), so capture-once is safe ONLY while the
+    frame over every op — capture_frame.cljc), so capture-once is safe ONLY while the
     mount's provider frame is invariant: a *surviving* instance retargeted from
     provider A to provider B keeps sending to the stale A. Each owner must state
     the invariant with SEMANTIC TEETH, not just the vocabulary: the capture-once
@@ -1434,7 +1434,7 @@ def m1_anchor_problems() -> list[str]:
 # recipe. FORM-3.md §4 recommends capturing the frame-aware bundle *once in the
 # outer `reg-view*` callable* (`(rf/capture-frame)`), but that handle is a LOCKED
 # value: the frame is captured at mount and never re-resolves (implementation:
-# `make-capture-frame` closes the captured frame over every op — core.cljc). So
+# `make-capture-frame` closes the captured frame over every op — capture_frame.cljc). So
 # capture-once is safe ONLY while the mount's provider frame is invariant. A
 # *surviving* instance retargeted from provider A to provider B keeps sending to
 # the stale A, because React keeps it mounted and the outer callable does not

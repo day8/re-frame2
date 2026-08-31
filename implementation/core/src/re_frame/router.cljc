@@ -1043,12 +1043,12 @@
         (classify-pipeline-exception error event-id)
         handler-throw? (= operation :rf.error/handler-exception)
         ;; The throwing user interceptor's definition-site
-        ;; coord (captured by the `->interceptor` macro and carried on
-        ;; the interceptor map → error-record). Threaded onto the
+        ;; coord (an explicit `:source-coord` handed to `->interceptor*`,
+        ;; carried on the interceptor map → error-record). Threaded onto the
         ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
         ;; INTERCEPTOR row renders a jump-to-source chip (parity with
-        ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). Absent for the fn-path
-        ;; / framework interceptors (`path` / cofx injector) —
+        ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). Absent when the value
+        ;; carries none (framework interceptors — `path` / cofx injector):
         ;; nothing to jump to.
         icpt-coord (:source-coord error)
         tags       (cond-> {:event-id          event-id

@@ -158,7 +158,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-interceptor` | `(id ?metadata descriptor)` — the **public** interceptor-authoring form (EP-0022); descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`. Chains reference it by id; `->interceptor` is internal-only |
+| `rf/reg-interceptor` | `(id ?metadata descriptor)` — the **public** interceptor-authoring form (EP-0022); descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`. Chains reference it by id; the lowering constructor `->interceptor*` is internal-only |
 | interceptor context (inside `:before` / `:after`) | work the ctx map directly: `(get-in ctx [:coeffects k])` / `(get-in ctx [:effects k])` to read, `assoc-in` to write. There are no façade accessors — `rf/get-coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` do not exist |
 | `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; uniformly available to every event handler (EP-0017 / EP-0018) |
 | `:rf.cofx` (envelope field / dispatch opt) | flat `fact-name → value` map of recordable coeffects on every dispatch / reply envelope (EP-0017). `:rf/time-ms` is the framework's one built-in (recordable, provided, stamped at enqueue). Read durable time off it via `:rf.cofx/requires [:rf/time-ms]` → `(fn [{:keys [rf/time-ms]} ev] …)`. There is no `inject-cofx` (`:rf.error/inject-cofx-removed`) |
