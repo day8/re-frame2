@@ -279,6 +279,18 @@ the straggler a genuinely empty window.** Raising its priority is just more atte
 moving base. If a change refuses more than about three times while blocking nothing, **shelve it**
 — persistence on an item blocking nothing is its own gold-plating.
 
+**A change that reports merge CONFLICTS is a third refusal, and neither remedy above fits — its
+author does.** Where several green changes share one serial-lane file, each merge flips the
+remaining ones to conflicting; that is the lane working as designed, not a defect, and the
+conflict is one hunk in one commit. It is not a red change either, so the fix-worker path under
+*When a change is not green* is not the move. Message the author first — a live worker resumes
+in its own worktree with its context intact, and two such resumes here each recovered in minutes
+— and dispatch a fix worker onto the existing branch only when the author is gone. Brief either
+one to keep BOTH intents, hunk by hunk, never taking a side wholesale. **And state your believed
+cause as a claim**: the mayor's attribution of a conflict is a premise like any other, made at
+the moment of least information, and both authors resumed here refuted the stated cause and
+found the real one — a different sibling's landing than the one just merged.
+
 ### After each merge
 
 **Fetch the trunk, then fast-forward onto the remote-tracking ref** — two commands rather
@@ -1071,7 +1083,12 @@ text somewhere of your own is the operator's call.
 **Reaping on the report is correct and still costs something**: a worker can need its tree *after*
 it reports, because its change hits a conflict. Pushed commits make that survivable — it recreates
 the tree on the existing branch and continues. **Do not add a second condition to a rule whose
-strength is that it has one.**
+strength is that it has one.** Nothing, though, requires reaping the moment the report arrives:
+a reported tree whose change is still OPEN is exactly the tree its author resumes into when that
+change hits a conflict, so deferring its reap until the merge lands is free insurance — measured
+here, two of three deferred trees were needed again within the hour, and both recoveries were
+in-place resumes with full context rather than redispatches into recreated trees. The rule stays
+one-condition; the deferral is scheduling, not authorisation.
 
 ### Removing
 
