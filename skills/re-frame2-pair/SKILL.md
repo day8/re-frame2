@@ -55,7 +55,6 @@ allowed-tools:
   - mcp__re-frame2-story-mcp__read-failures
   - mcp__re-frame2-story-mcp__snapshot-identity
   - mcp__re-frame2-story-mcp__read-a11y-violations
-  - mcp__re-frame2-story-mcp__record-as-variant
   # story-mcp — read-only enumerations + agent-paste markdown
   - mcp__re-frame2-story-mcp__list-decorators
   - mcp__re-frame2-story-mcp__get-docs-markdown
@@ -198,7 +197,7 @@ Read the leaf matching the task. Most references are ≤250 lines; the two catal
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know it has none) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
-| Drive the **running browser app's own** Story registry via `eval-cljs` (`re-frame.story/ids` / `variants-of` / `run-variant`, await the run-result) — the pair is the live-browser Story host, story-mcp cannot see the browser registry; OR use the story-mcp tools during a live session (the five live-session tools `run-variant` / `read-failures` / `snapshot-identity` / `read-a11y-violations` / `record-as-variant` plus the three read-only enumerations `list-decorators` / `explain-variant` / `get-docs-markdown`; composition with watch-epochs and dispatch-from-pair) | [references/stories.md](references/stories.md) |
+| Drive the **running browser app's own** Story registry via `eval-cljs` (`re-frame.story/ids` / `variants-of` / `run-variant`, await the run-result) — the pair is the live-browser Story host, story-mcp cannot see the browser registry; OR use the story-mcp tools during a live session (the four live-session tools `run-variant` / `read-failures` / `snapshot-identity` / `read-a11y-violations` plus the three read-only enumerations `list-decorators` / `explain-variant` / `get-docs-markdown`; composition with watch-epochs and dispatch-from-pair) | [references/stories.md](references/stories.md) |
 
 Load at most two references for a single task. Wanting three means the request spans concerns and should be broken up.
 

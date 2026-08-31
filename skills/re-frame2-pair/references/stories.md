@@ -1,6 +1,6 @@
 # Stories — driving and asserting against Story variants from a re-frame2-pair session
 
-> Two ways to reach Story from a re-frame2-pair session. **(A) The running app's own stories** — drive `re-frame.story/*` in the live browser heap through `eval-cljs` (this is the live-browser Story host; see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs) first). **(B) story-mcp's own headless host** — the five allow-listed story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`) that drive/assert against a variant in story-mcp's same-JVM registry. Assumes you've read `SKILL.md` (the trace + epoch primitives) and `variant-as-frame.md` (variant-id IS frame-id).
+> Two ways to reach Story from a re-frame2-pair session. **(A) The running app's own stories** — drive `re-frame.story/*` in the live browser heap through `eval-cljs` (this is the live-browser Story host; see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs) first). **(B) story-mcp's own headless host** — the four allow-listed story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`) that drive/assert against a variant in story-mcp's same-JVM registry. Assumes you've read `SKILL.md` (the trace + epoch primitives) and `variant-as-frame.md` (variant-id IS frame-id).
 
 ## When to load this leaf
 
@@ -78,7 +78,7 @@ The entry-point names (`ids` / `variants-of` / `run-variant` / `result-status` /
 
 ## The five live-session tools — drive + assert palette
 
-The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in these five **live-session** story-mcp tools — the ones that drive or assert against a running variant. The variant-body **authoring** side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` to call those across the skill boundary. (Three further **read-only** story-mcp tools are also allow-listed here — see [§Read-only story-mcp enumerations](#read-only-story-mcp-enumerations) below.)
+The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in these four **live-session** story-mcp tools — the ones that drive or assert against a running variant. The variant-body **authoring** side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` to call those across the skill boundary. (Three further **read-only** story-mcp tools are also allow-listed here — see [§Read-only story-mcp enumerations](#read-only-story-mcp-enumerations) below.)
 
 | Tool | What it does | Returns |
 |---|---|---|
@@ -86,17 +86,14 @@ The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in
 | `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | `{:variant-id :status :total :failures :assertions}` (each record carries a derived `:status`) |
 | `mcp__re-frame2-story-mcp__snapshot-identity` | Content hash of `(variant × args × decorators × loaders × substrate × modes)` | `{:identity <hash>}` — use to skip cells unchanged since a prior run |
 | `mcp__re-frame2-story-mcp__read-a11y-violations` | axe-core results for the variant's rendered DOM | `{:violations [...]}` (JVM-standalone hosts return `[]` + a hint) |
-| `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back` re-registers | `{:play-snippet <string> :captured [<event-vec>...]}` |
 
-`record-as-variant` is the only one whose read-only path is ungated; the write-back branch needs `re-frame.story-mcp.config/allow-writes?` truthy, same gate as `register-variant`. See `tools/story-mcp/spec/002-Tool-Registry.md` for full I/O schemas.
+There is no headless MCP recorder tool (`record-as-variant` was retired, rf2-5saz7 — its blocking capture window was unreachable through the stdio transport). Interactive canvas recording is performed through Pair in the attached CLJS runtime — drive `re-frame.story/start-recording!` / `stop-recording!` / `gen-play-snippet` via `eval-cljs` (see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs)). See `tools/story-mcp/spec/002-Tool-Registry.md` for full I/O schemas.
 
 ```
 mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
 mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
 mcp__re-frame2-story-mcp__snapshot-identity {variant-id: ":story.counter/loaded"}
 mcp__re-frame2-story-mcp__read-a11y-violations {variant-id: ":story.counter/loaded"}
-mcp__re-frame2-story-mcp__record-as-variant
-  {variant-id: ":story.counter/loaded" :duration-ms 5000}
 ```
 
 ## Read-only story-mcp enumerations
@@ -169,15 +166,14 @@ A `:status :cannot-run` is the distinct third verdict — the runner could not e
 
 What re-frame2-pair adds over the bare loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` probes candidate fixes without re-registering the variant; `trace/last-epoch` shows the cascade `read-failures` won't (it reads only the assertion accumulator, not the trace stream).
 
-When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:script` snippet — the user lands it back in source.
+When the loop terminates, optionally capture the now-passing interaction as a fresh `:script` snippet through the browser recorder (`re-frame.story/start-recording!` → interact → `stop-recording!` → `gen-play-snippet` via `eval-cljs`) — the user lands it back in source.
 
 ## Common gotchas — live-session specific
 
 - **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + setup + play. REPL-only state you'd injected via re-frame2-pair `dispatch` between iterations is gone. Bake setup into `:loaders` / `:setup` if you need it to survive (`variant-as-frame.md §Common gotchas`).
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
 - **`read-a11y-violations` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
-- **`record-as-variant`'s filter layers are not free-form.** Filtering is inherited verbatim from `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). You can't widen the filter via tool input.
-- **Write-back gate is per-server, not per-call.** `record-as-variant` with `:write-back true` needs `--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true` set on the story-mcp server start. The read-only path (snippet returned, no registration) needs no gate. Wire-key is `:write-back` (no `?`).
+- **The browser recorder's filter layers are not free-form.** Filtering is fixed by `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`).
 
 ## Cross-references
 

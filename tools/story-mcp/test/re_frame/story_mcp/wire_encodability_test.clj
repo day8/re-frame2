@@ -212,34 +212,6 @@
       (is (= "rf.error/unknown-tag" (:rf.error (structured frame)))
           "the registrar's :rf.error/id populates the wire's :rf.error slot"))))
 
-;; ---- record-as-variant: the sibling relay ---------------------------------
-
-(deftest record-as-variant-write-back-schema-violation-is-a-tool-error
-  (testing "the write-back relay projects :explain the same way"
-    (story/reg-variant* :story.button/src {:doc "source" :args {}})
-    ;; `write-back!` re-registers the SOURCE body with the recorder's own
-    ;; play body swapped in, and both halves are registrar-produced — so
-    ;; the schema violation has to come from the one producer the path
-    ;; trusts. Seam it; everything downstream is real.
-    (with-redefs [story/recording->script-body (fn [_ _] "not-a-play-spec")]
-      (let [[line frame] (call-tool "record-as-variant"
-                                    (str "{\"variant-id\":\"story.button/src\","
-                                         "\"write-back\":true,"
-                                         "\"new-variant-id\":\"story.button/rec\"}"))]
-        (is (not (str/includes? line "Server fault"))
-            "the write-back relay must not take the encoder down")
-        (is (tool-error? frame))
-        (is (str/includes? (result-text frame) "Write-back failed"))
-        ;; Two messages: `PlaySpec` is an `:or`, and a string satisfies
-        ;; neither branch.
-        (is (= {:script ["invalid type" "invalid type"]}
-               (:explain-humanized (structured frame))))
-        (is (false? (:written-back? (structured frame)))
-            "the recorder payload still rides alongside the projection")
-        ;; rf2-2nbck: the sibling relay carries the same slot.
-        (is (= "rf.error/variant-shape" (:rf.error (structured frame)))
-            "the registrar's :rf.error/id populates the wire's :rf.error slot")))))
-
 ;; ---- wire-pipeline: the generic arm ---------------------------------------
 
 (deftest handler-throw-carrying-explain-is-a-tool-error

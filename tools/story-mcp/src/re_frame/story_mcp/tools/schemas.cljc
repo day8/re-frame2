@@ -74,10 +74,10 @@
 
   This is the canonical rule for the **input-schema property side**:
   every boolean tool input property MUST omit the
-  trailing `?` (today: `:include-sensitive` and `:write-back`).
+  trailing `?` (today: `:include-sensitive`).
   Response-payload keys (in `structuredContent`) are NOT bound by the
   Anthropic regex and retain the Clojure-idiomatic `?` — that's why
-  `:registered?`, `:unregistered?`, `:written-back?`, `:has-wrap?`
+  `:registered?`, `:unregistered?`, `:has-wrap?`
   carry the `?` on the response side. (The run/read tools' verdict is the
   `?`-free `:status`, not a `:passing?` boolean.)"
   {:type "boolean"
@@ -98,7 +98,7 @@
   "Inject the `:dedup` slot into a tool's `:properties` map. Applied
   only to tools whose descriptor carries `:dedup-eligible? true` —
   the surfaces where repeated subtrees dominate the wire cost
-  (`preview-variant`, `run-variant`, `record-as-variant`). Mirrors
+  (`preview-variant`, `run-variant`). Mirrors
   pair-mcp's selective `dedup-property` assignment in
   `descriptors_data.cljs`.
 
@@ -202,9 +202,9 @@
 
 (defn with-include-sensitive
   "Inject the `:include-sensitive` slot into a tool's `:properties`
-  map. Used by the five tools that surface a live or plan-resolved frame
+  map. Used by the four tools that surface a live or plan-resolved frame
   VALUE — `preview-variant`, `run-variant`, `read-failures`,
-  `read-a11y-violations`, `record-as-variant` (the affected set is the single
+  `read-a11y-violations` (the affected set is the single
   source of truth at `registry/tool-descriptors` §Sensitive-read gate;
   `explain-variant` is excluded — it ships author data raw, rf2-7k5mce).
 
@@ -282,7 +282,7 @@
 ;;   - DESTRUCTIVE tools: preview-variant (dispatches events into a
 ;;     variant's frame via the same `story/run-variant` lifecycle as
 ;;     run-variant), run-variant, register-variant,
-;;     unregister-variant, record-as-variant.
+;;     unregister-variant.
 ;; ---------------------------------------------------------------------------
 
 (def read-only-annotations
@@ -329,13 +329,9 @@
   systems. The open-world hint signals the truth so a host can apply the
   appropriate confirmation ceremony.
 
-  The READ tools, the registry WRITE tools (register / unregister /
-  record-as-variant), and the static docs tools stay closed-world: none
-  of them runs the author's lifecycle. `record-as-variant` is closed-
-  world by the same logic — it RECORDS what an externally-driven canvas
-  dispatched (the agent drives the canvas separately) and optionally
-  writes the captured snippet to the on-box registry; the tool call
-  itself does not run the variant lifecycle.
+  The READ tools, the registry WRITE tools (register / unregister),
+  and the static docs tools stay closed-world: none
+  of them runs the author's lifecycle.
 
   `preview-variant` carries these destructive annotations, not
   `read-only-annotations` — both tools call `(story/run-variant vk opts)`
@@ -347,7 +343,7 @@
 
 (def write-gated-output-schema
   "outputSchema for write-surface tools (`register-variant`,
-  `unregister-variant`, `record-as-variant` with `:write-back true`).
+  `unregister-variant`).
   Includes the gated-error shape — when the operator-only
   `--allow-writes` flag is closed, the tool returns
   `{:isError true :structuredContent {:gated true :tool \"<name>\"}}`.

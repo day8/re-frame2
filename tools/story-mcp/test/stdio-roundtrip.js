@@ -118,7 +118,7 @@ function run() {
       notify('notifications/initialized', {});
 
       // 2. tools/list — expect the full registry per spec/002-Tool-Registry.md
-      // (rf2-luhdu record-as-variant, rf2-mqp1u list-decorators,
+      // (rf2-mqp1u list-decorators,
       //  rf2-i0kyy get-docs-markdown). The canonical name list is shared
       // with the JVM test corpus via test/fixtures/tool-names.json
       // (rf2-36upq TE7) — a registry change updates one file, not two.
@@ -162,22 +162,14 @@ function run() {
       }
       console.log('OK   register-variant descriptor -> variant-id + body required');
 
-      // 2d. Verify the record-as-variant descriptor (rf2-luhdu landing):
-      // required `variant-id`; optional duration-ms / new-variant-id / doc
-      // / extends / alias / write-back. (Wire-key `write-back` — no `?` per
-      // Anthropic's input-schema property-name regex; rf2-pmwgn.)
+      // 2d. record-as-variant is RETIRED (rf2-5saz7): the blocking recorder
+      // bridge advertised a capture window no stdio client could drive (the
+      // single dispatch loop slept through it). The fixture-equality check
+      // above already excludes it; this explicit probe keeps the absence
+      // loud if the fixture and registry ever drift back in lockstep.
       const recDesc = (list.result?.tools || []).find((t) => t.name === 'record-as-variant');
-      if (!recDesc) throw new Error('record-as-variant descriptor missing from tools/list');
-      const recProps = recDesc.inputSchema?.properties || {};
-      for (const k of ['variant-id', 'duration-ms', 'new-variant-id', 'doc', 'extends', 'alias', 'write-back']) {
-        if (!(k in recProps)) {
-          throw new Error('record-as-variant inputSchema missing property: ' + k);
-        }
-      }
-      if (!recDesc.inputSchema?.required?.includes('variant-id')) {
-        throw new Error('record-as-variant.inputSchema missing required: variant-id');
-      }
-      console.log('OK   record-as-variant descriptor -> variant-id (required) + duration-ms/new-variant-id/doc/extends/alias/write-back');
+      if (recDesc) throw new Error('record-as-variant was retired (rf2-5saz7) but is advertised in tools/list');
+      console.log('OK   record-as-variant -> retired, absent from tools/list (rf2-5saz7)');
 
       // 3. tools/call list-tags — read-side smoke; the seven inclusion
       // tags must be present among the 12-entry canonical set (7 inclusion

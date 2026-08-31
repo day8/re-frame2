@@ -12,7 +12,7 @@
   `tools/call`, etc.) lives in `re-frame.story-mcp.server`; the tool
   implementations live under `re-frame.story-mcp.tools.*`
   (`tools.wire-pipeline`, `tools.registry`, `tools.dev`, `tools.docs`,
-  `tools.testing`, `tools.write`, `tools.recorder`, `tools.result`,
+  `tools.testing`, `tools.write`, `tools.result`,
   `tools.args`, `tools.cljs-resolve`, `tools.egress`, `tools.schemas`).
 
   ## JSON-RPC error codes
@@ -202,11 +202,11 @@
   policy (`safe-keyword` against a live registry, the hardened EDN
   `read-edn-body`, etc.). Per `spec/001-Wire-Protocol.md` +
   `tools/mcp-base/spec/args.md` §Keyword-interning safety."
-  #{:variant-id :story-id :new-variant-id :extends           ; ids
+  #{:variant-id :story-id                                     ; ids
     :substrate :active-modes :cell-overrides :base-url        ; run opts
-    :body :doc :alias                                         ; write payload slots
+    :body                                                     ; write payload slots
     :tags :kind :limit :cursor                                ; filters / pagination
-    :write-back :duration-ms :timeout-ms                      ; behaviour knobs
+    :timeout-ms                                               ; behaviour knobs
     :include-sensitive :max-tokens :dedup})                   ; egress / budget knobs
 
 (defn- rename-allowed-keys

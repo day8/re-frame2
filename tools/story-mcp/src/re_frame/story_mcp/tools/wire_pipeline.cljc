@@ -32,10 +32,9 @@
 
   Mirrors pair-mcp's `wire-pipeline` posture: dedup is applied only on
   surfaces where repeated subtrees dominate the wire cost. For story-
-  mcp those are `preview-variant` / `run-variant` / `record-as-variant`
-  — the three tools whose payload re-keys the same value into multiple
-  derived slots (`:app-db` + `:rendered-hiccup` + `:snapshot`; or
-  repeated event records in the recorder's `:captured` vector). For
+  mcp those are `preview-variant` / `run-variant`
+  — the two tools whose payload re-keys the same value into multiple
+  derived slots (`:app-db` + `:rendered-hiccup` + `:snapshot`). For
   every other tool dedup is a net loss: `list-stories` /
   `get-story` / `register-variant` and friends ship small bespoke
   shapes where the cache-of-one wrap adds bytes for zero compression.
@@ -93,8 +92,7 @@
    "get-variant"       "Variant body is large — request `variant->edn` if you want EDN-only, or raise `max-tokens` (0 disables)."
    "variant->edn"      "Variant EDN body is large — narrow the variant or raise `max-tokens` (0 disables)."
    "list-stories"      "Story registry is large — narrow with `:tags`, or raise `max-tokens` (0 disables)."
-   "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."
-   "record-as-variant" "Captured event stream is large — shorten `:duration-ms`, or raise `max-tokens` (0 disables)."})
+   "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."})
 
 (def ^:private result-io
   "ResultIO reify over story-mcp's CLJ-map result shape. The
@@ -105,7 +103,7 @@
   HOT PATH: `text-result` writes the same payload into BOTH
   `:content[*].text` AND `:structuredContent` on nearly every structured
   tool (`preview-variant`, `run-variant`, `list-stories`, `get-story`,
-  `get-variant`, `read-failures`, `record-as-variant`, `get-docs-markdown`).
+  `get-variant`, `read-failures`, `get-docs-markdown`).
   Cap accounting must size the structured slot too — otherwise the cap
   underestimates wire by ~50% and overflow replacement fires later than
   it should. We surface the structured payload as one extra `pr-str`-ed
@@ -194,7 +192,7 @@
     dropped + recorded as metadata at frame normalisation).
   - Keys inside the global allowlist (so they survived normalisation as
     keyword ENTRIES) but outside THIS tool's advertised `inputSchema`
-    properties (e.g. `:body` on `get-variant`, `:write-back` on
+    properties (e.g. `:body` on `get-variant` or
     `run-variant`). Reported as their `name`-stringified form so the
     diagnostic shape matches the global-unknown case."
   [tool-name t unknown]
@@ -239,7 +237,7 @@
   This is the server-side backstop for each descriptor's
   `additionalProperties false` contract at the PER-TOOL granularity: the
   global normalisation only rejects keys outside the UNION of every
-  tool's args, so a key valid for ANOTHER tool (`:body`, `:write-back`,
+  tool's args, so a key valid for ANOTHER tool (`:body`,
   `:dedup` on a non-eligible tool) is caught here rather than slipping
   through to be silently ignored. No-intern is preserved — every key
   here is already an interned keyword (it passed the global allowlist),
@@ -294,7 +292,7 @@
   2. `apply-dedup` — selective: runs only when the descriptor carries
      `:dedup-eligible? true` AND the `:dedup` arg is true (the default).
      The eligible set is
-     `{preview-variant, run-variant, record-as-variant}` — the three
+     `{preview-variant, run-variant}` — the two
      surfaces where repeated subtrees dominate the wire cost. The
      `:structuredContent` slot is run through `re-frame.mcp-base.dedup` to
      collapse repeated subtrees, and the `:content[*].text` slot is
@@ -361,7 +359,7 @@
 
         ;; A globally-known but tool-invalid argument key is the per-tool
         ;; backstop for each descriptor's `additionalProperties false`
-        ;; contract. A key valid for ANOTHER tool (`:body`, `:write-back`,
+        ;; contract. A key valid for ANOTHER tool (`:body`,
         ;; `:dedup` on a non-eligible tool) survives global normalisation;
         ;; without this branch the selected handler would silently ignore
         ;; it. Diagnose it with the same `:rf.story-mcp/unknown-arguments`

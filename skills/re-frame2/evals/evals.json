@@ -113,7 +113,7 @@
       "id": 7,
       "name": "recipe-correctness-story-recorder-sensitive-login",
       "dimension": "recipe-correctness",
-      "prompt": "I'm using the Story recorder to capture a login + 2FA workflow into a :script body — the user types an email, a password, then a one-time 2FA code. I do NOT want the password or the 2FA code to land in the recorded snippet or in the MCP record-as-variant output. How do I mark these events so the recorder redacts them?",
+      "prompt": "I'm using the Story recorder to capture a login + 2FA workflow into a :script body — the user types an email, a password, then a one-time 2FA code. I do NOT want the password or the 2FA code to land in the recorded snippet. How do I mark these events so the recorder redacts them?",
       "expected_output": "The agent loads references/tooling/story-recorder.md (and references/cross-cutting/privacy-and-elision.md) and teaches the CURRENT (path-based, fail-open) privacy contract: the recorder suppresses a row iff the runtime stamped :sensitive? on the emitted trace event, which is OWNER-CLASSIFIED by PATH, NOT handler metadata. The owner of the data classifies the path: a durable app-db secret via the writing event's :sensitive classification effect (returned alongside :db), a transient payload-only secret in the REGISTRATION's :sensitive metadata on the submit handler. It explicitly rejects marking the reg-event handler / action {:sensitive? true} as a no-op (removed from the runtime). It does NOT reach for the retired rf/redact-interceptor, rf/add-marks, or a frame :sensitive {:app-db ...} annotation (all removed).",
       "files": [],
       "expectations": [
@@ -122,7 +122,7 @@
         "The output EXPLICITLY REJECTS handler-meta {:sensitive? true} on the reg-event / action as the mechanism — it states that flag is a no-op / removed from the runtime and ships credentials verbatim.",
         "For the password (if it lands at a durable app-db slot), the output classifies that path via the writing event's :sensitive classification effect (e.g. {:db ... :sensitive [[:auth :token]]}) so the runtime stamps the trace event sensitive and the recorder substitutes the whole-row [:rf/redacted] placeholder.",
         "For a transient payload-only secret (the one-time 2FA code riding only the event vector), the output names its path in the submit handler's REGISTRATION :sensitive metadata (e.g. (rf/reg-event :auth/verify {:sensitive [[:totp-code]]} handler)), NOT a positional interceptor.",
-        "The output does NOT reach for the retired rf/redact-interceptor, rf/add-marks, a frame :sensitive {:app-db ...} annotation, or schema-attached app-db {:sensitive? true} as the mechanism, and does NOT claim that registering a handler :sensitive? true causes Story / MCP record-as-variant to redact the event."
+        "The output does NOT reach for the retired rf/redact-interceptor, rf/add-marks, a frame :sensitive {:app-db ...} annotation, or schema-attached app-db {:sensitive? true} as the mechanism, and does NOT claim that registering a handler :sensitive? true causes the Story recorder to redact the event."
       ]
     },
     {
@@ -137,7 +137,7 @@
         "For the authoring half, the agent uses only tools the re-frame2 skill allow-lists: register-variant (write the body), preview-variant (render one variant), get-variant / explain-variant (read it back) — and it authors a body with :extends :story.todos/list-with-items plus a :script that dispatches the delete/confirm and a :rf.assert/* check.",
         "The agent does NOT claim to call mcp__re-frame2-story-mcp__run-variant or mcp__re-frame2-story-mcp__read-failures from inside the re-frame2 skill — those are NOT in this skill's allowed-tools (they are owned by re-frame2-pair).",
         "For the 'run it and keep iterating against the running library' half, the agent HANDS OFF to the re-frame2-pair skill (it names re-frame2-pair as the owner of the run/self-heal loop against a live runtime behind shadow-cljs watch) rather than fabricating a run-variant call.",
-        "The agent's explanation of the boundary matches the shipped hybrid split: authoring (register/preview/read-back) is static and owned here; running (run-variant / read-failures / record-as-variant) is runtime-bound and owned by re-frame2-pair — consistent with scripts/check_skill_mcp_drift.py's intentional_server_only partition.",
+        "The agent's explanation of the boundary matches the shipped hybrid split: authoring (register/preview/read-back) is static and owned here; running (run-variant / read-failures) is runtime-bound and owned by re-frame2-pair — consistent with scripts/check_skill_mcp_drift.py's intentional_server_only partition.",
         "The agent does NOT propose adding run-variant / read-failures to the re-frame2 skill's allowed-tools as a workaround, nor does it hallucinate a successful run result it never executed."
       ]
     },
