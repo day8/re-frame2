@@ -44,6 +44,9 @@
             [re-frame.epoch :as epoch]
             [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
+            ;; rf2-gj2bo — the CLJS same-id-successor injection pin interposes
+            ;; its churn on the real precondition check via with-redefs.
+            [re-frame.epoch.tool-pair :as tool-pair]
             ;; rf2-vxgfnd.265 — the reentrant claim-before-delivery fixture reads
             ;; the successor incarnation's token to model its pre-first-epoch claim.
             [re-frame.frame :as frame]
@@ -228,6 +231,66 @@
           "no synthetic :rf.epoch/db-replaced record was created by the refused replace")
       (is (= :done (:phase (rf/app-db-value :rf/default)))
           "the drain settled cleanly (no deadlock); app-db carries the handler's own commit"))))
+
+;; ---- 2c. rf2-gj2bo — injection fenced to the exact incarnation --------------
+;;
+;; JVM coverage in `re-frame.epoch-test` carries the full matrix (pre-write
+;; churn, post-write tail, both-partition, no-churn controls); this pins the
+;; load-bearing A-to-B PRE-WRITE invariant in the CLJS lane, deterministically,
+;; via the same precheck interposition the JVM tests use — no timing sleeps.
+;; The precheck runs REAL against live incarnation A and yields A's exact
+;; record-derived token; the interposed churn destroys A and seats + seeds a
+;; same-id successor B before the write; the token fence must then refuse.
+
+(deftest replace-frame-state-fenced-to-exact-incarnation-cljs
+  (testing "rf2-gj2bo — an injection validated against incarnation A, with a
+            same-id successor B seated + seeded BEFORE the write, is REJECTED:
+            false return, canonical :rf.error/no-such-handler, B's frame-state
+            and history byte-for-byte at their baselines, and no
+            :rf.epoch/db-replaced record or trace"
+    (rf/make-frame {:id :gj2bo/succ})
+    (rf/reg-event :gj2bo/set-owner (fn [_ [_ o]] {:db {:owner o}}))
+    (rf/dispatch-sync [:gj2bo/set-owner :A] {:frame :gj2bo/succ})
+    (let [real-check tool-pair/check-replace-frame-state-preconditions!
+          a-token    (frame/frame-incarnation-token :gj2bo/succ)
+          checked    (atom nil)
+          b-baseline (atom nil)
+          ops        (atom #{})]
+      (trace-tooling/register-listener! ::gj2bo-rec
+                                        (fn [ev] (swap! ops conj (:operation ev))))
+      (with-redefs [tool-pair/check-replace-frame-state-preconditions!
+                    (fn [frame-id new-frame-state]
+                      (let [r (real-check frame-id new-frame-state)]
+                        (reset! checked r)
+                        ;; Interpose: destroy A, seat + seed same-id successor
+                        ;; B, capture B's baselines, hand back A's ticket.
+                        (rf/destroy-frame! frame-id)
+                        (rf/make-frame {:id frame-id})
+                        (rf/dispatch-sync [:gj2bo/set-owner :B] {:frame frame-id})
+                        (reset! b-baseline
+                                {:frame-state (rf/frame-state-value frame-id)
+                                 :history     (rf/epoch-history frame-id)})
+                        r))]
+        (let [result (rf/replace-frame-state! :gj2bo/succ {:rf.db/app {:owner :STALE-A}})]
+          (trace-tooling/unregister-listener! ::gj2bo-rec)
+          (is (= :ok (:outcome @checked))
+              "the REAL precondition check passed against live incarnation A")
+          (is (identical? a-token (:incarnation-token @checked))
+              "the :ok ticket carries A's exact record-derived token")
+          (is (not (identical? a-token (frame/frame-incarnation-token :gj2bo/succ)))
+              "successor B is a fresh incarnation (A/B tokens distinct)")
+          (is (false? result) "the stale cross-incarnation injection is REJECTED")
+          (is (= {:owner :B} (rf/app-db-value :gj2bo/succ))
+              "B's app-db is byte-for-byte unchanged — :STALE-A never installed")
+          (is (= (:frame-state @b-baseline) (rf/frame-state-value :gj2bo/succ))
+              "B's whole frame-state is at its captured baseline")
+          (is (= (:history @b-baseline) (rf/epoch-history :gj2bo/succ))
+              "B's history is at its captured baseline — no stale synthetic record")
+          (is (contains? @ops :rf.error/no-such-handler)
+              "the canonical :rf.error/no-such-handler typed failure fired")
+          (is (not (contains? @ops :rf.epoch/db-replaced))
+              "no :rf.epoch/db-replaced success trace")
+          (rf/destroy-frame! :gj2bo/succ))))))
 
 ;; ---- 3. Ring depth cap -----------------------------------------------------
 

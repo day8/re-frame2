@@ -5007,10 +5007,13 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
-    ;; (1) Validate against the LIVE frame — passes.
-    (let [{:keys [outcome]} (tool-pair/check-replace-frame-state-preconditions!
-                              :test/short-lived {:rf.db/app {:n 999}})]
+    ;; (1) Validate against the LIVE frame — passes, yields the exact
+    ;; incarnation token the checks resolved against (rf2-gj2bo).
+    (let [{:keys [outcome incarnation-token]}
+          (tool-pair/check-replace-frame-state-preconditions!
+            :test/short-lived {:rf.db/app {:n 999}})]
       (is (= :ok outcome) "precondition validation passed against the live frame")
+      (is (some? incarnation-token) "the :ok ticket carries the incarnation token")
 
       ;; A listener that records every fanned record — it must NOT see a
       ;; record for the destroyed frame.
@@ -5024,9 +5027,10 @@
         ;; (2) The race: destroy in the validate→write window.
         (rf/destroy-frame! :test/short-lived)
 
-        ;; (3) Perform the reset at the boundary — container is now nil.
+        ;; (3) Perform the reset at the boundary — the resolved incarnation is gone.
         (let [recorded (record-trace!)
-              result   (#'epoch/perform-replace-frame-state! :test/short-lived {:rf.db/app {:n 999}})]
+              result   (#'epoch/perform-replace-frame-state!
+                         :test/short-lived incarnation-token {:rf.db/app {:n 999}})]
           (is (false? result)
               "perform-replace-frame-state! reports HONEST failure (false) — NOT a
                synthetic success — for the validate-then-destroy race")
@@ -5410,6 +5414,223 @@
           (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
               ":rf.epoch/restored success trace fired"))
         (finally (late-bind/set-fn! rk r0))))))
+
+;; ---- rf2-gj2bo — state INJECTION is the same exact-incarnation transaction -
+;;
+;; rf2-bjh6y/rf2-qfrh4 fenced RESTORE end to end, but the sibling Tool-Pair
+;; write — replace-frame-state!, the dev-only state injection Xray / Pair-MCP
+;; drive — still validated a bare frame id, returned no incarnation token, and
+;; wrote through the non-exact two-arity core write. If validated incarnation A
+;; was destroyed and a same-id successor B seated before the write, the stale
+;; gesture overwrote B and recorded the transition in B's history while
+;; returning true. The fix mirrors the shipped restore transaction exactly: the
+;; preconditions derive the EXACT token from the same captured record and
+;; return it on :ok; the public fn threads it to the write boundary; the
+;; serialized region gates on `event-continuation-live?` and installs through
+;; core's exact-incarnation 3-arity write; and the synthetic bookkeeping
+;; claims/commits only under that exact token (`commit-frame-owner-record!`),
+;; with liveness re-checks around the callback-bearing trace/listener tails.
+;;
+;; The churn is interposed exactly as the public fn sequences the phases: a
+;; with-redefs precheck wrapper runs the REAL (live-A) validation, then
+;; destroys A, seats + seeds same-id B, and hands back A's ticket — the
+;; deterministic validate→write window, no timing sleeps.
+
+(deftest replace-frame-state-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
+  (testing "rf2-gj2bo — an app-only injection (the Xray/Pair-MCP shape) whose
+            preconditions resolve against incarnation A, then A is destroyed
+            and a same-id SUCCESSOR B is seated + seeded BEFORE the write,
+            REJECTS the stale install through the PUBLIC surface: returns
+            false, emits the canonical :rf.error/no-such-handler (kind
+            :frame), emits no :rf.epoch/db-replaced, fans nothing to epoch
+            listeners, and leaves B's full frame-state AND history exactly at
+            their captured baselines."
+    (rf/make-frame {:id :test/inj})
+    (rf/reg-event :set-owner-inj (fn [_ [_ o]] {:db {:owner o}}))
+    (rf/dispatch-sync [:set-owner-inj :A] {:frame :test/inj})
+
+    (let [real-check   tool-pair/check-replace-frame-state-preconditions!
+          a-token      (frame/frame-incarnation-token :test/inj)
+          check-result (atom nil)
+          b-baseline   (atom nil)
+          fanned       (atom [])
+          recorded     (record-trace!)]
+      (rf/register-listener! :epoch ::inj-fan (fn [r] (swap! fanned conj r)))
+      (with-redefs [tool-pair/check-replace-frame-state-preconditions!
+                    (fn [frame-id new-frame-state]
+                      (let [r (real-check frame-id new-frame-state)]
+                        (reset! check-result r)
+                        ;; Interpose: destroy A, seat + seed same-id successor
+                        ;; B, capture B's baselines, then hand back A's ticket.
+                        (rf/destroy-frame! frame-id)
+                        (rf/make-frame {:id frame-id})
+                        (rf/dispatch-sync [:set-owner-inj :B] {:frame frame-id})
+                        (reset! b-baseline
+                                {:frame-state (rf/frame-state-value frame-id)
+                                 :history     (rf/epoch-history frame-id)})
+                        ;; Drop B's own seed fan-out; only post-churn deliveries
+                        ;; are under test.
+                        (reset! fanned [])
+                        r))]
+        (let [result (rf/replace-frame-state! :test/inj {:rf.db/app {:owner :STALE-A}})]
+          (is (= :ok (:outcome @check-result))
+              "the REAL precondition check passed against live incarnation A")
+          (is (identical? a-token (:incarnation-token @check-result))
+              "the :ok ticket carries A's exact record-derived token")
+          (is (not (identical? a-token (frame/frame-incarnation-token :test/inj)))
+              "successor B is a fresh incarnation (A/B tokens distinct)")
+          (is (false? result)
+              (str "the stale cross-incarnation injection must be REJECTED; got "
+                   (pr-str result)))
+          (is (= {:owner :B} (rf/app-db-value :test/inj))
+              "successor B's app-db is byte-for-byte unchanged — :STALE-A never installed")
+          (is (= (:frame-state @b-baseline) (rf/frame-state-value :test/inj))
+              "B's WHOLE frame-state is exactly at its captured baseline")
+          (is (= (:history @b-baseline) (rf/epoch-history :test/inj))
+              "B's history is exactly at its captured baseline — no stale synthetic record spliced in")
+          (is (has-error-op? @recorded :rf.error/no-such-handler)
+              ":rf.error/no-such-handler fired for the lost incarnation")
+          (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) @recorded)]
+            (is (= :frame (:kind (:tags ev))) "the typed failure carries :kind :frame")
+            (is (= :test/inj (:frame (:tags ev))) "the typed failure carries :frame"))
+          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+              "no :rf.epoch/db-replaced success trace for the rejected stale injection")
+          (is (empty? @fanned)
+              "no synthetic epoch fanned out to listeners after the churn"))))))
+
+(deftest replace-frame-state-both-partition-fenced-to-exact-incarnation
+  (testing "rf2-gj2bo — the same validate→churn→write window with a
+            BOTH-partition patch: the stale injection is rejected, B's two
+            partitions and history stay exactly at their captured baselines."
+    (rf/make-frame {:id :test/inj2})
+    (rf/reg-event :seed-inj2
+      (fn [{rt :rf.db/runtime} [_ o]]
+        {:db {:owner o}
+         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :start}})}))
+    (rf/dispatch-sync [:seed-inj2 :A] {:frame :test/inj2})
+
+    (let [real-check tool-pair/check-replace-frame-state-preconditions!
+          b-baseline (atom nil)
+          recorded   (record-trace!)]
+      (with-redefs [tool-pair/check-replace-frame-state-preconditions!
+                    (fn [frame-id new-frame-state]
+                      (let [r (real-check frame-id new-frame-state)]
+                        (rf/destroy-frame! frame-id)
+                        (rf/make-frame {:id frame-id})
+                        (rf/dispatch-sync [:seed-inj2 :B] {:frame frame-id})
+                        (reset! b-baseline
+                                {:frame-state (rf/frame-state-value frame-id)
+                                 :history     (rf/epoch-history frame-id)})
+                        r))]
+        (let [result (rf/replace-frame-state!
+                       :test/inj2
+                       {:rf.db/app     {:owner :STALE-A}
+                        :rf.db/runtime {:rf.runtime/routing {:current {:route-id :stale}}}})]
+          (is (false? result) "the stale both-partition injection must be REJECTED")
+          (is (= (:frame-state @b-baseline) (rf/frame-state-value :test/inj2))
+              "B's whole frame-state (both partitions) is exactly at its baseline")
+          (is (= (:history @b-baseline) (rf/epoch-history :test/inj2))
+              "B's history is exactly at its baseline")
+          (is (has-error-op? @recorded :rf.error/no-such-handler)
+              ":rf.error/no-such-handler fired for the lost incarnation")
+          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+              "no :rf.epoch/db-replaced success trace"))))))
+
+(deftest replace-frame-state-post-write-tail-fenced-to-exact-incarnation
+  (testing "rf2-gj2bo — A-to-B churn interposed AFTER the exact A physical
+            write but BEFORE the synthetic bookkeeping: the write demonstrably
+            ran against A (the arm cannot pass by skipping it), the public
+            result stays TRUE (the exact-incarnation install committed on A —
+            the restore-tail precedent), and NO A synthetic record, ring
+            entry, last-settled anchor, :rf.epoch/db-replaced trace, or
+            listener delivery appears in B; B remains unchanged."
+    (rf/make-frame {:id :test/inj3})
+    (rf/reg-event :set-owner-inj3 (fn [_ [_ o]] {:db {:owner o}}))
+    (rf/dispatch-sync [:set-owner-inj3 :A] {:frame :test/inj3})
+
+    (let [real-write frame/replace-frame-state!
+          a-changed  (atom ::unset)
+          fanned     (atom [])
+          recorded   (record-trace!)]
+      (rf/register-listener! :epoch ::inj3-fan (fn [r] (swap! fanned conj r)))
+      (let [result (with-redefs [frame/replace-frame-state!
+                                 (fn [frame-id token fs]
+                                   ;; The exact A write runs FIRST and its
+                                   ;; changed-key-set is captured — then the
+                                   ;; churn lands before the tail bookkeeping.
+                                   (let [changed (real-write frame-id token fs)]
+                                     (reset! a-changed changed)
+                                     (rf/destroy-frame! frame-id)
+                                     (rf/make-frame {:id frame-id})
+                                     (rf/dispatch-sync [:set-owner-inj3 :B] {:frame frame-id})
+                                     changed))]
+                     (rf/replace-frame-state! :test/inj3 {:rf.db/app {:owner :INJECTED-A}}))
+            b-history (rf/epoch-history :test/inj3)
+            b-seed    (some #(when (= :set-owner-inj3 (:event-id %)) %) b-history)]
+        (is (= #{:rf.db/app} @a-changed)
+            "the exact A physical write actually ran and landed (non-vacuity)")
+        (is (true? result)
+            "the install committed on the exact incarnation A, so the public result stays TRUE")
+        (is (= {:owner :B} (rf/app-db-value :test/inj3))
+            "successor B's live app-db remains B's own — untouched by A's tail")
+        (is (not-any? #(= :rf.epoch/db-replaced (:event-id %)) b-history)
+            "A's synthetic :rf.epoch/db-replaced record was NOT spliced into B's ring")
+        (is (some? b-seed) "B's own seed epoch is in B's ring")
+        (is (= (:epoch-id b-seed) (state/last-settled-epoch-id :test/inj3))
+            "B's last-settled anchor is B's own epoch — NOT retargeted to A's synthetic id")
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced trace fired after the churn")
+        (is (not-any? #(= :rf.epoch/db-replaced (:event-id %)) @fanned)
+            "no synthetic record was delivered to epoch listeners")))))
+
+(deftest replace-frame-state-within-incarnation-through-fence-still-succeeds
+  (testing "rf2-gj2bo control — the identical app-only patch with NO churn
+            still succeeds through every fence: true return, the intended
+            frame changes, the omitted runtime partition is PRESERVED, exactly
+            one matching synthetic record is appended, and the success
+            notification fans out. The fences reject only a lost incarnation,
+            never an ordinary live one."
+    (rf/make-frame {:id :test/inj-ctl})
+    (rf/reg-event :seed-ctl
+      (fn [{rt :rf.db/runtime} [_ o]]
+        {:db {:owner o}
+         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
+    (rf/dispatch-sync [:seed-ctl :A] {:frame :test/inj-ctl})
+
+    ;; The :ok ticket pairs the live incarnation's own record-derived token.
+    (let [{:keys [outcome incarnation-token]}
+          (tool-pair/check-replace-frame-state-preconditions!
+            :test/inj-ctl {:rf.db/app {:owner :INJECTED}})]
+      (is (= :ok outcome) "preconditions pass against the live frame")
+      (is (identical? incarnation-token (frame/frame-incarnation-token :test/inj-ctl))
+          "the :ok ticket's token is the live incarnation's own drain-lock"))
+
+    (let [fanned   (atom [])
+          recorded (record-trace!)]
+      (rf/register-listener! :epoch ::inj-ctl-fan (fn [r] (swap! fanned conj r)))
+      (let [result     (rf/replace-frame-state! :test/inj-ctl {:rf.db/app {:owner :INJECTED}})
+            history    (rf/epoch-history :test/inj-ctl)
+            synthetics (filter #(= :rf.epoch/db-replaced (:event-id %)) history)
+            synthetic  (first synthetics)]
+        (is (true? result) "an ordinary within-incarnation injection still succeeds")
+        (is (= {:owner :INJECTED} (rf/app-db-value :test/inj-ctl))
+            "the intended frame's app-db holds the patch")
+        (is (= {:current {:route-id :kept}}
+               (get-in (rf/frame-state-value :test/inj-ctl)
+                       [:rf.db/runtime :rf.runtime/routing]))
+            "the OMITTED runtime partition is preserved by the no-churn control")
+        (is (= 1 (count synthetics))
+            "exactly one synthetic :rf.epoch/db-replaced record was appended")
+        (is (= {:owner :A} (get-in synthetic [:frame-state-before :rf.db/app]))
+            "the synthetic record's before-state matches the pre-injection app-db")
+        (is (= {:owner :INJECTED} (get-in synthetic [:frame-state-after :rf.db/app]))
+            "the synthetic record's after-state matches the installed app-db")
+        (is (= (:epoch-id synthetic) (state/last-settled-epoch-id :test/inj-ctl))
+            "the synthetic epoch anchors last-settled")
+        (is (some #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            ":rf.epoch/db-replaced success trace fired")
+        (is (= 1 (count (filter #(= :rf.epoch/db-replaced (:event-id %)) @fanned)))
+            "the success notification fanned exactly one synthetic record to listeners")))))
 
 ;; ---- rf2-sdeae — the fenced tail ops are themselves FAN-OUTS ---------------
 ;;
@@ -5800,12 +6021,14 @@
       (reset! fanned [])
 
       (let [real-write frame/replace-frame-state!
+            a-token    (frame/frame-incarnation-token :test/short-lived)
             recorded   (record-trace!)
             result     (with-redefs [frame/replace-frame-state!
-                                     (fn [frame-id fs]
+                                     (fn [frame-id token fs]
                                        (rf/destroy-frame! frame-id)
-                                       (real-write frame-id fs))]
-                         (#'epoch/perform-replace-frame-state! :test/short-lived {:rf.db/app {:n 999}}))]
+                                       (real-write frame-id token fs))]
+                         (#'epoch/perform-replace-frame-state!
+                           :test/short-lived a-token {:rf.db/app {:n 999}}))]
         (is (false? result)
             "perform-replace-frame-state! reports HONEST failure (false) for the
              nil-return post-liveness teardown")
@@ -5838,13 +6061,15 @@
       (reset! fanned [])
 
       (let [real-write frame/replace-frame-state!
+            a-token    (frame/frame-incarnation-token :test/short-lived)
             recorded   (record-trace!)
             result     (with-redefs [frame/replace-frame-state!
-                                     (fn [frame-id fs]
+                                     (fn [frame-id token fs]
                                        (rf/destroy-frame! frame-id)
-                                       (real-write frame-id fs))]
+                                       (real-write frame-id token fs))]
                          (#'epoch/perform-replace-frame-state!
-                           :test/short-lived {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))]
+                           :test/short-lived a-token
+                           {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))]
         (is (false? result)
             "perform-replace-frame-state! reports HONEST failure (false) for the
              nil-return post-liveness teardown")
@@ -5876,13 +6101,15 @@
       (reset! fanned [])
 
       (let [real-write frame/replace-frame-state!
+            a-token    (frame/frame-incarnation-token :test/short-lived)
             recorded   (record-trace!)
             new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}
             result     (with-redefs [frame/replace-frame-state!
-                                     (fn [frame-id fs]
+                                     (fn [frame-id token fs]
                                        (rf/destroy-frame! frame-id)
-                                       (real-write frame-id fs))]
-                         (#'epoch/perform-replace-frame-state! :test/short-lived new-fs))]
+                                       (real-write frame-id token fs))]
+                         (#'epoch/perform-replace-frame-state!
+                           :test/short-lived a-token new-fs))]
         (is (false? result)
             "perform-replace-frame-state! reports HONEST failure (false) for the
              nil-return post-liveness teardown")
@@ -5916,7 +6143,9 @@
     (let [recorded (record-trace!)
           ;; Inject the IDENTICAL value — a genuine no-op write against a live
           ;; frame. commit-frame-transition! returns #{} (empty, non-nil).
-          result   (#'epoch/perform-replace-frame-state! :test/main {:rf.db/app {:n 7}})]
+          result   (#'epoch/perform-replace-frame-state!
+                     :test/main (frame/frame-incarnation-token :test/main)
+                     {:rf.db/app {:n 7}})]
       (is (true? result)
           "a live-frame no-op write stays successful (empty-set ≠ nil)")
       (is (= {:n 7} (rf/app-db-value :test/main))

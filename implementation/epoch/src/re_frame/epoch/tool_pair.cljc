@@ -502,37 +502,21 @@
 ;;
 ;; Precondition validation (`check-restore-preconditions!` /
 ;; `check-replace-frame-state-preconditions!`) resolves the frame, but a frame
-;; can be destroyed in the window BETWEEN the precondition pass and the
-;; actual container write (the validate-then-destroy race — most often a
-;; tool gesture interleaving with the owning component's teardown). Once
-;; destroyed, `frame/app-db-container` returns nil and the choke-point
-;; `adapter/replace-container!` no-ops the write with a
-;; `:rf.error/write-after-destroy` trace (`adapter.cljc`). Per Tool-Pair
-;; §Surface behaviour against destroyed frames the mutating surfaces must
-;; report this as the SAME structural failure a frame-miss caught at
-;; validate-time produces (`:rf.error/no-such-handler`, kind `:frame`,
-;; returns `false`) — NOT a synthetic success. This helper resolves the
-;; container at the write boundary and yields the canonical no-such-handler
-;; failure when it has disappeared, so `perform-restore!` /
-;; `perform-replace!` can bail BEFORE emitting success, recording a
-;; synthetic epoch, or fanning out to listeners.
-
-(defn live-container-or-fail
-  "Resolve `frame-id`'s app-db container at the write boundary. Returns
-  `{:outcome :ok :container <container>}` when the frame is still live, or
-  the canonical no-such-handler precondition-failure result
-  (`{:outcome :fail :op :rf.error/no-such-handler :tags {:kind :frame
-  :frame frame-id}}`) when the frame was destroyed between precondition
-  validation and now. Mirrors
-  `frame-exists-or-fail`'s failure shape so the destroyed-frame write race
-  surfaces identically to a frame-miss caught at validate-time."
-  [frame-id]
-  (if-let [container (frame/app-db-container frame-id)]
-    {:outcome :ok :container container}
-    {:outcome :fail
-     :op      :rf.error/no-such-handler
-     :tags    {:kind  :frame
-               :frame frame-id}}))
+;; can be destroyed — or destroyed and reseated under the SAME id — in the
+;; window BETWEEN the precondition pass and the actual container write (the
+;; validate-then-destroy race — most often a tool gesture interleaving with
+;; the owning component's teardown). Per Tool-Pair §Surface behaviour against
+;; destroyed frames the mutating surfaces must report this as the SAME
+;; structural failure a frame-miss caught at validate-time produces
+;; (`:rf.error/no-such-handler`, kind `:frame`, returns `false`) — NOT a
+;; synthetic success, and NEVER a write into a same-id successor. Both write
+;; paths (`perform-restore!` here, `perform-replace!` in `epoch.cljc`)
+;; therefore gate on `frame/event-continuation-live?` with the EXACT
+;; incarnation token their preconditions resolved (rf2-bjh6y, rf2-gj2bo) and
+;; install through core's exact-incarnation `frame/replace-frame-state!`
+;; 3-arity, whose nil return closes the post-liveness half of the window
+;; (rf2-s93722): a destroyed-or-reseated incarnation surfaces the canonical
+;; failure BEFORE any success telemetry, synthetic epoch, or listener fanout.
 
 ;; ---- drain serialization for tool writes ----------------------------------
 ;;
@@ -980,8 +964,15 @@
   "Validate the documented preconditions for `replace-frame-state!`, the
   frame-state write surface.
   `frame-state` is a PARTIAL frame-state map (any subset of
-  `{:rf.db/app … :rf.db/runtime …}`). Returns `{:outcome :ok}` when every
-  check passes, otherwise `{:outcome :fail :op <kw> :tags <map>}` matching
+  `{:rf.db/app … :rf.db/runtime …}`). Returns
+  `{:outcome :ok :incarnation-token <token>}` when every check passes —
+  `:incarnation-token` is the EXACT identity token of the frame incarnation
+  these checks resolved against, derived from the SAME captured record (not
+  a bare-id re-resolve), which `replace-frame-state!` carries to the write
+  boundary so the physical write and the synthetic bookkeeping can never
+  retarget onto a same-id SUCCESSOR seated after validation (rf2-gj2bo,
+  mirroring `check-restore-preconditions!`). Otherwise
+  `{:outcome :fail :op <kw> :tags <map>}` matching
   the precondition-failure shape of `check-restore-preconditions!`. Pure
   data — no trace events emitted from here; emission is the caller's job.
 
@@ -1029,7 +1020,15 @@
      :op      :rf.error/replace-frame-state-bad-keys
      :tags    {:frame frame-id :reason reason :keys keys}}
 
-    (let [frame-result (frame-exists-or-fail frame-id)]
+    (let [frame-result      (frame-exists-or-fail frame-id)
+          ;; The EXACT incarnation identity token (the record's `:drain-lock`,
+          ;; per `frame-incarnation-token`) DERIVED FROM THE SAME captured
+          ;; record — NOT an independent bare-id re-resolve — mirroring
+          ;; `check-restore-preconditions!` (rf2-gj2bo). Returned on the `:ok`
+          ;; result so the write boundary can reject a stale injection after a
+          ;; destroy + same-id reconstruction. nil when the frame is absent —
+          ;; the (1) frame-registered branch fails first in that case.
+          incarnation-token (some-> (:frame-record frame-result) :drain-lock)]
       (cond
         ;; (1) Frame registered?
         (= :fail (:outcome frame-result))
@@ -1058,12 +1057,32 @@
 
                         (contains? frame-state frame/runtime-partition-key)
                         (into (failing-runtime-paths frame-id (get frame-state frame/runtime-partition-key))))]
-          (if (seq failing)
+          (cond
+            ;; Exact-owner gate on the validation snapshot (rf2-gj2bo,
+            ;; mirroring `check-restore-preconditions!`'s history gate). The
+            ;; schema/runtime validators above resolve the frame by BARE id;
+            ;; a same-id successor seated DURING this precondition sampling
+            ;; means the captured incarnation is no longer live, so those
+            ;; walks may have validated against the successor. Refuse with
+            ;; the SAME canonical no-such-handler failure the write boundary
+            ;; uses — checked FIRST so a churned sample never surfaces as the
+            ;; successor's schema verdict. (Belt-and-braces with the
+            ;; record-derived token above: even if a race slips past here the
+            ;; ticket still carries A's token, so the exact write rejects B.)
+            (not (frame/event-continuation-live? frame-id incarnation-token))
+            {:outcome :fail
+             :op      :rf.error/no-such-handler
+             :tags    {:kind  :frame
+                       :frame frame-id}}
+
+            (seq failing)
             {:outcome :fail
              :op      :rf.epoch/replace-schema-mismatch
              :tags    {:frame         frame-id
                        :failing-paths failing}}
-            {:outcome :ok}))))))
+
+            :else
+            {:outcome :ok :incarnation-token incarnation-token}))))))
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
