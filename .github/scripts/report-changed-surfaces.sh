@@ -726,6 +726,37 @@ else
         tools_jvm_machines_viz=true
         tools_jvm_testbed_support=true
         tools_cljs_machines_viz=true
+        # rf2-fk5jy — the migration/from-re-frame-v1 codemod's lane, a FOURTH
+        # reverse edge of exactly the shape of the three above, and the newest.
+        # That artefact's `:test` alias keeps re-frame2 off its classpath on
+        # purpose, which is why this arm did not carry the edge when the lane
+        # landed (rf2-0qzh) — the comment on the codemod's own arm still said
+        # `:paths ["src"]`, deps clojure and rewrite-clj only, and it was true.
+        # rf2-36u96 (PR #8857) then wired a SECOND step into the job,
+        # `clojure -M:integration`, and that alias declares
+        # `day8/re-frame2-core {:local/root "../../../implementation/core"}`:
+        # it evaluates the codemod's emitted output against the REAL v2
+        # `reg-event` contract at namespace load, with four negative controls
+        # proving the harness observes registration rather than parsing. A
+        # codemod whose output core REJECTS is precisely what that step exists
+        # to catch — and core is the half of the pair that can change under it.
+        #
+        # So between #8857 and this line the lane was armed by the codemod
+        # subtree alone: a core-only diff left it SKIPPED on exactly the commit
+        # that could break it, while the rollup read green throughout.
+        # TESTING.md's changed-surface section names that shape.
+        #
+        # SCOPED to this arm and no wider. implementation/core/deps.edn puts
+        # only `:paths ["src"]` and two mvn coordinates on its BASE classpath;
+        # its cross-artefact :local/root edges all sit under aliases, and a
+        # :local/root dependency never activates its target's aliases. Core's
+        # own tree is therefore the whole of what the :integration lane reaches,
+        # so the per-feature arm above stays dark for it.
+        #
+        # ONE-WAY, like the three edges above it: the codemod's own arm does
+        # NOT gain implementation_jvm in return. It is downstream of core, and
+        # `_changed-surfaces.test.cjs` pins both directions.
+        migration_v1_codemod=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast

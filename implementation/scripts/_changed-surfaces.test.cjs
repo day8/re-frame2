@@ -1287,16 +1287,70 @@ test('the v1 codemod lane arms on its own tree (rf2-0qzh)', () => {
   }
 });
 
+// rf2-fk5jy — the REVERSE edge, and the reason the dark list below no longer
+// names core. PR #8857 (rf2-36u96) wired `clojure -M:integration` into this
+// job as a second step, and that alias declares
+// `day8/re-frame2-core {:local/root "../../../implementation/core"}` — the
+// codemod's emitted output is evaluated against the REAL v2 `reg-event`
+// contract at namespace load. So core IS on this lane's classpath now, while
+// the arm still fired on the codemod subtree alone: a core-only diff left the
+// lane SKIPPED on exactly the commit that could break it, which is the
+// surface-armed gate that does not run on the breaking push while the rollup
+// reads green throughout.
+//
+// The edge is ONE-WAY, and the test after the dark list pins the other side:
+// core changes arm the codemod lane, but a codemod-only diff must still not
+// arm `implementation_jvm`. The codemod is downstream of core, not upstream,
+// so widening in that direction would be fan-out with no dependency behind it.
+//
+// Spelled as ONE boolean on an already-declared :local/root edge, the way every
+// other reverse edge in the classifier is — the `implementation/core/*` arm
+// already carries three of them under rf2-wq17m. Not a dependency-graph engine,
+// and not mark_all.
+//
+// SCOPED TO core, not to `implementation/*`: implementation/core/deps.edn puts
+// only `:paths ["src"]` and two mvn coordinates on the base classpath — its own
+// cross-artefact :local/root edges all sit under ALIASES, and a :local/root
+// dependency never activates its target's aliases. Core's own tree is therefore
+// the whole of what this lane reaches.
+
+test('a core change arms the v1 codemod lane over the :integration edge (rf2-fk5jy)', () => {
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/core/src/re_frame/events.cljc',
+    'implementation/core/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file)[V1_CODEMOD_LANE.output],
+      'true',
+      `${file} is on the codemod's :integration classpath and must arm ${V1_CODEMOD_LANE.output}`,
+    );
+  }
+  // The fan-out core already had is untouched — the new output is additional,
+  // not a replacement.
+  const result = classify('implementation/core/src/re_frame/core.cljc');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.tools_jvm_machines_viz, 'true');
+});
+
 test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qzh)', () => {
   // A rule that matches everything is as useless as one that matches nothing.
   // The prose siblings matter most: `migration/from-re-frame-v1/` also holds
   // five hand-written migration guides, and the arm is the codemod SUBTREE,
   // not the parent — a guide edit must not queue a JVM lane.
+  //
+  // rf2-fk5jy — implementation/core USED to sit in this list, and its
+  // removal is the tripwire that makes that reopen visible rather than
+  // silent: core is now on the lane's :integration classpath, pinned
+  // positively by the test above. A per-feature sibling stands in its place
+  // so the list still proves the edge is core-SPECIFIC — implementation/flows
+  // is reached by no alias of the codemod's deps.edn, so 'any implementation/
+  // change arms this lane' would fail here.
   for (const file of [
     'migration/from-re-frame-v1/README.md',
     'migration/from-re-frame-v1/http-fx-to-managed-http.md',
     'migration/reagent-to-hicasso/codemod/deps.edn',
-    'implementation/core/src/re_frame/core.cljc',
+    'implementation/flows/src/re_frame/flows.cljc',
     'spec/006-ReactiveSubstrate.md',
   ]) {
     assert.equal(
@@ -1308,9 +1362,11 @@ test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qz
 });
 
 test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () => {
-  // `:paths ["src"]`, deps clojure + rewrite-clj, and no cross-tree edge at
-  // all — unlike its sibling, which reaches into implementation/freehand/test.
-  // So this lane is the ONLY thing a codemod-only diff should queue.
+  // The DOWNSTREAM half of the rf2-fk5jy edge. The artefact's base classpath
+  // is `:paths ["src"]` plus clojure and rewrite-clj, and its one cross-tree
+  // edge — `:integration`'s :local/root onto implementation/core — runs the
+  // OTHER way: core is this lane's dependency, not its dependent. So this lane
+  // is still the only thing a codemod-only diff should queue.
   const result = classify(V1_CODEMOD_LANE.armed);
   assert.equal(result[V1_CODEMOD_LANE.output], 'true');
   for (const output of [
