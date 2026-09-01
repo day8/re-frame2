@@ -65,9 +65,9 @@
 ;; (never blank a loaded page on a refresh), but a slug CHANGE resets the
 ;; slice, so alpha's article is never renderable under `/article/beta`.
 ;;
-;; The rule is now universal in this file: EVERY settle that writes
+;; The rule is now universal in this file: EVERY settle that touches
 ;; route-owned state carries the slug it was requested for and asks this
-;; question before writing. Nine do —
+;; question before acting. Ten do —
 ;;
 ;;   - the three route-driven READS: `:article/load`'s reply hat,
 ;;     `:comments/loaded`, `:comments/load-failed` (rf2-iy3d6);
@@ -76,19 +76,29 @@
 ;;     the one shared `[:comments :data]` / `[:comment-form]`, so alpha's late
 ;;     POST failure would otherwise banner beta's form and alpha's failed
 ;;     DELETE would re-insert alpha's comment into beta's list (rf2-84iek);
-;;   - the three article SOCIAL settles further down:
+;;   - the four article SOCIAL settles further down:
 ;;     `:article/author-follow-synced`, `:article/author-follow-rollback`,
-;;     `:article/delete-failed`. These fire from a button press rather than
-;;     from the route's own load, but they write `[:article ...]`, which the
-;;     route owns just the same. Measured, not merely suspected: a late
-;;     follow FAILURE restored ALPHA's prior flag onto beta's author, so
-;;     beta's Follow button read the opposite of the truth, and a late follow
-;;     SUCCESS was worse still — it replaced beta's author map wholesale, so
-;;     the byline name, the avatar and the profile link all became alpha's
-;;     author. A late failed DELETE bannered alpha's error across beta's page
-;;     (rf2-amhpk).
+;;     `:article/delete-failed`, `:article/delete-success`. These fire from a
+;;     button press rather than from the route's own load, but what they touch
+;;     — `[:article ...]` and the route itself — the active article owns just
+;;     the same. Measured, not merely suspected: a late follow FAILURE restored
+;;     ALPHA's prior flag onto beta's author, so beta's Follow button read the
+;;     opposite of the truth, and a late follow SUCCESS was worse still — it
+;;     replaced beta's author map wholesale, so the byline name, the avatar and
+;;     the profile link all became alpha's author. A late failed DELETE
+;;     bannered alpha's error across beta's page (rf2-amhpk).
 ;;
-;; Why a gate ALONE is enough for all nine, where the comment form also needed
+;; `:article/delete-success` is the one member that writes NO db, and it is
+;; here anyway. It navigates home, and NAVIGATION IS STATE — the most visible
+;; state the active article owns. Delete alpha, walk to beta before the server
+;; answers, and an ungated success yanks the reader off the article they chose
+;; and out to the home page. That is the same ownership violation as the eight
+;; above; "writes no `:db`" is a fact about the mechanism, not about who owns
+;; the outcome. The strand question gets the same answer as the rest: the
+;; server deletion succeeded regardless, beta is a fine place to be, and
+;; returning to alpha later fails and reloads like any other missing article.
+;;
+;; Why a gate ALONE is enough for all ten, where the comment form also needed
 ;; a reset: everything gated here lives in a slice that `:article/load` or
 ;; `:comments/load` REBUILDS on a slug change, so the navigation has already
 ;; released it and refusing a stale settle strands nothing. `[:comment-form]`
@@ -99,16 +109,12 @@
 ;; identity, and the Follow button carries no pending or disabled state to get
 ;; stuck in.
 ;;
-;; Two deliberate NON-members, so nobody reads the list as "everything in
-;; this file is correlated". Both write no state at all, so there is nothing
-;; to correlate:
-;;
-;;   - `:comment/delete-success` exists only to give `:on-success` a target.
-;;   - `:article/delete-success` navigates home and touches no db. A late one
-;;     would still take a reader who has since moved to another article home
-;;     — but that is a product question about a delete the reader themselves
-;;     asked for, not a cross-route write, so it is named here rather than
-;;     changed.
+;; One deliberate NON-member, so nobody reads the list as "everything in this
+;; file is correlated": `:comment/delete-success` exists only to give
+;; `:on-success` a target. It writes nothing and does nothing, so there is
+;; nothing to correlate. Note what the test is — not "writes no db", which
+;; `:article/delete-success` also satisfies while very much needing the gate,
+;; but "produces no outcome the route owns".
 ;;
 ;; The gate correlates ROUTE IDENTITY, not request identity: it asks which
 ;; slug the screen is on, so alpha → beta → alpha readmits an alpha reply
@@ -566,7 +572,11 @@
   {:doc "Delete the current article, straight from the DETAIL page (authors
          only). No retry — it's destructive and it's one click. On success we
          head home. (The editor has its own Delete path too, in
-         article_editor.cljs; both lead to the same place.)"}
+         article_editor.cljs; both lead to the same place.)
+
+         BOTH reply targets carry the slug the delete was issued on — the
+         failure because it banners an error, the success because it NAVIGATES.
+         See THE CORRELATION GATE above."}
   (fn [{:keys [db]} _]
     (let [slug (get-in db [:article :data :slug])]
       (if (nil? slug)
@@ -575,14 +585,22 @@
                (rh/request {:method     :delete
                             :path       (article-path slug)
                             :decode     :auto
-                            :on-success [:article/delete-success]
+                            :on-success [:article/delete-success slug]
                             :on-failure [:article/delete-failed slug]})]]}))))
 
 (rf/reg-event :article/delete-success
-  {:doc "Writes no db at all, so it needs neither the slug nor the gate — see
-         the NON-members note in THE CORRELATION GATE above."}
-  (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
+  {:doc "The DELETE's `:on-success`, carrying the slug it was issued for.
+         Correlation-gated like the rest — this one writes no db, but it
+         NAVIGATES, and the route is the most visible state the active article
+         owns. Delete alpha, walk to beta while the server thinks about it, and
+         an ungated success takes the reader away from the article they chose.
+
+         Refusing strands nothing: the server deletion succeeded either way,
+         beta is a perfectly good place to be, and coming back to alpha later
+         just fails and reloads like any other missing article."}
+  (fn [{:keys [db]} [_ slug _reply]]
+    (when (reply-for-current-slug? db :article slug)
+      {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]})))
 
 (rf/reg-event :article/delete-failed
   {:doc "The DELETE's `:on-failure`, carrying the slug it was issued for.
