@@ -10,12 +10,12 @@
    - `:comment-form` in the plain form slice shape.
    - Route-driven loads that read the current slug off the runtime-db
      coeffect at `[:rf.runtime/routing :current :params :slug]`.
-   - Route-keyed reads AND comment mutations that stay owned by the route
-     identity: each slice records the slug it is loading, the comment
-     reads and writes carry the slug they were requested for, and a settle
-     that no longer belongs to the screen is refused (see
-     `reply-for-current-slug?` below — the same correlation law
-     article_editor.cljs spells for the editor).
+   - Everything that writes this page's state staying owned by the route
+     identity — the reads, the comment mutations, and the article's own
+     social buttons alike: each slice records the slug it is loading, every
+     settle carries the slug it was requested for, and one that no longer
+     belongs to the screen is refused (see `reply-for-current-slug?` below —
+     the same correlation law article_editor.cljs spells for the editor).
    - Optimistic post / delete flows that roll back through nothing fancier
      than ordinary events."
   (:require [clojure.string :as str]
@@ -65,25 +65,50 @@
 ;; (never blank a loaded page on a refresh), but a slug CHANGE resets the
 ;; slice, so alpha's article is never renderable under `/article/beta`.
 ;;
-;; EXACTLY these carry the slug and gate on it — the two route-driven READS
-;; (`:article/load`'s reply hat, `:comments/loaded` / `:comments/load-failed`)
-;; and the three comment MUTATION settles (`:comment-form/submit-success`,
-;; `:comment-form/submit-error`, `:comment/delete-rollback`). The mutations
-;; need it just as badly as the reads: they land on the one shared
-;; `[:comments :data]` / `[:comment-form]`, so alpha's late POST failure
-;; would otherwise banner beta's form and alpha's failed DELETE would
-;; re-insert alpha's comment into beta's list (rf2-84iek).
+;; The rule is now universal in this file: EVERY settle that writes
+;; route-owned state carries the slug it was requested for and asks this
+;; question before writing. Nine do —
+;;
+;;   - the three route-driven READS: `:article/load`'s reply hat,
+;;     `:comments/loaded`, `:comments/load-failed` (rf2-iy3d6);
+;;   - the three comment MUTATION settles: `:comment-form/submit-success`,
+;;     `:comment-form/submit-error`, `:comment/delete-rollback`. They land on
+;;     the one shared `[:comments :data]` / `[:comment-form]`, so alpha's late
+;;     POST failure would otherwise banner beta's form and alpha's failed
+;;     DELETE would re-insert alpha's comment into beta's list (rf2-84iek);
+;;   - the three article SOCIAL settles further down:
+;;     `:article/author-follow-synced`, `:article/author-follow-rollback`,
+;;     `:article/delete-failed`. These fire from a button press rather than
+;;     from the route's own load, but they write `[:article ...]`, which the
+;;     route owns just the same. Measured, not merely suspected: a late
+;;     follow FAILURE restored ALPHA's prior flag onto beta's author, so
+;;     beta's Follow button read the opposite of the truth, and a late follow
+;;     SUCCESS was worse still — it replaced beta's author map wholesale, so
+;;     the byline name, the avatar and the profile link all became alpha's
+;;     author. A late failed DELETE bannered alpha's error across beta's page
+;;     (rf2-amhpk).
+;;
+;; Why a gate ALONE is enough for all nine, where the comment form also needed
+;; a reset: everything gated here lives in a slice that `:article/load` or
+;; `:comments/load` REBUILDS on a slug change, so the navigation has already
+;; released it and refusing a stale settle strands nothing. `[:comment-form]`
+;; was the one exception — a boot-time singleton nothing revisited, which rode
+;; across the navigation still `:submitting` — which is why rf2-84iek had to
+;; pair its gate with a reset in `:comments/load`. The article's author and
+;; error are not in that position: `[:article]` is reset wholesale on a new
+;; identity, and the Follow button carries no pending or disabled state to get
+;; stuck in.
 ;;
 ;; Two deliberate NON-members, so nobody reads the list as "everything in
-;; this file is correlated":
+;; this file is correlated". Both write no state at all, so there is nothing
+;; to correlate:
 ;;
-;;   - `:comment/delete-success` writes nothing at all (it exists to give
-;;     `:on-success` a target), so it needs neither the slug nor the gate.
-;;   - The article SOCIAL controls further down — `:article/author-follow-
-;;     synced` / `-rollback`, `:article/delete-failed` — are NOT gated. They
-;;     write `[:article :data ...]` from a button press rather than from the
-;;     route's own load, and no cross-route defect has been reproduced
-;;     against them; they are out of rf2-84iek's scope, not covered by it.
+;;   - `:comment/delete-success` exists only to give `:on-success` a target.
+;;   - `:article/delete-success` navigates home and touches no db. A late one
+;;     would still take a reader who has since moved to another article home
+;;     — but that is a product question about a delete the reader themselves
+;;     asked for, not a cross-route write, so it is named here rather than
+;;     changed.
 ;;
 ;; The gate correlates ROUTE IDENTITY, not request identity: it asks which
 ;; slug the screen is on, so alpha → beta → alpha readmits an alpha reply
@@ -481,19 +506,29 @@
 ;; (`[:article :data :author]`), which is a different slice from
 ;; profile.cljs's `:profile/follow` (that one drives the profile-page banner).
 ;; Same gesture, two homes.
+;;
+;; These are button-driven rather than route-driven, but they write the
+;; ROUTE-OWNED `[:article ...]` slice, so their settles carry the slug they
+;; were issued on and gate on it exactly as the loads do — see THE CORRELATION
+;; GATE above for what went wrong before they did (rf2-amhpk).
 
 (rf/reg-event :article/toggle-follow-author
   {:doc "Flip following-the-author on or off optimistically, then send the
          POST/DELETE to /profiles/:username/follow; restore the old flag if it
          fails. Auth-gated (same reasoning as :article/toggle-favorite): a
          logged-out click goes to login instead of firing a tokenless write the
-         real Conduit backend would just 401 anyway."
+         real Conduit backend would just 401 anyway.
+
+         Both reply targets CARRY THE SLUG THE FLIP WAS ISSUED ON — the slice's
+         own `[:article :slug]`, the same identity the reads correlate against
+         — because they write `[:article :data :author]` and the route owns it."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
-      (let [author    (get-in db [:article :data :author])
-            username  (:username author)
+      (let [slug       (get-in db [:article :slug])
+            author     (get-in db [:article :data :author])
+            username   (:username author)
             following? (:following author)]
         (if (nil? username)
           {}
@@ -502,18 +537,30 @@
                  (rh/request {:method     (if following? :delete :post)
                               :path       (str "/profiles/" username "/follow")
                               :decode     schema/ProfileResponse
-                              :on-success [:article/author-follow-synced]
-                              :on-failure [:article/author-follow-rollback following?]})]]})))))
+                              :on-success [:article/author-follow-synced slug]
+                              :on-failure [:article/author-follow-rollback slug following?]})]]})))))
 
 (rf/reg-event :article/author-follow-synced
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (if-let [profile (:profile value)]
-      (assoc-in db [:article :data :author] profile)
-      db)}))
+  {:doc "The follow POST/DELETE's `:on-success`, carrying the slug the flip was
+         issued on. Correlation-gated, and this is the write that most needs
+         it: it re-seeds the WHOLE author map, so a late reply for the article
+         the reader has left would put alpha's author — name, avatar and
+         profile link included — on beta's byline."}
+  (fn [{:keys [db]} [_ slug {:keys [value]}]]
+    (when (reply-for-current-slug? db :article slug)
+      {:db (if-let [profile (:profile value)]
+             (assoc-in db [:article :data :author] profile)
+             db)})))
 
 (rf/reg-event :article/author-follow-rollback
-  (fn [{:keys [db]} [_ previous-following _failure-payload]]
-    {:db (assoc-in db [:article :data :author :following] previous-following)}))
+  {:doc "The follow POST/DELETE's `:on-failure`, correlated exactly as
+         `:article/author-follow-synced` is. Refusing a stale rollback strands
+         nothing: the optimistic flip it would undo went with the slice when
+         `:article/load` reset it for the new slug, and coming back to the
+         article re-reads the true flag from the server."}
+  (fn [{:keys [db]} [_ slug previous-following _failure-payload]]
+    (when (reply-for-current-slug? db :article slug)
+      {:db (assoc-in db [:article :data :author :following] previous-following)})))
 
 (rf/reg-event :article/delete
   {:doc "Delete the current article, straight from the DETAIL page (authors
@@ -529,15 +576,22 @@
                             :path       (article-path slug)
                             :decode     :auto
                             :on-success [:article/delete-success]
-                            :on-failure [:article/delete-failed]})]]}))))
+                            :on-failure [:article/delete-failed slug]})]]}))))
 
 (rf/reg-event :article/delete-success
+  {:doc "Writes no db at all, so it needs neither the slug nor the gate — see
+         the NON-members note in THE CORRELATION GATE above."}
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
 
 (rf/reg-event :article/delete-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (assoc-in db [:article :error] (rh/failure->message error))}))
+  {:doc "The DELETE's `:on-failure`, carrying the slug it was issued for.
+         Correlation-gated: `[:article :error]` sits on screen until the next
+         load, so an ungated late failure banners alpha's error across whatever
+         article the reader has moved on to."}
+  (fn [{:keys [db]} [_ slug {:keys [error]}]]
+    (when (reply-for-current-slug? db :article slug)
+      {:db (assoc-in db [:article :error] (rh/failure->message error))})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

@@ -2405,6 +2405,176 @@
     (comment-form-survives-same-slug-refresh-test)))
 
 ;; ============================================================================
+;; article page — the SOCIAL settles stay owned by the route too (rf2-amhpk)
+;; ============================================================================
+;;
+;; rf2-84iek correlated the comment mutations and left the article's own
+;; social settles alone, naming them in the source as a suspected same-class
+;; defect it had not reproduced. It is the same class, and it does reproduce.
+;;
+;; `:article/toggle-follow-author` flips `[:article :data :author :following]`
+;; optimistically and sends a POST/DELETE whose reply targets carried no slug.
+;; Follow eve on /article/alpha, walk to /article/beta before the reply lands,
+;; and the settle writes into BETA's author:
+;;
+;;   - a late FAILURE (`:article/author-follow-rollback`) restores ALPHA's
+;;     prior flag onto beta's author, so beta's Follow/Unfollow button reads
+;;     the opposite of the truth;
+;;   - a late SUCCESS (`:article/author-follow-synced`) is worse — it
+;;     `assoc-in`s alpha's whole author profile over beta's, so the byline
+;;     name, the avatar and the profile link all become the wrong person's.
+;;
+;; `:article/delete-failed` is the third of the same shape: alpha's failed
+;; DELETE banners its error on `[:article :error]`, where beta's page shows it
+;; until the next load.
+;;
+;; The fix is the gate alone, with NO reset half — the difference from
+;; rf2-84iek that matters. `[:comment-form]` was a boot-time singleton that
+;; rode across the navigation still `:submitting`, so gating it without a
+;; reset would have locked beta's form; `[:article]` is rebuilt wholesale by
+;; `:article/load` on a slug change and the Follow button carries no pending
+;; state, so the navigation has already released everything a refused settle
+;; would have touched. `beta-slice-is-rebuilt` below is what pins that, and it
+;; is why refusing strands nothing.
+;;
+;; These reuse `with-held-comment-fx` — the shared held-request harness for
+;; the article page, comment-flavoured only in its name.
+
+(defn- author* [f] (rf/compute-sub [:article/author] (rf/frame-state-value f)))
+
+(defn- settle-article-with-author!
+  "Settle the held article GET for `slug` with an article whose author is
+   `username` at `following?`. The two slugs in these tests deliberately carry
+   DIFFERENT authors in DIFFERENT follow states, so a write that crosses from
+   one to the other shows up instead of being coincidentally equal."
+  [f lowered slug username following?]
+  (rf/dispatch-sync
+    (conj (:reply-to (req-by-id @lowered [:article/load slug]))
+          {:status :ok
+           :value {:article (assoc (full-article slug (str "Title " slug))
+                                   :author {:username username :bio nil
+                                            :image nil :following following?})}})
+    {:frame f}))
+
+(defn- follow-alpha-then-walk-to-beta!
+  "The shared arrangement: read /article/alpha whose author `eve` is NOT
+   followed, click Follow (optimistic flip, POST held open), then walk to
+   /article/beta whose author `bob` IS followed. Returns the held follow
+   request so the caller can settle it however it likes, far too late."
+  [f lowered]
+  (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+  (settle-article-with-author! f lowered "alpha" "eve" false)
+  (is (false? (:following (author* f))) "alpha's author eve starts unfollowed")
+  (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+  (is (true? (:following (author* f))) "the flip is optimistic — eve reads followed at once")
+  (let [follow-req (req-by-method+url @lowered :post "/profiles/eve/follow")]
+    (is (some? follow-req) "the follow POST went out and is held open")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+    (settle-article-with-author! f lowered "beta" "bob" true)
+    (is (= "bob" (:username (author* f))) "beta's author is bob")
+    (is (true? (:following (author* f))) "…whom the reader does follow")
+    follow-req))
+
+(defn- follow-cross-slug-late-rollback-is-refused-test []
+  (with-held-comment-fx :realworld.test/follow-cross-slug-rollback
+    (fn [f lowered]
+      (let [follow-req (follow-alpha-then-walk-to-beta! f lowered)]
+        ;; The strand control, and the reason a gate needs no reset half here:
+        ;; the navigation already rebuilt the slice, so the optimistic flip a
+        ;; refused rollback would have undone is long gone.
+        (is (= "beta" (:slug (article-slice* f)))
+            "beta-slice-is-rebuilt — :article/load reset [:article] on the slug change")
+        ;; Alpha's follow POST fails, long after the reader left alpha.
+        (rf/dispatch-sync (conj (:on-failure follow-req)
+                                {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                          {:frame f})
+        (is (= "bob" (:username (author* f)))
+            "a LATE alpha follow FAILURE leaves beta's author alone")
+        (is (true? (:following (author* f)))
+            "…and does not flip beta's Follow button to the wrong state (rf2-amhpk)")))))
+
+(defn- follow-cross-slug-late-sync-is-refused-test []
+  (with-held-comment-fx :realworld.test/follow-cross-slug-sync
+    (fn [f lowered]
+      (let [follow-req (follow-alpha-then-walk-to-beta! f lowered)]
+        ;; Alpha's follow POST SUCCEEDS, long after the reader left alpha. The
+        ;; synced handler re-seeds the whole author map, so an ungated write
+        ;; here swaps beta's byline for alpha's author outright.
+        (rf/dispatch-sync (conj (:on-success follow-req)
+                                {:status :ok
+                                 :value {:profile {:username "eve" :bio "Writer"
+                                                   :image nil :following true}}})
+                          {:frame f})
+        (is (= "bob" (:username (author* f)))
+            "a LATE alpha follow SUCCESS does not replace beta's author with alpha's (rf2-amhpk)")
+        (is (nil? (:bio (author* f)))
+            "…not even partially — alpha's bio never reaches beta's byline")))))
+
+(defn- article-delete-cross-slug-late-failure-is-refused-test []
+  (with-held-comment-fx :realworld.test/article-delete-cross-slug
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "alice" false)
+      (rf/dispatch-sync [:article/delete] {:frame f})
+      (let [delete-req (req-by-method+url @lowered :delete "/articles/alpha")]
+        (is (some? delete-req) "the article DELETE went out and is held open")
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (settle-article-with-author! f lowered "beta" "bob" true)
+        (rf/dispatch-sync (conj (:on-failure delete-req)
+                                {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                          {:frame f})
+        (is (nil? (:error (article-slice* f)))
+            "a LATE alpha DELETE failure does not banner its error over beta's page (rf2-amhpk)")))))
+
+(defn- article-social-gates-are-not-vacuous-test []
+  ;; The control that keeps the three refusals above honest: a gate wired to
+  ;; refuse everything would satisfy all of them and break the app. On the
+  ;; CURRENT slug each settle must still do its ordinary job.
+  (with-held-comment-fx :realworld.test/article-social-not-vacuous
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "eve" false)
+      ;; 1. Follow succeeds on the slug it was issued on → author re-seeded
+      ;;    from the server's authoritative profile.
+      (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+      (rf/dispatch-sync (conj (:on-success (req-by-method+url @lowered :post "/profiles/eve/follow"))
+                              {:status :ok
+                               :value {:profile {:username "eve" :bio "Writer"
+                                                 :image nil :following true}}})
+                        {:frame f})
+      (is (= "Writer" (:bio (author* f)))
+          ":article/author-follow-synced still re-seeds the author on the current slug")
+      ;; 2. Unfollow fails on the slug it was issued on → prior flag restored.
+      (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+      (is (false? (:following (author* f))) "the unfollow flips optimistically")
+      (rf/dispatch-sync (conj (:on-failure (req-by-method+url @lowered :delete "/profiles/eve/follow"))
+                              {:status :error :error {:kind :rf.http/http-4xx :status 422}})
+                        {:frame f})
+      (is (true? (:following (author* f)))
+          ":article/author-follow-rollback still restores the prior flag on the current slug")
+      ;; 3. Delete fails on the slug it was issued on → the error is bannered.
+      (rf/dispatch-sync [:article/delete] {:frame f})
+      (rf/dispatch-sync (conj (:on-failure (req-by-method+url @lowered :delete "/articles/alpha"))
+                              {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                        {:frame f})
+      (is (some? (:error (article-slice* f)))
+          ":article/delete-failed still surfaces its error on the current slug"))))
+
+(deftest realworld-article-social-cross-slug
+  (testing "a LATE alpha follow FAILURE cannot flip beta's author's Follow
+            button (rf2-amhpk)"
+    (follow-cross-slug-late-rollback-is-refused-test))
+  (testing "a LATE alpha follow SUCCESS cannot replace beta's author with
+            alpha's (rf2-amhpk)"
+    (follow-cross-slug-late-sync-is-refused-test))
+  (testing "a LATE alpha DELETE failure cannot banner its error over beta's
+            page (rf2-amhpk)"
+    (article-delete-cross-slug-late-failure-is-refused-test))
+  (testing "on the CURRENT slug all three settles still do their ordinary job
+            — the gates' non-vacuity control (rf2-amhpk)"
+    (article-social-gates-are-not-vacuous-test)))
+
+;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +
 ;; article-delete + blank-comment + feed-load + profile-follow (rf2-rq65wv)
 ;; ============================================================================
@@ -2470,7 +2640,11 @@
       (is (= "Writer" (:bio author))
           ":article/author-follow-synced re-seeds the author from the returned profile"))
     ;; Rollback handler (driven directly): restores the captured prior flag.
-    (rf/dispatch-sync [:article/author-follow-rollback false {:kind :rf.http/http-4xx}] {:frame f})
+    ;; The leading "hello" is the issuing slug the handler now correlates on
+    ;; (rf2-amhpk); the route is /article/hello, so the gate admits it. Pass a
+    ;; different slug and this assertion fails — which is exactly what
+    ;; follow-cross-slug-late-rollback-is-refused-test pins.
+    (rf/dispatch-sync [:article/author-follow-rollback "hello" false {:kind :rf.http/http-4xx}] {:frame f})
     (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
         ":article/author-follow-rollback restores the captured prior following flag")))
 
@@ -2490,13 +2664,16 @@
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
     (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
+    ;; The failure branch (driven directly), taken FIRST so it runs while the
+    ;; reader is still on /article/hello — the slug it now correlates against
+    ;; (rf2-amhpk). Driving it after the successful delete would leave the
+    ;; assertion hostage to whatever the home route does to `[:article :slug]`.
+    (rf/dispatch-sync [:article/delete-failed "hello" {:error {:kind :rf.http/http-5xx :status 500}}] {:frame f})
+    (is (some? (rf/compute-sub [:article/error] (rf/frame-state-value f)))
+        ":article/delete-failed surfaces a readable error message")
     (rf/dispatch-sync [:article/delete] {:frame f})
     (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "a successful detail-page delete navigates home")
-    ;; The failure branch (driven directly): a readable error lands on the slice.
-    (rf/dispatch-sync [:article/delete-failed {:error {:kind :rf.http/http-5xx :status 500}}] {:frame f})
-    (is (some? (rf/compute-sub [:article/error] (rf/frame-state-value f)))
-        ":article/delete-failed surfaces a readable error message")))
+        "a successful detail-page delete navigates home")))
 
 (defn- comment-blank-body-test []
   ;; :comment-form/submit with a blank body → client-side validation, no round trip.
