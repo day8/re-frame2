@@ -16,12 +16,17 @@
     4. a root-level (`[]`) `:sensitive?` mark redacts the WHOLE body;
     5. an unschematized body fails CLOSED off-box (omitted via
        `off-box-classify-body`), while a schema-classified body rides
-       classified (rf2-t55hxg.6).
+       classified (rf2-t55hxg.6);
+    6. a schema that DECLARES a mark with the shared walker hook UNBOUND
+       throws `:rf.error/schemas-artefact-missing` rather than reporting no
+       marks, while a schema declaring none is unaffected (rf2-ohfym).
 
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.privacy-body :as body]
+            ;; §7 unbinds the walker hooks to pin the fail-loud path.
+            [re-frame.late-bind :as late-bind]
             ;; load-bearing: binds the shared schema walker hooks.
             [re-frame.schemas]))
 
@@ -217,3 +222,96 @@
       (is (contains? (:blob out) :rf.size/large-elided)
           "large slot elided off-box")
       (is (= 42 (:user-id out)) "non-marked structure rides classified"))))
+
+;; ---- 7. an UNBOUND shared walker fails LOUD (rf2-ohfym) --------------------
+;;
+;; The walker ships in the optional schemas artefact and arrives through a
+;; late-bind hook, so it can be unbound. Reporting `{}` marks for that state
+;; was a fail-OPEN: a `:sensitive?`-marked secret rode the trace verbatim and
+;; nothing said so (rf2-zvbm9 — four assertions that read their own secret
+;; back, green in the full-suite ordering because an alphabetically earlier
+;; namespace happened to load `re-frame.schemas` first, red only in a solo
+;; run). These pin the fix in BOTH directions: a schema that DECLARES a mark
+;; now throws, and a schema that declares none is unaffected — a schemas-less
+;; app with a plain `:decode` keeps working.
+
+(defn- with-walker-unbound
+  "Run `f` with both shared schema-walker hooks removed from the late-bind
+  registry — the exact state a solo namespace run sees when nothing on the
+  classpath has loaded `re-frame.schemas`. Restores them afterwards."
+  [f]
+  (let [hook-keys [:schemas/extract-sensitive-paths-from-schema
+                   :schemas/extract-large-paths-from-schema]
+        saved     (select-keys @late-bind/hooks hook-keys)
+        refresh!  #(doseq [k hook-keys] (late-bind/invalidate-cache! k))]
+    (try
+      (swap! late-bind/hooks #(apply dissoc % hook-keys))
+      (refresh!)
+      (f)
+      (finally
+        (swap! late-bind/hooks merge saved)
+        (refresh!)))))
+
+(deftest unbound-walker-throws-for-a-mark-declaring-schema
+  (testing "a `:decode` schema declaring a mark with the walker unbound throws
+            the structured missing-artefact error rather than classifying
+            nothing"
+    (with-walker-unbound
+      (fn []
+        (let [thrown (is (thrown? clojure.lang.ExceptionInfo
+                                  (body/classify-decoded
+                                    {:token "bearer-secret"}
+                                    [:map [:token {:sensitive? true} :string]])))]
+          (is (= :rf.error/schemas-artefact-missing (:rf.error/id (ex-data thrown)))
+              "carries the canonical missing-artefact discriminator")
+          (is (re-find #"\[:rf\.error/schemas-artefact-missing\]"
+                       (.getMessage ^Throwable thrown))
+              "message carries the greppability token")
+          (is (re-find #"re-frame\.schemas" (.getMessage ^Throwable thrown))
+              "message names the require that fixes it"))))))
+
+(deftest unbound-walker-throws-for-a-large-mark-too
+  (testing "the `:large?` axis is guarded identically"
+    (with-walker-unbound
+      (fn []
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (body/classify-decoded
+                       {:blob "huge"}
+                       [:map [:blob {:large? true} :string]])))))))
+
+(deftest unbound-walker-is-silent-for-a-markless-schema
+  (testing "a schema declaring NO mark has nothing for the walker to find, so
+            its absence is not an error — the body rides unchanged"
+    (with-walker-unbound
+      (fn []
+        (is (= {:id 1 :title "t"}
+               (body/classify-decoded {:id 1 :title "t"}
+                                      [:map [:id :int] [:title :string]])))
+        (is (= {:sensitive {} :large {}}
+               (body/decode-schema-marks [:map [:id :int]])))))))
+
+(deftest unbound-walker-is-silent-for-a-field-merely-named-sensitive
+  (testing "the probe reads PROPS, not field names — a schema with a field
+            called `:sensitive?` declares no mark and does not throw"
+    (with-walker-unbound
+      (fn []
+        (is (= {:sensitive? true}
+               (body/classify-decoded {:sensitive? true}
+                                      [:map [:sensitive? :boolean]])))))))
+
+(deftest unbound-walker-is-silent-for-an-opaque-schema
+  (testing "an opaque schema (keyword registry ref / compiled object) is a
+            markless leaf to the shared walker, so the probe agrees and the
+            unbound hook is not an error"
+    (with-walker-unbound
+      (fn []
+        (is (= {:a 1} (body/classify-decoded {:a 1} :user/profile)))
+        (is (= {:a 1} (body/classify-decoded {:a 1} {:opaque :compiled})))))))
+
+(deftest bound-walker-still-classifies-the-mark-declaring-schema
+  (testing "control for the four above — with the walker BOUND the same
+            mark-declaring schema classifies rather than throwing, so the
+            throw is about the unbound hook and not about the schema"
+    (is (= {:token :rf/redacted}
+           (body/classify-decoded {:token "bearer-secret"}
+                                  [:map [:token {:sensitive? true} :string]])))))

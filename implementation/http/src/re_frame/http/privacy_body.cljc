@@ -79,6 +79,7 @@
   at trace-emit / capture sites that gate on `interop/debug-enabled?`; in
   production builds the trace surface elides entirely and no body walk runs."
   (:require [re-frame.late-bind :as late-bind]
+            [re-frame.error :as error]
             [re-frame.classification :as classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -138,16 +139,66 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Per-slot marks from the `:decode` schema (the shared walker hooks).
+;;
+;; The walker ships in the OPTIONAL schemas artefact and reaches this ns through
+;; a late-bind hook, so it can be UNBOUND — `day8/re-frame2-schemas` absent, or
+;; present but `re-frame.schemas` not yet loaded. An unbound hook means the
+;; marks are UNKNOWN, which is NOT the same as EMPTY, and answering `{}` for it
+;; is a fail-OPEN: the classification silently does nothing and a
+;; `:sensitive?`-marked secret rides the trace verbatim, with a green suite
+;; either side of it (rf2-zvbm9 — four assertions that read their own secret
+;; back, visible only in a solo-namespace run; rf2-ohfym — the ruling to make
+;; this loud rather than to build a CI lane that watches for it).
+;;
+;; `declares-marks?` separates the two cases so the loudness lands only where it
+;; is earned. A `:decode` schema that writes no `:sensitive?` / `:large?` prop
+;; has nothing for the walker to find, so `{}` is the right answer whether or
+;; not the artefact is there and a schemas-less app is untouched. A schema that
+;; DOES write one and finds no walker is a misconfiguration, and it throws.
 ;; ---------------------------------------------------------------------------
+
+(defn- declares-marks?
+  "True iff `schema`'s EDN form writes a `:sensitive?` / `:large?` PROP
+  anywhere — i.e. iff the shared walker has marks to find in it.
+
+  A presence PROBE, not a second walker: it reads no Malli semantics, resolves
+  no registry and derives no paths, it only decides whether the shared walker
+  is REQUIRED. Both marks are properties, so only a MAP KEY counts — a field
+  merely named `:sensitive?` (`[:map [:sensitive? :boolean]]`) is not a mark.
+  False for an opaque non-collection schema (a compiled `m/schema` object, a
+  keyword registry ref), which the shared walker itself reads as a markless
+  leaf, so probe and walker agree on those."
+  [schema]
+  (boolean
+    (some (fn [form]
+            (and (map? form)
+                 (or (contains? form :sensitive?)
+                     (contains? form :large?))))
+          (tree-seq coll? seq schema))))
 
 (defn- extract-paths
   "Extract the `{path decl}` map of `:sensitive?` (or `:large?`) per-slot
   marks from `schema` rooted at `[]` (the body root), via the late-bound
-  shared schema walker hook. Returns `{}` when the hook is unbound (no
-  schemas artefact) or `schema` carries no marks."
+  shared schema walker hook.
+
+  Returns `{}` when `schema` declares no marks — the walker is then irrelevant
+  and its absence is not an error. THROWS `:rf.error/schemas-artefact-missing`
+  when `schema` DOES declare a mark and the hook is unbound: the classification
+  is unknown, and reporting it as empty would ride the marked slot verbatim."
   [hook schema]
-  (if-let [extract (and schema (late-bind/get-fn-cached hook))]
-    (or (extract schema []) {})
+  (if (declares-marks? schema)
+    (let [extract (or (late-bind/get-fn-cached hook)
+                      (error/throw-error!
+                        :rf.error/schemas-artefact-missing
+                        'rf.http/classify-response-body
+                        (str "the request's `:decode` schema declares a `:sensitive?` / "
+                             "`:large?` per-slot mark, but the shared schema walker hook "
+                             hook " is unbound, so the response body cannot be classified "
+                             "and the marked slot would ride the trace unredacted; add "
+                             "day8/re-frame2-schemas to deps and require re-frame.schemas "
+                             "at app boot (a test namespace requires it directly).")
+                        {:extra {:hook hook :schema schema}}))]
+      (or (extract schema []) {}))
     {}))
 
 (defn decode-schema-marks
@@ -155,7 +206,10 @@
   `:decode` SCHEMA declares for the response body, as
   `{:sensitive {path decl} :large {path decl}}` rooted at the body root
   (`[]`). Empty maps when `decode` is not a schema or carries no marks.
-  Pure (modulo the memoised shared walker)."
+  Pure (modulo the memoised shared walker).
+
+  Throws `:rf.error/schemas-artefact-missing` when `decode` declares a mark
+  and the shared walker hook is unbound — see `extract-paths`."
   [decode]
   (if (schema-decode? decode)
     {:sensitive (extract-paths :schemas/extract-sensitive-paths-from-schema decode)
