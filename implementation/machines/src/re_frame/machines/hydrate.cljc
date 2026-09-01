@@ -277,8 +277,12 @@
   ## One incarnation for the whole reconcile
 
   Both phases emit callback-bearing traces —
-  `:rf.machine.timer/cancelled` in phase 1 and again from each arm's
-  leading `:on-supersede` in phase 2 — and a listener on either can
+  `:rf.machine.timer/cancelled` in phase 1, and in phase 2 both each
+  arm's leading `:on-supersede` and the arm's own
+  `:rf.machine.timer/scheduled` (hydration arms with
+  `:emit-scheduled-trace?` true, so it is emitted here rather than by a
+  transition; on a frame that held no prior timer it is the FIRST
+  callback of the whole reconcile) — and a listener on any of them can
   `destroy-frame!` this frame and publish a same-id successor B. The
   declarations being reconciled are A's: they were enumerated from the
   runtime-db A held. Installing them into B would be host work derived
@@ -289,7 +293,10 @@
   phase, and every callback-bearing step is fenced by that ONE predicate
   (rf2-jqvgp): the cancel batch short-circuits on it, the arm loop
   rechecks it before each declaration, and each arm carries it down into
-  `schedule-after-timer!` in place of a fresh capture. Per-step capture
+  `schedule-after-timer!` in place of a fresh capture — where it fences
+  BOTH of that fn's callback boundaries, the leading `:on-supersede`
+  cancel and the `/scheduled` emit, each with its own recheck before any
+  durable step. Per-step capture
   is what fails here, and it fails silently: each step alone is correct
   about the owner it captured, and B — a live frame with the right id —
   accepts the work without complaint. The loop is explicit rather than a
