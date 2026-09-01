@@ -268,7 +268,7 @@ Three siblings carry the operational detail:
 
 - [`bootstrap.md`](bootstrap.md) — the opening prompt, and the hard-won list of things that
   bite.
-- [`loops.md`](loops.md) — the 6 standing loops, and the merge criterion in full.
+- [`loops.md`](loops.md) — the 5 standing loops, and the merge criterion in full.
 - [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — the worker-prompt shapes, the
   common preamble, the worktree-boundary block, and the gate-mechanics block. The last 3
   travel verbatim: the preamble into every dispatch, the other 2 into every editing one.
