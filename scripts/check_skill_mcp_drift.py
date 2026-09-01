@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf + rf2-4kyg6).
 
-Four axes of cross-check.
+Five axes of cross-check.
 
 **MCP axis** (rf2-flzdp): every (mcp-server, consumer-skill) pair declared
 in `MAPPINGS` below. For each pair, builds two sets:
@@ -56,6 +56,18 @@ column routes onward to the per-tool prose.
   - MISSING-DOC-ROW — the server exposes a tool with no row (shipped,
     counted, allow-listed, undocumented — the rf2-l2y4n defect).
   - STALE-DOC-ROW — a row names a tool the server no longer exposes.
+
+**Single-host axis** (rf2-p1keh): the MCP axis asks "does this skill's
+allow-list match THIS server's catalogue?", one mapping at a time — so an
+entry from a server nobody declared a mapping for is invisible to all of
+them. Each rule in `SINGLE_HOST_RULES` names a skill whose MCP permissions
+must ALL carry one host prefix.
+
+  - FOREIGN-MCP-HOST — a single-runtime skill allow-lists a tool from a
+    second MCP server. A second server is a second process with its own
+    registry and its own app-db, so a keyword present in both names two
+    different objects and cross-host composition reads plausibly while
+    describing nothing.
 
 Xray-MCP is currently spec-only (no `src/`); the script skips its entry
 gracefully rather than failing on missing files.
@@ -166,15 +178,21 @@ MAPPINGS: list[Mapping] = [
         # excluded here).
         intentional_server_only=frozenset(),
     ),
-    # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
-    # tool surface, split along the authoring vs live-runtime axis.
-    # - re-frame2 (authoring) owns: get-story-instructions, list-*, get-*,
-    #   variant->edn, preview-variant, register-variant, unregister-variant.
-    # - re-frame2-pair (live-session) owns: run-variant, read-failures,
-    #   snapshot-identity, read-a11y-violations.
-    # Each mapping marks the OTHER skill's tools as `intentional_server_only`
-    # so the gate only fires when the canonical owner forgets a tool.
-    # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
+    # story-mcp has ONE consumer skill: re-frame2 (authoring). There is no
+    # longer a re-frame2-pair mapping here — see the single-host axis below.
+    #
+    # The four run/assert tools (`run-variant`, `read-failures`,
+    # `snapshot-identity`, `read-a11y-violations`) are consumed by NO skill
+    # and stay `intentional_server_only` on this mapping. That is deliberate,
+    # not an oversight: they drive story-mcp's own headless same-JVM host, and
+    # an operator reaches them by launching story-mcp directly for an
+    # explicitly headless run. They were formerly allow-listed by
+    # re-frame2-pair under an "rf2-1v7tu HYBRID" split; rf2-p1keh removed that,
+    # because story-mcp has no nREPL/socket/JVM-to-browser bridge and so cannot
+    # see the browser tab's Story registry at all. A live pair session drives
+    # variants through `eval-cljs` over `re-frame.story/*` in the attached heap
+    # instead (skills/re-frame2-pair/references/stories.md).
+    # The host prefix is `re-frame2-story-mcp` per the skill's allowed-tools
     # entries (the MCP server's advertised name).
     # NOTE: re-frame2-pair-retro carries NO mapping here by design. The
     # skill is transcript-shaped and fully read-only — its allowed-tools
@@ -187,35 +205,143 @@ MAPPINGS: list[Mapping] = [
         host_prefix="re-frame2-story-mcp",
         skill_md=REPO_ROOT / "skills" / "re-frame2" / "SKILL.md",
         intentional_server_only=frozenset({
-            # Live-session tools — owned by re-frame2-pair.
+            # Headless run/assert tools — no skill consumer by design
+            # (rf2-p1keh). Reached by launching story-mcp directly.
             "run-variant",
             "read-failures",
             "snapshot-identity",
             "read-a11y-violations",
         }),
     ),
-    Mapping(
-        name="story-mcp <-> re-frame2-pair",
-        server_src=_STORY_MCP_LEAVES,
-        host_prefix="re-frame2-story-mcp",
+]
+
+
+# ---------------------------------------------------------------------------
+# Single-host axis (rf2-p1keh).
+#
+# The MCP axis above answers "does this skill's allow-list match THIS
+# server's catalogue?" — one mapping at a time. It cannot answer "does this
+# skill reach for a SECOND server at all?", because a foreign-prefix entry is
+# simply invisible to every mapping that filters on its own prefix. That is
+# the hole the HYBRID split hid in: seven `mcp__re-frame2-story-mcp__*`
+# entries sat in re-frame2-pair's frontmatter for months, each one green
+# under its own mapping.
+#
+# A rule here declares that one skill's MCP permissions must all carry a
+# single host prefix. For a skill whose whole contract is ONE attached
+# runtime, a second server is a second process with its own registry and its
+# own app-db — a keyword present in both names two different objects, so
+# composing reads across them yields answers that look right and describe
+# nothing.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SingleHostRule:
+    """One skill whose MCP allow-list must use exactly one host prefix.
+
+    `skill_md`     — SKILL.md whose `allowed-tools:` frontmatter is checked.
+    `host_prefix`  — the ONLY permitted `mcp__<prefix>__` host.
+    `rationale`    — printed in the drift message; says why this skill is
+                     single-host, so a reader hitting the failure learns the
+                     boundary rather than just the rule.
+    """
+    skill_md: Path
+    host_prefix: str
+    rationale: str
+
+
+SINGLE_HOST_RULES: list[SingleHostRule] = [
+    SingleHostRule(
         skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
-        intentional_server_only=frozenset({
-            # Authoring tools — owned by re-frame2.
-            "get-story-instructions",
-            "list-stories",
-            "get-story",
-            "get-variant",
-            "variant->edn",
-            "list-tags",
-            "list-modes",
-            "list-assertions",
-            "list-substrates",
-            "preview-variant",
-            "register-variant",
-            "unregister-variant",
-        }),
+        host_prefix="re-frame2-pair",
+        rationale=(
+            "re-frame2-pair's contract is one attached browser runtime — the "
+            "heap its shadow-cljs nREPL connection reaches. A second MCP "
+            "server is a second process with its own registry and app-db, so "
+            "no read from it describes the app the user has open. Story "
+            "variants are ordinary frames in the attached heap: drive them "
+            "with eval-cljs over re-frame.story/* (references/stories.md). "
+            "Explicitly headless Story work routes out to tools/story-mcp/ "
+            "and the authoring skill; it is never composed into a live pair "
+            "session"
+        ),
     ),
 ]
+
+# Every `mcp__<host>__<tool>` entry, host captured. Deliberately NOT anchored
+# to a known prefix — the point of this axis is to see hosts nobody declared.
+_ANY_MCP_ENTRY = re.compile(r"^mcp__([A-Za-z0-9][A-Za-z0-9._-]*)__(\S+)$")
+
+
+def extract_skill_mcp_hosts(path: Path) -> dict[str, set[str]]:
+    """Return `{host-prefix -> {tool-name, ...}}` for a SKILL.md allow-list.
+
+    Companion to `extract_skill_tools`, which filters to ONE prefix and so
+    cannot see a foreign host. This one keys by whatever host it finds.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm = _read_frontmatter(text)
+    if fm is None:
+        return {}
+    return _parse_allowed_tools_by_host(fm)
+
+
+def _parse_allowed_tools_by_host(frontmatter: str) -> dict[str, set[str]]:
+    """`_parse_allowed_tools`' state machine, grouping by host prefix."""
+    hosts: dict[str, set[str]] = {}
+    in_block = False
+    for line in frontmatter.splitlines():
+        if _ALLOWED_TOOLS_KEY.match(line):
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        stripped = line.lstrip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        m = _LIST_ITEM.match(line)
+        if not m:
+            break
+        entry = _ANY_MCP_ENTRY.match(m.group(1).strip())
+        if entry:
+            hosts.setdefault(entry.group(1), set()).add(entry.group(2))
+    return hosts
+
+
+def check_single_host_rules(
+    rules: Iterable[SingleHostRule],
+) -> tuple[list["Drift"], list[str]]:
+    """Run the single-host axis. Returns (drift, info-messages)."""
+    info: list[str] = []
+    drift: list[Drift] = []
+    for rule in rules:
+        try:
+            rel = rule.skill_md.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            # A self-test fixture outside the repo — label it by name.
+            rel = rule.skill_md.name
+        if not rule.skill_md.exists():
+            raise FileNotFoundError(
+                f"single-host: skill md not found at {rule.skill_md}"
+            )
+        hosts = extract_skill_mcp_hosts(rule.skill_md)
+        info.append(
+            f"single-host: {rel}: {len(hosts)} MCP host(s) "
+            f"{sorted(hosts)}; expected only '{rule.host_prefix}'."
+        )
+        for host in sorted(hosts):
+            if host == rule.host_prefix:
+                continue
+            for tool in sorted(hosts[host]):
+                drift.append(Drift(
+                    mapping_name=f"single-host:{rel}",
+                    direction="foreign-mcp-host",
+                    tool=f"mcp__{host}__{tool}|{rule.host_prefix}|{rule.rationale}",
+                ))
+    return drift, info
 
 # Pre-existing drift the gate accepts as the shipped baseline. Entries are
 # `(mapping-name, direction, tool-name)`. `direction` is one of
@@ -1076,6 +1202,15 @@ class Drift:
                 f"Add `Bash({self.tool})` to the skill's allow-list, or "
                 f"remove the command reference from the body."
             )
+        if self.direction == "foreign-mcp-host":
+            entry, expected, rationale = self.tool.split("|", 2)
+            return (
+                f"{self.mapping_name}: `allowed-tools:` grants '{entry}' — a "
+                f"tool from a SECOND MCP server. This skill is single-host: "
+                f"every MCP entry must carry the `mcp__{expected}__` prefix. "
+                f"{rationale}. Remove the entry (and any procedure that calls "
+                f"it) rather than widening the rule. (rf2-p1keh)"
+            )
         if self.direction == "missing-title-safety":
             return (
                 f"{self.mapping_name}: gh-issue-writing consumer '{self.tool}' "
@@ -1728,6 +1863,76 @@ def _run_self_test(ci: bool) -> int:
                 "body-path-identity green path is broken (rf2-2zkrz)."
             )
 
+    # (6) SINGLE-HOST AXIS (rf2-p1keh). Three checks, because the axis has
+    #     exactly one way to fail silently: if the entry regex stops matching,
+    #     every skill reads as single-host and the gate is a no-op that never
+    #     says so. So prove the shipped rules green, prove a controlled
+    #     reintroduction of ONE foreign entry fires, and prove the green path
+    #     is not green merely because nothing parsed.
+    try:
+        host_drift, _ = check_single_host_rules(SINGLE_HOST_RULES)
+        if host_drift:
+            failures.append(
+                "the shipped single-host rules report foreign MCP hosts: "
+                + "; ".join(d.tool.split("|", 1)[0] for d in host_drift)
+            )
+    except FileNotFoundError as e:
+        failures.append(f"single-host: shipped rule input missing ({e}).")
+
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        _FM = (
+            "---\n"
+            "name: synthetic-pair\n"
+            "allowed-tools:\n"
+            "  - mcp__re-frame2-pair__discover-app\n"
+            "  - mcp__re-frame2-pair__eval-cljs\n"
+            "{extra}"
+            "  - Read\n"
+            "  - Edit\n"
+            "---\n\nBody.\n"
+        )
+
+        # Negative: one reintroduced foreign entry must make the axis red.
+        bad = td_path / "synthetic-foreign-host.md"
+        bad.write_text(
+            _FM.format(extra="  - mcp__re-frame2-story-mcp__run-variant\n"),
+            encoding="utf-8",
+        )
+        bad_drift, _ = check_single_host_rules([SingleHostRule(
+            skill_md=bad, host_prefix="re-frame2-pair", rationale="synthetic",
+        )])
+        if not [d for d in bad_drift if d.direction == "foreign-mcp-host"]:
+            failures.append(
+                "a synthetic single-host skill carrying one "
+                "mcp__re-frame2-story-mcp__ entry did NOT fire "
+                "foreign-mcp-host -- the single-host axis is a no-op "
+                "(rf2-p1keh)."
+            )
+
+        # Positive: the same frontmatter without the foreign entry is green,
+        # AND its own-host entries were actually seen — a green produced by a
+        # parser that matched nothing would prove nothing.
+        good = td_path / "synthetic-single-host.md"
+        good.write_text(_FM.format(extra=""), encoding="utf-8")
+        good_rule = SingleHostRule(
+            skill_md=good, host_prefix="re-frame2-pair", rationale="synthetic",
+        )
+        if check_single_host_rules([good_rule])[0]:
+            failures.append(
+                "a synthetic single-host skill with only "
+                "mcp__re-frame2-pair__ entries was flagged -- the "
+                "single-host green path is broken (rf2-p1keh)."
+            )
+        seen = extract_skill_mcp_hosts(good)
+        if seen.get("re-frame2-pair") != {"discover-app", "eval-cljs"}:
+            failures.append(
+                "the single-host extractor read "
+                f"{seen!r} from a synthetic allow-list holding exactly two "
+                "mcp__re-frame2-pair__ entries -- the axis' green is "
+                "vacuous, not earned (rf2-p1keh)."
+            )
+
     if failures:
         for f in failures:
             _emit_error(f"self-test: {f}", ci)
@@ -1743,7 +1948,9 @@ def _run_self_test(ci: bool) -> int:
           "both host shapes survive a literal-path Write -> gh --body-file "
           "handoff byte-for-byte; the pre-fix expression and a regenerated "
           "nonce both fail that handoff; expression / placeholder / unpaired / "
-          "absent / POSIX-only recipes all fire).")
+          "absent / POSIX-only recipes all fire. single-host: shipped rules "
+          "green; a reintroduced foreign-server entry fires; the own-host "
+          "green is earned, not vacuous).")
     return 0
 
 
@@ -1829,6 +2036,19 @@ def main(argv: Iterable[str]) -> int:
         path_drift, path_info = [], []
     all_info.extend(path_info)
     for d in path_drift:
+        all_drift.append((None, d))
+
+    # Single-host axis (rf2-p1keh) — a single-runtime skill's MCP permissions
+    # must all carry one host prefix. Invisible to the MCP axis above, which
+    # filters each mapping to its own prefix. Same accumulator, mapping=None.
+    try:
+        host_drift, host_info = check_single_host_rules(SINGLE_HOST_RULES)
+    except FileNotFoundError as e:
+        _emit_error(str(e), ci)
+        saw_setup_error = True
+        host_drift, host_info = [], []
+    all_info.extend(host_info)
+    for d in host_drift:
         all_drift.append((None, d))
 
     # Doc-coverage axis (rf2-l2y4n) — every server tool must have a table row

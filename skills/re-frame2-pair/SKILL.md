@@ -50,15 +50,11 @@ allowed-tools:
   - mcp__re-frame2-pair__restore-epoch
   - mcp__re-frame2-pair__replace-app-db
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
-  # story-mcp — live-session tools (HYBRID split; authoring surface is on the re-frame2 skill)
-  - mcp__re-frame2-story-mcp__run-variant
-  - mcp__re-frame2-story-mcp__read-failures
-  - mcp__re-frame2-story-mcp__snapshot-identity
-  - mcp__re-frame2-story-mcp__read-a11y-violations
-  # story-mcp — read-only enumerations + agent-paste markdown
-  - mcp__re-frame2-story-mcp__list-decorators
-  - mcp__re-frame2-story-mcp__get-docs-markdown
-  - mcp__re-frame2-story-mcp__explain-variant
+  # One runtime, one MCP server. Every op above targets the browser heap the
+  # nREPL connection reaches. Story variants included — they are ordinary
+  # frames in that same heap, driven through `eval-cljs` over
+  # `re-frame.story/*` (see references/stories.md). No second MCP server is
+  # started, configured, or called during a live pair session.
   - Read
   - Edit
   - Write
@@ -71,6 +67,8 @@ allowed-tools:
 Pair-program on a **live, running re-frame2 application** (a browser tab behind `shadow-cljs watch`): help the developer understand, debug, and modify it by *operating on the live runtime*, not just reading source.
 
 **Router skill.** Trigger-time guard rails are below; operational depth (op catalogue, recipes, error handling, hot-reload protocol, v1-migration notes) lives in `references/`, loaded on demand.
+
+**One runtime — the browser heap on the other end of the nREPL connection.** Every op this skill teaches or allow-lists reads and writes *that* heap and nothing else. Story variants are no exception: a variant is an ordinary frame in the same heap, so you enumerate and run it through `eval-cljs` over `re-frame.story/*` and then address it with the ordinary frame tools ([references/stories.md](references/stories.md)). Never start or call a second MCP server mid-session to reach a runtime — a separate process has a separate registry and a separate `app-db`, so a keyword that exists in both is two different objects, and composing reads across them produces confident nonsense. Explicitly headless, no-browser Story work is a different task with a different host: route it to [`tools/story-mcp/README.md`](../../tools/story-mcp/README.md) and the authoring skill, and don't run it from inside a live pair session.
 
 ## The three primitives
 
@@ -191,13 +189,12 @@ Read the leaf matching the task. Most references are ≤250 lines; the two catal
 | Simulate an event's consequence WITHOUT committing it (no fx fire) | `dispatch-dry-run` — see [references/recipes.md §"What would this event do?"](references/recipes.md#what-would-this-event-do-dry-run) |
 | Record signals while the human interacts, or block until a condition lands | `record` / `read-recording` / `watch-until` — see [references/ops.md §Signal recording](references/ops.md#signal-recording--blocking-waits) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
-| Drive a Story variant from a re-frame2-pair session — the variant *is* a frame; variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle, gotchas, discovery | [references/variant-as-frame.md](references/variant-as-frame.md) |
+| Drive a Story variant in the app you have open — enumerate the browser's own registry, run a variant, then read/dispatch/trace/diff it as an ordinary frame (the variant id *is* the frame id) | [references/stories.md](references/stories.md) |
 | Decode a deduped wire payload (`:rf.mcp/dedup-table`) or pick the right size-conscious arg (`max-tokens`, `path`, `mode`, `dedup`, `elision`, `limit`/`cursor`, `cache`, `max-buffered-*`) | [references/wire-size-budget.md](references/wire-size-budget.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know it has none) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
-| Drive the **running browser app's own** Story registry via `eval-cljs` (`re-frame.story/ids` / `variants-of` / `run-variant`, await the run-result) — the pair is the live-browser Story host, story-mcp cannot see the browser registry; OR use the story-mcp tools during a live session (the four live-session tools `run-variant` / `read-failures` / `snapshot-identity` / `read-a11y-violations` plus the three read-only enumerations `list-decorators` / `explain-variant` / `get-docs-markdown`; composition with watch-epochs and dispatch-from-pair) | [references/stories.md](references/stories.md) |
 
 Load at most two references for a single task. Wanting three means the request spans concerns and should be broken up.
 
