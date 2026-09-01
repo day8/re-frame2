@@ -1199,14 +1199,24 @@ that finished normally, and for the eighth held a hardlink to the real transcrip
 file returned one plausible non-empty result and made the wrong conclusion self-consistent.
 
 **An empty file keyed by the id says nothing whatever about whether a report exists** — it is a
-fact about that file. Measured again later, at larger scale: the sink read empty for fifteen of
-seventeen worktrees, every one of those fifteen transcripts sat complete elsewhere, and fourteen of
-them opened with the completion sentence the test demands. The two non-empty ones are what made it
-read as a survey rather than an artefact — a wholly empty result would have looked broken and sent
-the reader looking. So the id names a FILE only once you know which file is the agent's OWN; until
-then it names a directory to search. Read emptiness as *not found here*, never as *not written* —
-the cost of the wrong reading is the whole point of this section, since it converts "no report
-exists" into a standing residue that nothing will ever clear.
+fact about that one location, never about the id. Measured again later, at larger scale: the sink
+read empty for fifteen of seventeen worktrees, every one of those fifteen transcripts sat complete
+elsewhere, and fourteen of them opened with the completion sentence the test demands. The two
+non-empty ones are what made it read as a survey rather than an artefact — a wholly empty result
+would have looked broken and sent the reader looking. So the id names a FILE only once you know
+which file is the agent's OWN; until then it names a directory to search. **And an id may key
+several locations rather than one** — the scratch sink is one of them and the store holding the
+session's own transcript is another, under a different root and a different naming convention — so
+the step between an empty sink and the path search below is to enumerate the id's remaining
+locations and read those, which is cheap and exact where the search is neither. Measured later
+still, across forty candidate worktrees in a single pass: the sink was empty for thirty-one of
+them, and a second id-keyed location held a complete transcript for all thirty-one, no misses.
+Twenty-nine of those opened with the completion sentence; the other two ended on interim status and
+were correctly refused the reap, so enumerating the locations discriminates in both directions
+rather than merely finding reports. The search below was needed for exactly two of the forty, and
+both were trees with no recorded id at all — which is what that search is for. Read emptiness as
+*not found here*, never as *not written* — the cost of the wrong reading is the whole point of this
+section, since it converts "no report exists" into a standing residue that nothing will ever clear.
 
 **When no id was recorded at all, the report is not missing — only unindexed.** Search the
 transcripts for the worktree's own path, which a dispatch names and so does the report that ends
