@@ -1477,12 +1477,16 @@ and a containment scan demoted from a verdict to triage kept a clause saying it 
 case"*, two sentences from the words *"triage, not a verdict"*. Both were caught by an outside
 reader, not by the loop that wrote them.
 
-**The discharging test is one question, and it costs nothing: would the evidence that falsified the
-old claim also falsify the new one?** If it would, the new claim is not established — it is the old
-error re-pointed. Workers completing alive falsifies *dormant*; it does not establish *about to
-report*, because a stopped worker produces the same reading. Where the honest answer is that the
-observation supports neither side, **say so plainly and let the guidance rest on the asymmetric cost
-of the two errors instead** — that is a real reason to wait, and it survives the next counterexample,
+**The discharging test is one question, and it costs nothing: what would you expect to SEE that is
+different if the new claim were false?** If the only answer is *the evidence that refuted the old
+one*, nothing has been established — that evidence rules the old claim out and leaves the replacement
+standing among several survivors, which is the old error re-pointed. Workers completing alive refutes
+*dormant*, and a stopped run shows the same frozen clock as one about to report, so nothing observed
+tells those two apart. The containment scan's misses refute *this settles it*, and a scan that is
+right usually and one that is right rarely produce identical output, so *settles the common case*
+rests on a frequency nobody measured. Where the honest answer is that the observation supports
+neither side, **say so plainly and let the guidance rest on the asymmetric cost of the two errors
+instead** — that is a real reason to wait, and it survives the next counterexample,
 which a re-pointed claim does not. Being wrong twice about the same sentence is the ordinary case
 here, and this loop is where the second round is supposed to be caught.
 

@@ -72,6 +72,31 @@ The order is what makes it accurate. Each step is a check the next depends on.
    costs a dispatch rather than a defect. **Do not let that safety net become the plan**: it
    spends a worker's context re-deriving what one query answers, and the mayor learns nothing,
    because a brief refuted politely reads much like a brief fulfilled.
+
+   **Do that read before the brief exists, and read it for two things: a HOLD, and SEQUENCING.** It is
+   a step rather than another note because the knowledge is already written down and already travelling —
+   the common preamble below orders the worker to read by tracker timestamps, at length and with the
+   reasoning, and the mayor pastes that into every dispatch and then does not do it. A hold is the newest
+   field often enough that the description cannot be trusted to mention it, so an item reads as an
+   ordinary defect report while the live instruction is *wait*. Sequencing is the mirror case and the
+   easier one to miss, because the brief's instinct is right by default: a triage note naming the
+   predecessors that had to land first is an **authorisation with a precondition**, so restating a
+   generic fence over it converts a satisfied precondition back into a blocker — which either strands
+   the work or, as measured here, costs the worker a justification round it should not have had to
+   write. Both shapes went out in real briefs, and the worker caught both.
+
+   **And where you sweep a whole board for hold markers, that sweep is a candidate filter and never a
+   verdict.** It narrows the open items to a handful; the hold is then established by READING each
+   candidate, which is affordable at that size and is the only thing that separates a live banner from
+   one quoted, discussed, or already struck. Write the question the sweep answers beside the question you
+   are asking — *does this text contain these characters* against *is this item currently held* — because
+   the gap is invisible in the answer. Measured: a sweep reported eleven of twenty-seven open items held
+   and the number reached the operator before anyone read a candidate; the first two falsified were an
+   item quoting another item's banner and an item whose own text said its banner was struck. Why the
+   sweep fails in both directions, why a second sweep built to tell live from struck fails the same way,
+   and the structured field that is the durable answer where a project wants this machine-checkable, are
+   under *Tracker mechanics* in [`loops.md`](loops.md#tracker-mechanics) — this step is the concrete
+   instance and does not restate them.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
