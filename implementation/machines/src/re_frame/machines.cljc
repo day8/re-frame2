@@ -162,8 +162,8 @@
 ;;
 ;; Three thin lookup fns over the existing event registry and the
 ;; runtime-owned `[:rf.runtime/machines :system-ids]` reverse index — derived views, not a
-;; new registry kind. `(rf/machines)` filters event handlers whose
-;; registration metadata carries `:rf/machine? true`; `(rf/machine-meta
+;; new registry kind. `(rf.machines/machines)` filters event handlers whose
+;; registration metadata carries `:rf/machine? true`; `(rf.machines/machine-meta
 ;; id)` returns the registered machine's spec map; `(rf/machine-by-
 ;; system-id sid)` resolves the spawned-machine id currently bound to
 ;; `sid` in the active frame's `[:rf.runtime/machines :system-ids]` reverse index.

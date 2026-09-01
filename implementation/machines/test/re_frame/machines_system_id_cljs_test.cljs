@@ -4,7 +4,7 @@
 
   Per Spec 005 §Named addressing via :system-id: a spawn whose args carry a
   `:system-id` keyword binds that name in the per-frame `[:rf.runtime/machines :system-ids]`
-  reverse index. `(rf/machine-by-system-id sid)` resolves the binding;
+  reverse index. `(rf.machines/machine-by-system-id sid)` resolves the binding;
   destroy clears it; collisions emit `:rf.error/system-id-collision` and
   rebind (last-write-wins).
 

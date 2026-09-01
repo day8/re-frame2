@@ -279,7 +279,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; rf2-uo0rc.3: BEFORE the fix, `get-machine-state` routed `:state`
-;; through `rf/machine-meta` — the registered SPEC — even though the tool
+;; through `rf.machines/machine-meta` — the registered SPEC — even though the tool
 ;; name + the `:state` key + the docstring all promise the CURRENT FSM
 ;; position. An agent asking "what state is :auth in right now" got the
 ;; static definition (e.g. `{:initial :idle :states {...}}`), never the
@@ -292,12 +292,12 @@
 ;; that synthesises snapshots) is NOT on the xray `clojure -M:test`
 ;; classpath (only `machines-viz` is), so we exercise the accessor's two
 ;; surfaces directly: seed the live snapshot into runtime-db (what the
-;; runtime would write after transitions) + stub `rf/machine-meta` (the
+;; runtime would write after transitions) + stub `rf.machines/machine-meta` (the
 ;; registry) so the test is portable across both the xray-deps + shadow
 ;; node-test classpaths without booting the runtime artefact.
 
 (def ^:private uo0rc3-registered-spec
-  "A registered machine SPEC — what `rf/machine-meta` returns. Its
+  "A registered machine SPEC — what `rf.machines/machine-meta` returns. Its
   `:initial` is `:idle`; if the accessor regressed to returning the spec
   as `:state`, the assertion below would see this map (or its `:initial`)
   rather than the live state-path."

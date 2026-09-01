@@ -11,7 +11,7 @@
 
   ## What this projects
 
-  The browse-all list enumerates `(rf/machines)` and renders one row
+  The browse-all list enumerates `(rf.machines/machines)` and renders one row
   per registered machine. Each row
   carries enough data for the L4-left list AND the L4-right header to
   render without recomputing: machine-id, state-count, live-instance
@@ -102,7 +102,7 @@
 
 (defn lift-source-coord
   "Pull the source-coord map off a registered machine's spec (the
-  return value of `(rf/machine-meta machine-id)`). Per Spec 005 +
+  return value of `(rf.machines/machine-meta machine-id)`). Per Spec 005 +
   Spec 009 the registrar lifts the `defmacro`/`reg-machine` call site
   into the spec's metadata; the canonical slot is `:source-coord` (the
   same shape `editor-uri/editor-uri` consumes).
@@ -200,7 +200,7 @@
 
   Inputs:
     `machine-id`  — the registered machine keyword.
-    `definition`  — `(rf/machine-meta machine-id)` map (nil if missing).
+    `definition`  — `(rf.machines/machine-meta machine-id)` map (nil if missing).
     `snapshots`   — `{machine-id snapshot}` for the target-frame.
 
   Output:

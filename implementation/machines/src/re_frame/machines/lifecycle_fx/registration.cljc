@@ -1277,8 +1277,8 @@
 
   Per Spec 005 §Querying machines, the registration metadata is stamped
   with `:rf/machine? true` and `:rf/machine` (the spec map).
-  `(rf/machines)` filters the `:event` registry by `:rf/machine?`;
-  `(rf/machine-meta id)` reads the spec back out via the standard
+  `(rf.machines/machines)` filters the `:event` registry by `:rf/machine?`;
+  `(rf.machines/machine-meta id)` reads the spec back out via the standard
   registrar query API.
 
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /

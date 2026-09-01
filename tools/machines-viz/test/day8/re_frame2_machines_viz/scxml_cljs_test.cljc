@@ -1109,7 +1109,7 @@
   "Compound with a SHALLOW `:type :history` pseudo-state targeted by an
   outer transition. The history node is NEVER occupiable — a transition
   to `:hist` resolves to the compound's recorded direct child at runtime.
-  Uses the normalised `:deep? false` shape `rf/machine-meta` returns (an
+  Uses the normalised `:deep? false` shape `rf.machines/machine-meta` returns (an
   absent `:deep?` reads as shallow per Spec 005; SCXML's `<history>`
   always carries an explicit `type`, so the decode is `:deep? false`)."
   {:initial :off

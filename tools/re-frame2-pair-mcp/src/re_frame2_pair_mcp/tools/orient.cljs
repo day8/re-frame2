@@ -11,7 +11,7 @@
   those into ONE compact map by reusing the existing introspection
   surfaces (runtime-side
   `orient` → `health` + `app-frame-ids` + `registrar-list` +
-  `app-db-value` top-keys + `rf/machines`) — no reinvention.
+  `app-db-value` top-keys + `rf.machines/machines`) — no reinvention.
 
   Most valuable precisely for devs NOT working on re-frame2 tooling: they
   hand the agent an arbitrary app and the agent needs a fast map of it.

@@ -6,7 +6,7 @@
 
    1. **Acceptance.** `reg-machine` accepts a machine-level `[:schemas
       :output]` schema; registration completes and the schema round-trips
-      through `(rf/machine-meta id)`.
+      through `(rf.machines/machine-meta id)`.
 
    2. **Completion boundary — conforming output.** A finishing machine whose
       `:output-key` payload CONFORMS to `[:schemas :output]` emits NO

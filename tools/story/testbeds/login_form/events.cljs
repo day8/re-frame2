@@ -29,7 +29,7 @@
   app; in Story it's intercepted."
   (:require [re-frame.core :as rf]
             ;; Loads the machine substrate's late-bind hooks so
-            ;; rf/make-machine-handler resolves below.
+            ;; rf.machines/make-machine-handler resolves below.
             [re-frame.machines :as machines]
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw

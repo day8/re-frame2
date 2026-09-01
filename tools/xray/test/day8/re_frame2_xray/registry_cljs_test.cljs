@@ -1828,7 +1828,7 @@
             the registered-machines override is forced to []"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      ;; The framework's (rf/machines) registrar is process-global, so
+      ;; The framework's (rf.machines/machines) registrar is process-global, so
       ;; on a node-test target where the machines artefact's own test
       ;; suite registered fixture machines, the live call surfaces a
       ;; non-empty vector. Pin the override to [] so the empty-state

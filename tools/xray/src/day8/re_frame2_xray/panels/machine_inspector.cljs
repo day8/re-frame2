@@ -580,7 +580,7 @@
 ;; ---- empty state (no machines registered at all) -----------------------
 
 (defn- empty-state
-  "Rendered when `(rf/machines)` returns nothing — either the host
+  "Rendered when `(rf.machines/machines)` returns nothing — either the host
   app has not yet called `reg-machine`, or `day8/re-frame2-machines`
   is not on the classpath."
   []
@@ -744,7 +744,7 @@
   ;; rendering — `snapshot-drill-in` hard-wires that posture and this
   ;; install no longer registers the sub/event/slot trio.
 
-  ;; Registered-machine vector (reads `(rf/machines)`). The test-only
+  ;; Registered-machine vector (reads `(rf.machines/machines)`). The test-only
   ;; override seam (`:rf.xray/set-registered-machines-override-for-test`
   ;; + the `*-override` read) lives behind `install-test-overrides!`
   ;; (rf2-e8330v) — production registration carries no `-for-test` ids.

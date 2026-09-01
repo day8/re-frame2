@@ -65,7 +65,7 @@
   artefact's per-frame side-table, surfaced via `rf/app-schemas` /
   `rf/app-schema-meta-at`. The fourteen registrar kinds map directly to
   `rf/handler-meta`; `machine` routes
-  through the dedicated `rf/machine-meta` surface (Spec 005 §Querying machines —
+  through the dedicated `rf.machines/machine-meta` surface (Spec 005 §Querying machines —
   machines are registered as `:event` handlers carrying
   `:rf/machine? true` with their spec in the `:rf/machine` slot, and
   `machine-meta` unwraps that slot).
@@ -109,7 +109,7 @@
 ;; The MCP arg comes in as a JS string ("event", "sub", …). We coerce
 ;; to the runtime keyword the registrar uses. `machine` is the one
 ;; logical kind that doesn't map 1:1 to a registrar kind — it routes
-;; through `rf/machine-meta` instead.
+;; through `rf.machines/machine-meta` instead.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private registrar-kinds
@@ -145,7 +145,7 @@
   App-db schemas are intentionally absent — they are NOT
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
-  it routes through `rf/machine-meta` (which inspects `:event`-kind
+  it routes through `rf.machines/machine-meta` (which inspects `:event`-kind
   metadata for the `:rf/machine?` flag) — but is in `supported-kinds`
   below."
   #{:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
