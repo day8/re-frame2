@@ -335,10 +335,17 @@ if [ "$MODE" = "pre-pull" ]; then
   printf '  `git checkout HEAD -- .beads` here would revert it, and the next\n' >&2
   printf '  checkpoint would write that revert back over the database — the\n' >&2
   printf '  rf2-51uz1 fault, which has silently reopened closed beads before.\n\n' >&2
-  printf '  Checkpoint first, then clear, then pull:\n\n' >&2
+  # The third step is a fetch-then-rebase pair, not `git pull --rebase`
+  # (rf2-9m1n4): a pull rebases onto FETCH_HEAD, a scratch file any concurrent
+  # git process in the same checkout rewrites, so naming remote and branch
+  # constrains only the fetch half. See CLAUDE.md's Beads durability section.
+  # The .ps1 sibling prints the same pair in PowerShell's own checked idiom,
+  # because `&&` does not parse in Windows PowerShell 5.x; that divergence is
+  # deliberate.
+  printf '  Checkpoint first, then clear, then update:\n\n' >&2
   printf '      sh scripts/beads-checkpoint.sh\n' >&2
   printf '      git checkout HEAD -- .beads\n' >&2
-  printf '      git pull --rebase\n\n' >&2
+  printf '      git fetch origin main && git rebase origin/main\n\n' >&2
   exit 1
 fi
 

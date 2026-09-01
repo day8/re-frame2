@@ -643,6 +643,16 @@ try {
         if (Test-SameContent -A $tracker -B $tmpHead) { exit 0 }
         $workRows = Get-RowCount -Path $tracker
         $headRows = Get-RowCount -Path $tmpHead
+        # The third step below is deliberately NOT the `&&` form the .sh sibling
+        # prints (rf2-9m1n4). It is a pasteable PowerShell line, and `&&` is a
+        # PARSE ERROR in Windows PowerShell 5.x, which this script supports
+        # (`#requires -Version 5`, and see the `powershell -File` note above);
+        # `; if ($?) { ... }` is the equivalent checked sequence and gates
+        # identically under 5.x and pwsh 7. Do not "reconcile" it to `&&`.
+        # It must stay a fetch-then-rebase pair rather than `git pull --rebase`:
+        # a pull rebases onto FETCH_HEAD, a scratch file any concurrent git
+        # process in the same checkout rewrites, so naming remote and branch
+        # constrains only the fetch half. See CLAUDE.md's Beads durability.
         $lines = @(
             '',
             '[re-frame2] the working tracker export is AHEAD of HEAD.',
@@ -652,11 +662,11 @@ try {
             '  checkpoint would write that revert back over the database - the',
             '  rf2-51uz1 fault, which has silently reopened closed beads before.',
             '',
-            '  Checkpoint first, then clear, then pull:',
+            '  Checkpoint first, then clear, then update:',
             '',
             '      powershell -ExecutionPolicy Bypass -File scripts/beads-checkpoint.ps1',
             '      git checkout HEAD -- .beads',
-            '      git pull --rebase',
+            '      git fetch origin main; if ($?) { git rebase origin/main }',
             ''
         )
         [Console]::Error.WriteLine(($lines -join "`n"))
