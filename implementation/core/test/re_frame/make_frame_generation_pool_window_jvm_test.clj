@@ -27,14 +27,12 @@
   genuine two-thread race. This one is a plain ordering wart, reachable by a
   single synchronous call:
 
-    1. `:pool-window/target` is created against explicit pool V1 and destroyed.
-       Teardown RELEASES the row (rf2-cq0yi — it used to survive, on the
-       reasoning that a REUSED id's row would be overwritten by the next
-       `make-frame` anyway; what that reasoning missed was retention, not
-       correctness), so the id is left with NO row, which is the other half of
-       the same out-of-step window: an absent row reads as nil, and nil means
-       the LIVE SOURCE STORE — a pool this frame's explicit-`:include-ns`
-       composition matches nothing in.
+    1. `:pool-window/target` is created against explicit pool V1 and destroyed,
+       and the V1 row is then PLANTED back onto the dead id. It used to be left
+       there by the destroy itself; since rf2-cq0yi teardown releases it, so the
+       reproduction establishes the state directly. See the long comment at the
+       plant for why nothing else reaches this state, and why planting it does
+       not weaken the pin.
     2. A `reg-*` arms `pending-reprojection?` (an image-loaded decoy frame is
        standing, so the hook does not take its no-image-loaded-frame skip; on the
        JVM `mark-dirty-and-schedule!` schedules no tick, so the flag simply
@@ -164,15 +162,38 @@
         "control: the first incarnation resolved against pool V1")
     (rf/destroy-frame! :pool-window/target)
     (is (not (contains? (deref @provenance) :pool-window/target))
-        (str "control: teardown RELEASED the destroyed incarnation's provenance "
-             "row (rf2-cq0yi). The wart this namespace reproduces is the row "
-             "being OUT OF STEP with the record, and the row does that in TWO "
-             "ways — naming a previous incarnation's pool, or naming NOTHING. "
-             "Since the release it is the second here, and that is the sharper "
-             "half: an absent row reads as nil, nil means the LIVE SOURCE "
-             "STORE, and this frame's explicit-pool composition matches nothing "
-             "in it. So a reverted ordering reddens the assertions below just "
-             "as hard as it did against a stale V1 row."))
+        "control: teardown RELEASED the destroyed incarnation's row (rf2-cq0yi)")
+
+    ;; …so the stale row this reproduction needs is now PLANTED rather than
+    ;; inherited (rf2-cq0yi). Until the release landed, the row simply survived
+    ;; the destroy and step 3 below read it as a matter of course; the fix
+    ;; removes it, and the state under test has to be established some other
+    ;; way. WHITE-BOX IS THE ONLY WAY LEFT, and it is measured rather than
+    ;; assumed — both alternatives were tried against the reverted ordering and
+    ;; neither reproduces:
+    ;;
+    ;;   * leaving the row ABSENT (what the destroy now leaves behind) reads as
+    ;;     nil ⇒ the LIVE SOURCE STORE, whose zero-match against this frame's
+    ;;     explicit `:include-ns` composition is SWALLOWED by the resilient
+    ;;     flush, so the constructor's generation survives and every assertion
+    ;;     below passes — the pin goes quiet exactly where it is needed;
+    ;;   * a same-id RE-construction over a LIVE frame does leave a genuine
+    ;;     previous-pool row, but `:initial-events` fires only on FIRST
+    ;;     construction, so there is no in-`upsert-frame!` resolution to flush
+    ;;     and the window never opens (measured: app-db stays `{}`).
+    ;;
+    ;; So the id must be destroyed (to make the next construction a FIRST one,
+    ;; which is what runs the setup cascade) AND carry a previous incarnation's
+    ;; row. That pairing no longer occurs by itself, and planting it is not a
+    ;; weakening: this namespace is white-box by construction — it reads the
+    ;; private provenance table and the private dirty flag directly, and says so
+    ;; — and the value planted is byte-identical to what the first incarnation
+    ;; recorded three lines up. Verified in both directions: with this plant the
+    ;; case reddens under the pre-rf2-rt4jz ordering (the constructor returns a
+    ;; frame running V1) and is green under the current one.
+    (swap! @provenance assoc :pool-window/target pool-v1)
+    (is (= pool-v1 (pool-row :pool-window/target))
+        "control: the row under test names the PREVIOUS incarnation's pool V1")
 
     ;; ARM the coalesced reprojection. On the JVM this schedules no tick — the
     ;; flag waits for the next resolution, which will be the setup cascade's.
