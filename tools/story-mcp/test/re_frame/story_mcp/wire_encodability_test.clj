@@ -13,11 +13,10 @@
   into a protocol-level `-32603`. A unit test on the handler would have
   passed the whole time.
 
-  Three relay sites carry the same `ex-data`-onto-`:structuredContent`
+  Two relay sites carry the same `ex-data`-onto-`:structuredContent`
   pattern and are covered here:
 
     - `tools/write.cljc`         `register-or-error`   — the headline repro.
-    - `tools/recorder.cljc`      `write-back!`         — the sibling.
     - `tools/wire-pipeline.cljc` `invoke-tool`'s catch — the GENERIC arm,
       which relays a whole `ex-data` under `:data` and so fails for ANY
       handler whose throw carries a non-encodable slot.
@@ -31,11 +30,14 @@
   `str`s an opaque key and leaks its address into a JSON member name.
 
   Only the first is reachable through the shipped tool surface today: the
-  other two re-register bodies the registrar itself produced (already
-  valid) or catch throws the handlers already handle. Their tests seam
-  the one producer each path trusts — `story/recording->script-body`,
-  `story/variant->edn` — so the throw, the relay, the encoder and
-  `handle-frame!` are all the real thing while the trigger is forced.
+  generic arm catches throws the handlers already handle. Its tests seam
+  the one producer that path trusts — `story/variant->edn` — so the
+  throw, the relay, the encoder and `handle-frame!` are all the real
+  thing while the trigger is forced.
+
+  (A third relay lived in `tools/recorder.cljc` `write-back!`, seamed
+  through `story/recording->script-body`. It left with `record-as-variant`
+  under rf2-5saz7; the leaf is deleted, so the roster above is two.)
 
   ## The second contract on this boundary: the message a consumer AI READS
 

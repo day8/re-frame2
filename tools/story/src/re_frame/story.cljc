@@ -159,8 +159,9 @@
             ;; Test Codegen recorder (pure-data state + snippet generator).
             [re-frame.story.recorder    :as recorder]
             ;; Recording → live `:script` body translator.
-            ;; Re-exported as `recording->script-body` so the MCP write-back
-            ;; path (story-mcp) can emit the canonical replayable slot.
+            ;; Re-exported as `recording->script-body`: the runtime counterpart
+            ;; to `gen-play-snippet`'s text output, for the recorder panel and
+            ;; any in-process caller wanting the canonical replayable slot.
             [re-frame.story.recorder.play-export :as play-export]
             ;; SOTA features — layout-debug + share live in .cljc;
             ;; multi-substrate / a11y / panels are CLJS-only so the

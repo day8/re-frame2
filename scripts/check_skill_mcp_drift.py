@@ -131,13 +131,13 @@ class Mapping:
     optional: bool = False  # True ⇒ missing server_src is a skip, not an error.
 
 
-# Story-mcp tool catalogue lives across five per-category leaves post
-# rf2-3ukix — dev/docs/testing/write each carry a `descriptors` vector,
-# recorder carries a singleton `descriptor` map (split out for
-# leaf-size reasons, rf2-zkca8). The parent `tools.cljc` was removed in
-# the same refactor; assembly happens in `tools/registry.cljc` which
-# only re-exports symbols (no literals to lex). Enumerate the leaves
-# directly.
+# Story-mcp tool catalogue lives across four per-category leaves post
+# rf2-3ukix — dev/docs/testing/write each carry a `descriptors` vector.
+# (A fifth leaf held the recorder bridge's singleton `descriptor` map,
+# rf2-zkca8; it was deleted with `record-as-variant` under rf2-5saz7.)
+# The parent `tools.cljc` was removed in the same refactor; assembly
+# happens in `tools/registry.cljc` which only re-exports symbols (no
+# literals to lex). Enumerate the leaves directly.
 _STORY_MCP_LEAVES = tuple(
     REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools" / f"{leaf}.cljc"
     for leaf in ("dev", "docs", "testing", "write")
@@ -273,8 +273,7 @@ def extract_server_tools(paths: tuple[Path, ...]) -> set[str]:
 
     Multi-path support exists for servers whose tool catalogue is
     split across per-category leaves (e.g. story-mcp post rf2-3ukix —
-    dev/docs/testing/write each own a `descriptors` def, with the
-    recorder bridge living in a fifth leaf for leaf-size reasons).
+    dev/docs/testing/write each own a `descriptors` def).
     """
     tools: set[str] = set()
     for path in paths:
