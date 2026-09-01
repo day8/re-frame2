@@ -416,17 +416,19 @@
 
 ;; ---- reg-view -------------------------------------------------------------
 ;;
-;; The wrapper-builder is decomposed into named helpers, each owning
-;; one phase of the registration pipeline:
+;; The pipeline is decomposed into named helpers, each owning one phase:
 ;;
 ;;   1. `apply-adapter-wrap-view`         — consult the substrate hook
 ;;   2. `view-coord-attr`                 — debug-only source-coord stamp
 ;;   3. `trace/handler-scope-from-meta`   — pre-compute view's HandlerScope
 ;;   4. `build-frame-aware-view`          — assemble the per-render wrapped fn
 ;;   5. `apply-adapter-componentize-view` — substrate's mountable head
-;;   6. `registrar/register!`             — install in the :view kind
 ;;
-;; reg-view* itself becomes a six-line straight-line composition.
+;; `compose-view` runs all five against the installed adapter; `reg-view*`
+;; seeds it and installs the result in the :view kind, and `view-head` re-runs
+;; it when the seed was taken against a different substrate. See the
+;; head-cache section between `build-frame-aware-view` and `reg-view*` for why
+;; the pipeline is re-runnable rather than a one-shot at registration.
 
 (defn- apply-adapter-wrap-view
   "Consult the `:adapter/wrap-view` late-bind hook (rf2-00li) for a
@@ -450,14 +452,21 @@
   The adapter's wrap-view body itself sits inside
   `(when interop/debug-enabled? ...)`, so under :advanced +
   goog.DEBUG=false the wrapped fn collapses to the bare user-fn (no
-  cloneElement) — keeping the elision contract."
+  cloneElement) — keeping the elision contract.
+
+  Because the answer depends on which adapter is installed AT THE MOMENT OF
+  THE CALL, this is asked once per derivation rather than once per
+  registration: `compose-view` calls it, and `view-head` re-runs
+  `compose-view` when the installed substrate has changed since (rf2-8mkmb —
+  under the canonical boot order the reg-time call is made before any adapter
+  exists, so it always declined and the substrate wrap was silently skipped)."
   [id metadata render-fn]
   ;; Per rf2-f72pd sticky-hook convention: `:adapter/wrap-view` is
   ;; published once at adapter ns-load via `substrate-adapter/route-hook!`
   ;; and never withdrawn in production, so the resolution is cacheable.
   ;; `route-hook!` calls `late-bind/set-fn!` which invalidates the
   ;; cache, so dev-time hot-reload of an adapter re-resolves on the
-  ;; next reg-view call.
+  ;; next derivation.
   (let [hook    (late-bind/get-fn-cached :adapter/wrap-view)
         wrapped (when hook (hook id metadata render-fn))]
     (if (some? wrapped)
@@ -490,112 +499,6 @@
   (let [hook (late-bind/get-fn-cached :adapter/componentize-view)
         head (when hook (hook id metadata wrapped))]
     (if (some? head) head wrapped)))
-
-;; ---- registered-view head cache (rf2-oz7wr) -------------------------------
-;;
-;; `:adapter/componentize-view` is ROUTED (`substrate-adapter/route-hook!`):
-;; it answers only while ITS adapter is the (rf/init!)-installed one, and
-;; returns nil otherwise. Registration time is therefore the WRONG and ONLY
-;; moment to ask it — because the repository's canonical boot order
-;; (`docs/core/how-to/boot-and-mount-an-app.md`) loads the registration
-;; namespaces FIRST, at ns-load, and calls `rf/init!` afterwards. A view
-;; registered that way asked the hook while no adapter was installed, got nil,
-;; and kept the `MetaFn` wrapper for the life of the process — `init!` seats
-;; the adapter but never revisits existing `:view` slots. `(rf/view id)` then
-;; still handed back a non-JS-function and the advertised
-;; `($ (rf/view ::row) …)` mount still failed. Only an app that moved its
-;; top-level registrations INTO `run` (after `init!`) escaped it, and nothing
-;; asks authors to do that.
-;;
-;; So the head is not a property of the registration — it is a property of
-;; (registration × installed substrate), and it is DERIVED AT LOOKUP and
-;; memoized here. `view-head` is what `re-frame.core/view` calls.
-;;
-;; Cache validity is keyed on BOTH halves, so nothing goes stale:
-;;
-;;   * the WRAPPER — object identity against the slot's current
-;;     `:handler-fn`. A re-registration (hot-reload, or a different fn under
-;;     the same id) builds a fresh wrapper, which fails the check and forces a
-;;     re-derivation. A `:view` slot this ns did not build (a hand-rolled
-;;     `registrar/register!`, or a JVM-shaped slot) misses the cache entirely
-;;     and is handed back untouched.
-;;   * the ADAPTER — `substrate-adapter/same-adapter?` against the spec the
-;;     head was built for, so a dispose → install of a DIFFERENT substrate
-;;     re-derives rather than serving (say) a UIx-marked shell to Reagent.
-;;     Nil (no adapter installed) is its own distinct key.
-;;
-;; Identity is stable within an adapter generation: the shell is built once
-;; and returned by reference thereafter, so React reconciles `(rf/view id)`
-;; as the same component type across renders.
-;;
-;; The registrar slot is deliberately NOT rewritten on the lazy upgrade.
-;; `registrar/register!` fires every replacement hook and emits
-;; `:rf.registry/handler-replaced` on each call (Spec 001 §Hot-reload trace
-;; surface), so re-registering here would publish a phantom hot-reload to
-;; devtools on the first lookup after boot. The slot keeps what registration
-;; stored; the cache owns the substrate projection.
-
-(defonce ^:private view-head-cache
-  ;; view-id -> {:wrapper <composed registration wrapper>
-  ;;             :adapter <adapter spec the head was built for, or nil>
-  ;;             :head    <the value (rf/view id) hands back>}
-  (atom {}))
-
-(defn- componentize-and-cache!
-  "Derive the substrate's component head for `wrapped` against the CURRENTLY
-  installed adapter and memoize it under `id`. Returns the head."
-  [id metadata wrapped]
-  (let [head (apply-adapter-componentize-view id metadata wrapped)]
-    (swap! view-head-cache assoc id
-           {:wrapper wrapped
-            :adapter (substrate-adapter/current-adapter-spec)
-            :head    head})
-    head))
-
-(defn- head-cache-hit
-  "The memoized entry for `id` when it is still valid for `handler-fn` and the
-  installed adapter, else nil. `handler-fn` matches either side of the entry:
-  the wrapper (registration ran before the substrate could componentize) or
-  the head itself (registration ran with the adapter already installed)."
-  [id handler-fn]
-  (when-let [{:keys [wrapper adapter head] :as entry} (get @view-head-cache id)]
-    (when (and (or (identical? handler-fn wrapper)
-                   (identical? handler-fn head))
-               (let [current (substrate-adapter/current-adapter-spec)]
-                 (if (nil? current)
-                   (nil? adapter)
-                   (substrate-adapter/same-adapter? current adapter))))
-      entry)))
-
-(defn ^:no-doc view-head
-  "The value `(re-frame.core/view id)` hands back — the installed substrate's
-  own mountable COMPONENT HEAD for the view registered under `id`, or nil when
-  nothing is registered (rf2-oz7wr).
-
-  Derived from the registration wrapper against the installed adapter and
-  memoized (see the section comment above), so the head is correct under the
-  canonical boot order — registration namespaces at ns-load, `rf/init!`
-  afterwards — without asking application authors to move their top-level
-  registrations into `run`. Registration AFTER `init!` is unaffected: the
-  reg-time derivation already seeded the cache with the right head and this is
-  a hit.
-
-  A `:view` slot this namespace did not build is returned exactly as stored."
-  [id]
-  (when-let [slot (registrar/lookup :view id)]
-    (let [handler-fn (:handler-fn slot)]
-      (if-let [entry (head-cache-hit id handler-fn)]
-        (:head entry)
-        (if-let [{:keys [wrapper head]} (get @view-head-cache id)]
-          ;; Known registration, stale only in its substrate: re-derive from
-          ;; the wrapper this ns composed. Guard on the slot still holding one
-          ;; of the two faces of that registration — anything else is a
-          ;; foreign re-registration and is served as-is.
-          (if (or (identical? handler-fn wrapper)
-                  (identical? handler-fn head))
-            (componentize-and-cache! id slot wrapper)
-            handler-fn)
-          handler-fn)))))
 
 (defn- view-coord-attr
   "Capture the source-coord stamp for the inline hiccup-walk
@@ -746,6 +649,161 @@
       (set! (.-displayName ^js wrapped) (performance/entry-id id)))
     wrapped))
 
+;; ---- the head is (registration × substrate) (rf2-oz7wr, rf2-8mkmb) --------
+;;
+;; BOTH substrate hooks in the pipeline above — `:adapter/wrap-view` and
+;; `:adapter/componentize-view` — are ROUTED (`substrate-adapter/route-hook!`):
+;; each answers only while ITS adapter is the `rf/init!`-installed one, and
+;; returns nil otherwise. Registration is therefore the wrong moment to ask
+;; either, because the repository's canonical boot order
+;; (`docs/core/how-to/boot-and-mount-an-app.md`) loads the registration
+;; namespaces FIRST, at ns-load, and calls `rf/init!` afterwards. A view
+;; registered that way asked both hooks with no adapter installed, got nil from
+;; each, and kept those answers for the life of the process — `init!` seats the
+;; adapter but never revisits existing `:view` slots. Only an app that moved
+;; its top-level registrations INTO `run` escaped it, and nothing asks authors
+;; to do that. The two hooks failed differently, one bug apiece:
+;;
+;;   * componentize (rf2-oz7wr) — `(rf/view id)` handed back the `MetaFn`
+;;     wrapper, which React rejects as an element type, so the advertised
+;;     `($ (rf/view ::row) …)` mount failed outright.
+;;   * wrap (rf2-8mkmb) — with no substrate wrap, `build-frame-aware-view`
+;;     falls through to the inline hiccup walk, and that walk classes a React
+;;     element as a non-DOM root. So `data-rf2-source-coord` and `data-rf-view`
+;;     went unstamped, the React-hook unmount sentinel was never appended
+;;     (rf2-te71r), and the walk emitted a one-shot "root element is …" warning
+;;     that was simply untrue. Dev-only in every direction — the whole surface
+;;     rides `interop/debug-enabled?` and elides in production — but wrong, and
+;;     the false warning points the reader at their own view.
+;;
+;; So the head is not a property of the registration. It is a property of
+;; (registration × installed substrate), and `compose-view` derives the WHOLE
+;; pipeline — both hooks, the coord-attr that depends on the first of them, and
+;; the frame-aware wrapper composed between them — against the adapter
+;; installed NOW. `reg-view*` runs it once to seed; `view-head` (what
+;; `re-frame.core/view` calls) re-runs it when that seed was taken against a
+;; different substrate, and memoizes.
+;;
+;; ONE derivation serves both hooks rather than two parallel mechanisms,
+;; because the layering leaves no room for a second: the wrap sits BELOW the
+;; frame-aware wrapper and the shell ABOVE it, so re-deriving the wrap means
+;; rebuilding the wrapper, and rebuilding the wrapper means re-deriving the
+;; shell.
+;;
+;; Cache validity is keyed on BOTH halves, so nothing goes stale:
+;;
+;;   * the REGISTRATION — `:registered` is the exact object registration stored
+;;     in the registrar slot, compared by identity against what the slot holds
+;;     now. A re-registration (hot-reload, or a different fn under the same id)
+;;     writes a new one and invalidates the entry. A `:view` slot this ns did
+;;     not build (a hand-rolled `registrar/register!`, or a JVM-shaped slot)
+;;     never matches and is handed back untouched.
+;;   * the ADAPTER — `substrate-adapter/same-adapter?` against the spec the
+;;     entry was derived for, so a dispose → install of a DIFFERENT substrate
+;;     re-derives rather than serving (say) a UIx-marked shell to Reagent.
+;;     Nil (no adapter installed) is its own distinct key.
+;;
+;; Identity is stable within an adapter generation: each derivation runs once
+;; and its head is returned by reference thereafter, so React reconciles
+;; `(rf/view id)` as one component type across renders. And a re-derivation
+;; with nothing to change keeps the previous wrapper object outright (see
+;; `compose-view`), so a substrate publishing neither hook — Reagent — hands
+;; back the very object registration built, in every ordering.
+;;
+;; The registrar slot is deliberately NOT rewritten on the lazy upgrade.
+;; `registrar/register!` fires every replacement hook and emits
+;; `:rf.registry/handler-replaced` on each call (Spec 001 §Hot-reload trace
+;; surface), so re-registering here would publish a phantom hot-reload to
+;; devtools on the first lookup after boot. The slot keeps what registration
+;; stored; the cache owns the substrate projection.
+
+(defonce ^:private view-head-cache
+  ;; view-id -> {:render-fn     the user render-fn exactly as registered
+  ;;             :metadata      the registration metadata
+  ;;             :registered    the object the registrar slot holds
+  ;;             :adapter       the adapter spec this entry was derived for
+  ;;             :wrap-applied? whether `:adapter/wrap-view` answered
+  ;;             :wrapper       the frame-aware wrapper under the head
+  ;;             :head          the value `(rf/view id)` hands back}
+  (atom {}))
+
+(defn- compose-view
+  "Run the whole registration pipeline for `id` against the CURRENTLY installed
+  adapter and return the cache entry describing the result (`:head` is the
+  value `(rf/view id)` hands back).
+
+  `prev` is the entry being superseded, or nil at registration. When neither
+  the previous derivation nor this one took a substrate wrap, every input to
+  `build-frame-aware-view` is identical — same render-fn, same scope, same
+  coord-attr — so `prev`'s wrapper is REUSED rather than rebuilt. That is what
+  keeps `(rf/view id)` object-identical on a substrate publishing neither hook,
+  whose re-derivation would otherwise mint an equivalent-but-distinct component
+  type on the first lookup after boot."
+  [id metadata render-fn prev]
+  (let [[render-fn* wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
+        reuse-wrapper? (and (some? prev)
+                            (not wrap-applied?)
+                            (not (:wrap-applied? prev)))
+        wrapper        (if reuse-wrapper?
+                         (:wrapper prev)
+                         (build-frame-aware-view
+                           id render-fn*
+                           (trace/handler-scope-from-meta :view id metadata)
+                           (view-coord-attr id metadata wrap-applied?)
+                           wrap-applied?))]
+    {:render-fn     render-fn
+     :metadata      metadata
+     :adapter       (substrate-adapter/current-adapter-spec)
+     :wrap-applied? wrap-applied?
+     :wrapper       wrapper
+     :head          (apply-adapter-componentize-view id metadata wrapper)}))
+
+(defn- derived-for-installed-adapter?
+  "True when `adapter` — the spec a cache entry was derived against — is still
+  the installed one. Nil records a derivation made with no adapter installed,
+  and matches only a still-empty slot."
+  [adapter]
+  (let [current (substrate-adapter/current-adapter-spec)]
+    (if (nil? current)
+      (nil? adapter)
+      (substrate-adapter/same-adapter? current adapter))))
+
+(defn ^:no-doc view-head
+  "The value `(re-frame.core/view id)` hands back — the installed substrate's
+  own mountable COMPONENT HEAD for the view registered under `id`, plus the
+  substrate wrap composed beneath it — or nil when nothing is registered
+  (rf2-oz7wr, rf2-8mkmb).
+
+  Re-derived from the registration against the installed adapter and memoized
+  (see the section comment above), so both routed hooks are correct under the
+  canonical boot order — registration namespaces at ns-load, `rf/init!`
+  afterwards — without asking application authors to move their top-level
+  registrations into `run`. Registration AFTER `init!` is unaffected: the
+  reg-time derivation already seeded the cache against the right adapter and
+  this is a hit.
+
+  A `:view` slot this namespace did not build is returned exactly as stored."
+  [id]
+  (when-let [slot (registrar/lookup :view id)]
+    (let [handler-fn (:handler-fn slot)
+          entry      (get @view-head-cache id)]
+      (cond
+        ;; Not a registration this ns composed — a hand-rolled
+        ;; `registrar/register!`, or one since replaced by another route.
+        (not (and (some? entry) (identical? handler-fn (:registered entry))))
+        handler-fn
+
+        (derived-for-installed-adapter? (:adapter entry))
+        (:head entry)
+
+        ;; Known registration, stale only in its substrate.
+        :else
+        (let [next-entry (assoc (compose-view id (:metadata entry)
+                                              (:render-fn entry) entry)
+                                :registered handler-fn)]
+          (swap! view-head-cache assoc id next-entry)
+          (:head next-entry))))))
+
 (defn reg-view*
   "Reagent-aware view registration. Wraps `render-fn` with the React
   `:contextType` static-field metadata used to resolve the surrounding
@@ -782,23 +840,17 @@
   UIx docs advertise, while remaining the callable render fn Spec 001
   §`(re-frame.core/view id)` describes.
 
-  That derivation is only a SEED, because the hook is routed and answers
-  nothing until `rf/init!` has seated its adapter — and the canonical boot
-  order registers views at ns-load, BEFORE `init!`. `view-head` (what
-  `re-frame.core/view` calls) re-derives against the installed adapter when
-  this reg-time answer was taken without one, and memoizes. Registration
-  order is therefore not a correctness input; see the head-cache section
-  comment above.
-
-  The body is a six-line pipeline; the work lives in the named
-  helpers above."
+  That whole derivation is only a SEED, because BOTH substrate hooks it
+  consults are routed and answer nothing until `rf/init!` has seated their
+  adapter — and the canonical boot order registers views at ns-load, BEFORE
+  `init!`. `view-head` (what `re-frame.core/view` calls) re-runs the pipeline
+  against the installed adapter when this reg-time answer was taken against a
+  different one, and memoizes. Registration order is therefore not a
+  correctness input; see the head-cache section comment above."
   [id metadata render-fn]
-  (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
-        coord-attr (view-coord-attr id metadata wrap-applied?)
-        view-scope (trace/handler-scope-from-meta :view id metadata)
-        wrapped    (build-frame-aware-view id render-fn view-scope coord-attr
-                                           wrap-applied?)
-        head       (componentize-and-cache! id metadata wrapped)]
+  (let [entry (compose-view id metadata render-fn nil)
+        head  (:head entry)]
+    (swap! view-head-cache assoc id (assoc entry :registered head))
     (registrar/register! :view id (assoc metadata :handler-fn head))
     head))
 
