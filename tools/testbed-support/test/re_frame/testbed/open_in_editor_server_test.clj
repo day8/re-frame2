@@ -8,6 +8,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.source-coords :as source-coords]
+            [re-frame.source-coords.editor-uri :as editor-uri]
             [re-frame.testbed.open-in-editor-server :as oies])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
@@ -879,3 +880,129 @@
           (when (.exists src-file) (.delete src-file))
           (.delete (io/file tmp sub))
           (.delete tmp))))))
+
+;; ---------------------------------------------------------------------------
+;; Consumer-shaped resolution witness (rf2-3xq1v)
+;; ---------------------------------------------------------------------------
+;;
+;; The suite above proves the endpoint's MECHANISM with a synthetic fixture on
+;; a throwaway classpath root. rf2-3xq1v retired the browser-side source-root
+;; pipeline the repository testbeds used to carry, on the premise that this
+;; endpoint already resolves what that pipeline resolved. That premise is a
+;; claim about REAL testbed coordinates, so it is witnessed with real ones:
+;; the two source roots shadow-cljs actually puts on the dev JVM's classpath
+;; (`../tools/story/testbeds` and `../tools/xray/testbeds`), and a
+;; classpath-relative coordinate under each that exists on disk today.
+;;
+;; The server carries no project-root concept at all — which is stronger than
+;; the CLJS-side condition "with Story and Xray project-root config unset",
+;; because there is no such slot here to leave unset. Nothing configures a
+;; checkout path; `launch!` is stubbed, so no editor opens.
+
+(def ^:private repo-root
+  "This repository's root, derived from the endpoint namespace's own location
+  on the classpath rather than from `user.dir` — the JVM lane runs from
+  `tools/testbed-support/`, the fast spine and IDEs run from elsewhere, and a
+  cwd-relative walk would silently resolve to a different tree."
+  (delay
+    (let [url (.getResource (.getContextClassLoader (Thread/currentThread))
+                            "re_frame/testbed/open_in_editor_server.clj")]
+      (assert (and url (= "file" (.getProtocol url)))
+              "the endpoint ns must be on a file: classpath for this witness")
+      ;; …/tools/testbed-support/src/re_frame/testbed/open_in_editor_server.clj
+      (nth (iterate #(.getParentFile ^File %) (File. (.toURI url))) 6))))
+
+(def ^:private consumer-coords
+  "One real relative coordinate per tool, paired with the shadow-cljs
+  `:source-paths` entry that puts it on the dev JVM's classpath."
+  [{:tool "Story" :root "tools/story/testbeds" :file "counter_with_stories/stories.cljs"}
+   {:tool "Xray"  :root "tools/xray/testbeds"  :file "standard_epochs/core.cljs"}])
+
+(defn ^:private with-testbed-source-roots*
+  "Run `f` with the real testbed source roots installed on the thread context
+  classloader — the shape `shadow-cljs watch` gives the dev JVM."
+  [f]
+  (let [roots (mapv #(io/file @repo-root (:root %)) consumer-coords)
+        urls  (into-array URL (map #(.toURL (.toURI ^File %)) roots))
+        prev  (.getContextClassLoader (Thread/currentThread))
+        cl    (URLClassLoader. urls prev)]
+    (try
+      (.setContextClassLoader (Thread/currentThread) cl)
+      (f)
+      (finally
+        (.setContextClassLoader (Thread/currentThread) prev)))))
+
+(deftest consumer-coords-name-files-that-exist
+  (testing "the witness below is only worth its green if its coordinates are
+            REAL — a renamed testbed file must fail here, loudly, rather than
+            quietly turn the resolution assertions into assertions about a
+            path that resolves to nothing"
+    (doseq [{:keys [tool root file]} consumer-coords]
+      (let [root-dir (io/file @repo-root root)
+            src      (io/file root-dir file)]
+        (is (.isDirectory root-dir)
+            (str tool " source root " root " exists in this checkout"))
+        (is (.isFile src)
+            (str tool " coordinate " file " exists under " root))))))
+
+(deftest real-relative-testbed-coords-resolve-through-the-endpoint
+  (testing "a real relative Story coordinate and a real relative Xray
+            coordinate each reach the handler and resolve to the intended
+            existing file — with no project-root anywhere in the request, the
+            client, or this server. This is the endpoint capability the
+            retired checkout-root pipeline duplicated"
+    (with-testbed-source-roots*
+      (fn []
+        (doseq [{:keys [tool root file]} consumer-coords]
+          (let [expected (io/file @repo-root root file)
+                calls    (atom [])]
+            (with-launch-spy calls
+              (let [resp (oies/handle
+                           {:uri            oies/endpoint-path
+                            :request-method :post
+                            :query-string   (str "file=" file "&line=12&column=3")
+                            :headers        {"host" "localhost:8042"}})]
+                (is (= 200 (:status resp))
+                    (str tool " relative coordinate was accepted"))
+                (is (= 1 (count @calls))
+                    (str tool " reached launch! exactly once"))
+                (let [[abs-path line column _cmd] (first @calls)]
+                  (is (= (.getCanonicalPath expected)
+                         (.getCanonicalPath (File. ^String abs-path)))
+                      (str tool " resolved to the REAL on-disk source file"))
+                  (is (= 12 line) (str tool " kept its line"))
+                  (is (= 3 column) (str tool " kept its column")))))))))))
+
+(deftest without-the-endpoint-the-same-coordinate-does-not-resolve
+  (testing "the NEGATIVE half: it is the dev-http handler, not the retired
+            checkout-root plumbing, that makes these coordinates resolve. A
+            `:dev-http` entry with no re-frame2 handler serves static files
+            only, so the POST is answered by shadow's own 404 — a non-2xx,
+            which is exactly what sends the browser to its `editor://` URI
+            fallback (pinned client-side in
+            `re-frame.testbed.open-in-editor-client-cljs-test`). That fallback
+            composes the RAW coordinate, which is relative, so an OS editor
+            handler cannot stat it"
+    (with-testbed-source-roots*
+      (fn []
+        (doseq [{:keys [tool file]} consumer-coords]
+          ;; An unwired port never reaches this namespace at all.
+          (is (nil? (oies/handle {:uri            "/index.html"
+                                  :request-method :post
+                                  :query-string   (str "file=" file)
+                                  :headers        {"host" "localhost:8042"}}))
+              (str tool ": a request that is not the endpoint path is not
+                   handled here"))
+          (is (= 404 (:status (oies/handler {:uri            "/index.html"
+                                             :request-method :post
+                                             :query-string   (str "file=" file)
+                                             :headers        {"host" "localhost:8042"}})))
+              (str tool ": the non-endpoint answer is a non-2xx, so the client
+                   falls back"))
+          ;; …and the fallback's own input is still relative.
+          (is (not (editor-uri/absolute-path? file))
+              (str tool " coordinate is relative — the URI fallback alone
+                   cannot reach the file"))
+          (is (= file (#'editor-uri/compose-path nil file))
+              (str tool " composes to itself with no project-root — the
+                   composition step the retired pipeline used to feed")))))))
