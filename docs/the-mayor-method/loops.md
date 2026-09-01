@@ -693,7 +693,7 @@ to a versioned file,
 the loss is fully recoverable** — the pre-damage text sits in any checkpoint predating the write, so
 this is a reason to check the verb rather than to panic about the damage.
 
-Four things surface here and nowhere else.
+Five things surface here and nowhere else.
 
 **A fence that has cleared.** The dispatch tick records the fence on the item and moves on,
 and nothing removes it when the condition is met. An item sequenced behind another's merge
@@ -742,6 +742,40 @@ you** — they cluster, because they get set in batches, and a cluster lapsing t
 list look suddenly and misleadingly rich. Where the reason will outlive the date, write that on
 the item BEFORE the date arrives. Afterwards nothing in the list prompts anybody, which is the
 whole difficulty: this is the one hold that removes its own evidence.
+
+**And the fifth: an item that is already DONE.** The four above all interrogate the item's
+own metadata — its fences, its dependencies, its status, its hold. None of them asks whether
+the WORLD already contains what the item wants, so an item whose work has landed presents as
+perfectly healthy: open, unblocked, correctly prioritised, and finished. Nothing in the short
+tick catches it either, because that tick reads the ready list and looks straight at
+dispatchable items, and this one *is* dispatchable — it is simply pointless.
+
+Measured on one board in one session: an item recorded as *ruling needed* had had its ruling
+made, executed and merged, and was escalated to the operator **twice** as a live decision
+before anybody looked at the tree; a second was dispatched, and its worker's entire deliverable
+was refuting the premise, the work having merged the previous day. Both had been validated
+against their own text and their siblings, carefully and repeatedly, which is exactly what made
+them feel checked.
+
+**The rule already exists and is in the wrong loop.** *Check whether the work is still
+outstanding — check the TREE, not the item* is stated where a brief is written: one item at a
+time, at the moment of dispatch, which is both too late and too narrow. This is the loop that
+reads every open item, so this is where the check belongs in BULK, before a dispatch is spent
+on it. The sweep is one command — for each open id, search the trunk's merged history for that
+id — and it costs a minute against a backlog of any size.
+
+**But a matching commit is a POINTER, never a closure.** Some hits are partial work; some are
+the very change the item was filed AGAINST, which is a fact the item's own title usually
+carries in a word like *still*. Closing on a subject match is the same error one level up —
+believing a record instead of reading the tree — so confirm in the source that the symbol is
+gone, or the text now reads correctly, before closing anything. On the same board the sweep
+returned nine matches, of which two were genuinely complete, one was the change its item
+complained about, and the rest were siblings that proved nothing either way.
+
+**One correction to the third item above while you are here**: *re-check what this session
+closed* is the right instinct with the wrong window. A closure can revert in a session nobody
+is auditing and sit reopened for days, so the reappearance to look for is not confined to
+your own tick — which is another way this loop's bulk read finds what a short one cannot.
 
 In-progress items are read here too, but their liveness question belongs to the stranded
 sweep in the next loop. Read them for scope and for fences; leave *is this worker still
