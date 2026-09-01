@@ -914,7 +914,9 @@ strip and event log).
 - **No custom WebSocket remote-attach** (replaced by MCP).
 - **No standalone HTML viewer** at v1.0. re-frame2-pair-mcp replaces
   this — if the agent needs to render a viewer-like surface, it
-  composes re-frame2-pair-mcp tool calls against the runtime API.
+  composes re-frame2-pair-mcp tool calls against its own
+  `re-frame2-pair.runtime` preload (rf2-7htk7 — Xray publishes no
+  runtime seam for it to call).
 - **No mobile launch mode** (lock #5).
 - **No tablet-responsive standalone viewer** at v1.0. An earlier
   design proposed one; the lock-#9 hybrid retires the use case to

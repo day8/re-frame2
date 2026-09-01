@@ -22,11 +22,14 @@ The mechanism:
   explicit `Rewind here` button or `r` keypress.
 - Re-dispatch is a right-click context-menu action, never a single
   click.
-- MCP-driven mutations (via `tools/re-frame2-pair-mcp/`) — typically
-  `dispatch` plus `eval-cljs` invocations of the runtime API's
-  `restore-epoch!` / `replace-app-db!` accessors — are tagged
-  `:origin :re-frame2-pair-mcp` and surface in the trace stream as
-  distinguishable from app-issued mutations.
+- MCP-driven mutations are tagged `:origin :re-frame2-pair-mcp` and
+  surface in the trace stream as distinguishable from app-issued
+  mutations. They arrive through `tools/re-frame2-pair-mcp/` and its
+  own `re-frame2-pair.runtime` preload, against the framework's
+  instrumentation — never through Xray, which publishes no agent seam
+  (rf2-7htk7). Pair owns that tool catalogue; see
+  [`skills/re-frame2-pair/SKILL.md`](../../../skills/re-frame2-pair/SKILL.md)
+  rather than a list restated here.
 
 This is the v1-of-10x mistake-not-repeated. `app-db-follows-events?`
 was too implicit; users accidentally rewound. Xray's posture:

@@ -42,22 +42,34 @@
   it lives or the declaration will not match. Defaults to `[]` — the value IS
   the walked root, which is what the whole-db snapshot passes.
 
-  The frame whose declarations govern is the CURRENT frame, so a caller
-  reading one frame while dispatching in another pins the lookup itself:
+  Optional `:frame` — the frame whose declarations govern. Naming it is the
+  fail-closed gesture, and a panel affordance MUST use it. Without `:frame`
+  the walker resolves the AMBIENT frame, which for an Xray affordance is the
+  live `:rf/xray` chrome frame: that frame resolves, so the walker applies
+  its (normally empty) declaration registry and ships the value RAW. Passing
+  the inspected frame — even when it is `nil` or has since been destroyed —
+  routes the nil/dead case to the walker's frameless arm, which redacts the
+  whole value to `:rf/redacted` (rf2-7htk7):
 
-      (rf/with-frame observed (egress/egress-value v))
+      (egress/egress-value v {:frame observed})   ; nil / dead ⇒ :rf/redacted
 
-  Both panel call sites do exactly that — the palette dispatches against
-  `:rf/xray` while snapshotting the FOCUSED frame's db, and the copy event
-  pins the OBSERVED frame — so the inspected frame's own classification
-  governs rather than the (empty) Xray-chrome frame's. A value with no
-  resolvable frame fails closed in the walker."
+  Passing NO `:frame` key at all is still the right call where the caller has
+  already established the frame itself — the palette snapshot resolves and
+  validates the focused frame before it reads the db, and wraps the call in
+  `(rf/with-frame tf …)`."
   ([value]
    (egress-value value nil))
-  ([value {:keys [include-sensitive? include-large? path]
+  ([value {:keys [include-sensitive? include-large? path] :as opts
            :or   {include-sensitive? false
                   include-large?     false}}]
    (rf/elide-wire-value value
                         (cond-> {:rf.size/include-sensitive? include-sensitive?
                                  :rf.size/include-large?     include-large?}
-                          (seq path) (assoc :path (vec path))))))
+                          (seq path)              (assoc :path (vec path))
+                          ;; An explicitly-passed `:frame` is forwarded even
+                          ;; when nil — substituting a sentinel that can never
+                          ;; be a registered frame id, so the walker takes its
+                          ;; unresolvable/fail-closed arm instead of falling
+                          ;; through to the ambient frame.
+                          (contains? opts :frame) (assoc :frame (or (:frame opts)
+                                                                    ::no-frame))))))
