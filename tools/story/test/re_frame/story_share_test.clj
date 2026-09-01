@@ -274,11 +274,13 @@
 (defn- decoded-key-count
   "How many query fragments of `url` carry key `k` once the key half is
   percent-decoded — i.e. how many values `URLSearchParams.getAll` would
-  report for `k`."
+  report for `k`. An undecodable key half counts for no key at all, the
+  same fall-through the builder applies to it."
   [url k]
   (->> (str/split (or (query-part url) "") #"&")
-       (filter #(= k (java.net.URLDecoder/decode
-                       (first (str/split % #"=" 2)) "UTF-8")))
+       (filter #(= k (try (java.net.URLDecoder/decode
+                            (first (str/split % #"=" 2)) "UTF-8")
+                          (catch IllegalArgumentException _ nil))))
        count))
 
 (def ^:private escaped-stale-base-url
