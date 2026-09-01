@@ -14,8 +14,9 @@
      identity — the reads, the comment mutations, and the article's own
      social buttons alike: each slice records the slug it is loading, every
      settle carries the slug it was requested for, and one that no longer
-     belongs to the screen is refused (see `reply-for-current-slug?` below —
-     the same correlation law article_editor.cljs spells for the editor).
+     belongs to the screen is refused (see `reply-for-current-slug?` and its
+     route-level sibling `article-route-for-slug?` below — the same
+     correlation law article_editor.cljs spells for the editor).
    - Optimistic post / delete flows that roll back through nothing fancier
      than ordinary events."
   (:require [clojure.string :as str]
@@ -66,8 +67,10 @@
 ;; slice, so alpha's article is never renderable under `/article/beta`.
 ;;
 ;; The rule is now universal in this file: EVERY settle that touches
-;; route-owned state carries the slug it was requested for and asks this
-;; question before acting. Ten do —
+;; route-owned state carries the slug it was requested for and asks, before
+;; acting, whether that slug still owns the thing it is about to change. Ten
+;; do — nine of them asking about the slice, one asking about the route (TWO
+;; QUESTIONS, below, is why) —
 ;;
 ;;   - the three route-driven READS: `:article/load`'s reply hat,
 ;;     `:comments/loaded`, `:comments/load-failed` (rf2-iy3d6);
@@ -98,6 +101,26 @@
 ;; server deletion succeeded regardless, beta is a fine place to be, and
 ;; returning to alpha later fails and reloads like any other missing article.
 ;;
+;; TWO QUESTIONS, because there are two owners. Ask the one that matches the
+;; OUTCOME, not the one nearest to hand:
+;;
+;;   - a WRITE into `[:article …]` / `[:comments …]` is the SLICE's, so
+;;     `reply-for-current-slug?` asks which slug the slice is loading. That is
+;;     the right owner for the nine db writes: a settle for the slug the slice
+;;     still targets is that slice's own business wherever the reader has
+;;     wandered off to meanwhile, and coming back to it is a same-slug refresh
+;;     that clears the error and re-reads the truth anyway.
+;;
+;;   - a NAVIGATION is the ROUTE's, so `article-route-for-slug?` asks whether
+;;     the committed route is still `/article/<that slug>`. Nothing weaker
+;;     will do, because leaving an article for a NON-ARTICLE page — home, a
+;;     profile, login, the editor — runs that route's own `:on-match` and
+;;     never touches `[:article]`, so the slice goes on naming alpha long
+;;     after alpha left the screen. Alpha → beta HIDES that (beta's
+;;     `:article/load` happens to overwrite the cached slug on the way in);
+;;     alpha → `/profile/eve` exposes it, and a slug-only gate took that
+;;     reader home just as an ungated one did.
+;;
 ;; Why a gate ALONE is enough for all ten, where the comment form also needed
 ;; a reset: everything gated here lives in a slice that `:article/load` or
 ;; `:comments/load` REBUILDS on a slug change, so the navigation has already
@@ -116,8 +139,8 @@
 ;; `:article/delete-success` also satisfies while very much needing the gate,
 ;; but "produces no outcome the route owns".
 ;;
-;; The gate correlates ROUTE IDENTITY, not request identity: it asks which
-;; slug the screen is on, so alpha → beta → alpha readmits an alpha reply
+;; Both gates correlate ROUTE IDENTITY, not request identity: they ask which
+;; article the screen is on, so alpha → beta → alpha readmits an alpha reply
 ;; issued before the round trip. That is the same strength the reads have
 ;; had since rf2-iy3d6, and it is deliberate — a per-request epoch or a
 ;; cancellation scheme would buy a much narrower race at the cost of the
@@ -132,6 +155,21 @@
    reply carries equals the slug the slice currently targets."
   [db slice-key slug]
   (= slug (get-in db [slice-key :slug])))
+
+(defn article-route-for-slug?
+  "Is the ACTIVE ROUTE still the detail page for `slug`? True exactly when the
+   committed route is `:realworld.article/show` and its `:slug` param is this
+   one. Reads RUNTIME-db, where the route slice lives — handlers get it as the
+   `:rf.db/runtime` coeffect.
+
+   The stronger sibling of `reply-for-current-slug?`, and the question a
+   settle whose outcome is a NAVIGATION has to ask: the slice's slug survives
+   a walk to any non-article page, the route's does not. See TWO QUESTIONS
+   above."
+  [rt slug]
+  (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+    (and (= :realworld.article/show route-id)
+         (= slug (:slug params)))))
 
 ;; ============================================================================
 ;; RECORDABLE COEFFECTS
@@ -590,16 +628,21 @@
 
 (rf/reg-event :article/delete-success
   {:doc "The DELETE's `:on-success`, carrying the slug it was issued for.
-         Correlation-gated like the rest — this one writes no db, but it
-         NAVIGATES, and the route is the most visible state the active article
-         owns. Delete alpha, walk to beta while the server thinks about it, and
-         an ungated success takes the reader away from the article they chose.
+         Correlation-gated like the rest — but against the ROUTE rather than
+         the slice, because what it produces is a navigation and the route is
+         what owns that. Delete alpha, walk away while the server thinks about
+         it, and an ungated success takes the reader off whatever they chose
+         instead. Asking the slice alone would catch only the walk to another
+         ARTICLE — every non-article page leaves `[:article :slug]` saying
+         alpha, so the slice would answer yes and the reader would be sent
+         home anyway. See TWO QUESTIONS above.
 
          Refusing strands nothing: the server deletion succeeded either way,
-         beta is a perfectly good place to be, and coming back to alpha later
-         just fails and reloads like any other missing article."}
-  (fn [{:keys [db]} [_ slug _reply]]
-    (when (reply-for-current-slug? db :article slug)
+         wherever the reader has got to is a perfectly good place to be, and
+         coming back to alpha later just fails and reloads like any other
+         missing article."}
+  (fn [{rt :rf.db/runtime} [_ slug _reply]]
+    (when (article-route-for-slug? rt slug)
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home}]]]})))
 
 (rf/reg-event :article/delete-failed

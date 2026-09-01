@@ -2436,6 +2436,16 @@
 ;; deletion succeeded on the server either way, so there is no retry to lose
 ;; and nothing left half-done.
 ;;
+;; And it needs a DIFFERENT gate from the other three, which is what the
+;; second pass on this bead found. The three writes land in `[:article …]`, so
+;; the slice's own slug is the right owner to ask about. The navigation does
+;; not — it is the ROUTE's — and the slice's slug outlives a walk to any
+;; NON-ARTICLE page, because home, a profile, login and the editor all run
+;; their own `:on-match` without touching `[:article]`. Alpha → beta cannot
+;; show that (beta's `:article/load` overwrites the cached slug on the way in),
+;; which is precisely why the first pass's refusal test passed over the gap;
+;; alpha → `/profile/eve` shows it, and that is the test below.
+;;
 ;; The fix is the gate alone, with NO reset half — the difference from
 ;; rf2-84iek that matters. `[:comment-form]` was a boot-time singleton that
 ;; rode across the navigation still `:submitting`, so gating it without a
@@ -2569,6 +2579,50 @@
         (is (= "beta" (:slug (article-slice* f)))
             "…and beta's article is still the one on screen")))))
 
+(defn- article-delete-non-article-route-late-success-is-refused-test []
+  ;; The same late success, except the reader walks somewhere that is not an
+  ;; article at all. This is the case a slug-only gate cannot see, and the
+  ;; reason `:article/delete-success` asks the ROUTE rather than the slice:
+  ;; `/profile/eve` runs its OWN `:on-match` and never touches `[:article]`,
+  ;; so the slice still targets alpha long after alpha has left the screen.
+  ;; Ask "is alpha the slug the slice is on?" and the answer is yes; ask "is
+  ;; the reader still on alpha's page?" and it is no. Navigation is the
+  ;; route's own outcome, so the route is the question that has to be asked.
+  ;;
+  ;; `/article/beta` cannot expose this, because `:article/load` happens to
+  ;; overwrite the cached slug on the way in — which is exactly why the first
+  ;; pass's refusal test passed while this gap stayed open.
+  (with-held-comment-fx :realworld.test/article-delete-off-article
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "eve" false)
+      (rf/dispatch-sync [:article/delete] {:frame f})
+      (let [delete-req (req-by-method+url @lowered :delete "/articles/alpha")]
+        (is (some? delete-req) "the article DELETE went out and is held open")
+        ;; The reader gives up waiting and opens the author's profile.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
+        (is (= :realworld.profile/show
+               (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "the reader is on a NON-ARTICLE route")
+        ;; The witness the whole test turns on: a non-article route releases
+        ;; nothing, so the slice's own slug is still alpha's.
+        (is (= "alpha" (:slug (article-slice* f)))
+            "the article slice still carries alpha — the profile route's
+             :on-match leaves [:article] alone, so a slug-only gate admits
+             what follows")
+        ;; And nothing is stranded by refusing it, for the same reason as the
+        ;; four settles above: the server deletion stands, the Delete button
+        ;; carries no pending state, and returning to alpha later just fails
+        ;; and reloads like any other missing article.
+        (rf/dispatch-sync (conj (:on-success delete-req) {:status :ok :value nil})
+                          {:frame f})
+        (is (= :realworld.profile/show
+               (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "a LATE alpha DELETE SUCCESS does not yank a reader off a
+             NON-ARTICLE route (rf2-amhpk)")
+        (is (= {:username "eve"} (route-params* f))
+            "…the reader's own newer route choice is the one that stands")))))
+
 (defn- article-delete-current-slug-still-navigates-home-test []
   ;; The navigation control for the gate above: refusing a STALE success must
   ;; not cost the ordinary one. Delete the article you are reading, settle it
@@ -2636,6 +2690,9 @@
   (testing "a LATE alpha DELETE success cannot navigate beta's reader home
             (rf2-amhpk)"
     (article-delete-cross-slug-late-success-is-refused-test))
+  (testing "…nor a reader who walked to a NON-ARTICLE route, which no
+            slug-only gate can see (rf2-amhpk)"
+    (article-delete-non-article-route-late-success-is-refused-test))
   (testing "…while a delete settled on its own slug still goes home — the
             navigation control (rf2-amhpk)"
     (article-delete-current-slug-still-navigates-home-test))
