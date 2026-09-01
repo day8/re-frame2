@@ -14,11 +14,17 @@
     reg-fx produce a resolved URI through the same denylist seam the
     chip uses (Xray-parity port).
   - rf2-ox357n — the positive allowlist was removed; only the
-    `javascript:` / `data:` / `vbscript:` denylist gates the chip now."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+    `javascript:` / `data:` / `vbscript:` denylist gates the chip now.
+  - rf2-3xq1v — a REAL Story registration, macro-stamped by this very
+    compile, survives a 422 endpoint decline with a URI the editor can
+    actually resolve. See the block at the foot of this file."
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.source-coords.editor-uri :as editor-uri]
             [re-frame.source-coords.open-endpoint :as open-endpoint]
             [re-frame.source-store :as source-store]
+            [re-frame.story :as story]
             [re-frame.story.config :as config]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.substrate.plain-atom :as plain-atom])
@@ -794,3 +800,141 @@
             "no dev server → URI fallback navigates exactly as before")
         (finally
           (open-endpoint/set-launcher! prev))))))
+
+;; ---- rf2-3xq1v — a real Story coordinate through a 422 decline -----------
+;;
+;; Every URI assertion above is written against a HAND-TYPED coord
+;; (`{:file "src/x.cljs" ...}`), which is the right shape for pinning the
+;; URI grammar and the wrong shape for pinning what Story's macro pipeline
+;; actually stamps. The rf2-3xq1v defect lived exactly in that gap: the
+;; grammar was fine, the coordinate feeding it was classpath-relative.
+;;
+;; `re-frame.story.macros/coords-form` now delegates to
+;; `re-frame.source-coords/coords-form`, which absolutises `:file` through
+;; the context class-loader ON THE JVM, AT MACROEXPANSION. So the
+;; registration below is the assertion's own fixture in the strictest
+;; sense: THIS compile stamped it, from THIS file, and what the compile
+;; baked into the bundle is what the block reads back.
+;;
+;; The scenario is the audit's: the endpoint is PREFERRED and declines
+;; with 422 (what `re-frame.testbed.open-in-editor-server` answers when
+;; `launch-editor` cannot carry a coordinate to the configured editor), no
+;; `:rf.story/project-root` is configured (the state every repository dev
+;; testbed is in since the browser-side checkout-root pipeline was
+;; retired), and the client falls back to the `windsurf://` URI. Before
+;; the fix that URI was `windsurf://file/counter_with_stories/stories.cljs
+;; :196:3` — relative, unresolvable, a chip that silently misses.
+;;
+;; The real client seam runs: `fetch-launcher!` unmodified over a stubbed
+;; `globalThis.fetch`, Story's own `open-coord!` (so `resolve-uri` and the
+;; navigator seam are in the path too). Only the promise is captured, so
+;; the async test can await the decision.
+
+(def ^:private real-fetch
+  "The platform `fetch`, captured at load. A stub left installed would
+  answer for every later namespace in the shared `:node-test` build — a
+  leak a green suite hides rather than reports — so the test asserts the
+  global is `identical?` to this again afterwards."
+  (.-fetch js/globalThis))
+
+(defn- strip-uri-position
+  "`windsurf://file/<path>:<line>:<column>` → `<path>`."
+  [uri]
+  (-> uri
+      (subs (count "windsurf://file/"))
+      (str/replace #":\d+:\d+$" "")))
+
+(deftest endpoint-422-falls-back-to-an-absolute-uri-for-a-real-story-coord
+  (testing "rf2-3xq1v — a real `story/reg-story` coordinate, stamped by this
+            compile, reaches the editor through the 422 fallback as an
+            ABSOLUTE path"
+    (story/reg-story :story.source-coords.cljs-pin
+      {:doc "rf2-3xq1v fixture — this form's own coordinate is the subject."})
+    (let [coord (:source (story/handler-meta :story :story.source-coords.cljs-pin))]
+      (is (some? coord) "the registration carries a :source coord at all")
+      (is (some? (:file coord)) "and that coord carries a :file")
+      (is (editor-uri/absolute-path? (:file coord))
+          (str "the macro must bake an ABSOLUTE :file at expansion — got "
+               (pr-str (:file coord))))
+      (is (str/ends-with? (str/replace (:file coord) "\\" "/")
+                          "re_frame/story_open_in_editor_cljs_test.cljs")
+          "and it must still end in the classpath-relative tail it started as")
+      (config/set-editor! :windsurf)
+      (config/set-project-root! nil)
+      (async done
+        ;; The navigator stub is installed for the whole ASYNC duration, not
+        ;; just the synchronous call: `fetch-launcher!` runs `fallback!` in a
+        ;; promise callback, so a `with-stub-navigator` scope would already
+        ;; have restored `default-navigator!` — which reaches for `js/window`
+        ;; and blows up under node. Worse, `fetch-launcher!`'s own `.catch`
+        ;; would then run `fallback!` a SECOND time on that throw.
+        (let [[nav calls]  (capturing-navigator)
+              pending      (atom nil)
+              orig-fetch   (.-fetch js/globalThis)
+              prev-nav     (open-in-editor/set-navigator! nav)
+              prev-launch  (open-endpoint/set-launcher!
+                             (fn [url fallback!]
+                               ;; The REAL launcher; the atom only lets the
+                               ;; async test await the decision.
+                               (reset! pending
+                                       (open-endpoint/fetch-launcher! url fallback!))))
+              restore!     (fn []
+                             (set! (.-fetch js/globalThis) orig-fetch)
+                             (open-endpoint/set-launcher! prev-launch)
+                             (open-in-editor/set-navigator! prev-nav)
+                             (config/set-editor! :vscode))]
+          (set! (.-fetch js/globalThis)
+                (fn [_url _opts]
+                  (js/Promise.resolve #js {:ok false :status 422})))
+          (open-in-editor/open-coord! coord)
+          ;; Bind the launcher's promise to a LOCAL before threading. A
+          ;; multi-step form in the `->` head (an `or`, say) is lowered by the
+          ;; compiler to an awaited async IIFE — the rf2-i3dvj shape — and the
+          ;; await unwraps the promise to the `nil` `fetch-launcher!`'s own
+          ;; `.then` returns, leaving `.then` to be called on null.
+          (let [p @pending]
+            (if (nil? p)
+              (do (restore!)
+                  (is false "the launcher seam was never reached — the endpoint
+                             is supposed to be PREFERRED, so `fetch-launcher!`
+                             must have run")
+                  (done))
+              (-> p
+                  (.then (fn [_]
+                           (restore!)
+                           (is (= 1 (count @calls))
+                               "the 422 decline ran the URI fallback exactly once")
+                           (let [uri  (first @calls)
+                                 path (strip-uri-position uri)]
+                             (is (str/starts-with? uri "windsurf://file/")
+                                 "the fallback is the historic editor:// URI path")
+                             (is (editor-uri/absolute-path? path)
+                                 (str "the URI the editor receives must name an "
+                                      "ABSOLUTE path — got " (pr-str path)))
+                             (is (not (str/starts-with? path "re_frame/"))
+                                 "the pre-fix shape — a bare classpath-relative
+                                  path in the URI — is what no editor could open"))
+                           (is (identical? real-fetch (.-fetch js/globalThis))
+                               "the fetch stub was not left installed")
+                           (done)))
+                  (.catch (fn [err]
+                            (restore!)
+                            (is false (str "the 422 fallback path threw: " err))
+                            (done)))))))))))
+
+(deftest project-root-knob-is-inert-over-an-absolutised-story-coord
+  (testing "rf2-3xq1v — the public `:rf.story/project-root` option is KEPT for
+            external / static / non-shadow hosts, and stays inert over a
+            coordinate the macro already absolutised: `compose-path` passes an
+            absolute `:file` through rather than double-prefixing it"
+    (story/reg-story :story.source-coords.cljs-root-pin
+      {:doc "rf2-3xq1v fixture — same coordinate, two project-root settings."})
+    (let [coord (:source (story/handler-meta :story :story.source-coords.cljs-root-pin))]
+      (config/set-editor! :windsurf)
+      (config/set-project-root! nil)
+      (let [bare (open-in-editor/resolve-uri coord)]
+        (config/set-project-root! "/some/external/root")
+        (is (= bare (open-in-editor/resolve-uri coord))
+            "an absolute :file is not re-rooted by the knob")
+        (config/set-project-root! nil)
+        (config/set-editor! :vscode)))))

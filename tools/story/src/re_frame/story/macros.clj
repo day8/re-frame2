@@ -24,11 +24,11 @@
   the `:source` key — tools / 10x / IDE jump-to-source consume this via
   `(story/handler-meta kind id)`.
 
-  `:file` resolution prefers `(:file (meta &form))` over `*file*` —
-  see `coords-form` for the rationale. The short version:
-  the CLJS analyzer never binds Clojure's `*file*` during macro
-  expansion, so reading it returns `\"NO_SOURCE_PATH\"`; the reader-
-  attached `:file` on the form's metadata is the portable answer.
+  Both the picking rule and the `:file` ABSOLUTISATION are core's:
+  `coords-form` delegates wholesale to
+  `re-frame.source-coords/coords-form`, the same stamp every
+  `re-frame.core` `reg-*` macro emits. See `coords-form` for what that
+  buys and why Story must not re-derive it.
 
   ## Form-B `:variants` desugaring
 
@@ -36,51 +36,75 @@
   and, if present, emits N independent `reg-variant*` calls as siblings
   of the parent `reg-story*` call. Per `001-Authoring.md` §Registration macros this preserves
   hot-reload-by-variant: each variant is a separate top-level form so
-  save-and-reload only invalidates the changed slot.")
+  save-and-reload only invalidates the changed slot."
+  (:require [re-frame.source-coords :as source-coords]))
 
 ;; ---- source-coord helper -------------------------------------------------
 
 (defn coords-form
-  "Construct the literal map that the macro expansion will assign to
-  `re-frame.story.registrar/*pending-coords*`. `form-meta` is the value
-  of `(meta &form)` from the calling macro; `file` is `*file*` from the
-  macro's compile environment; `ns-sym` is the consumer's namespace
-  symbol.
+  "Construct the compile-time coord MAP LITERAL that the macro expansion
+  assigns to `re-frame.story.registrar/*pending-coords*`. `form-meta` is
+  the value of `(meta &form)` from the calling macro; `file` is `*file*`
+  from the macro's compile environment; `ns-sym` is the consumer's
+  namespace symbol.
 
-  Returns a compile-time Clojure form (a `cond->` expression) that
-  evaluates to the map at runtime. Mirrors
-  `re-frame.core/reg-event`'s coord-capture pattern.
+  Delegates wholesale to `re-frame.source-coords/coords-form` — the
+  canonical stamp every `re-frame.core` `reg-*` macro emits. Story
+  authors a separate macro pipeline, but the coordinate it stamps is the
+  same artefact core stamps and is read back by the same consumers
+  (`re-frame.source-coords.editor-uri`, the Story / Xray open-in-editor
+  chips, the Pair MCP source surface), so the derivation belongs in one
+  place. Three properties come with that reuse, and Story previously
+  carried only the first:
 
-  ## :file resolution
+  1. **`:file` picking.** `(:file form-meta)` wins over `*file*`, and the
+     `\"NO_SOURCE_PATH\"` sentinel is rejected from either source (with
+     `:file` omitted outright when both resolve to it — better no `:file`
+     than a poison value that defeats jump-to-source). This is rf2-ulxi:
+     `cljs.analyzer/macroexpand-1*` binds `*cljs-file*`, not Clojure's
+     `*file*`, so under CLJS `*file*` retains the JVM compiler's
+     `\"NO_SOURCE_PATH\"` default while tools.reader HAS stamped `{:file
+     ...}` onto every collection form's metadata. Form-meta is the answer
+     that survives both compilation hosts.
 
-  `:file` comes from `(:file form-meta)` first — the CLJS analyzer reads
-  source files via `tools.reader/indexing-push-back-reader` with the
-  filename argument set, and tools.reader stamps `{:file ...}` on every
-  collection-form's metadata. Falling back to `*file*` covers the JVM
-  compilation path where `clojure.lang.Compiler` binds `*file*` itself
-  but the reader does NOT attach `:file` to form metadata.
+  2. **`:file` absolutisation, at MACRO-EXPANSION time** (rf2-wvsxg).
+     Both shadow-cljs and the JVM compiler put only the
+     CLASSPATH-RELATIVE portion of the source file in `:file` —
+     `counter_with_stories/stories.cljs`, never the on-disk path — and
+     which source root resolved it is invisible to every consumer.
+     `re-frame.source-coords/absolutise-file` resolves it through the
+     context class-loader on the JVM side of the expansion and bakes the
+     absolute path into the emitted literal.
 
-  Reading `*file*` alone is wrong for CLJS because `cljs.analyzer/
-  macroexpand-1*` binds `*cljs-file*` (not Clojure's `*file*`) during
-  macro expansion — so `*file*` retains whatever the JVM compiler last
-  set it to, which is `\"NO_SOURCE_PATH\"` on a fresh classloader. The
-  form-meta path is the portable answer because the reader-attached
-  `:file` survives across both compilation hosts.
+     This is not optional polish for Story. The open-in-editor client
+     PREFERS the dev-server endpoint and FALLS BACK to an `editor://`
+     URI on any non-2xx — including the 422 the endpoint answers when
+     `launch-editor` declines a coordinate-bearing request. With a
+     relative `:file` that fallback ships
+     `windsurf://file/counter_with_stories/stories.cljs:196:3`, which no
+     editor's scheme handler can resolve, and the chip silently misses.
 
-  Also rejects the `\"NO_SOURCE_PATH\"` sentinel from either source — if
-  *both* sources resolve to the sentinel, omit `:file` entirely (better
-  no `:file` than a poison value that defeats jump-to-source)."
+     Note where the resolution happens: ONCE, in Clojure, while the macro
+     expands. The CLJS runtime only ever sees a baked literal string.
+     Story does NOT discover a source root in the browser — the
+     repository's browser-side checkout-root pipeline was retired
+     precisely because the endpoint plus this compile-time stamp make it
+     redundant, and nothing here reintroduces it. Hosts that need a root
+     at runtime (static exports, non-shadow hosts, in-jar sources whose
+     classpath probe finds no `file:` URL) still set the public
+     `:rf.story/project-root` knob, which `editor-uri/compose-path`
+     applies only to a `:file` that is still relative.
+
+  3. **Expansion-time literal, not an emitted runtime `cond->`**
+     (rf2-i3dvj evaluation-order transparency): the returned value is a
+     map, not a form that builds one.
+
+  Story registrations are dev-only — every expansion sits under
+  `(when re-frame.story.config/enabled? ...)` and elides under
+  `:advanced` — so there is no production coord-form counterpart to pick
+  between here the way core's `reg-*` macros must."
   [form-meta file ns-sym]
-  (let [meta-file  (:file form-meta)
-        no-source? #(or (nil? %) (= "NO_SOURCE_PATH" %))
-        chosen     (cond
-                     (not (no-source? meta-file)) meta-file
-                     (not (no-source? file))      file
-                     :else                        nil)]
-    `(cond-> {:ns '~ns-sym}
-       ~chosen              (assoc :file ~chosen)
-       ~(:line form-meta)   (assoc :line ~(:line form-meta))
-       ~(:column form-meta) (assoc :column ~(:column form-meta)))))
+  (source-coords/coords-form form-meta file ns-sym))
 
 (defn variant-id-for
   "Build the variant id from a story id and a variant-name key.
