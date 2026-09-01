@@ -77,6 +77,35 @@
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-reply-lowering"})))
 
+(defn- start-held-server!
+  "Start the test server with every exchange HELD until `release` is counted
+  down, then answering `200 {\"v\":1}`. The supersession tests below use it.
+
+  This is what makes a supersede DETERMINISTIC (rf2-o9e15).
+  `registry/supersede!` supersedes only a request that is still IN FLIGHT: it
+  reads the in-flight registry, and a request clears its own slot the moment
+  it finalises. A test that issues #1 and then #2 therefore supersedes
+  NOTHING unless #1 is still unfinished when #2 is issued — and over loopback
+  #1's entire round trip can complete inside the gap between two
+  `dispatch-sync` calls, which is precisely what a loaded runner makes
+  likely. Holding the response until the TEST releases it removes that race
+  by construction: #1 cannot finalise before #2 is issued, because its reply
+  has not been written yet. This is a property of the ordering, not of how
+  fast the machine happens to be, so no bound is being relied on.
+
+  The write is guarded: the superseded request's transport future is
+  cancelled by the supersede itself, so its connection may already be gone by
+  the time this thread is released. A broken pipe there is the expected
+  outcome of a correct supersede, not a failure — and letting it escape would
+  kill the single dispatcher thread before the SURVIVING request is served."
+  [^java.util.concurrent.CountDownLatch release]
+  (start-server!
+    (fn [^HttpExchange ex]
+      (try (.await release 30 java.util.concurrent.TimeUnit/SECONDS)
+           (catch InterruptedException _ nil))
+      (try (write-response! ex 200 "application/json" "{\"v\":1}")
+           (catch java.io.IOException _ nil)))))
+
 ;; ===========================================================================
 ;; Group 1 — the CANONICAL reply map (pure).
 ;; ===========================================================================
@@ -503,24 +532,21 @@
 
 (deftest supersede-suppresses-prior-app-reply
   (testing "a same-:request-id supersede suppresses the FIRST request's :on-failure app target"
-    ;; A slow server keeps request #1 in flight; issuing request #2 with the
+    ;; A held server keeps request #1 in flight; issuing request #2 with the
     ;; same :request-id supersedes #1. Per Spec 014 §`:request-id` (internal)
     ;; the superseded request's reply is trace-only — its app target MUST NOT
     ;; fire. #2 completes normally and IS delivered.
-    (let [gate (java.util.concurrent.CountDownLatch. 1)
-          srv  (start-server!
-                 (fn [^HttpExchange ex]
-                   ;; Block the FIRST connection until the gate opens; the
-                   ;; SECOND request opens the gate so both eventually drain.
-                   (.countDown gate)
-                   (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
-                        (catch InterruptedException _ nil))
-                   (write-response! ex 200 "application/json" "{\"v\":1}")))
+    (let [release (java.util.concurrent.CountDownLatch. 1)
+          replied (java.util.concurrent.CountDownLatch. 1)
+          srv     (start-held-server! release)
           replies (atom [])]
       (try
         (rf/reg-event :search/replied
           (fn [{:keys [db]} [_ payload]]
             (swap! replies conj payload)
+            ;; The delivered reply IS the completion signal — count it down
+            ;; here rather than sampling a clock for it (rf2-o9e15).
+            (.countDown replied)
             {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
@@ -530,15 +556,15 @@
                     :decode     :json
                     :on-success [:search/replied]
                     :on-failure [:search/replied]}]]}))
-        ;; Fire #1, then #2 (supersedes #1). dispatch-sync drains each event.
+        ;; Fire #1, then #2 (supersedes #1). dispatch-sync drains each event,
+        ;; and the held server guarantees #1 is still in flight for #2 to
+        ;; supersede — see `start-held-server!`.
         (rf/dispatch-sync [:search/go])
         (rf/dispatch-sync [:search/go])
-        ;; Open the gate so any in-flight transport drains, then wait for at
-        ;; least one delivered reply.
-        (.countDown gate)
-        (test-support/poll-until
-          #(when (seq @replies) true)
-          {:timeout-ms 5000 :label "supersede"})
+        ;; Release both exchanges, then wait on the reply handler's own latch.
+        (.countDown release)
+        (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
+            "the surviving request's app reply was delivered")
         (Thread/sleep 200) ;; quiescence window for any (wrongly) delivered #1 reply
         ;; The superseded request #1's app target is NOT dispatched: exactly
         ;; one delivered reply (request #2's), never the supersede of #1.
@@ -546,24 +572,25 @@
             "only the surviving request's reply is delivered; the superseded one is suppressed")
         (is (= :ok (:status (first @replies)))
             "the surviving reply is request #2's canonical :status :ok success")
-        (finally (stop-server! srv))))))
+        (finally
+          (.countDown release)
+          (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
   (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
-    (let [gate    (java.util.concurrent.CountDownLatch. 1)
-          srv     (start-server!
-                    (fn [^HttpExchange ex]
-                      (.countDown gate)
-                      (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
-                           (catch InterruptedException _ nil))
-                      (write-response! ex 200 "application/json" "{\"v\":1}")))
+    (let [release (java.util.concurrent.CountDownLatch. 1)
+          replied (java.util.concurrent.CountDownLatch. 1)
+          srv     (start-held-server! release)
           replies (atom [])
           traces  (atom [])
           lid     ::supersede-stale]
       (try
         (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :search/replied
-          (fn [{:keys [db]} [_ payload]] (swap! replies conj payload) {:db db}))
+          (fn [{:keys [db]} [_ payload]]
+            (swap! replies conj payload)
+            (.countDown replied)
+            {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -572,37 +599,33 @@
                     :decode     :json
                     :on-success [:search/replied]
                     :on-failure [:search/replied]}]]}))
-        ;; #1 (issuance 1) goes in flight; #2 (issuance 2) supersedes it.
+        ;; #1 (issuance 1) goes in flight; #2 (issuance 2) supersedes it. The
+        ;; held server is what guarantees #1 is STILL in flight when #2 is
+        ;; issued — see `start-held-server!`.
         (rf/dispatch-sync [:search/go])
         (rf/dispatch-sync [:search/go])
-        (.countDown gate)
-        ;; Wait on the SIGNAL, not the clock (rf2-xagmz). The supersede is a
-        ;; real async round-trip: transport reply → reply lowering → app
-        ;; dispatch → stale-suppression trace. `poll-until` returns the
-        ;; instant the pred below is truthy — a delivered app reply AND the
-        ;; superseded attempt's `:rf.http/stale-suppressed` trace row have
-        ;; both landed. So the wait is bounded by the supersede signal, never
-        ;; a fixed sleep; the `:timeout-ms` is a pure backstop that fires only
-        ;; if the signal genuinely never arrives (a real regression). The old
-        ;; 5 s backstop was comfortable idle but marginal under this machine's
-        ;; six concurrent worker agents (each running shadow-cljs + JVM +
-        ;; Chromium) and a loaded CI runner — the async supersede landed
-        ;; AFTER the window, timing the machine, not the canonicalisation
-        ;; (it redded unrelated PRs, e.g. #6817). A generous, load-tolerant
-        ;; bound makes that false timeout unreachable while still failing
-        ;; fast on a genuinely stuck supersede. The probe interval is gentled
-        ;; so the poll itself adds little contention on a saturated JVM.
-        (test-support/poll-until
-          (fn []
-            (when (and (seq @replies)
-                       (some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces))
-              true))
-          {:timeout-ms 30000 :interval-ms 25 :label "supersede-stale"})
-        (Thread/sleep 200)
-        ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
-        (is (= 1 (count @replies))
-            "only the surviving request's app reply is delivered")
-        ;; The superseded attempt records a canonical stale reply-envelope row.
+        ;; NO WAIT HERE, and that is the point (rf2-o9e15). The supersede is
+        ;; SYNCHRONOUS with the dispatch above: `managed-handler` calls
+        ;; `registry/supersede!` and then `emit-superseded-stale-trace!`
+        ;; inline, in the fx phase, before `dispatch-sync` returns. The row
+        ;; below has therefore already landed and can simply be ASSERTED.
+        ;;
+        ;; This replaces a `poll-until` that waited up to 30 s for it, and the
+        ;; distinction matters because that wait could not be repaired by
+        ;; lengthening it. The bound had already been raised once, 5 s → 30 s,
+        ;; on the theory that "the async supersede landed AFTER the window"
+        ;; (it redded unrelated PRs, e.g. #6817); 30 s then timed out too, at
+        ;; :elapsed-ms 30022 on PR #8873, a routing-only diff that cannot
+        ;; reach this code path. The theory was wrong. The trace was never
+        ;; LATE — on the losing interleaving it is never emitted at all:
+        ;; `registry/supersede!` returns nil when nothing is in flight under
+        ;; the request-id, and request #1, unheld, could finish its whole
+        ;; loopback round trip in the gap between the two `dispatch-sync`
+        ;; calls. Both requests then delivered replies and no supersede ever
+        ;; happened, so the poll sat out its full backstop waiting for a row
+        ;; that could not arrive. No timeout is large enough for an event that
+        ;; is never emitted, which is why holding the server — establishing
+        ;; the precondition rather than timing the machine — is the repair.
         (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
           (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded attempt")
           (let [tags (:tags (first stale))]
@@ -619,7 +642,22 @@
                       (:work/id (:rf.reply/current tags))))
             ;; The canonical join key reads the carried (superseded) work-id.
             (is (= [:rf.work/http :search 1 1] (:rf.reply/work-id tags)))))
+        ;; The surviving request's APP REPLY is the one genuinely async step
+        ;; (transport reply → reply lowering → app dispatch), and it publishes
+        ;; its own completion: the reply handler counts the latch down. So this
+        ;; waits on the event itself rather than sampling app-db on a timer.
+        ;; The bound is a deadlock guard, not a budget — the latch is released
+        ;; by the delivery, so a run either passes in milliseconds or is a real
+        ;; regression in which the reply never arrives.
+        (.countDown release)
+        (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
+            "the surviving request's app reply was delivered")
+        (Thread/sleep 200) ;; quiescence window for any (wrongly) delivered #1 reply
+        ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
+        (is (= 1 (count @replies))
+            "only the surviving request's app reply is delivered")
         (finally
+          (.countDown release)
           (trace/unregister-listener! lid)
           (stop-server! srv))))))
 
