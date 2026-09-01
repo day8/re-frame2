@@ -320,6 +320,13 @@
       ;; opts, exactly as `fresh-frame!` builds it: the rebuilt frame must
       ;; carry the same `:client` tag the original did.
       (rf/make-frame {:id fid :platform :client})
+      (is (= :client (:platform (rf/frame-meta fid)))
+          (str "the REBUILT frame carries the tag too. This is the only "
+               "`make-frame` in this file that does NOT go through "
+               "`fresh-frame!`, so `the-fixture-frames-are-actually-platform"
+               "-tagged` never reaches it: nesting THESE opts back to "
+               "`{:config {:platform :client}}` leaves that test green and "
+               "reds only this line."))
       (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/b})
       (is (hydrated? fid)
