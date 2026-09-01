@@ -876,9 +876,16 @@
                :spec       spec-edn})))))))
 
 (defn get-machine-list
-  "Tool: `get-machine-list`. List of registered machines per frame
-  with current spec. Returns `{:ok? true :machines <map>}` where the
-  map is keyed by machine-id.
+  "Tool: `get-machine-list`. Lists the machines registered GLOBALLY, each
+  with its current spec. `machines/machines` is 0-ary and takes no frame
+  argument — it reads the global event registrar — so this is not an
+  active-frame query; only live machine snapshots and system-id lookup are
+  frame-scoped.
+
+  Returns `{:ok? true :machines <map> :count <n>}`. The `<map>` is THIS
+  accessor's own projection of that seq: keyed by machine-id, valued by
+  `machines/machine-meta` (the registered spec map). `:count` is the
+  length of the seq, not of the map.
 
   EP-0015 frame-owned egress (rf2-5b2ct2): each machine spec is a static
   REGISTRY value, but the wire walker classifies against a KNOWN frame —
