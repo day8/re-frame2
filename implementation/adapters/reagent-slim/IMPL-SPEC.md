@@ -664,16 +664,17 @@ This is the React-blessed lifecycle that pairs with `:component-did-update`. The
 
 Stage 4 ships test coverage that mirrors the 10x `code` component's scroll-restoration pattern (panels/event/views.cljs:54-64 per rf2-cgcv §3): capture `scrollTop` in `:get-snapshot-before-update`, restore it in `:component-did-update`. Asserts the snapshot value flows through correctly.
 
-The implementation: the React class's `componentDidUpdate` method delegates to a CLJS impl that destructures `[prev-props prev-state snapshot]` and passes them to the user's `:component-did-update` fn:
+The implementation: the React class's `componentDidUpdate` method receives `[prev-props prev-state snapshot]` and delegates to the user's `:component-did-update` fn. `prevProps` is *translated* to the previous argv — the head-included hiccup arg vector stashed on React's props as `__rfArgv`, the same shape `reagent2.core/argv` returns — so the user callback's second slot is `prev-argv`, never React's raw props object. `prevState` and `snapshot` pass through verbatim:
 
 ```clojure
-(fn [this prev-props prev-state]
-  (let [snapshot (j/get this :__rf-snapshot)
-        user-fn  (:component-did-update spec)]
-    (when user-fn (user-fn this prev-props prev-state snapshot))))
+(fn [prev-props prev-state snapshot]
+  (this-as this
+    (let [user-fn (:component-did-update spec)]
+      (when user-fn
+        (user-fn this (prev-argv-from prev-props) prev-state snapshot)))))
 ```
 
-(`j/get` is `goog.object/get`-shaped; Stage 4 picks the exact accessor.)
+(`prev-argv-from` reads `__rfArgv` off React's props; Stage 4 picks the exact accessor. `:get-snapshot-before-update` translates identically, one argument shorter.)
 
 ---
 
