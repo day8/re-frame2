@@ -41,6 +41,7 @@ Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s n
 
 - **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **29** tools and **all 29 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
 - **Bash shims (removed).** `scripts/discover-app.sh` and friends predated the MCP server and were **retired from the skill's tool surface**, then deleted outright — the MCP server is the one implementation of all six operations. No shell tool is (or was) in `allowed-tools:`.
+- **One MCP server, because there is one runtime.** `allowed-tools:` carries `mcp__re-frame2-pair__*` and the editor tools, and nothing else. A second MCP server means a second process with its own registry and its own `app-db`, so a keyword present in both names two different objects and cross-process composition produces confident nonsense. Story variants — the one surface that used to justify an exception — need no exception: a variant is an ordinary frame in the attached heap, reached through `eval-cljs` over `re-frame.story/*` (`references/stories.md`). Explicitly headless Story work is a *different task* that routes out to `tools/story-mcp/` and the authoring skill; it is never composed into a live pair session. `scripts/check_skill_mcp_drift.py`'s single-host axis enforces the prefix boundary. **Historical:** through 2026-08 the frontmatter also allow-listed seven `mcp__re-frame2-story-mcp__*` tools under a "HYBRID split", and `references/` carried a second, headless Story catalogue beside the browser one. That was pre-alpha layering, not a design: the two hosts were never able to see each other's frames. Removed under rf2-p1keh; described here as history, not as instruction.
 
 The MCP tool reference lives in `references/mcp-transport.md`.
 
@@ -121,8 +122,7 @@ skills/re-frame2-pair/
 │   ├── mcp-transport.md                (MCP install + transport reference — the only transport)
 │   ├── vocabulary.md                   (flat glossary + privacy posture)
 │   ├── wire-size-budget.md             (de-dupe decoding + size-conscious args)
-│   ├── stories.md                      (live-session story-mcp tools)
-│   └── variant-as-frame.md             (driving Story variants from a pair session)
+│   └── stories.md                      (driving Story variants in the attached browser)
 ├── tests/                              (fixture app + structural / prompt pins)
 ├── docs/                               (developer docs for the skill maintainer)
 └── spec/

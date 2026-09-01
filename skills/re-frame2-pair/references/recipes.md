@@ -316,26 +316,29 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 ## "Drive a Story variant from a re-frame2-pair session"
 
-**Why this works:** a Story variant *is* a re-frame2 frame — the variant id is the frame id. Every re-frame2-pair op taking a `frame:` arg works against a variant out of the box. Full pattern: [variant-as-frame.md](variant-as-frame.md).
+**Why this works:** a Story variant *is* a re-frame2 frame — the variant id is the frame id — and in a pair session it is a frame in the browser heap you are already attached to. Every re-frame2-pair op taking a `frame:` arg works against it out of the box. Full pattern: [stories.md](stories.md).
 
-> **Two Story hosts — pick the browser one for a live app.** For the **running browser app's own** registered variants, drive `re-frame.story/*` directly through `eval-cljs` — the pair is the live-browser Story host. The `mcp__re-frame2-story-mcp__run-variant` tool used below targets story-mcp's **headless same-JVM** host, which cannot see the browser registry. See [stories.md §Driving Story directly in the browser](stories.md#driving-story-directly-in-the-browser-via-eval-cljs) for the enumerate → run → read recipe against the browser heap.
-
-**Setup.** A Story-enabled build is running (`re-frame.story` loaded; some variants registered). The variant is either already mounted in the canvas or you mount it (browser: `eval-cljs {form: "(re-frame.story/run-variant :story.counter/loaded)", await: true}`; story-mcp's headless host: `run-variant`).
+**Setup.** A Story-enabled build is running (`re-frame.story` loaded; some variants registered). The variant is either already mounted in the canvas, or you mount it below.
 
 **Procedure:**
 
-1. List candidate variants: filter the registered frame-ids to the `story` namespace (there's no dedicated frame-list tool — `get-operating-frame {}` returns `:frames`, or use the runtime helper):
+1. List candidate variants from the app's own registry:
    ```
    mcp__re-frame2-pair__eval-cljs {
-     form: "(filter #(= \"story\" (namespace %)) (rf/frame-ids))"
+     form: "(sort (re-frame.story/ids :variant))"
    }
    ```
-   For richer metadata (tags, modes, parent story), `list-stories` is the **authoring** surface — allow-listed by the `re-frame2` skill, not by re-frame2-pair — so reach it via the authoring skill if a session has it loaded; otherwise the `eval-cljs` form above stays within re-frame2-pair's own surface.
-2. If the variant isn't mounted yet, mount it via story-mcp:
+   `(re-frame.story/variants-of :story.counter)` narrows to one story's variants; `(re-frame.story/variant-frames)` lists the ones currently allocated as frames. For richer per-variant metadata, `(re-frame.story/variant->edn :story.counter/loaded)` and `(re-frame.story/explain :story.counter/loaded)` read the same side-table the canvas does.
+2. If the variant isn't mounted yet, run it — in the browser it returns a Promise, so `await`:
    ```
-   mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(.then (re-frame.story/run-variant :story.counter/loaded)
+                   (fn [res] [(re-frame.story/result-status res)
+                              (count (:assertions res))]))",
+     await: true, timeout-ms: 10000
+   }
    ```
-   This dispatches loaders + events + (optionally) play into the variant's frame.
+   This dispatches loaders + setup + events + play into the variant's frame, and the projection keeps the (potentially large) run-result off the wire — project before egress rather than awaiting the bare form. `:status` is the verdict (`:pass` / `:fail` / `:cannot-run` / `:error`); a `:cannot-run` is *not* a pass.
 3. Scope the re-frame2-pair session to that variant:
    ```
    set-operating-frame {frame: ":story.counter/loaded"}
@@ -345,7 +348,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `last-epoch` returns the last dispatch (often the last `:script` step if the variant just mounted).
 
-**Gotcha.** Forget to pin (`set-operating-frame`) or pass a per-call `frame:`, and the op resolves by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app frame both live, that's two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
+**Gotcha.** Forget to pin (`set-operating-frame`) or pass a per-call `frame:`, and the op resolves by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app frame both live, that's two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [stories.md §Common gotchas](stories.md#common-gotchas).
 
 ## "Diff two variants of the same component"
 
@@ -379,32 +382,43 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 ## "Refine a variant interactively"
 
-**Why this works:** the same loop powering Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — the variant body is edited via the **authoring** surface, then re-frame2-pair watches the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+**Why this works:** the variant body is ordinary source, and the app you are attached to is running under `shadow-cljs watch`. So the refine loop is the skill's **normal source-edit protocol** (SKILL.md §Cardinal rule) with a `run-variant` at the end of it: edit the body, wait for the reload with `tail-build`, re-run the variant in the browser, read the assertions. Everything stays in one runtime, and you can intervene mid-loop — dispatch a probe, read an epoch — without leaving it.
 
-**Skill-boundary handoff.** Editing a variant body — reading it (`get-variant`) and re-registering it (`register-variant`) — is the **Story authoring** surface, allow-listed by the `re-frame2` skill, **not** re-frame2-pair (see `SKILL.md` frontmatter + `stories.md §The five tools`). re-frame2-pair's Story allow-list is the four live-session tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`). So the body-editing steps below are a **handoff to the authoring skill**: drive them under `re-frame2` (its `register-variant`/`get-variant` are reachable there); let re-frame2-pair watch + run + diagnose against the live runtime. re-frame2-pair drives the runtime; `re-frame2` owns the source-of-truth variant body.
-
-**Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:script` body to make an assertion pass.
+**Setup.** A Story-enabled build is running and the variant exists in source. You want to iterate on its `:script` body until an assertion passes.
 
 **Procedure:**
 
-1. **(authoring skill)** Read the current body — `get-variant` is the `re-frame2` skill's surface, so reach it from there: `register-variant`/`get-variant {variant-id ...}` returns the current body to refine.
-2. **(re-frame2-pair)** Note the variant frame's current epoch head before re-running, so the post-run poll returns only the play-runner's dispatches:
+1. Capture the pre-edit `baseline` **before** touching the file — a probe whose value must change once the new body loads, e.g. the variant's own registration line:
+   ```
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(pr-str (:script (re-frame.story/variant->edn :story.counter/loaded)))"
+   }
+   ```
+   Keep the returned `:value` verbatim.
+2. Note the variant frame's current epoch head, so the post-run poll returns only the play-runner's dispatches:
    ```
    mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.counter/loaded"}}
    ```
    Keep the response's `:head-id` — it is the `since-id` for the post-run read.
-3. **(authoring skill)** Re-register with the refined body via the `re-frame2` skill's `register-variant` (e.g. extend `:story.counter`, set `:setup [[:counter/initialise 7]]`, set `:script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`). `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then the setup events.
-4. **(re-frame2-pair)** Run it — `run-variant` IS in re-frame2-pair's allow-list:
+3. Edit the variant body in source with `Edit` / `Write` (e.g. set `:setup [[:counter/initialise 7]]`, set `:script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`).
+4. Wait for the browser to pick up the new code — the strict protocol, with the probe **and** the step-1 baseline:
    ```
-   mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
+   mcp__re-frame2-pair__tail-build {probe: "...", baseline: "..."}
    ```
-   Then poll `watch-epochs {since-id: <head-id>, pred: {"frame": ":story.counter/loaded"}}` — each `:script` step the play-runner drove is one returned epoch. Narrate them in order.
-5. **(re-frame2-pair)** Read failures:
+   Only proceed on `{:ok? true :soft? false}`. See [ops.md §Hot-reload coordination](ops.md#hot-reload-coordination) for the failure branches — a `:timed-out` usually means the probe can't discriminate this edit, not a compile error.
+5. Re-run the variant, projecting the verdict before egress:
    ```
-   mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(.then (re-frame.story/run-variant :story.counter/loaded)
+                   (fn [res] {:status (re-frame.story/result-status res)
+                              :failures (filterv #(not= :pass (:status %))
+                                                 (:assertions res))}))",
+     await: true, timeout-ms: 10000
+   }
    ```
-6. If `:status :fail` (`result-passed?` is false), hand back to the authoring skill and repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. Carry the newest `:head-id` forward as the next iteration's `since-id`.
+   Then poll `watch-epochs {since-id: <head-id>, pred: {"frame": ":story.counter/loaded"}}` — each `:script` step the play-runner drove is one returned epoch. Narrate them in order. To re-read the assertion accumulator later without re-running, `(re-frame.story/read-assertions :story.counter/loaded)`.
+6. If `:status :fail` (`result-passed?` is false), repeat from step 1 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. Carry the newest `:head-id` forward as the next iteration's `since-id`.
 
-**Expected output shape.** A `watch-epochs` pull of epoch records (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
+**Expected output shape.** A `watch-epochs` pull of epoch records (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) and the failing assertion records. A successful loop ends with `:status :pass`.
 
-**Gotcha.** `:reset-frame!` on re-registration wipes any REPL-only state you injected (e.g. a `replace-app-db` you'd done in a prior iteration to set up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so the setup is durable across refinements.
+**Gotcha.** Hot-reloading a variant calls `reset-frame!` on its frame, wiping any REPL-only state you injected (e.g. a `replace-app-db` from a prior iteration setting up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so it is durable across refinements.

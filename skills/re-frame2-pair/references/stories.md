@@ -1,20 +1,31 @@
-# Stories — driving and asserting against Story variants from a re-frame2-pair session
+# Stories — driving Story variants in the app you have open
 
-> Two ways to reach Story from a re-frame2-pair session. **(A) The running app's own stories** — drive `re-frame.story/*` in the live browser heap through `eval-cljs` (this is the live-browser Story host; see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs) first). **(B) story-mcp's own headless host** — the four allow-listed story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`) that drive/assert against a variant in story-mcp's same-JVM registry. Assumes you've read `SKILL.md` (the trace + epoch primitives) and `variant-as-frame.md` (variant-id IS frame-id).
+> A Story variant *is* a re-frame2 frame, and in a pair session it is a frame **in the browser heap on the other end of your nREPL connection**. So there is nothing new to learn about addressing one: enumerate and run through `eval-cljs` over `re-frame.story/*`, then read, dispatch, trace and diff it with the ordinary Pair tools. Assumes you have read `SKILL.md` (the trace + epoch primitives and the multi-frame model) and have a Story-enabled build running.
 
 ## When to load this leaf
 
-- A re-frame2-pair session needs to *drive* a Story variant (mount it, run it, re-run after a fix) — not just observe a variant the user is already poking at in the canvas.
-- A re-frame2-pair session needs to *assert* against a variant — was the play sequence valid? did the cascade meet `:rf.assert/*` expectations? did axe-core find a regression?
-- The user wants to capture a live cascade back into a `:script` snippet to bake the current interaction into a variant body.
+- The user mentions a Story variant, a workspace, or "the canvas" while you are attached to their app.
+- They want a variant *driven* — mounted, run, re-run after a fix — not just observed.
+- They want a variant *asserted* against: was the play sequence valid, did the cascade meet its `:rf.assert/*` expectations, did axe-core find a regression.
+- They want one variant's state read or mutated without touching another's, or two scenarios of the same component compared side by side.
 
-Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the browser-native `eval-cljs` path below, the five live-session story-mcp tools, and the composition patterns with re-frame2-pair's reads/writes/watches.
+Do **not** load this leaf to author variant bodies from scratch with no runtime in the loop — that is `skills/re-frame2/references/tooling/stories.md`. And do not load it to run Story **headlessly**: see [§Headless Story is a different task](#headless-story-is-a-different-task) at the foot of this page.
 
-## Driving Story directly in the browser via `eval-cljs`
+## The identity — variant-id IS the frame-id
 
-**One live door — reach the running app's stories through the pair, not story-mcp.** The five story-mcp tools below run Story in story-mcp's own **headless, same-JVM** host — a registry story-mcp built in its own process. That host **cannot see a browser tab's Story registry**: variants a `shadow-cljs watch` build registered in the browser heap are unreachable from story-mcp (a capability boundary, not a bug). The re-frame2-pair session **is** the live-browser Story host — its `eval-cljs` channel evaluates ClojureScript in the attached browser heap, so `re-frame.story/*` (the exact API the app's own Story shell calls) is reachable there today, with no extra transport. So when the user wants to enumerate or run the **running app's** stories, drive `re-frame.story/*` through `eval-cljs`; reach for the story-mcp tools only for story-mcp's own headless host.
+Per [`spec/007-Stories.md` §Relationship with frames](../../../spec/007-Stories.md) and [`tools/story/spec/002-Runtime.md` §Per-variant frame allocation](../../../tools/story/spec/002-Runtime.md), at variant-mount time the Story runtime calls:
 
-The Story namespace is loaded in any Story-enabled build, so reference it by its full name in an `eval-cljs` form (there is no `story` alias in the browser unless the app made one).
+```clojure
+(rf/make-frame {:id variant-id :doc ... :preset :story :rf/story? true :rf/variant variant-id ...})
+```
+
+(The frame is created with `:preset :story` plus the `:rf/story?` / `:rf/variant` marker keys; app-db seeding rides the variant's `:loaders` / `:setup` as setup events, not a create-time `:app-db` key. There is no `:initial-db` config seed.) The `variant-id` keyword (e.g. `:story.counter/loaded`) is BOTH the variant id Story tracks in its side-table AND the frame id re-frame2's registrar knows — the same keyword, **no resolver step**. Anywhere a Pair op takes a `frame: ":foo"` arg, pass the variant id directly.
+
+This identity is the single most important thing on this page. Once you have it, the rest is ordinary Pair work with a different operating frame.
+
+## Enumerate, run, operate
+
+The `re-frame.story` namespace is loaded in any Story-enabled build. Reference it by its full name in an `eval-cljs` form — there is no `story` alias in the browser unless the app made one.
 
 **1. Enumerate the registry.** `ids` takes a registrar kind — `:story` for the parent stories, `:variant` for every concrete variant; `variants-of` returns one story's variants:
 
@@ -25,6 +36,8 @@ mcp__re-frame2-pair__eval-cljs {form: "(sort (re-frame.story/ids :story))"}
 mcp__re-frame2-pair__eval-cljs {form: "(sort (re-frame.story/variants-of :story.login))"}
 ;; => (:story.login/empty :story.login/filled :story.login/success …)
 ```
+
+`(re-frame.story/variant-frames)` is the complementary read — every variant frame currently *allocated*, as against every variant *registered*. `(re-frame.story/lifecycle-state :story.login/success)` returns `:pre-mount` / `:mounting` / `:loading` / `:ready` / `:error` for one of them.
 
 **2. Run a variant — it returns a Promise, so `await`.** `run-variant` allocates the variant's frame and runs setup → loaders → events → play, resolving to the unified run-result. In the browser it returns a **JS Promise**, so eval it with `await: true` — the server awaits the thenable and returns the resolved value as `:value` (a plain eval would hand back an unresolved Promise). Project down to the verdict in the SAME round-trip so the whole (potentially large) result never crosses the wire — `eval-cljs` is un-elided, so returning only `:status` + failing assertions is both smaller and privacy-safer than shipping the variant's whole `:app-db`:
 
@@ -43,15 +56,17 @@ mcp__re-frame2-pair__eval-cljs {
 
 The resolved run-result is the frozen spec/017 §Run-result contract: `:status` (`:pass` | `:fail` | `:cannot-run` | `:error` — read via `re-frame.story/result-status`; `result-passed?` is true only for `:pass`, a `:cannot-run` is NOT a pass), `:assertions` (the unified records, each with `:status` / `:passed?` / `:expected` / `:actual` / `:reason`), `:checks`, plus optional `:app-db` / `:elapsed-ms` / `:narrative` / `:effects` / `:sub-runs` / `:renders`. To inspect the whole result, `await` the bare `(re-frame.story/run-variant …)` form instead of the projection.
 
-**3. Frame-scoped dispatch — the variant id IS the frame id.** Per [variant-as-frame.md](variant-as-frame.md), a running variant is an ordinary isolated frame; poke it with any frame-targeted op by pinning it or passing `frame:` per-call:
+**3. Operate on it as a frame.** Pin the variant and every frame-targeted op inherits it; or pass `frame:` per call when you are flipping between variants:
 
 ```
 set-operating-frame {frame: ":story.login/success"}
-mcp__re-frame2-pair__read-sub {sub: "[:auth.login/status]"}
-mcp__re-frame2-pair__dispatch {event: "[:auth.login/submit]", frame: ":story.login/success"}
+mcp__re-frame2-pair__read-sub  {sub: "[:auth.login/status]"}
+mcp__re-frame2-pair__snapshot  {frames: [":story.login/success"]}
+mcp__re-frame2-pair__dispatch  {event: "[:auth.login/submit]", frame: ":story.login/success"}
+mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.login/success"}}
 ```
 
-A fresh `run-variant` calls `reset-frame!` and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:setup`, not a REPL dispatch.
+Use the pin for a long session inside one variant, the per-call arg for cross-variant work. A fresh `run-variant` calls `reset-frame!` and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:setup`, not a REPL dispatch.
 
 ### Verified transcript (condensed)
 
@@ -70,115 +85,73 @@ eval-cljs {form: "(.then (re-frame.story/run-variant :story.login/success)
 ;; :value [:pass 3]
 ```
 
-The entry-point names (`ids` / `variants-of` / `run-variant` / `result-status` / `result-passed?`) and the Promise-return + result shape are confirmed against `tools/story/src/re_frame/story.cljc`; substitute your app's own `:story.<name>` ids.
+The entry-point names and the Promise-return + result shape are confirmed against `tools/story/src/re_frame/story.cljc`; substitute your app's own `:story.<name>` ids.
 
-### First-class pair Story tools — a demand-gated future option
+## The rest of the Story surface, from the same session
 
-`ids` / `variants-of` / `run-variant` are reachable **today** through the generic `eval-cljs` workhorse, so there is deliberately no dedicated pair tool for them. Promoting them to named pair tools (a `list-stories` / `run-variant` on the pair surface, mirroring the story-mcp ones but pointed at the browser) is a **later option held behind a demand bar** — reach for it only if the eval-cljs path proves too noisy in practice. Do not build it pre-emptively.
+Every Story read worth having in a live session is a public `re-frame.story/*` fn, reachable through the same `eval-cljs` channel. There is deliberately no dedicated Pair tool for any of them — `eval-cljs` is the first-class long-tail surface (SKILL.md §Style guidance), and promoting one of these to a named tool is a later option behind a demand bar, not something to build pre-emptively.
 
-## The five live-session tools — drive + assert palette
+| You want | Form |
+|---|---|
+| The failures from the last run, without re-running | `(re-frame.story/read-assertions :story.counter/loaded)` — the frame's `:rf.story/assertions` accumulator. It is a re-READ, so it is stale after any manual dispatch, and it carries no epoch tape: for the full verdict (tape floor + runner refusals) re-run instead. |
+| A verdict over a result map or a bare assertions vector | `(re-frame.story/assertions-passing? x)` — given a run-RESULT it reflects the run `:status` (a floor-escalated `:fail` or a `:cannot-run` returns false even when every record passed); given a bare vector it is the vacuous-green fold. |
+| A content hash to skip cells unchanged since a prior run | `(re-frame.story/snapshot-identity :story.counter/loaded)` → `{:variant-id :active-modes :substrate :content-hash}`, hashed over `(variant × resolved-args × decorators × loaders × substrate × modes)`. |
+| Why the plan resolved this way — `:extends` lineage, composed fragments, strict conflicts, effective args, setup/script order | `(re-frame.story/explain :story.counter/loaded)` — the same `:explain` projection the human Explain panel renders. Pure author data over the registry side-table; it allocates no frame. |
+| What a variant's decorators will do before you drive it | `(re-frame.story/registrations :decorator)` → `{id → body}`; each body carries `:kind` (`:hiccup` / `:frame-setup` / `:fx-override`) and its kind-specific slots, so an `:fx-override` stub (`:http → :stub-http`) is visible up front. |
+| The variant body as data, or a story's own metadata | `(re-frame.story/variant->edn :story.counter/loaded)` / `(re-frame.story/handler-meta :story :story.counter)`. |
+| axe-core violations the a11y panel accumulated | `(get @re-frame.story.ui.a11y/violations-by-frame :story.counter/loaded)` — a **browser-only** atom the panel fills. Reading it neither runs a fresh check nor proves the variant accessible; it reflects whatever the panel last stored. An empty vector for a frame the panel never scanned means *nothing looked*, not *nothing found*. |
+| The variant the user is looking at right now | `(:selected-variant (re-frame.story.ui.state/get-state))` — the shell tracks the active variant there; there is no `:story/active?` frame-metadata flag. Pair has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it. |
+| Tear down or re-run one variant | `(re-frame.story/destroy-variant! id)` / `(re-frame.story/reset-variant id)`. |
 
-The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in these four **live-session** story-mcp tools — the ones that drive or assert against a running variant. The variant-body **authoring** side (`register-variant`, `get-variant`, `preview-variant`, `list-stories`, …) is allow-listed by `re-frame2` instead — load `recipes.md §Refine a variant interactively` to call those across the skill boundary. (Three further **read-only** story-mcp tools are also allow-listed here — see [§Read-only story-mcp enumerations](#read-only-story-mcp-enumerations) below.)
+**Capture a live interaction back into a `:script`.** The recorder is browser-side too: `(re-frame.story/start-recording!)` → let the user interact → `(re-frame.story/stop-recording!)` → `(re-frame.story/gen-play-snippet)`, all through `eval-cljs`. The user lands the snippet back in source. Filtering is fixed by `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame-scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`) — it is not free-form.
 
-| Tool | What it does | Returns |
-|---|---|---|
-| `mcp__re-frame2-story-mcp__run-variant` | Full four-phase lifecycle against an existing variant — loaders → events → render → play | `{:status :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :narrative}` — `:status` is the verdict (`:pass`/`:fail`/`:cannot-run`/`:error`), read via `result-status`/`result-passed?` |
-| `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | `{:variant-id :status :total :failures :assertions}` (each record carries a derived `:status`) |
-| `mcp__re-frame2-story-mcp__snapshot-identity` | Content hash of `(variant × args × decorators × loaders × substrate × modes)` | `{:identity <hash>}` — use to skip cells unchanged since a prior run |
-| `mcp__re-frame2-story-mcp__read-a11y-violations` | axe-core results for the variant's rendered DOM | `{:violations [...]}` (JVM-standalone hosts return `[]` + a hint) |
+## What is per-variant, and what is not
 
-There is no headless MCP recorder tool (`record-as-variant` was retired, rf2-5saz7 — its blocking capture window was unreachable through the stdio transport). Interactive canvas recording is performed through Pair in the attached CLJS runtime — drive `re-frame.story/start-recording!` / `stop-recording!` / `gen-play-snippet` via `eval-cljs` (see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs)). See `tools/story-mcp/spec/002-Tool-Registry.md` for full I/O schemas.
+Each variant has its own isolated copy of every per-frame surface. State does not leak between variants — that is the whole point.
 
-```
-mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
-mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
-mcp__re-frame2-story-mcp__snapshot-identity {variant-id: ":story.counter/loaded"}
-mcp__re-frame2-story-mcp__read-a11y-violations {variant-id: ":story.counter/loaded"}
-```
+- **`app-db`** — each variant starts with `{}` (or whatever loaders + events populate). `(rf/app-db-value :story.counter/loaded)` and `:story.counter/empty` return independent values.
+- **Epoch history** — `(rf/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's.
+- **Sub cache** — the live snapshot (`re-frame.subs.tooling/sub-cache-snapshot`) is per-frame; `[:count]` materialised in one variant is independent of `[:count]` in another.
+- **Trace events** — `:frame` is stamped on every emitted event (Spec 009 §Per-frame stamping), so filter raw trace by `{:frame :story.counter/loaded}` to scope.
+- **`[:rf.runtime/elision :declarations]`** — the elision registry lives in the runtime-db partition under the reserved `:rf.runtime/elision` child (Spec 009 §Nomination paths), so large-path nominations are per-frame too.
+- **Error observability** — `:frame` is stamped on every `:rf.error/*` record, so filtering the always-on `register-listener! :errors` stream by frame scopes errors to one variant. Recovery is framework-owned; there is no per-frame recovery policy.
+- **`:fx-overrides`** — Story's `:fx-override` decorators stub fx per-variant. Calls into one variant's stub do not affect another.
 
-## Read-only story-mcp enumerations
+**Registrations are NOT per-variant.** A frame resolves behaviour against its resolved image generation (SKILL.md §Multi-frame model). In a single-installation app — the Story case — `reg-event`, `reg-sub`, `reg-machine`, `reg-view`, `reg-decorator` register into one shared set every variant sees. So a hot-swap through `eval-cljs` affects **every** variant sharing that set: useful for the experiment loop, occasionally surprising. If you need a change scoped to one variant, dispatch different args into different variants rather than reaching for the per-frame `:interceptor-overrides` slot (Spec 002 §Per-frame overrides), which Story's variant-mount does not expose.
 
-Three further story-mcp tools are allow-listed by re-frame2-pair — all **read-only**, for grounding yourself in a Story-enabled build without crossing to the authoring skill. They take no write gate.
+## Diffing two variants
 
-| Tool | What it does | Returns |
-|---|---|---|
-| `mcp__re-frame2-story-mcp__list-decorators` | Enumerate registered decorators (`:hiccup` / `:frame-setup` / `:fx-override`). Read-only by construction — decorators carry closures JSON-RPC can't transport, so there is **no decorator write tool**. Optional `:kind` narrows; paginated (`:limit` default 25, `:cursor`). | `{:decorators [{:id :kind :doc …}…]}` — each entry adds kind-specific pure-data slots: `:has-wrap?` (`:hiccup`), `:init` + `:app-db-patch` (`:frame-setup`), `:fx-id` + `:response` (`:fx-override`). Use it to see what a variant's `:fx-override` decorators (e.g. `:http → :stub-http`) will do **before** you drive it. |
-| `mcp__re-frame2-story-mcp__explain-variant` | The variant-plan **`:explain` projection** — the same data the human Explain panel renders (Story spec/017 §Explain API). Answers *"why did the plan resolve this way?"*. | `{:variant-id :explain {:source-chain :parent-chain :compose :strict-conflicts :merge :effective-args :network :sub-overrides :setup-order :script-order :checks :assertions :required-runner :platforms :tags}}`. Every slot — including the plan-resolved value slots (`:effective-args` / `:args` / `:substitutions` / `:network` replies / `:db-seed`) — is **static author data** read from the variant's own registration, so it **ships raw, exactly like `get-variant` / `variant->edn`** (the threat model scopes `:sensitive` / `:large` marks to observed runtime, not authored registration data — nothing redacts; there is **no `:include-sensitive` knob**). Reach for it when `extends` / `compose` make a variant's effective config non-obvious. |
-| `mcp__re-frame2-story-mcp__get-docs-markdown` | Render a story's docs as paste-ready GitHub-flavoured Markdown (story `:doc` + per-variant `:doc` + args / argtypes / tags / decorators composed into one string). The other docs reads (`get-story`/`get-variant`) return EDN — this is the right shape when the user wants a docs blurb for an issue or chat. | Markdown in the wire-canonical `:content` text slot **and** a `:markdown` structuredContent slot. `{:story-id …}`; miss → `:isError` "Story not found". |
-
-These complement the live-session palette: `list-decorators` / `explain-variant` tell you *how a variant will resolve* before you `run-variant` it; `get-docs-markdown` is for handing the user readable docs. None mutate.
-
-## Composition with the re-frame2-pair surface
-
-Per [`variant-as-frame.md`](variant-as-frame.md), the variant id *is* the frame id. Every story-mcp tool targeting a variant operates on the same frame re-frame2-pair reads and writes. Three patterns fall out:
-
-**Snapshot the variant via the variant-as-frame pattern.** Before driving a tool, ground yourself in the variant's current state — read it as a frame, not a story-mcp value:
+Per-variant isolation is what makes *"why does state diverge in scenario A vs scenario B?"* a two-frame read. Snapshot both, then compute the difference in one round-trip:
 
 ```
-set-operating-frame {frame: ":story.counter/loaded"}
-app-db/snapshot                          ;; reads the variant's frame
-trace/last-epoch                         ;; epoch history from the variant's frame
+mcp__re-frame2-pair__snapshot {frames: [":story.counter/empty", ":story.counter/loaded"]}
+
+mcp__re-frame2-pair__eval-cljs {
+  form: "(re-frame2-pair.runtime/frame-diff :story.counter/empty :story.counter/loaded)"
+}
+;; => {:only-in-a … :only-in-b … :common …}
 ```
 
-Then run the story tool against the same id and the results line up with what you just read.
+`frame-diff` matches `epoch-diff`'s semantics but across two frames instead of one epoch's before/after. Cross-check the cascades with `(rf/epoch-history <id>)` on each: variants that ran the same events but ended in different states usually diverge in their loaders. Full recipe: [`recipes.md` §Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component).
 
-**Watch-epochs scoped to a variant's frame-id.** Note the frame's epoch head before the play-runner fires, then poll for everything after it:
+## Common gotchas
 
-```
-mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.counter/loaded"}}   ;; keep :head-id
-mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
-mcp__re-frame2-pair__watch-epochs
-  {since-id: <head-id> pred: {"frame": ":story.counter/loaded"}}
-```
+- **Dispatching without a `frame:` arg does NOT silently target the variant.** Forget to pin-or-pass and the op resolves by the four-tier contract (SKILL.md §Multi-frame model). With the variant frame plus the host app frame both live that is two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` — you see a refusal, not the variant's history. Pin it, or be explicit per call.
+- **`run-variant` / re-registration call `reset-frame!`.** Each run wipes the variant's `app-db` back to `{}`, then re-runs loaders + setup + play. Any REPL-only state you injected — a `dispatch`, a `replace-app-db` — is gone. Permanent state lives in `:loaders` / `:setup`.
+- **`destroy-frame!` happens on variant-unmount.** If the user navigates away in the canvas, the frame is gone and ops against it return `:rf.error/no-such-handler` (kind `:frame`). Navigate back, or re-mount with `(re-frame.story/run-variant :story.foo/bar)`.
+- **Loaders run before you can see them.** Phase-1 loaders dispatch-sync into the variant's frame at mount time. If you attached *after* the variant mounted, those traces are already in the retain-N ring — reach for `trace/buffer`, not `trace/recent`.
+- **`:script` steps look like user interactions.** The play-runner dispatches with only `:frame` set, so its events carry the default `:origin :app` — there is no play-specific origin tag. Your own Pair dispatches carry `:origin :pair`, so filter `pred {:origin :pair}` to isolate your own, and lean on frame scope and timing for the rest. (Both axes are Spec 002 §Dispatch origin tagging; `:source` is the closed enum in `spec/Spec-Schemas.md`.)
+- **Workspaces nest frame-providers.** A `reg-workspace` containing variants A, B, C renders each inside its own `frame-provider`; the workspace itself may or may not be a registered frame (spec/007 §Relationship with frames). When the user points at "the workspace", clarify whether they mean the layout frame or one of its variant frames.
 
-The post-run pull returns one epoch record per dispatch in the variant's cascade — including every `:script` step the runner drove. That epoch view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
+## Headless Story is a different task
 
-**Dispatch-from-pair into the variant's frame.** Mid-loop intervention — between iterations of `run-variant`, inject a probe dispatch directly:
+Everything above targets the browser heap. Running Story **headlessly** — no browser, a same-JVM registry built inside another process — is a different job with a different host: the `re-frame2-story-mcp` server, documented at [`tools/story-mcp/README.md`](../../../tools/story-mcp/README.md) and specified in [`tools/story-mcp/spec/000-Vision.md`](../../../tools/story-mcp/spec/000-Vision.md). It is **not** part of this skill, and a live pair session must not start or call it.
 
-```
-mcp__re-frame2-pair__dispatch
-  {event: "[:counter/inc]" frame: ":story.counter/loaded"}
-```
-
-The dispatch lands in the variant's app-db; the next `run-variant` calls `reset-frame!` and wipes it. Useful for "would adding this event between phases pass the assertion?" probes without round-tripping through `register-variant`.
-
-## The agent self-healing loop in re-frame2-pair context
-
-The four-step loop from [`story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md) — author → run → assert → refine — becomes richer when re-frame2-pair is attached. The re-frame2-pair-augmented loop:
-
-```
-run-variant fails (:status :fail — result-passed? is false)
-   ↓
-read-failures — narrow to the offending :rf.assert/*
-   ↓
-snapshot the variant's frame via app-db/snapshot (variant-as-frame pattern)
-   — what state did the play sequence actually leave behind?
-   ↓
-dispatch a fix via re-frame2-pair mcp__re-frame2-pair__dispatch {frame: ...}
-   — probe whether the candidate fix would have made the assertion pass
-   ↓
-re-run via run-variant
-   ↓
-loop until :status :pass (result-passed? true)
-```
-
-A `:status :cannot-run` is the distinct third verdict — the runner could not even attempt the plan. Handle it as "not runnable here", NOT as a fail: fix the runner/environment, don't refine the body.
-
-What re-frame2-pair adds over the bare loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` probes candidate fixes without re-registering the variant; `trace/last-epoch` shows the cascade `read-failures` won't (it reads only the assertion accumulator, not the trace stream).
-
-When the loop terminates, optionally capture the now-passing interaction as a fresh `:script` snippet through the browser recorder (`re-frame.story/start-recording!` → interact → `stop-recording!` → `gen-play-snippet` via `eval-cljs`) — the user lands it back in source.
-
-## Common gotchas — live-session specific
-
-- **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + setup + play. REPL-only state you'd injected via re-frame2-pair `dispatch` between iterations is gone. Bake setup into `:loaders` / `:setup` if you need it to survive (`variant-as-frame.md §Common gotchas`).
-- **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
-- **`read-a11y-violations` needs the in-browser panel.** JVM-standalone story hosts return `isError true` / `:rf.error/story-mcp-capability-unavailable` — never an empty list, which would read as "no accessibility findings" when in fact nothing looked. If your session is browser-attached this works; if it's JVM-only, expect the explicit refusal.
-- **The browser recorder's filter layers are not free-form.** Filtering is fixed by `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`).
+The reason is a capability boundary, not a preference. That host has no nREPL, socket, or JVM-to-browser bridge, so it cannot see the browser tab's Story registry at all — and the browser cannot see its. A variant id that exists in both is **two different frames with two different `app-db` values**. So a procedure that runs a variant over there and then reads the frame over here is not a slow path or a lossy one; it observes an object that was never touched, and the reads line up plausibly enough to be believed. Where a session genuinely needs the headless host, it is that session's *only* Story host — not a second one alongside this connection.
 
 ## Cross-references
 
-- The identity that makes all this work — [`variant-as-frame.md`](variant-as-frame.md).
-- The bare four-step loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md).
-- The three variant recipes that compose these tools end-to-end — [`recipes.md` §Drive a Story variant from a re-frame2-pair session](recipes.md#drive-a-story-variant-from-a-re-frame2-pair-session), [§Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component), [§Refine a variant interactively](recipes.md#refine-a-variant-interactively).
-- Full tool registry + I/O schemas — [`tools/story-mcp/spec/002-Tool-Registry.md`](../../../tools/story-mcp/spec/002-Tool-Registry.md).
-- Authoring-side variant body shape — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).
+- Recipes driving variants end-to-end — [`recipes.md`](recipes.md) §Drive a Story variant, §Diff two variants, §Refine a variant interactively.
+- Authoring variant bodies (no runtime in the loop) — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).
+- The frame primitive itself — [`spec/002-Frames.md`](../../../spec/002-Frames.md).
+- Story runtime spec — [`tools/story/spec/002-Runtime.md`](../../../tools/story/spec/002-Runtime.md); run-result contract — [`tools/story/spec/017-Testing-Story.md`](../../../tools/story/spec/017-Testing-Story.md).

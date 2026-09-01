@@ -52,7 +52,7 @@
 (def ^:private capabilities-md (delay (slurp-rel "docs/capabilities.md")))
 (def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
 (def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
-(def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
+(def ^:private stories-md (delay (slurp-rel "references/stories.md")))
 (def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
 ;; Live Pair-MCP catalogue cardinality. The generated descriptor
@@ -125,7 +125,21 @@
  :prompt "Where in the code does this button come from?"
  :recipe-anchor "Where in the code"
  :must-mention [["dom/source-at" "source-at"]
- ["data--coord" "source-coord"]]}])
+ ["data--coord" "source-coord"]]}
+
+ ;; rf2-p1keh — Story-in-the-open-app. The recipe must route through the
+ ;; ATTACHED browser runtime: `eval-cljs` over `re-frame.story/*`, awaited
+ ;; (run-variant returns a Promise in CLJS), then an ordinary Pair frame op
+ ;; against the same runtime. The forbidden half — no `mcp__re-frame2-story-mcp__`
+ ;; anywhere — is asserted in `story-work-stays-on-the-attached-runtime` below,
+ ;; because a must-mention table can only require presence.
+ {:id :story-in-the-open-app
+ :prompt "Run this variant in the app I have open"
+ :recipe-anchor "Drive a Story variant"
+ :must-mention [["mcp__re-frame2-pair__eval-cljs"]
+ ["re-frame.story/run-variant"]
+ ["await"]
+ ["set-operating-frame"]]}])
 
 ;; ---------------------------------------------------------------------------
 ;; Assertions
@@ -595,6 +609,94 @@
         (str "ops.md no longer labels the raw eval restore/reset forms as a "
              "BACKSTOP — they must remain documented for a gate-OFF server but "
              "framed as the fallback, not the default (rf2-230ekq)."))))
+
+;; ---------------------------------------------------------------------------
+;; Single-host boundary (rf2-p1keh)
+;; ---------------------------------------------------------------------------
+;;
+;; The skill's contract is ONE attached browser runtime. Story variants are the
+;; surface that used to breach it: seven `mcp__re-frame2-story-mcp__*` tools
+;; were allow-listed and the Story leaves taught compositions that ran a
+;; variant in story-mcp's headless JVM registry while Pair read the browser —
+;; two different frames wearing one keyword.
+;;
+;; `scripts/check_skill_mcp_drift.py`'s single-host axis pins the FRONTMATTER.
+;; These guards pin the PROSE, which no gate reads: the surviving Story leaf
+;; must teach the browser route, and no doc may name the other server's tool
+;; prefix. `story-mcp` in prose is fine and expected — the leaf routes headless
+;; work out to it by name. The banned thing is a callable `mcp__...__` entry.
+
+(def ^:private story-mcp-tool-prefix "mcp__re-frame2-story-mcp__")
+
+(deftest story-work-stays-on-the-attached-runtime
+  (testing "the Story leaf teaches the browser route: eval-cljs + await + a Pair frame read (rf2-p1keh)"
+    (let [md @stories-md]
+      (is (str/includes? md "mcp__re-frame2-pair__eval-cljs")
+          (str "references/stories.md no longer names "
+               "`mcp__re-frame2-pair__eval-cljs` — the attached browser heap "
+               "is reached through eval-cljs, and it is the only Story door "
+               "this skill has (rf2-p1keh)."))
+      (is (str/includes? md "re-frame.story/run-variant")
+          (str "references/stories.md no longer names "
+               "`re-frame.story/run-variant` — running a variant in the open "
+               "app is a call into the app's OWN Story registry (rf2-p1keh)."))
+      (is (str/includes? md "await")
+          (str "references/stories.md no longer tells the caller to `await` "
+               "the run — `run-variant` returns a JS Promise in the browser, "
+               "so a plain eval hands back an unresolved thenable "
+               "(rf2-p1keh)."))
+      (is (or (str/includes? md "set-operating-frame")
+              (str/includes? md "mcp__re-frame2-pair__read-sub"))
+          (str "references/stories.md no longer follows the run with an "
+               "ordinary Pair frame op against the SAME runtime — the "
+               "variant-id-is-frame-id identity is what makes the browser "
+               "route complete (rf2-p1keh)."))))
+
+  (testing "no live-session doc grants or calls a second MCP server (rf2-p1keh)"
+    (doseq [[label md] [["SKILL.md"                skill-md]
+                        ["references/stories.md"   stories-md]
+                        ["references/recipes.md"   recipes-md]
+                        ["references/ops.md"       ops-md]
+                        ["references/vocabulary.md" vocabulary-md]]]
+      (is (not (str/includes? @md story-mcp-tool-prefix))
+          (str label " names a `" story-mcp-tool-prefix "` tool. story-mcp is "
+               "a headless same-JVM host with no bridge to the browser, so a "
+               "variant it runs is NOT the frame Pair reads — the two share a "
+               "keyword, not an object. Drive variants through eval-cljs over "
+               "`re-frame.story/*` instead, and route explicitly headless work "
+               "out to tools/story-mcp/ (rf2-p1keh).")))
+    ;; Control: the census pattern above must be able to find something.
+    ;; A `str/includes?` against a token nothing carries answers "absent" in
+    ;; the same voice whether the rule holds or the token is misspelt, so
+    ;; exercise the SAME shape against the prefix that IS present.
+    (is (str/includes? @skill-md "mcp__re-frame2-pair__")
+        (str "SKILL.md carries no `mcp__re-frame2-pair__` entry at all — the "
+             "single-host assertions above are therefore vacuous, not "
+             "satisfied (rf2-p1keh)."))))
+
+(deftest story-leaf-is-single-not-a-pair
+  (testing "the overlapping stories.md + variant-as-frame.md pair collapsed to one leaf (rf2-p1keh)"
+    (is (not (.exists (io/file skill-root "references/variant-as-frame.md")))
+        (str "references/variant-as-frame.md is back. Its content — the "
+             "variant-id-is-frame-id identity, per-variant isolation, the "
+             "mount/reset/destroy gotchas — lives in references/stories.md, "
+             "which is the ONE Story leaf the router points at (rf2-p1keh).")))
+  (testing "the surviving leaf kept what the merge absorbed (rf2-p1keh)"
+    (let [md @stories-md]
+      (doseq [[what token] [["the variant-id/frame-id identity" "variant-id IS the frame-id"]
+                            ["the frame-allocation call"        "rf/make-frame"]
+                            ["per-variant isolation"            "reset-frame!"]
+                            ["the unmount gotcha"               "destroy-frame!"]
+                            ["cross-frame diff"                 "frame-diff"]]]
+        (is (str/includes? md token)
+            (str "references/stories.md no longer covers " what " (`" token
+                 "`) — the merge was meant to absorb variant-as-frame.md, not "
+                 "drop it (rf2-p1keh).")))))
+  (testing "the router points at the one surviving leaf (rf2-p1keh)"
+    (is (str/includes? @skill-md "references/stories.md")
+        "SKILL.md no longer routes to references/stories.md.")
+    (is (not (str/includes? @skill-md "variant-as-frame.md"))
+        "SKILL.md still routes to the deleted references/variant-as-frame.md.")))
 
 ;; ---------------------------------------------------------------------------
 ;; Catalogue-cardinality drift
