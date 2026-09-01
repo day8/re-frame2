@@ -895,3 +895,130 @@
                             #":rf.error/ssr-nonrenderable-component"
                             (streaming/render-shell [deep "z"]))
           "streaming fails loud on a deeper-than-Form-2 component"))))
+
+;; ===========================================================================
+;; rf2-mocn3 — Form-2 arity adaptation is a DECISION taken before the render
+;; runs, never an exception caught after it
+;;
+;; `invoke-form-2-render-fn` used to probe arity BY EXCEPTION:
+;;
+;;     (try (apply inner args) (catch ArityException _ (inner)))
+;;
+;; That catch encloses execution of PROGRAMMER code, which is two independent
+;; defects:
+;;
+;;   1. An `ArityException` raised INSIDE a correctly-invoked inner render —
+;;      an ordinary wrong-arity bug in a helper that render calls — is
+;;      indistinguishable from an invocation-arity mismatch. The renderer ran
+;;      the render body a SECOND time and reported the retry's outcome, so a
+;;      non-pure render duplicated its effects and the user's own failure was
+;;      replaced by the retry's.
+;;   2. The fallback tried only arity ZERO, so an inner accepting a non-zero
+;;      PREFIX of the outer's props — valid under the CLJS/JS extra-argument
+;;      semantics this helper exists to emulate — was rejected on the JVM.
+;;      The same `.cljc` app rendered in the browser and failed SSR.
+;;
+;; The helper now selects a compatible call shape from the compiled fn's
+;; DECLARED arities and invokes exactly once. Both public server paths share
+;; the one resolver (`emit/resolve-component-head`), so every row below
+;; asserts through BOTH `emit/emit-element` and `streaming/render-shell`;
+;; a fix proven through one of them is proven for half the surface.
+;;
+;; NOTE ON NON-VACUITY: the inners below are FIXED arity where prefix
+;; selection is the thing under test (a variadic inner accepts the full arg
+;; list and would pass without exercising selection at all), and the
+;; double-invocation rows COUNT their calls — an idempotent test double is
+;; green against the unrepaired helper and proves nothing.
+;; ===========================================================================
+
+(deftest emit-renders-form-2-partial-arity-inner
+  (testing "rf2-mocn3 — an inner render declaring a non-zero PREFIX of the
+            outer's args renders on the JVM exactly as it does on CLJS,
+            through BOTH the sync emitter and the streaming shell walker"
+    ;; Fixed arity 1, taking the first of the outer's two props — the
+    ;; failure scenario on the bead: the client drops the extra JS argument,
+    ;; the JVM used to try 2 args, catch, retry at 0, and throw.
+    (let [form2-partial (fn [kept _ignored] (fn [kept] [:p kept]))]
+      (is (= "<p>kept</p>" (emit/emit-element [form2-partial "kept" "ignored"]))
+          "sync emit passes the inner the longest prefix it accepts")
+      (is (= "<p>kept</p>"
+             (:shell-html (streaming/render-shell [form2-partial "kept" "ignored"])))
+          "streaming passes the inner the longest prefix it accepts"))))
+
+(deftest emit-form-2-inner-body-arity-exception-propagates-once
+  (testing "rf2-mocn3 — an ArityException raised INSIDE a correctly-invoked
+            inner render propagates unchanged, and the render body runs
+            exactly ONCE, on BOTH server paths"
+    ;; A VALID zero-arity inner — precisely the shape the old zero-arity
+    ;; retry could re-enter successfully — whose body carries an ordinary
+    ;; wrong-arity bug in a helper it calls.
+    (let [calls       (atom 0)
+          needs-two   (fn [a b] [:span a b])
+          form2-buggy (fn [x] (fn []
+                                (swap! calls inc)
+                                [:div (needs-two x)]))]
+      (reset! calls 0)
+      (is (thrown? clojure.lang.ArityException
+                   (emit/emit-element [form2-buggy "x"]))
+          "sync emit propagates the inner body's own ArityException")
+      (is (= 1 @calls)
+          "sync emit invoked the inner render EXACTLY once (the old
+           catch-and-retry reached 2)")
+      (reset! calls 0)
+      (is (thrown? clojure.lang.ArityException
+                   (streaming/render-shell [form2-buggy "x"]))
+          "streaming propagates the inner body's own ArityException")
+      (is (= 1 @calls)
+          "streaming invoked the inner render EXACTLY once (the old
+           catch-and-retry reached 2)"))))
+
+(deftest emit-form-2-variadic-inner-body-failure-is-not-swallowed
+  (testing "rf2-mocn3 — the old zero-arity retry SUCCEEDED on a variadic
+            inner, silently replacing a failing render with different HTML.
+            The programmer's failure must surface on BOTH paths instead"
+    ;; With args the render is reached and its helper bug throws; with NO
+    ;; args it returns a different tree. Under the old catch-and-retry the
+    ;; no-args branch is what shipped — a silent wrong render, no exception
+    ;; anywhere, which is the severest form of defect 1.
+    (let [needs-two (fn [a b] [:span a b])
+          form2     (fn [x] (fn [& xs]
+                              (if (seq xs)
+                                [:div (needs-two x)]
+                                [:p "zero-arity retry reached this"])))]
+      (is (thrown? clojure.lang.ArityException
+                   (emit/emit-element [form2 "x"]))
+          "sync emit surfaces the render's own failure rather than
+           re-entering the variadic inner with no args")
+      (is (thrown? clojure.lang.ArityException
+                   (streaming/render-shell [form2 "x"]))
+          "streaming surfaces the render's own failure rather than
+           re-entering the variadic inner with no args"))))
+
+(deftest emit-passes-form-2-variadic-inner-the-whole-arg-seq
+  (testing "rf2-mocn3 — a VARIADIC inner receives the complete original
+            argument sequence, once, preserving ordinary Reagent/CLJS
+            semantics on BOTH server paths"
+    ;; `(fn [& xs] …)` accepts any arity from zero up; selection must hand it
+    ;; the FULL list, not confuse \"accepts any arity\" with \"accepts zero\".
+    (let [calls (atom 0)
+          seen  (atom nil)
+          form2 (fn [_a _b] (fn [& xs]
+                              (swap! calls inc)
+                              (reset! seen (vec xs))
+                              [:p (str/join "," xs)]))]
+      (reset! calls 0)
+      (reset! seen nil)
+      (is (= "<p>a,b</p>" (emit/emit-element [form2 "a" "b"]))
+          "sync emit renders the variadic inner's output")
+      (is (= ["a" "b"] @seen)
+          "sync emit passed the variadic inner the complete arg sequence")
+      (is (= 1 @calls)
+          "sync emit invoked the variadic inner exactly once")
+      (reset! calls 0)
+      (reset! seen nil)
+      (is (= "<p>a,b</p>" (:shell-html (streaming/render-shell [form2 "a" "b"])))
+          "streaming renders the variadic inner's output")
+      (is (= ["a" "b"] @seen)
+          "streaming passed the variadic inner the complete arg sequence")
+      (is (= 1 @calls)
+          "streaming invoked the variadic inner exactly once"))))
