@@ -276,6 +276,16 @@ the scaffold attaches the schema under a live frame scope
 client via the explicit-frame arity), never at namespace load. Closed maps
 (`{:closed true}`) catch typos.
 
+Because the attachment is a fn call rather than a top-level form, a hot reload
+re-evaluates `CounterDb` and re-registers nothing on its own. The client's
+`^:dev/after-load render!` hook therefore calls `register-schema!` again on
+every save, so an edited `CounterDb` validates the live client frame instead of
+the boot-time value — without a page refresh, and without re-hydrating: the
+re-registration replaces the entry for the same frame and path in place, leaving
+the frame, its `app-db` and the adopted server DOM alone. (The server side needs
+no equivalent: its frame is per-request and short-lived, so every request
+re-runs `:ssr/register-schema` against freshly loaded code.)
+
 **A release build registers these schemas and never checks them.** That is the
 designed posture rather than a gap — schema validation is a development tool and
 production trusts the programmer. The registration is still worth keeping: it

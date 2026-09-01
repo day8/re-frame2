@@ -92,7 +92,15 @@
 ;; same root. `frame-root` reuses the already-live frame without re-seeding, so
 ;; your app-db survives the save. See
 ;; `docs/core/how-to/boot-and-mount-an-app.md` §Host listeners.
+;;
+;; It also re-attaches the app-db schema. Registration is a fn call, not a
+;; load-time side effect, so reloading schema.cljs re-evaluates `CounterDb`
+;; and re-registers nothing — without this line the framework keeps
+;; validating the live frame against the boot-time schema until you refresh
+;; the page. Re-registering replaces the entry for the same (frame, path) in
+;; place; the frame, its app-db and both roots are untouched.
 (defn ^:dev/after-load reload! []
+  (schema/register-schema!)
   (install-hash-listener!)
   (on-hash-change!))
 
@@ -108,6 +116,7 @@
   ;;
   ;; Schema attachment is frame-local; it names the app frame explicitly so
   ;; the frame-root `:initial-events` seed is validated from the first write.
+  ;; `reload!` re-runs this after every save — see its comment above.
   (schema/register-schema!)
   ;; Install the reload-safe route listener before applying the current hash.
   (install-hash-listener!)

@@ -60,6 +60,17 @@ Three mechanisms combine to give you a clean reload:
    add: the new `id` shows up live, but the old `id` stays registered
    until that refresh.)
 
+   **`schema.cljs` is the one exception, and the scaffold handles it for
+   you.** Its `reg-app-schema` call lives inside `register-schema!`
+   rather than at the top level (it has to — see [§Typed app-db
+   boundaries](#typed-app-db-boundaries)), so a reload re-evaluates
+   `CounterDb` and re-registers *nothing*. The `^:dev/after-load` hook
+   therefore calls `register-schema!` again on every save. Without that,
+   the framework would go on validating against the boot-time schema:
+   add an optional key and a write using it would still be rejected;
+   tighten the schema and a now-invalid write would still be accepted —
+   until you refreshed the page.
+
 3. **`rf/init!` runs once, in `init`, and does NOT reset anything by
    itself.** It is idempotent and installs the substrate adapter
    **only when none is already seated**. Per EP-0002 (Spec 002 §Frame
@@ -418,9 +429,12 @@ no explicit `:frame` raises `:rf.error/no-frame-context` — so a bare
 `reg-app-schema` call at namespace-load time would throw. The scaffold
 therefore puts the registration in a `register-schema!` fn that names
 the app frame **explicitly** (the optional middle metadata map's
-`:frame` slot) and that `core/init` calls at boot — before the
-`rf/frame-root` mount even creates the frame, so the frame's
-`:initial-events` seed is validated from its very first write:
+`:frame` slot). `core.cljs` calls it from the `^:dev/after-load` hook,
+which is the one path both the first load and every hot reload take —
+so the first call still lands before the `rf/frame-root` mount creates
+the frame (the frame's `:initial-events` seed is validated from its very
+first write), and every later call replaces the registration with
+whatever `schema.cljs` now says:
 
 ```clojure
 (def CounterDb
@@ -431,9 +445,24 @@ the app frame **explicitly** (the optional middle metadata map's
 (defn register-schema! []
   (rf/reg-app-schema [] {:frame :rf/default} CounterDb))
 
-;; in core.cljs — called once at boot (see init)
-(schema/register-schema!)
+;; in core.cljs — at boot AND after every hot reload.
+;; (`mount!` here; `reload!` in the Story scaffold.)
+(defn ^:dev/after-load mount! []
+  (schema/register-schema!)
+  ;; ... create the root once, then render ...
+  )
 ```
+
+Because the registration is a fn call rather than a top-level form, a
+reload of `schema.cljs` re-evaluates `CounterDb` but re-registers
+nothing on its own — the hook's call is what makes an edited schema
+take effect on the next save instead of the next page refresh.
+Re-registering the same path replaces the previous schema in place
+(last-write-wins, exactly like re-registering a handler); the frame,
+your `app-db` and the React root are untouched. If the live `app-db`
+no longer fits a schema you have just tightened, the runtime logs a
+`:rf.schema/violation` warning and keeps running — it does not clear
+or rewind your state.
 
 If you are already inside an established frame scope
 (`rf/with-frame`, a handler, a view), the two-slot form
