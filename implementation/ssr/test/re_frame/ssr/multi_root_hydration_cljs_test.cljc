@@ -65,10 +65,17 @@
 (defn- fresh-frame!
   "A `:client`-platform frame under an id no other test in this shared
   process has used. Frames are not torn down between tests here, so a
-  reused id would carry a prior test's app-db into this one."
+  reused id would carry a prior test's app-db into this one.
+
+  `make-frame` opts are FLAT — `:platform` sits alongside `:id`. A nested
+  `{:config {:platform :client}}` stores `:config {:config {…}}` and the
+  frame is never platform-tagged at all; every test below would still pass,
+  because the runtime falls back to the host-wide platform marker, which on
+  CLJS is already `:client`. `the-fixture-frames-are-actually-platform-tagged`
+  is what keeps that accident from coming back."
   []
   (let [fid (keyword "rf.multiroot" (str "f" (swap! frame-counter inc)))]
-    (rf/make-frame {:id fid :config {:platform :client}})
+    (rf/make-frame {:id fid :platform :client})
     fid))
 
 (defn- payload-for
@@ -96,6 +103,19 @@
    :root-id                :page/shop
    :view-id                :app/shop-root
    :phase                  :server})
+
+;; ---------------------------------------------------------------------------
+;; The fixture's own tag, asserted so it cannot lapse
+;; ---------------------------------------------------------------------------
+
+(deftest the-fixture-frames-are-actually-platform-tagged
+  (testing "`fresh-frame!` asks for `:platform :client` and the frame CARRIES
+            it. Read through `frame-meta`, the canonical `:rf/frame-meta`
+            shape, which flattens the frame's OWN config and does not fall
+            back to the host-wide platform marker — so this discriminates a
+            tagged frame from an untagged one, where the hydration tests
+            below cannot: they would pass either way on CLJS."
+    (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE RED-BEFORE, kept permanently executable
