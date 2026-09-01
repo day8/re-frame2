@@ -601,7 +601,7 @@ the two-line preload entry.
 
 > Implemented by `tools.orient`; routes through the runtime `orient`
 > fn, which composes `health` + `app-frame-ids` + `registrar-list` +
-> `app-db-value` top-keys + `rf/machines`. rf2-3bu3d.8.
+> `app-db-value` top-keys + `rf.machines/machines`. rf2-3bu3d.8.
 
 **App-shape orientation summary in one round-trip** — the first-contact
 answer to "what is this app and what can I drive?". When an agent
@@ -2072,7 +2072,7 @@ posture for backward compatibility; the per-slice `:slice-modes` map
 tells the agent which slices it can drill into without a second call.
 
 The `:machines` slice combines the global registrar's machine-id list
-(`rf/machines`) with the per-frame state stash at `[:rf.runtime/machines :snapshots]` in
+(`rf.machines/machines`) with the per-frame state stash at `[:rf.runtime/machines :snapshots]` in
 the frame's runtime-db partition (per Spec 005). The `:traces` slice filters the
 retain-N trace ring buffer by `:frame`. Other slices delegate
 verbatim to the public per-slice surface.

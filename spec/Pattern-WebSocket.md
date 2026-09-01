@@ -80,7 +80,7 @@ The connection machine composes the locked substrate:
 (rf/reg-event :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :disconnected
      :data    {:url            nil               ;; supplied by :ws/connect
                :cred-ref       nil               ;; OPAQUE credential reference — never the bearer itself (see §Parameters)

@@ -42,7 +42,7 @@ A state machine that processes one batch per state transition, yields to the bro
 ```clojure
 (rf/reg-event :compute/batch-job
   {:doc "Long-running batch processing with progress reporting and cancel support."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :idle
      :data    {:total       0
                :processed   0

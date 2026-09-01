@@ -137,7 +137,7 @@ _As-of 2026-07-04._
 | P1 Regularity | ✓ | One transition-table shape; one `make-machine-handler` call site; one snapshot shape (`{:state :data}`). |
 | P2 Named things | ✓ | Machines, states, transitions, guards, actions all id'd. The machine itself is the registered event handler. |
 | P3 Data before magic | ✓ | Transition table is data; action and guard slots are fns (per the data-DSL-vs-fn rule), but the references and the structure are data. |
-| P4 Public query surfaces | ✓ | A machine *is* an event handler — enumerated via `(registrations :event)`, filterable by `:rf/machine?` metadata; the discovery lens `(rf/machines)` / `(rf/machine-meta id)` makes this a first-class operation. Snapshot reachable via the framework-registered `:rf/machine` parametric sub (`@(rf/subscribe [:rf/machine <machine-id>])`) or `(get-in (:rf.db/runtime (frame-state-value f)) [:rf.runtime/machines :snapshots <id>])`; guards/actions are **machine-scoped** — declared in the machine's `:guards` / `:actions` maps and visible via `(machine-meta <id>)` (the registration metadata exposes the transition table including the `:guards` / `:actions` slots). |
+| P4 Public query surfaces | ✓ | A machine *is* an event handler — enumerated via `(registrations :event)`, filterable by `:rf/machine?` metadata; the discovery lens `(rf.machines/machines)` / `(rf.machines/machine-meta id)` makes this a first-class operation. Snapshot reachable via the framework-registered `:rf/machine` parametric sub (`@(rf/subscribe [:rf/machine <machine-id>])`) or `(get-in (:rf.db/runtime (frame-state-value f)) [:rf.runtime/machines :snapshots <id>])`; guards/actions are **machine-scoped** — declared in the machine's `:guards` / `:actions` maps and visible via `(machine-meta <id>)` (the registration metadata exposes the transition table including the `:guards` / `:actions` slots). |
 | P5 Schemas | ✓ | `:rf/transition-table` and `:rf/machine-snapshot` registered in [Spec-Schemas](Spec-Schemas.md); `:rf.fx/spawn-args` for spawn specs. |
 | P6 Deterministic execution | ✓ | Pure `machine-transition`; pure factory `make-machine-handler`; finite states; explicit transitions; deterministic four-level drain. |
 | P7 Machine-readable errors | ✓ | Trace events on machine lifecycle; `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`. |
@@ -147,7 +147,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | Transition tables ARE the canonical "data is code" example for stateful flows. |
 
 **Gaps:**
-1. Register transition tables as a queryable `:machine` kind in the registrar. (Resolved in part by `(rf/machines)` / `(rf/machine-meta id)` — a derived lens over `(registrations :event)` filtered by `:rf/machine?` metadata; see [005 §Querying machines](005-StateMachines.md#querying-machines).)
+1. Register transition tables as a queryable `:machine` kind in the registrar. (Resolved in part by `(rf.machines/machines)` / `(rf.machines/machine-meta id)` — a derived lens over `(registrations :event)` filtered by `:rf/machine?` metadata; see [005 §Querying machines](005-StateMachines.md#querying-machines).)
 2. Ship a Malli schema for the transition-table grammar.
 
 ### Spec 008 — Testing

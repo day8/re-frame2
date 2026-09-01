@@ -7,7 +7,7 @@ This file is intentionally **kept separate** from Construction-Prompts.md so tha
 
 ## Registration — `reg-machine` and `reg-machine*`
 
-Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf/machines)` and `(rf/machine-meta id)` see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
+Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf.machines/machines)` and `(rf.machines/machine-meta id)` see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
 
 ```clojure
 ;; Standard form — the macro (preferred).
@@ -19,13 +19,13 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
    :states  {...}})
 
 ;; Plain-fn surface — for code-gen, REPL, fixture-synthesised specs.
-(rf/reg-machine* machine-id (build-spec-from-edn fixture))
+(rf.machines/reg-machine* machine-id (build-spec-from-edn fixture))
 ```
 
 | Form | Shape | Source-coord stamping | Use case |
 |---|---|---|---|
 | `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot AND per-element coord index walked from the literal spec form (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)) | The default. Use whenever the spec is a literal map at the call site. |
-| `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the spec is opaque data at the call site | Code-gen pipelines, REPL exploration, conformance harnesses that synthesise specs from EDN fixtures. |
+| `(rf.machines/reg-machine* machine-id machine-spec)` | plain fn | None — the spec is opaque data at the call site | Code-gen pipelines, REPL exploration, conformance harnesses that synthesise specs from EDN fixtures. |
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (front-porch shrink: the non-registration / plain-fn machine surface stays in its owning namespace). See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
@@ -79,7 +79,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf.machines/machines)` / `(rf.machines/machine-meta id)`).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -121,7 +121,7 @@ The media-player example uses two genuinely independent regions (audio and video
 
 (rf/reg-event :media/audio
   {:doc "Audio region — playing / paused."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :paused
      :data    {:position 0}
      :states
@@ -139,7 +139,7 @@ The media-player example uses two genuinely independent regions (audio and video
 
 (rf/reg-event :media/video
   {:doc "Video region — visible / hidden."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :hidden
      :data    {}
      :states
@@ -174,7 +174,7 @@ The media-player example uses two genuinely independent regions (audio and video
 What this gives:
 
 - **Atomicity.** Run-to-completion drain at the frame level means `:media/play` runs both `:media/audio [:media/play]` and `:media/video [:media/play]` to completion before any other event sees state. From outside the frame, the two regions advance together.
-- **Inspection.** `(rf/machines)` enumerates both regions; `@(rf/subscribe [:rf/machine :media/audio])` and `@(rf/subscribe [:rf/machine :media/video])` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
+- **Inspection.** `(rf.machines/machines)` enumerates both regions; `@(rf/subscribe [:rf/machine :media/audio])` and `@(rf/subscribe [:rf/machine :media/video])` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
 - **Undo.** Each region's snapshot lives at its own `[:rf.runtime/machines :snapshots <id>]` key in runtime-db; reverting the frame-state rolls both back together.
 - **Composability.** A view caring only about audio subscribes to `:media/audio`; video-only views ignore audio entirely. Parallel-region snapshots in xstate force consumers to subscribe to the umbrella machine and project — extra ceremony for the same outcome.
 - **Discoverability.** Each region has a name (`:media/audio`) and a registry entry. xstate's regions live anonymously inside the parent machine's transition table.

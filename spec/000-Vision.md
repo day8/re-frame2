@@ -352,7 +352,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - Cross-actor send via `:fx` — ✓ specced.
 - **Declarative `:spawn`** (sugar over spawn) — runtime translates a state's `:spawn` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
 - **Spawn-and-join via `:spawn-all`** — sugar over N parallel `:spawn`s with an `:all` / `:any` join condition; surviving siblings are unconditionally cancelled on join resolution. Per [005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all).
-- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf/machine-by-system-id sid)` resolves. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id).
+- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf.machines/machine-by-system-id sid)` resolves. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id).
 
 **Actor-model — out of v1 scope (possibly never):**
 
