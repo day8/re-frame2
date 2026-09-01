@@ -25,12 +25,9 @@ Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :nam
 > repo isn't published yet (see [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
 > so the `io.github.day8/…` invocation above can't auto-resolve against a
 > released template today. Until the split lands, scaffold via the working
-> `:local/root` dev route against a checkout of this repo:
-> ```bash
-> clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' \
->         -Tnew create :template day8/re-frame2-template :name acme/my-app
-> ```
-> (or just follow this skill's manual 6-step path). The published
+> `:local/root` dev route against a checkout of this repo — see
+> [Running the generator pre-publish](#running-the-generator-pre-publish) below for the
+> exact command (or just follow this skill's manual 6-step path). The published
 > invocation is forward-correct and will work once the repo split and first
 > release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
 
@@ -48,6 +45,48 @@ Either way you end up at the same canonical shape — the skill walks the
 template performs the same steps for you in one command. After the
 counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
 applies.
+
+### Running the generator pre-publish
+
+The pre-publish command has **two independent coordinates**, and one shared working
+directory cannot carry both — conflating them is what made the earlier documented form
+fail on its first use:
+
+- **Where the template comes from** is the `:local/root`. It must be the **absolute** path
+  to `tools/template` inside your reviewed re-frame2 checkout. `:local/root` is resolved
+  against the *command's* working directory, so a relative `"tools/template"` means
+  `<the directory you are standing in>/tools/template` — which, from a fresh project
+  directory, does not exist, and the command dies with
+  `Local lib day8/re-frame2-template not found` before deps-new loads the template.
+- **Where the project lands** is the working directory. deps-new creates the project in a
+  new child directory named after `:name`'s artefact, so run the command from the
+  directory that should *contain* the new project folder.
+
+Write the absolute path with **forward slashes on every OS** — Java accepts them on
+Windows too, and it keeps the EDN string free of hand-authored `\\` escaping:
+
+```bash
+# Standing in the directory that should CONTAIN the new project.
+# <RE_FRAME2> = absolute path of your reviewed re-frame2 checkout,
+# e.g. /home/you/code/re-frame2 or C:/Users/you/code/re-frame2
+clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "<RE_FRAME2>/tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template :name acme/my-app
+```
+
+That emits `./my-app/`; then `cd my-app && npm install && npx shadow-cljs watch app`.
+Add `:substrate :uix` for the UIx variant, `:include-story? true` for the Story scaffold.
+
+Already standing *inside* the empty directory you want the app generated into? Add
+deps-new's own target options — `:target-dir . :overwrite true`. The `:overwrite` is
+required because deps-new refuses an existing target directory
+(`. already exists (and :overwrite was not true)`), and `.` always exists.
+
+**The skill resolves `<RE_FRAME2>` itself** — it is installed by link from a reviewed
+checkout ([Install the skill in Claude Code](#install-the-skill-in-claude-code)), so
+`SKILL.md`'s own resolved location is `<RE_FRAME2>/skills/re-frame2-setup/SKILL.md` and
+the template is that path's grandparent plus `tools/template`. If the skill was reached
+some other way and no such checkout is on disk, say so and fall back to the manual 6-step
+path rather than guessing a path.
 
 ## What it covers
 
@@ -70,7 +109,7 @@ The canonical 6-step greenfield path:
 
 ## Status
 
-Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus 2 cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
+Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus 3 cheap structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording), `tests/setup_drift_test.clj` (the build-discipline, UIx template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`), and `tests/generator_route_test.clj`, which resolves the `:local/root` out of the documented generator command exactly as `tools.deps` would — against a freshly created target directory — and fails unless it lands on the reviewed `tools/template` (`bb tests/generator_route_test.clj`; set `RF2_SETUP_RUN_GENERATOR=1` to additionally shell the real `clojure … -Tnew create …` out of a clean directory and assert the emitted manifest). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md) (authoring-time meta-doc, not shipped in the package — reach it from a monorepo clone).
 
 ## Layout
 
@@ -93,12 +132,13 @@ skills/re-frame2-setup/
 │   ├── inputs.md
 │   └── authoring-prompt.md
 ├── tests/
-│   └── setup_drift_test.clj
+│   ├── setup_drift_test.clj
+│   └── generator_route_test.clj
 └── evals/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the 6-step canonical path and links to the leaf in `references/` whenever depth is useful. The 5 reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx recipe reads 2 together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the eval fixture (trigger accuracy for all 16, plus graded outcome expectations on the start-from-nothing prompts) — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: it walks the 6-step canonical path and links to the leaf in `references/` whenever depth is useful. The 5 reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx recipe reads 2 together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`) and the generator-route command fixture (`bb tests/generator_route_test.clj`), and `evals/` holds the eval fixture (trigger accuracy for all 17, plus graded outcome expectations on the start-from-nothing prompts and the generator route) — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 
