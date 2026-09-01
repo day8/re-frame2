@@ -288,7 +288,7 @@ programmatic re-registration writes under `:script`
 | `recording?` | `(recording?)` | Predicate — is a recording in flight? |
 | `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map. |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen → string: render a captured `events` vector as a `(reg-variant <id> {... :script {:script [...]}})` EDN snippet. Emits the PUBLIC `:script` slot (rf2-7mj4z); each captured event vector is wrapped as `[:dispatch-sync <event-vec>]` (rf2-0wrud). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
-| `recording->script-body` | `(recording->script-body events)` / `(recording->script-body events opts)` | Pure data → data: translate a recording (bare `events` vector OR the rich `:entries` vector) into the live, replayable `{:script [...] :auto-run? bool :name str?}` body a runner executes. The runtime counterpart to `gen-play-snippet`'s text output; the MCP write-back path calls this to re-register the variant with a live `:script` slot. Re-exported from `re-frame.story.recorder.play-export`. |
+| `recording->script-body` | `(recording->script-body events)` / `(recording->script-body events opts)` | Pure data → data: translate a recording (bare `events` vector OR the rich `:entries` vector) into the live, replayable `{:script [...] :auto-run? bool :name str?}` body a runner executes. The runtime counterpart to `gen-play-snippet`'s text output; the recorder panel and in-process callers use it to re-register a variant with a live `:script` slot. Re-exported from `re-frame.story.recorder.play-export`. |
 
 ### A recording's address is the variant frame (EP-0023)
 
@@ -315,7 +315,7 @@ normalised `:script` body map) and `render-script-body` /
 `render-variant-form` (render the map to EDN, emitting the public
 `:script` slot per rf2-7mj4z). Of these, only `recording->script-body`
 is re-exported on the facade as `re-frame.story/recording->script-body`
-(the MCP write-back convenience); `render-script-body` /
+(the programmatic-re-registration convenience); `render-script-body` /
 `render-variant-form` are sub-namespace-only — consumers wanting the
 render-to-EDN surface `:require` `re-frame.story.recorder.play-export`
 directly.
