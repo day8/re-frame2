@@ -826,6 +826,110 @@
             (is (= 1 (count (log)))
                 "the callback count stays exactly one across the reconnect")))))))
 
+(defn- fatal-fails-in-flight-request-test []
+  ;; rf2-ni0ko — the last door out of :active that did not settle :in-flight.
+  ;; :ws/fatal is the documented app-level escape hatch (spec/Pattern-WebSocket
+  ;; §The machine, ':active / * --:ws/fatal--> :failed'), and leaving :active
+  ;; destroys the socket actor exactly as a drop or a clean disconnect does —
+  ;; so the SAME invariant applies: every in-flight request settles exactly
+  ;; once on the way out. Before the fix the transition carried :record-error
+  ;; alone, so the slot and its waiting :reply-event survived teardown
+  ;; forever: the scheduled timeout carries the destroyed socket's id, so
+  ;; :current-socket? rejects it once the socket is gone and the only cleanup
+  ;; path has left with it — including across a later manual :ws/connect out
+  ;; of :failed, which is the leak this asserts against.
+  ;;
+  ;; Mirrors websocket-clean-disconnect-fails-in-flight-request (rf2-b2jpr)
+  ;; with :ws/fatal as the exit door, and adds the assertion that door owns:
+  ;; the error is still recorded. Composing onto the shared fail-in-flight
+  ;; helper rather than replacing :record-error is what keeps both true.
+  (rf/reg-event :ws.test/log-fatal-reply
+    (fn handler-ws-test-log-fatal-reply [{:keys [db]} [_ body]]
+      {:db (update-in db [:messages :reply-log] (fnil conj []) body)
+       :fx [[:dispatch [:ws.app/request-reply body]]]}))
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [old-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              rid    (random-uuid)
+              log    #(get-in (rf/app-db-value f) [:messages :reply-log])]
+          (is (some? old-id))
+          ;; A request whose wire :type the mock does NOT echo, so it sits
+          ;; in-flight with no reply to clear it — genuinely on the wire.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request {:request-id rid
+                                           :body       {:type :silent-no-echo}
+                                           :reply      [:ws.test/log-fatal-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f})
+          ;; Positive control: the request is genuinely in :in-flight and no
+          ;; reply has fired — the witness below cannot pass vacuously.
+          (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+                         rid)
+              "positive control: the silent request sits in :in-flight before :ws/fatal")
+          (is (nil? (log))
+              "positive control: no reply-event invocation before :ws/fatal")
+          ;; The app declares the connection unrecoverable, mid-flight.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/fatal {:error :ws/protocol-violation}]]
+                            {:frame f})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (true? (machine-has-tag? f :websocket/failed)))
+            (is (nil? (socket-id-of s)) "the socket actor is torn down")
+            (is (= :ws/protocol-violation (get-in s [:data :error]))
+                "the error is still recorded — fail-in-flight COMPOSES with
+                 :record-error rather than displacing it")
+            (is (= {} (get-in s [:data :in-flight]))
+                ":in-flight cleared on :ws/fatal — no stranded slot")
+            (is (= [{:origin :ws/local :request-id rid :ok false :error :ws/connection-lost}]
+                   (log))
+                "exactly one reply-event invocation, with the documented connection-termination body")
+            (is (= {:origin :ws/local :request-id rid :ok false :error :ws/connection-lost}
+                   (get-in (rf/app-db-value f) [:messages :last-reply]))
+                "the synthesised failure body passes the closed RequestOutcome boundary"))
+          ;; At-most-once control: deliver the already-scheduled timeout,
+          ;; stamped with the DESTROYED socket's id, exactly as
+          ;; :register-request scheduled it (new-frame suppresses the real
+          ;; :dispatch-later). Nothing may fire twice or resurrect the slot.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request-timeout {:request-id       rid
+                                                   :source-socket-id old-id}]]
+                            {:frame f})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (true? (machine-has-tag? f :websocket/failed))
+                "the stale timeout does not move the machine")
+            (is (= {} (get-in s [:data :in-flight]))
+                "the stale timeout resurrects no slot")
+            (is (= 1 (count (log)))
+                "the callback count stays exactly one after the stale timeout"))
+          ;; No leak across the manual recovery :failed offers: :ws/connect
+          ;; out of :failed spawns a FRESH socket, then the old-socket-stamped
+          ;; timeout lands as a straggler. :current-socket? drops it against
+          ;; the new epoch; the new connection inherits no stale bookkeeping.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                            {:frame f})
+          (is (true? (machine-has-tag? f :websocket/connected)))
+          (let [new-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))]
+            (is (some? new-id))
+            (is (not= old-id new-id) "the manual reconnect spawned a fresh socket"))
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request-timeout {:request-id       rid
+                                                   :source-socket-id old-id}]]
+                            {:frame f})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "the straggler timeout leaves the fresh connection up")
+            (is (= {} (get-in s [:data :in-flight]))
+                "no stale bookkeeping crossed the manual reconnect out of :failed")
+            (is (= 1 (count (log)))
+                "the callback count stays exactly one across the reconnect")))))))
+
 (defn- queued-request-registers-and-replies-on-connect-test []
   ;; rf2-ryt25d — a :ws/request issued OFF-connection must be buffered as its
   ;; event and, on connect, rejoin :register-request so it registers, sends
@@ -1473,6 +1577,15 @@
             :ws/connection-lost failure, and the destroyed socket's stale
             timeout resurrects nothing — before or after a reconnect"
     (clean-disconnect-fails-in-flight-request-test)))
+
+(deftest websocket-fatal-fails-in-flight-request
+  (testing "rf2-ni0ko — :ws/fatal, the app-level escape hatch out of :active,
+            settles every in-flight request exactly once AND still records the
+            error: the slot clears, the waiting reply-event fires one
+            :ws/connection-lost failure, and the destroyed socket's stale
+            timeout resurrects nothing — before or after the manual :ws/connect
+            recovery out of :failed"
+    (fatal-fails-in-flight-request-test)))
 
 (deftest websocket-queued-request-registers-and-replies-on-connect
   (testing "rf2-ryt25d — a :ws/request buffered off-connection registers and

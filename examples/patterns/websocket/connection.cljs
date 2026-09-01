@@ -288,6 +288,26 @@
       (fn action-fail-in-flight [{data :data}]
         (fail-in-flight data))
 
+      :on-fatal-error
+      ;; `:ws/fatal` is the app-level escape hatch out of `:active` — the
+      ;; app itself declaring the connection unrecoverable (a protocol
+      ;; violation, a server telling us not to come back) and going
+      ;; straight to `:failed` without retrying. It leaves `:active`, so
+      ;; the runtime destroys the socket just as surely as a drop or a
+      ;; clean disconnect does, and the SAME invariant applies: every
+      ;; request accepted into `:in-flight` settles exactly once on the
+      ;; way out. Recording the error is only half the job — without the
+      ;; `fail-in-flight` half the slot and its waiting `:reply-event`
+      ;; survive teardown forever, because the scheduled timeout carries
+      ;; the destroyed socket's id and `:current-socket?` rejects it once
+      ;; the socket is gone. That leak outlives a later manual
+      ;; `:ws/connect` out of `:failed` too, so the caller never learns
+      ;; anything. Unlike `:on-socket-lost` there's no retry bump: we are
+      ;; giving up, not retrying, so the counter is beside the point.
+      (fn action-on-fatal-error [{data :data [_ {:keys [error]}] :event}]
+        (-> (fail-in-flight data)
+            (update :data assoc :error error)))
+
       :reset-retries
       (fn action-reset-retries [{data :data}]
         {:data (assoc data :retries 0)})
@@ -485,8 +505,16 @@
        :on    {:ws/closed   {:guard  :current-socket?
                              :target :reconnecting
                              :action :on-socket-lost}
+               ;; The app-level escape hatch. It leaves :active, so it kills
+               ;; the wire — and therefore settles the in-flight set on the
+               ;; way out as well as recording the error (see the
+               ;; :on-fatal-error action). Every door out of :active that
+               ;; can be taken from :connected now settles :in-flight
+               ;; exactly once: this one, the guarded :ws/closed drop
+               ;; (:on-socket-lost) and the clean :ws/disconnect
+               ;; (:fail-in-flight).
                :ws/fatal    {:target :failed
-                             :action :record-error}
+                             :action :on-fatal-error}
                :ws/send     {:action :enqueue-message}
                :ws/request  {:action :enqueue-message}
                :ws/rotate-cred {:action :rotate-cred}
@@ -528,6 +556,17 @@
                  ;; and a bare keyword would be read as the sibling
                  ;; `[:active :failed]` — which doesn't exist. The absolute
                  ;; vector says "from the root, please".
+                 ;;
+                 ;; This door leaves :active too, but it needs no
+                 ;; in-flight settlement — plain :record-error is correct
+                 ;; here, not an oversight. :register-request is the only
+                 ;; writer into :in-flight and it is bound only on
+                 ;; :connected; everywhere else a :ws/request enqueues
+                 ;; instead. Reaching :authenticating means we have not
+                 ;; been :connected since the last :active entry, and
+                 ;; every door out of :active from :connected clears
+                 ;; :in-flight on the way out. So :in-flight is provably
+                 ;; empty whenever this fires.
                  :ws/auth-failed {:guard  :current-socket?
                                   :target [:failed]
                                   :action :record-error}}}
