@@ -84,42 +84,145 @@
   [s]
   (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
 
+#?(:clj
+   (defn- percent-escape-non-ascii
+     "Percent-escape every non-ASCII CHARACTER of `s` as its UTF-8 bytes,
+     leaving ASCII — existing `%XX` escapes included — untouched. The
+     result is pure ASCII, so `URLDecoder` under ISO-8859-1 recovers the
+     exact byte sequence the string denotes.
+
+     A literal (unescaped) non-ASCII character is legal input: both hosts
+     pass it through today (`decodeURIComponent(\"café\")` is `\"café\"`),
+     so escaping it here is what keeps that passthrough intact once the
+     bytes go through a STRICT decoder.
+
+     Runs are escaped whole, not character by character, so a surrogate
+     PAIR encodes as the one astral code point it spells rather than as
+     two unpaired halves.
+
+     Folding a literal into an ADJACENT escape run cannot change the
+     verdict in either direction. A literal character's UTF-8 encoding
+     always begins with a LEAD byte (`C2`–`F4`), never a continuation
+     byte, so it can never complete a truncated escape run that
+     `decodeURIComponent` would have rejected (`%C3é` throws on both
+     hosts); and the concatenation of two individually valid UTF-8
+     sequences is itself valid, so it can never spoil a run the browser
+     accepts (`%41é` is `\"Aé\"` on both)."
+     ^String [^String s]
+     (clojure.string/replace
+       s
+       #"[^\x00-\x7F]+"
+       (fn [^String run]
+         (apply str (map #(format "%%%02X" (bit-and (int %) 0xFF))
+                         (.getBytes run java.nio.charset.StandardCharsets/UTF_8)))))))
+
+#?(:clj
+   (defn- strict-utf8-decode
+     "Decode `bs` as UTF-8 with the REPORT malformed-input action, so an
+     invalid byte sequence THROWS instead of being replaced.
+
+     This is the whole of the JVM/CLJS decode-validity difference.
+     `String`'s own UTF-8 constructor (and `URLDecoder`, which uses it)
+     decodes with REPLACE, silently substituting U+FFFD; a
+     `CharsetDecoder` set to REPORT raises `CharacterCodingException`
+     exactly where `decodeURIComponent` raises `URIError`.
+
+     Note what this does NOT do: it never inspects the decoded OUTPUT for
+     U+FFFD. The discrimination happens at the BYTE level, under the
+     decoder's own UTF-8 validity rules — so `%EF%BF%BD`, which is the
+     valid three-byte encoding of a REAL U+FFFD, decodes successfully to
+     U+FFFD, while `%FF`, whose U+FFFD would be a substitution the
+     decoder invented, throws. An output-inspecting check cannot tell
+     those two apart: both end in the identical character."
+     ^String [^bytes bs]
+     (-> java.nio.charset.StandardCharsets/UTF_8
+         (.newDecoder)
+         (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+         (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT)
+         (.decode (java.nio.ByteBuffer/wrap bs))
+         (.toString))))
+
 (defn url-decode
   "Decode a percent-encoded string back to its raw form. Round-trip
   inverse of url-encode.
 
-  HOST-SYMMETRIC: `+` stays a LITERAL `+` on BOTH hosts (it is NOT
-  swapped to a space). `js/decodeURIComponent` (CLJS) leaves `+`
-  untouched; `java.net.URLDecoder/decode` (JVM) is the
-  `application/x-www-form-urlencoded` decoder, which would turn a bare
-  `+` into a space — the wrong semantics here. We pre-escape every bare
-  `+` to `%2B` before handing the string to URLDecoder, so the JVM path
-  reproduces `decodeURIComponent` exactly: `+` → `+`, `%2B` → `+`,
-  `%20` → space, real spaces → space.
+  HOST-SYMMETRIC: on both hosts this IS `decodeURIComponent`. The CLJS
+  arm calls it; the JVM arm emulates it on top of `java.net.URLDecoder`,
+  which needs TWO corrections rather than one:
 
-  Per Spec 012 §Bidirectional URL ↔ params §`+` is a literal: re-frame2
-  never emits a bare `+` (url-encode swaps `+` → `%20`), the de-facto
-  browser reference is `decodeURIComponent` (which is `+`-literal), and
-  RFC 3986 treats `+` in path segments as a literal. A host-divergent
-  `+` would yield a different `:params` / `:query` slice for the same URL
-  on JVM (SSR) vs CLJS (browser) — the exact Spec 011 hydration-mismatch
-  class. Making JVM match CLJS closes that gap."
+  1. `URLDecoder` is the `application/x-www-form-urlencoded` decoder, so
+     it turns a bare `+` into a SPACE. `+` must stay a LITERAL `+` on
+     both hosts, in path captures and query values alike, so every bare
+     `+` is pre-escaped to `%2B` before URLDecoder sees it: `+` → `+`,
+     `%2B` → `+`, `%20` → space, real spaces → space (rf2-9a9ix).
+  2. `URLDecoder` decodes bytes with the REPLACE malformed-input action,
+     so an INVALID UTF-8 sequence is silently rewritten to U+FFFD and a
+     string comes back; `decodeURIComponent` throws `URIError`. Repairing
+     only (1) left that standing, and it was the worse half: for
+     `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` the JVM returned a
+     value and CLJS returned the nil sentinel, so `malformed-url?` read
+     FALSE on JVM and TRUE on CLJS (rf2-k2d2t).
+
+  The consequence of (2) was a whole-tree Spec 011 mismatch on a
+  security-adjacent sink, and the server was the PERMISSIVE side: a
+  hostile URL failed closed to a route-miss in the browser but MATCHED
+  under SSR, with replacement characters standing in for the bytes, so
+  the two hosts disagreed about whether the request was routable at all.
+  `safe-url-decode`'s fail-closed posture (see its docstring: \"hostile
+  URLs, partner integrations with broken escaping\") was not the posture
+  the JVM arm actually had.
+
+  So the JVM arm decodes in three stages: pre-escape (bare `+`, then
+  every literal non-ASCII character), then `URLDecoder` under ISO-8859-1
+  — the 1:1 byte↔char charset, which performs the SAME structural
+  validation as before (`%`, `%a`, `%zz` still throw
+  `IllegalArgumentException`) while substituting nothing — and finally a
+  STRICT UTF-8 decode of the recovered bytes.
+
+  Per Spec 012 §Bidirectional URL ↔ params §`+` is a literal:
+  `decodeURIComponent` is the de-facto reference, the browser is the
+  canonical host, and the JVM matches it. A host-divergent decoder
+  yields a different `:params` / `:query` slice for the same URL on JVM
+  (SSR) vs CLJS (browser) — the exact Spec 011 hydration-mismatch class
+  the spec names there. Both corrections are conformance repairs to that
+  standing requirement, not new policy; §Route-miss ¶5 already requires
+  malformed percent-encoding to fail the whole match closed."
   [s]
   #?(:clj  (-> (str s)
                (.replace "+" "%2B")
-               (java.net.URLDecoder/decode "UTF-8"))
+               (percent-escape-non-ascii)
+               (java.net.URLDecoder/decode "ISO-8859-1")
+               (.getBytes java.nio.charset.StandardCharsets/ISO_8859_1)
+               (strict-utf8-decode))
      :cljs (js/decodeURIComponent (str s))))
 
 (defn safe-url-decode
   "Wrap `url-decode` in try/catch; returns nil (sentinel for malformed
   `%`) on decode failure.
 
-  Per Spec 012 §Routing failure semantics, both
-  `URLDecoder/decode` (JVM) and `decodeURIComponent` (CLJS) throw on
-  malformed percent-encoded sequences (`%`, `%a`, `%XX`, …). Hostile
-  URLs, partner integrations with broken escaping, or back-button to a
-  malformed link must produce a **route-miss** (404 path), never a
-  request-handler crash. Callers propagate the nil sentinel uniformly:
+  Per Spec 012 §Routing failure semantics, `url-decode` throws on both
+  hosts for the two distinct ways a percent-encoded string can be
+  undecodable, and this sentinel covers both:
+
+  1. **Structurally malformed escapes** — `%`, `%a`, `%zz`: a `%` not
+     followed by two hex digits.
+  2. **Structurally well-formed escapes spelling INVALID UTF-8** —
+     `%C0%80`, `%ED%A0%80`, `%FF`, `%E0%80%80`: every `%XX` parses, but
+     the bytes are not a legal UTF-8 sequence (overlong, lone surrogate,
+     invalid lead byte). Until rf2-k2d2t the JVM arm returned a U+FFFD-
+     bearing string here while CLJS threw, so this sentinel — and with
+     it `malformed-url?` — was host-divergent on exactly the hostile
+     input it exists for.
+
+  `%EF%BF%BD` is NOT in class 2. It is the valid encoding of a real
+  U+FFFD and decodes successfully on both hosts; see `url-decode`'s
+  `strict-utf8-decode` on why the check is made over bytes rather than
+  over the decoded characters, which cannot tell the two apart.
+
+  Hostile URLs, partner integrations with broken escaping, or
+  back-button to a malformed link must produce a **route-miss** (404
+  path), never a request-handler crash. Callers propagate the nil
+  sentinel uniformly:
   `match-against` returns nil for the whole match (path captures);
   `match-url`'s query-parse loop short-circuits to a malformed sentinel
   the moment any key or value fails to decode; `split-fragment` reports its
