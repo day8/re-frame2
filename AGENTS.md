@@ -236,7 +236,7 @@ bd close <id>         # Complete work
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
-   git pull --rebase
+   git fetch origin main && git rebase origin/main
    bd dolt push
    git push
    git status  # MUST show "up to date with origin"
