@@ -784,10 +784,20 @@
 (defn view
   "Runtime-lookup handle for a registered view. Returns the registered
   render fn (or nil if not registered) — call with the view's invocation
-  args to yield the hiccup tree. Per Spec 001 §`(re-frame.core/view id)`."
+  args to yield the hiccup tree. Per Spec 001 §`(re-frame.core/view id)`.
+
+  On CLJS the answer is the INSTALLED SUBSTRATE's component head for that
+  registration (rf2-oz7wr), which on a React-hook substrate is a mountable,
+  substrate-marked shell — so `($ (rf/view ::row) props)` works as the UIx
+  docs advertise. `views/view-head` derives it against the adapter installed
+  NOW rather than the one installed at registration time, because the
+  canonical boot order registers views at ns-load and calls `rf/init!`
+  afterwards; the head is memoized, so repeat lookups are reference-stable
+  and React reconciles them as the same component type."
   [id]
-  (when-let [meta (registrar/lookup :view id)]
-    (:handler-fn meta)))
+  #?(:cljs (views/view-head id)
+     :clj  (when-let [meta (registrar/lookup :view id)]
+             (:handler-fn meta))))
 
 #?(:clj
    (defmacro reg-view
