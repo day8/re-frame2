@@ -19,7 +19,9 @@
      land on the request-reply callback (`RequestOutcome`). These back the
      `:rf.schema/at-boundary` checks on the two untrusted-ingress events
      in `messages.cljs` — see spec/Pattern-WebSocket.md §Inbound frames
-     are untrusted.
+     are untrusted. `valid-inbound-frame?` is the same `InboundMessage`
+     compiled to a predicate, so the connection machine can hold a frame
+     to the identical contract BEFORE it touches its correlation state.
 
    - The `:messages` slice in app-db: every message that arrives is logged
      at `[:messages :received]` for the UI to list, and the form's draft
@@ -28,7 +30,12 @@
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Requiring it wires up the hooks that make `rf/reg-app-schema`
             ;; resolve at the call site below — no require, no schema.
-            [re-frame.schemas]))
+            [re-frame.schemas]
+            ;; Malli is the APP's dependency, not something re-frame2 hands
+            ;; you: the framework reads the schemas you declare, but
+            ;; compiling one into a predicate you call yourself is ordinary
+            ;; Malli. `valid-inbound-frame?` below is the only such use.
+            [malli.core :as m]))
 
 ;; ============================================================================
 ;; CONNECTION MACHINE :data SHAPE
@@ -99,19 +106,30 @@
 ;; unrecognised `:type` a rejection rather than a `case` fall-through.
 ;; See spec/Pattern-WebSocket.md §Inbound frames are untrusted.
 
-(def ReplyMessage
-  "A correlated reply, as the server puts it on the wire: the echo the
-   mock answers every `:request` with."
-  [:map
-   [:type       [:= :reply]]
+(def ^:private reply-entries
+  "The wire fields of a correlated reply, shared by the inbound arm
+   (`ReplyMessage`) and the outcome arm (`ServerReplyOutcome`) so the two
+   can never drift apart."
+  [[:type       [:= :reply]]
    [:request-id :any]
    [:ok         :boolean]
    [:echo       {:optional true} [:map [:type :keyword]]]])
 
+(def ReplyMessage
+  "A correlated reply, as the server puts it on the wire: the echo the
+   mock answers every `:request` with. `:closed true` — an extra key is a
+   rejection, not something to shrug at, because every extra key on an
+   untrusted frame is a key some downstream `get` might read."
+  (into [:map {:closed true}] reply-entries))
+
 (def PushMessage
   "A server push — the subscribe ack and the manual 'Trigger server push'
-   both use this shape."
-  [:map
+   both use this shape. Closed for the same reason `ReplyMessage` is, and
+   here closing it does concrete work: an OPEN push arm would let a
+   hostile frame smuggle a `:request-id` past the wire contract and reach
+   the machine's correlation bookkeeping under a `:type` that has nothing
+   to do with request-reply."
+  [:map {:closed true}
    [:type  [:= :push]]
    [:topic {:optional true} :keyword]
    [:note  {:optional true} :string]])
@@ -127,24 +145,57 @@
    [:reply ReplyMessage]
    [:push  PushMessage]])
 
+(def valid-inbound-frame?
+  "`InboundMessage` compiled once into a predicate. The connection machine
+   calls this in its `:trusted-frame?` guard, so a frame is held to the
+   closed wire contract BEFORE the machine branches on anything the sender
+   chose and before it touches `:in-flight`. Same schema as the
+   `:ws/handle-message` boundary check — one contract, two enforcement
+   points, no second shape to keep in step."
+  (m/validator InboundMessage))
+
+;; ----------------------------------------------------------------------------
+;; REQUEST OUTCOMES — and why provenance is a key the SERVER cannot set
+;; ----------------------------------------------------------------------------
+;;
+;; Two producers reach the request-reply callback: a correlated wire reply
+;; (server bytes) and a failure the connection machine minted itself when
+;; the socket dropped or a deadline elapsed. Telling them apart matters —
+;; "the connection failed" and "the server said so" are different facts,
+;; and only one of them is trustworthy about the connection.
+;;
+;; So the discriminator is `:origin`, and the MACHINE stamps it on the way
+;; out (connection.cljs). Discriminating on the shape of the body instead
+;; would hand the choice to the sender: a hostile frame can be built to any
+;; shape a schema describes, but it cannot forge a key its recipient
+;; assoc's after receipt.
+
+(def ServerReplyOutcome
+  "A wire reply on its way to the caller's `:reply` event: the closed
+   `ReplyMessage` fields plus the machine's `:origin :ws/server` stamp."
+  (into [:map {:closed true} [:origin [:= :ws/server]]] reply-entries))
+
 (def LocalRequestFailure
   "A request outcome the connection machine itself minted — a socket drop
    (`:ws/connection-lost`) or an elapsed deadline (`:ws/timeout`) failing a
-   still-waiting request. Closed tight: exactly these three keys, `:ok`
-   pinned false, the error a member of the two local kinds. It is local
-   truth about the connection, deliberately NOT dressed as server bytes —
-   there is no `:type`, so it can never be mistaken for a wire frame."
+   still-waiting request. Closed tight, `:ok` pinned false, the error a
+   member of the two local kinds, and `:origin :ws/local` to say whose
+   truth it is. No wire frame can reach this arm: `:origin` is stamped
+   after receipt, never read off the frame."
   [:map {:closed true}
+   [:origin     [:= :ws/local]]
    [:request-id :any]
    [:ok         [:= false]]
    [:error      [:enum :ws/connection-lost :ws/timeout]]])
 
 (def RequestOutcome
   "What may land on the request-reply callback (`:ws.app/request-reply`):
-   a correlated wire reply — server bytes, held to the closed `:reply`
-   contract — or a locally synthesised failure from the machine's loss /
-   timeout paths."
-  [:or ReplyMessage LocalRequestFailure])
+   a correlated wire reply or a locally synthesised loss/timeout failure.
+   A closed `:multi` like `InboundMessage`, but dispatching on `:origin` —
+   the trusted key — rather than on `:type`, which the sender controls."
+  [:multi {:dispatch :origin}
+   [:ws/server ServerReplyOutcome]
+   [:ws/local  LocalRequestFailure]])
 
 ;; ============================================================================
 ;; APP-DB SLICES
