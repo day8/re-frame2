@@ -219,15 +219,22 @@
 
                   :request
                   ;; Every :request gets the same treatment: "here's your
-                  ;; stuff back, plus :ok". The original :request-id rides
-                  ;; along, which is the whole point — that's how the
-                  ;; connection machine pairs this reply with its request.
+                  ;; stuff back, plus :ok". BOTH correlation fields ride
+                  ;; back unchanged, which is the whole point — that's how
+                  ;; the connection machine pairs this reply with its
+                  ;; request. The :request-id names the slot; the
+                  ;; :request-token names the REGISTRATION that sent this
+                  ;; particular request, and a real server owes the client
+                  ;; the same echo (see schema/ReplyMessage, which requires
+                  ;; it). Both are protocol envelope, not payload, so
+                  ;; neither appears in the :echo of what was sent.
                   (later
                     #(deliver-to-actor! dispatch actor-id :received
-                                        {:type       :reply
-                                         :request-id (:request-id msg)
-                                         :ok         true
-                                         :echo       (dissoc msg :request-id)}))
+                                        {:type          :reply
+                                         :request-id    (:request-id msg)
+                                         :request-token (:request-token msg)
+                                         :ok            true
+                                         :echo          (dissoc msg :request-id :request-token)}))
 
                   :subscribe
                   ;; Ack a subscribe with one synthetic push, so you can
@@ -545,9 +552,13 @@
          and the closed `RequestOutcome` union admits exactly those two —
          discriminating on `:origin`, which the connection machine stamps
          after receipt and no sender can forge. (1) `:ws/server` — the
-         correlated WIRE reply. This is the SECOND untrusted ingress: a
-         reply arriving under a known :request-id is still the server's
-         bytes, held to the closed `ReplyMessage` fields in every build.
+         correlated WIRE reply, and it reached this event only because the
+         `:request-token` it echoed still identified the registration in
+         the slot: a reply under a REUSED id that answers a registration
+         since displaced never gets here. This is the SECOND untrusted
+         ingress: a reply arriving under a known :request-id is still the
+         server's bytes, held to the closed `ReplyMessage` fields in every
+         build.
          (2) `:ws/local` — a failure the machine minted itself when the
          socket dropped or the deadline elapsed. Local truth about the
          connection, and unreachable from the wire.

@@ -423,11 +423,23 @@
       ;; Caller: `[:ws/connection [:ws/request {:request-id ... :body ...
       ;;                                       :reply ... :timeout-ms ...}]]`
       ;;
-      ;; Two things here are about the id being the APP's, and reusable.
+      ;; Three things here are about the id being the APP's, and reusable.
       ;;
       ;; The registration takes the next `:token`, which goes into the slot
       ;; AND onto the scheduled timeout, so that timer can only ever settle
       ;; this registration — see the `:own-request-timeout?` guard.
+      ;;
+      ;; The same token also goes ON THE WIRE, as `:request-token` beside
+      ;; `:request-id`, and `schema/ReplyMessage` requires it back. Both
+      ;; settling paths are reachable by a value that outlived the
+      ;; registration it belongs to, and the deadline was only the nearer of
+      ;; the two. Send the id alone and two registrations under it are
+      ;; indistinguishable to the SERVER as well: A is pending under `R`, B
+      ;; supersedes it, both are on the wire under `R`, and A's reply comes
+      ;; back to find B in the slot. Correlating that by id hands B's caller
+      ;; A's body — an answer to a question B never asked, delivered as a
+      ;; success. The token travels so the reply can name the registration
+      ;; rather than the slot.
       ;;
       ;; And re-registering an id that is still in flight SUPERSEDES: the
       ;; displaced caller is settled with `:ws/superseded` before the new
@@ -437,21 +449,17 @@
       ;; the obsolete question still gets an answer instead of waiting on a
       ;; reply the new registration will now consume. (Refusing the newcomer
       ;; instead would make the recommended per-feature id unusable for the
-      ;; case it is recommended for.) The displaced request's own timer is
-      ;; already inert: its token is no longer the one in the slot.
-      ;;
-      ;; What this does NOT promise is which SERVER reply answers which
-      ;; registration. Only one id goes on the wire, so concurrent reuse is
-      ;; ambiguous in the protocol itself, not in this machine — reuse an id
-      ;; concurrently and the wire reply settles whichever registration holds
-      ;; the slot. Exactly-once per registration survives either way, which
-      ;; is what the caller is owed.
+      ;; case it is recommended for.) Both of the displaced registration's
+      ;; leftovers are already inert: its timer's token is no longer the one
+      ;; in the slot, and neither is the token its wire reply will carry.
       (fn action-register-request [{data :data [_ {:keys [request-id body reply timeout-ms]
                                             :or   {timeout-ms 30000}}] :event}]
         (let [token     (:next-token data)
               displaced (:reply-event (get-in data [:in-flight request-id]))
               send+arm  [[:dispatch [(socket-id data)
-                                     [:send (assoc body :request-id request-id)]]]
+                                     [:send (assoc body
+                                                   :request-id    request-id
+                                                   :request-token token)]]]
                          ;; The timeout event carries the live socket-id too,
                          ;; so the same epoch check quietly discards a timeout
                          ;; left over from a connection we've moved past.
@@ -509,15 +517,32 @@
       ;; frame's declared kind is part of the vetted contract, whereas
       ;; presence-of-a-key is a shape test that a widened arm would
       ;; quietly re-open.
+      ;;
+      ;; And within the `:reply` arm we correlate on the REGISTRATION, not
+      ;; on the slot. The id names a slot; the `:request-token` the server
+      ;; echoed names the registration that sent the request. Matching the
+      ;; slot alone is the same mistake `:own-request-timeout?` fences on
+      ;; the deadline side, arriving by the other door: two registrations
+      ;; can be outstanding under one id (A pending, B supersedes it, both
+      ;; on the wire), and then A's reply finds B's slot and settles B's
+      ;; caller with A's body — exactly once, and about the wrong request.
+      ;; A token mismatch means "this answers a registration that is no
+      ;; longer here", which is an unsolicited reply and treated as one.
       (fn action-receive-message [{data :data [_ {:keys [body]}] :event}]
         (if (= :reply (:type body))
-          ;; Correlated reply. Settle the slot ONLY if there is one —
-          ;; an unsolicited reply, or a second copy of one we already
-          ;; settled, has nothing to clear and no `:reply-event` to fire.
-          ;; It still reaches the inbox: it passed the wire contract, it
-          ;; just answers no question we asked.
+          ;; Correlated reply. Settle the slot ONLY if the registration in
+          ;; it is the one that asked — an unsolicited reply, a second copy
+          ;; of one we already settled, or an answer to a superseded
+          ;; registration has nothing to clear and no `:reply-event` to
+          ;; fire. Each still reaches the inbox: it passed the wire
+          ;; contract, it just answers no question still outstanding.
+          ;;
+          ;; `:request-token` is required by `schema/ReplyMessage` and
+          ;; `:token` is always an int, so a frame that reached here has
+          ;; both — there is no nil-matches-nil case to guard against.
           (let [rid   (:request-id body)
-                entry (get-in data [:in-flight rid])]
+                entry (when-let [e (get-in data [:in-flight rid])]
+                        (when (= (:request-token body) (:token e)) e))]
             (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
               entry
               (assoc :data (update data :in-flight dissoc rid))

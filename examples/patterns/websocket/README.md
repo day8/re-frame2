@@ -168,7 +168,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 
 The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cljs`. It supports:
 
-- auto-echo for `:request` messages — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :ok true :echo ...}`, so the request-reply correlation slot lights up
+- auto-echo for `:request` messages — every outbound `{:type :request ...}` immediately echoes back as `{:type :reply :request-id ... :request-token ... :ok true :echo ...}`, so the request-reply correlation slot lights up. Both correlation fields ride back unchanged: `:request-id` names the slot, and `:request-token` names the *registration* that sent this particular request, which is what lets a reply settle the caller who asked rather than whoever holds the slot when it lands. `ReplyMessage` requires the echo, so a server that drops the token is refused at the wire contract instead of silently correlating by id
 - auth ack — `{:type :auth :token ...}` produces `{:type :auth-ok}` for any non-empty token and `{:type :auth-failed :reason "Empty token"}` otherwise
 - subscribe ack — every `{:type :subscribe :topic ...}` is acked with one synthetic `{:type :push :topic ... :note "subscribed"}` so the example demonstrates the subscribe-then-push shape end-to-end
 - `messages/send-server-push!` — used by the "Trigger server push" button to deliver a manual server-pushed event

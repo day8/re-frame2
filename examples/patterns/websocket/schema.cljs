@@ -54,7 +54,15 @@
    arrive naming an id the second occupant now holds, and settle a request
    whose deadline has not elapsed. Every registration takes the next value
    of `:next-token`, and a scheduled timeout carries the token it was armed
-   with, so it can only ever settle the registration that armed it."
+   with, so it can only ever settle the registration that armed it.
+
+   BOTH settling paths read this token, because both are reachable by a
+   value that outlived the registration it was minted for. The deadline is
+   the local one; the WIRE reply is the other, and it needs the token to
+   travel — so `:register-request` puts it on the outbound frame as
+   `:request-token` and `ReplyMessage` requires it back. Without that, two
+   registrations under one id are indistinguishable to the server and its
+   reply settles whichever one happens to hold the slot."
   [:map
    [:reply-event {:optional true} [:maybe [:vector :any]]]
    [:timeout-ms  :int]
@@ -128,16 +136,41 @@
   "The wire fields of a correlated reply, shared by the inbound arm
    (`ReplyMessage`) and the outcome arm (`ServerReplyOutcome`) so the two
    can never drift apart."
-  [[:type       [:= :reply]]
-   [:request-id :any]
-   [:ok         :boolean]
-   [:echo       {:optional true} [:map [:type :keyword]]]])
+  [[:type          [:= :reply]]
+   [:request-id    :any]
+   ;; The registration discriminator, echoed back. REQUIRED, and that is
+   ;; the whole point: `:request-id` is the app's value and may legitimately
+   ;; recur, so it does not identify a registration — two registrations can
+   ;; be outstanding under one id at once, and then a reply naming only the
+   ;; id answers whichever of them happens to hold the slot. The token does
+   ;; identify one, so the machine sends it and requires it back.
+   ;;
+   ;; This is a CORRECTNESS discriminator, not a secret. It is a small
+   ;; counter, the peer was handed it in the request, and guessing it buys
+   ;; nothing a server could not already do by naming the `:request-id`.
+   ;; Provenance — telling the server's claim from the machine's own truth —
+   ;; is `:origin`'s job, and `:origin` is stamped after receipt precisely
+   ;; because no wire field can carry that weight.
+   [:request-token :int]
+   [:ok            :boolean]
+   [:echo          {:optional true} [:map [:type :keyword]]]])
 
 (def ReplyMessage
   "A correlated reply, as the server puts it on the wire: the echo the
    mock answers every `:request` with. `:closed true` — an extra key is a
    rejection, not something to shrug at, because every extra key on an
-   untrusted frame is a key some downstream `get` might read."
+   untrusted frame is a key some downstream `get` might read.
+
+   A server that does not echo `:request-token` fails this contract, and
+   failing it HERE is deliberate: the frame takes the machine's
+   `:refuse-frame` arm (nothing in the connection moves) and the ingress
+   mints the one canonical `:rf.error/schema-validation-failure` record
+   naming the missing key, on the very first reply. The alternative —
+   admitting an untokened reply and quietly correlating it by id — is the
+   ambiguity this field exists to remove. If your own server genuinely
+   cannot echo the field, drop it from here AND from `:register-request`,
+   and then keep every `:request-id` unique for the socket's lifetime;
+   what you must not do is reuse ids without the discriminator."
   (into [:map {:closed true}] reply-entries))
 
 (def PushMessage
@@ -194,7 +227,10 @@
 
 (def ServerReplyOutcome
   "A wire reply on its way to the caller's `:reply` event: the closed
-   `ReplyMessage` fields plus the machine's `:origin :ws/server` stamp."
+   `ReplyMessage` fields plus the machine's `:origin :ws/server` stamp.
+   It reaches the caller only when its `:request-token` matched the
+   registration in the slot, so this outcome is the answer to the question
+   THIS registration asked — not merely an answer filed under its id."
   (into [:map {:closed true} [:origin [:= :ws/server]]] reply-entries))
 
 (def LocalRequestFailure
@@ -239,6 +275,10 @@
    [:type :keyword]
    [:body {:optional true} :any]
    [:request-id {:optional true} :any]
+   ;; Present on a correlated reply, absent on a push — the registration
+   ;; discriminator the server echoed back. Optional here for the same
+   ;; reason `:request-id` is: this map describes both kinds of stored frame.
+   [:request-token {:optional true} :int]
    [:rx-seq {:optional true} :int]])
 
 (def MessagesSlice
