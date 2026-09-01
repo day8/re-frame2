@@ -506,9 +506,13 @@
     ;; A DELETE for a comment that WAS at index 3 in a since-shrunk list
     ;; fails. The captured prior carries the stale index 3 against the
     ;; current length-1 list. Before the clamp this threw on `subvec`.
+    ;; The rollback carries the slug it was deleting from ahead of the
+    ;; captured prior (rf2-84iek); the initialised slice targets nil, so a
+    ;; nil-slug rollback is the matching identity here — same convention as
+    ;; the `:comments/loaded nil` seed above.
     (rf/dispatch-sync
-      [:comment/delete-rollback {:index 3 :comment {:id 9 :body "rolled-back"
-                                                    :author {:username "mallory"}}}]
+      [:comment/delete-rollback nil {:index 3 :comment {:id 9 :body "rolled-back"
+                                                        :author {:username "mallory"}}}]
       {:frame f})
 
     (let [data (rf/compute-sub [:comments/data] (rf/frame-state-value f))]
@@ -2117,6 +2121,288 @@
             renderable under beta's URL) while a same-slug re-load keeps the
             loaded data up as a refresh (rf2-iy3d6)"
     (article-slug-change-resets-while-same-slug-refresh-retains-test)))
+
+;; ============================================================================
+;; article page — optimistic comment MUTATIONS stay owned by the route
+;; (rf2-84iek)
+;; ============================================================================
+;;
+;; rf2-iy3d6 (above) correlated the two route-driven READS. The comment
+;; WRITES land on the very same shared state — `[:comments :data]` and the
+;; single `[:comment-form]` — and were left slug-free, so a POST or DELETE
+;; issued on alpha and answered after the reader reached beta wrote into
+;; beta: a success reset beta's draft, a failure bannered beta's form, and a
+;; failed DELETE spliced ALPHA'S COMMENT into beta's list.
+;;
+;; The fix carries the issuing slug in the three settle targets and gates
+;; each on the same `reply-for-current-slug?` the reads use. What makes
+;; DROPPING those writes safe rather than merely quiet is the other half:
+;; `:comments/load` now resets `[:comment-form]` whenever it takes on a new
+;; article identity. Without that reset the form is a boot-time singleton
+;; that rides across the navigation still `:status :submitting` — and since
+;; the textarea and the Post button are both `:disabled` while submitting,
+;; refusing alpha's settle would have left beta's form permanently locked.
+;; The strand control below is what pins that pairing.
+
+(defn- comment-form* [f] (rf/compute-sub [:comment-form/slice] (rf/frame-state-value f)))
+
+(defn- req-by-method+url
+  "The captured lowered request with this HTTP method whose URL ends with
+   `url-suffix`. The comment POST / DELETE carry no `:request-id` — they are
+   one-shot writes, not re-issuable reads — so they are addressed by what
+   they are rather than by an id."
+  [lowered method url-suffix]
+  (some #(when (and (= method (get-in % [:request :method]))
+                    (str/ends-with? (get-in % [:request :url]) url-suffix))
+           %)
+        lowered))
+
+(defn- saved-comment [id body]
+  {:id id :createdAt "2026-05-02" :updatedAt "2026-05-02" :body body
+   :author {:username "alice" :bio nil :image nil :following false}})
+
+(defn- settle-ok! [f target value]
+  (rf/dispatch-sync (conj target {:status :ok :value value}) {:frame f}))
+
+(defn- settle-fail! [f target]
+  (rf/dispatch-sync (conj target {:status :error
+                                  :error {:kind :rf.http/http-5xx :status 500}})
+                    {:frame f}))
+
+(defn- with-held-comment-fx
+  "Run `body-fn` against a frame whose `:rf.http/managed` is a capturing stub:
+   every request is recorded and NONE settles by itself, so each reply can be
+   delivered by hand in the order a slow network would pick. `body-fn` gets
+   the frame and the atom of lowered requests."
+  [fx-id body-fn]
+  (let [lowered (atom [])]
+    (rf/reg-fx fx-id
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed fx-id}})]
+      (rf/dispatch-sync [:article/initialise] {:frame f})
+      (rf/dispatch-sync [:comments/initialise] {:frame f})
+      (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c"
+                                              :token "jwt" :bio nil :image nil}]
+                        {:frame f})
+      (body-fn f lowered))))
+
+(defn- comment-submit-cross-slug-late-settle-is-refused-test []
+  (with-held-comment-fx :realworld.test/comment-submit-cross-slug
+    (fn [f lowered]
+      ;; Load alpha, then post a comment there. The POST is held open.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment-form/edit-field :body "Posted on alpha"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (let [post (req-by-method+url @lowered :post "/articles/alpha/comments")]
+        (is (some? post) "alpha's comment POST went out")
+        ;; The target vectors carry the issuing slug AHEAD of the temp-id
+        ;; (which is a fresh recordable uuid, so only the prefix is pinned).
+        (is (= [:comment-form/submit-success "alpha"] (subvec (:on-success post) 0 2))
+            "the POST's success target carries the slug it was posted to")
+        (is (= [:comment-form/submit-error "alpha"] (subvec (:on-failure post) 0 2))
+            "…and so does its failure target")
+        (is (= 2 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "the optimistic temp card is on alpha's list while the POST is out")
+        ;; Navigate to beta and let beta's comments settle.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (settle-comments-ok! f (req-by-id @lowered [:comments/load "beta"]) "beta")
+        ;; THE LATE ARRIVAL. Snapshot beta's comments slice and its whole form
+        ;; — the bug is never the one leaf you looked at.
+        (let [com-before  (comments-slice* f)
+              form-before (comment-form* f)]
+          (settle-ok! f (:on-success post) {:comment (saved-comment "saved-a" "Posted on alpha")})
+          (is (= {:slug "beta"} (route-params* f)) "the route still says beta")
+          (is (= com-before (comments-slice* f))
+              "a late alpha submit SUCCESS changes nothing on beta's comments
+               slice — alpha's saved comment is not spliced into beta's list")
+          (is (= form-before (comment-form* f))
+              "…and nothing on beta's comment form: the draft, errors and
+               lifecycle the reader has on screen all stand"))))))
+
+(defn- comment-submit-cross-slug-late-failure-is-refused-test []
+  (with-held-comment-fx :realworld.test/comment-submit-cross-slug-fail
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment-form/edit-field :body "Posted on alpha"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (let [post (req-by-method+url @lowered :post "/articles/alpha/comments")]
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (settle-comments-ok! f (req-by-id @lowered [:comments/load "beta"]) "beta")
+        ;; Beta's reader is part-way through their own comment.
+        (rf/dispatch-sync [:comment-form/edit-field :body "Typing on beta"] {:frame f})
+        (let [com-before  (comments-slice* f)
+              form-before (comment-form* f)]
+          (settle-fail! f (:on-failure post))
+          (is (= com-before (comments-slice* f))
+              "a late alpha submit FAILURE cannot touch beta's comments slice")
+          (is (= form-before (comment-form* f))
+              "…nor beta's form")
+          (is (nil? (rf/compute-sub [:comment-form/submit-error] (rf/frame-state-value f)))
+              "alpha's error is NOT bannered over beta's comment form")
+          (is (= "Typing on beta"
+                 (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+              "beta's half-typed draft survives alpha's failure"))))))
+
+(defn- comment-delete-cross-slug-late-rollback-is-refused-test []
+  (with-held-comment-fx :realworld.test/comment-delete-cross-slug
+    (fn [f lowered]
+      ;; Alpha loads with its one comment, and the reader deletes it. The
+      ;; DELETE is held open; the card is already off the screen.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment/delete "c-alpha"] {:frame f})
+      (let [del (req-by-method+url @lowered :delete "/articles/alpha/comments/c-alpha")]
+        (is (some? del) "alpha's DELETE went out")
+        (is (= :comment/delete-rollback (first (:on-failure del)))
+            "the rollback target is the DELETE's failure branch")
+        (is (= "alpha" (second (:on-failure del)))
+            "…and it carries the slug it was deleting from, ahead of the
+             captured prior")
+        (is (empty? (rf/compute-sub [:comments/data] (rf/frame-state-value f)))
+            "the optimistic delete took the card off alpha's list")
+        ;; Navigate to beta; beta loads its own single comment.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (settle-comments-ok! f (req-by-id @lowered [:comments/load "beta"]) "beta")
+        (let [com-before (comments-slice* f)]
+          (settle-fail! f (:on-failure del))
+          (is (= com-before (comments-slice* f))
+              "a late alpha DELETE failure changes nothing on beta's slice")
+          (is (= ["First on beta"]
+                 (mapv :body (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+              "alpha's comment is NOT re-inserted into beta's list — the
+               rollback would otherwise fabricate a comment beta never had"))))))
+
+(defn- comment-mutation-gates-are-not-vacuous-test []
+  ;; The controls: on the CURRENT slug every one of the three settles still
+  ;; does its ordinary optimistic job. A gate that swallowed them all would
+  ;; pass the three cross-slug tests above and break the app.
+  (with-held-comment-fx :realworld.test/comment-same-slug
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+
+      ;; (1) SUCCESS on the current slug reconciles: the temp card becomes the
+      ;; saved comment IN PLACE, and the form resets.
+      (rf/dispatch-sync [:comment-form/edit-field :body "Mine"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (let [post (req-by-method+url @lowered :post "/articles/alpha/comments")]
+        (is (true? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "the form is submitting while the POST is out")
+        (settle-ok! f (:on-success post) {:comment (saved-comment "saved-a" "Mine")})
+        (is (= ["First on alpha" "Mine"]
+               (mapv :body (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "the saved comment replaced the temp card IN PLACE, keeping order")
+        (is (= ["c-alpha" "saved-a"]
+               (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "…by id, so the temp card is gone rather than merely relabelled")
+        (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+            "…and the form reset, so the reader can post again")
+        (is (false? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "…no longer submitting"))
+
+      ;; (2) FAILURE on the current slug rolls the temp card back out and
+      ;; surfaces the message.
+      (rf/dispatch-sync [:comment-form/edit-field :body "Doomed"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (let [post2 (last (filter #(= :post (get-in % [:request :method])) @lowered))]
+        (is (= 3 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "the second temp card is on the list optimistically")
+        (settle-fail! f (:on-failure post2))
+        (is (= ["c-alpha" "saved-a"]
+               (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "the failed post's temp card is rolled back out")
+        (is (some? (rf/compute-sub [:comment-form/submit-error] (rf/frame-state-value f)))
+            "…and the transport error is surfaced on the form it belongs to")
+        (is (false? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "…with the form released"))
+
+      ;; (3) A DELETE failure on the current slug still restores the comment.
+      (rf/dispatch-sync [:comment/delete "saved-a"] {:frame f})
+      (is (= ["c-alpha"] (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+          "the optimistic delete removed it")
+      (let [del (req-by-method+url @lowered :delete "/articles/alpha/comments/saved-a")]
+        (settle-fail! f (:on-failure del))
+        (is (= ["c-alpha" "saved-a"]
+               (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+            "the rollback restored the comment at its original index — the
+             gate correlates, it does not swallow every reply")))))
+
+(defn- comment-form-is-released-on-slug-change-test []
+  ;; THE STRAND CONTROL. Refusing a cross-slug settle is only safe because
+  ;; navigation has already released the form. Without the reset in
+  ;; :comments/load the form would arrive on beta still :submitting, and a
+  ;; :submitting form disables both the textarea and the Post button — so
+  ;; beta could never be commented on again.
+  (with-held-comment-fx :realworld.test/comment-form-release
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment-form/edit-field :body "Half-written on alpha"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (let [post (req-by-method+url @lowered :post "/articles/alpha/comments")]
+        (is (true? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "alpha's form is mid-submit, its controls disabled")
+        ;; Navigate away with the POST still out.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (is (false? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "beta's form is USABLE on arrival — a new article identity resets
+             the form, so alpha's in-flight submit cannot lock beta out")
+        (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+            "…and alpha's half-written draft did not follow the reader over")
+        (settle-comments-ok! f (req-by-id @lowered [:comments/load "beta"]) "beta")
+        ;; Alpha's settle arrives late and is refused — and the form beta is
+        ;; holding stays exactly as usable as it was.
+        (settle-ok! f (:on-success post) {:comment (saved-comment "saved-a" "Half-written on alpha")})
+        (is (false? (rf/compute-sub [:comment-form/submitting?] (rf/frame-state-value f)))
+            "the refused settle leaves beta's form released, not stranded")
+        ;; And beta can genuinely post its own comment afterwards.
+        (rf/dispatch-sync [:comment-form/edit-field :body "Beta's own"] {:frame f})
+        (rf/dispatch-sync [:comment-form/submit] {:frame f})
+        (let [beta-post (req-by-method+url @lowered :post "/articles/beta/comments")]
+          (is (some? beta-post) "beta's own comment POST goes out")
+          (settle-ok! f (:on-success beta-post) {:comment (saved-comment "saved-b" "Beta's own")})
+          (is (= ["c-beta" "saved-b"]
+                 (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+              "…and lands on beta's own list"))))))
+
+(defn- comment-form-survives-same-slug-refresh-test []
+  ;; The other side of the reset: a SAME-slug re-load is a refresh, not a new
+  ;; identity, so it must not eat what the reader is part-way through typing.
+  (with-held-comment-fx :realworld.test/comment-form-refresh
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-comments-ok! f (req-by-id @lowered [:comments/load "alpha"]) "alpha")
+      (rf/dispatch-sync [:comment-form/edit-field :body "Still typing"] {:frame f})
+      (rf/dispatch-sync [:comments/load] {:frame f})
+      (is (= "Still typing"
+             (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+          "a same-slug comments refresh leaves the in-progress draft alone"))))
+
+(deftest realworld-comment-mutations-cross-slug
+  (testing "a LATE alpha comment-submit SUCCESS cannot reset beta's form or
+            splice alpha's saved comment into beta's list (rf2-84iek)"
+    (comment-submit-cross-slug-late-settle-is-refused-test))
+  (testing "a LATE alpha comment-submit FAILURE cannot banner beta's form or
+            disturb beta's half-typed draft (rf2-84iek)"
+    (comment-submit-cross-slug-late-failure-is-refused-test))
+  (testing "a LATE alpha DELETE failure cannot re-insert alpha's comment into
+            beta's list (rf2-84iek)"
+    (comment-delete-cross-slug-late-rollback-is-refused-test))
+  (testing "on the CURRENT slug all three settles still do their ordinary
+            optimistic job — the gates' non-vacuity control (rf2-84iek)"
+    (comment-mutation-gates-are-not-vacuous-test))
+  (testing "a new article identity releases the comment form, so refusing a
+            cross-slug settle cannot strand beta mid-submit (rf2-84iek)"
+    (comment-form-is-released-on-slug-change-test))
+  (testing "…while a same-slug refresh leaves an in-progress draft alone
+            (rf2-84iek)"
+    (comment-form-survives-same-slug-refresh-test)))
 
 ;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +
