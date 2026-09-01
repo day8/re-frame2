@@ -258,6 +258,16 @@
 (defn- socket-id-of [snap]
   (get-in snap [:data :rf/spawned [:active]]))
 
+(defn- request-token
+  "The registration token `:register-request` minted for `request-id`, read
+  off the live snapshot. Every synthesised `:ws/request-timeout` below stamps
+  it, because the real scheduled event does: the token — not the id — is what
+  ties a deadline to the registration that armed it (rf2-tb442). Returns nil
+  once the slot is gone, which is itself the point."
+  [f request-id]
+  (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+          [:data :in-flight request-id :token]))
+
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's runtime-db (machine
   snapshots are runtime-db state — rf2-vzld77)."
@@ -698,12 +708,14 @@
                                  [:data :in-flight])
                          rid)
               "a request with no immediate reply sits in :in-flight")
-          ;; Fire its timeout carrying the LIVE socket-id, so it passes
-          ;; :current-socket? — the socket-still-alive timeout case. (new-frame
-          ;; suppresses the real :dispatch-later, so we synthesise the timeout
-          ;; event exactly as :register-request would have scheduled it.)
+          ;; Fire its timeout carrying the LIVE socket-id AND the registration
+          ;; token, so it passes :own-request-timeout? — the socket-still-alive
+          ;; timeout case. (new-frame suppresses the real :dispatch-later, so we
+          ;; synthesise the timeout event exactly as :register-request would
+          ;; have scheduled it, both fields included.)
           (rf/dispatch-sync [:ws/connection
                              [:ws/request-timeout {:request-id       rid
+                                                   :token            (request-token f rid)
                                                    :source-socket-id live-id}]]
                             {:frame f})
           (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -726,6 +738,176 @@
               ;; the loss control in drop-fails-in-flight-request-test.
               (is (= :ws/local (:origin reply))
                   "a timeout outcome is marked as locally minted"))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-tb442 — a timeout belongs to a REGISTRATION, not to an id
+;; ---------------------------------------------------------------------------
+;;
+;; The connection epoch (`:current-socket?`) rejects timers from an old
+;; CONNECTION. It says nothing about an old REGISTRATION on the same live
+;; socket, and the correlation id cannot cover that gap because the id is the
+;; APP's: spec/Pattern-WebSocket.md §Message correlation invites a reusable
+;; per-feature `[:feature/load slug]` vector, so uniqueness over a socket's
+;; life was never a contract. Both tests below therefore use exactly that
+;; reusable shape as the request-id.
+
+(defn- log-tb442-reply! []
+  ;; A COUNTING reply target, so "settled twice" and "settled by the wrong
+  ;; timer" are direct assertions (the example's :ws.app/request-reply keeps
+  ;; only the LAST outcome, where a spurious one is invisible). Each body is
+  ;; logged and then forwarded to the boundary-validated
+  ;; :ws.app/request-reply, so every outcome these tests observe is also
+  ;; proven to pass the closed RequestOutcome contract.
+  (rf/reg-event :ws.test/log-tb442-reply
+    (fn handler-ws-test-log-tb442-reply [{:keys [db]} [_ body]]
+      {:db (update-in db [:messages :reply-log] (fnil conj []) body)
+       :fx [[:dispatch [:ws.app/request-reply body]]]})))
+
+(defn- stale-timeout-cannot-settle-later-same-id-request-test []
+  ;; rf2-tb442 — request A under id R completes; request B re-registers R on
+  ;; the same STILL-LIVE socket, inside A's timeout window. A's uncancelled
+  ;; timer then arrives naming R. Before the fix it passed :current-socket?,
+  ;; deleted B's slot and handed B's caller a premature :ws/timeout — two
+  ;; violations of the exactly-once/terminal-outcome promise in one event.
+  ;; The registration :token is what makes it inert instead.
+  (log-tb442-reply!)
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id   (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              ;; The reusable per-feature id the spec recommends — the whole
+              ;; point is that this value legitimately recurs.
+              rid       [:feature/load "alpha"]
+              in-flight #(get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+              log       #(get-in (rf/app-db-value f) [:messages :reply-log])
+              request!  (fn []
+                          (rf/dispatch-sync
+                            [:ws/connection
+                             [:ws/request {:request-id rid
+                                           :body       {:type :silent-no-echo}
+                                           :reply      [:ws.test/log-tb442-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f}))
+              timeout!  (fn [token]
+                          (rf/dispatch-sync
+                            [:ws/connection
+                             [:ws/request-timeout {:request-id       rid
+                                                   :token            token
+                                                   :source-socket-id live-id}]]
+                            {:frame f}))]
+          ;; --- A: registered, then ANSWERED by the server -------------------
+          (request!)
+          (let [tok-a (request-token f rid)]
+            (is (some? tok-a) "A's registration carries a token")
+            ;; A correlated wire reply settles A and empties the slot. A's
+            ;; deadline is never cancelled — nothing here can cancel it.
+            (rf/dispatch-sync [:ws/connection
+                               [:ws/received {:source-socket-id live-id
+                                              :body {:type :reply :request-id rid :ok true}}]]
+                              {:frame f})
+            (is (not (contains? (in-flight) rid)) "A settled on the server's reply")
+            (is (= 1 (count (log))) "A's caller was answered exactly once")
+            (is (= :ws/server (:origin (last (log)))) "…by the server")
+
+            ;; --- B: the SAME id, re-registered on the same live socket ------
+            (request!)
+            (let [tok-b (request-token f rid)]
+              (is (some? tok-b) "B's registration carries a token")
+              (is (not= tok-a tok-b)
+                  "positive control: a second registration under the same id is a DIFFERENT registration")
+
+              ;; --- A's stale timer fires ----------------------------------
+              ;; It is stamped with the live socket, so the epoch check admits
+              ;; it. Only the token stands between it and B.
+              (timeout! tok-a)
+              (is (= tok-b (get-in (in-flight) [rid :token]))
+                  "THE REGRESSION: an earlier same-id request's timeout does not clear the later request's slot")
+              (is (= 1 (count (log)))
+                  "THE REGRESSION: it does not fire the later request's callback either")
+
+              ;; --- and B's OWN timer still works --------------------------
+              ;; Without this the assertions above would pass on a guard that
+              ;; simply rejects everything.
+              (timeout! tok-b)
+              (is (not (contains? (in-flight) rid))
+                  "B's own deadline still settles B")
+              (is (= 2 (count (log))))
+              (is (= {:origin :ws/local :request-id rid :ok false :error :ws/timeout}
+                     (last (log)))
+                  "B is settled by its own timeout, once, with the documented local body")))))))
+  ;; The transition actually carries the compound guard (the structural half —
+  ;; a guard nothing is wired to protects nothing).
+  (is (= :own-request-timeout?
+         (get-in ws.connection/connection-machine
+                 [:states :active :states :connected :on :ws/request-timeout :guard]))
+      ":ws/request-timeout is registration-guarded, not merely epoch-guarded"))
+
+(defn- duplicate-in-flight-request-supersedes-test []
+  ;; rf2-tb442 — the other half of a reusable id: TWO registrations under one
+  ;; id at the same time. `:register-request` used to `assoc-in` straight over
+  ;; the live entry, dropping the first caller's :reply-event on the floor
+  ;; with nothing left to settle it. The policy is last-write-wins WITH the
+  ;; displaced caller settled: it gets a terminal :ws/superseded outcome
+  ;; before the new request goes on the wire.
+  (log-tb442-reply!)
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id   (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              rid       [:feature/load "beta"]
+              in-flight #(get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+              log       #(get-in (rf/app-db-value f) [:messages :reply-log])
+              request!  (fn []
+                          (rf/dispatch-sync
+                            [:ws/connection
+                             [:ws/request {:request-id rid
+                                           :body       {:type :silent-no-echo}
+                                           :reply      [:ws.test/log-tb442-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f}))]
+          (request!)
+          (let [tok-a (request-token f rid)]
+            (is (nil? (log)) "positive control: nothing has settled before the duplicate")
+            ;; The duplicate, while A is genuinely still pending.
+            (request!)
+            (let [tok-b (request-token f rid)]
+              (is (not= tok-a tok-b) "the slot now holds a different registration")
+              (is (= [{:origin :ws/local :request-id rid :ok false :error :ws/superseded}]
+                     (log))
+                  "the displaced caller is SETTLED, exactly once, with the documented superseded body")
+              (is (= {:origin :ws/local :request-id rid :ok false :error :ws/superseded}
+                     (get-in (rf/app-db-value f) [:messages :last-reply]))
+                  "the superseded body passes the closed RequestOutcome boundary")
+              ;; A's timer is already inert — no cancellation facility needed.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/request-timeout {:request-id       rid
+                                                       :token            tok-a
+                                                       :source-socket-id live-id}]]
+                                {:frame f})
+              (is (= tok-b (get-in (in-flight) [rid :token]))
+                  "the displaced registration's timer cannot clear the surviving slot")
+              (is (= 1 (count (log)))
+                  "and cannot settle the displaced caller a second time")
+              ;; B is a normal in-flight request with a working deadline.
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/request-timeout {:request-id       rid
+                                                       :token            tok-b
+                                                       :source-socket-id live-id}]]
+                                {:frame f})
+              (is (not (contains? (in-flight) rid)) "the surviving registration settles on its own deadline")
+              (is (= 2 (count (log))))
+              (is (= :ws/timeout (:error (last (log))))
+                  "no caller is left waiting: two registrations, two terminal outcomes"))))))))
 
 (defn- clean-disconnect-fails-in-flight-request-test []
   ;; rf2-b2jpr — a clean :ws/disconnect destroys the only socket capable of
@@ -757,16 +939,20 @@
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [old-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
               rid    (random-uuid)
-              log    #(get-in (rf/app-db-value f) [:messages :reply-log])]
+              log    #(get-in (rf/app-db-value f) [:messages :reply-log])
+              ;; A request whose wire :type the mock does NOT echo, so it sits
+              ;; in-flight with no reply to clear it — genuinely on the wire.
+              _      (rf/dispatch-sync [:ws/connection
+                                        [:ws/request {:request-id rid
+                                                      :body       {:type :silent-no-echo}
+                                                      :reply      [:ws.test/log-reply]
+                                                      :timeout-ms 5000}]]
+                                       {:frame f})
+              ;; Captured while the slot still exists — the straggler timeouts
+              ;; below carry it, exactly as :register-request scheduled them.
+              tok    (request-token f rid)]
           (is (some? old-id))
-          ;; A request whose wire :type the mock does NOT echo, so it sits
-          ;; in-flight with no reply to clear it — genuinely on the wire.
-          (rf/dispatch-sync [:ws/connection
-                             [:ws/request {:request-id rid
-                                           :body       {:type :silent-no-echo}
-                                           :reply      [:ws.test/log-reply]
-                                           :timeout-ms 5000}]]
-                            {:frame f})
+          (is (some? tok) "the registration was stamped with a token")
           ;; Positive control: the request is genuinely in :in-flight and no
           ;; reply has fired — the witness below cannot pass vacuously.
           (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -794,6 +980,7 @@
           ;; :dispatch-later). Nothing may fire twice or resurrect the slot.
           (rf/dispatch-sync [:ws/connection
                              [:ws/request-timeout {:request-id       rid
+                                                   :token            tok
                                                    :source-socket-id old-id}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -816,6 +1003,7 @@
             (is (not= old-id new-id) "reconnect spawned a fresh socket"))
           (rf/dispatch-sync [:ws/connection
                              [:ws/request-timeout {:request-id       rid
+                                                   :token            tok
                                                    :source-socket-id old-id}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -856,16 +1044,20 @@
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [old-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
               rid    (random-uuid)
-              log    #(get-in (rf/app-db-value f) [:messages :reply-log])]
+              log    #(get-in (rf/app-db-value f) [:messages :reply-log])
+              ;; A request whose wire :type the mock does NOT echo, so it sits
+              ;; in-flight with no reply to clear it — genuinely on the wire.
+              _      (rf/dispatch-sync [:ws/connection
+                                        [:ws/request {:request-id rid
+                                                      :body       {:type :silent-no-echo}
+                                                      :reply      [:ws.test/log-fatal-reply]
+                                                      :timeout-ms 5000}]]
+                                       {:frame f})
+              ;; Captured while the slot still exists — the straggler timeouts
+              ;; below carry it, exactly as :register-request scheduled them.
+              tok    (request-token f rid)]
           (is (some? old-id))
-          ;; A request whose wire :type the mock does NOT echo, so it sits
-          ;; in-flight with no reply to clear it — genuinely on the wire.
-          (rf/dispatch-sync [:ws/connection
-                             [:ws/request {:request-id rid
-                                           :body       {:type :silent-no-echo}
-                                           :reply      [:ws.test/log-fatal-reply]
-                                           :timeout-ms 5000}]]
-                            {:frame f})
+          (is (some? tok) "the registration was stamped with a token")
           ;; Positive control: the request is genuinely in :in-flight and no
           ;; reply has fired — the witness below cannot pass vacuously.
           (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
@@ -898,6 +1090,7 @@
           ;; :dispatch-later). Nothing may fire twice or resurrect the slot.
           (rf/dispatch-sync [:ws/connection
                              [:ws/request-timeout {:request-id       rid
+                                                   :token            tok
                                                    :source-socket-id old-id}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -920,6 +1113,7 @@
             (is (not= old-id new-id) "the manual reconnect spawned a fresh socket"))
           (rf/dispatch-sync [:ws/connection
                              [:ws/request-timeout {:request-id       rid
+                                                   :token            tok
                                                    :source-socket-id old-id}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
@@ -1373,6 +1567,7 @@
               ;; still has a key in it".
               (rf/dispatch-sync [:ws/connection
                                  [:ws/request-timeout {:request-id       rid
+                                                       :token            (request-token f rid)
                                                        :source-socket-id live-id}]]
                                 {:frame f})
               (is (not (contains? (in-flight) rid))
@@ -1570,6 +1765,19 @@
             clears its in-flight slot; the waiting reply-event gets a :ws/timeout
             body, and the connection stays up"
     (timeout-fails-in-flight-request-test)))
+
+(deftest websocket-stale-timeout-cannot-settle-later-same-id-request
+  (testing "rf2-tb442 — an uncancelled timeout from an EARLIER request under the
+            same id, on the same still-live socket, can neither clear the later
+            request's slot nor fire its callback; the later request's own
+            deadline still settles it"
+    (stale-timeout-cannot-settle-later-same-id-request-test)))
+
+(deftest websocket-duplicate-in-flight-request-supersedes
+  (testing "rf2-tb442 — re-registering an id that is still in flight supersedes:
+            the displaced caller is settled once with :ws/superseded rather than
+            silently overwritten, and its now-obsolete timer is inert"
+    (duplicate-in-flight-request-supersedes-test)))
 
 (deftest websocket-clean-disconnect-fails-in-flight-request
   (testing "rf2-b2jpr — a clean :ws/disconnect settles every in-flight request

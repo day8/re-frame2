@@ -84,6 +84,20 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
+- A deadline belongs to a registration, not to an id. The correlation id is the
+  app's, and reusing one — `[:feature/load slug]` is a recommended shape — is
+  allowed, so on one long-lived socket the same id can be registered twice. Each
+  registration therefore takes a `:token` from `:data`'s `:next-token` counter,
+  the scheduled timeout carries it, and the `:own-request-timeout?`
+  [guard](../../../docs/machines/glossary.md#guard) admits a timeout only while
+  that token still occupies the slot. That is what stops a completed request's
+  uncancelled timer from deleting a *later* request's slot and handing its caller
+  a timeout its deadline never reached — and it is why the machine needs no timer
+  cancellation at all: an obsolete timer simply fails the guard. Re-registering an
+  id that is still in flight supersedes rather than overwrites: the displaced
+  caller is settled with `{:origin :ws/local :ok false :error :ws/superseded}`
+  before the new request goes out, so no caller is ever dropped on the floor.
+
 - In-flight requests fail on a socket drop. A request already on the wire
   when the socket dies can't be answered on this connection, so `:on-socket-lost`
   clears the `:in-flight` map and fires each waiting `:reply` event with an

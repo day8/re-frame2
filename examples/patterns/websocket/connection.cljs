@@ -186,6 +186,12 @@
                :subscriptions  #{}
                :queue          []
                :in-flight      {}
+               ;; The ticking source for each registration's `:token` — see
+               ;; `:register-request`. A counter in `:data` rather than a
+               ;; fresh uuid in the fold: the value lands in durable machine
+               ;; state, so it has to replay identically, and a
+               ;; snapshot-resident counter does by construction.
+               :next-token     0
                :error          nil}
 
      :guards
@@ -208,6 +214,36 @@
       ;; straggler is dropped for free.
       (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
         (from-live-socket? data source-socket-id))
+
+      :own-request-timeout?
+      ;; The deadline gate, and like `:trusted-frame?` it asks BOTH questions
+      ;; a `:ws/request-timeout` has to answer before it may settle anything:
+      ;; is it from the socket we're using (the epoch check above), and is it
+      ;; the timer THIS registration armed?
+      ;;
+      ;; The epoch check alone is not enough, and the gap is easy to miss
+      ;; because it needs no reconnect to open. A `:request-id` is the app's
+      ;; own correlation value and the app is invited to reuse one — a
+      ;; per-feature `[:feature/load slug]` vector is a recommended shape —
+      ;; so on one long-lived socket the same id can be registered, settled,
+      ;; and registered again well inside the first request's timeout window.
+      ;; The first request's timer is still armed and still stamped with the
+      ;; live socket, so it sails through the epoch check, names an id the
+      ;; SECOND request now holds, and settles a request whose deadline has
+      ;; not elapsed — deleting its slot and handing its caller a premature
+      ;; `:ws/timeout`.
+      ;;
+      ;; So `:register-request` stamps each registration with a `:token` and
+      ;; schedules the timeout carrying it; a timer settles the slot only
+      ;; while the token it carries is still the token in it. That is also
+      ;; what makes having no timer-cancellation facility safe: an obsolete
+      ;; timer is not cancelled, it is simply inert — it fires, fails this
+      ;; guard, and is dropped like any other straggler.
+      (fn guard-own-request-timeout? [{data :data
+                                       [_ {:keys [source-socket-id request-id token]}] :event}]
+        (and (from-live-socket? data source-socket-id)
+             (when-let [entry (get-in data [:in-flight request-id])]
+               (= token (:token entry)))))
 
       :trusted-frame?
       ;; The inbound gate, and it asks BOTH questions an inbound frame has
@@ -386,34 +422,73 @@
       ;; slot dangling forever).
       ;; Caller: `[:ws/connection [:ws/request {:request-id ... :body ...
       ;;                                       :reply ... :timeout-ms ...}]]`
+      ;;
+      ;; Two things here are about the id being the APP's, and reusable.
+      ;;
+      ;; The registration takes the next `:token`, which goes into the slot
+      ;; AND onto the scheduled timeout, so that timer can only ever settle
+      ;; this registration — see the `:own-request-timeout?` guard.
+      ;;
+      ;; And re-registering an id that is still in flight SUPERSEDES: the
+      ;; displaced caller is settled with `:ws/superseded` before the new
+      ;; request goes out. Last write wins, because a reusable per-feature id
+      ;; like `[:feature/load slug]` is a SLOT — re-issuing into it is the app
+      ;; saying "that question is obsolete, ask this one" — and the caller of
+      ;; the obsolete question still gets an answer instead of waiting on a
+      ;; reply the new registration will now consume. (Refusing the newcomer
+      ;; instead would make the recommended per-feature id unusable for the
+      ;; case it is recommended for.) The displaced request's own timer is
+      ;; already inert: its token is no longer the one in the slot.
+      ;;
+      ;; What this does NOT promise is which SERVER reply answers which
+      ;; registration. Only one id goes on the wire, so concurrent reuse is
+      ;; ambiguous in the protocol itself, not in this machine — reuse an id
+      ;; concurrently and the wire reply settles whichever registration holds
+      ;; the slot. Exactly-once per registration survives either way, which
+      ;; is what the caller is owed.
       (fn action-register-request [{data :data [_ {:keys [request-id body reply timeout-ms]
                                             :or   {timeout-ms 30000}}] :event}]
-        {:data (assoc-in data [:in-flight request-id]
-                         {:reply-event reply :timeout-ms timeout-ms})
-         :fx   [[:dispatch [(socket-id data)
-                            [:send (assoc body :request-id request-id)]]]
-                ;; The timeout event carries the live socket-id too, so the
-                ;; same `:current-socket?` guard quietly discards a timeout
-                ;; left over from a connection we've already moved past.
-                [:dispatch-later
-                 {:ms    timeout-ms
-                  :event [:ws/connection
-                          [:ws/request-timeout
-                           {:request-id       request-id
-                            :source-socket-id (socket-id data)}]]}]]})
+        (let [token     (:next-token data)
+              displaced (:reply-event (get-in data [:in-flight request-id]))
+              send+arm  [[:dispatch [(socket-id data)
+                                     [:send (assoc body :request-id request-id)]]]
+                         ;; The timeout event carries the live socket-id too,
+                         ;; so the same epoch check quietly discards a timeout
+                         ;; left over from a connection we've moved past.
+                         [:dispatch-later
+                          {:ms    timeout-ms
+                           :event [:ws/connection
+                                   [:ws/request-timeout
+                                    {:request-id       request-id
+                                     :token            token
+                                     :source-socket-id (socket-id data)}]]}]]]
+          {:data (-> data
+                     (assoc :next-token (inc token))
+                     (assoc-in [:in-flight request-id]
+                               {:reply-event reply
+                                :timeout-ms  timeout-ms
+                                :token       token}))
+           ;; Settle the displaced caller FIRST — it is done either way, and
+           ;; it should learn that before the wire moves on.
+           :fx   (if displaced
+                   (into [[:dispatch (conj displaced
+                                           (local-failure request-id :ws/superseded))]]
+                         send+arm)
+                   send+arm)}))
 
       :clear-request
       ;; A request's deadline fired — a `:ws/request-timeout` that passed
-      ;; `:current-socket?`, so the socket is still live but the reply never
-      ;; came. FAIL the request, don't just forget it: clear the in-flight
-      ;; slot AND fire the waiting `:reply-event` with an explicit timeout
-      ;; body, so a request that times out on a live socket learns its
-      ;; outcome instead of hanging forever. This is `:on-socket-lost`'s
-      ;; per-request twin — same `{:ok false :error …}` failure shape, but
-      ;; scoped to the single request whose timer elapsed rather than the
-      ;; whole in-flight set. (A request registered without a `:reply` has a
-      ;; nil `:reply-event`, so the dispatch is guarded — same as
-      ;; `:receive-message`.)
+      ;; `:own-request-timeout?`, so the socket is still live, the slot is
+      ;; still occupied, and THIS registration is the one that armed the
+      ;; timer. The reply never came. FAIL the request, don't just forget it:
+      ;; clear the in-flight slot AND fire the waiting `:reply-event` with an
+      ;; explicit timeout body, so a request that times out on a live socket
+      ;; learns its outcome instead of hanging forever. This is
+      ;; `:on-socket-lost`'s per-request twin — same `{:ok false :error …}`
+      ;; failure shape, but scoped to the single request whose timer elapsed
+      ;; rather than the whole in-flight set. (A request registered without a
+      ;; `:reply` has a nil `:reply-event`, so the dispatch is guarded — same
+      ;; as `:receive-message`.)
       (fn action-clear-request [{data :data [_ {:keys [request-id]}] :event}]
         (let [{:keys [reply-event]} (get-in data [:in-flight request-id])]
           {:data (update data :in-flight dissoc request-id)
@@ -593,7 +668,10 @@
                   :ws/send     {:action :send-now}
                   :ws/request  {:action :register-request}
                   :ws/subscribe {:action :register-subscription}
-                  :ws/request-timeout {:guard  :current-socket?
+                  ;; A deadline elapsed. Two questions, one guard: is the
+                  ;; socket still ours, and is this the timer the registration
+                  ;; currently in the slot armed? See `:own-request-timeout?`.
+                  :ws/request-timeout {:guard  :own-request-timeout?
                                        :action :clear-request}}}}}
 
       :reconnecting

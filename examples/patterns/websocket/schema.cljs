@@ -43,10 +43,22 @@
 
 (def InFlightEntry
   "One outstanding request, waiting for its reply: which event to fire when
-   it lands, and how long we're willing to wait."
+   it lands, how long we're willing to wait, and the registration `:token`
+   that identifies THIS registration rather than the id it was filed under.
+
+   The token is the answer to a question `:request-id` cannot settle. A
+   correlation id is the app's, and the app is invited to reuse one — a
+   per-feature `[:feature/load slug]` vector is a recommended shape — so the
+   same id can occupy this map twice over a single socket's life. A
+   `:ws/request-timeout` scheduled for the first occupant would otherwise
+   arrive naming an id the second occupant now holds, and settle a request
+   whose deadline has not elapsed. Every registration takes the next value
+   of `:next-token`, and a scheduled timeout carries the token it was armed
+   with, so it can only ever settle the registration that armed it."
   [:map
    [:reply-event {:optional true} [:maybe [:vector :any]]]
-   [:timeout-ms  :int]])
+   [:timeout-ms  :int]
+   [:token       :int]])
 
 (def ConnectionData
   "The connection machine's `:data` map. Note `:cred-ref`, not a token:
@@ -65,6 +77,12 @@
    [:subscriptions  [:set :any]]
    [:queue          [:vector :any]]
    [:in-flight      [:map-of :any InFlightEntry]]
+   ;; The ticking source for `InFlightEntry`'s `:token`. A plain counter in
+   ;; `:data` rather than a fresh `(random-uuid)` in the fold, for the same
+   ;; reason the correlation id itself is a recordable coeffect (EP-0017): a
+   ;; value that lands in durable machine state has to survive replay, and a
+   ;; snapshot-resident counter does by construction.
+   [:next-token     :int]
    [:error          [:maybe :any]]
    ;; The runtime binds a declaratively-spawned actor's id into the SPAWNING
    ;; machine's own :data here, keyed by the :spawn-bearing state's path
@@ -181,16 +199,17 @@
 
 (def LocalRequestFailure
   "A request outcome the connection machine itself minted — a socket drop
-   (`:ws/connection-lost`) or an elapsed deadline (`:ws/timeout`) failing a
-   still-waiting request. Closed tight, `:ok` pinned false, the error a
-   member of the two local kinds, and `:origin :ws/local` to say whose
-   truth it is. No wire frame can reach this arm: `:origin` is stamped
-   after receipt, never read off the frame."
+   (`:ws/connection-lost`), an elapsed deadline (`:ws/timeout`), or a second
+   registration taking over an id this one still held (`:ws/superseded`).
+   Closed tight, `:ok` pinned false, the error a member of the three local
+   kinds, and `:origin :ws/local` to say whose truth it is. No wire frame
+   can reach this arm: `:origin` is stamped after receipt, never read off
+   the frame."
   [:map {:closed true}
    [:origin     [:= :ws/local]]
    [:request-id :any]
    [:ok         [:= false]]
-   [:error      [:enum :ws/connection-lost :ws/timeout]]])
+   [:error      [:enum :ws/connection-lost :ws/timeout :ws/superseded]]])
 
 (def RequestOutcome
   "What may land on the request-reply callback (`:ws.app/request-reply`):
