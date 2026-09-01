@@ -41,15 +41,22 @@ those in place emits output v2 **rejects at namespace load**
 mechanical and flags the rest (`rf2-8odvg`):
 
 - **The standard `path` constructor is the one mechanical lowering.**
-  `(rf/path p…)` (any alias; args flattened as v1 `path` did) becomes the
-  framework factory ref `[:rf.interceptor/path [p…]]` — recognised in
+  `(rf/path p…)` (args flattened as v1 `path` did) becomes the framework
+  factory ref `[:rf.interceptor/path [p…]]` — recognised in
   metadata-`:interceptors`, positional-vector, bare-middle, and
-  metadata-plus-vector source shapes. Positional chains are wrapped (or
-  merged) into the one metadata-map `:interceptors` form; entry declaration
-  order is preserved.
+  metadata-plus-vector source shapes. The call head must actually **resolve
+  to `re-frame.core/path`** through the file's ns form — the full namespace,
+  an `:as` alias of it, or a bare `path` it `:refer`s (`:refer :all` counts).
+  A custom function that merely shares the simple name `path` — say
+  `(app.interceptors/path :tenant)` — is *not* the standard constructor: it
+  flags like any other custom inline call below rather than being silently
+  replaced (`rf2-8odvg` reopen). Positional chains are wrapped (or merged)
+  into the one metadata-map `:interceptors` form; entry declaration order is
+  preserved.
 - **Entries that are already v2 refs are preserved verbatim.**
 - **Anything else flags the whole site** (`:flag :interceptors`, source
-  unchanged): a custom value, a var, `(rf/debug)`, a `path` call with a
+  unchanged): a custom value, a var, `(rf/debug)`, a `path` call whose head
+  does not resolve to `re-frame.core/path`, a standard `path` call with a
   non-literal arg — its registered id cannot be derived without author
   intent, so it is an unresolved **M-70 Type B** finding. Register the
   interceptor with `reg-interceptor`, reference it by id, and re-run. The
