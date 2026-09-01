@@ -46,6 +46,31 @@
 // matching string with its expanded cache entry, memoising to keep
 // shared subtrees shared in the reconstructed tree.
 //
+// ## Reference grammar (rf2-kjv05) — MIRRORED, not invented here
+//
+// Occupying the namespace is not the same as owning it: an ordinary
+// payload value can spell `de-dupe.cache/…` — a symbol a re-frame app
+// holds in app-db, or, once JSON has erased the symbol/string
+// distinction, a plain string of that spelling. A PREFIX-only decoder
+// reads all of those as references and turns payload data into another
+// subtree, into `undefined`, or into a thrown missing-entry error. So in
+// VALUE position a token `de-dupe.cache/<name>` is
+//
+//   - a REFERENCE to slot N, when `<name>` is exactly `cache-<digits>`;
+//   - an ESCAPED LITERAL of `de-dupe.cache/<rest>`, when `<name>` is
+//     `!<rest>` — strip one `!`;
+//   - ordinary payload data otherwise (passed through verbatim).
+//
+// This mirrors `re-frame.mcp-base.dedup`, which is where the grammar is
+// stated normatively (`tools/mcp-base/spec/dedup.md` §Reference
+// grammar); the encoder escapes every payload token that would
+// otherwise read as one of the first two forms, so a conformant
+// server's output is unambiguous by construction.
+//
+// A `cache-<digits>` token is a reference whether or not the table holds
+// that slot, so a truncated or hand-mangled table still fails LOUD here
+// rather than being silently re-read as payload data.
+//
 // ## API
 //
 // `decodeDedupEnvelope(structuredContent)` — return the expanded
@@ -58,9 +83,27 @@
 const DEDUP_TABLE_KEY = 'rf.mcp/dedup-table';
 const CACHE_NS_PREFIX = 'de-dupe.cache/';
 const ROOT_CACHE_ID = 'de-dupe.cache/cache-0';
+const ESCAPE_MARKER = '!';
+
+// The allocator's own spelling, anchored at both ends. Anchoring is the
+// whole fix: `startsWith(CACHE_NS_PREFIX)` matched every payload value
+// in the namespace, not just the ids `make-cache-element` emits.
+const CACHE_REF_RE = /^de-dupe\.cache\/cache-\d+$/;
 
 function isCacheRefString(v) {
-  return typeof v === 'string' && v.startsWith(CACHE_NS_PREFIX);
+  return typeof v === 'string' && CACHE_REF_RE.test(v);
+}
+
+// Strip ONE escape marker from an escaped literal; every other value is
+// returned unchanged. The inverse of the encoder's escape, and reversible
+// under repetition — a payload token spelled `de-dupe.cache/!cache-1`
+// arrives as `de-dupe.cache/!!cache-1` and sheds exactly one marker.
+function unescapeToken(v) {
+  if (typeof v !== 'string' || !v.startsWith(CACHE_NS_PREFIX)) return v;
+  const name = v.slice(CACHE_NS_PREFIX.length);
+  return name.startsWith(ESCAPE_MARKER)
+    ? CACHE_NS_PREFIX + name.slice(ESCAPE_MARKER.length)
+    : v;
 }
 
 // Distinct in-progress sentinel. Installed in the memo
@@ -111,8 +154,9 @@ function expandCache(cache) {
       }
       return out;
     }
-    // Scalars (numbers, booleans, null, non-ref strings) pass through.
-    return v;
+    // Scalars (numbers, booleans, null, non-ref strings) pass through —
+    // save for an escaped literal, which sheds one marker here.
+    return unescapeToken(v);
   }
 
   function expandEntry(cacheId) {

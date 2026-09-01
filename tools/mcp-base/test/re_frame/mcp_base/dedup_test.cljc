@@ -183,6 +183,121 @@
        (is (= payloads results)
            "32 concurrent encodes each round-trip to their own payload"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-kjv05 — a payload value that OCCUPIES the reference namespace is data.
+;;
+;; The decoder used to classify every symbol namespaced `de-dupe.cache` as a
+;; reference to a cache slot, so an ordinary payload symbol was aliased to
+;; whatever that slot held: nil when the slot was absent, somebody else's
+;; subtree when it was not. `expand` therefore was not the exact inverse the
+;; codec promises, for payloads a re-frame app can legitimately hold. Every
+;; test below is forced through a REAL wrap by an unrelated repeated subtree —
+;; the collision is not itself a dedup opportunity, so without that control
+;; `dedup-value` would return the payload verbatim and the assertions would
+;; pass vacuously against a codec that never ran.
+;; ---------------------------------------------------------------------------
+
+(deftest payload-symbols-in-the-reference-namespace-round-trip-as-data
+  (let [shared  {:big [:repeat :me]}
+        payload {:literal    'de-dupe.cache/not-a-ref
+                 :look-alike 'de-dupe.cache/cache-1
+                 :a          shared
+                 :b          shared}
+        out     (dedup/dedup-value payload true)
+        cache   (get out vocab/dedup-table-key)
+        back    (dedup/expand cache)]
+    (testing "non-vacuity — the unrelated repeated subtree really did wrap"
+      (is (map? out))
+      (is (contains? out vocab/dedup-table-key)
+          "without a real wrap the round-trip below proves nothing"))
+    (testing "expand is the exact inverse"
+      (is (= payload back)))
+    (testing "both literals come back as SYMBOLS with their exact values"
+      (is (symbol? (:literal back)))
+      (is (= 'de-dupe.cache/not-a-ref (:literal back)))
+      (is (symbol? (:look-alike back)))
+      (is (= 'de-dupe.cache/cache-1 (:look-alike back))
+          "a generated-LOOKING payload symbol is still payload"))))
+
+(deftest colliding-payload-tokens-are-escaped-on-the-wire
+  ;; The wire spelling itself, pinned here because the Node conformance
+  ;; decoder's fixtures mirror it (tools/mcp-conformance/test/
+  ;; dedup-envelope.test.cjs). In ONE cache, `cache-1` in value position is a
+  ;; reference and `!cache-1` is the payload symbol that merely looks like one.
+  (let [shared  {:big [:repeat :me]}
+        payload {:literal    'de-dupe.cache/not-a-ref
+                 :look-alike 'de-dupe.cache/cache-1
+                 :a          shared
+                 :b          shared}
+        cache   (dedup/de-dupe-eq payload)
+        root    (get cache 'de-dupe.cache/cache-0)]
+    (testing "a look-alike token carries one escape marker"
+      (is (= 'de-dupe.cache/!cache-1 (:look-alike root))))
+    (testing "an ordinary token in the namespace is left alone — it reads as data already"
+      (is (= 'de-dupe.cache/not-a-ref (:literal root))))
+    (testing "the genuine reference names a real slot, and both occurrences share it"
+      (let [ref (:a root)]
+        (is (= 2 (count cache)) "root plus the one pooled subtree")
+        (is (= (dedup/make-cache-element 1) ref)
+            "the allocated id is cache-1 — the very spelling the payload literal carries")
+        (is (= ref (:b root)) "both occurrences point at the one slot")
+        (is (= shared (get cache ref)) "and that slot holds the shared subtree")))))
+
+(deftest escaping-is-reversible-under-repetition
+  ;; A payload token already spelled like an ESCAPE must not be mistaken for
+  ;; one on the way back: it gains a marker on encode and sheds exactly one on
+  ;; decode. Without this the escape would be a second aliasing bug wearing the
+  ;; first one's clothes.
+  (let [shared  {:big [:repeat :me]}
+        payload {:once   'de-dupe.cache/!cache-1
+                 :twice  'de-dupe.cache/!!cache-1
+                 :other  'de-dupe.cache/!not-a-ref
+                 :a      shared
+                 :b      shared}
+        out     (dedup/dedup-value payload true)]
+    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (= payload (dedup/expand (get out vocab/dedup-table-key))))))
+
+(deftest payload-strings-that-spell-a-reference-round-trip-as-strings
+  ;; JSON erases the symbol/string distinction — Cheshire renders the symbol
+  ;; `de-dupe.cache/cache-1` and the string "de-dupe.cache/cache-1" as one JSON
+  ;; string — so the codec escapes both, and the escape is TYPE-preserving: a
+  ;; string comes back a string, never a symbol.
+  (let [shared  {:big [:repeat :me]}
+        payload {:s     "de-dupe.cache/cache-1"
+                 :plain "de-dupe.cache/not-a-ref"
+                 :a     shared
+                 :b     shared}
+        out     (dedup/dedup-value payload true)
+        back    (dedup/expand (get out vocab/dedup-table-key))]
+    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (= payload back))
+    (is (string? (:s back)) "an escaped string comes back a string, not a symbol")
+    (is (= "de-dupe.cache/cache-1" (:s back)))
+    (is (= "de-dupe.cache/not-a-ref" (:plain back)))))
+
+(deftest colliding-literals-survive-inside-a-pooled-subtree
+  ;; The collision need not sit at the root. A look-alike token nested inside
+  ;; the very subtree that gets pooled must still round-trip — the escape runs
+  ;; before the counting pass, so both passes hash the same escaped subtree and
+  ;; the pooling still fires.
+  (let [shared  {:tag 'de-dupe.cache/cache-1 :body (vec (range 20))}
+        payload {:a shared :b shared :c [shared]}
+        out     (dedup/dedup-value payload true)
+        cache   (get out vocab/dedup-table-key)]
+    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (< 1 (count cache))
+        "the pooling still fires on a subtree carrying a look-alike token")
+    (is (= payload (dedup/expand cache)))))
+
+(deftest a-reference-namespace-payload-alone-is-not-a-dedup-opportunity
+  ;; The complement, and the reason the tests above force a wrap: a payload
+  ;; whose only remarkable feature is a look-alike token has no repeated
+  ;; subtree, so `dedup-value` returns it verbatim and nothing can alias it.
+  (let [v {:literal 'de-dupe.cache/cache-1 :n 1}]
+    (is (identical? v (dedup/dedup-value v true))
+        "no repeats ⇒ verbatim passthrough, escaping and all")))
+
 (deftest expand-round-trips-every-collection-kind
   ;; The codec's structure-preserving guarantee, now ours to keep: lists,
   ;; seqs, sets, nested maps and map entries all rebuild as themselves.

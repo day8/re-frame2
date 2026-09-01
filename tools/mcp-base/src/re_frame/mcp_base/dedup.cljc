@@ -63,6 +63,39 @@
   schemas validate against it, and Spec 009 / Tool-Pair document it.
   Renaming it would be a wire break bought for nothing.
 
+  ## Reference grammar — why a payload symbol is not a reference
+
+  Occupying a namespace is not the same as owning it: a re-frame app may
+  legitimately hold `de-dupe.cache/whatever` in app-db, and a decoder
+  that reads EVERY symbol in the namespace as a slot reference turns
+  that value into nil, into somebody else's subtree, or into a thrown
+  error (rf2-kjv05). So references are spelled, not merely namespaced.
+  In VALUE position a token `de-dupe.cache/<name>` is
+
+  - a REFERENCE to slot N, when `<name>` is exactly `cache-<digits>`;
+  - an ESCAPED LITERAL of `de-dupe.cache/<rest>`, when `<name>` is
+    `!<rest>`;
+  - ordinary payload data otherwise.
+
+  The encoder escapes — one leading `!` — every payload token that would
+  otherwise read as one of the first two forms, so its own output is
+  unambiguous by construction. Escaping is reversible under repetition
+  (a payload `de-dupe.cache/!cache-1` rides out as `…/!!cache-1`), which
+  is what makes the round-trip exact rather than merely usually-exact.
+
+  Both a SYMBOL and a same-spelled STRING are escaped, because JSON
+  erases the distinction between them: Cheshire renders the symbol
+  `de-dupe.cache/cache-1` and the string \"de-dupe.cache/cache-1\" as one
+  JSON string, so escaping only symbols would leave the JSON projection
+  inexact even though the Clojure round-trip held. Cache KEYS are
+  unaffected — they are the allocator's own `cache-N` symbols and never
+  carry an escape.
+
+  A missing reference stays a LOUD failure: `cache-<digits>` is a
+  reference whether or not the table holds that slot, so a truncated or
+  hand-mangled table is rejected by the Node decoder rather than
+  silently re-read as data.
+
   ## Idempotence on no-dedup-opportunity
 
   A payload with no repeated subtrees deduplicates to a one-entry cache
@@ -91,7 +124,8 @@
     (its CLJS test corpus's shared test-helper ns).
   - story-mcp keeps it in `re-frame.story-mcp.test-support`
     (its JVM test corpus's shared test-helper ns)."
-  (:require [re-frame.mcp-base.vocab :as vocab])
+  (:require [clojure.string :as str]
+            [re-frame.mcp-base.vocab :as vocab])
   #?(:clj (:import [java.util HashMap])))
 
 ;; ---------------------------------------------------------------------------
@@ -142,6 +176,15 @@
 ;;   4. Everything not on the public surface — the walkers, the bucket store,
 ;;      the counting pass — is now `^:private`. The public codec is
 ;;      `cache-element-ns`, `make-cache-element`, `de-dupe-eq` and `expand`.
+;;   5. Upstream classified a value as a reference on its NAMESPACE alone, so
+;;      an ordinary payload symbol in `de-dupe.cache` was aliased to a cache
+;;      slot and `expand` stopped being the exact inverse it promised
+;;      (rf2-kjv05). References are now spelled `cache-<digits>` and colliding
+;;      payload tokens are escaped by the encoder — see the namespace
+;;      docstring's §Reference grammar. This IS a wire change, taken as one
+;;      pre-alpha cut across the codec, the spec and the Node decoder; the
+;;      cache-element namespace, the `cache-N` key spelling and the
+;;      `:rf.mcp/dedup-table` envelope are untouched.
 ;;
 ;; ---------------------------------------------------------------------------
 
@@ -157,12 +200,88 @@
   [id]
   (symbol cache-element-ns (str "cache-" id)))
 
+;; ---- Reference grammar (rf2-kjv05) -----------------------------------------
+;;
+;; See the namespace docstring's §Reference grammar for the WHY. In value
+;; position `de-dupe.cache/cache-<digits>` is a reference, `de-dupe.cache/!…`
+;; is an escaped literal, and everything else in the namespace is data.
+
+(def ^:private cache-element-prefix
+  "`de-dupe.cache/` — the same wire namespace as `cache-element-ns`, in
+  the flat prefix form JSON leaves behind once it has erased the
+  symbol/string distinction. Derived from `cache-element-ns` so the two
+  spellings cannot drift apart."
+  (str cache-element-ns "/"))
+
+(def ^:private escape-marker
+  "The single character prefixed to a payload token that would otherwise
+  read as a reference (or as an escape)."
+  "!")
+
+(defn ^:private slot-name?
+  "True when `nm` is a name the id allocator emits — `cache-<digits>`."
+  [nm]
+  (boolean (re-matches #"cache-\d+" nm)))
+
+(defn ^:private escaped-name?
+  "True when `nm` carries the escape marker."
+  [nm]
+  (str/starts-with? nm escape-marker))
+
+(defn ^:private token-name
+  "For a SYMBOL or STRING spelled `de-dupe.cache/<name>`, that `<name>`;
+  nil for every other value. Strings count as well as symbols because
+  JSON collapses the two onto one spelling — see the namespace
+  docstring's §Reference grammar."
+  [x]
+  (cond
+    (symbol? x) (when (= cache-element-ns (namespace x)) (name x))
+    (string? x) (when (str/starts-with? x cache-element-prefix)
+                  (subs x (count cache-element-prefix)))
+    :else       nil))
+
+(defn ^:private retoken
+  "A token of the same TYPE as `x` (symbol in, symbol out; string in,
+  string out) spelled `de-dupe.cache/<nm>`. Type preservation is what
+  keeps the Clojure round-trip exact while the JSON one flattens."
+  [x nm]
+  (if (symbol? x)
+    (symbol cache-element-ns nm)
+    (str cache-element-prefix nm)))
+
 (defn ^:private cache-element?
-  "True when `x` is a cache-element symbol (a reference to another slot
-  in the same cache) rather than an ordinary value."
+  "True when `x` is a cache-element symbol — a reference to another slot
+  in the same cache — rather than an ordinary value. The allocator's
+  exact `cache-<digits>` name is required, not merely the namespace: an
+  ordinary payload symbol such as `de-dupe.cache/not-a-ref` shares the
+  namespace and is DATA. Payload tokens that WOULD spell a reference are
+  escaped on the way in (`escape-token`), so the encoder never emits an
+  ambiguous one."
   [x]
   (and (symbol? x)
-       (= cache-element-ns (namespace x))))
+       (= cache-element-ns (namespace x))
+       (slot-name? (name x))))
+
+(defn ^:private escape-token
+  "One `!` in front of any payload token that would otherwise read as a
+  reference or as an escape; every other value is returned unchanged.
+  Reversible under repetition, so a payload token already spelled
+  `de-dupe.cache/!cache-1` rides out as `…/!!cache-1` and comes back."
+  [x]
+  (if-let [nm (token-name x)]
+    (if (or (slot-name? nm) (escaped-name? nm))
+      (retoken x (str escape-marker nm))
+      x)
+    x))
+
+(defn ^:private unescape-token
+  "The exact inverse of `escape-token` — strip ONE escape marker."
+  [x]
+  (if-let [nm (token-name x)]
+    (if (escaped-name? nm)
+      (retoken x (subs nm (count escape-marker)))
+      x)
+    x))
 
 ;; ---- Mutable hash-bucket store (platform-specific) -------------------------
 ;;
@@ -301,6 +420,16 @@
         (bucket-set! store h (conj bucket [element cache-id]))
         (with-meta element {:cache-id cache-id})))))
 
+(defn ^:private escape-literals
+  "`escape-token` applied throughout `form`.
+
+  Runs BEFORE the counting pass, not folded into it: the counter hashes
+  subtrees top-down, so escaping later would leave the two passes
+  hashing different values for any subtree holding a colliding literal,
+  and the pooling would quietly stop firing for exactly those subtrees."
+  [form]
+  (side-prewalk escape-token (fn [_org-element element] element) form))
+
 (defn de-dupe-eq
   "Compress `form` into a flat cache map keyed by `de-dupe.cache/cache-N`
   symbols, pooling subtrees by EQUALITY. Slot `cache-0` always holds the
@@ -308,11 +437,17 @@
   has been replaced, at each occurrence, by its cache-element symbol.
   `expand` is the exact inverse.
 
+  Payload tokens that would themselves read as references are escaped
+  first (`escape-literals`), so the cache the encoder emits is
+  unambiguous by construction — see the namespace docstring's §Reference
+  grammar.
+
   A form with no repeated subtrees yields a one-entry root-only cache —
   see `no-substitutions?`, which is how `dedup-value` avoids growing a
   payload it cannot shrink."
   [form]
-  (let [counter          (volatile! 1)
+  (let [form             (escape-literals form)
+        counter          (volatile! 1)
         compressed-cache (volatile! {})
         candidate-counts (count-cacheable-elements form)
         values-store     (new-bucket-store)
@@ -352,7 +487,10 @@
                 (seq? value)           (doall (map expand-value value))
                 (record?* value)       (reduce (fn [r x] (conj r (expand-value x))) value value)
                 (coll? value)          (into (empty value) (map expand-value value))
-                :else                  value))
+                ;; Scalars — and the one scalar shape that is not simply
+                ;; itself: an escaped literal, which sheds one marker
+                ;; here (§Reference grammar).
+                :else                  (unescape-token value)))
             (expand-entry [cache-id]
               (if (contains? @expanded cache-id)
                 (get @expanded cache-id)
