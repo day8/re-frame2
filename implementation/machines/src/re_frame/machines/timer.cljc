@@ -307,7 +307,7 @@
                    (some? sub-vec)      (assoc :rf.sub/id      (first sub-vec)
                                                :rf.sub/query-v (vec sub-vec))))))
 
-(defn- successor-published?-fn
+(defn successor-published?-fn
   "Build the same-id-successor detection predicate for `frame-id`, captured at
   the cancellation entry BEFORE the callback-bearing `:rf.machine.timer/cancelled`
   trace (rf2-rbxdxa). Returns a 0-arity predicate true once a `destroy-frame!` +
@@ -316,6 +316,16 @@
   incarnation. When the frame is absent at capture (nil token) the predicate is
   `(constantly false)`, so an ordinary cancellation with no successor releases its
   shared `(frame,query-v)` subscription ref fully.
+
+  PUBLIC because one batch spans two namespaces (rf2-jqvgp). Every other
+  multi-step timer operation both captures and consumes its owner inside this
+  file, but the SSR hydration reconcile's two phases are driven from
+  `re-frame.machines.hydrate/rearm-after-timers!` — cancel here, arm here, one
+  enumeration there. That caller captures ONCE with this fn and threads the
+  result into `cancel-timers-absent-from!` and every
+  `rearm-hydrated-after-timer!`, so the whole reconcile is bound to the
+  incarnation that owned the frame when it began rather than to a fresh capture
+  per phase and per iteration.
 
   Precise BY CONSTRUCTION: `frame-incarnation-token` mints a DISTINCT token per
   construction, so the predicate flips only on a genuine A→B incarnation swap,
@@ -488,14 +498,23 @@
   resolution / slot reservation / host arm, so a superseding reschedule installs
   NO A-derived host work (or subscription ref-count) into successor B. An INITIAL
   schedule supersedes an empty slot (no trace, no callback), so the recheck is a
-  no-op pass-through and the arm proceeds normally."
+  no-op pass-through and the arm proceeds normally.
+
+  rf2-jqvgp — an `:owner-gone?` option lets a MULTI-ARM caller supply the
+  incarnation it captured at batch entry instead of this fn capturing a fresh
+  one. A fresh capture is right for a standalone arm, but wrong inside a batch:
+  if an earlier step's cancellation already destroyed A and published same-id B,
+  a re-capture names B as the owner and the A-derived arm proceeds into it. The
+  SSR hydration reconcile is the one such caller."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
-   {:keys [emit-scheduled-trace?]}]
+   {:keys [emit-scheduled-trace? owner-gone?]}]
   (let [delay-source (transition/classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)
         ;; rf2-ijlhj — the owning incarnation, captured BEFORE the callback-bearing
         ;; `:on-supersede` cancel and rechecked before the durable arm below.
-        owner-gone?  (successor-published?-fn frame-id)
+        ;; rf2-jqvgp — a batch caller's own capture wins, so every arm in one
+        ;; batch is fenced by the incarnation that owned the frame at batch entry.
+        owner-gone?  (or owner-gone? (successor-published?-fn frame-id))
         ;; A region `:after`'s `invoke-id` is region-PREFIXED
         ;; (`prefix-region-invoke-id` prepends the region name). Record that
         ;; region name in the entry so `emit-cancelled!` can strip it before
@@ -795,10 +814,19 @@
   (Spec 011 §`:after` is no-op under SSR), and the caller has already
   refused a `:server` frame, so `server?` is passed `false`. Idempotent
   through the ordinary timer-table key — a second hydration supersedes
-  the first arm rather than duplicating it."
-  [frame-id parent-id invoke-id state delay-key epoch snapshot]
+  the first arm rather than duplicating it.
+
+  rf2-jqvgp — `owner-gone?` is the reconcile's ONE captured incarnation,
+  threaded down instead of re-captured here. Each arm's leading
+  `:on-supersede` cancel is callback-bearing, so arm N can be the step that
+  destroys A and publishes same-id B; a re-capture at arm N+1 would name B the
+  owner and install an A-derived timer into it. The caller rechecks the same
+  predicate between iterations, so a lost incarnation stops the whole arm phase
+  rather than only the arm that lost it."
+  [frame-id parent-id invoke-id state delay-key epoch snapshot owner-gone?]
   (schedule-after-timer! frame-id parent-id invoke-id state delay-key epoch
-                         false snapshot {:emit-scheduled-trace? true})
+                         false snapshot {:emit-scheduled-trace? true
+                                         :owner-gone?           owner-gone?})
   nil)
 
 (defn cancel-timers-absent-from!
@@ -839,13 +867,19 @@
   the `[k entry]` pairs, cancels each by its snapshotted attempt token
   (`cancel-snapshotted-entry!`, never re-reading the current occupant), and
   short-circuits once a callback-published same-id successor B has replaced
-  the incarnation captured at entry."
-  [frame-id live-decls present-actors]
-  (let [live        (into #{}
-                          (map (fn [[parent-id invoke-id delay-key]]
-                                 (after-timer-key parent-id invoke-id delay-key)))
-                          live-decls)
-        owner-gone? (successor-published?-fn frame-id)]
+  the incarnation captured at entry.
+
+  rf2-jqvgp — that incarnation is the CALLER'S, passed in rather than captured
+  here, because this batch is only the first half of one operation. Capturing
+  locally left the fence's scope equal to this loop: the caller's arm phase then
+  ran unfenced against whatever incarnation the last cancellation had left
+  behind. `owner-gone?` is now the same predicate the arm phase rechecks, so
+  cancel and arm are bound to one incarnation."
+  [frame-id live-decls present-actors owner-gone?]
+  (let [live (into #{}
+                   (map (fn [[parent-id invoke-id delay-key]]
+                          (after-timer-key parent-id invoke-id delay-key)))
+                   live-decls)]
     (loop [pairs (into []
                        (remove (fn [[k _]] (contains? live k)))
                        (get @after-timers frame-id))]

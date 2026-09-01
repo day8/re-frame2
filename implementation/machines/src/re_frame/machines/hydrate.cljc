@@ -274,25 +274,54 @@
   epoch restore keeps its opposite contract — `:machines/on-frame-restored!`
   cancels and never re-arms, and shares no callback with this seam.
 
+  ## One incarnation for the whole reconcile
+
+  Both phases emit callback-bearing traces —
+  `:rf.machine.timer/cancelled` in phase 1 and again from each arm's
+  leading `:on-supersede` in phase 2 — and a listener on either can
+  `destroy-frame!` this frame and publish a same-id successor B. The
+  declarations being reconciled are A's: they were enumerated from the
+  runtime-db A held. Installing them into B would be host work derived
+  from a frame that no longer exists, which is the same class of leak the
+  cancel half exists to close, arriving from the other direction.
+
+  So the reconcile captures the owning incarnation ONCE, before either
+  phase, and every callback-bearing step is fenced by that ONE predicate
+  (rf2-jqvgp): the cancel batch short-circuits on it, the arm loop
+  rechecks it before each declaration, and each arm carries it down into
+  `schedule-after-timer!` in place of a fresh capture. Per-step capture
+  is what fails here, and it fails silently: each step alone is correct
+  about the owner it captured, and B — a live frame with the right id —
+  accepts the work without complaint. The loop is explicit rather than a
+  `doseq` for exactly that recheck.
+
   Returns nil; the only observables are the timer table, one
   `:rf.machine.timer/scheduled` trace per armed declaration, and one
   `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
   (when (and frame-id
              (not= :server (or (:platform (frame/frame-meta frame-id)) :client)))
-    (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
-                            (paths/snapshot-path))
-          live      (live-declarations snapshots)]
+    ;; Captured BEFORE anything callback-bearing runs, so it names the
+    ;; incarnation whose runtime-db the declarations below are read from.
+    (let [owner-gone? (timer/successor-published?-fn frame-id)
+          snapshots   (get-in (frame/frame-runtime-db-value frame-id)
+                              (paths/snapshot-path))
+          live        (live-declarations snapshots)]
       ;; PHASE 1 — release the host work the replacement snapshots dropped.
       ;; Before the arm, so a declaration that survives is superseded by its
       ;; own re-arm rather than cancelled and re-created.
       (timer/cancel-timers-absent-from!
         frame-id
         (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
-        (set (keys snapshots)))
-      ;; PHASE 2 — arm / supersede the live set.
-      (doseq [decl live]
-        (timer/rearm-hydrated-after-timer!
-          frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
-          (:delay-key decl) (:epoch decl) (:snapshot decl)))))
+        (set (keys snapshots))
+        owner-gone?)
+      ;; PHASE 2 — arm / supersede the live set, while the frame is still the
+      ;; one these declarations were enumerated from.
+      (loop [decls live]
+        (when (and (seq decls) (not (owner-gone?)))
+          (let [decl (first decls)]
+            (timer/rearm-hydrated-after-timer!
+              frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
+              (:delay-key decl) (:epoch decl) (:snapshot decl) owner-gone?))
+          (recur (rest decls))))))
   nil)
