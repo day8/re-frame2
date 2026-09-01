@@ -144,13 +144,9 @@ The arguments mirror `reg-flow` / `clear-flow` exactly: the same 3-slot triple, 
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
 ```
 
-#### The one-event lag — the least-obvious thing about flows
+#### Lifecycle effects settle on the dispatching frame
 
-> A flow registered with `:rf.fx/reg-flow` **does not compute its initial output during that event.** It first fires on the **next** drain on the same frame.
-
-The reason is structural: the `:fx` walk is the last drain stage, and it runs after the flow transform has already evaluated this event's flows. The newly-registered flow was not in the registry when the transform walked, so it has nothing to compute on this event. It computes on the next drain on that frame.
-
-In the common case the lag is invisible: you register a flow in an `:enter`-style handler, and the user's next interaction materialises the output. When you need the initial value now, dispatch a follow-up no-op event from the same handler to re-trigger the drain. The flow is in the registry by the time that dispatched event drains:
+> A flow registered with `:rf.fx/reg-flow` **has its initial output by the time that dispatch settles**, and a flow cleared with `:rf.fx/clear-flow` **has its output path vacated by the same boundary**. There is no follow-up event to write.
 
 ```clojure
 (rf/reg-event :wizard/enter-step-2
@@ -160,13 +156,17 @@ In the common case the lag is invisible: you register a flow in an `:enter`-styl
     {:fx [[:rf.fx/reg-flow [:wizard/order-total
                             {:inputs      [[:wizard :qty] [:wizard :unit-price]]
                              :output-path [:wizard :order-total]}
-                            (fn [qty unit-price] (* qty unit-price))]]
-          [:dispatch [:wizard/settle]]]}))   ;; flow computes on THIS drain
-
-(rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
+                            (fn [qty unit-price] (* qty unit-price))]]]}))
+;; [:wizard :order-total] is populated when this dispatch returns.
 ```
 
-The one-event lag before a newly registered flow first computes preserves the one-install-per-event invariant.
+How, and why it costs nothing you were relying on. The `:fx` walk is the last drain stage — it runs *after* the flow transform has already evaluated this event's flows — so the registry mutation lands after the pass that would have acted on it. Rather than re-run the transform (which would need a second app-db install in one event), the walk enqueues one framework-private settling event on the same frame. Run-to-completion drains it inside the same pass, so it has settled before your dispatch returns.
+
+Three consequences worth knowing:
+
+- **One app-db install per event still holds.** The settle is a separate event with its own single install, not a second write inside the registering one.
+- **A failing `:derive` aborts the settle, not the registration.** If a newly registered flow's `:derive` throws, the event that registered it has already committed its own `:db`; the throw surfaces through the ordinary `:rf.error/flow-eval-exception` path, with the same `:phase` discriminator (`:derive` vs `:output-write`) any other drain would report.
+- **It is idempotent.** Settling walks the normal dirty check, so a settle over an already-settled frame recomputes nothing and installs nothing — including on code that still dispatches its own no-op nudge from an earlier version of this contract.
 
 ## Introspection and tooling
 

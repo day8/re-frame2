@@ -112,11 +112,18 @@
                 (fn [subtotal discount-rate]
                   (swap! new-total-runs inc)
                   (+ 41 (Math/round (* subtotal (- 1 (or discount-rate 0)))))))))]
+      ;; A local do-nothing event, purely to drive one flow walk without
+      ;; disturbing the cart. The example itself no longer carries such an
+      ;; event: flow-lifecycle effects settle on their own dispatch now (Spec
+      ;; 013 §Sequencing), so an app never needs one. This test does, because
+      ;; it is probing the hot-reload seam rather than a lifecycle effect —
+      ;; there is no `:rf.fx/reg-flow` here to settle.
+      (rf/reg-event ::walk (fn [{:keys [db]} _] {:db db}))
       (with-redefs [example/install-flows! rebuilt-install-flows!]
         ;; NON-VACUITY, half one: the rebuild REPLACING install-flows! is not
         ;; enough — this is the bug. Nothing has called the new function, so
         ;; a walk still computes with the old derive.
-        (rf/dispatch-sync [:cart/touch] {:frame :rf/default})
+        (rf/dispatch-sync [::walk] {:frame :rf/default})
         (is (= 11500 (:total (cart)))
             "before the seam runs, the live frame still computes with the
              PREVIOUS build's derive — replacing the function registers nothing")

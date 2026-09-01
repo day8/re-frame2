@@ -192,7 +192,7 @@ A node's `:evaluation` is a **single policy or a set** — a process with more t
 Rules:
 
 1. `:on-demand` derivations MUST NOT cause durable state changes merely because a view read them. (Reading a resource selector does not start resource work.)
-2. `:after-event` derivations run inside the event drain and participate in the event's atomicity rules ([013 §Drain integration](013-Flows.md#drain-integration)). For an already-registered flow this means **same-commit materialization** — there is no general one-event staleness (the one exception is a flow registered mid-event, [013 §Sequencing — the one-event lag](013-Flows.md#sequencing--the-one-event-lag)).
+2. `:after-event` derivations run inside the event drain and participate in the event's atomicity rules ([013 §Drain integration](013-Flows.md#drain-integration)). For an already-registered flow this means **same-commit materialization**, and there is no one-event staleness anywhere: a flow registered mid-event via `:rf.fx/reg-flow` settles on its own dispatch rather than the next one ([013 §Sequencing](013-Flows.md#sequencing--settling-on-the-dispatching-frame)), so its materialization boundary is the dispatch too — one event later than an already-registered flow's, never one event late.
 3. `:on-reply` processes run only from causal reply events or equivalent framework-owned completions; **stale replies MUST be suppressible by declared identity** ([016](016-Resources.md), [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md)).
 4. `:on-route` processes MUST declare the route fact, nav-token, owner, or route lifecycle boundary they depend on ([012](012-Routing.md)).
 5. `:scheduled` processes MUST separate durable scheduling facts from host-transient timer handles.

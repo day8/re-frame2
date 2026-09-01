@@ -154,9 +154,9 @@
 ;; It's registered ONCE at boot via `:rf.fx/reg-flow` from `:editor/register-flow`
 ;; (dispatched by `:app/initialise`, not at ns-load and not per route entry), so it
 ;; binds to the boot frame and lives as long as it — the same lifetime as the
-;; `[:editor …]` slice it derives over. The flow's first walk fires on the next
-;; drain; a fresh editor starts invalid and clean anyway, so that one-event lag
-;; never carries a stale value.
+;; `[:editor …]` slice it derives over. Its first walk settles on that same
+;; registering dispatch, so `[:editor :can-submit?]` is populated before
+;; `:app/initialise` returns.
 
 ;; This value uses the canonical `[flow-id metadata derive-fn]` triple shared by
 ;; `reg-flow` and `:rf.fx/reg-flow`, so `[:rf.fx/reg-flow can-submit-flow]`

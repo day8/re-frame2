@@ -39,11 +39,11 @@ Two smaller payoffs come along too, both about how ordinary a flow's output is:
 - a handler reads it with a plain `get-in` — `:checkout/place-order` reads `[:cart :total]` straight off `db`, with no subscribe and no special flow accessor. The flow's output is just app-db state.
 - a view reads it through a plain subscription — the subscriptions over `[:cart :subtotal]` and `[:cart :total]` are ordinary app-db reads; a flow publishes no subscription of its own. The `:output-path` is the contract, and anything that reads app-db can read it.
 
-### One wrinkle worth knowing: the one-event lag
+### Toggling settles on the dispatch that does it
 
-A flow registered mid-event does not compute during that event. Effects run after the event's flow pass is already done, so a freshly-registered flow produces its first output only on the next drain.
+A flow registered mid-event has its first output by the time that dispatch returns, and a cleared flow's output path is vacated by the same boundary. So `:cart/apply-discount` is one effect and nothing else — the discount rate and the total it feeds are both correct the moment the handler is done, and `:cart/remove-discount` puts them back the same way.
 
-The discount handlers solve this with a small trick from the spec's `:wizard/settle` pattern. Right after registering (or clearing) the discount flow, they `[:dispatch [:cart/touch]]`. `:cart/touch` is a no-op — `(fn [{:keys [db]} _] {:db db})`, it writes nothing. Its only job is to cause a drain, so the flows re-run with the just-changed flow now visible, and the new total appears. The toggle is the registration; the no-op is the nudge that makes it show up.
+There is a little machinery under that. Effects run after the event's flow pass is already done, so the registration lands after the walk that would have used it. Rather than walk twice inside one event, the framework enqueues one private settling event on the same frame; run-to-completion drains it before your dispatch returns. You never see it, and you never write it.
 
 ## Files
 

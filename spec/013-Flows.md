@@ -428,8 +428,8 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 | Fx-id | Args | Effect |
 |---|---|---|
-| `:rf.fx/reg-flow` | The 3-slot triple `[flow-id metadata derive-fn]` (the same shape `reg-flow` takes) | Register the flow against the dispatching frame. Next drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). |
-| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:output-path` in that frame's `app-db`. Next drain's topsort observes the removal. |
+| `:rf.fx/reg-flow` | The 3-slot triple `[flow-id metadata derive-fn]` (the same shape `reg-flow` takes) | Register the flow against the dispatching frame. The settling drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)), so the flow's initial output is materialised before the dispatch settles — per [§Sequencing](#sequencing--settling-on-the-dispatching-frame). |
+| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:output-path` in that frame's `app-db`. The settling drain's topsort observes the removal, so the row and the value it owned go together. |
 
 ```clojure
 (rf/reg-event :wizard/enter-step-2
@@ -446,15 +446,20 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 **Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` metadata key — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
 
-### Sequencing — the one-event lag
+### Sequencing — settling on the dispatching frame
 
-> **This is the single least-obvious thing about flows. Read it before you reach for `:rf.fx/reg-flow`.** A flow registered mid-event does **not** compute its initial output during *that* event — it first fires on the **next** drain on the same frame.
+> **NORMATIVE.** A flow registered by `:rf.fx/reg-flow` **has its initial output materialised, and every dependent flow recomputed, by the time the dispatching event settles.** A flow cleared by `:rf.fx/clear-flow` **has its `:output-path` vacated, and every dependent flow recomputed against that absence, by the same boundary.** No application-authored follow-up event is required, and none may be required by any future revision of this section.
 
-`:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — and the `:fx` walk is the *last* drain stage, **after** the flow-transform `:after` has already evaluated for the current event (per [§Drain integration](#drain-integration), step 4 runs after step 2). The newly-registered flow was not in the per-frame registry when the flow transform walked it, so it cannot have computed. Its initial output therefore appears **one event after registration**, on the next drain on the same frame.
+`:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — and the `:fx` walk is the *last* drain stage, **after** the flow-transform `:after` has already evaluated for the current event (per [§Drain integration](#drain-integration), step 4 runs after step 2). So the registry mutation lands after the pass that would have acted on it. Left there, that is a one-drain lag with two arms, and the second is not merely late but incoherent: the registry row is already gone while the derived value it owned is still present.
 
-This lag is a **structural consequence of the [§Drain integration](#drain-integration) contract**. The flow transform rewrites the handler's *pending* `:db` effect as the outermost `:after` (step 2); the single deferred `:db` install (step 3) is the run's only `app-db` write; `:fx` walks last (step 4). Re-running the flow transform after `:fx` registered a new flow would require a *second* `app-db` install in the same event — breaking the "exactly one `:db` install per event" invariant ([§Drain integration](#drain-integration) property 4), the pending-effect-transform model ([§Resolved decisions §Flows transform the pending `:db` effect](#flows-transform-the-pending-db-effect-as-the-outermost-after-resolved)), and the atomic-commit contract ([§Failure semantics](#failure-semantics)). An async mid-event re-walk that would close the lag is deferred — see [§Open questions §Synchronous re-walk after `:rf.fx/reg-flow`](#synchronous-re-walk-after-rffxreg-flow).
+**How it settles.** When the `:fx` walk has registered or cleared at least one flow, the runtime enqueues **one** framework-private settling event on the dispatching frame after the walk completes. Run-to-completion drains it within the same pass, so it has settled before the originating dispatch returns. The settling event runs the **ordinary** interceptor chain and therefore the ordinary flow transform — the same topological sort and dirty check every other event gets. It contributes no `:db` effect of its own, so a settle over an already-settled frame recomputes nothing, installs nothing, and emits no `:rf.event/db-changed`.
 
-**Working with the lag.** In the common case the lag is invisible: you register a flow in `:enter` and the user's *next* interaction (which dispatches an event) materialises the output. When you genuinely need the initial value *now*, dispatch a follow-up event from the same handler whose only job is to re-trigger the drain — the flow computes on that drain:
+Four properties follow, and they are the reason this shape was chosen over re-running the transform inline:
+
+1. **Exactly one `app-db` install per event still holds.** The settle is a separately dequeued event with its own single install; nothing writes `app-db` twice inside the registering event. [§Drain integration](#drain-integration) property 4, the pending-effect-transform model ([§Resolved decisions §Flows transform the pending `:db` effect](#flows-transform-the-pending-db-effect-as-the-outermost-after-resolved)) and the atomic-commit contract ([§Failure semantics](#failure-semantics)) are all untouched.
+2. **The failure boundary stays where it belongs.** A newly registered flow whose `:derive` throws aborts the **settle**, not the event that registered it: the registering event's own `:db` write has already committed. The throw is reported through the ordinary `:rf.error/flow-eval-exception` path with the usual `:phase` discriminator (`:derive` vs `:output-write`) — see [§Failure semantics](#failure-semantics). There is no second failure path.
+3. **It is frame-scoped like any other event.** The settle is dispatched on the frame the effects ran against, so it can no more reach a sibling frame than any other event can ([§Frame-scoping](#frame-scoping)).
+4. **One settle per event, whatever the walk did.** A single `:fx` vector that clears one flow and registers two settles all three in one pass, in topological order, with one install — because a settle observes the registry as the *whole* walk left it.
 
 ```clojure
 (rf/reg-event :wizard/enter-step-2
@@ -462,17 +467,13 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
     {:fx [[:rf.fx/reg-flow [:step-2/computed
                             {:inputs      [[:step-2 :foo] [:step-2 :bar]]
                              :output-path [:step-2 :result]}
-                            (fn [foo bar] (compute foo bar))]]
-          ;; The flow is in the registry by the time THIS dispatched event
-          ;; drains — so the flow transform on :wizard/settle computes the
-          ;; initial output. Without this, :step-2/result stays unset until
-          ;; the user's next interaction.
-          [:dispatch [:wizard/settle]]]}))
-
-(rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
+                            (fn [foo bar] (compute foo bar))]]]}))
+;; [:step-2 :result] is populated when this dispatch settles.
 ```
 
-This is a deliberate, explicit step — not a hidden one. Most apps never need it.
+**The settling event is framework-private and is not API.** It is not registered — neither in the registrar nor in the EP-0023 image standard registry — so it adds no row to an application's event catalogue, tooling projection, or generated code; it is materialised through the router's unresolved-handler seam. Its id is nonetheless reserved (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces)) so an application registration cannot shadow it. Applications must not depend on its id, its presence in a trace stream, or its position in the queue. **The observable contract is the settle boundary stated above, not the transport that achieves it.**
+
+**Superseded.** Earlier revisions of this section specified the one-drain lag as normative and directed callers to dispatch a follow-up no-op event from the same handler. That workaround is retired: it is not required, and an application that still performs it is merely doing redundant work, since settling is idempotent under the dirty check.
 
 **`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:output-path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
 
@@ -530,7 +531,7 @@ The behaviours below are exercised by **realized** `spec/conformance/fixtures/fl
 
 ## Open questions
 
-> **SA-4 classification.** Both items below are **post-v1, untracked notes** per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md) — deferred design work the corpus tolerates shipping without resolving (the v1 design is settled — vector `:inputs`, lag-on-register), marking candidate enhancements rather than blocking gaps. Neither has a tracking bead filed yet, so **neither qualifies as `:post-v1 tracked`** (which requires a `rf2-<id>`); each records the concrete reconsideration trigger that files its bead when it fires. (The earlier "both classify as `:post-v1 tracked` … track a real bead once one is filed" framing was self-contradictory — a `:post-v1 tracked` item by definition already has the bead.)
+> **SA-4 classification.** The item below is a **post-v1, untracked note** per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md) — deferred design work the corpus tolerates shipping without resolving (the v1 design is settled — vector `:inputs`), marking a candidate enhancement rather than a blocking gap. It has no tracking bead filed yet, so it **does not qualify as `:post-v1 tracked`** (which requires a `rf2-<id>`); it records the concrete reconsideration trigger that files its bead when it fires. (The earlier "classify as `:post-v1 tracked` … track a real bead once one is filed" framing was self-contradictory — a `:post-v1 tracked` item by definition already has the bead.) A second item, "Synchronous re-walk after `:rf.fx/reg-flow`", was resolved and moved to [§Resolved decisions](#lifecycle-effects-settle-on-the-dispatching-frame-resolved).
 
 ### Map-keyed `:inputs` instead of vector
 
@@ -538,10 +539,6 @@ The vector form (`:inputs [[:width] [:height]] :derive (fn [w h] ...)`) matches 
 
 - **Reconsideration trigger (falsifiable).** Not "the map form proves preferable in practice" (not checkable) — instead: **N ≥ 3 real flows across the corpus / consumer apps carry 4-or-more `:inputs` and get bitten by positional-destructure fragility** (a `:derive` arg reordered or dropped without the `:inputs` vector kept in lockstep, or a review comment flagging the positional binding as unreadable at that arity). At that point the map form's name-over-place ergonomics have a measured cost to weigh against the migration break. Until then the vector form stands.
 - **Status.** Post-v1, **untracked note** — no bead filed yet; the trigger above files one when it fires.
-
-### Synchronous re-walk after `:rf.fx/reg-flow`
-
-A flow registered mid-event first fires on the next event drain (one-event lag for the initial value — the structural consequence documented at [§Sequencing — the one-event lag](#sequencing--the-one-event-lag)). An opt-in "register and run immediately" effect could close the lag at the cost of a *second* mid-event `app-db` install, which would break the one-install-per-event invariant ([§Drain integration](#drain-integration) property 4) and the atomic-commit contract ([§Failure semantics](#failure-semantics)) — so it is genuinely deferred design work, not a quick toggle. Until then the lag is loudly signposted (spec §Sequencing, the `:rf.fx/reg-flow` fx-handler docstring, and [docs/api/re-frame.flows.md §The one-event lag](../docs/api/re-frame.flows.md)) and worked around with an explicit follow-up `:dispatch`. **Reconsideration trigger (falsifiable).** A concrete app hits a case where the one-event lag is a genuine obstacle that the explicit follow-up `:dispatch` workaround cannot cover cleanly — at which point the "register and run immediately" effect is designed against the one-install-per-event and atomic-commit constraints above. **Status:** post-v1, **untracked note** — no bead filed yet; the trigger files one when it fires.
 
 ## Resolved decisions
 
@@ -582,6 +579,16 @@ This **replaces** the earlier "prior-flow writes still commit on a flow throw" r
 ### `:rf.error/flow-eval-exception` rides the always-on error substrate (RESOLVED)
 
 Flow evaluation failures MUST surface on the always-on production error-emit substrate (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)), NOT on the dev-only trace surface alone. The corpus-wide error-emit registry (the `:errors` stream of `register-listener!`) fires under CLJS `:advanced` + `goog.DEBUG=false`, delivering the tight record (failing event-id + frame). The per-flow `:rf.flow/failed` trace still fires first with full flow-attributed detail (including `:flow-id`), but it rides the dev-only trace surface and DCEs in production. Without this routing, a production-build flow-eval failure was silently dropped — no off-box monitor record. Per [§Failure semantics](#failure-semantics) rule 4.
+
+### Lifecycle effects settle on the dispatching frame (RESOLVED)
+
+This supersedes the "Synchronous re-walk after `:rf.fx/reg-flow`" open question, which framed the one-drain lag as closable only by an opt-in effect performing a *second* mid-event `app-db` install — and therefore as deferred design work.
+
+The framing was too narrow. A second install is one way to close the lag and it is the disallowed one; a second **event** is another, and it costs none of the invariants. `:rf.fx/reg-flow` / `:rf.fx/clear-flow` now enqueue one framework-private settling event on the dispatching frame, which drains inside the same run-to-completion pass. Each event still installs `app-db` exactly once, the atomic-commit contract is unchanged, and a settle-time `:derive` throw reports through the existing `:rf.error/flow-eval-exception` path — see [§Sequencing](#sequencing--settling-on-the-dispatching-frame).
+
+Three things decided it. The lag was **not symmetric**: on the clear arm it left the registry row gone while the value it owned remained, which is not lateness but incoherence at the dispatch boundary. It was **not opt-in-shaped**: the workaround it required — an application-authored no-op event, dispatched from every call site — put ceremony in every consumer's event catalogue, trace stream, tests and generated code to spare the runtime one follow-up drain, which inverts the framework's job. And the workaround was **exactly the mechanism the fix uses**, so the runtime was telling every application to hand-write a drain it could perform once itself.
+
+Automatic settling is the only behaviour. There is deliberately no `:settle?` flag, no synchronous variant, no alternate effect id, and no compatibility switch preserving the lag: this is pre-alpha, and two spellings of one contract is the cost the single spelling exists to avoid. Applications that still dispatch the old no-op nudge keep working — settling is idempotent under the dirty check — but the nudge is redundant, not supported.
 
 ## Cross-references
 
