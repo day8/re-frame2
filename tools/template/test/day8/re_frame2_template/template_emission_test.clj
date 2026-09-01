@@ -1173,6 +1173,171 @@
           (finally
             (delete-recursively tmp)))))))
 
+;; --- the hot-reload hook re-registers the app-db schema --------------------
+;;
+;; rf2-a0442. The hook above closed HALF of the reload loop: an edited VIEW
+;; repaints. An edited SCHEMA did not take effect. `reg-app-schema` is
+;; frame-local, so the scaffold cannot call it at namespace load (a bare
+;; load-time call raises `:rf.error/no-frame-context`) — it lives inside a
+;; `register-schema!` fn. A reload therefore re-evaluates `CounterDb` and
+;; re-registers NOTHING on its own, and every emitted entry point called
+;; `register-schema!` from `init` alone. shadow calls `init` once, so the
+;; framework went on validating the live frame with the boot-time schema:
+;; adding an optional key left a source-valid write rejected with
+;; `:rf.error/schema-validation-failure`, and tightening a schema left a
+;; now-invalid write accepted, until a full page refresh.
+;;
+;; The remedy is one call per hook. Re-registering a `(frame, path)` is an
+;; in-place replace (Spec 010 §Multiple schemas at the same path), so nothing
+;; about the frame, its app-db or the mounted root changes.
+;;
+;; The ORDER matters as much as the presence: the call must precede the
+;; hook's render work, so the first (boot) call still lands before
+;; `frame-root` creates the frame and the `:initial-events` seed is validated
+;; from the very first write — and so a DOM-free host, where the render is
+;; skipped, still registers.
+
+(defn- after-load-hook-body
+  "The source text of the `^:dev/after-load <hook>` form: from its metadata
+  tag to the start of the next TOP-LEVEL form — `(def…` at column 0, or a
+  `#?(` reader conditional, which is how the SSR `core.cljc` opens its next
+  form. Returns nil when the hook is absent, so a caller asserts the absence
+  rather than passing vacuously over an empty body."
+  [^String core ^String hook]
+  (let [i (.indexOf core (str "^:dev/after-load " hook))]
+    (when-not (neg? i)
+      (let [tail (subs core i)
+            ends (->> ["\n(def" "\n#?("]
+                      (map #(.indexOf tail ^String %))
+                      (remove neg?))]
+        (if (seq ends) (subs tail 0 (apply min ends)) tail)))))
+
+(deftest after-load-hook-re-registers-app-schema-test
+  (testing "every emitted ^:dev/after-load hook re-attaches the app-db schema
+            BEFORE it renders — shadow re-runs the hook, not the module
+            :init-fn, so without this an edited schema.cljs never reaches the
+            live frame and the boot-time schema keeps validating it until a
+            page refresh (rf2-a0442)"
+    (doseq [[label opts rel hook call renders]
+            [["reagent"       {:substrate :reagent}
+              "src/acme/my_app/core.cljs" "mount!"
+              "(schema/register-schema!)" "rdc/render"]
+             ["uix"           {:substrate :uix}
+              "src/acme/my_app/core.cljs" "mount!"
+              "(schema/register-schema!)" "uix-dom/render-root"]
+             ["reagent+story" {:substrate :reagent :include-story? true}
+              "src/acme/my_app/core.cljs" "reload!"
+              "(schema/register-schema!)" "(on-hash-change!)"]
+             ["reagent+ssr"   {:substrate :reagent :include-ssr? true}
+              "src/acme/my_app/core.cljc" "render!"
+              "(register-schema! app-frame)" "rdc/render"]]]
+      (let [tmp (tmp-dir "rf2-emission-schema-reload-")]
+        (try
+          (let [proj (run-template-opts! tmp "acme/my-app" opts)
+                core (slurp (io/file proj rel))
+                body (after-load-hook-body core hook)]
+            (is (some? body)
+                (str label ": core must define `^:dev/after-load " hook "`"))
+            (when body
+              (is (.contains body call)
+                  (str label ": the `^:dev/after-load " hook "` body must call `"
+                       call "` — shadow does NOT re-run the module :init-fn "
+                       "after a reload, so this call is the ONLY thing that "
+                       "makes an edited schema validate the live frame "
+                       "(rf2-a0442)"))
+              (when (.contains body call)
+                (is (< (.indexOf body call) (.indexOf body ^String renders))
+                    (str label ": the schema re-registration must precede `"
+                         renders "` in the hook body — on the first (boot) "
+                         "call it has to land before the frame exists, so the "
+                         ":initial-events seed is validated from the very "
+                         "first write, and a DOM-free host that skips the "
+                         "render must still register (rf2-a0442)")))))
+          (finally
+            (delete-recursively tmp)))))))
+
+(deftest ssr-after-load-hook-registers-without-rehydrating-test
+  (testing "the SSR client's ^:dev/after-load hook re-attaches the schema
+            against the LIVE app-frame without re-hydrating or replaying the
+            seed events (rf2-a0442 / rf2-w1k3i)"
+    (let [tmp (tmp-dir "rf2-emission-ssr-schema-reload-")]
+      (try
+        (let [proj (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent :include-ssr? true})
+              core (slurp (io/file proj "src/acme/my_app/core.cljc"))
+              body (after-load-hook-body core "render!")]
+          (is (some? body) "core.cljc must define `^:dev/after-load render!`")
+          (when body
+            (is (.contains body "(register-schema! app-frame)")
+                "the hook must re-attach against the already-live app-frame —
+                 the explicit-frame arity, not the ambient-scope one")
+            ;; The body legitimately MENTIONS hydration in a comment ("the
+            ;; hydrated frame"), so pin the CALLS rather than the word.
+            (is (not (.contains body "ssr/hydrate!"))
+                "the hook must not re-hydrate: hydration is a one-time boot
+                 step and re-running it would re-seed the server slice over
+                 live interactive state")
+            (is (not (.contains body "hydrate-root"))
+                "the hook must not re-adopt the server DOM — the root is
+                 established once, in init")
+            (is (not (.contains body ":counter/initialise"))
+                "the hook must not replay the client seed event — a reload
+                 preserves app-db, it does not reset it")))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest schema-registration-is-a-fn-not-a-load-time-side-effect-test
+  (testing "the emitted schema.cljs keeps `reg-app-schema` inside
+            `register-schema!` — a top-level call would raise
+            :rf.error/no-frame-context, and it is precisely that indirection
+            which makes the after-load re-registration necessary (rf2-a0442)"
+    (let [tmp (tmp-dir "rf2-emission-schema-shape-")]
+      (try
+        (let [proj   (run-template! tmp "acme/my-app" :reagent)
+              schema (slurp (io/file proj "src/acme/my_app/schema.cljs"))]
+          (is (.contains schema "(defn register-schema!")
+              "schema.cljs must define register-schema!")
+          (is (not (re-find #"(?m)^\(rf/reg-app-schema" schema))
+              "schema.cljs must NOT call reg-app-schema at the top level — an
+               app-db schema is frame-local and a load-time call raises
+               :rf.error/no-frame-context (which is why the after-load hook
+               has to call register-schema! explicitly)")
+          (is (not (re-find #"(?i)once at boot" schema))
+              "schema.cljs must not tell the reader registration happens only
+               once at boot — the after-load hook re-runs it on every save
+               (rf2-a0442)"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest schema-reload-prose-is-accurate-test
+  (testing "both emitted READMEs teach schema registration at boot AND after
+            load, and neither claims it happens only once at boot (rf2-a0442)"
+    (doseq [[label opts] [["spa" {:substrate :reagent}]
+                          ["ssr" {:substrate :reagent :include-ssr? true}]]]
+      (let [tmp (tmp-dir "rf2-emission-schema-prose-")]
+        (try
+          (let [proj   (run-template-opts! tmp "acme/my-app" opts)
+                readme (slurp (io/file proj "README.md"))
+                norm   (string/replace readme #"\s+" " ")]
+            (is (not (re-find #"(?i)once at boot" norm))
+                (str label " README must NOT say the schema is registered only
+                      once at boot — the ^:dev/after-load hook re-registers it
+                      on every save (rf2-a0442)"))
+            ;; Positively require the corrected teaching, so the claim can be
+            ;; deleted rather than fixed and still ship green.
+            (is (re-find #"(?i)\^:dev/after-load" norm)
+                (str label " README must name the ^:dev/after-load hook"))
+            (is (re-find #"(?i)register-schema!" norm)
+                (str label " README must name register-schema!"))
+            (is (re-find #"(?i)re-registers? nothing on its own" norm)
+                (str label " README must explain WHY the hook has to call
+                      register-schema! again: a reload re-evaluates CounterDb
+                      but re-registers nothing on its own, because the
+                      registration is a fn call and not a top-level form
+                      (rf2-a0442)")))
+          (finally
+            (delete-recursively tmp)))))))
+
 (deftest hot-reload-prose-is-accurate-test
   (testing "the emitted shadow-cljs.edn + README do NOT claim shadow re-runs the
             module :init-fn after a hot reload — measured false on shadow-cljs
