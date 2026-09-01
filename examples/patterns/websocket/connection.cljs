@@ -45,6 +45,16 @@
         a straggler from a dead socket can neither advance nor tear down the
         new connection.
 
+   Vouching for the SENDER is not vouching for the BYTES, though, and
+   `:ws/received` needs both. The `:trusted-frame?` guard asks the second
+   question too — does this frame satisfy the closed `InboundMessage` wire
+   contract? — because `:receive-message` clears an `:in-flight` slot
+   named by the frame itself. Validating only at the app-db ingress
+   downstream would leave that slot consumable by a frame the ingress goes
+   on to refuse: app-db stays clean, and the caller waits forever for a
+   reply whose correlation someone else already spent. A frame that fails
+   takes the `:refuse-frame` candidate instead, which moves nothing.
+
    The thing that actually owns the JS WebSocket is the `:websocket/socket`
    actor, over in `websocket.messages`. We spawn it on the `:active`
    *parent*, so one socket spans `:connecting` -> `:authenticating` ->
@@ -97,6 +107,30 @@
   [data]
   (get-in data [:rf/spawned socket-invoke-id]))
 
+(defn- from-live-socket?
+  "The connection-epoch test, factored out because two guards below need
+   it: is this event stamped with the id of the socket we are actually
+   using right now? A torn-down socket reads nil, so every straggler from
+   a replaced connection fails here for free."
+  [data source-socket-id]
+  (let [live (socket-id data)]
+    (and (some? live)
+         (= source-socket-id live))))
+
+(defn- local-failure
+  "The body the machine hands a waiting `:reply-event` when IT — not the
+   server — decides a request is over: the wire went away, or the deadline
+   elapsed. `:origin :ws/local` is the machine's own stamp, and it is what
+   makes this outcome distinguishable from server bytes at the callback
+   (see `schema/RequestOutcome`). A frame off the network cannot reach
+   this shape, because the machine assoc's `:origin` after receipt rather
+   than reading it off the frame."
+  [request-id error]
+  {:origin     :ws/local
+   :request-id request-id
+   :ok         false
+   :error      error})
+
 (defn- fail-in-flight
   "The in-flight half of losing the wire, shared by every door out of
    `:active` that destroys the socket: clear every `:in-flight` slot and
@@ -117,9 +151,7 @@
                (keep (fn [[rid {:keys [reply-event]}]]
                        (when reply-event
                          [:dispatch (conj reply-event
-                                          {:request-id rid
-                                           :ok         false
-                                           :error      :ws/connection-lost})])))
+                                          (local-failure rid :ws/connection-lost))])))
                (:in-flight data))})
 
 (rf/defmachine connection-machine
@@ -175,9 +207,29 @@
       ;; from `:rf/spawned`, so a torn-down socket compares as nil and every
       ;; straggler is dropped for free.
       (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
-        (let [live (socket-id data)]
-          (and (some? live)
-               (= source-socket-id live))))}
+        (from-live-socket? data source-socket-id))
+
+      :trusted-frame?
+      ;; The inbound gate, and it asks BOTH questions an inbound frame has
+      ;; to answer before this machine will act on it: is it from the
+      ;; socket we're using (the epoch check above), and does it satisfy
+      ;; the closed `InboundMessage` wire contract?
+      ;;
+      ;; Why the payload check belongs HERE and not only at the app-db
+      ;; ingress: `:receive-message` reads `:type` and `:request-id` off
+      ;; the frame and CLEARS an `:in-flight` slot on the strength of
+      ;; them. That is machine state changing on the say-so of bytes
+      ;; nobody has vetted — so a hostile frame naming a pending
+      ;; `:request-id` could consume the correlation slot and leave the
+      ;; caller waiting forever, even though the ingress downstream
+      ;; refused the body and app-db never moved. Vet first, then act.
+      ;;
+      ;; One named guard rather than an `:and` of two, per 005 §No
+      ;; combinator data form: compound logic is ordinary Clojure inside
+      ;; one guard whose NAME carries the meaning.
+      (fn guard-trusted-frame? [{data :data [_ {:keys [source-socket-id body]}] :event}]
+        (and (from-live-socket? data source-socket-id)
+             (schema/valid-inbound-frame? body)))}
 
      :actions
      {:record-connection-opts
@@ -347,24 +399,60 @@
           {:data (update data :in-flight dissoc request-id)
            :fx   (cond-> []
                    reply-event (conj [:dispatch (conj reply-event
-                                                      {:request-id request-id
-                                                       :ok         false
-                                                       :error      :ws/timeout})]))}))
+                                                      (local-failure request-id
+                                                                     :ws/timeout))]))}))
 
       :receive-message
-      ;; A message arrived and the `:current-socket?` guard has already
-      ;; vouched for it. Now, is it a reply we were waiting for, or an
-      ;; out-of-the-blue server push? A `:request-id` in the body tells us:
-      ;; if it's there, fire the reply event we stashed and clear the
-      ;; in-flight slot; if not, it's a push — hand it to
-      ;; `[:ws/handle-message body]`.
+      ;; A frame arrived and `:trusted-frame?` has vouched for BOTH halves:
+      ;; it came from the live socket, and it satisfies the closed
+      ;; `InboundMessage` contract. So `:type` is `:reply` or `:push`,
+      ;; those arms are closed, and only the `:reply` arm can carry a
+      ;; `:request-id` at all.
+      ;;
+      ;; We branch on `:type` rather than on "is there a `:request-id`?".
+      ;; The two agree now, but only one of them keeps agreeing: the
+      ;; frame's declared kind is part of the vetted contract, whereas
+      ;; presence-of-a-key is a shape test that a widened arm would
+      ;; quietly re-open.
       (fn action-receive-message [{data :data [_ {:keys [body]}] :event}]
-        (if-let [rid (:request-id body)]
-          (let [{:keys [reply-event]} (get-in data [:in-flight rid])]
-            {:data (update data :in-flight dissoc rid)
-             :fx   (cond-> [[:dispatch [:ws/handle-message body]]]
-                     reply-event (conj [:dispatch (conj reply-event body)]))})
-          {:fx [[:dispatch [:ws/handle-message body]]]}))}
+        (if (= :reply (:type body))
+          ;; Correlated reply. Settle the slot ONLY if there is one —
+          ;; an unsolicited reply, or a second copy of one we already
+          ;; settled, has nothing to clear and no `:reply-event` to fire.
+          ;; It still reaches the inbox: it passed the wire contract, it
+          ;; just answers no question we asked.
+          (let [rid   (:request-id body)
+                entry (get-in data [:in-flight rid])]
+            (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
+              entry
+              (assoc :data (update data :in-flight dissoc rid))
+
+              (:reply-event entry)
+              ;; `:origin :ws/server` is the machine saying where this
+              ;; body came from. Stamped here, after receipt, so the
+              ;; sender cannot claim to be the local loss/timeout path
+              ;; (see `schema/RequestOutcome`).
+              (update :fx conj [:dispatch (conj (:reply-event entry)
+                                                (assoc body :origin :ws/server))])))
+          ;; Server push — no correlation to touch, straight to the inbox.
+          {:fx [[:dispatch [:ws/handle-message body]]]}))
+
+      :refuse-frame
+      ;; The frame came from the live socket but failed the wire contract:
+      ;; a `:type` the union has no arm for, a malformed body, an extra
+      ;; key on a closed arm. Note what this action does NOT return — a
+      ;; `:data` key. Nothing about the connection moves on the strength
+      ;; of bytes that did not pass, which is the whole point of splitting
+      ;; this out from `:receive-message` instead of branching inside it.
+      ;;
+      ;; The frame is still handed to `[:ws/handle-message body]`, and
+      ;; that is deliberate: the ingress owns inbound-frame refusal, so
+      ;; its release-resident `:rf.schema/at-boundary` check produces the
+      ;; one canonical `:rf.error/schema-validation-failure` record. The
+      ;; machine protects its own state; it does not mint a second
+      ;; rejection vocabulary alongside the framework's.
+      (fn action-refuse-frame [{[_ {:keys [body]}] :event}]
+        {:fx [[:dispatch [:ws/handle-message body]]]})}
 
      :states
      {:disconnected
@@ -448,8 +536,19 @@
         {:tags   #{:websocket/active :websocket/connected}
          :entry  :flush-queue-and-resubscribe
          :always [{:guard :has-queued-messages? :action :flush-queue}]
-         :on     {:ws/received {:guard  :current-socket?
-                                :action :receive-message}
+         :on     {;; Two candidates, first-match-wins (005 §Transition
+                  ;; resolution — a guard-blocked candidate is not
+                  ;; selected, so the walk falls through to the next).
+                  ;; A frame that clears both halves of the inbound gate
+                  ;; is received; one that came from the live socket but
+                  ;; failed the wire contract is refused without the
+                  ;; machine moving. A frame from a socket we have already
+                  ;; replaced matches neither and is dropped, exactly as
+                  ;; before.
+                  :ws/received [{:guard  :trusted-frame?
+                                 :action :receive-message}
+                                {:guard  :current-socket?
+                                 :action :refuse-frame}]
                   ;; Here we override the parent's :ws/send: connected
                   ;; means no queue, send it now.
                   :ws/send     {:action :send-now}
