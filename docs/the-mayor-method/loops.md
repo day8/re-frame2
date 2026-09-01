@@ -943,6 +943,17 @@ and both readings went wrong in a single day here, in opposite directions.
    ambiguity, but because the two errors are priced differently — waiting costs a tick, and acting
    costs a duplicate worker in a live worktree.
 
+   **Say what the window is FOR, though, because a rule that only forbids leaves the interval empty
+   and a coordinator fills an empty interval with more measurement.** The re-read catches exactly one
+   thing — movement, which is proof of life and needs no corroboration — so read it twice, record the
+   freeze, and go do something else; the tenth reading answers what the second did. And carry a sense
+   of the scale, because that is what makes the non-signal bearable rather than ominous: **a freeze
+   measured in hours is unremarkable on a heavyweight gate.** Measured across one session — six
+   readings over ninety minutes, every one identical, while five workers whose transcripts had not
+   gained a byte were all alive and all completed normally, at durations from an hour and forty
+   minutes to nearly three hours. The coordinator who knows that stops after the second reading; the
+   one who does not keeps going, because silence that long feels like it has to mean something.
+
    **That clock says "no activity" in four voices and you can only tell them apart with a control.**
    Besides the reading worker and the poller treated just below, a path that resolves to nothing
    answers identically — and so does a span shorter than the worktree's own age, where every file is
@@ -1085,6 +1096,15 @@ Stop it, then merge. That is an act with a definite outcome where every clock ab
 with none, and it needs no new discriminator — a stopped agent cannot be working, so the question the
 four clocks could not answer stops being asked. Verify the change against §1 in full, exactly as for
 any other change, and do not reopen the stopped worker's items or redispatch them.
+
+**But it is not an escape hatch from the ambiguity above, and reading it as one is the natural
+mistake, because it is the only ACT on offer in a section that otherwise says wait.** It authorises
+publishing a change whose author you have positive reason to think is finished; it is not a way to
+resolve a freeze the clocks cannot read. Putting that freeze to the operator as a decision spends
+their attention on a question time usually answers by itself, and it arrives dressed as diligence,
+which is why it is worth naming: measured once, five agents were escalated as possibly stopped, all
+five were alive, and every one reported normally within the hour — the operator's answer, had it
+come, would have been to destroy four live runs.
 
 **The ORDER is the whole rule, and reversing it looks identical afterwards.** Merging first and
 stopping second reaches the same end state by the forbidden route: the merge rests on an inference and
