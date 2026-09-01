@@ -13,7 +13,7 @@ It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-w
 (:require [re-frame.adapter.uix :as uix-adapter])
 ```
 
-Register views by Var (the React-component idiom) or with `rf/reg-view*` for registry-keyed view addressing. `reg-view` (the Reagent macro) does not cover UIx. A minimal app wires the adapter into `init!` and reads subscriptions through the hook:
+Register views by Var (the React-component idiom) or with `rf/reg-view*` for registry-keyed view addressing — see [Registry-keyed views](#registry-keyed-views) below. `reg-view` (the Reagent macro) does not cover UIx. A minimal app wires the adapter into `init!` and reads subscriptions through the hook:
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -30,6 +30,33 @@ Register views by Var (the React-component idiom) or with `rf/reg-view*` for reg
 ```
 
 For narrative coverage and the substrate decision set, see [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
+
+## Registry-keyed views
+
+Registering by Var is the idiom, and it is what most UIx code should do. Reach for the registry when the call site cannot name the Var: a view chosen at runtime, a component crossing a module boundary, or a library that ships ids rather than symbols.
+
+`rf/reg-view*` takes an id and a component; `rf/view` gives you back a UIx component head, which you mount with `$` like any other:
+
+```clojure
+(defui cart-row [{:keys [item]}]
+  (let [count (uix-adapter/use-subscribe [:cart/count])]
+    ($ :tr
+       ($ :td (:name item))
+       ($ :td count))))
+
+(rf/reg-view* ::cart-row cart-row)
+
+;; …anywhere, including a module that cannot see the Var:
+($ (rf/view ::cart-row) {:item item})
+```
+
+Three things hold for that head, and they are the point of using the registry rather than passing the Var around yourself:
+
+- **It is a component, not a function to call.** Hand it to `$` as the component type. Do not invoke it inside a host component of your own — that would give the hooks and the instance lifetime to *your* host rather than to the registered view.
+- **Props and children arrive losslessly.** The head is marked as a UIx component, so `$` routes the original ClojureScript map through UIx's `argv` channel. Namespaced keywords survive as keywords, nested maps as maps, and trailing `$` children reach the component as `:children`.
+- **Registration order does not matter.** Register at namespace load, as [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) has you do, and call `rf/init!` afterwards. `rf/view` resolves the head against the adapter installed at *lookup* time, so a view registered before `init!` is as mountable as one registered after it. Repeat lookups return the same object, so React reconciles it as one component type rather than remounting.
+
+`rf/view` returns `nil` for an unregistered id.
 
 ## Adapter spec
 
