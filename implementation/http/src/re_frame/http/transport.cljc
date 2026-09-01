@@ -1651,22 +1651,38 @@
         ;; one-cell atom that the JVM body fills after construction; the
         ;; abort-fn reads it lazily through `@cf-holder`.
         #?@(:clj  [cf-holder (atom nil)])
+        ;; rf2-rsv2n — the ISSUANCE REGION's mutex (JVM only; CLJS is single-
+        ;; threaded and has no region to guard). Two short critical sections
+        ;; take it: the host-entry region below — commit CAS, `jvm-fetch`
+        ;; (`HttpClient.sendAsync`), publication of the returned future — and
+        ;; the abort closure's cancel step. Serializing those two is what makes
+        ;; the invariant hold in BOTH orderings: an abort that gets here first
+        ;; commits `issue-phase` to `:aborted`, so the host call never happens;
+        ;; an abort that arrives while the host call is in flight cannot
+        ;; complete (it blocks before its cancel step, so its registry clear and
+        ;; its cancelled reply come after) and finds the future already
+        ;; published when it does. Neither side ever runs app code while
+        ;; holding it: the region contains only the CAS, the transport call and
+        ;; a `reset!`, and `.whenComplete` / `clear-in-flight!` /
+        ;; `dispatch-aborted!` are all outside.
+        #?@(:clj  [issue-lock (Object.)])
         ;; rf2-rsv2n — one-cell issuance-phase CAS closing the request-
         ;; preparation → host-transport window. `nil` until one side commits:
-        ;; the post-prep gate below CASes it to `:issued` immediately before
-        ;; entering the host transport, and the abort closure CASes it to
-        ;; `:aborted` after winning the once-only reply guard. Exactly one
-        ;; winner. An abort that lands while `prepare-body!` is blocked inside
-        ;; a body thunk wins this cell, so the attempt NEVER calls
-        ;; `cljs-fetch` / `jvm-fetch` after the canonical cancelled reply went
-        ;; out — previously `@finalised?` was sampled only BEFORE prep, and on
-        ;; the JVM `cf-holder` was still nil during prep so the abort had no
+        ;; the host-entry region below CASes it to `:issued` as its first act
+        ;; inside the region, and the abort closure CASes it to `:aborted`
+        ;; after winning the once-only reply guard. Exactly one winner, and the
+        ;; winner is decided at the host call itself rather than anywhere
+        ;; earlier — a cell flipped to `:issued` therefore means the request
+        ;; really was issued. An abort that lands while `prepare-body!` is
+        ;; blocked inside a body thunk wins this cell, so the attempt NEVER
+        ;; calls `cljs-fetch` / `jvm-fetch` after the canonical cancelled reply
+        ;; went out — previously `@finalised?` was sampled only BEFORE prep, and
+        ;; on the JVM `cf-holder` was still nil during prep so the abort had no
         ;; future to cancel: `HttpClient.sendAsync` issued a side-effecting
         ;; request AFTER the framework told the app it was cancelled. When
         ;; issuance wins the cell instead, the JVM abort path cancels via
-        ;; `cf-holder` — or, in the residual instant before publication, the
-        ;; issuing thread's post-publication `aborted?` re-check cancels its
-        ;; own future (see below). Per-attempt like `cf-holder`, never
+        ;; `cf-holder`, which `issue-lock` guarantees is published by the time
+        ;; that abort can read it. Per-attempt like `cf-holder`, never
         ;; threaded through the retry handoff — each attempt owns its own
         ;; issuance; the handoff window itself is covered by the shared-cell
         ;; re-check further down (rf2-6nczv9).
@@ -1717,18 +1733,15 @@
                                 ;; is a no-op past the first call.
                                 (when (compare-and-set! finalised? false true)
                                   ;; rf2-rsv2n — claim the issuance phase.
-                                  ;; Winning (nil → `:aborted`) means
-                                  ;; preparation has not handed off to the
-                                  ;; host transport yet: the post-prep gate's
-                                  ;; own CAS will now fail, so no fetch is
-                                  ;; ever issued for this cancelled attempt.
-                                  ;; Losing (already `:issued`) means the
-                                  ;; transport call is in flight or done —
-                                  ;; the JVM branch below cancels via
-                                  ;; `cf-holder`, and when the future is not
-                                  ;; yet published there, the issuing
-                                  ;; thread's post-publication `aborted?`
-                                  ;; re-check cancels it on our behalf.
+                                  ;; Winning (nil → `:aborted`) means the host
+                                  ;; call has not been made yet: the host-entry
+                                  ;; region's own CAS will now fail, so no
+                                  ;; fetch is ever issued for this cancelled
+                                  ;; attempt. Losing (already `:issued`) means
+                                  ;; the transport call is in flight or done —
+                                  ;; the JVM branch below cancels it via
+                                  ;; `cf-holder`, which the issuance region
+                                  ;; publishes before releasing `issue-lock`.
                                   (compare-and-set! issue-phase nil :aborted)
                                   #?(:cljs
                                      (try
@@ -1745,9 +1758,23 @@
                                      ;; the same :finalised? flag and
                                      ;; bails before re-emitting.
                                      ;; `true` = may-interrupt-if-running.
-                                     (when-let [^CompletableFuture cf @cf-holder]
-                                       (try (.cancel cf true)
-                                            (catch Throwable _ nil))))
+                                     ;; rf2-rsv2n — under `issue-lock`: when
+                                     ;; issuance won the cell we may be racing
+                                     ;; the host call itself, and taking the
+                                     ;; monitor is what makes this read see a
+                                     ;; PUBLISHED future instead of the nil it
+                                     ;; used to find. It also holds the rest of
+                                     ;; this cascade — registry clear and the
+                                     ;; cancelled reply — behind the in-flight
+                                     ;; host call, so the abort can never
+                                     ;; complete and then have a request go out
+                                     ;; behind it. The region it waits on
+                                     ;; contains no app code, so the wait is
+                                     ;; the transport call and nothing else.
+                                     (locking issue-lock
+                                       (when-let [^CompletableFuture cf @cf-holder]
+                                         (try (.cancel cf true)
+                                              (catch Throwable _ nil)))))
                                   ;; Registry cleanup happens
                                   ;; here once; finalise-failure! is
                                   ;; bypassed. Pass the stamped handle (via
@@ -1897,18 +1924,26 @@
         ;; canonical cancelled reply and cleared the registry, and this
         ;; attempt must not now enter the host transport (Spec 014 §Abort
         ;; precedence: body realization is a managed phase; a cancelled
-        ;; request must not issue). The CAS makes the abort/issuance race
-        ;; have exactly one winner: losing here (the abort closure already
-        ;; CASed `:aborted`) skips the fetch entirely, with nothing left to
-        ;; do — reply and registry were the abort's. Winning commits this
-        ;; attempt to issuance BEFORE any side effect, so an abort landing
-        ;; from here on takes the cancel-the-future path instead. Shared
-        ;; CLJC, no reader conditional — the same gate covers a re-entrant
-        ;; external abort fired during CLJS body realization, so no Fetch
-        ;; call follows a delivered cancellation on either host.
-        (when (compare-and-set! issue-phase nil :issued)
+        ;; request must not issue). The `issue-phase` CAS below makes the
+        ;; abort/issuance race have exactly one winner: losing it (the abort
+        ;; closure already CASed `:aborted`) skips the fetch entirely, with
+        ;; nothing left to do — reply and registry were the abort's.
+        ;;
+        ;; THE COMMIT IS THE HOST CALL. Each host CASes the shared cell as the
+        ;; first act of its own host-entry region, never earlier: committing
+        ;; ahead of the call would re-open the hole one step further down,
+        ;; where an abort loses the cell (so it cannot suppress the send) yet
+        ;; finds no future to cancel (so it cannot stop it either) and returns
+        ;; having told the app the request was cancelled — after which the
+        ;; request goes out anyway. On CLJS the region is implicit: the host is
+        ;; single-threaded and nothing can run between the CAS and `cljs-fetch`,
+        ;; so the CAS alone orders the only interleaving that host can produce
+        ;; (a re-entrant external abort fired during body realization). On the
+        ;; JVM the region is `issue-lock`, held across CAS → `sendAsync` →
+        ;; publication so the abort path is serialized against it.
         (interleave! :issue/before-send ctx')
         #?(:cljs
+           (when (compare-and-set! issue-phase nil :issued)
            (-> (transport-cljs/cljs-fetch
                            {:method              method
                             :url                 url
@@ -1955,7 +1990,7 @@
                ;; natural-completion sink without a bespoke "did we abort?"
                ;; check here.
                (.catch (fn [err]
-                         (maybe-retry! ctx' (transport-cljs/classify-cljs-error err url)))))
+                         (maybe-retry! ctx' (transport-cljs/classify-cljs-error err url))))))
            :clj
            ;; Monotonic start mark for the per-host timeout
            ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
@@ -1965,51 +2000,55 @@
            (let [started-ns (System/nanoTime)
                  elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
              (try
-               (let [^CompletableFuture cf
-                     (transport-jvm/jvm-fetch
-                                {:method     method
-                                 :url        url
-                                 :headers    headers
-                                 :body       enc-body
-                                 :timeout-ms timeout-ms
-                                 ;; Thread the resolved `:decode`
-                                 ;; so `jvm-fetch` can read the response body
-                                 ;; with `ofByteArray` for binary decode modes
-                                 ;; (`:blob` / `:array-buffer` / `:form-data`)
-                                 ;; and ride the raw bytes under `:body-binary`
-                                 ;; instead of the lossy String fallback.
-                                 :decode     (:decode ctx)
-                                 ;; Honour the spec's `:redirect`
-                                 ;; envelope key on the JVM (default `:follow`).
-                                 ;; Selects the redirect-policy-specific client.
-                                 :redirect   (:redirect request)
-                                 :sensitive? (true? (:sensitive? ctx))
-                                 ;; The originating frame stamps the warning and
-                                 ;; supplies its general elision policy; HTTP
-                                 ;; carrier names come from effect registration.
-                                 :frame      (:frame ctx)})]
-                 ;; Publish cf to the abort closure's holder
-                 ;; BEFORE wiring whenComplete. A racing abort that arrives
-                 ;; between `jvm-fetch` returning and `.whenComplete`
-                 ;; registering still finds cf in the holder and can cancel
-                 ;; it.
-                 (reset! cf-holder cf)
-                 ;; rf2-rsv2n — residual-window re-check. An abort that fired
-                 ;; after this attempt won the issuance-phase CAS but before
-                 ;; the `reset!` above found `cf-holder` still nil and had
-                 ;; nothing to cancel; it has already delivered the canonical
-                 ;; cancelled reply and cleared the registry (it won the
-                 ;; once-only guard), so the one thing left undone is stopping
-                 ;; the work. Re-read the abort-precedence cell now that the
-                 ;; future is published and cancel it on the abort's behalf.
-                 ;; `.cancel` is idempotent, so racing the abort path's own
-                 ;; cancel is harmless; the `whenComplete` below then fires
-                 ;; with a CancellationException and `finalise-failure!` bails
-                 ;; on the won `:finalised?` CAS — the abort's reply stays the
-                 ;; only one.
-                 (when (some? @aborted?)
-                   (try (.cancel cf true)
-                        (catch Throwable _ nil)))
+               ;; rf2-rsv2n — THE ISSUANCE REGION. Commit, issue and publish
+               ;; hold `issue-lock` together, so the abort closure's cancel
+               ;; step cannot land between them. An abort that reaches the
+               ;; monitor first wins the cell, this CAS fails, and `sendAsync`
+               ;; is never called — `when-let` yields nil and there is nothing
+               ;; to wire. An abort that arrives once this region is running
+               ;; waits at its cancel step: it cannot clear the registry or
+               ;; deliver its cancelled reply until the region ends, and by
+               ;; then `cf-holder` carries the future it cancels. Either way
+               ;; the app is never told a request was cancelled and then has
+               ;; one issued behind that reply. The region deliberately holds
+               ;; nothing but the CAS, the transport call and the `reset!` —
+               ;; `.whenComplete` and every reply a completion dispatches run
+               ;; outside the monitor.
+               (when-let [^CompletableFuture cf
+                          (locking issue-lock
+                            (when (compare-and-set! issue-phase nil :issued)
+                              (let [cf (transport-jvm/jvm-fetch
+                                         {:method     method
+                                          :url        url
+                                          :headers    headers
+                                          :body       enc-body
+                                          :timeout-ms timeout-ms
+                                          ;; Thread the resolved `:decode`
+                                          ;; so `jvm-fetch` can read the response
+                                          ;; body with `ofByteArray` for binary
+                                          ;; decode modes (`:blob` /
+                                          ;; `:array-buffer` / `:form-data`) and
+                                          ;; ride the raw bytes under
+                                          ;; `:body-binary` instead of the lossy
+                                          ;; String fallback.
+                                          :decode     (:decode ctx)
+                                          ;; Honour the spec's `:redirect`
+                                          ;; envelope key on the JVM (default
+                                          ;; `:follow`). Selects the
+                                          ;; redirect-policy-specific client.
+                                          :redirect   (:redirect request)
+                                          :sensitive? (true? (:sensitive? ctx))
+                                          ;; The originating frame stamps the
+                                          ;; warning and supplies its general
+                                          ;; elision policy; HTTP carrier names
+                                          ;; come from effect registration.
+                                          :frame      (:frame ctx)})]
+                                ;; Publish cf to the abort closure's holder
+                                ;; before the monitor is released. This is the
+                                ;; publication a racing abort is waiting for,
+                                ;; and the future it goes on to cancel.
+                                (reset! cf-holder cf)
+                                cf)))]
                  ;; The whenComplete callback fires even after
                  ;; `.cancel cf true`: the cancel completes-exceptionally
                  ;; with a CancellationException, which routes through this
@@ -2017,7 +2056,9 @@
                  ;; `finalise-failure!` is then guarded by the once-only
                  ;; `:finalised?` CAS (the abort-fn already finalised), so
                  ;; the abort's reply is the only one that ever reaches the
-                 ;; user.
+                 ;; user. An abort that cancelled cf between the region
+                 ;; ending and this line lands the same way — registering on
+                 ;; an already-cancelled future fires the callback at once.
                  (.whenComplete cf
                                 (reify java.util.function.BiConsumer
                                   (accept [_ result throwable]
@@ -2025,4 +2066,4 @@
                                       (maybe-retry! ctx' (transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
                                       (handle-response! ctx' result))))))
                (catch Throwable t
-                 (maybe-retry! ctx' (transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms))))))))))))))
+                 (maybe-retry! ctx' (transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))
