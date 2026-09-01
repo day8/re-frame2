@@ -759,11 +759,48 @@
 
   Idempotent: `dissoc` on an absent key is a no-op, which is also the whole of
   what a frame constructed before this hook was published (impossible in
-  practice — `make-frame` installs the hook before it writes the first row)
-  would need. Returns nil."
+  practice — the publication below is a NS-LOAD effect, so the hook is bound
+  before this ns can be called at all) would need. Returns nil."
   [runnable-id]
   (swap! frame-generation-pool dissoc runnable-id)
   nil)
+
+;; PUBLISHED AT NS LOAD, deliberately NOT from the `make-frame`-rooted
+;; reprojection once-body (rf2-cq0yi audit of PR #8887). `frame.cljc` is BELOW
+;; this ns (live-frame requires frame, not the other way round), so
+;; `destroy-frame!` reaches the release by late-bind keyword like every other
+;; feature's `<feature>/on-frame-destroyed!` callback — `fx.cljc` publishes
+;; `:fx/on-frame-destroyed!` from its own ns bottom for exactly this reason.
+;;
+;; WHY LOAD TIME RATHER THAN THE ONCE-BODY. `late-bind/hooks` is "populated by
+;; the producing namespace at LOAD TIME", and `set-fn!`'s cache invalidation
+;; exists so "hot-reload of an artefact swaps the resolved fn on the very next
+;; dispatch". A publication sited inside `install-reprojection!` cannot honour
+;; that: `reprojection-installed?` is a `defonce`, so in a dev process that has
+;; already constructed one frame the once-body is skipped on every subsequent
+;; reload of this ns and the key is never re-published. That is invisible in a
+;; fresh process — where the first `make-frame` installs everything — and bites
+;; only on the UPGRADE path, which is where it was measured: a process running
+;; pre-#8887 code has the flag `true` and the key absent, so reloading this ns
+;; left `destroy-frame!` with no release to call and the rows leaked until
+;; restart. Load time is also strictly EARLIER than the once-body was: this ns
+;; must be loaded before `make-frame` can be called, so the hook is bound before
+;; any row can exist — the timing guarantee the once-body siting was chosen for
+;; is kept, not traded away.
+;;
+;; THIS ROOTS NO REPROJECTION GRAPH. `release-frame-generation-pool!` is one
+;; `swap!` against the provenance atom and references nothing in the
+;; reprojection / `image-assembly` graph, so a bundle that never constructs a
+;; frame still folds `install-reprojection!`, `reproject-live-frame!` and
+;; `resolve-within-image` away exactly as before (the Spec 009 elision probe's
+;; PROD_ABSENT_WHEN_UNUSED contract). What load time roots is the two-line
+;; release and its atom, and nothing else.
+;;
+;; The registrar registration hook stays in the once-body and MUST: unlike a
+;; keyed `set-fn!`, `add-registration-hook!` APPENDS, so re-running it on every
+;; reload would accumulate duplicate hooks. Only the idempotent keyed
+;; publication is safe to re-run, and only it moves.
+(late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
 
 ;; ===========================================================================
 ;; Construction-window pool mark (rf2-djkr0)
@@ -1623,16 +1660,18 @@
            :doc "Process-local ONCE-flag for the reprojection wiring. Written
   LAST, and only from inside `reprojection-install-lock` on the JVM — see
   `ensure-reprojection-installed!` for why the ordering is load-bearing:
-  `true` here is a PROMISE that the registrar hook and all three late-bind keys
-  are already in place, and a partially-installed reprojection must never be
-  observable as installed."}
+  `true` here is a PROMISE that the registrar hook and BOTH reprojection
+  late-bind keys are already in place, and a partially-installed reprojection
+  must never be observable as installed. It promises nothing about
+  `:live-frame/on-frame-destroyed!`, which is published at ns load and is
+  therefore already bound before this flag can even be read (rf2-cq0yi)."}
   reprojection-installed?
   (atom false))
 
 #?(:clj
    (defonce ^{:private true
               :doc "JVM monitor serializing the reprojection once-install
-  (rf2-9c2jf, the merged-PR-#7114 audit). The install has FOUR side effects
+  (rf2-9c2jf, the merged-PR-#7114 audit). The install has THREE side effects
   and every one of them is part of what the once-flag promises, so the whole
   body — the flag read, the three effects, and the flag write — must be ONE
   critical section. A `compare-and-set!` on the flag alone is not enough: CAS
@@ -1642,7 +1681,7 @@
   installer has finished it.
 
   DEADLOCK-FREE BY CONSTRUCTION: the body calls only
-  `registrar/add-registration-hook!` and `late-bind/set-fn!` — four
+  `registrar/add-registration-hook!` and `late-bind/set-fn!` — three
   bookkeeping `swap!`s that run no user code, acquire no other monitor (in
   particular NOT `projection-flush-lock`), and never re-enter `make-frame`. The
   monitor is released before `make-frame` does anything else, so nothing
@@ -1654,7 +1693,7 @@
 
 (defn- install-reprojection!
   "The reprojection once-body, ALWAYS called with the install serialized (the
-  JVM monitor above; CLJS's single thread). Performs the four side effects and
+  JVM monitor above; CLJS's single thread). Performs the three side effects and
   only THEN publishes the once-flag.
 
   PUBLISH-LAST IS THE INVARIANT, not a style choice: `reprojection-installed?`
@@ -1680,27 +1719,29 @@
     ;; through `late-bind`, so the consult sites themselves root nothing —
     ;; only this publication does, and only `make-frame` reaches it.
     (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
-    ;; rf2-cq0yi — the TEARDOWN twin of the provenance write. `frame.cljc` is
-    ;; BELOW this ns (live-frame requires frame, not the other way round), so
-    ;; `destroy-frame!` reaches the release by late-bind keyword like every
-    ;; other feature's `<feature>/on-frame-destroyed!` callback. Published from
-    ;; the SAME once-body that installs the rest of the provenance wiring, and
-    ;; therefore under exactly the same rooting condition as the rows it
-    ;; releases: `make-frame` calls `ensure-reprojection-installed!` before it
-    ;; writes its first row, so the hook is always bound by the time a row
-    ;; exists, and an app that never constructs a frame roots neither.
-    (late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
+    ;; NOT the place for `:live-frame/on-frame-destroyed!` (rf2-cq0yi audit of
+    ;; PR #8887): a once-body guarded by a `defonce` flag is skipped on every
+    ;; hot reload after the first frame, so a publication sited here never
+    ;; re-arms. It is published at ns load instead — see the comment above
+    ;; `release-frame-generation-pool!`. Nothing is lost by its absence here:
+    ;; ns load strictly precedes the first `make-frame`, so the hook is bound
+    ;; before the first provenance row can exist either way.
+    ;;
     ;; …and ONLY NOW is the wiring observable as installed.
     (reset! reprojection-installed? true))
   nil)
 
 (defn ^:no-doc ensure-reprojection-installed!
   "Install the reprojection wiring ONCE per process: the registrar registration
-  hook plus the three late-bind keys the registrar's removal paths, the
-  resolution seams and `destroy-frame!` consult. Idempotent, and — on the JVM
+  hook plus the two late-bind keys the registrar's removal paths and the
+  resolution seams consult. Idempotent, and — on the JVM
   — a BARRIER: a concurrent `make-frame` either performs the install or WAITS
   for the caller performing it, so it can never proceed on a half-installed
   one.
+
+  `:live-frame/on-frame-destroyed!` is NOT installed here — it is published at
+  ns load (rf2-cq0yi), because a `defonce`-guarded once-body cannot re-arm a
+  hook on hot reload. See the comment above `release-frame-generation-pool!`.
 
   A PARTIALLY-INSTALLED REPROJECTION IS NEVER OBSERVABLE AS INSTALLED. That is
   the invariant, and it is what makes the once-flag safe to read. This used to
@@ -1719,7 +1760,7 @@
   that very moment. The original release blocker, recreated with no debug gate
   in sight. Pinned by `reprojection_install_race_jvm_test.clj`.
 
-  So the whole once-body — flag read, four side effects, flag write — is ONE
+  So the whole once-body — flag read, three side effects, flag write — is ONE
   critical section under `reprojection-install-lock`, and the flag is published
   LAST (`install-reprojection!`). JVM ONLY: CLJS is single-threaded, so no
   caller can observe the once-body mid-flight and the CLJS path stays
