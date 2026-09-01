@@ -37,8 +37,8 @@ Unreached upstream surface (`map-from-seq`, `contains-compressed-elements?`, `pa
 
 `dedup` owns:
 
-- `cache-element-ns` / `make-cache-element` — the cache-element wire shape.
-- `de-dupe-eq` — the equality-based compression walk, producing a raw cache map.
+- `cache-element-ns` / `make-cache-element` — the cache-element wire shape, and with it the reference grammar and collision rule below.
+- `de-dupe-eq` — the equality-based compression walk, producing a raw cache map (escaping colliding payload literals first).
 - `expand` — its exact inverse, over a raw cache map.
 - `empty-payload?` — the no-win short-circuit predicate (nil / empty / scalar, checked BEFORE `de-dupe-eq`).
 - `no-substitutions?` — the post-`de-dupe-eq` one-entry-root-only-cache detector (a non-empty collection with no repeated subtrees).
@@ -63,6 +63,26 @@ Unreached upstream surface (`map-from-seq`, `contains-compressed-elements?`, `pa
 ```
 
 Slot `0` is always the root. The namespace stayed `de-dupe.cache` through the absorb because it is a **wire** constant, not an implementation detail: the Node conformance decoder pins `de-dupe.cache/cache-0` (`tools/mcp-conformance/lib/dedup-envelope.cjs`), the wire-vocab `DedupTable` schema rejects a cache without that root, and Spec 009 / Tool-Pair document it. Renaming it would be a wire break bought for nothing; `cache-keys-are-de-dupe-cache-namespaced-symbols` makes an attempt a red build.
+
+### Reference grammar and the collision rule
+
+Occupying the namespace is not the same as owning it. A re-frame app may legitimately hold `de-dupe.cache/whatever` in app-db, a story may emit one in rendered or diagnostic data, and — once JSON has erased the symbol/string distinction — an ordinary payload *string* of that spelling is indistinguishable from a serialised reference symbol. A decoder that classified a value by its namespace alone therefore turned payload data into `nil`, into another slot's subtree, or into a thrown missing-entry error (rf2-kjv05). References are spelled, not merely namespaced.
+
+**In value position**, a token `de-dupe.cache/<name>` — a symbol on the Clojure side, a string once JSON has flattened it — is exactly one of:
+
+| `<name>` | reads as |
+| --- | --- |
+| `cache-<digits>` | a **reference** to that cache slot |
+| `!<rest>` | an **escaped literal** of `de-dupe.cache/<rest>` — strip one `!` |
+| anything else | ordinary **payload data**, passed through verbatim |
+
+**The collision rule.** The encoder escapes — one leading `!` — every payload token that would otherwise read as one of the first two forms, so its own output is unambiguous *by construction*: no ambiguous spelling can reach the wire, whatever the payload contains. Escaping is reversible under repetition, because the escaped form is itself escapable: a payload token spelled `de-dupe.cache/!cache-1` rides out as `de-dupe.cache/!!cache-1` and sheds exactly one marker on decode. Both symbols and same-spelled strings are escaped, and the escape is type-preserving (a string comes back a string), which is what keeps the JSON projection exact as well as the Clojure round-trip.
+
+**Cache keys are untouched.** Slot keys are the allocator's own `cache-N` symbols and never carry an escape; only values are subject to the grammar. Id allocation is likewise untouched — the encoder does not skip ids to dodge a colliding payload literal, because escaping has already removed the collision.
+
+**A missing reference stays a loud failure.** `cache-<digits>` is a reference whether or not the table holds that slot, so a truncated or hand-mangled table is rejected rather than silently re-read as data — pinned in the Node decoder by its own positive control, alongside the tests that prove ordinary namespace-occupying values decode verbatim.
+
+Both decoders implement this one grammar: `re-frame.mcp-base.dedup` (`cache-element?` / `escape-token` / `unescape-token`) and its Node mirror `tools/mcp-conformance/lib/dedup-envelope.cjs` (`CACHE_REF_RE` / `unescapeToken`). No prefix-only decoder remains. The cross-host pins are `payload-symbols-in-the-reference-namespace-round-trip-as-data` and `colliding-payload-tokens-are-escaped-on-the-wire` in `re-frame.mcp-base.dedup-test`; the Node counterparts live in `tools/mcp-conformance/test/dedup-envelope.test.cjs`.
 
 ### `de-dupe-eq form` → cache map
 
@@ -123,7 +143,7 @@ Keeping it test-side means no production consumer namespace re-exports a test-on
 
 ## Wire shape
 
-A deduped payload is wrapped in a top-level marker `{:rf.mcp/dedup-table <cache-map>}`, sourced from `vocab/dedup-table-key` so both servers use the same slot key — an agent that learned the slot on one server recognises it on the other. Agents reconstruct by calling `re-frame.mcp-base.dedup/expand` on the cache-map value.
+A deduped payload is wrapped in a top-level marker `{:rf.mcp/dedup-table <cache-map>}`, sourced from `vocab/dedup-table-key` so both servers use the same slot key — an agent that learned the slot on one server recognises it on the other. Agents reconstruct by calling `re-frame.mcp-base.dedup/expand` on the cache-map value. What counts as a reference *inside* that cache map is [§Reference grammar and the collision rule](#reference-grammar-and-the-collision-rule).
 
 ## See also
 

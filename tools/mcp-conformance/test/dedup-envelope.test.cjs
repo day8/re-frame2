@@ -22,6 +22,11 @@
 //      reconstructs correctly — real caches decode cleanly.
 //   3. a dangling ref (no matching entry) throws its own distinct
 //      error, pinned alongside.
+//   4. the reference grammar (rf2-kjv05): only `de-dupe.cache/cache-N`
+//      is a reference, `de-dupe.cache/!…` is an escaped payload literal,
+//      and any other string in the namespace is ordinary data — with a
+//      positive control that a genuinely missing reference still fails
+//      loudly, so the data rule cannot have disabled resolution.
 
 'use strict';
 
@@ -197,4 +202,112 @@ test('a well-formed orphan entry is harmless — root value unaffected', () => {
   };
   const out = decodeDedupEnvelope(envelope(cache));
   assert.deepEqual(out, { fine: 1 });
+});
+
+// ---------------------------------------------------------------------
+// rf2-kjv05: an ordinary payload value that OCCUPIES the reference
+// namespace is data, not a reference.
+//
+// This decoder used to classify every string beginning `de-dupe.cache/`
+// as a reference — broader even than the Clojure side, because JSON has
+// already erased the symbol/string distinction by the time the string
+// arrives. An ordinary payload value spelled that way therefore decoded
+// as another cached subtree, or threw the missing-entry error, in a
+// payload a conformant server had encoded perfectly well.
+//
+// The fixtures below are the JSON projection of what
+// `re-frame.mcp-base.dedup/de-dupe-eq` actually emits for the matching
+// Clojure payload — the escaped spelling `de-dupe.cache/!cache-1` is
+// pinned cross-host by `colliding-payload-tokens-are-escaped-on-the-wire`
+// in `re-frame.mcp-base.dedup-test`.
+// ---------------------------------------------------------------------
+
+// An escaped literal: what the encoder emits for a payload token that
+// would otherwise read as a reference.
+function escaped(name) {
+  return CACHE_NS_PREFIX + '!' + name;
+}
+
+test('ordinary payload strings in the reference namespace decode verbatim, beside a real reference (rf2-kjv05)', () => {
+  const cache = {
+    [cacheId(0)]: {
+      literal: CACHE_NS_PREFIX + 'not-a-ref', // ordinary: no escape needed
+      'look-alike': escaped('cache-1'), // ordinary, but spells a reference
+      a: cacheId(1), // the real reference
+      b: cacheId(1),
+    },
+    [cacheId(1)]: { big: ['repeat', 'me'] },
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.deepEqual(out, {
+    literal: 'de-dupe.cache/not-a-ref',
+    'look-alike': 'de-dupe.cache/cache-1',
+    a: { big: ['repeat', 'me'] },
+    b: { big: ['repeat', 'me'] },
+  });
+  // The real reference still resolved — and still shares structurally.
+  assert.equal(out.a, out.b, 'the genuine reference is still pooled');
+});
+
+test('POSITIVE CONTROL: a missing GENUINE reference still fails loudly (rf2-kjv05)', () => {
+  // The same shape, with the genuine `cache-1` entry deleted. Reference
+  // resolution must NOT have been disabled wholesale by the data rule
+  // above: a `cache-<digits>` token is a reference whether or not the
+  // table holds the slot, so this is still the loud missing-entry error.
+  const cache = {
+    [cacheId(0)]: {
+      literal: CACHE_NS_PREFIX + 'not-a-ref',
+      'look-alike': escaped('cache-1'),
+      a: cacheId(1),
+    },
+    // cache-1 deliberately absent.
+  };
+  assert.throws(
+    () => decodeDedupEnvelope(envelope(cache)),
+    /no matching entry/i,
+    'a genuinely dangling reference must still be rejected loudly',
+  );
+});
+
+test('escaping is reversible under repetition — one marker is stripped, not all (rf2-kjv05)', () => {
+  const cache = {
+    [cacheId(0)]: {
+      once: escaped('cache-1'), // payload was `…/cache-1`
+      twice: escaped('!cache-1'), // payload was `…/!cache-1`
+      other: escaped('not-a-ref'), // payload was `…/not-a-ref`
+      a: cacheId(1),
+      b: cacheId(1),
+    },
+    [cacheId(1)]: { big: ['repeat', 'me'] },
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.equal(out.once, 'de-dupe.cache/cache-1');
+  assert.equal(out.twice, 'de-dupe.cache/!cache-1');
+  assert.equal(out.other, 'de-dupe.cache/not-a-ref');
+});
+
+test('a namespace-occupying string is not a reference even when a same-named slot exists (rf2-kjv05)', () => {
+  // The aliasing case at its sharpest: the table really does hold
+  // `cache-1`, and the payload really does contain that spelling as
+  // data. Before the fix the literal decoded as the cached subtree.
+  const cache = {
+    [cacheId(0)]: { data: escaped('cache-1'), ref: cacheId(1) },
+    [cacheId(1)]: { i: 'am the subtree' },
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.deepEqual(out, {
+    data: 'de-dupe.cache/cache-1',
+    ref: { i: 'am the subtree' },
+  });
+});
+
+test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => {
+  // Keys route through the same value walk (see the de-duped-KEY test
+  // above), so the escape has to survive the key path as well.
+  const cache = {
+    [cacheId(0)]: { [escaped('cache-1')]: 'value-under-a-look-alike-key' },
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.deepEqual(Object.keys(out), ['de-dupe.cache/cache-1']);
+  assert.equal(out['de-dupe.cache/cache-1'], 'value-under-a-look-alike-key');
 });
