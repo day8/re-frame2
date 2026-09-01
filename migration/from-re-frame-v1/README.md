@@ -2943,13 +2943,14 @@ This entry is preserved as a pointer for users searching for `:dispatch-n` migra
 
 ### O-9. Adopt `:system-id` named-machine addressing (Spec 005)
 
-re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id), a spawn whose args carry `:system-id` binds a name in the per-frame runtime-db `[:rf.runtime/machines :system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
+re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id), a spawn whose args carry `:system-id` binds a name in the per-frame runtime-db `[:rf.runtime/machines :system-ids]` reverse index, lookable up via `(rf.machines/machine-by-system-id sid)` — a `re-frame.machines` helper, not a facade export, so it needs the [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) require and its `rf.machines` alias. Adoption is purely **opt-in**:
 
 - `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:spawn` slots; existing spawns / invokes continue to work unchanged.
 - `[:rf.runtime/machines :system-ids]` is a runtime-managed reserved runtime-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
-- The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame2-machines`.
+- The lookup helper `(rf.machines/machine-by-system-id sid)` is published through the late-bind hook table (`:machines/machine-by-system-id`), so the surface is silent on builds that don't ship `day8/re-frame2-machines`.
+- **The action-side counterpart is an effect, not a function.** Sending to a named actor is the reserved fx tuple `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]`, registered by `re-frame.machines` at load; there is **no** `dispatch-to-system` var on any namespace, so don't reach for a `(dispatch-to-system sid event)` call under any prefix. Actions can't read app-db and `:on-spawn`'s return is dropped, which is why the fx form is how an action messages a named actor.
 
-If a codebase has any pattern of "spawn an actor and thread its id through a sibling's `:data` so the sibling can dispatch back," consider replacing the threading with a `:system-id` binding plus `(rf/machine-by-system-id ...)` at the call site. The change is mechanical:
+If a codebase has any pattern of "spawn an actor and thread its id through a sibling's `:data` so the sibling can dispatch back," consider replacing the threading with a `:system-id` binding plus `(rf.machines/machine-by-system-id ...)` at the call site. The change is mechanical:
 
 ```clojure
 ;; before
