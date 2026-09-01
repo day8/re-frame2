@@ -594,40 +594,59 @@
   ;; A conflicted entry with NO active owners at settle stays durably stale in
   ;; place — no liveness created, no immediate fetch — and recovers on its next
   ;; public ensure. This distinguishes STALE from REFETCHED and prevents an
-  ;; always-fetch fix.
+  ;; always-fetch fix. AND the stale-marked key is still AFFECTED (rf2-wcdj4
+  ;; audit residual): Spec 016 §Mutation completion continuations — `:affected-keys` carries
+  ;; every key populated, patched, removed, OR MARKED STALE by the accepted
+  ;; reply, so the owner-free conflict key flows into the instance row, the
+  ;; `:rf.mutation/failed` trace, and the `:reply-to` continuation even though
+  ;; no refetch was armed (before the fix, affected was derived only from
+  ;; restored + actually-refetched keys and the owner-free stale key vanished).
   (reg-profile-resource! false)
-  (own-loaded! {:resource :r/profile :scope :rf.scope/global :params {} :owner [:v :a]}
-               {:saved? false})
-  (reg-save-profile-mutation!)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1}])
-  ;; the sole owner leaves mid-flight — state/detach-owner advances :revision
-  ;; (rf2-cxwuhl), so the settle sees a conflict on an OWNER-FREE entry.
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:v :a]}])
-  (is (empty? (:active-owners (entry profile-key)))
-      "precondition: the entry is owner-free before the reply settles")
-  (let [muta @last-managed-args
-        _    (reset! last-managed-args nil)
-        rb   (trace-of :rf.mutation/optimistic-rolled-back
-               #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
-    (testing "the exact entry is made durably STALE in place — owners/work facts
-              preserved, no liveness created, no immediate fetch"
-      (let [e (entry profile-key)]
-        (is (some? e) "the entry survives")
-        (is (some? (:invalidated-at e)) "durably stale (:invalidated-at stamped)")
-        (is (empty? (:active-owners e)) "no owner was resurrected")
-        (is (nil? (:current-work e)) "no fetch was started — no owner needs it now")))
-    (testing "the public sub derives :stale? from the durable fact"
-      (is (true? (:stale? @(rf/subscribe [:rf/resource profile-q])))))
-    (testing "NO recovery request was issued for the owner-free entry"
-      (is (nil? @last-managed-args)))
-    (testing "the trace + :reconciliation-refetches do NOT report a refetch that
-              never happened (the key is conflicted, not refetched)"
-      (is (= [profile-key] (:conflicted rb)))
-      (is (= [] (:refetched rb)))
-      (is (= [] (:restored rb)))
-      (is (= [] (:reconciliation-refetches (patch-summary :s1)))))
-    (testing "a LATER public ensure starts recovery (the stale entry refetches)"
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :r/profile :scope :rf.scope/global
-                                              :params {} :owner [:v :c]}])
-      (is (= {:method :get :url "/profile"} (:request @last-managed-args))
-          "the next live-owner ensure issued the recovery request"))))
+  (let [replied (atom nil)]
+    (rf/reg-event :t/save-settled (fn [_ event] (reset! replied (last event)) {}))
+    (own-loaded! {:resource :r/profile :scope :rf.scope/global :params {} :owner [:v :a]}
+                 {:saved? false})
+    (reg-save-profile-mutation!)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1
+                                             :reply-to [:t/save-settled]}])
+    ;; the sole owner leaves mid-flight — state/detach-owner advances :revision
+    ;; (rf2-cxwuhl), so the settle sees a conflict on an OWNER-FREE entry.
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:v :a]}])
+    (is (empty? (:active-owners (entry profile-key)))
+        "precondition: the entry is owner-free before the reply settles")
+    (let [muta @last-managed-args
+          _    (reset! last-managed-args nil)
+          trs  (traces-of [:rf.mutation/optimistic-rolled-back :rf.mutation/failed]
+                 #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))
+          rb   (:rf.mutation/optimistic-rolled-back trs)]
+      (testing "the exact entry is made durably STALE in place — owners/work facts
+                preserved, no liveness created, no immediate fetch"
+        (let [e (entry profile-key)]
+          (is (some? e) "the entry survives")
+          (is (some? (:invalidated-at e)) "durably stale (:invalidated-at stamped)")
+          (is (empty? (:active-owners e)) "no owner was resurrected")
+          (is (nil? (:current-work e)) "no fetch was started — no owner needs it now")))
+      (testing "the public sub derives :stale? from the durable fact"
+        (is (true? (:stale? @(rf/subscribe [:rf/resource profile-q])))))
+      (testing "NO recovery request was issued for the owner-free entry"
+        (is (nil? @last-managed-args)))
+      (testing "the trace + :reconciliation-refetches do NOT report a refetch that
+                never happened (the key is conflicted, not refetched)"
+        (is (= [profile-key] (:conflicted rb)))
+        (is (= [] (:refetched rb)))
+        (is (= [] (:restored rb)))
+        (is (= [] (:reconciliation-refetches (patch-summary :s1)))))
+      (testing "the stale-marked key IS in :affected-keys on every public surface
+                — materially changed (:invalidated-at + :revision advanced) is
+                affected, refetched or not (Spec 016 §Mutation completion continuations)"
+        (is (= [profile-key] (:affected-keys (instance :s1)))
+            "the failed instance row records the stale-marked key")
+        (is (= [profile-key] (:affected-keys (:rf.mutation/failed trs)))
+            "the :rf.mutation/failed trace carries the stale-marked key")
+        (is (= #{profile-key} (:affected-keys @replied))
+            "the :reply-to continuation reply carries the stale-marked key"))
+      (testing "a LATER public ensure starts recovery (the stale entry refetches)"
+        (rf/dispatch-sync [:rf.resource/ensure {:resource :r/profile :scope :rf.scope/global
+                                                :params {} :owner [:v :c]}])
+        (is (= {:method :get :url "/profile"} (:request @last-managed-args))
+            "the next live-owner ensure issued the recovery request")))))
