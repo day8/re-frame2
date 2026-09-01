@@ -2211,6 +2211,64 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
   assert.equal(result.skills_structural, 'true');
 });
 
+// rf2-g1m2q — `skills/re-frame2-pair-retro/**` and `skills/reagent-migration/**`
+// armed NOTHING AT ALL. `skills_structural` had four case arms
+// (skills/re-frame2-pair/tests/fixture/*, skills/re-frame2-pair/preload/*,
+// skills/re-frame2-pair/* with skills/shared/*, skills/re-frame2-setup/*) and
+// the main case carries no default arm, so a diff confined to either tree
+// classified to ZERO outputs — not merely skills_structural=false. Measured
+// with a passing control first, because an instrument that can answer "nothing
+// here" answers it the same way when misused: skills/re-frame2-setup/SKILL.md
+// returned skills_structural=true while both trees below returned 0 of 28.
+//
+// Both trees carry tests that the skills_structural tier is what schedules:
+//   - skills/re-frame2-pair-retro/tests/*_test.clj, looped by the pair-retro
+//     step in the `skills-structural` job (rf2-qad4l).
+//   - skills/reagent-migration/tests/fixture/, whose MIG-23 SSR cold-start
+//     :node-test build runs in `reagent-migration-fixture-cold-start`
+//     (rf2-vpdrf / rf2-bbe91).
+// So each tree's own gate was skipped on exactly the push that could break it.
+//
+// THE PAIR / PAIR-RETRO BOUNDARY IS THE TRAP, and it is why the retro tree
+// cannot inherit an existing arm: the `skills/re-frame2-pair/*` pattern needs a
+// `/` straight after `pair`, and `skills/re-frame2-pair-retro/...` has a `-`
+// there, so it never matches. The negative assertions pin that boundary from
+// the other side — retro paths must not arm the PAIR tree's expensive gates.
+const SKILLS_STRUCTURAL_ONLY_FILES = [
+  'skills/re-frame2-pair-retro/SKILL.md',
+  'skills/re-frame2-pair-retro/tests/duplicate_search_test.clj',
+  'skills/re-frame2-pair-retro/references/known-frictions.md',
+  'skills/reagent-migration/SKILL.md',
+  'skills/reagent-migration/references/procedure.md',
+  'skills/reagent-migration/tests/fixture/test/reagent_migration/mig23_cold_start_test.cljs',
+  'skills/reagent-migration/tests/fixture/shadow-cljs.edn',
+];
+for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
+  test(`${file} arms skills_structural (rf2-g1m2q)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.skills_structural,
+      'true',
+      `${file} is scheduled by the skills_structural tier; before rf2-g1m2q this tree armed nothing at all`,
+    );
+    // Scope discipline: structural ONLY. Neither tree drives a runtime, a live
+    // Pair op, an example build or an emitted-scaffold compile, so neither may
+    // queue the expensive lanes the pair/setup trees legitimately arm.
+    for (const key of [
+      'cljs_browser',
+      'mcp_live',
+      'examples_compile',
+      'template_expensive',
+    ]) {
+      assert.equal(
+        result[key],
+        'false',
+        `${file} is prose plus a self-contained fixture; it must NOT arm ${key}`,
+      );
+    }
+  });
+}
+
 test('cljs-browser job is job-level gated on cljs_browser (browser consumer, rf2-11yjq)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-browser');
   assert.match(block, /needs: detect_changed_surfaces/);
@@ -5633,9 +5691,16 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'skills/re-frame-migration': SKILLS_ALWAYS_ON,
   'skills/re-frame2-implementor': SKILLS_ALWAYS_ON,
   'skills/re-frame2-improver': SKILLS_ALWAYS_ON,
-  'skills/re-frame2-pair-retro': SKILLS_ALWAYS_ON,
+  // rf2-g1m2q — `skills/re-frame2-pair-retro` and `skills/reagent-migration`
+  // are DELIBERATELY ABSENT from this table now. Both used to sit here as
+  // SKILLS_ALWAYS_ON, which was true of them as pure prose trees; rf2-qad4l and
+  // rf2-vpdrf / rf2-bbe91 then gave each an executable half gated on
+  // `skills_structural` (the pair-retro bb step in `skills-structural`, and
+  // `reagent-migration-fixture-cold-start`), and this bead armed the two case
+  // arms that schedule them. A tree that arms an output must not stay declared:
+  // the `staleDeclarations` half of the check below fails on exactly that, so
+  // re-adding either entry reds this suite rather than passing quietly.
   'skills/re-frame2-xray': SKILLS_ALWAYS_ON,
-  'skills/reagent-migration': SKILLS_ALWAYS_ON,
   tools: {
     why: "A DECLARED HOLE, and since rf2-i2uoc a MEASURED one rather than an open question. The tree is four files. tools/README.md IS covered — the always-on verify-readme-links job walks it (measured: it is in check_readme_links.py's _iter_scanned set). tools/.gitignore is config no gate reads. The two build coordinators have no CI consumer AT ALL, and arming them was refused on evidence rather than guessed: no workflow runs from tools/ (every working-directory in .github/workflows is tools/<artefact>, never the bare root); scripts/test-jvm-tools.sh iterates per-tool directories and never the aggregate :test alias; tools/deps.edn says so itself, in its own comment — 'Production CI runs each tool's :test alias separately (per-tool gates)'; CI compiles the pair-mcp server from tools/re-frame2-pair-mcp/shadow-cljs.edn, not the tools/ mirror of it; and verify-version-lockstep.sh reads the per-artefact deps.edn files, not this coordinator. So NO existing output would exercise either file, and arming one — tools_jvm was the candidate — would schedule four probes that never read the edited file, which the tools_jvm_machines_viz note beside it calls worse than nothing. They are developer-convenience aggregates whose breakage surfaces on the next `cd tools && clojure -M:test`, to the developer who caused it. Delete this entry if either coordinator ever gains a real CI consumer.",
     coveredBy: ['scripts/check_readme_links.py'],
