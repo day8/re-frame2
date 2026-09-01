@@ -35,6 +35,33 @@ validated, not silently dropped: unreachable registry → the same
 capability-unavailable error; reached-but-unknown id →
 `:rf.error/story-mcp-unknown-substrate`.
 
+### Running a variant needs an installed adapter (rf2-c9t52)
+
+Catalogue reads work on a bare launch. RUNNING one does not: `run-variant`
+and `preview-variant` allocate a variant frame, and a frame takes its
+state substrate from an installed re-frame adapter. The server
+deliberately installs none — per
+[`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md)
+the substrate choice belongs to the app — so a consuming project that
+wants headless runs installs one in the namespace its launch alias
+preloads (`(rf/init! plain-atom/adapter)`, the renderer-free choice).
+
+With none installed, both lifecycle tools REFUSE before any lifecycle
+work, returning `isError true` with `:rf.error
+:rf.error/no-adapter-installed` — core's own id for this condition — plus
+`:tool` and a `:recovery` naming the boot. They never return a
+`:status`. The refusal exists because the alternative is a
+success-shaped NON-RUN: with no substrate the setup dispatches reach
+nothing and the script plays nothing, yet the run settles the ordinary
+`:status :pass` envelope over `{}` and `[]`, indistinguishable on the
+wire from a genuine green.
+
+This does NOT alter Story's rule that an actually-EXECUTED
+assertion-free variant is vacuously `:pass` (spec/017 §Run result).
+Executed-and-silent and never-executed are different states; only the
+first is green. `snapshot-identity` is deliberately unguarded — it hashes
+the declared tuple and runs no lifecycle.
+
 ## The unified run-result (run/read tools speak ONE result vocabulary)
 
 The Testing run/read tools (`run-variant`, `read-failures`) and the Dev
@@ -175,7 +202,11 @@ Given `:variant-id` (plus optional `:substrate`, `:active-modes`,
 and returns the post-pipeline state plus a sharable URL.
 
 `preview-variant` blocks on the SAME `story/run-variant` lifecycle as
-`run-variant`, so it accepts the SAME tunable `:timeout-ms` end-to-end
+`run-variant`, so it carries the SAME host prerequisite — with no
+installed re-frame adapter it refuses with
+`:rf.error/no-adapter-installed`, per
+[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52)
+— and it accepts the SAME tunable `:timeout-ms` end-to-end
 deadline (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
 `:rf.http/timeout-ms` per rf2-it1cd), caller values above the ceiling
 clamp DOWN rather than reject. The MCP request loop is single-threaded
@@ -433,6 +464,11 @@ Full lifecycle invocation; returns the unified run-result (see
 
 Inputs: `{:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ... :timeout-ms?}`.
 
+Host prerequisite: with no re-frame adapter installed in the server JVM
+this REFUSES up front with `:rf.error/no-adapter-installed` and no
+`:status` at all — see
+[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52).
+
 The top-level `:status` is the headline "did this pass?" answer
 (rf2-ba86n.17 clean break — the retired `:passing?` boolean is gone).
 `:cannot-run` is the distinct third verdict the old boolean could not
@@ -459,8 +495,14 @@ accumulated when invoked in a runtime that can access
 axe-core, so it sits
 in the `read-` no-recompute family alongside `read-failures`, not the
 `run-` execute-and-report family. Calling it neither runs a fresh check
-nor proves the variant accessible. The JVM stdio server returns an empty
-list plus a documented hint because it cannot access the browser panel.
+nor proves the variant accessible. The JVM stdio server cannot access the
+browser panel, so it returns the machine-readable capability-unavailable
+error (`isError true`, `:rf.error
+:rf.error/story-mcp-capability-unavailable`) — never an empty list. An
+empty `:violations` vec is reserved for a REACHED panel that genuinely
+recorded no findings: EMPTY means nothing was observed, UNAVAILABLE means
+the host could not look, and a reader who takes the first for the second
+concludes a component is accessible when nothing inspected it.
 
 Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
 observed state — the rendered DOM of the variant frame, normalised from
