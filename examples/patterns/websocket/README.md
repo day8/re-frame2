@@ -73,7 +73,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   [event](../../../docs/core/glossary.md#event). If the deadline fires first —
   a `:ws/request-timeout` on a still-live socket — the request is failed, not
   silently forgotten: the slot clears and the waiting reply fires with an
-  explicit `{:ok false :error :ws/timeout}` body, the per-request twin of the
+  explicit `{:origin :ws/local :ok false :error :ws/timeout}` body, the per-request twin of the
   socket-drop path below, so a timed-out caller learns the outcome instead of
   hanging forever. The correlation id is a folded
   fact from a recordable [coeffect](../../../docs/core/glossary.md#coeffect)

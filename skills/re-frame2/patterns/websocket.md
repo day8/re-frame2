@@ -27,7 +27,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 
 ## Credential discipline (load-bearing — read before the snippet)
 
-Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised somewhere the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) — an opaque key the host-side socket actor exchanges for the real bearer at the moment it opens/authenticates the socket, via an app-owned, client-only resolver: a plain host-fn seam like the worked example's `resolve-credential` (`examples/patterns/websocket/messages.cljs`), or a client-only cofx (`:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context — its private socket closure — for the auth write and discards it; the bearer never re-enters the dispatch stream.
+Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised somewhere the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) — an opaque key the host-side socket actor exchanges for the real bearer **at the auth write** — not when it creates the socket, because anything the socket's enclosing scope resolves is retained by the stored socket handle for the whole connection — via an app-owned, client-only resolver: a plain host-fn seam like the worked example's `resolve-credential` (`examples/patterns/websocket/messages.cljs`), or a client-only cofx (`:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context — its private socket closure — for the auth write and discards it; the bearer never re-enters the dispatch stream.
 
 > **The credential cofx/fx live under YOUR app's prefix, not `:rf/*`.** re-frame2 ships **no** credential surface, and the `:rf/*` root is framework-reserved (`spec/Conventions.md` §single-root reserved set). Register the credential cofx/fx under your auth slice's own feature prefix — the `:auth.cred/fetch` / `:auth.cred/store` names in this leaf are illustrative placeholders for *your* registrations, not framework-provided surfaces.
 
@@ -52,7 +52,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 (rf/reg-machine :ws/connection
   {:initial :disconnected
    ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
-   ;; client-side at actor spawn via your app's :auth.cred/fetch cofx
+   ;; client-side at the auth write via your app's :auth.cred/fetch cofx
    ;; (an app-prefixed registration — NOT a framework surface).
    :data    {:url nil :cred-ref nil :retries 0 :max-retries 8
              :base-ms 1000 :max-backoff-ms 30000
@@ -68,7 +68,13 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     ;; socket reads nil from :rf/spawned, so stragglers drop for free.
     (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
       (let [live (socket-id data)]
-        (and (some? live) (= source-socket-id live))))}
+        (and (some? live) (= source-socket-id live))))
+    :trusted-frame?
+    ;; Vouching for the SENDER is not vouching for the BYTES. One named guard,
+    ;; not an :and of two — 005 ships no guard combinator data form.
+    (fn [{data :data [_ {:keys [source-socket-id body]}] :event}]
+      (and (current-socket? data source-socket-id)
+           (valid-inbound-frame? body)))}   ;; a compiled closed-union validator
 
    :actions
    {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
@@ -116,7 +122,14 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                                :ws/auth-failed {:target [:failed]}}}
       :connected      {:entry  :on-connected
                        :always [{:guard :has-queued-messages? :action :flush-queue}]
-                       :on     {:ws/received {:guard :current-socket? :action :route-message}
+                       :on     {;; Two candidates, first-match-wins. :trusted-frame? is
+                                ;; :current-socket? AND the closed inbound wire contract:
+                                ;; :route-message clears an :in-flight slot the frame
+                                ;; NAMES, so vet before the branch, not just before app-db.
+                                ;; The refusal arm returns no :data at all; the ingress
+                                ;; downstream owns the rejection record.
+                                :ws/received [{:guard :trusted-frame?  :action :route-message}
+                                              {:guard :current-socket? :action :refuse-frame}]
                                 :ws/send     {:action :send-now}}}}}
 
     :reconnecting
@@ -136,7 +149,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
           :ws/rotate-cred {:action :rotate-cred}}}}})
 ```
 
-Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves the pointer to a bearer at spawn time.
+Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves the pointer to a bearer at the auth write — not when the socket is created. Anything the socket's enclosing scope resolves is retained by the socket handle for the whole connection, which is the opposite of what "resolve, use, discard" promises.
 
 If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), name the payload path in the **registration's** `:sensitive` metadata — the registration owns transient-payload classification (see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
 
@@ -163,7 +176,7 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 
 **Subscription protocol.** Topics live in `:data :subscriptions`. `:on-connected` re-issues subscribes on entry — subscriptions survive reconnects automatically.
 
-**Re-authentication on reconnect.** *Proactive*: auth machine refreshes the bearer (storing it host-side), then dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque ref — the bearer itself does not cross the dispatch boundary. Next `:active` entry's `:spawn :data` fn picks up the fresh ref and the spawning actor re-resolves via the client-only cofx. *Reactive*: reconnect into `:authenticating` fails with `:ws/auth-failed`, lands in `:failed`; auth machine observes via the `:rf/machine` sub, refreshes, dispatches a fresh `:ws/connect` carrying the new `:cred-ref`. Either way, no bearer in machine `:data`, no bearer in dispatch payloads.
+**Re-authentication on reconnect.** *Proactive*: auth machine refreshes the bearer (storing it host-side), then dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque ref — the bearer itself does not cross the dispatch boundary. Next `:active` entry's `:spawn :data` fn picks up the fresh ref and the new socket re-resolves it at its own auth write. *Reactive*: reconnect into `:authenticating` fails with `:ws/auth-failed`, lands in `:failed`; auth machine observes via the `:rf/machine` sub, refreshes, dispatches a fresh `:ws/connect` carrying the new `:cred-ref`. Either way, no bearer in machine `:data`, no bearer in dispatch payloads.
 
 **SSR.** No-ops server-side: `:spawn` spawn fx is `:platforms #{:client}`; `:after` timers don't schedule under SSR.
 
@@ -173,7 +186,7 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 
 - **Anchoring `:spawn` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
 - **Storing the `WebSocket` JS object in `app-db`.** Not a value, not serialisable, won't survive snapshot replay. Actor owns it host-side; only the actor id appears in `:data`.
-- **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved at actor spawn via a client-only cofx, and never re-enters dispatch.
+- **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved by a client-only seam at the auth write, and never re-enters dispatch.
 - **Routing a refresh bearer through dispatch without classifying its path at its owner.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), classify the path where it lands — a durable app-db secret via the writing event's `:sensitive` commit-plane effect, or the transient dispatch payload key in the dispatching handler's registration `:sensitive` metadata — per the privacy seam in [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md). (There is **no** handler-meta `{:sensitive? true}` privacy switch; classification is fail-open and does not propagate.)
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
