@@ -89,28 +89,57 @@ variable:
 
 Claude Code's project-scoped `.mcp.json` and Cursor's
 `.cursor/mcp.json` document no `cwd` field, so there the command itself
-must establish the directory (swap `sh -c` for your shell on Windows).
-Claude Code sets `CLAUDE_PROJECT_DIR` (the project root) in the
-server's environment and expands `${VAR}` in `command`/`args`:
+must establish the directory — and the two hosts hand you the project
+root by different routes.
+
+Claude Code sets `CLAUDE_PROJECT_DIR` to the project root in the
+**spawned server's** environment, and its docs are explicit that this is
+not Claude Code's own environment: a `${VAR}` reference in a
+project-scoped `.mcp.json` therefore needs a `${CLAUDE_PROJECT_DIR:-.}`
+default, and that default resolves to wherever the host launched, not to
+your project. So leave the braces off. `$CLAUDE_PROJECT_DIR` is outside
+the config expander's `${VAR}` / `${VAR:-default}` grammar, so it
+reaches `sh` untouched and `sh` expands it from the environment Claude
+Code did set:
 
 ```json
 {"mcpServers":
  {"story": {"command": "sh",
-            "args": ["-c", "cd \"${CLAUDE_PROJECT_DIR}\" && exec clojure -M:story-mcp"]}}}
+            "args": ["-c", "cd \"$CLAUDE_PROJECT_DIR\" && exec clojure -M:story-mcp"]}}}
 ```
 
-Cursor documents no equivalent project-root variable (entries carry
-only `command`/`args`/`env`/`envFile`), so write the absolute project
-path into that `cd` yourself. From any other working directory
-`clojure` cannot see your project's deps.edn — neither the alias nor
-your stories are reachable.
+On Windows, `cmd` reads the same variable, and `%VAR%` is outside that
+grammar for the same reason (`cd /d` so the drive changes too):
+
+```json
+{"mcpServers":
+ {"story": {"command": "cmd",
+            "args": ["/c", "cd /d \"%CLAUDE_PROJECT_DIR%\" && clojure -M:story-mcp"]}}}
+```
+
+Cursor puts no project root in the server's environment, but its config
+expander does substitute `${workspaceFolder}` — the folder holding
+`.cursor/mcp.json` — in `args`. There the braces are right: Cursor
+replaces the variable before `sh` ever runs, so the same entry works
+with `${workspaceFolder}` in place of `$CLAUDE_PROJECT_DIR`.
+
+From any other working directory `clojure` cannot see your project's
+deps.edn — neither the alias nor your stories are reachable.
 
 Repeat the `-e` form (or require several namespaces in one) as needed;
-init-opts run in command order. Add `--allow-writes` to the host's
-`args` only when you want the author/refine loop. A missing or throwing
-namespace aborts the launch loudly — the ordinary `require` failure on
-stderr and a non-zero exit — so the server never comes up over a
-silently empty project registry.
+init-opts run in command order. A missing or throwing namespace aborts
+the launch loudly — the ordinary `require` failure on stderr and a
+non-zero exit — so the server never comes up over a silently empty
+project registry.
+
+Add `--allow-writes` only when you want the author/refine loop, and add
+it where the server's own argv is. In the VS Code entry that is the
+`args` array, after `-M:story-mcp`. In a shell-wrapper entry it is
+**inside the command string** — `... && exec clojure -M:story-mcp
+--allow-writes`. A further array element after a `sh -c` script becomes
+the shell's `$0`, not an argument to anything the script runs, so a
+flag parked there is dropped without a word and the server comes up
+read-only.
 
 Two rules the required namespaces must obey:
 
