@@ -929,9 +929,12 @@ and both readings went wrong in a single day here, in opposite directions.
    healthy foreground work looks like, and exactly what a stopped worker looks like.** It cannot
    identify either, and no amount of re-reading the same four clocks converts it into evidence; a
    freeze that has run an hour is still the same non-signal it was in the first minute. Measured twice
-   in one day, on five workers and then on a sixth: **five of those six completed alive** — the
-   remaining one was never explained — and on the second occasion the supervisor's own one-line
-   progress string named the phase outright while the four clocks said otherwise. Where no direct
+   in one day: five workers were called dormant and **three of them completed alive, two were never
+   explained either way**; a sixth, recorded later as another instance, also completed. **Do not count
+   a live control among them** — one moving worker was the control for that measurement, and folding
+   it into the numerator is how this count was first written down wrong. On the second occasion the
+   supervisor's own one-line progress string named the phase outright while the four clocks said
+   otherwise. Where no direct
    status exists, declare a window and re-read rather than acting: not because waiting resolves the
    ambiguity, but because the two errors are priced differently — waiting costs a tick, and acting
    costs a duplicate worker in a live worktree.

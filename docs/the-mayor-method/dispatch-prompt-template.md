@@ -583,13 +583,19 @@ compatible with a stopped worker and with healthy foreground work alike, so it i
 Re-reading the same four clocks cannot break the tie, however long the freeze runs: an hour of it is
 the same non-signal as a minute of it.
 
-Measured, twice: on the first occasion five workers were reported dormant and four then completed
-alive with full reports, one answering the ping directly to say it had been on final hygiene, while
-the fifth was never explained either way; the diagnosis was retracted in full, including a second
-claim — that messaging was inoperative — which was *slow* converted into *broken*. It recurred the
-same day on a sixth worker whose clocks were frozen for over an hour and which completed normally.
-**Five of six alive is the sourced count; treat it as a warning against the dormancy reading, not as
-a licence for its inverse.**
+Measured, twice: on the first occasion five workers were reported dormant; **three completed alive
+with full reports**, one answering the ping directly to say it had been on final hygiene, and **two
+were never explained either way**. The diagnosis was retracted in full, including a second claim —
+that messaging was inoperative — which was *slow* converted into *broken*. It recurred the same day
+on a sixth worker whose clocks were frozen for over an hour and which completed normally.
+
+**Name those outcomes rather than reducing them to a ratio, because the ratio has already been got
+wrong twice.** A ratio invites you to round the unexplained cases into whichever side you are
+arguing for, and the first attempt also counted a **live control** — a worker that was moving
+throughout, and was the comparison the measurement rested on — among the completions. Four alive,
+two unexplained, one control that was never in question: **treat that as a warning against the
+dormancy reading, not as a licence for its inverse**, and note that the two unexplained workers are
+precisely why the reading is ambiguous rather than merely mistaken.
 
 **So prefer the DIRECT signal where your tooling offers one** — a live progress line, a status the
 supervisor maintains — over any number of indirect clocks, and **treat the four clocks as the fallback
