@@ -946,31 +946,65 @@
           "streaming passes the inner the longest prefix it accepts"))))
 
 (deftest emit-form-2-inner-body-arity-exception-propagates-once
-  (testing "rf2-mocn3 — an ArityException raised INSIDE a correctly-invoked
-            inner render propagates unchanged, and the render body runs
-            exactly ONCE, on BOTH server paths"
-    ;; A VALID zero-arity inner — precisely the shape the old zero-arity
-    ;; retry could re-enter successfully — whose body carries an ordinary
-    ;; wrong-arity bug in a helper it calls.
+  (testing "rf2-mocn3 — a zero-arity inner invoked with zero args REACHES its
+            body, and an ArityException raised THERE is not an invocation
+            mismatch: the render runs exactly ONCE, on BOTH server paths"
+    ;; The shape the old catch-and-retry could re-enter successfully. The
+    ;; first call already matches, so the body runs, throws, is caught, and
+    ;; the retry runs the body a SECOND time. ONLY a counting inner detects
+    ;; that — the exception is the same either way, so an idempotent test
+    ;; double is green against the unrepaired helper and proves nothing.
+    ;;
+    ;; The arity must match on the FIRST call for this to bite: a zero-arity
+    ;; inner under a one-arg component throws before entering the body, the
+    ;; counter never reaches 2, and the row is vacuous.
     (let [calls       (atom 0)
           needs-two   (fn [a b] [:span a b])
-          form2-buggy (fn [x] (fn []
-                                (swap! calls inc)
-                                [:div (needs-two x)]))]
+          form2-buggy (fn [] (fn []
+                               (swap! calls inc)
+                               [:div (needs-two "x")]))]
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
-                   (emit/emit-element [form2-buggy "x"]))
+                   (emit/emit-element [form2-buggy]))
           "sync emit propagates the inner body's own ArityException")
       (is (= 1 @calls)
           "sync emit invoked the inner render EXACTLY once (the old
            catch-and-retry reached 2)")
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
-                   (streaming/render-shell [form2-buggy "x"]))
+                   (streaming/render-shell [form2-buggy]))
           "streaming propagates the inner body's own ArityException")
       (is (= 1 @calls)
           "streaming invoked the inner render EXACTLY once (the old
-           catch-and-retry reached 2)"))))
+           catch-and-retry reached 2)")))
+
+  (testing "rf2-mocn3 — the inner body's ORIGINAL failure propagates
+            unchanged rather than being replaced by the retry's"
+    ;; A SAME-arity inner. The old helper caught the body's
+    ;; `Wrong number of args (1)` and re-invoked at arity ZERO, which this
+    ;; arity-1 inner rejects — so the programmer was shown
+    ;; `Wrong number of args (0)` about a call they never wrote and their
+    ;; real bug vanished. The arg COUNT in the message is the discriminator
+    ;; here; the invocation counter cannot tell these two apart.
+    (let [calls       (atom 0)
+          needs-two   (fn [a b] [:span a b])
+          form2-buggy (fn [x] (fn [x]
+                                (swap! calls inc)
+                                [:div (needs-two x)]))]
+      (reset! calls 0)
+      (is (thrown-with-msg? clojure.lang.ArityException
+                            #"Wrong number of args \(1\)"
+                            (emit/emit-element [form2-buggy "x"]))
+          "sync emit surfaces the render's own failing call, not a
+           fabricated zero-arity retry")
+      (is (= 1 @calls) "sync emit invoked the inner render exactly once")
+      (reset! calls 0)
+      (is (thrown-with-msg? clojure.lang.ArityException
+                            #"Wrong number of args \(1\)"
+                            (streaming/render-shell [form2-buggy "x"]))
+          "streaming surfaces the render's own failing call, not a
+           fabricated zero-arity retry")
+      (is (= 1 @calls) "streaming invoked the inner render exactly once"))))
 
 (deftest emit-form-2-variadic-inner-body-failure-is-not-swallowed
   (testing "rf2-mocn3 — the old zero-arity retry SUCCEEDED on a variadic
