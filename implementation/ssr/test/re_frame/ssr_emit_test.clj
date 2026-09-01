@@ -1089,9 +1089,14 @@
 ;; rendered, so a shared `.cljc` Form-2 component rendered on the server and
 ;; failed on hydration — the exact parity the repair exists to hold.
 ;;
-;; The cross-host table proves the AGREEMENT on both hosts through the sync
-;; emitter. What is here is the second public consumer: streaming shares one
-;; resolver with sync, so every row asserts through BOTH.
+;; The cross-host table runs on both hosts through the sync emitter: it pins
+;; the AGREEMENT above, and — since rf2-mocn3's mayor ruling of 2026-09-01 —
+;; also the one place agreement STOPS. Where an inner is handed FEWER args
+;; than its shortest arm requires, CLJS binds the missing parameters to
+;; `undefined` and renders while the JVM raises; the JVM is stricter there on
+;; purpose (`emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT). What is
+;; here is the second public consumer: streaming shares one resolver with
+;; sync, so every row asserts through BOTH.
 ;; ===========================================================================
 
 (deftest emit-form-2-multi-arity-inner-refuses-what-cljs-refuses

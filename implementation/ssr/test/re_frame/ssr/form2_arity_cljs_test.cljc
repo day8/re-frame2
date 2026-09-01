@@ -20,9 +20,24 @@
   arity 2 and arity 1 for them and rendered happily. A component like that
   server-rendered fine and blew up on hydration.
 
-  Every row below therefore asserts the SAME expectation on both hosts —
-  either exact rendered bytes or `::arity-rejected`. That is the contract:
-  not \"the JVM is lenient\", but \"the JVM agrees with CLJS\".
+  Most rows below therefore assert the SAME expectation on both hosts —
+  either exact rendered bytes or `::arity-rejected`.
+
+  TWO ROWS DO NOT, AND THAT IS THE POINT OF THEM (rf2-mocn3, mayor ruling
+  2026-09-01). The hosts agree on arm SELECTION and on EXCESS arguments, and
+  they DIVERGE on MISSING ones: JavaScript binds an absent parameter to
+  `undefined` and CLJS renders, while the JVM raises `ArityException` and SSR
+  fails. That divergence is deliberate — see
+  `re-frame.ssr.emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT — so
+  those two rows carry a per-host expectation and record what each host
+  actually does. A table whose stated contract is host agreement has to show
+  where agreement STOPS, or it advertises the same false promise the prose
+  used to.
+
+  So the contract this table pins is not \"the JVM is lenient\", and no
+  longer the flat \"the JVM agrees with CLJS\" it once claimed: it is \"the
+  JVM agrees with CLJS on which arm runs and on extra args, and refuses —
+  loudly, on purpose — where CLJS would silently supply `undefined`\".
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
   `implementation/ssr` (JVM) and `npm run test:cljs` (node). The streaming
@@ -85,6 +100,15 @@
                                          [:p (str "mxv|" a "|" b "|"
                                                   (str/join "," r))]))))
 
+;; The two MISSING-argument shapes, per the ruling: a single fixed arity of
+;; two, and a fixed+variadic arm requiring two with no shorter arm to fall
+;; back on. Both are invoked below their required count by the rows that use
+;; them.
+(def ^:private fixed-2   (form-2 (fn [a b] [:p (str "fixed2|" a "|" b)])))
+(def ^:private fixed-var (form-2 (fn [a b & r]
+                                   [:p (str "fv|" a "|" b "|"
+                                            (str/join "," r))])))
+
 ;; ---------------------------------------------------------------------------
 ;; The table
 ;; ---------------------------------------------------------------------------
@@ -130,3 +154,62 @@
         "a fixed+variadic inner routes an over-fixed count to the variadic arm")
     (is (= "<p>mx1|a</p>" (outcome [mixed-1-var "a"]))
         "the same inner routes an exactly-matching count to its fixed arm")))
+
+(deftest form-2-inner-missing-arguments-diverge-across-hosts
+  (testing "rf2-mocn3 (mayor ruling 2026-09-01) — MISSING arguments are the
+            ONE place the hosts disagree, and the rows record what each host
+            actually does rather than a parity the code does not hold.
+            JavaScript binds an absent parameter to `undefined` and the CLJS
+            render proceeds; the JVM raises `ArityException` and SSR fails.
+            The JVM is the STRICTER host here, deliberately — a fabricated
+            nil prop ships an author's arity mistake as production HTML,
+            where a loud server failure shows it. Do not `fix` either side
+            to make these rows agree; that would be the change the ruling
+            refused"
+    ;; Case 1 — a SINGLE fixed arity of two, handed one arg.
+    (is (= #?(:clj ::arity-rejected :cljs "<p>fixed2|a|</p>")
+           (outcome [fixed-2 "a"]))
+        "a single-fixed-arity-2 inner at 1 arg: CLJS renders with the second
+         slot missing; the JVM refuses")
+    ;; Case 2 — a fixed+variadic arm requiring two, handed one arg. CLJS
+    ;; routes to the variadic arm regardless, leaving `b` missing and the
+    ;; rest seq empty.
+    (is (= #?(:clj ::arity-rejected :cljs "<p>fv|a||</p>")
+           (outcome [fixed-var "a"]))
+        "a fixed+variadic inner below its required count: CLJS routes to the
+         variadic arm with the missing slot absent; the JVM refuses"))
+
+  (testing "rf2-mocn3 — non-vacuity: the SAME two inners render identically
+            on both hosts at every count they DO accept, so the rows above
+            pin the missing-argument divergence and not a JVM that has
+            simply stopped rendering these shapes"
+    (is (= "<p>fixed2|a|b</p>" (outcome [fixed-2 "a" "b"]))
+        "the fixed-arity-2 inner at its exact arity agrees across hosts")
+    (is (= "<p>fv|a|b|</p>" (outcome [fixed-var "a" "b"]))
+        "the fixed+variadic inner at exactly its required count agrees")
+    (is (= "<p>fv|a|b|c</p>" (outcome [fixed-var "a" "b" "c"]))
+        "the fixed+variadic inner above its required count agrees, whole
+         arg list handed to the variadic arm"))
+
+  ;; `undefined` is load-bearing in the contract wording and is NOT
+  ;; interchangeable with nil, but the RENDERED BYTES above cannot tell them
+  ;; apart: `(str x)` is "" for both, and `nil?` answers true for both
+  ;; because it compiles to `== null`. `undefined?` is a `===` against
+  ;; `void 0`, which is what discriminates — so pin the slot itself, on the
+  ;; host where the call actually happens.
+  #?(:cljs
+     (testing "rf2-mocn3 — the client's missing slot is genuinely
+               `js/undefined`, not a nil the client fabricated"
+       (let [seen (atom nil)
+             spy  (fn [a b]
+                    (reset! seen {:a-undefined? (undefined? a)
+                                  :b-undefined? (undefined? b)})
+                    [:p "x"])]
+         (apply spy ["a"])
+         (is (false? (:a-undefined? @seen))
+             "the argument that WAS passed is not undefined")
+         (is (true? (:b-undefined? @seen))
+             "the argument that was NOT passed is undefined")
+         (is (false? (undefined? nil))
+             "control: `undefined?` really discriminates — nil is not
+              undefined under it, though `nil?` is true of both")))))

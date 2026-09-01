@@ -409,10 +409,21 @@
 
 #?(:clj
    (defn- form-2-invocation-arity
-     "How many of the component's `n` args to hand `inner` — modelling what
-     the SAME `inner`, compiled by ClojureScript, would accept — or `nil` when
-     CLJS would reject the call too and the JVM should simply pass all `n` and
-     let its own `ArityException` report the real call.
+     "How many of the component's `n` args to hand `inner` — modelling which
+     arm the SAME `inner`, compiled by ClojureScript, would SELECT — or `nil`
+     when no declared arm fits `n`, in which case the JVM passes all `n` and
+     lets its own `ArityException` report the real call.
+
+     `nil` covers two situations that are NOT the same, and only one of them
+     is host agreement (rf2-mocn3, mayor ruling 2026-09-01):
+
+       • TOO MANY args for every arm of a multi-arm inner — the compiled
+         CLJS dispatcher throws `Invalid arity: n` as well, so both hosts
+         refuse and the shared component is rejected identically.
+       • TOO FEW args — CLJS does NOT refuse. JavaScript binds the missing
+         parameters to `undefined` and the render proceeds. The JVM refuses
+         instead, DELIBERATELY. See `invoke-form-2-render-fn` for the
+         supported contract and why this direction is not emulated.
 
      rf2-mocn3 (audit) — this used to walk every declared arity downward and
      take the longest accepted prefix, which is NOT what a compiled CLJS fn
@@ -440,10 +451,11 @@
           tail, shorter than `n`                   → that arity (truncate)
 
      Rule 3 is deliberately narrow, and widening it would be a DIFFERENT
-     behaviour wearing this name. Nothing here ever SUPPLIES missing args:
-     CLJS does pass `undefined` for them, but fabricating `nil` props on the
-     server is the kind of silent divergence this helper exists to prevent, so
-     an inner that declares only arities above `n` falls through to `nil`."
+     behaviour wearing this name. There is deliberately no fourth rule for
+     TOO FEW args: nothing here ever SUPPLIES an argument the caller did not
+     pass, so an inner that declares only arities above `n` falls through to
+     `nil` and the JVM raises. That is the one place the hosts disagree, and
+     `invoke-form-2-render-fn` states the contract and the reason."
      [inner n]
      (let [fixed    (declared-fixed-arities inner)
            required (variadic-required-arity inner)]
@@ -456,8 +468,10 @@
          :else                          nil))))
 
 (defn- invoke-form-2-render-fn
-  "Invoke a Form-2 inner render fn with `args`, on the JVM under the SAME
-  arity rules the compiled CLJS `inner` would follow. The idiomatic
+  "Invoke a Form-2 inner render fn with `args`, on the JVM under the arity
+  rules the compiled CLJS `inner` would follow for arm SELECTION and for
+  EXCESS arguments — see THE SUPPORTED CONTRACT below for the one direction
+  in which the JVM deliberately does NOT follow them. The idiomatic
   Reagent/UIx Form-2 inner either takes the SAME args as the outer
   (`(fn [x] …)`), ignores them and closes over the outer's (`(fn [] …)`), or
   — just as validly — takes a non-zero PREFIX of them (`(fn [kept] …)` under
@@ -483,9 +497,28 @@
   So: select the shape from the inner's DECLARED arities
   (`form-2-invocation-arity`), then invoke exactly once. No user code runs
   inside a catch here, and anything the render throws propagates unchanged.
-  When there is no shape CLJS would accept either, `(apply inner args)` lets
-  the inner's own `ArityException` report the real call rather than a
-  fabricated retry — the server fails where the client fails."
+  When no declared arm fits, `(apply inner args)` lets the inner's own
+  `ArityException` report the real call rather than a fabricated retry.
+
+  THE SUPPORTED CONTRACT — stated narrowly, because the wide version is
+  false (rf2-mocn3, mayor ruling 2026-09-01). This helper matches compiled
+  CLJS on arity SELECTION (which arm of a multi-arm inner runs, and that a
+  count no arm declares is refused on both hosts) and on EXCESS arguments (a
+  single-fixed-arity inner compiles to a bare JS function, which drops them;
+  the JVM truncates to match). It deliberately DIVERGES in one direction:
+
+    MISSING arguments. Where the caller passes FEWER args than the inner's
+    shortest arm requires, JavaScript binds the absent parameters to
+    `undefined` and CLJS renders; the JVM raises `ArityException` and SSR
+    fails. The server is therefore STRICTER than the client here — a legal
+    shared `.cljc` Form-2 can render in the browser and fail during SSR.
+
+  That is a choice, not an oversight, and the reason is one clause: CLJS
+  supplying `undefined` is an accident of the JavaScript calling convention,
+  and emulating it would ship an author's arity mistake as production HTML
+  with nil props instead of failing where it can be seen. So do NOT \"fix\"
+  this by filling the missing slots with nil. Both cases are pinned on both
+  hosts, divergence included, by `re-frame.ssr.form2-arity-cljs-test`."
   [inner args]
   #?(:clj  (let [k (form-2-invocation-arity inner (count args))]
              (apply inner (if k (take k args) args)))
@@ -498,8 +531,9 @@
 
   A Form-1 component returns hiccup directly. A Form-2 component returns an
   INNER render fn; per Reagent/UIx Form-2 semantics it is invoked once
-  more with the SAME args (arity-tolerantly — see
-  `invoke-form-2-render-fn`) to obtain the hiccup. Resolving Form-2 here
+  more with the SAME args (at the arity its declared arms select, and
+  tolerating EXCESS args only — see `invoke-form-2-render-fn` for the
+  supported contract) to obtain the hiccup. Resolving Form-2 here
   does NOT perturb the structural hash — the hash walks the RAW tree
   (`[component …]`, a raw fn head serialising to one fixed token, hash.cljc),
   identical on server and client, so the resolved output cannot fire a
