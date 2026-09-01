@@ -9,7 +9,6 @@
   popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
   / `reorder-paths` helpers were pulled in lockstep."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [day8.re-frame2-xray.egress :as egress]))
 
 (defn install!
@@ -75,19 +74,28 @@
   ;;
   ;; The egress is pinned to the OBSERVED frame (the frame Xray is
   ;; inspecting — `[:focus :frame]`, falling back to the legacy
-  ;; `:target-frame` slot) via `(rf/with-frame …)` so THAT frame's own
-  ;; schema declarations govern the redaction — mirroring the palette's
-  ;; `snapshot-app-db!`, which pins to the focused frame for the same
-  ;; reason (the displayed value's `:sensitive?` / size declarations live
-  ;; on the inspected frame, not the Xray chrome frame the affordance
-  ;; dispatches from). A nil / unregistered observed frame degrades to a
-  ;; bare (current-frame-resolved) egress — still fail-closed.
+  ;; `:target-frame` slot) by naming it as `egress-value`'s `:frame` opt,
+  ;; so THAT frame's own schema declarations govern the redaction —
+  ;; mirroring the palette's `snapshot-app-db!`, which pins to the focused
+  ;; frame for the same reason (the displayed value's `:sensitive?` / size
+  ;; declarations live on the inspected frame, not the Xray chrome frame
+  ;; the affordance dispatches from).
+  ;;
+  ;; rf2-7htk7 — NAMING the frame is what makes the no-target and
+  ;; stale-target cases fail closed, and the earlier `(rf/with-frame …)`
+  ;; form could not: this handler runs UNDER the live `:rf/xray` frame, so
+  ;; a bare `(egress/egress-value value)` fallback resolved that ambient
+  ;; frame, applied Xray's (empty) declaration registry, and shipped the
+  ;; value RAW to the clipboard. `:frame` is forwarded even when
+  ;; `observed` is nil, and `elide-wire-value` validates it against the
+  ;; live registry — so an unselected picker AND a host frame destroyed
+  ;; between render and click both take the walker's frameless arm and
+  ;; egress `:rf/redacted`. No liveness branch here: the walker owns that
+  ;; test, and duplicating it is how the hole opened.
   (rf/reg-event :rf.xray/copy-value-to-clipboard
     (fn [{:keys [db]} [_ value]]
       (let [observed (or (get-in db [:focus :frame]) (get db :target-frame))
-            elided   (if (and (some? observed) (some? (frame/frame observed)))
-                       (rf/with-frame observed (egress/egress-value value))
-                       (egress/egress-value value))]
+            elided   (egress/egress-value value {:frame observed})]
         {:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str elided)}]]})))
 
   ;; The path-copy variant copies ONLY the path vector (key names, no

@@ -39,9 +39,14 @@
   `day8.re-frame2-xray.registry`) are not re-exported — callers must
   not reach for them. The wider public surfaces enumerated in §Wider
   public surface (config setters beyond the four highest-traffic ones,
-  the keybinding lifecycle pair, the panel reg-views, the MCP runtime
-  seam) live in their own namespaces by design — see the per-namespace
-  documentation for the rationale on each."
+  the keybinding lifecycle pair, the panel reg-views) live in their own
+  namespaces by design — see the per-namespace documentation for the
+  rationale on each.
+
+  Xray publishes no agent/tool runtime seam at all (rf2-7htk7):
+  programmer/AI access to a running app is `re-frame2-pair.runtime`
+  plus `tools/re-frame2-pair-mcp/`, which read the framework's own
+  instrumentation and do not arrive through Xray."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]

@@ -368,10 +368,12 @@ mode?
   process from the runtime.
 - **(d) Hybrid: in-app overlay + MCP for remote-attach.** In-app is
   the primary; the agent-driven case is handled by
-  `tools/re-frame2-pair-mcp/` against the framework-published Xray
-  runtime API, not by a custom Xray protocol. (Originally pictured
-  via a dedicated xray-mcp jar — dropped per rf2-hvl1g, see
-  Lock #6 supersedence.)
+  `tools/re-frame2-pair-mcp/` and its own `re-frame2-pair.runtime`
+  preload, reading the framework's instrumentation directly — not by
+  a custom Xray protocol, and not through any Xray-published seam.
+  (Originally pictured via a dedicated xray-mcp jar — dropped per
+  rf2-hvl1g, see Lock #6 supersedence; the Xray-side runtime seam that
+  once stood beside it retired under rf2-7htk7.)
 
 ### Pick
 
@@ -936,7 +938,7 @@ hard-coded pixel value are reviewable bugs.
 | 3 | App-db editing | **Never — read-only forever** | 2026-05-11 |
 | 4 | Session export | **Never** | 2026-05-11 |
 | 5 | Mobile | **Desktop only** | 2026-05-11 |
-| 6 | MCP timing | **SUPERSEDED 2026-05-19: xray-mcp dropped (rf2-hvl1g) — agent access via re-frame2-pair-mcp + runtime API** | 2026-05-19 |
+| 6 | MCP timing | **SUPERSEDED 2026-05-19: xray-mcp dropped (rf2-hvl1g) — agent access via re-frame2-pair-mcp + `re-frame2-pair.runtime` (the Xray-side seam retired under rf2-7htk7)** | 2026-05-19 |
 | 7 | Hero panel | **Event-detail** (graph demoted to peer) | 2026-05-12 |
 | 8 | AI panel default state | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 9 | Launch modes | **Hybrid: in-app + MCP** | 2026-05-12 |

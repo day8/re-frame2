@@ -373,8 +373,14 @@
 (deftest copy-events-fire-clipboard-fx
   (testing ":rf.xray/copy-value-to-clipboard + :rf.xray/copy-path-to-
             clipboard route through :rf.xray.fx/copy-to-clipboard; the
-            fx is best-effort (no-op on non-browser targets)"
+            fx is best-effort (no-op on non-browser targets).
+
+            rf2-7htk7 — the value copy needs a LIVE observed frame to
+            round-trip a value at all: with none selected the egress
+            fails closed (see copy-value-with-no-observed-frame-*
+            below), so this wiring test selects :rf/default."
     (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/default})
     (let [captured (atom [])]
       ;; rf2-h1vqa4: capture via the frame's :fx-overrides seam (fn-value
       ;; form) instead of re-registering the xray-owned fx id — a cross-ns
@@ -383,6 +389,7 @@
                       :fx-overrides {:rf.xray.fx/copy-to-clipboard
                                      (fn [_ctx args] (swap! captured conj args))}})
       (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
         (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1}])
         (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:cart :items]]))
       (is (= 2 (count @captured)))
@@ -488,6 +495,66 @@
         (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1 :b [2 3]}]))
       (is (= "{:a 1, :b [2 3]}" (:text (first @captured)))
           "an undeclared value copies verbatim"))))
+
+;; ---- (7c) no-target / stale-target copy FAILS CLOSED (rf2-7htk7) ---------
+;;
+;; The copy handler runs UNDER the live `:rf/xray` chrome frame. The
+;; pre-fix fallback — a bare `(egress/egress-value value)` whenever the
+;; observed frame was nil or no longer live — therefore resolved
+;; `:rf/xray`, applied its normally-EMPTY declaration registry, and shipped
+;; the value RAW to the clipboard. The comment on that branch claimed it was
+;; "still fail-closed"; it was not. `elide-wire-value`'s frameless arm can
+;; only be reached by NAMING a frame that does not resolve, which is what
+;; the handler now does by forwarding `:frame observed` unconditionally.
+
+(deftest copy-value-with-no-observed-frame-fails-closed
+  (testing "rf2-7htk7 — with NO frame selected in the picker, the copied
+            value is redacted whole rather than shipped under the Xray
+            chrome frame's empty policy"
+    (registry/register-xray-handlers!)
+    (let [captured (atom [])]
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                     (fn [_ctx args] (swap! captured conj args))}})
+      ;; No :rf.xray/set-target-frame — `[:focus :frame]` and
+      ;; `:target-frame` are both absent, which is the unselected picker.
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync
+          [:rf.xray/copy-value-to-clipboard {:auth {:token "shh"}}]))
+      (is (= 1 (count @captured)))
+      (let [text (:text (first @captured))]
+        (is (= ":rf/redacted" text)
+            (str "no resolvable observed frame must egress the whole-value "
+                 "redaction sentinel. text: " (pr-str text)))
+        (is (not (re-find #"shh" text))
+            (str "the RAW value leaked to the clipboard with no frame policy "
+                 "in force (rf2-7htk7). text: " (pr-str text)))))))
+
+(deftest copy-value-with-destroyed-observed-frame-fails-closed
+  (testing "rf2-7htk7 — a host frame destroyed between render and click
+            leaves a STALE observed id; a frame-id that no longer
+            resolves fails closed exactly like the frameless case"
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/default})
+    (let [captured (atom [])]
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                     (fn [_ctx args] (swap! captured conj args))}})
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
+      ;; The inspected frame goes away while the picker still names it.
+      (rf/destroy-frame! :rf/default)
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync
+          [:rf.xray/copy-value-to-clipboard {:auth {:token "shh"}}]))
+      (is (= 1 (count @captured)))
+      (let [text (:text (first @captured))]
+        (is (= ":rf/redacted" text)
+            (str "a stale observed frame must egress the whole-value "
+                 "redaction sentinel. text: " (pr-str text)))
+        (is (not (re-find #"shh" text))
+            (str "the RAW value leaked to the clipboard under a destroyed "
+                 "frame (rf2-7htk7). text: " (pr-str text)))))))
 
 (deftest copy-path-is-not-a-value-egress
   (testing "rf2-uo0rc.2 — the path-copy variant copies only the path

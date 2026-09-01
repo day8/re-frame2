@@ -707,12 +707,28 @@ ALWAYS the redacted, size-elided projection — there is no
 `{:include-sensitive? true}` gesture reachable from the UI.
 
 The egress is pinned to the frame being INSPECTED, not the frame the
-affordance dispatches in. The palette wraps the snapshot in
-`(rf/with-frame tf …)` for the focused frame (rf2-mxzgg); the copy event
-wraps the observed frame (`[:focus :frame]`, falling back to
-`:target-frame` — rf2-uo0rc.2). That frame's own `:sensitive` / `:large`
-declarations then govern the redaction rather than the (empty)
-Xray-chrome frame's. A value with no resolvable frame fails closed.
+affordance dispatches in. The palette resolves and validates the focused
+frame before it reads the db, then wraps the snapshot in
+`(rf/with-frame tf …)` (rf2-mxzgg); the copy event NAMES the observed
+frame (`[:focus :frame]`, falling back to `:target-frame` — rf2-uo0rc.2)
+as `egress-value`'s `:frame` opt. That frame's own `:sensitive` /
+`:large` declarations then govern the redaction rather than the (empty)
+Xray-chrome frame's.
+
+**A value with no resolvable frame fails closed, and NAMING the frame is
+what delivers that** (rf2-7htk7). The walker resolves the ambient frame
+when no `:frame` is supplied, and for a panel affordance the ambient
+frame is the LIVE `:rf/xray` chrome frame — which resolves, so its
+normally-empty declaration registry applies and the value egresses RAW.
+The copy event therefore forwards `:frame` even when the picker has
+selected nothing: `elide-wire-value` validates the id against the live
+registry, so an unselected picker and a host frame destroyed between
+render and click both take the walker's frameless arm and egress the
+whole-value `:rf/redacted` sentinel. `egress-value` substitutes an
+unregisterable sentinel id for an explicitly-passed `nil` to make that
+so; a caller that omits `:frame` entirely keeps the ambient-resolution
+behaviour, which is what the palette's already-validated `with-frame`
+wrap wants.
 
 `egress-value` also takes an optional `:path` — the ABSOLUTE app-db path
 the value sits at. The framework's declarations (classified via the

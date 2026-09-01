@@ -113,10 +113,13 @@ main read.
   The 8 panel sections (static registry · live instances · work
   ledger · route/resource graph · lifecycle timeline · invalidation graph
   · cache growth · scope audit + lints), the `:rf.resource/*` trace
-  family Xray colours/filters, the 5 read-only tool accessors, and the
-  privacy posture (params/scopes get the same summary + size elision as
-  data; read-only — observing pins no resource). Decoupled from the
-  optional Resources artefact.
+  family Xray colours/filters, and the privacy posture (params/scopes
+  get the same summary + size elision as data; read-only — observing
+  pins no resource). No tool accessors: the five read-only resource
+  accessors went with the Xray runtime seam (rf2-7htk7), and an
+  out-of-process reader uses `re-frame2-pair.runtime` +
+  `tools/re-frame2-pair-mcp/` instead. Decoupled from the optional
+  Resources artefact.
 - [025-Derivation-Graph-Panel.md](025-Derivation-Graph-Panel.md) — the
   Derivation-Graph tab: the Xray-side consumer contract for the EP-0014
   derivation/process algebra graph (framework
