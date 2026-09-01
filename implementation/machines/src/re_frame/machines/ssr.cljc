@@ -36,8 +36,12 @@
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots
-  (`:system-ids`, `:spawned`, `:spawn-counter`) are durable bookkeeping (reverse
-  indexes + counters — no user `:data`) and ride unchanged.
+  (`:system-ids`, `:spawned`, `:spawn-counter`, `:spawn-order`) are durable
+  bookkeeping (reverse indexes, counters, and the creation-order vector — no
+  user `:data`) and ride unchanged. `:spawn-order` riding the wire verbatim is
+  what lets a HYDRATED frame dispose its actors in true reverse-creation order
+  (rf2-1vlyg): it is a vector of actor-id keywords, so it survives the
+  hydration payload's EDN round trip like every other bookkeeping sibling.
 
   ## Late-binding
 

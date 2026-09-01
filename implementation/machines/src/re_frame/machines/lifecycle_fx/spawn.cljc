@@ -558,6 +558,19 @@
             install-fn (fn [_rt]
                          (cond-> rt-after-alloc
                            spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                           ;; rf2-1vlyg — append the actor to the DURABLE
+                           ;; spawn-order vector in the SAME swap that lands its
+                           ;; snapshot, so the frame's total creation order is
+                           ;; recorded rather than reconstructed. The per-prefix
+                           ;; `#<n>` suffix of `spawned-id` cannot order actors
+                           ;; of different machine types and is absent entirely
+                           ;; on a `:fixed-actor-id`, so frame destroy has no
+                           ;; other durable fact to read; the transient
+                           ;; `spawn-order/record!` below is a cache that any
+                           ;; restore / hydration / `replace-runtime-db!` wipes.
+                           ;; Gated on the same `spec` as the snapshot assoc: the
+                           ;; order tracks exactly the actors that have snapshots.
+                           spec      (spawn-order/record-in-runtime-db spawned-id)
                            system-id (assoc-in (paths/system-id-path system-id) spawned-id)
                            track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id)))
             written    (if owner-token

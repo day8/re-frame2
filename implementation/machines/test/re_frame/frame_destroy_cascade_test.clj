@@ -302,8 +302,9 @@
 ;; SPAWNED actor (snapshot carries `:rf/machine-type`) flows through the FULL
 ;; `destroy-single-actor!` teardown — dissoc the snapshot, release the
 ;; system-id reverse index, clear schema marks, cancel `:after` timers,
-;; unregister a handler — in reverse-creation order derived from the durable
-;; `<type>#<n>` actor-id. (The straggler `run-singleton-exit-cascade!` path
+;; unregister a handler — in reverse-creation order read off the durable
+;; `[:rf.runtime/machines :spawn-order]` vector, which rides the runtime-db
+;; value through the round trip. (The straggler `run-singleton-exit-cascade!` path
 ;; runs the `:exit` cascade + HTTP abort only and is reserved for restored
 ;; SINGLETON snapshots that carry no `:rf/machine-type`.)
 ;;
@@ -358,12 +359,19 @@
           "spawn-order atom is empty post-restore (the bug's precondition)")
       ;; Destroy the frame.
       (rf/destroy-frame! :rs/auth)
-      ;; :exit fired for all three children, NEWEST-FIRST by the durable
-      ;; #<n> rank. (Filter to children — the boot singleton's :exit, if
-      ;; any, is irrelevant to the spawned-ordering contract.)
+      ;; :exit fired for all three children, NEWEST-FIRST off the durable
+      ;; spawn-order vector. (Filter to children — the boot singleton's
+      ;; :exit, if any, is irrelevant to the spawned-ordering contract.)
+      ;;
+      ;; These three share ONE id-prefix, so this case cannot distinguish the
+      ;; durable order from the per-prefix `#<n>` suffix the pre-rf2-1vlyg
+      ;; fallback parsed — which is exactly why it stays here as the
+      ;; SAME-PREFIX CONTROL, green across the repair, while
+      ;; `restored-mixed-prefix-actors-exit-in-reverse-creation-order` below
+      ;; is the discriminator.
       (is (= [:rs/child#3 :rs/child#2 :rs/child#1]
              (filterv #{:rs/child#1 :rs/child#2 :rs/child#3} @exit-log))
-          ":exit ran newest-first, order derived from the durable actor-id (not the lost spawn-order atom)")
+          ":exit ran newest-first, order read off the durable spawn-order vector (not the lost transient atom)")
       ;; FULL teardown: every restored SPAWNED snapshot is dissoc'd. The
       ;; singleton straggler path would have LEFT these in runtime-db.
       (is (empty? (keep (fn [[id snap]]
@@ -430,3 +438,132 @@
       ;; ...but its TYPE handler stays globally registered (outlives the frame).
       (is (some? (registrar/lookup :event :rsg/single))
           "singleton handler stays registered — NOT unregistered by the straggler path"))))
+
+;; ---- durable spawn-order: the frame-global creation sequence (rf2-1vlyg) ----
+;;
+;; The tests above restore a frame whose actors all share ONE id-prefix, so the
+;; per-prefix `#<n>` suffix happens to be a valid total order and the defect
+;; below is invisible. These tests use TWO machine types, which the suffix
+;; cannot order: `:probe/a#1`, `:probe/a#2` and `:probe/b#1` were created in
+;; that sequence, but descending-suffix sorting puts `:probe/a#2` (rank 2)
+;; ahead of the NEWEST actor `:probe/b#1` (rank 1). The information the old
+;; fallback tried to reconstruct is simply not in the actor-id — so the frame's
+;; total creation order is now RECORDED, in the durable
+;; `[:rf.runtime/machines :spawn-order]` vector that rides the runtime-db value
+;; through restore / hydration / `replace-runtime-db!`.
+
+(defn- runtime-spawn-order
+  "The durable `[:rf.runtime/machines :spawn-order]` vector (oldest →
+  newest) on `frame-id`'s runtime-db, or nil when the slot is absent."
+  [frame-id]
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+          [:rf.runtime/machines :spawn-order]))
+
+(defn- reg-probe-machines!
+  "Register two child machine types under DIFFERENT id-prefixes, each
+  appending its own stamped `:rf/self-id` to `exit-log` from its active
+  state's `:exit`, plus a boot machine whose action emits three
+  `:rf.machine/spawn` effects in the order A, A, B."
+  [exit-log]
+  (let [child (fn [] {:initial :running
+                      :data    {}
+                      :states  {:running
+                                {:exit (fn [{data :data}]
+                                         (swap! exit-log conj (:rf/self-id data))
+                                         {})}}})
+        spawn (fn [t] [:rf.machine/spawn {:machine-id t :id-prefix t}])]
+    (rf/reg-machine :probe/a (child))
+    (rf/reg-machine :probe/b (child))
+    (rf/reg-machine :probe/boot
+                    {:initial :idle
+                     :data    {}
+                     :states  {:idle {:on {:spawn-mixed
+                                           {:action (fn [_]
+                                                      {:fx [(spawn :probe/a)
+                                                            (spawn :probe/a)
+                                                            (spawn :probe/b)]})}}}}})))
+
+(deftest restored-mixed-prefix-actors-exit-in-reverse-creation-order
+  (testing "a restored frame holding actors of TWO machine types disposes them newest-first — the per-prefix #<n> suffix cannot order them, the durable spawn-order vector can"
+    (rf/make-frame {:id :probe/auth :doc "mixed-prefix restore frame"})
+    (let [exit-log (atom [])]
+      (reg-probe-machines! exit-log)
+      (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probe/auth})
+      ;; --- non-vacuity controls, BEFORE the round trip -------------------
+      ;; All three actors are live...
+      (is (= #{:probe/a#1 :probe/a#2 :probe/b#1}
+             (set (keep (fn [[id snap]]
+                          (when (some? (:rf/machine-type snap)) id))
+                        (runtime-snapshots :probe/auth))))
+          "three spawned snapshots are live before the round trip")
+      ;; ...and the DURABLE order records the exact sequence they were
+      ;; created in. This is the fact the old code had no way to know.
+      (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
+             (runtime-spawn-order :probe/auth))
+          "durable spawn-order carries the frame-global creation sequence, across id-prefixes")
+      ;; --- the loss boundary --------------------------------------------
+      ;; Model epoch restore / SSR hydration: the durable runtime-db
+      ;; survives, the transient process-side atom does not.
+      (spawn-order/reset-all!)
+      (is (= [] (spawn-order/frame-order :probe/auth))
+          "transient spawn-order atom is empty post-restore (the bug's precondition)")
+      (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
+             (runtime-spawn-order :probe/auth))
+          "the durable order is untouched by the loss of the transient atom")
+      ;; --- the discriminator --------------------------------------------
+      (rf/destroy-frame! :probe/auth)
+      (is (= [:probe/b#1 :probe/a#2 :probe/a#1]
+             (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log))
+          (str "exact reverse creation order. Descending-suffix sorting — the pre-rf2-1vlyg "
+               "fallback — yields [:probe/a#2 :probe/a#1 :probe/b#1], exiting :probe/a#2 "
+               "ahead of the newest actor :probe/b#1 and inverting the stack discipline "
+               "Spec 005 §Cross-Spec Interactions §1 pins."))
+      (is (= 3 (count (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log)))
+          "each child exited exactly once")
+      (is (empty? (keep (fn [[id snap]]
+                          (when (some? (:rf/machine-type snap)) id))
+                        (runtime-snapshots :probe/auth)))
+          "every restored spawned snapshot was dissoc'd (full teardown, not exit-only)"))))
+
+(deftest durable-spawn-order-is-transport-safe
+  (testing "the durable ordering fact is plain data — it round-trips through EDN unchanged and carries no fn / atom / host handle"
+    (rf/make-frame {:id :probeedn/auth :doc "spawn-order transport frame"})
+    (let [exit-log (atom [])]
+      (reg-probe-machines! exit-log)
+      (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probeedn/auth})
+      (let [order (runtime-spawn-order :probeedn/auth)]
+        (is (= [:probe/a#1 :probe/a#2 :probe/b#1] order)
+            "the order is recorded before the round trip (non-vacuity control)")
+        (is (vector? order) "a vector — an ordered, indexable value")
+        (is (every? keyword? order)
+            "actor-id keywords only: no function, atom, or host handle enters runtime-db")
+        (is (= order (read-string (pr-str order)))
+            "survives pr-str / read-string unchanged — so it rides the SSR hydration payload and an epoch snapshot")))))
+
+(deftest explicit-destroy-prunes-durable-spawn-order
+  (testing "a successful explicit destroy removes the actor from the durable order, so a later frame destroy neither re-exits it nor leaves a stale entry"
+    (rf/make-frame {:id :probedd/auth :doc "spawn-order prune frame"})
+    (let [exit-log (atom [])]
+      (reg-probe-machines! exit-log)
+      ;; Add a destroy trigger to the boot machine's state.
+      (rf/reg-machine :probedd/boot
+                      {:initial :idle
+                       :data    {}
+                       :states  {:idle {:on {:drop-middle
+                                             {:action (fn [_]
+                                                        {:fx [[:rf.machine/destroy :probe/a#2]]})}}}}})
+      (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probedd/auth})
+      (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
+             (runtime-spawn-order :probedd/auth))
+          "all three recorded before the destroy (non-vacuity control)")
+      (rf/dispatch-sync [:probedd/boot [:drop-middle]] {:frame :probedd/auth})
+      (is (= [:probe/a#1 :probe/b#1] (runtime-spawn-order :probedd/auth))
+          "the explicitly destroyed actor is pruned from the durable order, the survivors keep their sequence")
+      (is (= [:probe/a#2] @exit-log)
+          "the destroyed actor's :exit ran once, at destroy time")
+      ;; The frame destroy that follows must not re-exit the dead actor.
+      (rf/destroy-frame! :probedd/auth)
+      (is (= [:probe/a#2 :probe/b#1 :probe/a#1] @exit-log)
+          "frame destroy exits only the two survivors, newest-first — the dead actor is not exited a second time")
+      (is (nil? (runtime-spawn-order :probedd/auth))
+          "the slot is pruned once it empties — no unbounded stale entry survives the frame"))))
