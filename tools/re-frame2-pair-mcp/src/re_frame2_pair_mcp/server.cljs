@@ -277,10 +277,12 @@
                 (swap! session-state assoc
                        :project-home ph
                        ;; PREFER the exact port-file discovery resolved
-                       ;; (explicit `--port-file`, roots candidate, or the
-                       ;; winning HTTP-probe candidate). Every discovery mode
-                       ;; that yields a `:project-home` also yields the
-                       ;; `:port-file` that actually read, so the derived
+                       ;; (explicit `--port-file`, roots candidate, the
+                       ;; winning HTTP-probe candidate, or the CWD scan's
+                       ;; winning candidate resolved against process.cwd()).
+                       ;; Every file-backed discovery mode yields the
+                       ;; `:port-file` that actually read (the CWD branch
+                       ;; with a nil `:project-home`), so the derived
                        ;; `.shadow-cljs/nrepl.port` below is a pure defensive
                        ;; backstop — never reached for those modes. Deriving
                        ;; unconditionally from `ph` would produce e.g.
@@ -459,7 +461,9 @@
                 (swap! session-state assoc :port current-port :conn conn')
                 (js/Promise.resolve conn'))))
 
-          ;; Same port (or env/cwd path without project-home) — fast path.
+          ;; Same port (or the env-var path, which has no port file to
+          ;; re-read — every file-backed branch, the CWD scan included,
+          ;; caches its winning file above) — fast path.
           :else
           (js/Promise.resolve conn)))))))
 
