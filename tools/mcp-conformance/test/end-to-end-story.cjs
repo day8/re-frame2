@@ -20,6 +20,10 @@
 // identity, recorder bridge), saving a full JVM start in CI for no loss
 // of coverage:
 //
+//   0. the launch installs `plain-atom` through a `clojure.main` `-e`
+//      init-opt, exactly as tools/story-mcp/README.md tells a consumer to.
+//      Steps 5-6 cannot execute a lifecycle without it (rf2-c9t52) — see
+//      ADAPTER_BOOT below.
 //   1. connect (initialize + notifications/initialized via SDK)
 //   2. tools/list — confirm the advertised catalogue matches story-mcp's
 //      own `tool-names.json` fixture (count-free per NAMING.md
@@ -98,6 +102,28 @@ const EXPECTED_CLASSIFICATIONS = JSON.parse(
 // the two test scripts could in principle run against the same JVM.
 const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 
+// The consuming project's ADAPTER BOOT, in the shape
+// tools/story-mcp/README.md documents: a `clojure.main` `-e` init-opt that
+// runs before `-m` hands the process to the stdio loop.
+//
+// It is a PRECONDITION of steps 5-6, not boilerplate (rf2-c9t52). A variant
+// frame takes its state substrate from an installed re-frame adapter, and
+// story-mcp deliberately installs none — per spec/006 the substrate choice
+// belongs to the app. Before rf2-c9t52 this harness booted bare and steps 5-6
+// still read `:status "pass"`: the setup dispatches reached no adapter, the
+// lifecycle never ran, and the ordinary success envelope came back over an
+// empty app-db. That is the same false green rf2-3n3dk removed from the
+// sibling `end-to-end-project-stories.cjs`, and the vacuous-pass assertion at
+// step 6 is only honest once the lifecycle can actually execute. `plain-atom`
+// is the renderer-free substrate for exactly this headless case.
+//
+// The trailing `nil` is load-bearing: `clojure.main`'s `-e` PRINTS a non-nil
+// result, and stdout is the JSON-RPC wire — an `rf/init!` return value echoed
+// there would corrupt the handshake before the first frame.
+const ADAPTER_BOOT =
+  "(do (require '[re-frame.core :as rf] '[re-frame.substrate.plain-atom :as plain-atom])" +
+  ' (rf/init! plain-atom/adapter) nil)';
+
 // Wire → semantic adapter (`structured`, _runner.cjs). Every assertion
 // below reaches for slots the SEMANTIC contract guarantees (e.g.
 // `:lifecycle` on `preview-variant`'s structuredContent). Two of
@@ -134,7 +160,7 @@ runWithWatchdog(
     clientName: 'mcp-conformance-story',
     transportSpec: {
       command: CLOJURE,
-      args: ['-M', '-m', 're-frame.story-mcp.server', '--allow-writes'],
+      args: ['-M', '-e', ADAPTER_BOOT, '-m', 're-frame.story-mcp.server', '--allow-writes'],
       cwd: STORY_MCP_CWD,
       env: { ...process.env },
     },
@@ -508,6 +534,13 @@ runWithWatchdog(
     // is empty. The UNIFIED run-result returns the top-level :status
     // verdict + unified :assertions records (each with a :status) +
     // :checks — and carries no :passing? boolean.
+    //
+    // The `pass` below is Story's INTENTIONAL vacuous green for a variant
+    // that RAN and asserted nothing, and it is honest here only because
+    // ADAPTER_BOOT installed a substrate at launch (rf2-c9t52). The
+    // never-ran state now wears a different answer entirely — `isError`
+    // with `:rf.error/no-adapter-installed` — pinned in
+    // `tools_test.clj/lifecycle-tools-refuse-with-no-adapter`.
     const runResp = await client.callTool({
       name: 'run-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
