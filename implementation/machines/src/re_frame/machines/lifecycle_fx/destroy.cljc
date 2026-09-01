@@ -740,8 +740,9 @@
   `:fixed-actor-id` re-spawn, a different parent) carries different — or
   no — ownership stamps, so a STALE slot can never destroy it: exact
   incarnation identity is respected. A snapshot-less-but-live edge (the
-  back-to-back spawn-then-destroy window where only the spawn-order signal
-  is up) has no stamps to contradict the slot, so it counts as owned —
+  back-to-back spawn-then-destroy window, where `old-db` predates the
+  snapshot swap and `actor-live?` resolves the actor off the LIVE
+  runtime-db instead) has no stamps to contradict the slot, so it counts as owned —
   the tracked destroy retains its pre-existing behaviour there."
   [runtime-db actor-id parent-id invoke-id]
   (let [snap (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))]
