@@ -110,10 +110,52 @@ loaded names.
 
 ## Running the gates
 
-Install this artefact's Node dependencies first:
+### Start here: the two repository-root commands
+
+One command runs MCP compatibility, in one of two explicit profiles. Both
+run from the repository root and install what they need themselves.
 
 ```bash
-npm install
+# default profile — medium cost, no browser
+npm --prefix implementation run test:mcp-conformance
+
+# live profile — expensive; adds the hermetic live Pair suite
+npm --prefix implementation run test:mcp-conformance -- --live
+```
+
+Each run ends on a verdict that names the profile it ran, so a green can
+never be mistaken for one whose live layer was skipped. Adding `-- --help`
+prints both profiles, their prerequisites, their relative cost and their
+exit codes, and exits before installing, compiling, or booting anything.
+
+| Layer | `default` | `--live` |
+| --- | --- | --- |
+| story-mcp JVM suite | included | included |
+| story-mcp stdio roundtrip | included | included |
+| re-frame2-pair-mcp `:server-test` | included | included |
+| SDK end-to-end: degraded pair, story, flag gates | included | included |
+| wire-vocabulary JVM suite | included | included |
+| live pair rows (`test/live-re-frame2-pair-*.cjs`) | `SKIP` | run, sentinel-graded |
+| hermetic shadow-cljs + Chromium orchestration | omitted | run, cleanup-graded |
+
+Exit codes carry through from the hermetic runner: `1` is a conformance
+failure, `2` is an orchestration or cleanup failure where the teardown could
+not be proven clean.
+
+`npm test` in this package is narrower than either profile: it is the Node
+inventory alone — no JVM suite, no hermetic live suite — with the live rows
+reporting `SKIP`.
+
+### Focused diagnostic recipes
+
+The commands below run one layer at a time, for diagnosing a failure the
+profiles above have already found.
+
+Install this artefact's Node dependencies first, lockfile-exact — the same
+install the repository-level runner performs:
+
+```bash
+npm ci
 ```
 
 The focused, server-free Node gate is:
@@ -155,7 +197,9 @@ clojure -M:test
 
 `npm test` runs the authoritative Node inventory sequentially and fails
 fast. Live rows report `SKIP` unless a port is supplied; the hermetic
-command above is the gate that requires them to execute.
+command above is the gate that requires them to execute, and
+`test:mcp-conformance -- --live` is the repository-level command that
+chains it.
 
 ## Inventory ownership
 
