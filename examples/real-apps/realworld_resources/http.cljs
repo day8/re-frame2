@@ -88,20 +88,37 @@
 ;;
 ;; The example ships without a backend, so the demo overrides `:rf.http/managed`
 ;; with the in-process Conduit demo backend both RealWorld examples share
-;; (`realworld-shared.demo-backend`): one canonical corpus + a URL/method
-;; request router + a canned-reply adapter. Since the resource / mutation runtime
-;; lowers every fetch AND write onto `:rf.http/managed`, this one override gets to
-;; play the entire Conduit API. `core.cljs` wires it as the `:rf.http/managed`
-;; override on the demo frame via `:fx-overrides` — there is no explicit install
-;; call to make.
+;; (`realworld-shared.demo-backend`): a seeded state value plus one pure
+;; transition. Since the resource / mutation runtime lowers every fetch AND write
+;; onto `:rf.http/managed`, this one override gets to play the entire Conduit
+;; API. `core.cljs` wires it as the `:rf.http/managed` override on the demo frame
+;; via `:fx-overrides` — there is no explicit install call to make.
+;;
+;; THE BACKEND REMEMBERS, and for this example that is load-bearing rather than
+;; a nicety. The one idea here is read -> write -> invalidate -> refetch: a
+;; mutation deliberately does NOT patch a partial collection, it invalidates and
+;; trusts the refetch as authoritative. Against a backend that answered that
+;; refetch from a frozen seed corpus, every successful write would be erased by
+;; the read it caused — the example would demonstrate the precise opposite of
+;; what it claims. So the write lands in the state the refetch consults, and
+;; `mutations.cljs` gets to keep trusting the server.
+
+;; This app's own demo-backend world. `defonce`, so a hot reload does not throw
+;; away what you have written; PUBLIC, because `demo/fresh-state` is the explicit
+;; reset boundary — a fresh mount or a test that wants a clean slate does
+;; `(reset! demo-state (demo/fresh-state))` rather than trying to undo writes.
+;; The managed-HTTP example holds a separate one, so the two demos never share a
+;; world.
+(defonce demo-state (atom (demo/fresh-state)))
 
 (rf/reg-fx :realworld-resources.demo/http-stub
   {:doc       "This example's `:rf.http/managed` override: the shared in-process
                Conduit demo backend (`realworld-shared.demo-backend`), wired
                under an app-local fx-id and referenced from the frame's
-               `:fx-overrides` in core.cljs. All the routing + canned-reply
-               machinery (including the `::decode-failure` session-restore path)
-               lives in the shared backend; this is just the app-local seam."
+               `:fx-overrides` in core.cljs. All the state, routing and
+               canned-reply machinery (including the deliberately-failing
+               session-restore path) lives in the shared backend; this is just
+               the app-local seam, plus the `demo-state` world it steps."
    ;; This stub is the CLASSIFIED OWNER of the request body it receives. The
    ;; login / register requests and the settings mutation carry the plaintext
    ;; password at [:request :body :user :password] (the Conduit `{user {…}}`
@@ -116,4 +133,4 @@
    :sensitive [[:request :body :user :password]]
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
-    (demo/respond frame-ctx args-map)))
+    (demo/respond demo-state frame-ctx args-map)))

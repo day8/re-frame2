@@ -1,6 +1,6 @@
 # RealWorld (Conduit) on resources + mutations
 
-This is a complete, working blog — the RealWorld "Conduit" app, the medium.com clone many frameworks build to prove they can do something real. You can browse articles, open one to read it with its comments, favourite it, follow its author, write and edit your own posts, register, log in, and edit your profile. Nothing needs setting up: a fake backend runs right in the page, so you just start it and click around.
+This is a complete, working blog — the RealWorld "Conduit" app, the medium.com clone many frameworks build to prove they can do something real. You can browse articles, open one to read it with its comments, favourite it, follow its author, write and edit your own posts, register, log in, and edit your profile. Nothing needs setting up: a fake backend runs right in the page, so you just start it and click around. It remembers what you write, which for this example is the whole point — see [How to run](#how-to-run).
 
 Underneath that ordinary-looking app is the point of the example. Every read is a [resource](../../../docs/resources/concepts.md); every write is a mutation. There are no `:status` fields, no `:loading?` booleans, and no hand-written "which screens did this edit break?" bookkeeping. You declare what each read is and what each write touches, once, and the framework runs the cache.
 
@@ -188,10 +188,10 @@ The token is a real secret, so it is classified once rather than redacted by han
 | `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation); the article-detail contextual controls (author follow + author Edit/Delete) whose follow/delete continuations are `:reply-to` targets. The article body renders through `realworld-shared.markdown/render` (sanitized CommonMark → hiccup). |
 | `../realworld_shared/markdown.cljs` | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. |
 | `schema.cljs` | The small app-db schemas (auth + form drafts only — the reads live in runtime-db). The wire shapes it embeds are the shared Conduit contract in `../realworld_shared/schema.cljs`; `ws/User`'s `:token` slot carries the per-slot `:sensitive?` property on its `:decode` schema so the JWT is redacted out of off-box reply captures. |
-| `http.cljs` | This app's API base + a thin fx that wires the shared in-process demo backend (`../realworld_shared/demo_backend.cljs`); re-exposes the shared Conduit contract helpers (`data-fetch-retry`, `failure->message`, `query-string`, `page-size` / `page->limit-offset` / `page-count`) from `../realworld_shared/http.cljs` so call sites keep one `rh/*` import point. |
+| `http.cljs` | This app's API base + a thin fx that wires the shared in-process demo backend (`../realworld_shared/demo_backend.cljs`) and holds this app's own `demo-state` world; re-exposes the shared Conduit contract helpers (`data-fetch-retry`, `failure->message`, `query-string`, `page-size` / `page->limit-offset` / `page-count`) from `../realworld_shared/http.cljs` so call sites keep one `rh/*` import point. |
 | `../realworld_shared/schema.cljs` | Shared (both realworld apps) canonical Conduit **wire contract**: the User/Profile/Article/Comment Malli shapes + the seven response envelopes both apps decode against. Transport-neutral, so not part of the architecture comparison. |
 | `../realworld_shared/http.cljs` | Shared (both realworld apps) transport-neutral HTTP contract: query encoding, the read retry policy, the failure-taxonomy projection, and the pagination constant + arithmetic. |
-| `../realworld_shared/demo_backend.cljs` | Shared (both realworld apps) in-process Conduit demo backend: one canonical corpus + a URL/method request router + a canned success/failure adapter. Each app wires it under its own `:rf.http/managed` override fx, so both run offline with identical replies. Replaces the two drifting per-app fake backends. |
+| `../realworld_shared/demo_backend.cljs` | Shared (both realworld apps) in-process Conduit demo backend: a seeded state value (`fresh-state`) + one pure transition (`transition`: state + request → `[next-state reply]`) + a canned success/failure adapter (`respond`). Stateful, so a write survives the refetch it causes — which is what lets the mutations here invalidate and trust the server. Each app wires it under its own `:rf.http/managed` override fx, holding its own state instance, so both run offline with identical replies and neither can see the other's writes. |
 | `../realworld_shared/avatar.cljs` | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance). |
 | `index.html` | Static host page. |
 | `default-avatar.svg` | The fallback avatar asset, served from the app root. |
@@ -204,7 +204,19 @@ Run it under shadow-cljs build id `examples/realworld-resources` from `implement
 npm run dev:example -- examples/realworld-resources
 ```
 
-Then open the URL it prints. No backend ships. The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` stub that returns canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone with no network.
+Then open the URL it prints. No backend ships. The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` override wiring the Conduit demo backend both RealWorld examples share (`../realworld_shared/demo_backend.cljs`), so it runs standalone with no network — for the reads (resources) and the writes (mutations) alike.
+
+That backend remembers what you write, and here that is load-bearing rather than a nicety. The loop above deliberately does **not** patch a partial collection after a write: it invalidates and trusts the refetch as authoritative. Against a backend that answered every refetch out of a frozen seed corpus, each successful write would be erased by the read it caused, and this page would be describing the exact opposite of what you'd see. So the backend is a seeded state value plus one pure transition, and a write lands in the state the refetch consults.
+
+### Try it offline
+
+1. **Sign in with anything.** The demo world has exactly one user, and any credentials log you in as them.
+2. **Open "Hello, Conduit" and post a comment.** The mutation adds nothing to the list by hand — it invalidates `[:comments slug]` and the mounted read refetches. Your comment arrives *in that refetch*, because the write is already in the backend when it lands.
+3. **Favourite an article.** `[:article slug]`, `[:article-list]` and `[:feed]` all go stale and refetch themselves. The heart stays filled afterwards, and the article shows up under **Favorited Articles** on your profile.
+4. **Follow its author, then open "Your Feed".** It is no longer empty; the feed is the articles by the authors you follow, computed from the follow you just wrote.
+5. **Write a new article.** You land on it at its own slug, and it is at the top of the global list when you navigate back.
+
+Reload the browser and you are back to the seeded world, logged out. The state lives in the page rather than on disk, which is the one thing an in-process backend cannot pretend about — and it is why the app never auto-restores a saved session.
 
 To run against a real backend instead: point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and remove the demo-stub `:fx-overrides` line in `core.cljs`. The frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 
