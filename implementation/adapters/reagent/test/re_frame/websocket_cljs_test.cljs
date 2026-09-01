@@ -100,7 +100,22 @@
   "Re-fire every `reg-*` the websocket example depends on. Safe to call
    at any point — every `reg-*` is last-write-wins. Each block below
    mirrors the ns-load registrations in the named sub-namespace; if a
-   `reg-*` is added there, mirror it here so the recovery is complete."
+   `reg-*` is added there, mirror it here so the recovery is complete.
+
+   KNOW WHICH HALF OF THE EXAMPLE THESE TESTS ACTUALLY DRIVE, because
+   last-write-wins cuts both ways: this fixture runs on every test, so
+   where a block below re-declares a handler BODY inline, that body — not
+   the example's — is what the suite exercises, and an edit to the
+   example's copy alone changes nothing here (measured rf2-tb442: a fault
+   planted in `websocket.messages`' `:ws.app/request-reply` body left the
+   suite fully green). Where a block instead points at an example VAR —
+   `ws.connection/connection-machine`, `messages/socket-actor-machine`,
+   `ws.schema/InboundMessage` / `RequestOutcome`, and the mock server the
+   actor reaches through — the example's own code IS under test, and a
+   fault planted there reds immediately. The machine, the schemas and the
+   mock transport are therefore genuinely covered; the two ingress
+   handler bodies are covered only as far as their twins here agree with
+   them. Mirror a body change into both, or the drift is invisible."
   []
   (re-register-machines-fx-and-subs!)
 
