@@ -63,6 +63,14 @@
   around the sub-vec resources alone would leave the literal arm installing a
   host handle into B.
 
+  Each `/scheduled` tooth also reads the TRACE stream (audit of PR #8955). The
+  four host-work readings say nothing about what the abort left behind for
+  tooling, and an abort placed after an observable success-shaped row leaves a
+  `/scheduled` that can never be followed by `/fired` or `/cancelled` —
+  a wall-clock window that never opened, and one no epoch or active-path gate
+  can retract, because those gates suppress a stale FIRE and there is no fire.
+  `assert-no-orphan-scheduled-row!` pins the closed pair.
+
   The last test is the control the fence must not break: with no successor
   published, a multi-live reconcile arms every declaration, so the loop that
   replaced the `doseq` still runs to completion.
@@ -325,6 +333,53 @@
         (reset! token-b (frame/frame-incarnation-token frame-id))
         (zero!)))))
 
+(defn- assert-no-orphan-scheduled-row!
+  "The abort's TRACE obligation (audit of PR #8955). The four readings above are
+  about HOST work; this one is about what tooling is left holding.
+
+  Spec 005 §Trace event catalogue mirrors `:rf.machine.timer/cancelled` on
+  `:rf.machine.timer/scheduled` — same `:actor-id` / `:state` / `:delay` /
+  `:epoch` / `:frame` slots — expressly so a consumer can pair scheduled →
+  fired / cancelled by `(actor-id, state, epoch)`, and §Dynamic delay
+  re-resolution has every `/scheduled` row mark a FRESH wall-clock window. An
+  arm that announces itself and then aborts emits neither `/fired` nor
+  `/cancelled` unless the abort closes the pair, so the row stands for a window
+  that never opened. Nothing downstream can retract it: the epoch and
+  active-path gates suppress a stale FIRE, and there is no fire."
+  []
+  (let [scheduled (mtest/events-of :rf.machine.timer/scheduled)
+        cancelled (mtest/events-of :rf.machine.timer/cancelled)
+        pair-keys [:actor-id :state :delay :epoch :frame]
+        timer-ops (filterv (comp #{:rf.machine.timer/scheduled
+                                   :rf.machine.timer/cancelled}
+                                 :operation)
+                           (mtest/captured-events))]
+    (is (= 1 (count scheduled))
+        (str "precondition: the aborted arm DID announce itself — exactly one "
+             "`:rf.machine.timer/scheduled` row reached the stream before the "
+             "listener destroyed the owning incarnation"))
+    (is (= 1 (count cancelled))
+        (str "and that row is CLOSED by exactly one `:rf.machine.timer/"
+             "cancelled`. Reserving the attempt only AFTER the fan-out leaves "
+             "nothing to cancel, so the abort is silent and the `/scheduled` "
+             "row can never be followed by `/fired` or `/cancelled` — tooling "
+             "is left rendering a timer that never existed"))
+    (is (= (mapv :operation timer-ops)
+           [:rf.machine.timer/scheduled :rf.machine.timer/cancelled])
+        "and in that order — the announcement first, its closure second")
+    (is (= (select-keys (:tags (first scheduled)) pair-keys)
+           (select-keys (:tags (first cancelled)) pair-keys))
+        (str "and the two rows pair: same `(actor-id, state, epoch)` — plus "
+             "the same `:delay` window and `:frame` — so a consumer joining "
+             "the mirrored payloads sees one closed attempt, not an open one "
+             "beside an unrelated cancellation"))
+    (is (= :on-frame-destroy (:reason (:tags (first cancelled))))
+        (str "stamped with an EXISTING member of the closed `:reason` set. "
+             "`owner-gone?` flips only through `destroy-frame!` + same-id "
+             "reconstruction, so the bearing frame incarnation really was "
+             "destroyed; the repair owes no new trace vocabulary and no spec "
+             "change"))))
+
 (deftest a-scheduled-trace-callback-that-republishes-the-frame-arms-nothing-into-b
   (testing "SUB-VEC delay: the arm's own `/scheduled` destroys frame A and
             publishes same-id B before the timer-table slot is reserved. The
@@ -383,6 +438,7 @@
                    "which now denotes B. There is nothing of A's left to "
                    "release, and releasing would drop a count B holds "
                    "(rf2-i4aj9c)"))
+          (assert-no-orphan-scheduled-row!)
 
           (mtest/reset-captured!)
           (reset! reaction 9000)
@@ -423,7 +479,12 @@
           (is (empty? (inner cfid))
               "successor B holds no timer-table entry")
           (is (zero? @arms)
-              "and no host clock was armed in B's name"))))))
+              "and no host clock was armed in B's name")
+          ;; The same trace obligation with no subscription in play. The pair is
+          ;; owed by the ANNOUNCEMENT, not by the resources the arm happened to
+          ;; hold, so a repair that only closed the sub-vec case would leave the
+          ;; literal arm's `/scheduled` row hanging.
+          (assert-no-orphan-scheduled-row!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Control — the fence is scoped strictly to owner LOSS

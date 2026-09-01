@@ -510,14 +510,23 @@
   rf2-jqvgp — the supersede is not this fn's only callback boundary. With
   `:emit-scheduled-trace?` true (the SSR hydration arm and the dynamic-delay
   re-resolution) it emits `:rf.machine.timer/scheduled` ITSELF, synchronously,
-  AFTER the post-supersede recheck and BEFORE the slot is reserved — so a
-  listener on that row has the same reach as one on `/cancelled`, and on a frame
-  holding no prior timer it is the FIRST callback of the whole operation. The
-  same predicate is therefore rechecked once more, immediately after that emit:
-  every durable step (slot reservation, host arm, publish, watcher) sits behind
-  it. The abort deliberately releases nothing — see the comment at that recheck
-  for why the one hold in flight is already gone with A, and why releasing it
-  would land on B."
+  AFTER the post-supersede recheck — so a listener on that row has the same
+  reach as one on `/cancelled`, and on a frame holding no prior timer it is the
+  FIRST callback of the whole operation. The same predicate is therefore
+  rechecked once more, immediately after that emit, and the host arm, publish
+  and watcher sit behind it.
+
+  rf2-jqvgp — the ORDER of the reservation against that emit is itself the
+  contract. The attempt's timer-table slot is reserved BEFORE the fan-out, so
+  the announced attempt is a CANCELLABLE one from the instant it becomes
+  visible: the recheck's abort reclaims it by its own token and emits the
+  mirrored `/cancelled`, leaving no `/scheduled` row that can never be followed
+  by `/fired` or `/cancelled` (Spec 005 §Trace event catalogue pairs the two by
+  `(actor-id, state, epoch)`). The host clock is still armed AFTER the emit, so
+  `/scheduled` still precedes even a synchronously-firing host callback. The
+  abort releases nothing further — see the comment at that recheck for why the
+  one hold in flight is already gone with A, and why releasing it would land
+  on B."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace? owner-gone?]}]
   (let [delay-source (transition/classify-delay-source delay-key)
@@ -592,9 +601,37 @@
           ;; host scheduler that fires the callback synchronously before
           ;; `arm!` returns — can atomically CLAIM this attempt and leave the
           ;; publish phase to find its token gone and cancel the orphan handle.
-          (let [token     (next-attempt-token)
-                watch-key (when (= :sub delay-source)
-                            [::after-watch frame-id parent-id invoke-id delay-key])]
+          (let [token       (next-attempt-token)
+                watch-key   (when (= :sub delay-source)
+                              [::after-watch frame-id parent-id invoke-id delay-key])
+                ;; PHASE 1 — RESERVE the slot with an arming sentinel (`:handle
+                ;; nil`) carrying this attempt's `:token`, BEFORE arming any host
+                ;; clock. The reaction + watch-key ride the sentinel so a claiming
+                ;; cleanup releases the held subscription ref-count even though the
+                ;; physical add-watch is deferred to publication.
+                reservation {:handle          nil
+                             :reaction        reaction
+                             :sub-watcher-key watch-key
+                             :resolved-ms     resolved-ms
+                             :epoch           epoch
+                             :state           state
+                             :region          region
+                             :delay-source    delay-source
+                             :token           token}]
+            ;; rf2-jqvgp — the reservation is taken BEFORE the `/scheduled`
+            ;; fan-out below, not after it. The row's listener runs
+            ;; synchronously, so an attempt that is only reserved afterwards is
+            ;; not yet cancellable at the moment it becomes VISIBLE: a listener
+            ;; that destroys the owning incarnation leaves a `/scheduled` row
+            ;; that can never be followed by `/fired` or `/cancelled`, and Spec
+            ;; 005 §Trace event catalogue has the two events mirror each other
+            ;; precisely so consumers can pair them by `(actor-id, state,
+            ;; epoch)`. Reserving first makes the attempt a claimable one from
+            ;; the instant it is announced, so every abort below closes the pair
+            ;; with the entry's OWN `/cancelled`. The host clock is still armed
+            ;; after the emit, so a host that fires synchronously cannot beat
+            ;; `/scheduled` to the stream.
+            (swap! after-timers assoc-in [frame-id k] reservation)
             (when emit-scheduled-trace?
               (trace/emit! :rf.machine :rf.machine.timer/scheduled
                            (cond-> {;; the timer's owning actor INSTANCE;
@@ -612,44 +649,44 @@
                              (assoc :rf.sub/id      (first delay-key)
                                     :rf.sub/query-v (vec delay-key)))))
             ;; rf2-jqvgp — that `/scheduled` emit is the LAST callback-bearing
-            ;; step before the durable arm, and until now the only one this fn
-            ;; did not fence. `trace/emit!` invokes listeners SYNCHRONOUSLY, so
-            ;; a `:rf.machine.timer/scheduled` listener can `destroy-frame!` the
-            ;; owning incarnation A and publish a same-id successor B right
-            ;; here — after the post-supersede recheck above and before the slot
-            ;; is reserved. The reservation is keyed by the BARE frame id, which
-            ;; then denotes B, so the arm would install an A-derived entry, host
-            ;; handle and change-watcher into a frame that enumerated none of
-            ;; them. Recheck the SAME predicate — the batch caller's when it
-            ;; supplied one — rather than capturing a fresh owner, which would
-            ;; name B and pass.
+            ;; step before the durable arm. `trace/emit!` invokes listeners
+            ;; SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
+            ;; `destroy-frame!` the owning incarnation A and publish a same-id
+            ;; successor B right here — after the post-supersede recheck above.
+            ;; The slot is keyed by the BARE frame id, which then denotes B, so
+            ;; an unfenced arm would leave an A-derived entry, host handle and
+            ;; change-watcher in a frame that enumerated none of them. Recheck
+            ;; the SAME predicate — the batch caller's when it supplied one —
+            ;; rather than capturing a fresh owner, which would name B and pass.
             ;;
-            ;; The abort releases NOTHING, and that is the rf2-i4aj9c rule
-            ;; rather than an omission. The one hold this step can have taken is
-            ;; a sub-vec delay's `(frame, query-v)` ref-count, bumped by
-            ;; `resolve-delay-ms` against A's OWN sub-cache — which
-            ;; `destroy-frame!` disposed wholesale
+            ;; The abort releases NOTHING BEYOND THE RESERVATION ITSELF, and
+            ;; that is the rf2-i4aj9c rule rather than an omission. The one hold
+            ;; this step can have taken is a sub-vec delay's `(frame, query-v)`
+            ;; ref-count, bumped by `resolve-delay-ms` against A's OWN sub-cache
+            ;; — which `destroy-frame!` disposed wholesale
             ;; (`:subs.cache/dispose-all-for-frame-destroy!`) on this very
             ;; stack. `subs/unsubscribe` addresses the frame by bare id, so a
             ;; decrement here would land on B and could dispose a reaction B
             ;; holds for the same query. Nothing of A's survives to release, and
-            ;; the release that would reach it is the one that must not run.
-            (when-not (owner-gone?)
-             ;; PHASE 1 — RESERVE the slot with an arming sentinel (`:handle
-             ;; nil`) carrying this attempt's `:token`, BEFORE arming any host
-             ;; clock. The reaction + watch-key ride the sentinel so a claiming
-             ;; cleanup releases the held subscription ref-count even though the
-             ;; physical add-watch is deferred to publication.
-             (swap! after-timers assoc-in [frame-id k]
-                    {:handle          nil
-                     :reaction        reaction
-                     :sub-watcher-key watch-key
-                     :resolved-ms     resolved-ms
-                     :epoch           epoch
-                     :state           state
-                     :region          region
-                     :delay-source    delay-source
-                     :token           token})
+            ;; the release that would reach it is the one that must not run —
+            ;; which is exactly why the abort routes through
+            ;; `cancel-snapshotted-entry!` with this same `owner-gone?`: the
+            ;; shared decrement is skipped, while the sentinel's own `:handle`
+            ;; (nil) and never-attached watcher are released harmlessly.
+            (if (owner-gone?)
+             ;; ABORT — reclaim the reservation by its OWN attempt token, which
+             ;; both keeps the A-derived sentinel out of B's table and closes the
+             ;; `/scheduled` row just emitted with the mirrored `/cancelled`.
+             ;; `:on-frame-destroy` is the accurate member of the closed
+             ;; `:reason` set: `owner-gone?` can flip only through
+             ;; `destroy-frame!` + same-id reconstruction, so the bearing frame
+             ;; incarnation WAS destroyed (Spec 005 §Trace event catalogue). No
+             ;; new vocabulary, and idempotent — the destroy's own
+             ;; `cancel-all-timers!` sweep may already have claimed this sentinel
+             ;; on the listener's own stack, in which case this CAS fails,
+             ;; nothing is emitted twice, and the pair is already closed.
+             (cancel-snapshotted-entry! frame-id k reservation
+                                        :on-frame-destroy owner-gone?)
              (let [handle
                    ;; Shared positive-delay-guarded arm — the host-clock arm
                    ;; step both timer artefacts share. `resolved-ms` is already
