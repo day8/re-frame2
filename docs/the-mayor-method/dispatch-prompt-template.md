@@ -42,17 +42,27 @@ The order is what makes it accurate. Each step is a check the next depends on.
    re-enumerate a bead's children before concluding a decision is absent. Every one of
    those binds the mayor writing the brief exactly as it binds the worker reading it.
 
-   **And one cheap query tells you when skipping the walk is guaranteed to burn a dispatch:
+   **And one cheap query tells you which items are most likely to punish skipping the walk:
    has this item ever been CLOSED and reopened?** The rule above is unconditional, which is
    why it gets skipped — an unconditional instruction competes with every other unconditional
-   instruction. This is the case where skipping it is not a gamble but a certainty. A reopened
-   item's description is stale *by construction*: it describes the defect as originally found,
-   the work that closed it has shipped, and the live instruction is whatever note reopened it.
-   Nothing about the rendered item says so — the description still reads as a current bug
-   report, because it once was one. Measured across one session: three briefs written from
-   descriptions whose work had already merged, and **all three items showed a closed-to-open
-   transition in their status history while the control, never closed, showed none**. Ask the
-   tracker for the item's status over time rather than its status now.
+   instruction. A closed-to-open transition is the strongest cheap signal there is that the
+   description is no longer the live instruction: it was written about the defect as originally
+   found, and something later disagreed enough to reopen the item. Nothing about the rendered
+   item says so — the description still reads as a current bug report, because it once was one.
+   Measured across one session: three briefs written from descriptions whose work had already
+   merged, and **all three items showed a closed-to-open transition in their status history
+   while the control, never closed, showed none**. Ask the tracker for the item's status over
+   time rather than its status now.
+
+   **It is a signal to do the walk, though, not a substitute for it, and the two ways of
+   over-reading it are worth naming because both are natural.** *Closed* does not mean
+   *shipped* — a project whose items close when a change is opened for review will have closed
+   items whose work is still unmerged, so "the closing work has landed" is an inference about
+   this project's conventions rather than a fact about the transition. And a reopening does not
+   always supersede: an item reopened because the same defect REGRESSED has a description that is
+   accurate, and treating it as stale sends the worker looking for a newer instruction that does
+   not exist. **What decides currency is the history and the tree**, which is what the rule above
+   already says; the query tells you where that reading is most likely to change your brief.
 
    **The three consequences differ, and only the first is obvious.** The dispatch may re-do
    finished work; it may point a worker at a defect that no longer exists, whose deliverable is
