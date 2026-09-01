@@ -31,11 +31,16 @@ The escape hatch is Form-3 via `reagent2.core/create-class` (the slim equivalent
   {:display-name              "<name>"
    :reagent-render            (fn [props] ...)
    :component-did-mount       (fn [this] ...)
-   :component-did-update      (fn [this prev-props prev-state snapshot] ...)
+   :component-did-update      (fn [this prev-argv prev-state snapshot] ...)
    :component-will-unmount    (fn [this] ...)
-   :get-snapshot-before-update (fn [this prev-props prev-state] ...)
+   :get-snapshot-before-update (fn [this prev-argv prev-state] ...)
    :component-did-catch       (fn [this err info] ...)})
 ```
+
+`prev-argv` is the *previous* hiccup arg vector — the same head-included shape
+`reagent2.core/argv` returns for the current render, not React's raw `prevProps`
+object. Destructure the old props out of it (`(let [[_ old-props] prev-argv] ...)`)
+before comparing them against the new ones.
 
 The slim adapter enforces a 7-key cap — these 6 keys plus `:display-name`. Any other key throws at `create-class` call time. The cap is empirical (the union of what Day8's 4 production codebases use, plus nothing else); see [`DESIGN-RATIONALE.md` §4](DESIGN-RATIONALE.md) for the framing.
 

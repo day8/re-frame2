@@ -18,11 +18,18 @@ the keys it excludes, and walks through the canonical Form-3 use case
 |---|---|
 | `:reagent-render` | The render function. Returns hiccup. Called on every render. |
 | `:component-did-mount` | Fires once, after the first commit. Use to attach DOM-dependent state (refs read, JS libraries instantiated). |
-| `:component-did-update` | Fires after every re-render commit (not the first). Receives `(this prev-props prev-state snapshot)`. The fourth arg is the value returned by `:get-snapshot-before-update` if set, else `nil`. |
+| `:component-did-update` | Fires after every re-render commit (not the first). Receives `(this prev-argv prev-state snapshot)`. The fourth arg is the value returned by `:get-snapshot-before-update` if set, else `nil`. |
 | `:component-will-unmount` | Fires once, just before unmount. The canonical disposal seam — release timers, listeners, JS-library instances. |
-| `:get-snapshot-before-update` | Fires just before commit, with `(this prev-props prev-state)`. Returns any value; that value is passed as the 4th arg to `:component-did-update`. Use to capture pre-commit DOM measurements (e.g. scroll position) for restoration after the commit. |
+| `:get-snapshot-before-update` | Fires just before commit, with `(this prev-argv prev-state)`. Returns any value; that value is passed as the 4th arg to `:component-did-update`. Use to capture pre-commit DOM measurements (e.g. scroll position) for restoration after the commit. |
 | `:component-did-catch` | Error-boundary callback. Fires with `(this error info)` when a descendant throws during render. Logging-only — re-frame2 ships only the `componentDidCatch` half of React's error-boundary contract. Apps that want stateful fallback rendering pair this with a local `(reagent2.core/atom)` flipped from inside the callback. |
 | `:display-name` | A string used by React DevTools and error messages. Compile-time only — zero runtime cost. |
+
+**`prev-argv`, not `prevProps`.** The two update callbacks receive the component's
+*previous* hiccup arg vector, translated out of React's `prevProps` by the bridge.
+It has the same head-included shape `reagent2.core/argv` returns for the current
+render — `[component-fn props & children]` — so the old props map is `argv[1]`, not
+the vector itself. `prev-state` and `snapshot` pass through verbatim; only
+`prevProps` is translated.
 
 **Any other key throws.** The throw fires at `create-class` call time (registration
 time, not render time — fail fast) with the canonical discriminator
@@ -109,11 +116,18 @@ render (pure) and capture any pre-commit measurement via
 
 ;; New
 :component-did-update
-(fn [this prev-props _prev-state _snapshot]
-  (let [[_ new-props] (reagent2.core/argv this)]
-    (when (not= prev-props new-props)
+(fn [this prev-argv _prev-state _snapshot]
+  (let [[_ old-props] prev-argv                     ; previous argv, head included
+        [_ new-props] (reagent2.core/argv this)]    ; current argv, same shape
+    (when (not= old-props new-props)
       (do-side-effect!))))
 ```
+
+Note the symmetry: `prev-argv` is a full arg vector, exactly like the one
+`reagent2.core/argv` returns, so both sides need the same destructuring before the
+comparison is props-to-props. Comparing `prev-argv` directly against `new-props`
+compares a vector with a map — never equal, so the side effect would fire on every
+single update.
 
 If the side effect needs a pre-commit DOM measurement (e.g. scroll position),
 capture it in `:get-snapshot-before-update` and consume it in
@@ -276,7 +290,7 @@ cleanup. The four audited codebases use Form-3 for exactly this — Vega-Embed
                           :zoom   (:zoom props)}))))
 
        :component-did-update
-       (fn [this _prev-props _prev-state _snapshot]
+       (fn [this _prev-argv _prev-state _snapshot]
          (let [[_ new-props] (r/argv this)]
            (when-let [m @map-instance]
              (.setCenter m #js {:lat (-> new-props :center :lat)
@@ -313,7 +327,7 @@ cleanup. The four audited codebases use Form-3 for exactly this — Vega-Embed
    later lifecycle phases can manipulate it.
 
 4. **`:component-did-update`** reacts to prop changes imperatively. The lifecycle
-   callback receives `(this prev-props prev-state snapshot)`; we read the *new*
+   callback receives `(this prev-argv prev-state snapshot)`; we read the *new*
    args via `r/argv` and tell the JS library to update. (The reagent-slim
    contract: `:component-did-update` is the only cap path for "props changed,
    update the imperative thing." Compare with how Form-1 would react to data
@@ -435,7 +449,7 @@ Three variations worth knowing:
                     (reset! vega-instance (.-view result))))))
 
        :component-did-update
-       (fn [this _prev-props _prev-state _snapshot]
+       (fn [this _prev-argv _prev-state _snapshot]
          (let [[_ new-spec] (r/argv this)]
            (.then (js/vegaEmbed @el-ref (clj->js new-spec))
                   (fn [result]
@@ -507,14 +521,14 @@ are committed.
       {:display-name "scroll-preserving-log"
 
        :get-snapshot-before-update
-       (fn [_this _prev-props _prev-state]
+       (fn [_this _prev-argv _prev-state]
          ;; Runs against the PREVIOUS DOM, just before commit.
          ;; Capture whatever measurement we need to restore.
          (when-let [el @container-ref]
            {:scroll-top (.-scrollTop el)}))
 
        :component-did-update
-       (fn [_this _prev-props _prev-state snapshot]
+       (fn [_this _prev-argv _prev-state snapshot]
          ;; Runs AFTER commit, with the snapshot as the 4th arg.
          (when-let [el @container-ref]
            (when-let [target (:scroll-top snapshot)]
