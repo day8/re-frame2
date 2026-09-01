@@ -258,8 +258,13 @@
     ;; incarnation token a `capture-frame` op threads through; build-envelope
     ;; reads it and carries it onto the envelope so `dispatch!` / `dispatch-sync!`
     ;; fence the enqueue to the exact captured incarnation.
+    ;; `:rf.flow/settle?` (rf2-kh73v) is the INTERNAL flag on the ONE
+    ;; `[:rf/settle-flows]` child a completed `:fx` walk dispatches after it
+    ;; registered or cleared a flow; build-envelope reads it and carries it onto
+    ;; the envelope so `insert-envelope` head-inserts the settle ahead of the
+    ;; continuations that same handler queued (Spec 013 §Sequencing).
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
              :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-             :rf.trace/call-site :rf.machine/internal? :step-index
-             :rf.frame/expected-incarnation}
+             :rf.trace/call-site :rf.machine/internal? :rf.flow/settle?
+             :step-index :rf.frame/expected-incarnation}
            diag/known-dispatch-opts))))

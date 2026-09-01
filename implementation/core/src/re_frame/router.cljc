@@ -361,6 +361,15 @@
         ;; ordering guarantee — NOT a trace concern — so the flag is
         ;; carried unconditionally (never gated on interop/debug-enabled?).
         machine-internal?  (true? (:rf.machine/internal? opts))
+        ;; Spec 013 §Sequencing: the framework-private flow settle, stamped by
+        ;; `fx/settle-flows-if-requested!` on the ONE child dispatch a completed
+        ;; `:fx` walk makes when it registered or cleared a flow. `insert-envelope`
+        ;; reads it to place the settle at the HEAD of the queue, ahead of the
+        ;; continuations that same handler queued — so those continuations read
+        ;; the settled `app-db` rather than the pre-registration / pre-clear one.
+        ;; A runtime ordering guarantee like `:rf.machine/internal?`, so carried
+        ;; on the same terms: unconditionally, never gated on debug-enabled?.
+        flow-settle?       (true? (:rf.flow/settle? opts))
         ;; EP-0017 §6 / slice-B.8: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
         ;; `:strict` (so an incomplete record fails loudly rather than minting
@@ -441,6 +450,9 @@
       ;; Carry the machine-internal continuation flag onto
       ;; the envelope so `dispatch!` can front-of-queue insert it.
       machine-internal?  (assoc :rf.machine/internal? true)
+      ;; Spec 013 §Sequencing: carry the flow-settle ordering flag onto the
+      ;; envelope so `insert-envelope` can head-insert it.
+      flow-settle?       (assoc :rf.flow/settle? true)
       ;; EP-0017 §6 / slice-B.8: carry the per-call cofx mint
       ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
       ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
@@ -3946,7 +3958,7 @@
             (swap! router assoc :scheduled? false :in-drain? nil))
           (throw t))))))
 
-(declare front-insert-machine-internal)
+(declare insert-envelope)
 
 (defn- ensure-drain-scheduled!
   "Enqueue `envelope` into the target incarnation's queue and, when this call is
@@ -3971,11 +3983,7 @@
               (swap! router
                      (fn [state]
                        (-> state
-                           (update :queue
-                                   (fn [queue]
-                                     (if (:rf.machine/internal? envelope)
-                                       (front-insert-machine-internal queue envelope)
-                                       (conj queue envelope))))
+                           (update :queue insert-envelope envelope)
                            (assoc :scheduled? true))))
               {:enqueued? true :schedule? (not scheduled?)})))]
     (when (:schedule? outcome)
@@ -4145,29 +4153,66 @@
   (let [[internal external] (split-with :rf.machine/internal? q)]
     (into interop/empty-queue (concat internal [envelope] external))))
 
-(defn- enqueue-envelope!
-  "Insert `envelope` into the frame's router queue. Per Spec 002, ordinary
-  dispatches go to the BACK (plain FIFO via `conj` on the PersistentQueue).
+(defn- head-insert
+  "Return `q` (a PersistentQueue of envelopes) with `envelope` at its HEAD —
+  dequeued next, ahead of everything already queued.
 
-  Per rf2-j20a7 / Spec 005 §Level 4 — the one exception: a machine-
-  internal continuation envelope (`:rf.machine/internal? true`, stamped
-  by `build-envelope` from the machine-tagged child opts) leap-frogs
-  ahead of any already-queued EXTERNAL events, so the machine settles its
-  macrostep to quiescence before the next external event runs (SCXML
-  'internal before external'). It is spliced in by
-  `front-insert-machine-internal` AFTER any sibling machine-internal
-  envelopes already queued this macrostep, so source order is preserved
-  among siblings (first emitted is dequeued first).
+  PersistentQueue has no native head-push, so the queue is rebuilt. Only the
+  flow settle uses this, and only because it is the one envelope for which
+  `front-insert-machine-internal`'s boundary splice would be wrong: that
+  splice exists to keep SIBLINGS in source order, and the settle has no
+  siblings — the `:fx` walk enqueues at most one, at the very end of the walk
+  (`fx/settle-flows-if-requested!`), so there is nothing for a splice to
+  preserve and nothing a plain head-push can reverse."
+  [q envelope]
+  (into interop/empty-queue (cons envelope q)))
+
+(defn- insert-envelope
+  "Return the frame's router queue with `envelope` inserted at its position.
+  The single ordering rule, read by BOTH enqueue paths (`enqueue-envelope!`
+  and `ensure-drain-scheduled!`) so they cannot drift apart.
+
+  Per Spec 002, ordinary dispatches go to the BACK (plain FIFO via `conj` on
+  the PersistentQueue). Two envelopes jump it, and the order of the clauses
+  below is itself the priority order:
+
+  1. **The flow settle** (`:rf.flow/settle? true`, stamped by
+     `build-envelope` from the opt `fx/settle-flows-if-requested!` passes)
+     goes to the ABSOLUTE HEAD — ahead of machine-internal continuations too.
+     Per Spec 013 §Sequencing the settle repairs `app-db` to agree with the
+     flow registry as the completed `:fx` walk left it, and every event still
+     queued is a CONTINUATION of the handler that mutated that registry. Left
+     at the back (or spliced behind the machine-internal prefix), those
+     continuations run against the pre-registration / pre-clear `app-db` and
+     can persist a wrong decision into `app-db` that the later settle, which
+     repairs only the derived slot, does not undo. Ahead of them, every
+     continuation reads the settled value. Nothing is lost by settling early:
+     the flow transform runs on EVERY event, so a continuation's own writes
+     are settled by its own drain, not by this envelope.
+  2. **A machine-internal continuation** (`:rf.machine/internal? true`, per
+     rf2-j20a7 / Spec 005 §Level 4) leap-frogs ahead of any already-queued
+     EXTERNAL events, so the machine settles its macrostep to quiescence
+     before the next external event runs (SCXML 'internal before external').
+     It is spliced in by `front-insert-machine-internal` AFTER any sibling
+     machine-internal envelopes already queued this macrostep, so source
+     order is preserved among siblings (first emitted is dequeued first).
 
   Front-of-queue changes ORDER ONLY, not granularity: the leap-frogged
   envelope is still a separately-dequeued event with its own epoch (per
   Spec 002 §Drain versus event and Spec 005 §Level 4). `:raise` is a
   different lever — it never reaches this queue (it drains in-memory,
   intra-macrostep, inside the machine handler invocation)."
+  [q envelope]
+  (cond
+    (:rf.flow/settle? envelope)      (head-insert q envelope)
+    (:rf.machine/internal? envelope) (front-insert-machine-internal q envelope)
+    :else                            (conj q envelope)))
+
+(defn- enqueue-envelope!
+  "Insert `envelope` into the frame's router queue at the position
+  `insert-envelope` gives it."
   [router envelope]
-  (if (:rf.machine/internal? envelope)
-    (swap! router update :queue front-insert-machine-internal envelope)
-    (swap! router update :queue conj envelope)))
+  (swap! router update :queue insert-envelope envelope))
 
 ;; Private authority for the synchronous `:on-destroy` event and the
 ;; same-frame child dispatches it intentionally emits. The cascade drains an

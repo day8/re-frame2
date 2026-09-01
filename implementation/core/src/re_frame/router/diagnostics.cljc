@@ -126,6 +126,14 @@
                             config's policy, else the router's `:live` default
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.machine/internal?   machine-internal continuation flag (front-queue)
+    :rf.flow/settle?        Spec 013 §Sequencing — marks the ONE
+                            framework-private `[:rf/settle-flows]` child a
+                            completed `:fx` walk dispatches when it registered
+                            or cleared a flow (`fx/settle-flows-if-requested!`).
+                            `insert-envelope` reads it to head-insert the
+                            settle ahead of the continuations that same handler
+                            queued. INTERNAL — not an app-facing opt, and not a
+                            general priority lever
     :step-index             frame-construction setup-step index, stamped by
                             `frame.cljc`'s `run-setup-events!` onto each
                             `:initial-events` dispatch (EP-0027); read by
@@ -142,7 +150,8 @@
                             `:rf.frame/` namespace) — not an app-facing opt."
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.machine/internal? :step-index :rf.frame/expected-incarnation})
+    :rf.machine/internal? :rf.flow/settle? :step-index
+    :rf.frame/expected-incarnation})
 
 (def ^:const retired-draft-opt-hints
   "Dispatch-opt keys that named a fact only ever spelled in the spec's own
