@@ -10,11 +10,12 @@
    - `:comment-form` in the plain form slice shape.
    - Route-driven loads that read the current slug off the runtime-db
      coeffect at `[:rf.runtime/routing :current :params :slug]`.
-   - Route-keyed reads that stay owned by the route identity: each slice
-     records the slug it is loading, replies carry the slug they were
-     requested for, and a settle that no longer belongs to the screen is
-     refused (see `reply-for-current-slug?` below — the same correlation
-     law article_editor.cljs spells for the editor).
+   - Route-keyed reads AND comment mutations that stay owned by the route
+     identity: each slice records the slug it is loading, the comment
+     reads and writes carry the slug they were requested for, and a settle
+     that no longer belongs to the screen is refused (see
+     `reply-for-current-slug?` below — the same correlation law
+     article_editor.cljs spells for the editor).
    - Optimistic post / delete flows that roll back through nothing fancier
      than ordinary events."
   (:require [clojure.string :as str]
@@ -55,14 +56,41 @@
 ;;
 ;; So each slice records WHICH slug it is loading (`[:article :slug]` /
 ;; `[:comments :slug]`, stamped by the load handler in the same write that
-;; starts the load), every reply target carries the slug it was REQUESTED
-;; for, and each terminal handler asks this one question before writing
+;; starts the load), the reply targets BELOW carry the slug they were
+;; REQUESTED for, and their handlers ask this one question before writing
 ;; anything — data, status, error, or timestamp. A late alpha settle while
 ;; the slice targets beta is dropped on the floor; a beta settle (success OR
 ;; failure) is beta's own and lands normally. Retained data follows the same
 ;; law: a SAME-slug refresh keeps the prior data up while `:fetching`
 ;; (never blank a loaded page on a refresh), but a slug CHANGE resets the
 ;; slice, so alpha's article is never renderable under `/article/beta`.
+;;
+;; EXACTLY these carry the slug and gate on it — the two route-driven READS
+;; (`:article/load`'s reply hat, `:comments/loaded` / `:comments/load-failed`)
+;; and the three comment MUTATION settles (`:comment-form/submit-success`,
+;; `:comment-form/submit-error`, `:comment/delete-rollback`). The mutations
+;; need it just as badly as the reads: they land on the one shared
+;; `[:comments :data]` / `[:comment-form]`, so alpha's late POST failure
+;; would otherwise banner beta's form and alpha's failed DELETE would
+;; re-insert alpha's comment into beta's list (rf2-84iek).
+;;
+;; Two deliberate NON-members, so nobody reads the list as "everything in
+;; this file is correlated":
+;;
+;;   - `:comment/delete-success` writes nothing at all (it exists to give
+;;     `:on-success` a target), so it needs neither the slug nor the gate.
+;;   - The article SOCIAL controls further down — `:article/author-follow-
+;;     synced` / `-rollback`, `:article/delete-failed` — are NOT gated. They
+;;     write `[:article :data ...]` from a button press rather than from the
+;;     route's own load, and no cross-route defect has been reproduced
+;;     against them; they are out of rf2-84iek's scope, not covered by it.
+;;
+;; The gate correlates ROUTE IDENTITY, not request identity: it asks which
+;; slug the screen is on, so alpha → beta → alpha readmits an alpha reply
+;; issued before the round trip. That is the same strength the reads have
+;; had since rf2-iy3d6, and it is deliberate — a per-request epoch or a
+;; cancellation scheme would buy a much narrower race at the cost of the
+;; machinery this example exists to stay clear of.
 ;;
 ;; article_editor.cljs spells this identical law for the editor
 ;; (`still-editing?`, with the full why-neither-request-id-nor-leafwise-seed-
@@ -202,7 +230,20 @@
          as :article/load — see THE CORRELATION GATE above), and the same
          refresh-vs-new-identity split applies on the way out: a same-slug
          re-entry keeps the loaded comments up while `:fetching`; a different
-         slug resets the slice."
+         slug resets the slice.
+
+         A new identity resets THE COMMENT FORM along with the slice, and
+         that pairing is load-bearing rather than tidiness. The form is a
+         single shared widget — `:comment-form/initialise` runs once at boot,
+         not on the route — so without this it carries alpha's half-finished
+         submission into beta: alpha's draft text, alpha's error banner, and
+         (because both the textarea and the Post button are `:disabled`
+         while `:status` is `:submitting`) a form beta can never type in.
+         That last one is what makes it load-bearing: once the mutation
+         settles are correlation-gated, a submit issued on alpha and answered
+         after the reader reached beta is refused, and refusing it is only
+         safe because the navigation has ALREADY released the form. Reset and
+         gate are two halves of one fix (rf2-84iek)."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
@@ -211,12 +252,16 @@
                      (:comments db)
                      {:status :idle :data [] :error nil
                       :loaded-at nil :attempt 0})]
-      {:db (assoc db :comments
-                  (-> slice
-                      (assoc :slug   slug
-                             :status (if (and refresh? (seq (:data slice))) :fetching :loading)
-                             :error  nil)
-                      (update :attempt (fnil inc 0))))
+      {:db (cond-> (assoc db :comments
+                          (-> slice
+                              (assoc :slug   slug
+                                     :status (if (and refresh? (seq (:data slice))) :fetching :loading)
+                                     :error  nil)
+                              (update :attempt (fnil inc 0))))
+             ;; New article identity → the page's form starts over too. A
+             ;; SAME-slug refresh leaves it alone, so a background re-load
+             ;; never eats what the reader is part-way through typing.
+             (not refresh?) (assoc :comment-form (comment-form-defaults)))
        :fx [[:rf.http/managed
              (rh/request {:method     :get
                           :path       (comment-path slug)
@@ -267,7 +312,14 @@
          in `:on-success` / `:on-failure` so the reply knows which card it's
          talking about. And it comes from the recordable
          `:realworld/temp-comment-id` coeffect above, never a fresh
-         `random-uuid` here — see that block for the why."
+         `random-uuid` here — see that block for the why.
+
+         Those same targets carry THE SLUG WE ARE POSTING TO, ahead of the
+         temp-id, because the two facts answer different questions: the slug
+         says WHICH PAGE this reply belongs to, the temp-id says WHICH CARD
+         on it. A POST answered after the reader has moved on has no page
+         left to land on, so both settles gate on the slug first — see THE
+         CORRELATION GATE above."
    :rf.http/decode-schemas [schema/CommentResponse]
    :rf.cofx/requires [:realworld/temp-comment-id]}
   (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
@@ -306,40 +358,64 @@
                             :path       (comment-path slug)
                             :body       {:comment {:body body}}
                             :decode     schema/CommentResponse
-                            :on-success [:comment-form/submit-success temp-id]
-                            :on-failure [:comment-form/submit-error temp-id]})]]}))))
+                            :on-success [:comment-form/submit-success slug temp-id]
+                            :on-failure [:comment-form/submit-error slug temp-id]})]]}))))
 
 (rf/reg-event :comment-form/submit-success
-  (fn [{:keys [db]} [_ temp-id {:keys [value]}]]
-    {:db (let [saved (:comment value)]
-      (-> db
-          (assoc-in [:comment-form] (comment-form-defaults))
-          ;; Swap the optimistic temp card for the saved comment IN PLACE,
-          ;; right where it already sits. If we appended the saved one instead,
-          ;; the comment would visibly jump from the bottom (where it landed
-          ;; optimistically) to the top — a tiny teleport the eye absolutely
-          ;; catches. Same move as favorites.cljs/update-article-in-list: map
-          ;; over, replace the match, keep the order.
-          (update-in [:comments :data]
-                     (fn [comments]
-                       (mapv (fn [comment]
-                               (if (= temp-id (:id comment)) saved comment))
-                             (or comments []))))))}))
+  {:doc "The POST's `:on-success`, carrying the slug it was posted to.
+         Correlation-gated (THE CORRELATION GATE above): a save that comes
+         back for an article the reader has left writes nothing — it neither
+         clears the form under the new page nor reaches into its comments.
+         Nothing is stranded by that refusal: the optimistic temp card went
+         with the slice when `:comments/load` reset it for the new slug, the
+         comment really is saved server-side, and coming back to the article
+         re-reads it from there."}
+  (fn [{:keys [db]} [_ slug temp-id {:keys [value]}]]
+    (when (reply-for-current-slug? db :comments slug)
+      {:db (let [saved (:comment value)]
+             (-> db
+                 (assoc-in [:comment-form] (comment-form-defaults))
+                 ;; Swap the optimistic temp card for the saved comment IN
+                 ;; PLACE, right where it already sits. If we appended the
+                 ;; saved one instead, the comment would visibly jump from the
+                 ;; bottom (where it landed optimistically) to the top — a tiny
+                 ;; teleport the eye absolutely catches. Same move as
+                 ;; favorites.cljs/update-article-in-list: map over, replace the
+                 ;; match, keep the order.
+                 (update-in [:comments :data]
+                            (fn [comments]
+                              (mapv (fn [comment]
+                                      (if (= temp-id (:id comment)) saved comment))
+                                    (or comments []))))))})))
 
 (rf/reg-event :comment-form/submit-error
-  (fn [{:keys [db]} [_ temp-id {:keys [error]}]]
-    {:db (-> db
-        (update-in [:comments :data]
-                   (fn [comments]
-                     (vec (remove #(= temp-id (:id %)) comments))))
-        (assoc-in [:comment-form :status] :idle)
-        (assoc-in [:comment-form :submit-error]
-                  (rh/failure->message error)))}))
+  {:doc "The POST's `:on-failure`, correlated exactly as
+         `:comment-form/submit-success` is. A post that fails for an article
+         the reader has left must not banner the article now on screen with
+         the previous one's error, nor flip its form's lifecycle. There is
+         again nothing to strand: the temp card this would have yanked back
+         out went with the slice on the slug change, and that same reset put
+         the form back to `:idle`, so refusing here cannot leave the new
+         page's form stuck mid-submit."}
+  (fn [{:keys [db]} [_ slug temp-id {:keys [error]}]]
+    (when (reply-for-current-slug? db :comments slug)
+      {:db (-> db
+               (update-in [:comments :data]
+                          (fn [comments]
+                            (vec (remove #(= temp-id (:id %)) comments))))
+               (assoc-in [:comment-form :status] :idle)
+               (assoc-in [:comment-form :submit-error]
+                         (rh/failure->message error)))})))
 
 (rf/reg-event :comment/delete
   {:doc "Whisk a comment off the screen first, then send the DELETE. If the
          server says no, the rollback handler slots the comment back in at its
-         original index, as though nothing happened."}
+         original index, as though nothing happened.
+
+         The rollback target carries THE SLUG WE ARE DELETING FROM alongside
+         the captured `prior`, so a failure answered after the reader moved on
+         cannot slot the previous article's comment into the current one's
+         list (rf2-84iek). `:on-success` needs neither: it is a no-op."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           comments (vec (get-in db [:comments :data]))
@@ -354,7 +430,7 @@
                           :path       (str (comment-path slug) "/" id)
                           :decode     :auto
                           :on-success [:comment/delete-success id]
-                          :on-failure [:comment/delete-rollback prior]})]]})))
+                          :on-failure [:comment/delete-rollback slug prior]})]]})))
 
 (rf/reg-event :comment/delete-success
   {:doc "Success means: do nothing, gracefully. The optimistic delete already
@@ -365,23 +441,33 @@
   (fn [{:keys [db]} _] {:db db}))
 
 (rf/reg-event :comment/delete-rollback
-  (fn [{:keys [db]} [_ {:keys [index comment]} _failure-payload]]
-    {:db (if (and (some? index) comment)
-      (update-in db [:comments :data]
-                 (fn [xs]
-                   ;; Clamp the re-insert point to the list's CURRENT length.
-                   ;; The index we saved was true at optimistic-delete time, but
-                   ;; the list may have shrunk since — a `:comments/loaded`
-                   ;; re-fetch, or a second delete racing this one. Skip the
-                   ;; clamp and `subvec` throws IndexOutOfBounds the moment
-                   ;; index > (count xs), taking the whole event drain down with
-                   ;; it. A little defensive arithmetic is cheaper than that.
-                   (let [xs (vec xs)
-                         i  (min (max 0 index) (count xs))]
-                     (vec (concat (subvec xs 0 i)
-                                  [comment]
-                                  (subvec xs i))))))
-      db)}))
+  {:doc "The DELETE's `:on-failure`, carrying the slug it was deleting from.
+         Correlation-gated: restoring a comment into a list that now belongs
+         to a DIFFERENT article would be pure fabrication — the comment is not
+         one of that article's. Refusing loses nothing, because the article
+         this comment does belong to had its list reset on the way out, and
+         the server still holds the comment (the DELETE failed), so coming
+         back re-reads it."}
+  (fn [{:keys [db]} [_ slug {:keys [index comment]} _failure-payload]]
+    (when (reply-for-current-slug? db :comments slug)
+      {:db (if (and (some? index) comment)
+             (update-in db [:comments :data]
+                        (fn [xs]
+                          ;; Clamp the re-insert point to the list's CURRENT
+                          ;; length. The index we saved was true at
+                          ;; optimistic-delete time, but the list may have
+                          ;; shrunk since — a `:comments/loaded` re-fetch, or a
+                          ;; second delete racing this one. Skip the clamp and
+                          ;; `subvec` throws IndexOutOfBounds the moment
+                          ;; index > (count xs), taking the whole event drain
+                          ;; down with it. A little defensive arithmetic is
+                          ;; cheaper than that.
+                          (let [xs (vec xs)
+                                i  (min (max 0 index) (count xs))]
+                            (vec (concat (subvec xs 0 i)
+                                         [comment]
+                                         (subvec xs i))))))
+             db)})))
 
 ;; ============================================================================
 ;; ARTICLE-DETAIL SOCIAL CONTROLS
