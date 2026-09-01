@@ -248,21 +248,24 @@ Use `record` + `read-recording` when you want to **capture** what happened acros
 
 ## Hot-reload coordination
 
-Editing source is legitimate and often correct. The protocol is strict — after any source edit, before the next `dispatch` / `trace/*`:
+Editing source is legitimate and often correct. The protocol is strict — and it starts **before** the edit, because the comparison evidence must predate the change:
 
-1. Make the edit with `Edit` / `Write`.
-2. Call `mcp__re-frame2-pair__tail-build` with a `probe` that verifies the browser has the new code.
-3. Only after the probe succeeds (`{:ok? true …}`, the probe value flipped) do you proceed to `dispatch`, `trace/*`, etc.
-4. **`tail-build` does not tail the shadow-cljs server log** (the name is historical) — it polls your `probe` form and hands back *diagnostics*. So **branch on the result, don't treat every non-success as a compile error**:
-   - `{:ok? false :reason :timed-out :probe-values {:initial … :final …} :note …}` — the probe was reachable but its value never changed in `wait-ms`. The `:note` lists the candidate causes; use `:probe-values` to disambiguate. **If `:initial` and `:final` are equal, the reload may have landed but your probe doesn't discriminate it** — pick a better probe (one whose value provably changes on reload, e.g. a `handler-meta` hash) or ask the user to refresh the browser, then re-probe. Do *not* report a compile error on this evidence alone.
-   - `{:ok? false :reason :probe-errored :probe-error …}` — the probe form raised on every iteration. Treat this as a **malformed probe** (typo, dotted host-interop against a missing var), not a compile error, unless separate shadow-cljs / browser output proves an actual build failure. Fix the probe and re-run.
+1. Choose a `probe` — a CLJS form whose value will differ once the edited code reloads (see the probe menu below) — and **capture its pre-edit value now**: `eval-cljs {form: "(pr-str (some/probe-form))"}`. Keep the returned `:value` verbatim; that string is your `baseline`.
+2. Make the edit with `Edit` / `Write`.
+3. Call `mcp__re-frame2-pair__tail-build` with the same `probe` **and** the pre-edit `baseline`. It succeeds on the first sample whose value differs from the baseline — so the reload is recognized **whether it lands before or after the first sample**: a fast reload's very first sample already differs (immediate success); a slow one flips a later poll. A post-edit self-baseline cannot make that distinction, which is why `baseline` is required with `probe` (`:reason :missing-baseline` otherwise) — never present a post-edit re-read alone as proof the reload landed.
+4. Only after `{:ok? true …}` do you proceed to `dispatch`, `trace/*`, etc.
+5. **`tail-build` does not tail the shadow-cljs server log** (the name is historical) — it polls your `probe` form and hands back *diagnostics*. So **branch on the result, don't treat every non-success as a compile error**:
+   - `{:ok? false :reason :timed-out :probe-values {:baseline … :initial … :final …} :note …}` — the probe was reachable but every sample matched your baseline for the whole of `wait-ms`. Two candidate causes: the rebuild genuinely stalled (confirm from shadow/browser output), or **your probe cannot discriminate this edit** — its value is the same before and after the reload. Pick a source-derived fingerprint that provably changes (e.g. a `handler-meta` hash or `:line`), re-capture the baseline, re-run. Do *not* report a compile error on this evidence alone.
+   - `{:ok? false :reason :probe-errored :probe-error …}` — the probe form raised on its initial evaluation. Treat this as a **malformed probe** (typo, dotted host-interop against a missing var), not a compile error, unless separate shadow-cljs / browser output proves an actual build failure. Fix the probe and re-run.
+   - `{:ok? false :reason :missing-baseline}` — you called `tail-build` without the pre-edit capture. If the edit hasn't happened yet, capture the baseline and follow the order above. If you already edited, don't fabricate a baseline: verify directly instead — read a source-derived fingerprint you can check against the file (e.g. `handler-meta` `:line` for the edited handler) with `eval-cljs`.
    - A genuine compile error is confirmed from **actual shadow-cljs / browser console output**, not inferred from a `tail-build` timeout.
 
 ```
-mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
+mcp__re-frame2-pair__eval-cljs   {form: "(pr-str (some/probe-form))"}        # BEFORE the edit → baseline
+mcp__re-frame2-pair__tail-build  {wait-ms: 5000, probe: "(some/probe-form)", baseline: "<that value>"}   # AFTER the edit
 ```
 
-`probe` is a CLJS form chosen to change when the edited code reloads. Good probes for re-frame2:
+`probe` is a CLJS form chosen to change when the edited code reloads — if a probe's value cannot change for the edit under test, it proves nothing; pick one whose fingerprint does. Good probes for re-frame2:
 
 - After editing a `reg-*` handler: `(re-frame2-pair.runtime/registrar-handler-ref :event <id>)` — compares a hash over `handler-meta`. The underlying `(rf/handler-meta :event :foo)` `:line` / `:column` / `:handler-fn` change after re-registration; capture the meta map's hash before the edit, compare after.
 - After editing a `reg-machine`: same shape against `:event` (machines register under `:event` per Spec 005); `(re-frame.machines/machine-meta :auth)` is the equivalent direct read (`machine-meta` lives on `re-frame.machines`, not re-exported from `re-frame.core`).

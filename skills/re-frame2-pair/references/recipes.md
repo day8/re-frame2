@@ -225,7 +225,7 @@ Canonical procedure (commit-and-compare):
    - *Handlers / subs / fx:* `eval-cljs {form: "(rf/reg-event :foo …)"}` / `(rf/reg-sub :bar …)` / `(rf/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `eval-cljs {form: "(rf/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
    - *Views / helpers (plain `defn`s):* redefine the var via `eval-cljs`. Subsequent renders pick up the new fn.
-   - *Permanent change:* `Edit` the source file, then `mcp__re-frame2-pair__tail-build {probe: "…"}` to wait for the reload to land.
+   - *Permanent change:* capture the probe's pre-edit value first (`eval-cljs {form: "(pr-str (…probe…))"}`), `Edit` the source file, then `mcp__re-frame2-pair__tail-build {probe: "…", baseline: "<pre-edit value>"}` to wait for the reload to land — the pre-edit baseline keeps a reload that lands before the first sample recognizable as success ([ops.md §Hot-reload coordination](ops.md#hot-reload-coordination)).
 5. **Verify the patch took before re-dispatching.** `handler-meta {kind: "event", id: ":foo"}` should now return a different `:line` / `:column` (or a different `:handler-fn` hash) than what you captured at step 1. If the patch didn't land, re-dispatching will silently test the old code.
 6. `dispatch {event: "[:foo …]", trace: true}` → observe the new behaviour.
 7. Compare the two epochs — `eval-cljs {form: "(re-frame2-pair.runtime/epoch-diff …)"}` between their `:db-after` values; cross-check `:sub-runs` and `:renders` projections. Repeat until satisfied.

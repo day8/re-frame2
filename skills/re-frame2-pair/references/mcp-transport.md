@@ -95,7 +95,7 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `watch-until` | `{signals, pred, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `record` | `{signals, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `read-recording` | `{recording-id, drain?, stop?}` — read back a recording's change-log | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
-| `tail-build` | `{probe?, wait-ms?}` — wait for a hot-reload to land by polling the probe | [`ops.md` §Hot-reload](ops.md#hot-reload-coordination) |
+| `tail-build` | `{probe?, baseline?, wait-ms?}` — wait for a hot-reload to land by polling the probe against a pre-edit `baseline` (required with `probe`; captured before the edit) | [`ops.md` §Hot-reload](ops.md#hot-reload-coordination) |
 | `get-operating-frame` | `{}` — read the operating-frame triple | [`ops.md` §Frames](ops.md#frames) |
 | `set-operating-frame` | `{frame}` — pin the session's operating frame | [`ops.md` §Frames](ops.md#frames) |
 | `reset-operating-frame` | `{}` — clear the pin; idempotent | [`ops.md` §Frames](ops.md#frames) |

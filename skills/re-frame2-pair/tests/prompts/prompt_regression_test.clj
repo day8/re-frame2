@@ -458,6 +458,40 @@
                "actually tail the shadow-cljs server log (rf2-7a1mkv).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Hot-reload baseline order (rf2-1f60u)
+;; ---------------------------------------------------------------------------
+;;
+;; tail-build's comparison value is the CALLER's pre-edit capture — the
+;; baseline — so a reload landing before the first sample still reads as
+;; success. The protocol must teach capture-BEFORE-edit and pass `baseline`
+;; into tail-build; a post-edit self-baseline framing must not reappear.
+
+(deftest hot-reload-teaches-pre-edit-baseline
+  (testing "ops.md hot-reload protocol captures a pre-edit baseline and passes it to tail-build (rf2-1f60u)"
+    (let [hr (section-from @ops-md "Hot-reload coordination")]
+      (is (includes-ci? hr "baseline")
+          (str "ops.md hot-reload guidance no longer names the pre-edit "
+               "baseline tail-build compares against (rf2-1f60u)."))
+      (is (re-find #"(?i)capture[^.\n]{0,120}(pre-edit|before)" hr)
+          (str "ops.md hot-reload guidance must instruct capturing the "
+               "probe's value BEFORE the edit (rf2-1f60u)."))
+      (is (str/includes? hr ":missing-baseline")
+          (str "ops.md hot-reload guidance must cover the :missing-baseline "
+               "refusal branch (rf2-1f60u)."))
+      (is (re-find #"(?i)(before or after|lands? before)[^.\n]{0,80}(first (probe )?sample|first probe)" hr)
+          (str "ops.md must state the invariant: a reload is recognized "
+               "whether it lands before or after the first sample "
+               "(rf2-1f60u)."))))
+  (testing "recipes.md permanent-change step carries the baseline capture (rf2-1f60u)"
+    (is (includes-ci? @recipes-md "baseline")
+        (str "recipes.md's permanent-change step no longer passes the "
+             "pre-edit baseline into tail-build (rf2-1f60u).")))
+  (testing "SKILL.md cardinal rule orders capture before the edit (rf2-1f60u)"
+    (is (includes-ci? @skill-md "baseline")
+        (str "SKILL.md's source-edit cardinal rule no longer names the "
+             "pre-edit baseline (rf2-1f60u)."))))
+
+;; ---------------------------------------------------------------------------
 ;; snapshot uses plural `frames`, not singular `frame`
 ;; ---------------------------------------------------------------------------
 ;;

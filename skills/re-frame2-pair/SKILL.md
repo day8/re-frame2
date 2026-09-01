@@ -110,7 +110,7 @@ Verify by running `discover-app` — success is `{:ok? true :build-id ... :debug
 ## Cardinal rule — two modes of changing the app
 
 - **REPL changes** (hot-swap a handler, evaluate a form, reset a frame's `app-db`) are **ephemeral** — survive hot-reloads of unaffected namespaces, lost on full page reload. Use for **probes, experiments, throwaway fixes**.
-- **Source edits** (`Edit` / `Write`) are **permanent**. After any source edit you *must* run the hot-reload coordination protocol (`tail-build` with a probe) before dispatching or tracing, or you'll interact with pre-reload code and get misleading results.
+- **Source edits** (`Edit` / `Write`) are **permanent**. Capture your probe's current value **before** the edit (that's the `baseline`); after the edit you *must* run the hot-reload coordination protocol (`tail-build` with the probe **and** that pre-edit `baseline`) before dispatching or tracing, or you'll interact with pre-reload code and get misleading results. The pre-edit baseline is what makes a fast reload — one that lands before `tail-build`'s first sample — read as success instead of a spurious timeout.
 
 Know which mode you're in and why. Strict source-edit protocol: [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination).
 
