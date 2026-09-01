@@ -593,14 +593,28 @@
 ;; `pending-reprojection?` further below) rather than a new key on the sealed
 ;; generation itself — `image-assembly` (the generation-schema owner) stays
 ;; untouched; the provenance lives beside the OTHER reload/reprojection
-;; bookkeeping in this ns. Trade-off accepted: a frame id that is destroyed
-;; and never reused leaves a residual entry for the remainder of the process
-;; (no destroy-time cleanup hook here) — harmless, since `reproject-live-frame!`
-;; is already a no-op for an unregistered id and a REUSED id's entry is
-;; overwritten BEFORE the next `make-frame`'s engine commit (see the WHEN
-;; section below), so the residue is never read incorrectly; only dev-process
-;; memory, bounded by the number of distinct frame ids ever created in a
-;; session.
+;; bookkeeping in this ns. Being process-local does NOT make it process-lived:
+;; the row is FRAME-SCOPED transient state, so it is released at the single
+;; normative teardown boundary like every other frame-keyed side table
+;; (Spec 002 §Frame lifecycle §Destroy). `release-frame-generation-pool!`
+;; below is that release, published as `:live-frame/on-frame-destroyed!` and
+;; invoked from `frame/destroy-frame!`'s step-6 auxiliary-cleanup pass.
+;;
+;; rf2-cq0yi — this used to be an ACCEPTED trade-off ("a destroyed, never
+;; reused id leaves a residual entry for the remainder of the process; only
+;; dev-process memory"). The reasoning that made it look harmless was about
+;; CORRECTNESS and still holds — `reproject-live-frame!` is a no-op for an
+;; unregistered id, and a REUSED id's row is overwritten BEFORE the next
+;; `make-frame`'s engine commit (see the WHEN section below), so a stale row is
+;; never read incorrectly. What it got wrong was RETENTION, and "dev-process"
+;; was the wrong frame entirely: the write is unconditional in the PUBLIC
+;; constructor, and the documented per-request SSR recipe mints a fresh id,
+;; constructs, renders and destroys in a `finally` — so a long-lived server
+;; retained one row per request served, plus (on the 2-arity) the caller's whole
+;; explicit descriptor pool. Exactly the shape rf2-uejlj fixed one layer up for
+;; the Hicasso frame-ops row. The release below needs no incarnation token: a
+;; same-id successor is constructable only after teardown's step-9 registry
+;; dissoc, so every row standing at hook time is a dead incarnation's.
 ;;
 ;; ---- WHEN the row is written, and under WHOSE authority (rf2-rt4jz) -------
 ;;
@@ -688,6 +702,9 @@
   per-id construction reservation, so the only attempt that ever touches an
   id's row is the one the engine ADMITTED: a rejected same-id contender
   publishes nothing, and a rollback cannot land on a successor's row.
+  RELEASED at destroy by `release-frame-generation-pool!` (rf2-cq0yi), so the
+  table holds rows for LIVE frames only and never outlives the frames it
+  describes.
   Reprojection then re-resolves against the SAME provenance
   (rf2-rf3zgt) instead of silently defaulting to the live store for a frame
   that was never resolved against it. See the §Generation PROVENANCE section
@@ -724,6 +741,28 @@
   (if had-row?
     (swap! frame-generation-pool assoc runnable-id prior)
     (swap! frame-generation-pool dissoc runnable-id))
+  nil)
+
+(defn- release-frame-generation-pool!
+  "Drop `runnable-id`'s provenance row — the TEARDOWN counterpart of
+  `record-frame-generation-pool!` (rf2-cq0yi). Published as
+  `:live-frame/on-frame-destroyed!` and invoked from `frame/destroy-frame!`'s
+  step-6 auxiliary-cleanup pass, so the row's lifetime is the frame's.
+
+  Keyed and UNCONDITIONAL, carrying no incarnation token — the same argument
+  the sibling `:hicasso/on-frame-destroyed!` hook makes (rf2-uejlj): destroy
+  still holds the id's exact construction/destruction reservation here, and a
+  same-id successor can only be seated after the step-9 registry dissoc, so
+  every row standing at hook time belongs to the incarnation being torn down.
+  A stale exact-value destroy never reaches this pass at all — it fails its
+  claim before the cleanup walk begins.
+
+  Idempotent: `dissoc` on an absent key is a no-op, which is also the whole of
+  what a frame constructed before this hook was published (impossible in
+  practice — `make-frame` installs the hook before it writes the first row)
+  would need. Returns nil."
+  [runnable-id]
+  (swap! frame-generation-pool dissoc runnable-id)
   nil)
 
 ;; ===========================================================================
@@ -1584,8 +1623,8 @@
            :doc "Process-local ONCE-flag for the reprojection wiring. Written
   LAST, and only from inside `reprojection-install-lock` on the JVM — see
   `ensure-reprojection-installed!` for why the ordering is load-bearing:
-  `true` here is a PROMISE that the registrar hook and both late-bind keys are
-  already in place, and a partially-installed reprojection must never be
+  `true` here is a PROMISE that the registrar hook and all three late-bind keys
+  are already in place, and a partially-installed reprojection must never be
   observable as installed."}
   reprojection-installed?
   (atom false))
@@ -1593,7 +1632,7 @@
 #?(:clj
    (defonce ^{:private true
               :doc "JVM monitor serializing the reprojection once-install
-  (rf2-9c2jf, the merged-PR-#7114 audit). The install has THREE side effects
+  (rf2-9c2jf, the merged-PR-#7114 audit). The install has FOUR side effects
   and every one of them is part of what the once-flag promises, so the whole
   body — the flag read, the three effects, and the flag write — must be ONE
   critical section. A `compare-and-set!` on the flag alone is not enough: CAS
@@ -1603,7 +1642,7 @@
   installer has finished it.
 
   DEADLOCK-FREE BY CONSTRUCTION: the body calls only
-  `registrar/add-registration-hook!` and `late-bind/set-fn!` — three
+  `registrar/add-registration-hook!` and `late-bind/set-fn!` — four
   bookkeeping `swap!`s that run no user code, acquire no other monitor (in
   particular NOT `projection-flush-lock`), and never re-enter `make-frame`. The
   monitor is released before `make-frame` does anything else, so nothing
@@ -1615,7 +1654,7 @@
 
 (defn- install-reprojection!
   "The reprojection once-body, ALWAYS called with the install serialized (the
-  JVM monitor above; CLJS's single thread). Performs the three side effects and
+  JVM monitor above; CLJS's single thread). Performs the four side effects and
   only THEN publishes the once-flag.
 
   PUBLISH-LAST IS THE INVARIANT, not a style choice: `reprojection-installed?`
@@ -1641,16 +1680,27 @@
     ;; through `late-bind`, so the consult sites themselves root nothing —
     ;; only this publication does, and only `make-frame` reaches it.
     (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
+    ;; rf2-cq0yi — the TEARDOWN twin of the provenance write. `frame.cljc` is
+    ;; BELOW this ns (live-frame requires frame, not the other way round), so
+    ;; `destroy-frame!` reaches the release by late-bind keyword like every
+    ;; other feature's `<feature>/on-frame-destroyed!` callback. Published from
+    ;; the SAME once-body that installs the rest of the provenance wiring, and
+    ;; therefore under exactly the same rooting condition as the rows it
+    ;; releases: `make-frame` calls `ensure-reprojection-installed!` before it
+    ;; writes its first row, so the hook is always bound by the time a row
+    ;; exists, and an app that never constructs a frame roots neither.
+    (late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
     ;; …and ONLY NOW is the wiring observable as installed.
     (reset! reprojection-installed? true))
   nil)
 
 (defn ^:no-doc ensure-reprojection-installed!
   "Install the reprojection wiring ONCE per process: the registrar registration
-  hook plus the two late-bind keys the registrar's removal paths and the
-  resolution seams consult. Idempotent, and — on the JVM — a BARRIER: a
-  concurrent `make-frame` either performs the install or WAITS for the caller
-  performing it, so it can never proceed on a half-installed one.
+  hook plus the three late-bind keys the registrar's removal paths, the
+  resolution seams and `destroy-frame!` consult. Idempotent, and — on the JVM
+  — a BARRIER: a concurrent `make-frame` either performs the install or WAITS
+  for the caller performing it, so it can never proceed on a half-installed
+  one.
 
   A PARTIALLY-INSTALLED REPROJECTION IS NEVER OBSERVABLE AS INSTALLED. That is
   the invariant, and it is what makes the once-flag safe to read. This used to
@@ -1669,7 +1719,7 @@
   that very moment. The original release blocker, recreated with no debug gate
   in sight. Pinned by `reprojection_install_race_jvm_test.clj`.
 
-  So the whole once-body — flag read, three side effects, flag write — is ONE
+  So the whole once-body — flag read, four side effects, flag write — is ONE
   critical section under `reprojection-install-lock`, and the flag is published
   LAST (`install-reprojection!`). JVM ONLY: CLJS is single-threaded, so no
   caller can observe the once-body mid-flight and the CLJS path stays
