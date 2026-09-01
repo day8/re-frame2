@@ -93,27 +93,33 @@ example's own README links here for the canonical statement.
 the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
 dataflow.
 
-#### Exception 2 — the cross-substrate Reagent/UIx id share
+#### Exception 2 — the cross-view-layer Reagent/UIx/Hicasso id share
 
-The Reagent and UIx **counter** triplet shares its event, sub, fx,
-machine, and schema ids, proving one dataflow across three reactive substrates.
-Each counter carries its own copy of that dataflow, deliberately kept in step.
+The Reagent and UIx **counter** pair shares its event, sub, fx,
+machine, and schema ids, proving one dataflow across two reactive substrates.
+Each counter carries its own copy of that dataflow, deliberately kept in step —
+extracting three one-line registrations would cost the smallest-app lesson more
+than the sharing saves.
 
-The **login** triplet takes the same idea one step further: rather than three
-copies of the `:auth.login/*` dataflow, the three login examples all `:require`
+The **login** triple takes the same idea one step further: rather than three
+copies of the `:auth.login/*` dataflow, the three login examples — Reagent
+(`examples/login`), UIx (`examples/login-uix`) and Hicasso
+(`examples/login-hicasso`) — all `:require`
 **one** substrate-free model namespace,
 [`login.model`](core/login/model.cljs) — the single owner of every shared
-`auth.login` schema, fx, machine, event, and sub (rf2-ppbvav). So the ids aren't
+`auth.login` schema, fx, machine, event, and sub (rf2-ppbvav, extended to the
+Hicasso arm by rf2-fmns2). So the ids aren't
 merely *shared*, they're registered from *one source*; each `core.cljs` adds only
-its substrate-specific views + mount. That removes the drift risk of duplication
+its view-layer-specific views + mount. That removes the drift risk of duplication
 outright — there is no second copy to diverge.
 
 Both are safe because each side is a **separate standalone build** that never
 shares a JS runtime, and the bundle-isolation gates
 (`npm run test:bundle-isolation`, `npm run test:reagent-slim:bundle-isolation`)
-keep those builds split. `test:bundle-isolation` now scans the two login
+keep those builds split. `test:bundle-isolation` scans all three login
 builds too (`check-login-bundle-isolation.cjs`): each login `main.js` carries
-**only its own substrate** — the UIx login bundle has no Reagent code —
+**only its own view runtime** and neither of the other two — the UIx login
+bundle has no Reagent or Hicasso code —
 which is exactly what proves the shared `login.model` drags in no view library or
 adapter. Views are never shared — each substrate's views carry their own
 namespace. If two of these examples were ever co-loaded into one frame image, the

@@ -16,10 +16,13 @@ the same — the same schemas, the same machine, the same named subscriptions,
 the same canned HTTP stub — because it is literally the same source. All of it
 lives in one substrate-free namespace, `login.model`
 ([`examples/core/login/model.cljs`](../../../core/login/model.cljs)), which this
-example `:require`s and the Reagent twin imports unchanged. Only the
+example `:require`s and both twins — Reagent and
+[Hicasso](../../hicasso/login/) — import unchanged. Only the
 views are written differently. That's the idea worth taking away: swapping the
 renderer changes almost nothing. So this is a clear place to see where the
 substrate boundary falls, and how little sits on the substrate side of it.
+[`examples/substrates/README.md`](../../README.md) lays the three-way
+comparison out.
 
 That is the whole point of re-frame2's
 [adapter](../../../../docs/core/glossary.md#adapter) design: your events,
@@ -87,18 +90,20 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 
 This is a parity demonstration. Parity shows best when you hold everything
 constant except the one thing under test. Read this side by side with its
-sibling — [`examples/core/login/`](../../../core/login/) is the reference. The
-schemas, the machine, the subs, and the HTTP stub are the same in both; the
-view layer is the only thing that differs. Two renderers, one model.
+siblings — [`examples/core/login/`](../../../core/login/) is the reference, and
+[`examples/substrates/hicasso/login/`](../../hicasso/login/) is the third arm.
+The
+schemas, the machine, the subs, and the HTTP stub are the same in all three; the
+view layer is the only thing that differs. Three renderers, one model.
 
-"One model" is meant literally: the 2 logins share the one substrate-free
+"One model" is meant literally: the 3 logins share the one substrate-free
 `login.model` namespace, rather than each carrying its own copy. That is the
 strongest form of parity — the comparison holds the model constant not by keeping
-2 copies in step, but by there being only one. It also removes the drift risk
+3 copies in step, but by there being only one. It also removes the drift risk
 of duplication: there is no second copy to diverge. The bundle-isolation gate
-(`npm run test:bundle-isolation`) now scans the login builds too and proves each
-carries only its own substrate — the UIx login `main.js` has no Reagent
-code — which is exactly what proves the shared `login.model` drags in no
+(`npm run test:bundle-isolation`) scans all three login builds and proves each
+carries only its own view runtime — the UIx login `main.js` has no Reagent or
+Hicasso code — which is exactly what proves the shared `login.model` drags in no
 renderer.
 
 One mechanical note: the view namespace here is `uix.login.core`, not

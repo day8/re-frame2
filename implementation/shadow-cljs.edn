@@ -1615,6 +1615,16 @@
    :asset-path "."
    :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
+  ;; rf2-fmns2 — the THIRD login arm, on Hicasso (re-frame2's own native view
+  ;; layer). Same shape as the pair above: its own per-example build over the
+  ;; ONE substrate-free `login.model`, so `check-login-bundle-isolation.cjs`
+  ;; can prove each login bundle carries only its own view runtime.
+  :examples/login-hicasso
+  {:target     :browser
+   :output-dir "out/examples/login-hicasso"
+   :asset-path "."
+   :modules    {:main {:init-fn hicasso.login.core/run}}}
+
   :examples/realworld
   {:target     :browser
    :output-dir "out/examples/realworld"

@@ -257,6 +257,9 @@ const DOCUMENTED_SUBSTRATE_BUILDS = [
   'examples/counter-uix',
   'examples/login-uix',
   'examples/dashboard-uix',
+  // rf2-fmns2 — the Hicasso login, the third arm of the one-model
+  // three-view-layer comparison examples/substrates/README.md documents.
+  'examples/login-hicasso',
 ];
 
 it('the documented rosters are non-vacuous (a roster emptied by an edit cannot pass silently)', () => {
@@ -268,8 +271,8 @@ it('the documented rosters are non-vacuous (a roster emptied by an edit cannot p
   );
   assert.strictEqual(
     DOCUMENTED_SUBSTRATE_BUILDS.length,
-    3,
-    'expected 3 documented substrate builds',
+    4,
+    'expected 4 documented substrate builds',
   );
 });
 
