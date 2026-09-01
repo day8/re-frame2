@@ -697,6 +697,59 @@ test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
   assert.equal(result.template_expensive, 'true');
 });
 
+// rf2-uqf5q — the THIRD predicate. rf2-eyyd2 armed macros.clj on the two CLJS
+// unit lanes above and left `is_story_xray_runtime_path` — the one that owns
+// story_xray_browser, i.e. the Playwright decks — still reading its `.clj`
+// extension guard. So a Story MACRO change fired NO browser gate at all:
+// story_xray_browser false skipped the PR-smoke tier, and story_full_gate arms
+// only on the feature-load gate's own spec modules, so the full tier skipped
+// with it. Commit e1cbd089c4 (rf2-3xq1v) went through that hole — it changed
+// the source-coord the Story pane renders, by way of this very macro
+// namespace, and no browser saw it until two unrelated PRs armed everything.
+
+test('Story macros.clj fires the Playwright browser gate (rf2-uqf5q)', () => {
+  // The macro namespace is the compile-time producer for every
+  // `(story/reg-story …)` / `(story/reg-variant …)` call site the testbed
+  // decks contain, so its emitted forms ARE what the deck renders.
+  const result = classify(STORY_MACROS);
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'a Story macro change must schedule the Story/Xray browser gate: the decks ' +
+      'render what this namespace emits',
+  );
+});
+
+test('Story macros.clj now arms every lane its expansion reaches (rf2-uqf5q)', () => {
+  // The three predicates together, pinned in one place so a future narrowing
+  // of any one of them is visible as a narrowing rather than as a lane that
+  // quietly stopped running.
+  const result = classify(STORY_MACROS);
+  for (const lane of ['cljs_node_test', 'cljs_browser', 'story_xray_browser']) {
+    assert.equal(result[lane], 'true', `macros.clj must arm ${lane}`);
+  }
+});
+
+test('the browser-gate arm is macros.clj by NAME, not a `.clj` widening (rf2-uqf5q)', () => {
+  // The ruling was to complete an existing pattern on ONE predicate, not to
+  // widen the browser matrix. A hypothetical JVM consumer beside macros.clj,
+  // and an ordinary `.clj` under the Xray src tree, both keep the general
+  // exclusion — on the Playwright gate as on the two CLJS lanes.
+  for (const file of [
+    'tools/story/src/re_frame/story/jvm_only_helper.clj',
+    'tools/xray/src/day8/re_frame2_xray/jvm_only_helper.clj',
+  ]) {
+    assert.equal(classify(file).story_xray_browser, 'false', file);
+  }
+});
+
+test('macros.clj does not drag the FULL Story feature-load tier along (rf2-uqf5q)', () => {
+  // story_full_gate stays what rf2-65ajl made it: the feature-load runner's
+  // own spec modules and orchestration. A macro change belongs on the smoke
+  // tier, which is the tier that mounts the decks.
+  assert.equal(classify(STORY_MACROS).story_full_gate, 'false');
+});
+
 test('an ordinary JVM-only .clj under Story src stays off both CLJS lanes (rf2-eyyd2)', () => {
   // The named exception is macros.clj and nothing else: a hypothetical JVM
   // consumer beside it must keep the general `.clj` exclusion.
@@ -704,6 +757,33 @@ test('an ordinary JVM-only .clj under Story src stays off both CLJS lanes (rf2-e
   assert.equal(result.cljs_browser, 'false');
   assert.equal(result.cljs_node_test, 'false');
   assert.equal(result.tools_jvm, 'true');
+});
+
+test('macros.clj is still the ONLY .clj under either src tree (rf2-uqf5q)', () => {
+  // The teeth on the "named, not globbed" choice. Three predicates now name
+  // this one path; a SECOND macro namespace appearing beside it would be
+  // armed on none of them and would repeat rf2-3xq1v exactly. Read the tree
+  // rather than trusting the claim, and name what was found.
+  const found = [];
+  for (const tool of ['story', 'xray']) {
+    const root = path.join(REPO_ROOT, 'tools', tool, 'src');
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.clj')) {
+          found.push(path.relative(REPO_ROOT, full).split(path.sep).join('/'));
+        }
+      }
+    };
+    if (fs.existsSync(root)) walk(root);
+  }
+  assert.deepEqual(
+    found.sort(),
+    [STORY_MACROS],
+    'a new .clj under tools/{story,xray}/src is armed by NO classifier arm; ' +
+      'name it in all three predicates or explain why it is a JVM consumer',
+  );
 });
 
 test('an ordinary JVM-only .clj test under Story/Xray stays off both CLJS lanes (rf2-eyyd2)', () => {

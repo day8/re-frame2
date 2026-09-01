@@ -276,8 +276,37 @@ mark_all() {
 # HTML-only change used to classify as no-surface and skip the gate
 # entirely. It is a runtime path by the same test as the others: change
 # it and the browser sees something different.
+#
+# rf2-uqf5q — with the SAME ONE named exception both sibling predicates
+# below already carry: tools/story/src/re_frame/story/macros.clj. The
+# extension guard here excludes `.clj`, which is right for a JVM consumer
+# and wrong for the one CLJ namespace under either src tree that is a
+# compile-time PRODUCER. `re-frame.story` delegates every public
+# registration macro to it, so the CLJS a testbed's `(story/reg-story …)`
+# / `(story/reg-variant …)` call site compiles to — and therefore what the
+# Playwright deck actually renders — comes out of this file.
+#
+# MEASURED, NOT PREDICTED. story_xray_browser is this predicate's to arm,
+# and it read false for macros.clj — so the browser-gates job skipped
+# BOTH its tiers, the PR-smoke one and the full feature-load one, because
+# story_full_gate arms only on the gate's own spec modules and was false
+# too. Commit e1cbd089c4 (rf2-3xq1v) walked through exactly that hole: it
+# routed re-frame.story.macros/coords-form through
+# re-frame.source-coords/coords-form, which absolutises at
+# macro-expansion time, changing the source-coord rendered in the Story
+# pane. No browser gate ran, so nothing saw the pane it changed; it
+# surfaced ~1.5 hours later only because two unrelated PRs happened to
+# arm every surface, and it blocked both of them.
+#
+# Named rather than globbed, exactly as on the two predicates below: this
+# is the only CLJ macro namespace either tool ships, and a second one
+# should be a deliberate edit here rather than a silent widening of the
+# browser matrix. An ordinary JVM `.clj` beside it keeps the general
+# exclusion, and the testbed arms are untouched.
 is_story_xray_runtime_path() {
   case "$1" in
+    tools/story/src/re_frame/story/macros.clj)
+      return 0 ;;
     tools/story/src/*|tools/xray/src/*|tools/story/testbeds/*|tools/xray/testbeds/*)
       case "$1" in
         *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss|*.html)
@@ -2085,11 +2114,14 @@ else
         esac
         # story_xray_browser is narrowed (rf2-k9ekz): it fires ONLY when
         # the changed path is under tools/{story,xray}/{src,testbeds}/**
-        # AND the file has a runtime extension
-        # (.cljs/.cljc/.js/.cjs/.css/.scss). Markdown specs, JVM unit
-        # tests under tools/{story,xray}/test/**, deps.edn, README.md,
-        # and *.txt do NOT fire it. The split-out framework-testbeds
-        # gate (formerly rf2-9grp6) was retired in rf2-t5slp.
+        # AND the file has a runtime extension — plus the one named
+        # macros.clj exception (rf2-uqf5q). Read the predicate for the
+        # authoritative extension list rather than a copy here; this
+        # summary has already drifted once (it predated `.html`,
+        # rf2-kttom). Markdown specs, JVM unit tests under
+        # tools/{story,xray}/test/**, deps.edn, README.md, and *.txt do
+        # NOT fire it. The split-out framework-testbeds gate (formerly
+        # rf2-9grp6) was retired in rf2-t5slp.
         if is_story_xray_runtime_path "$file"; then
           story_xray_browser=true
         fi
