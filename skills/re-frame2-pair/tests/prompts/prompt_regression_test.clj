@@ -492,6 +492,31 @@
              "pre-edit baseline (rf2-1f60u)."))))
 
 ;; ---------------------------------------------------------------------------
+;; No-probe mode is a DELAY, never post-edit evidence (rf2-1f60u audit)
+;; ---------------------------------------------------------------------------
+;;
+;; A probe-less tail-build samples nothing and compares nothing, yet still
+;; returns {:ok? true :soft? true}. So the proceed-gate must require
+;; :soft? false: an "if you don't know a good probe, omit it" bullet sitting
+;; inside a gate that accepts any {:ok? true} authorizes dispatching against
+;; stale code, which is exactly the contradiction the rf2-1f60u audit found.
+
+(deftest no-probe-soft-wait-is-not-post-edit-evidence
+  (testing "ops.md's post-edit gate requires :soft? false, not any {:ok? true} (rf2-1f60u)"
+    (let [hr (section-from @ops-md "Hot-reload coordination")]
+      (is (str/includes? hr ":soft? false")
+          (str "ops.md's proceed-gate no longer requires `:soft? false` — a "
+               "probe-less 300ms wait returns {:ok? true :soft? true} and "
+               "would satisfy a bare {:ok? true} gate (rf2-1f60u)."))
+      (is (not (str/includes? hr "the tool falls back to a 300ms timer"))
+          (str "ops.md's no-probe bullet reads as a sanctioned substitute for "
+               "the probe again. It must be fenced as a delay only, never as "
+               "evidence that unlocks post-edit dispatch (rf2-1f60u)."))
+      (is (re-find #"(?i)(never evidence|not evidence|a delay, not)" hr)
+          (str "ops.md no longer says a probe-less wait is a delay rather "
+               "than evidence that the reload landed (rf2-1f60u).")))))
+
+;; ---------------------------------------------------------------------------
 ;; snapshot uses plural `frames`, not singular `frame`
 ;; ---------------------------------------------------------------------------
 ;;
