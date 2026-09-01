@@ -40,6 +40,7 @@ const {
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,
+  loadsBuildEntrypoint,
   parseSrcset,
   extractCssImports,
   extractCssUrls,
@@ -2620,6 +2621,252 @@ it('the build-output main.js is never resolved on disk', () => {
     !errors.some((e) => e.includes('main.js')),
     'main.js (build output) must never be flagged as a missing source file',
   );
+});
+
+// ---- TEETH rf2-y1kbf: the BOOT-SCRIPT contract --------------------------
+//
+// Before rf2-y1kbf the gate proved every host was DRESSED (favicon + OG card +
+// stylesheet) but never that it could RUN. BUILD_OUTPUTS exempted main.js from
+// on-disk RESOLUTION — correctly, it is shadow-cljs output rather than repo
+// source — and that exemption made its ABSENCE unobservable: deleting the one
+// `<script src="main.js">` from any host left the live scan green (measured
+// errors=[] on an ordinary, a Story-auxiliary, and an SSR host) while the staged
+// page could not boot, render, or hydrate. Nothing else catches it: the compile
+// gate builds shadow-cljs definitions and never consumes their HTML, and the
+// headless wrappers require namespaces directly. The exemption now covers
+// resolution ONLY — the reference itself is required.
+
+// The full `<script … src=main.js …></script>` ELEMENT, in the three HTML5
+// quoting forms. A fresh RegExp per call: a shared /g literal carries lastIndex
+// between uses and would silently start mid-string.
+const bootScriptElements = (html) =>
+  html.match(
+    /<script\b[^>]*(?<![-\w])src\s*=\s*(?:"main\.js"|'main\.js'|main\.js)[^>]*>[\s\S]*?<\/script>/gi,
+  ) || [];
+
+// The boot-contract violation, matched on its stable head rather than the whole
+// remediation prose.
+const BOOT_ERROR = /no live '<script src="main\.js">'/;
+
+const relOf = (abs) => path.relative(scanner.REPO_ROOT, abs).split(path.sep).join('/');
+
+// goodHtml() with its live boot script replaced by `markup` — '' for a deleted
+// script, or an impostor reference that must NOT satisfy the contract. The
+// presence assertion guards against a no-op replace re-vacuating the test the
+// way rf2-spaiyd's external-anchor case once was.
+function bootScriptReplacedBy(markup) {
+  const html = goodHtml();
+  const live = '<script src="main.js"></script>';
+  assert.ok(html.includes(live), 'goodHtml() must carry the live boot script to replace');
+  return html.replace(live, markup);
+}
+
+it('TEETH rf2-y1kbf: an otherwise-valid page with NO boot script is REJECTED, naming page + main.js', () => {
+  // Every shared asset is present and resolves; the ONLY defect is the deleted
+  // entrypoint — the exact false green this bead closes.
+  const { errors, relIndex } = scanPage(fullIo({ [PAGE]: bootScriptReplacedBy('') }), PAGE);
+  const boot = errors.filter((e) => BOOT_ERROR.test(e));
+  assert.strictEqual(
+    boot.length,
+    1,
+    `expected exactly one boot-script violation, got: ${errors.join(' | ')}`,
+  );
+  assert.ok(boot[0].includes(relIndex), `the violation must name the page, got: ${boot[0]}`);
+  assert.ok(boot[0].includes('main.js'), `the violation must name main.js, got: ${boot[0]}`);
+  assert.strictEqual(
+    errors.length,
+    1,
+    `a dressed-but-unbootable page must fail for THIS reason only, got: ${errors.join(' | ')}`,
+  );
+});
+
+// A mere MENTION of main.js must not satisfy the contract — the proof comes
+// from the TAGGED asset inventory, so only a live `<script src>` counts. Each
+// impostor below is a shape that names main.js while fetching no script:
+// navigation refs never reach `assets` at all, a preload/icon <link> is tagged
+// as a link rather than a script, prose is not a tag, and commented markup is
+// stripped before extraction (rf2-j538f7.28).
+for (const [name, impostor] of [
+  ['a preload <link> naming main.js', '<link rel="preload" as="script" href="main.js">'],
+  ['a modulepreload <link> naming main.js', '<link rel="modulepreload" href="main.js">'],
+  ['an <a href> naming main.js', '<a href="main.js">the bundle</a>'],
+  ['a rel=canonical <link> naming main.js', '<link rel="canonical" href="main.js">'],
+  ['plain text naming main.js', '<p>the entrypoint is main.js</p>'],
+  ['a commented-out boot script', '<!-- <script src="main.js"></script> -->'],
+  ['an <img src> naming main.js', '<img src="main.js">'],
+]) {
+  it(`TEETH rf2-y1kbf: ${name} does NOT satisfy the boot contract`, () => {
+    const { errors } = scanPage(fullIo({ [PAGE]: bootScriptReplacedBy(impostor) }), PAGE);
+    assert.ok(
+      errors.some((e) => BOOT_ERROR.test(e)),
+      `a non-script mention of main.js must not satisfy the contract, got: ${errors.join(' | ')}`,
+    );
+    // ...and main.js stays exempt from source-file resolution whatever shape
+    // references it: the impostor is rejected as unbootable, never reported as
+    // a missing file on disk.
+    assert.ok(
+      !errors.some((e) => e.includes('does not resolve')),
+      `main.js must never be resolved as a source file, got: ${errors.join(' | ')}`,
+    );
+  });
+}
+
+// The canonical live forms all satisfy it, including HTML5 unquoted values
+// (rf2-3dzb6h) and the scanner's existing ?query/#hash normalisation — a
+// cache-busted `main.js?v=2` is the same entrypoint.
+for (const [name, live] of [
+  ['double-quoted', '<script src="main.js"></script>'],
+  ['single-quoted', "<script src='main.js'></script>"],
+  ['unquoted (HTML5)', '<script src=main.js></script>'],
+  ['trailing attribute', '<script src="main.js" defer></script>'],
+  ['leading attribute', '<script defer src="main.js"></script>'],
+  ['cache-busting ?query', '<script src="main.js?v=2"></script>'],
+  ['#hash suffix', '<script src="main.js#boot"></script>'],
+]) {
+  it(`rf2-y1kbf: a ${name} boot script satisfies the contract (page scans clean)`, () => {
+    const { errors } = scanPage(fullIo({ [PAGE]: bootScriptReplacedBy(live) }), PAGE);
+    assert.deepStrictEqual(
+      errors,
+      [],
+      `a live ${name} boot script must scan clean, got: ${errors.join(' | ')}`,
+    );
+  });
+}
+
+it('rf2-y1kbf: loadsBuildEntrypoint reads the TAGGED inventory, not the raw HTML', () => {
+  // The mechanism directly: the helper is a predicate over the `assets` view, so
+  // the script/link/navigation distinction the inventory already draws is what
+  // decides the verdict — no second parser.
+  const live = extractHtmlReferenceInventory('<script src="main.js"></script>');
+  assert.ok(loadsBuildEntrypoint(live.assets));
+  const preload = extractHtmlReferenceInventory('<link rel="preload" as="script" href="main.js">');
+  assert.ok(
+    preload.assets.some((a) => a.ref === 'main.js'),
+    'the preload IS a tagged asset — it is the <script src> SOURCE that must decide',
+  );
+  assert.ok(!loadsBuildEntrypoint(preload.assets));
+  assert.ok(!loadsBuildEntrypoint(extractHtmlReferenceInventory('<a href="main.js">x</a>').assets));
+  assert.ok(!loadsBuildEntrypoint(extractHtmlReferenceInventory('main.js').assets));
+  assert.ok(!loadsBuildEntrypoint([]));
+});
+
+// ---- LIVE: the invariant over the REAL enumerated host set ---------------
+
+// Classify an enumerated host by the SHAPE the scanner advertises it covers,
+// derived from the enumerated path ITSELF — never from a second hard-coded
+// build roster, which could drift from listExampleIndexHtml and leave the sweep
+// silently ordinary-hosts-only.
+function hostShape(rel) {
+  const segments = rel.split('/');
+  // An auxiliary showcase host is `<name>.index.html` (the Story trios).
+  if (segments[segments.length - 1] !== 'index.html') return 'story-auxiliary';
+  // A baked SSR/hydration host lives under an `ssr` tree.
+  if (segments.includes('ssr')) return 'ssr';
+  return 'ordinary';
+}
+
+const HOST_SHAPES = ['ordinary', 'story-auxiliary', 'ssr'];
+
+it('LIVE rf2-y1kbf: EVERY enumerated host loads the compiled main.js entrypoint', () => {
+  assert.ok(
+    realIndexes.length >= 10,
+    `expected a non-vacuous host set, got ${realIndexes.length}`,
+  );
+  const unbootable = realIndexes
+    .filter((abs) => !loadsBuildEntrypoint(
+      extractHtmlReferenceInventory(require('fs').readFileSync(abs, 'utf8')).assets,
+    ))
+    .map(relOf);
+  assert.deepStrictEqual(
+    unbootable,
+    [],
+    `every staged host must load its entrypoint; these do not:\n` +
+      unbootable.map((p) => `    - ${p}`).join('\n'),
+  );
+  // ...and the sweep above actually covered all three advertised host shapes.
+  const shapes = new Set(realIndexes.map((abs) => hostShape(relOf(abs))));
+  for (const shape of HOST_SHAPES) {
+    assert.ok(
+      shapes.has(shape),
+      `expected the enumerated host set to include a '${shape}' host so the ` +
+        `sweep is not single-shape; found shapes: ${[...shapes].sort().join(', ')}`,
+    );
+  }
+});
+
+// An io that delegates to the real fs but serves ONE real host page with a
+// mutated body — the read-only repro from the bead. Nothing on disk is touched.
+function mutatedPageIo(pageAbsPath, mutatedHtml) {
+  const realFs = require('fs');
+  const target = path.resolve(pageAbsPath);
+  return {
+    existsSync: (p) => realFs.existsSync(p),
+    readFileSync: (p, ...rest) =>
+      path.resolve(p) === target ? mutatedHtml : realFs.readFileSync(p, ...rest),
+  };
+}
+
+it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns the PRODUCTION scan RED (ordinary + Story + SSR)', () => {
+  // THE non-vacuity control. It runs the production scanner over the real tree
+  // with exactly one byte-range removed from one real page, so it fails against
+  // the pre-fix implementation (which returned errors=[] for all three shapes)
+  // and can only pass once the boot-script contract exists.
+  const firstOfShape = new Map();
+  for (const abs of realIndexes) {
+    const shape = hostShape(relOf(abs));
+    if (!firstOfShape.has(shape)) firstOfShape.set(shape, abs);
+  }
+
+  for (const shape of HOST_SHAPES) {
+    const abs = firstOfShape.get(shape);
+    assert.ok(abs, `no '${shape}' host enumerated — this control would be vacuous`);
+    const rel = relOf(abs);
+    const original = require('fs').readFileSync(abs, 'utf8');
+
+    // The mutation removed EXACTLY ONE live boot script and nothing else.
+    const elements = bootScriptElements(original);
+    assert.strictEqual(
+      elements.length,
+      1,
+      `${rel}: expected exactly one live boot script to remove, got ${elements.length}`,
+    );
+    const mutated = original.replace(elements[0], '');
+    assert.strictEqual(
+      bootScriptElements(mutated).length,
+      0,
+      `${rel}: the mutation must actually remove the boot script`,
+    );
+    assert.strictEqual(
+      original.length - mutated.length,
+      elements[0].length,
+      `${rel}: the mutation must remove the script and nothing else`,
+    );
+    // Proven against the scanner's own inventory too, not just this regex.
+    assert.ok(
+      loadsBuildEntrypoint(extractHtmlReferenceInventory(original).assets),
+      `${rel}: the real host must load main.js BEFORE the mutation`,
+    );
+    assert.ok(
+      !loadsBuildEntrypoint(extractHtmlReferenceInventory(mutated).assets),
+      `${rel}: the mutated host must load no main.js`,
+    );
+
+    // The production scanner over the real tree must now be RED.
+    const { errors } = scanPage(mutatedPageIo(abs, mutated), abs);
+    assert.ok(
+      errors.some((e) => BOOT_ERROR.test(e) && e.includes(rel)),
+      `${rel} (${shape}): a real host with its boot script deleted must fail ` +
+        `the gate, got: ${errors.length === 0 ? '(no errors — the pre-fix false green)' : errors.join(' | ')}`,
+    );
+    // RED for THIS reason only: every other contract still holds, so the
+    // control isolates the boot-script invariant rather than riding a
+    // side-effect of the mutation.
+    assert.strictEqual(
+      errors.length,
+      1,
+      `${rel} (${shape}): the mutation must trip the boot contract alone, got: ${errors.join(' | ')}`,
+    );
+  }
 });
 
 // ---- rf2-cnu7qy: og:image content-BEFORE-property order -------------------
