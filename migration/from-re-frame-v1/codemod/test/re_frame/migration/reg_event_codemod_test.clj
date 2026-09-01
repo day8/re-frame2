@@ -364,6 +364,92 @@
         (is (empty? (cm/scan-string once)) "normalized ns-ful output rescans clean")))))
 
 ;; ---------------------------------------------------------------------------
+;; path-head resolution — LEXICAL SHADOWING at the call site (rf2-8odvg reopen)
+;; ---------------------------------------------------------------------------
+;; What the ns form makes AVAILABLE is not what a bare head DENOTES. A file may
+;; refer `re-frame.core/path` and still rebind the name around a registration,
+;; in which case `(path :tenant)` is the local — lowering it to
+;; [:rf.interceptor/path [:tenant]] would swap the author's semantics silently.
+;; A qualified head cannot be shadowed (locals are simple symbols), so the
+;; check applies to bare heads only.
+
+(deftest shadowed-bare-path-flagged-not-lowered
+  (testing "the reopen probe: a `let` rebinding `path` around the registration flags"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "\n"
+                   "(let [path app.interceptors/path]\n"
+                   "  (reg-event-db :counter/inc\n"
+                   "    {:interceptors [(path :tenant)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= 1 (count findings)))
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (not (str/includes? source ":rf.interceptor/path"))
+          "a shadowed bare `path` must never be lowered as the framework constructor")
+      (is (= src source) "flagged site left byte-for-byte unchanged"))))
+
+(deftest shadowed-bare-path-flagged-across-binding-forms
+  (testing "fn params, defn params, letfn names and for/doseq bindings shadow too"
+    (doseq [[label open close]
+            [["let"     "(let [path app.interceptors/path]"            ")"]
+             ["if-let"  "(if-let [path (resolve-path)]"                " nil)"]
+             ["fn"      "((fn [path]"                                  ") app.interceptors/path)"]
+             ["defn"    "(defn install! [path]"                        ")"]
+             ["letfn"   "(letfn [(path [k] [k])]"                      ")"]
+             ["doseq"   "(doseq [path [:a :b]]"                        ")"]]]
+      (let [src (str "(ns app.events\n"
+                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                     open "\n"
+                     "  (reg-event-db :x\n"
+                     "    {:interceptors [(path :tenant)]}\n"
+                     "    (fn [db _] (assoc db :k 1)))" close "\n")
+            {:keys [source findings]} (cm/rewrite-string src)]
+        (is (= :flag (:action (first findings))) (str label " must flag"))
+        (is (= :interceptors (:flag (first findings))) (str label " flag kind"))
+        (is (= src source) (str label " left unchanged"))))))
+
+(deftest shadowing-does-not-suppress-a-qualified-head
+  (testing "a local named `path` cannot shadow `rf/path` — the standard site still lowers"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(let [path app.interceptors/path]\n"
+                   "  (rf/reg-event-db :counter/inc\n"
+                   "    {:interceptors [(rf/path :counter)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
+
+(deftest shadowing-elsewhere-does-not-suppress-a-referred-bare-path
+  (testing "a `path` binding in a SIBLING form leaves this site's bare head standard"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "(defn helper [path] (str path))\n"
+                   "(reg-event-db :counter/inc\n"
+                   "  {:interceptors [(path :counter)]}\n"
+                   "  (fn [db _] (update db :value inc)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
+
+(deftest shadowed-bare-path-idempotent
+  (testing "the shadowed site is stable: a second run neither rewrites nor loses the flag"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "(let [path app.interceptors/path]\n"
+                   "  (reg-event-db :counter/inc\n"
+                   "    {:interceptors [(path :tenant)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          once  (rewrite src)
+          twice (rewrite once)]
+      (is (= src once) "first run leaves the source unchanged")
+      (is (= once twice) "second run is a no-op too")
+      (is (= [:flag :interceptors]
+             ((juxt :action :flag) (only-finding twice)))
+          "the unresolved M-70 finding persists across runs"))))
+
+;; ---------------------------------------------------------------------------
 ;; reg-event rescan — recovering a partially migrated tree
 ;; ---------------------------------------------------------------------------
 ;; The pre-rf2-8odvg codemod renamed heads while preserving v1 chains, leaving
