@@ -5770,6 +5770,93 @@ jobs:
         run: npm run test:pure
 
   # ---------------------------------------------------------------------------
+  # reagent-migration MIG-23 SSR cold-start node-test (rf2-vpdrf / rf2-bbe91).
+  #
+  # The reagent-migration skill's MIG-23 recipe tells a migrating app how to
+  # install an adapter on BOTH cold halves — server render and client mount.
+  # `skills/reagent-migration/tests/fixture/` is the executable evidence that
+  # the recipe is right: a `:node-test` build whose negative controls prove a
+  # never-initialized process raises `:rf.error/no-adapter-installed` at both
+  # recipe entry points (`re-frame.hicasso.server/render` and `rf/make-frame`),
+  # and whose positive controls prove ONE `rf/init!` per process boot fixes
+  # both. Like its pair sibling it exercises the real in-repo artefacts, not a
+  # Babashka mirror that could drift from them.
+  #
+  # It ran on-demand only — PR #8838 added it with `.github/workflows/**` fenced
+  # out — so a change to core's adapter lifecycle, to ssr, to hicasso's server
+  # render, or to the recipe itself could regress the documented cold start with
+  # nothing to catch it. Wired here for the same reason the pair fixture is.
+  #
+  # `:deps true` routes the fixture's classpath through its deps.edn (core +
+  # ssr + hicasso + the stock Reagent adapter as `:local/root`), so shadow-cljs
+  # shells out to `clojure` for classpath resolution — hence JDK + Clojure CLI +
+  # Node. The fixture has no package-lock.json (dev-only, deps pinned exactly in
+  # package.json), so `npm install` — not `npm ci` — bootstraps shadow-cljs.
+  #
+  # GATED ON `skills_structural`, WHICH DOES NOT YET FIRE FOR THIS TREE
+  # (rf2-g1m2q). `.github/scripts/report-changed-surfaces.sh` arms that output
+  # from four case arms — `skills/re-frame2-pair/{tests/fixture,preload}/*`,
+  # `skills/re-frame2-pair/*|skills/shared/*`, `skills/re-frame2-setup/*` — and
+  # the main `case` has no default arm, so a diff confined to
+  # `skills/reagent-migration/**` classifies to NOTHING and this job is skipped
+  # on the very change it exists to gate. Widening the arm means touching that
+  # script AND its pinned mirror `implementation/scripts/_changed-surfaces.
+  # test.cjs`, the one-toucher-by-construction pair, which was held by another
+  # lane when this landed; rf2-g1m2q owns it. The wiring is still the right half
+  # to land first: it is what makes the arm worth widening, and the job already
+  # fires on a `--all` run and on any other `skills_structural` path.
+  # ---------------------------------------------------------------------------
+  reagent-migration-fixture-cold-start:
+    name: reagent-migration MIG-23 SSR cold-start node-test (rf2-vpdrf)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: skills/reagent-migration/tests/fixture
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      # The fixture resolves core + ssr + hicasso + reagent as `:local/root`
+      # entries, so a cold-cache run pulls every transitive dep (Reagent, Malli,
+      # …) before shadow-cljs can compile. Same cache shape as
+      # re-frame2-pair-fixture-pure.
+      - name: Cache Maven / gitlibs (MIG-23 cold-start fixture deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-reagent-migration-fixture-${{ hashFiles('skills/reagent-migration/tests/fixture/deps.edn', 'skills/reagent-migration/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/ssr/deps.edn', 'implementation/hicasso/deps.edn', 'implementation/adapters/reagent/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-reagent-migration-fixture-
+            ${{ runner.os }}-cljs-
+
+      # No package-lock.json (dev-only fixture) — `npm install` bootstraps the
+      # pinned shadow-cljs + react devDeps.
+      - name: Install fixture deps (shadow-cljs)
+        run: npm install --no-audit --no-fund
+
+      - name: Run MIG-23 SSR cold-start node-test
+        run: npm run test:cold-start
+
+  # ---------------------------------------------------------------------------
   # docs/cljs live-cell playground (rf2-ee38b.22).
   #
   # docs/tools/playground is the roll-your-own CM6 + Scittle + re-frame2-SCI
@@ -6143,6 +6230,12 @@ jobs:
       - mcp-conformance-wire-vocab
       - skills-structural
       - re-frame2-pair-fixture-pure
+      # rf2-bbe91 — required, mirroring its pair sibling above. What it holds is
+      # the reagent-migration skill's MIG-23 cold-start promise: that ONE
+      # `rf/init!` per process boot arms both the server render and the client
+      # mount. That promise is made to somebody else's migrating repository, and
+      # advisory would leave it one `if:` from the on-demand nowhere it ran.
+      - reagent-migration-fixture-cold-start
       - tools-playground
     steps:
       # `needs.*.result` is the spread of every dependency's final result.
