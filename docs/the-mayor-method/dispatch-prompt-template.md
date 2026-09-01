@@ -330,6 +330,27 @@ one-worker-per-item, and do not reflexively bundle everything.
   every change. Measured: four slices of one item in one session, each its own change,
   none colliding, closed once with four cross-references.
 
+**Three of those rules consume a SIZE, and the size you are holding is usually a TITLE.** Sizing
+happens at the listing — the ready queue, the backlog view — and a listing prints names. This page
+already argues that a name is not evidence about *files* (see *Fences*), and that an item's own
+scope claim is a name wearing a reviewer's authority. Magnitude is the third thing a name gets
+wrong, and it is the one no fence catches, because it corrupts the decision before any fence is
+derived. Measured: an item whose title named one test that could pass vacuously — the archetypal
+small same-surface cluster candidate — carried a body that deleted four public tools, removed an
+entire subsystem, and ran to seven acceptance criteria with explicit non-goals. Clustered on its
+title it would have produced both failures the list warns about at once, a bundle that times out
+and a large item padded into a cluster, and it would have carried an unreviewed public-interface
+deletion inside a change whose stated subject was trivia.
+
+**So open every candidate before you cluster it, and read for SHAPE rather than for content** —
+acceptance criteria, non-goals, the length of the evidence, whether the body names a few files or
+names a subsystem. None of that requires understanding the work, which is why it is cheap: it is a
+few reads against a listing you were going to act on anyway. The asymmetry is what settles it,
+because a misread item does not merely arrive oversized — it poisons the change its siblings ride
+in. **And where a title and its body disagree, correct it on the item** rather than only in your
+own decision. The listing is what the next reader sees, so an item that misled you will mislead
+them identically, and a retitle is the only repair that does not have to be made twice.
+
 **One agent owns a surface; surfaces run in parallel.** That is how you avoid serial handling:
 same-surface items ride one agent, which never collides with itself, while genuinely separable
 surfaces dispatch as concurrent agents.
