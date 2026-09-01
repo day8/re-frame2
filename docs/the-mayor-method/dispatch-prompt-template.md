@@ -1058,6 +1058,15 @@ this route more often than the peer collision, since detaching is the sanctioned
 kill-and-restart is routine. **And clean the artefacts up: one leftover is enough to make a
 worktree unreapable.**
 
+**Delete them by their LITERAL path, never through a variable.** A deletion whose target a static
+permission check cannot evaluate is one that check has to stop and ask about, and the ask lands on
+an operator who may not be watching — so the cleanup stalls mid-turn, and the work queued behind it
+stalls with it. What is being guarded is real rather than theoretical: an unset or empty variable
+turns `"$DIR"/*name*` into a glob rooted at the top of the filesystem. Write the directory out in
+full. Where a variable is genuinely unavoidable, make the shell itself refuse an empty one — POSIX
+shells spell that `"${DIR:?}"` — but that removes the hazard and not the prompt, so it is the
+fallback rather than the rule.
+
 **Verify a restore by hashing the bytes, never by reading a diff.** A rewrite that flips line
 endings reads clean having changed every line — and **a patch that never applied reads clean too**,
 because "unchanged" and "not attempted" are the same diff. That second one is the dangerous half:
