@@ -41,9 +41,9 @@
   tenant ids, locale, and impersonation markers, so a scope is exactly
   as sensitive as data. The panel NEVER renders a raw param/scope/data
   value; it renders a `summarize`d shape (type + bounded size + a small
-  redaction-aware preview). Off-box egress (the MCP/AI tool accessors)
-  routes the same values through the framework `egress-value` walker in
-  `runtime.cljs`; this ns supplies the IN-PANEL summary that is safe to
+  redaction-aware preview). The on-box render additionally routes each
+  payload slot through the framework's wire-elision walker under the
+  observed frame (rf2-9zix0u). This ns supplies the IN-PANEL summary safe to
   render to a human operator and bounded so a huge data blob never
   floods the panel.
 
@@ -88,9 +88,9 @@
 
   The absolute egress `:path` for a slot is
   `(into (conj (vec entries-rel-path) key-id) (resource-payload-path-suffix
-  slot-key))`. Canonical home for the pure path logic so BOTH the off-box
-  accessors (`runtime/resource-egress-fn`) and the on-box Resources-panel
-  egress (`resources/on-box-resource-egress-fn`, rf2-9zix0u) re-root each slot
+  slot-key))`. Canonical home for the pure path logic so every caller — the
+  on-box Resources-panel
+  egress (`resources/on-box-resource-egress-fn`, rf2-9zix0u) today — re-roots each slot
   to the SAME absolute coordinate the resources artefact lowers its per-instance
   `:sensitive?` / `:large?` declarations to — one source of truth, no drift."
   [slot-key]
@@ -267,7 +267,7 @@
 (def ^:private default-preview-budget
   "Max characters of a value's `pr-str` rendered as the in-panel
   preview before the `:elided?` marker replaces the tail. Bounded so a
-  large data blob never floods the panel; the off-box (AI/MCP) path uses
+  large data blob never floods the panel; a value-level egress walk uses
   the framework `egress-value` size walker instead."
   120)
 
@@ -354,8 +354,8 @@
   key (not a 3-vector) summarizes the whole key as a single value.
 
   Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
-  the PII-bearing scope + params BEFORE `summarize`, so the off-box
-  (AI/MCP / log) accessors route those values through the framework
+  the PII-bearing scope + params BEFORE `summarize`, so an off-box
+  (AI / log) caller routes those values through the framework
   `egress-value` walker — a `:sensitive?` slot summarizes as `[redacted]`
   and a `:large?` slot as `[large — elided]`. The resource-id is a registry
   name (never PII), so it is never egressed. The in-panel caller omits the
@@ -696,9 +696,9 @@
   fixed clock). Per Spec 016 §Xray and AI tooling.
 
   Optional `egress-fn` (rf2-tgm1xu) is threaded to `instance-row` so the
-  off-box accessors redact the payload values (scope/params/data) BEFORE
-  summarization while the metadata projects from the raw entry. The in-panel
-  caller omits it — the in-panel `summarize` is sufficient for human
+  on-box render redacts the payload values (scope/params/data) BEFORE
+  summarization while the metadata projects from the raw entry. A caller
+  may omit it — the bare `summarize` is sufficient for human
   rendering and the runtime-db never leaves the box."
   ([entries] (project-instances entries nil nil))
   ([entries now-ms] (project-instances entries now-ms nil))
@@ -1076,12 +1076,12 @@
 
   Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
   the VALUE-BEARING fields — the `:resource/key`'s scope/params (PII) and
-  the `:cause` (may carry mutation data) — BEFORE `summarize`. The off-box
-  (AI/MCP / log) accessor (`get-resource-history`) threads
-  `runtime/egress-value` here so per-slot `:sensitive?` / `:large?`
+  the `:cause` (may carry mutation data) — BEFORE `summarize`. An off-box
+  (AI / log) caller threads the framework's
+  wire-elision walker here so per-slot `:sensitive?` / `:large?`
   declarations are honoured on the trace-borne values, parallel to the way
-  `list-resource-instances` / `get-resource-state` route the live-cache
-  payloads through `resource-egress-fn`. The METADATA (operation, label,
+  the live-cache projection routes its
+  payloads through its own egress fn. The METADATA (operation, label,
   class, resource-id, generation, work-id, owner, status) is NOT a payload
   value and is never egressed — a redacted timeline STILL exposes the
   lifecycle shape. The in-panel caller omits the fn (the in-panel
@@ -1142,10 +1142,10 @@
   Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
   the VALUE-BEARING fields — `:scope` (PII), `:cause` (may carry mutation
   data), and each `:matched` scoped key's scope/params — BEFORE `summarize`.
-  The off-box (AI/MCP / log) accessor (`list-resource-invalidations`)
-  threads `runtime/egress-value` here so per-slot `:sensitive?` / `:large?`
+  An off-box (AI / log) caller
+  threads the wire-elision walker here so per-slot `:sensitive?` / `:large?`
   declarations are honoured on the trace-borne values, parallel to the
-  live-cache accessors. The non-PII metadata (`:tags` — invalidation
+  live-cache projection. The non-PII metadata (`:tags` — invalidation
   identity, `:match-count`, `:refetched`) is NEVER egressed, so the
   tag-filter axis and the storm / zero-match distinction stay useful even
   on the default-redacted path. The in-panel caller omits the fn. Pure when
@@ -1788,9 +1788,9 @@
 
 (defn select-raw-entries
   "Select the RAW runtime-db entries (`{<key-id> <entry>}`) matching the
-  scope / resource-id / params key axes — the upstream filter the accessors
-  apply BEFORE projection/elision (so an accessor can scope its read by the
-  cache key before summarizing). Pure; the accessor still routes selected
+  scope / resource-id / params key axes — the upstream filter a caller
+  applies BEFORE projection/elision (so a read can be scoped by the
+  cache key before summarizing). Pure; the caller still routes selected
   values through the off-box elision walker afterwards.
 
   rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1

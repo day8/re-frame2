@@ -390,8 +390,8 @@ epoch-history; the body shows the focused epoch's `:db-after`
 > `:rf.xray/selected-epoch-flow-writes` /
 > `:rf.xray/selected-epoch-redacted-modified-count` inputs) had no
 > production view consumer and was removed. The Epoch panel's `:db`
-> diff reads `:rf.xray/selected-epoch-record`; the MCP `get-app-db-diff`
-> tool projects directly through `diff.engine/project`. The catalogue
+> diff reads `:rf.xray/selected-epoch-record`; an out-of-process diff read
+> projects directly through `diff.engine/project`. The catalogue
 > rows are gone; this note is the audit trail.
 
 ### Subscriptions
@@ -413,7 +413,7 @@ epoch-history; the body shows the focused epoch's `:db-after`
 |---|---|---|
 | `:rf.xray/focus-slice-path` | `[_ path]` | Sets the "Show me when this changed" focused path. |
 | `:rf.xray/clear-slice-focus` | `[_]` | Drops the focus. |
-| `:rf.xray/copy-value-to-clipboard` | `[_ value]` | `event-fx` — routes `value` through `runtime/egress-value` (pinned to the observed frame: `[:focus :frame]` ⇒ `:target-frame`) **before** the clipboard write, then emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str <elided>)}]]}`. The clipboard is an off-box sink, so sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed (rf2-uo0rc.2; same class as the palette snapshot rf2-mxzgg + `get-app-db` rf2-a96xq). No raw opt-in. |
+| `:rf.xray/copy-value-to-clipboard` | `[_ value]` | `event-fx` — routes `value` through `egress/egress-value` (pinned to the observed frame: `[:focus :frame]` ⇒ `:target-frame`) **before** the clipboard write, then emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str <elided>)}]]}`. The clipboard is an off-box sink, so sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed (rf2-uo0rc.2; same class as the palette snapshot rf2-mxzgg). No raw opt-in. |
 | `:rf.xray/copy-path-to-clipboard` | `[_ path]` | `event-fx` — emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str path)}]]}`. The path vector carries only key names (no values), so it is not a value-egress site and is not elided. |
 | `:rf.xray/open-segment-inspector` | `[_ path]` | rf2-e9tb0 — opens the segment-inspector popup at `path` (vector). |
 | `:rf.xray/close-segment-inspector` | `[_]` | rf2-e9tb0 — closes the popup. |
@@ -688,15 +688,14 @@ registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
 | `:rf.xray/set-resource-sub-reads-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
 | `:rf.xray/set-resource-routing-slice-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
 
-### Tool accessors (the AI / MCP read API)
+### No tool accessors
 
-Five read-only accessors on `day8.re-frame2-xray.runtime` (the Xray↔MCP
-read seam), per [`024-Resources-Panel.md` §Tool accessors](./024-Resources-Panel.md):
-`list-resources`, `list-resource-instances`, `get-resource-state`,
-`get-resource-history`, `list-resource-invalidations` — filterable by
-frame / scope / resource-id / params / tag / owner / status / stale? /
-request-id / nav-token, with bounded history and the two-layer privacy
-elision (in-panel summary + off-box `egress-*` walker).
+The five read-only resource accessors that once sat on
+the Xray runtime seam retired with that namespace (rf2-7htk7).
+The panel projections above are Xray's whole resource surface; an
+out-of-process reader uses `re-frame2-pair.runtime` +
+`tools/re-frame2-pair-mcp/` against the framework's own registry and
+runtime-db surfaces.
 
 ## Machine inspector
 

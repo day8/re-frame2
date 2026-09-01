@@ -26,10 +26,12 @@ nothing the framework didn't already expose. The chrome is one tool in
 5-tab Static mode (registry browse). The tabs are presentation of
 an already-structured runtime.
 
-AI agent access uses `tools/re-frame2-pair-mcp/` and the browser-side
-accessors in `day8.re-frame2-xray.runtime`. There is no separate Xray
-MCP artefact: agents and the human-facing panel read the same trace,
-epoch, and registrar data.
+**Xray is the human surface.** Programmer/AI access to a running app is
+a separate tool with a separate preload: `re-frame2-pair.runtime` plus
+`tools/re-frame2-pair-mcp/`. Both read the same framework
+instrumentation, but neither preload stands in for the other — loading
+Xray does not give an agent a seam, and loading Pair does not render a
+panel. See [Enable](#enable) for the two setups.
 
 ## Headline experiences
 
@@ -181,14 +183,40 @@ Override the selector before auto-open if needed:
 
 ### Enable
 
+Xray's preload gives you the in-app panel, and nothing else:
+
 ```clojure
-;; shadow-cljs.edn dev build
+;; shadow-cljs.edn dev build — the human panel
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
 The preload registers Xray's listeners under `register-listener!` and
 `register-epoch-listener!`, installs the browser API/keybinding, and
 auto-opens into the layout host after `rf/init!`.
+
+Programmer/AI inspection and mutation is a **different** preload, and
+you opt into it explicitly:
+
+```clojure
+;; shadow-cljs.edn dev build — the agent runtime (re-frame2-pair)
+{:source-paths ["src"
+                "<abs>/skills/re-frame2-pair/preload"]
+ :builds {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}
+```
+
+Then point an MCP client at `tools/re-frame2-pair-mcp/` and run
+`discover-app`. Its tool catalogue, privacy flags and write gates are
+documented once, in
+[`tools/re-frame2-pair-mcp/README.md`](../re-frame2-pair-mcp/README.md)
+and [`skills/re-frame2-pair/SKILL.md`](../../skills/re-frame2-pair/SKILL.md)
+— Xray does not reproduce them.
+
+Want both? List both preloads. Neither is implied by the other:
+
+```clojure
+{:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload
+                                      re-frame2-pair.runtime]}}}}
+```
 
 Tool-owned pages that intentionally do not reserve app layout space for
 Xray can suppress only the default page-load open before `rf/init!`:
@@ -228,11 +256,14 @@ Remove the `:preloads` entry, or set
 `:closure-defines {re-frame.interop/debug-enabled? false}` to
 force-disable in dev.
 
-### MCP (Xray as an agent surface)
+### Agents
 
-AI agents reach Xray through `tools/re-frame2-pair-mcp/`, which evaluates
-the browser-side accessors in `day8.re-frame2-xray.runtime`. See
-[`spec/API.md`](./spec/API.md) for the accessor contract.
+Xray exposes no agent seam. An agent driving a running re-frame2 app
+uses `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/` — the
+second snippet under [Enable](#enable). Xray's only value-egress
+surfaces are the two human copy affordances (the `Snapshot app-db`
+palette verb and the `⎘` copy button), both fail-closed with no
+raw-value opt-in; see [`spec/API.md`](./spec/API.md) §Off-box egress.
 
 ## Spec
 
@@ -249,9 +280,9 @@ that the tool could be one-shotted from it.
 | [`spec/006-Hydration-Debugger.md`](./spec/006-Hydration-Debugger.md) | SSR render-tree diff; divergent-node surfacing. |
 | [`spec/007-UX-IA.md`](./spec/007-UX-IA.md) | Layout, interaction, visual language (typography, colour, motion). |
 | [`spec/008-Embedding-Contract.md`](./spec/008-Embedding-Contract.md) | Full-shell embed contract (Xray-as-Story-RHS); state isolation via the `:rf/xray` frame-provider. |
-| [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone-via-MCP for remote-attach. |
+| [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
-| [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, MCP tool list). |
+| [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, configuration keys). |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The 13 locked decisions: question, options, pick, why. |
 | [`spec/findings/`](./spec/findings/) | The original research docs that anchor the design. |
 

@@ -1118,14 +1118,12 @@
 ;; ---- on-box payload egress (rf2-9zix0u) ----------------------------------
 ;;
 ;; PRIVACY: the on-box Resources render must redact frame-`:sensitive` resource
-;; payloads exactly as the App-DB tab's `local-render` seam does, and exactly
-;; as the OFF-BOX MCP accessors (`runtime/list-resource-instances` /
-;; `get-resource-state`) already do via `runtime/resource-egress-fn`. Before
+;; payloads exactly as the App-DB tab's `local-render` seam does. Before
 ;; rf2-9zix0u the on-box `:rf.xray/resources-tab-data` sub called
 ;; `project-instances` with NO egress-fn, so `instance-row` defaulted to
 ;; identity and `summarize` `pr-str`-previewed the RAW scope / params / data /
 ;; error to the DOM — catching only literal `:rf/redacted` sentinels the
-;; runtime had already elided. A LIVE `:sensitive?`-declared entry holds the
+;; framework had already elided. A LIVE `:sensitive?`-declared entry holds the
 ;; real fetched value, so up to 120 chars of it rendered on-box
 ;; (screen-share / recorded-session exposure). The on-box render path was the
 ;; LONE `project-instances` caller omitting the egress-fn.
@@ -1140,15 +1138,15 @@
   non-sensitive runtime-db payloads (the EP-0015 `:rf.egress/local-redacted`
   on-box posture, via `local-render`'s `include-large?` overlay).
 
-  Structurally MIRRORS the off-box `runtime/resource-egress-fn`: each slot
+  Each slot
   egresses at its ABSOLUTE runtime-db path (`[:rf.runtime/resources :entries
   <key-id> …]`, re-rooted by `h/resource-payload-path-suffix`) so the
   resources registry's per-instance lowered `:sensitive?` declarations match
-  (rf2-aw9cfs). The ONLY difference from the off-box path is the on-box
-  redacted-but-locally-visible posture vs the off-box partition-default
-  posture. `key-id` is the entry's `:entries` map key (`instance-row` passes it
-  as the 3rd arg); `instance-row`'s own `some?` guard means this fn never sees
-  a nil slot value."
+  (rf2-aw9cfs). The posture is the on-box
+  redacted-but-locally-visible one: a sensitive slot redacts while large
+  values and non-sensitive runtime-db payloads stay visible to the operator.
+  `key-id` is the entry's `:entries` map key (`instance-row` passes it as the
+  3rd arg); `instance-row`'s `some?` guard means it never sees a nil value."
   [observed-frame]
   (fn [value slot-key key-id]
     (local-render/local-render-value-at

@@ -175,20 +175,19 @@ read gate covers the steady-state read while the profile redacts;
 the [retroactive scrub](#retroactive-scrub-on-profile-narrowing) covers
 the reveal → redact narrowing by clearing the rings wholesale.
 
-The **runtime/MCP accessors** (`day8.re-frame2-xray.runtime/get-trace-buffer`
-and `get-issues`, [API.md §Inspection band](API.md)) read the per-frame
-rings DIRECTLY — they bypass `snapshot-from-rings` and the panel's
-`:trace-buffer` app-db slot entirely. They therefore apply the SAME
-event-level default-suppress as their OWN gate (`drop-sensitive-events`),
-dropping whole `:sensitive? true` events before value-scrubbing. The
-opt-back-in differs from the panel surface: the panel reads its
-local-render egress profile (`:rf.xray/egress-profile`), while the seam
-is per-call so the opt is the per-call `{:include-sensitive? true}`
-accessor option. The
-envelope — existence, `:op-type`, timing, source, handler/event ids, and
-non-elided `:tags` — is what the seam gate protects; value-scrubbing
-(`egress-value`) alone leaves the envelope intact, which is why the
-event-level gate is load-bearing (rf2-to36uj).
+Xray has no second, seam-side trace reader. The `get-trace-buffer` /
+`get-issues` accessors that once read the per-frame rings directly —
+bypassing `snapshot-from-rings` and the `:trace-buffer` slot — went with
+the retired Xray runtime seam (rf2-7htk7). An out-of-process reader is
+`re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/`, which reads the
+framework's trace surface on its own terms and owns its own privacy
+gate; the two gates above are the whole of Xray's.
+
+The event-level default-suppress remains load-bearing for exactly the
+reason it always was (rf2-to36uj): value-scrubbing alone leaves the
+ENVELOPE intact — existence, `:op-type`, timing, source, handler/event
+ids and non-elided `:tags` — so a whole `:sensitive? true` event has to
+be dropped, not merely scrubbed.
 
 ### The suppressed-events counter
 

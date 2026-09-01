@@ -232,12 +232,13 @@ Does Xray support mobile / tablet / phone viewports?
 
 ## Lock #6 — MCP timing (SUPERSEDED 2026-05-19)
 
-**Superseded 2026-05-19 (Mike, rf2-hvl1g).** **Xray-MCP is dropped
-entirely.** AI agent access to Xray state already flows via
-`tools/re-frame2-pair-mcp/` (which can read the framework-published
-Xray runtime API on `day8.re-frame2-xray.runtime`) + Xray's raw
-trace bus + Story-MCP. No dedicated xray-mcp jar is built; there is
-no `tools/xray-mcp/` artefact.
+**Superseded 2026-05-19 (Mike, rf2-hvl1g); completed 2026-09-02
+(rf2-7htk7).** **Xray-MCP is dropped entirely, and so is the
+browser-side seam it would have wrapped.** Programmer/AI access to a
+running app is `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/`,
+reading the framework's own instrumentation. No dedicated xray-mcp jar
+is built, there is no `tools/xray-mcp/` artefact, and rf2-7htk7 retired
+the duplicate Xray-side runtime seam as well — Xray has no agent surface.
 
 ### Original lock (2026-05-12, Mike, retained for history)
 
@@ -248,17 +249,17 @@ remote-attach via MCP without a custom WebSocket protocol.
 
 ### Why reversed
 
-- Xray's runtime API (rf2-crhr8) exposes the same accessors
-  (`get-app-db`, `get-epoch-history`, `get-machine-state`, ...) that
-  a hypothetical xray-mcp would have wrapped. Any MCP server can
-  call those accessors via `eval-cljs` — re-frame2-pair-mcp does so
-  today.
-- Maintaining a second Node-side MCP jar duplicates the cap
+- Xray's runtime API (rf2-crhr8) exposed the same accessors
+  (`get-app-db`, `get-epoch-history`, `get-machine-state`, …) that
+  a hypothetical xray-mcp would have wrapped — which is exactly why
+  rf2-7htk7 later retired that seam too: Pair's own preload already
+  carried the workflow, and two seams was one too many.
+- Maintaining a second Node-side MCP jar duplicated the cap
   pipeline, the wire-vocab plumbing, the discover-app handshake, and
   the streaming-subscribe budget for ~zero incremental value over
-  re-frame2-pair-mcp + eval-cljs against the runtime API.
+  re-frame2-pair-mcp and its own preload.
 - The "two doors" framing in `000-Vision.md` collapses to one:
-  Xray is the human surface; re-frame2-pair-mcp is the AI surface
+  Xray is the human surface; re-frame2-pair is the AI surface
   (reading the same trace bus + epoch history Xray reads).
 
 ### Date superseded
@@ -348,7 +349,8 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 
 **Locked 2026-05-12 (Mike); refined 2026-05-16.** **Hybrid.** In-app
 same-runtime UI with a true inline host by default, optional same-runtime
-pop-out/overlay affordances, plus standalone-via-MCP for remote-attach.
+pop-out/overlay affordances; the remote-attach case is served by the
+separate re-frame2-pair preload + MCP server, not by Xray (rf2-7htk7).
 
 ### Question
 
@@ -387,9 +389,9 @@ remote case.
   survive JSON round-trip cleanly. The use cases (mobile-from-desktop,
   cross-machine pair-debug) are too narrow to justify the
   protocol-versioning + security + reconnect-logic surface.
-- **MCP handles the remote/agent case.** Xray-MCP (lock #6) is the
-  protocol; the agent host owns the network plumbing. The user's
-  consent model is already wired.
+- **MCP handles the remote/agent case**, through re-frame2-pair, not
+  through Xray (lock #6). The agent host owns the network plumbing; the
+  user's consent model is already wired.
 - **In-app same-runtime UI is the right default.** The current product
   decision makes this a true inline layout host rather than an overlay:
   zero IPC, runtime is one closure away, same elision contract as the

@@ -142,7 +142,7 @@ The setter suppresses the install at attach time; embed hosts whose mount lifecy
 (xray-keybinding/detach!)
 ```
 
-`detach!` is symmetric and idempotent. See [the runtime-seam chapter §Keybinding lifecycle](runtime-seam.md#keybinding-lifecycle) for the full attach / detach contract.
+`detach!` is symmetric and idempotent. See [the symbol table](reference.md#day8re-frame2-xraykeybinding) for the full attach / detach contract.
 
 ## Privacy cluster
 
@@ -246,6 +246,6 @@ The three answer different questions: `configure!` is the boot-time data knob (s
 ## See also
 
 - [Mount control](mount-control.md) — `open!` / `close!` / `toggle!` / `popout!` and the lifecycle the auto-open setting drives.
-- [Runtime seam](runtime-seam.md) — the keybinding `attach!` / `detach!` lifecycle pair the keybinding cluster setters control.
+- [Reference](reference.md#day8re-frame2-xraykeybinding) — the keybinding `attach!` / `detach!` lifecycle pair the keybinding cluster setters control.
 - [Xray tutorial — Installation](../01-installation.md) — the five-minute wiring walkthrough with the recommended host snippet.
 - [Framework API — Instrumentation](../../api/re-frame.core.md) — `elide-wire-value`, the single normative emission site for `:sensitive?` redaction that the privacy cluster gates.

@@ -8,7 +8,7 @@ If you want the dense, single-page contract — every signature, every status ke
 
 Every row in this reference is **canonical**: a documented, supported v1 surface that downstream hosts and tools may rely on. There are no "alpha" or "experimental" tiers in the chapters. If a row appears here, you can call it; if a row doesn't appear, it's either internal plumbing or a `post-v1` extension that hasn't shipped yet. The Xray-internal surfaces (panel mount aggregators consumed only by Xray's shell, atom handles publishing the same state setters write to, the static-mode catalogues) are explicitly out of scope — hosts that reach for them are reading internal seams that the public-by-default CLJS surface accidentally exposes.
 
-Three audiences read these chapters. **Host application developers** who want to wire Xray into their dev build and tune its boot-time posture — they reach for [Mount control](mount-control.md) and [Configuration keys](config-keys.md). **Tool integrators** building MCP servers, IDE plugins, or record-replay harnesses against Xray's read-and-mutate seam — they reach for [Runtime seam](runtime-seam.md). And **library authors and reference seekers** who want to scan the full surface in one pass — they reach for the [symbol table](reference.md).
+Two audiences read these chapters. **Host application developers** who want to wire Xray into their dev build and tune its boot-time posture — they reach for [Mount control](mount-control.md) and [Configuration keys](config-keys.md). And **library authors and reference seekers** who want to scan the full surface in one pass — they reach for the [symbol table](reference.md). A third audience — tool integrators driving a running app from out-of-process — does not read these chapters at all: Xray is the human panel and exposes no agent seam. That surface is `re-frame2-pair.runtime` plus the [Pair MCP server](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md).
 
 ## How to read a row
 
@@ -22,26 +22,25 @@ Where a surface lives in more than one namespace (e.g. `configure!` is re-export
 
 ## Where surfaces live
 
-Xray's user-facing surface splits across six namespaces. Five are CLJS / CLJC source; one is a JavaScript-mirror global the preload installs. The split is principled — each namespace answers a distinct question, and `core` re-exports the high-traffic surfaces from the others so a single require covers the common boot path.
+Xray's user-facing surface splits across five namespaces. Four are CLJS / CLJC source; one is a JavaScript-mirror global the preload installs. The split is principled — each namespace answers a distinct question, and `core` re-exports the high-traffic surfaces from the others so a single require covers the common boot path.
 
 | Namespace | Use when |
 |---|---|
 | `day8.re-frame2-xray.core` | The canonical require. The mount facade (`open!` / `close!` / `toggle!` / `popout!` / `status`), the frame picker (`target-frame` / `set-target-frame!`), the Story-to-Xray `focus!` handoff, and the four highest-traffic config setters re-exported for boot-time convenience. |
 | `day8.re-frame2-xray.config` | The full configuration surface — `configure!` plus every per-key setter. Reach here when you're flipping a knob the facade doesn't re-export, or when your boot code is already routing all config through `configure!`. |
 | `day8.re-frame2-xray.keybinding` | The `attach!` / `detach!` lifecycle pair. Embed hosts (Story mounting Xray as a right-hand-side panel) reach here to take the `Ctrl+Shift+C` chord back. |
-| `day8.re-frame2-xray.runtime` | The Xray ↔ tool read-and-mutate seam. The MCP server, an IDE plugin, a record-replay harness — anything driving a running re-frame2 app from out-of-process reads the trace bus and epoch history through these accessors. |
 | `day8.re-frame2-xray.preload` | The dev-only side-effect bundle wired into shadow-cljs's `:devtools/preloads`. You don't *call* anything here directly; you list the namespace in your `:preloads` and the rest happens. |
 | `window.day8.re_frame2_xray.*` | The browser-global JS mirror the preload installs. Reach from a devtools console, a JS host that doesn't `:require` CLJS namespaces, or a `puppeteer` automation script. |
 
-The dependency direction is one-way: hosts depend on `core` (or on the wider surfaces directly); tools depend on `runtime`; Xray's own internals never depend on anything outside `tools/xray/src/`.
+The dependency direction is one-way: hosts depend on `core` (or on the wider surfaces directly), and Xray's own internals never depend on anything outside `tools/xray/src/`. Nothing depends on Xray to reach the running app — an out-of-process tool talks to the framework through `re-frame2-pair.runtime`, not through this panel.
 
 ## The chapters
 
-The reference is divided into four chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
+The reference is divided into three chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
 
-The first three are topical — **[Mount control](mount-control.md)** (`init!`, `open!`, `close!`, `toggle!`, `popout!`, `status`, the frame picker, the JS browser-global mirror), **[Configuration keys](config-keys.md)** (`configure!`, every per-key setter, the editor preference, the inline-host CSS contract, the privacy gate), **[Runtime seam](runtime-seam.md)** (the seventeen accessors that compose the Xray ↔ tool read-and-mutate contract — trace buffer, epoch history, app-db diff, machine state, dispatch, restore-epoch).
+The first two are topical — **[Mount control](mount-control.md)** (`init!`, `open!`, `close!`, `toggle!`, `popout!`, `status`, the frame picker, the JS browser-global mirror) and **[Configuration keys](config-keys.md)** (`configure!`, every per-key setter, the editor preference, the inline-host CSS contract, the privacy gate).
 
-The closing chapter is **[Reference](reference.md)** — the complete symbol table across all six namespaces, organised by namespace for `Ctrl-F` use. If you want to know whether `set-project-root!` is in `config` or `core`, this is the page.
+The closing chapter is **[Reference](reference.md)** — the complete symbol table across all five namespaces, organised by namespace for `Ctrl-F` use. If you want to know whether `set-project-root!` is in `config` or `core`, this is the page.
 
 ## When to reach for the spec instead
 

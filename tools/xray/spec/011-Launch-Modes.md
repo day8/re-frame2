@@ -1,21 +1,24 @@
 # 011-Launch-Modes
 
-Xray launches in two complementary ways:
+A developer reaches a running re-frame2 app in two complementary ways.
+Only the first is Xray:
 
-1. **In-app true-inline panel** — the default. Xray preloads into
-   the dev build, waits for the substrate adapter, then mounts into an
-   app-provided right-side layout host (`[data-rf-xray-host]` by
-   default). The panel participates in normal layout, so app controls
-   remain visible and clickable to the left.
+1. **In-app true-inline panel** — Xray, and Xray's whole job. It
+   preloads into the dev build, waits for the substrate adapter, then
+   mounts into an app-provided right-side layout host
+   (`[data-rf-xray-host]` by default). The panel participates in normal
+   layout, so app controls remain visible and clickable to the left.
 
-2. **Standalone via MCP** — the remote-attach story. An AI agent
-   running on the user's machine (or elsewhere) drives Xray-MCP
-   against the user's running browser session; Xray's UI may or
-   may not be open in the browser.
+2. **Standalone, out-of-process** — the programmer/AI story, owned by
+   `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/`, NOT by Xray
+   (rf2-7htk7). An agent running on the user's machine drives the
+   running browser session over MCP; Xray's panel may or may not be
+   open, and loading Xray neither provides nor implies this seam.
 
 The two modes share the **same data substrate** (the trace bus +
-epoch history) — and the same hard rule applies to both: **the
-runtime is the source of truth**; Xray observes; mutations are
+epoch history) because each reads the framework directly — neither is
+layered on the other. The same hard rule applies to both: **the
+runtime is the source of truth**; the tool observes; mutations are
 explicit and user-confirmed.
 
 This is lock #9 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md): a
@@ -805,16 +808,22 @@ gate (per
 so even an accidentally-included preload would find the
 register-epoch-listener! call resolve to a no-op.
 
-## Standalone via MCP
+## Standalone — the agent attaches to the app, not to Xray
 
 ### Mechanism
 
-AI agent access uses `tools/re-frame2-pair-mcp/` — an stdio JSON-RPC
-MCP server launched by the agent host (Claude Code, Cursor, etc.) as
-a subprocess. re-frame2-pair-mcp connects over nREPL to the running
-shadow-cljs build (which is connected to the user's browser), and
-reads the framework-published Xray runtime API on
-`day8.re-frame2-xray.runtime` (the same accessors the panel uses).
+Programmer/AI access to a running app uses `tools/re-frame2-pair-mcp/` —
+an stdio JSON-RPC MCP server launched by the agent host (Claude Code,
+Cursor, etc.) as a subprocess. It connects over nREPL to the running
+shadow-cljs build (which is connected to the user's browser) and drives
+the `re-frame2-pair.runtime` preload, which reads the framework's own
+instrumentation surfaces directly.
+
+**This launch mode does not involve Xray.** Xray's preload installs the
+human panel and nothing else — no agent seam, no discovery sentinel
+(rf2-7htk7). A build that wants both lists both preloads; neither
+implies the other. The mode is documented here because it is the other
+way a developer reaches a running app, not because Xray mediates it.
 
 The data path:
 
@@ -825,19 +834,17 @@ re-frame2-pair-mcp (Node process)
   ↓ (nREPL / bencode)
 shadow-cljs JVM
   ↓ (cljs-eval / WebSocket)
-browser running the user's re-frame2 app (with Xray runtime preloaded)
+browser running the user's re-frame2 app (with re-frame2-pair.runtime preloaded)
 ```
 
-The agent sees the **same trace bus and epoch history** that
-Xray-the-panel sees, via the same runtime accessors. Tool calls are
-read-mostly; writes (`restore-epoch`, `replace-app-db`, `dispatch`)
-are confirmed by the agent host (typically Claude Code's
-tool-permission prompt).
+The agent sees the **same trace bus and epoch history** Xray-the-panel
+sees, because both read the framework, not each other. Tool calls are
+read-mostly; writes (`restore-epoch`, `replace-app-db`, `dispatch`) are
+gated behind the server's `--allow-writes` flag and confirmed by the
+agent host (typically Claude Code's tool-permission prompt).
 
 (Per rf2-hvl1g — closure 2026-05-19 — there is no dedicated
-`tools/xray-mcp/` jar; an earlier design pictured one but it was
-dropped as unnecessary given the framework-published runtime API +
-re-frame2-pair-mcp. See DESIGN-RATIONALE.md Lock #6 supersedence.)
+`tools/xray-mcp/` jar. See DESIGN-RATIONALE.md Lock #6 supersedence.)
 
 ### Remote-attach
 
@@ -932,9 +939,9 @@ scope at v1.0.
 Note: a dedicated **xray-mcp** path was originally envisaged but
 dropped per rf2-hvl1g (closure 2026-05-19) — see
 [`000-Vision.md`](000-Vision.md) §What it isn't ("two doors, no
-compromises") and DESIGN-RATIONALE.md Lock #6 supersedence. Agents
-access the runtime through re-frame2-pair-mcp (raw nREPL) against
-the framework-published Xray runtime API; Xray is the human-only
+compromises") and DESIGN-RATIONALE.md Lock #6 supersedence. The
+duplicate Xray-side runtime seam went the same way (rf2-7htk7): agents
+reach the app through re-frame2-pair's own preload; Xray is the human-only
 observability surface. The split is intentional and load-bearing.
 
 ## Vision — re-frame2-pair raw-nREPL launch path

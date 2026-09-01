@@ -52,10 +52,7 @@
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.settings.effects :as settings-effects]
-            ;; Loading the runtime installs its debug-gated session
-            ;; sentinel for agent discovery; no second preload is needed.
-            [day8.re-frame2-xray.runtime]))
+            [day8.re-frame2-xray.settings.effects :as settings-effects]))
 
 ;; ---- install-helper re-exports -------------------------------------------
 ;;

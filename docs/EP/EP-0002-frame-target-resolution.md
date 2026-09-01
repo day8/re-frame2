@@ -1049,8 +1049,7 @@ Update:
   `docs/core/25-from-re-frame-v1.md` where they teach default frame
   convenience;
 - `docs/xray/api/mount-control.md`;
-- `docs/xray/api/config-keys.md`, `docs/xray/api/reference.md`, and
-  `docs/xray/api/runtime-seam.md`;
+- `docs/xray/api/config-keys.md` and `docs/xray/api/reference.md`;
 - `docs/core/api/01-core.md`, `docs/core/api/04-machines.md`,
   `docs/core/api/05-flows.md`, `docs/core/api/07-http.md`,
   `docs/core/api/09-ssr.md`, `docs/core/api/13-lifecycle.md`, and
@@ -1453,7 +1452,7 @@ Docs and skills to update beyond the obvious specs:
 - `docs/core/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
   `09-ssr.md`, `13-lifecycle.md`, and `14-adapters.md`;
 - `docs/xray/api/mount-control.md`;
-- `docs/xray/api/config-keys.md`, `reference.md`, and `runtime-seam.md`;
+- `docs/xray/api/config-keys.md` and `reference.md`;
 - `skills/re-frame-migration/SKILL.md`;
 - `skills/re-frame2-setup`;
 - `skills/re-frame2-pair`;

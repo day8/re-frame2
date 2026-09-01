@@ -445,8 +445,8 @@
 ;; `navigator.clipboard.writeText`. Pre-rf2-mxzgg it shipped the RAW
 ;; `(rf/app-db-value tf)` — a frame-declared sensitive slot
 ;; (`{:auth {:password "shh"}}`) crossed both sinks unredacted. The fix
-;; routes the value through `runtime/egress-value` (the same fail-closed
-;; projection `get-app-db` uses) FIRST, so the off-box payload carries
+;; routes the value through `egress/egress-value` (the same fail-closed
+;; projection every Xray off-box sink uses) FIRST, so the payload carries
 ;; `:rf/redacted` by default. These tests capture both sinks and assert
 ;; the secret never leaves the box on the command default.
 

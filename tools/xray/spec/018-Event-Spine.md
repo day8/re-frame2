@@ -24,7 +24,7 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 ### Non-goals
 
 - **No AI in Xray.** No co-pilot rail, no AI tab, no in-chrome LLM surface. AI access goes through `tools/re-frame2-pair-mcp/` over raw nREPL — the agent reads the same instrumentation Xray reads, not a Xray-curated facade. (Xray is the human-only surface; re-frame2-pair-mcp is the AI access path.)
-- **No Xray-MCP.** A dedicated `xray-mcp` jar was envisaged but dropped per rf2-hvl1g (2026-05-19). MCP server panel dies with it. Agent access flows through `tools/re-frame2-pair-mcp/` against the framework-published Xray runtime API.
+- **No Xray-MCP, and no Xray agent runtime.** A dedicated `xray-mcp` jar was envisaged but dropped per rf2-hvl1g (2026-05-19); the MCP server panel died with it, and rf2-7htk7 retired the duplicate browser-side Xray runtime seam as well. Agent access flows through `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/`, reading the framework's instrumentation directly.
 - **No `:sensitive? true` event-handler annotation.** Reversed in favour of unified path-marked classification per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md). Xray CONSUMES that contract; this spec defines how the sentinels render in Xray's surfaces (§12).
 - **No writes to host runtime.** Xray stays read-only forever (Lock #3 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)).
 - **No bottom rail.** The pass-2/round-1/round-2 "L0" scrubber rail is gone — the ribbon `[◀ ▶ ⏭]` cluster + the event list together ARE the scrubber.

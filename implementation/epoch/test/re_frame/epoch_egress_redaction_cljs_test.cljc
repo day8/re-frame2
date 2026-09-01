@@ -9,11 +9,10 @@
   that guard was proved by 136 deftests across six `.clj` files — **JVM-only**.
   Every real consumer of the projection is ClojureScript:
 
-    - `day8.re-frame2-xray.runtime/egress-record` calls
-      `re-frame.core/projected-record` in the browser;
     - `re-frame2-pair-mcp`'s `watch-epochs` / `trace-window` / `snapshot` tools
       emit CLJS forms that call `re-frame.core/projected-record` **inside the
       running app**;
+    - Xray's Epoch panel renders the same projected record in the browser;
     - the browser Tool-Pair time-travel path reads the same projected shape.
 
   So the assertions lived on the one host where no consumer runs. That
@@ -400,7 +399,7 @@
 ;; ============================================================================
 
 (deftest facade-projected-record-redacts-through-late-bind
-  (testing "Xray's `egress-record` and every Pair-MCP epoch tool call
+  (testing "Every Pair-MCP epoch tool call goes through
             `re-frame.core/projected-record`, NOT the artefact-internal
             `re-frame.epoch/projected-record`. That crosses the `late-bind`
             seam (`:epoch/projected-record`, `:on-absent :nil`). This arm

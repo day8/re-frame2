@@ -32,7 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.runtime :as runtime]
+            [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.palette.sources :as sources]))
@@ -127,14 +127,14 @@
 ;; can carry schema-/path-declared sensitive slots (`{:auth {:token …}}`)
 ;; or oversized blobs, so it MUST NOT cross either sink unredacted.
 ;;
-;; We therefore route the captured value through the runtime's single
-;; named safe-egress fn `runtime/egress-value` — the SAME fail-closed
-;; projection the `get-app-db` accessor uses. On the
+;; We therefore route the captured value through Xray's single
+;; named panel-local safe-egress fn `egress/egress-value` — the
+;; fail-closed projection Xray uses for every off-box sink. On the
 ;; bare (no-opt) call the off-box defaults are baked in: sensitive
 ;; slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`. The
 ;; whole-db read has no `:path` (the value IS the walked root), so the
 ;; root-keyed schema declarations match directly. Raw egress is only
-;; ever reachable via the documented operator opt-in
+;; ever reachable by passing the egress fn an explicit opt
 ;; (`{:include-sensitive? true}` / `{:include-large? true}`); the
 ;; palette command surfaces NO opt-in arg, so the command default is
 ;; always the redacted/elided projection — never the raw db.
@@ -156,7 +156,7 @@
 (defn- snapshot-app-db!
   "Side-effect: drop the focused frame's app-db onto the JS console and
   copy a pr-str of it to the clipboard when reachable. The value is
-  routed through `runtime/egress-value` FIRST (fail-closed off-box
+  routed through `egress/egress-value` FIRST (fail-closed off-box
   defaults — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-
   elided`), pinned to the FOCUSED frame so that frame's own schema
   declarations govern the redaction, so neither off-box sink ever
@@ -178,7 +178,7 @@
           ;; declaration lookup to the focused frame (see comment above).
           payload (when (and (some? tf) (some? (frame/frame tf)))
                     (rf/with-frame tf
-                      (runtime/egress-value (rf/app-db-value tf))))
+                      (egress/egress-value (rf/app-db-value tf))))
           tag     (str "[rf2-xray] palette snapshot · frame "
                        (pr-str tf))]
       ;; Only emit when a target frame is selected — no unselected-state
@@ -233,7 +233,7 @@
   (rf/reg-fx :rf.xray.palette.fx/popout popout-fx!)
 
   ;; Snapshot app-db fx. Side-effect handler; reads the
-  ;; focused frame's db, routes it through `runtime/egress-value` (the
+  ;; focused frame's db, routes it through `egress/egress-value` (the
   ;; fail-closed off-box safe-egress projection) and ships
   ;; the REDACTED/size-elided payload to the JS console + clipboard —
   ;; both off-box sinks. Late-bound through the framework's

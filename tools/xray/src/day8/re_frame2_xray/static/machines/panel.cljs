@@ -260,7 +260,7 @@
   ;; by contract; its invalid-definition diagnostic is value-free too,
   ;; rf2-8nzxib). Like `:rf.xray/copy-path-to-clipboard`, this is NOT a
   ;; value-egress site, so the text rides the fx directly rather than
-  ;; through `runtime/egress-value` — routing it there would `pr-str` the
+  ;; through `egress/egress-value` — routing it there would `pr-str` the
   ;; block (breaking the exact-emit contract) without ever finding a
   ;; value to elide.
   ;;

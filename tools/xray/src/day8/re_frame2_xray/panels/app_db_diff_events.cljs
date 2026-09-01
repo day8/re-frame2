@@ -10,7 +10,7 @@
   / `reorder-paths` helpers were pulled in lockstep."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [day8.re-frame2-xray.runtime :as runtime]))
+            [day8.re-frame2-xray.egress :as egress]))
 
 (defn install!
   "Install the App-DB Diff events and effects."
@@ -65,9 +65,9 @@
   ;; The system clipboard is an OFF-BOX SINK (Security.md §Off-box egress,
   ;; palette/events.cljs §Off-box egress): whatever lands there can be
   ;; pasted into a teammate's chat or scraped. So the COPIED VALUE must
-  ;; cross it through the runtime's single named fail-closed safe-egress
-  ;; fn `runtime/egress-value` — the SAME projection the palette snapshot
-  ;; (rf2-mxzgg) and the `get-app-db` accessor (rf2-a96xq) use. On the
+  ;; cross it through Xray's single named fail-closed panel-local
+  ;; safe-egress fn `egress/egress-value` — the SAME projection the
+  ;; palette snapshot uses (rf2-mxzgg). On the
   ;; bare call the off-box defaults are baked in: `:sensitive?` slots ⇒
   ;; `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`. The earlier
   ;; copy fx wrote the RAW `(pr-str value)` — a `[:auth :token]
@@ -86,8 +86,8 @@
     (fn [{:keys [db]} [_ value]]
       (let [observed (or (get-in db [:focus :frame]) (get db :target-frame))
             elided   (if (and (some? observed) (some? (frame/frame observed)))
-                       (rf/with-frame observed (runtime/egress-value value))
-                       (runtime/egress-value value))]
+                       (rf/with-frame observed (egress/egress-value value))
+                       (egress/egress-value value))]
         {:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str elided)}]]})))
 
   ;; The path-copy variant copies ONLY the path vector (key names, no

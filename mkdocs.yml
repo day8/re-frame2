@@ -452,7 +452,6 @@ nav:
       - xray/api/index.md
       - "Mount control": xray/api/mount-control.md
       - "Configuration keys": xray/api/config-keys.md
-      - "Runtime seam": xray/api/runtime-seam.md
       - "Reference": xray/api/reference.md
 
   - Skills:

@@ -144,12 +144,12 @@ Xray's user-facing surface is split into a **canonical entry point**
 (the `day8.re-frame2-xray.core` facade — the surface most hosts ever
 touch) and a **wider public surface** of supporting namespaces (config
 setters, panel components, the keybinding lifecycle escape hatch, the
-preload-installed browser-global API, and the MCP read-and-mutate
-seam). The canonical entry point is the one to reach for by default;
+preload-installed browser-global API). The canonical entry point is the
+one to reach for by default;
 the wider surface is documented for embedding hosts, test harnesses,
 Settings UIs, and tool integrators that need finer-grained access. Per
 rf2-te1gu (reconcile the previous "small handful" framing with
-implementation reality — ~40 symbols across 6 namespaces).
+implementation reality — the facade is not the whole surface).
 
 ### Canonical: `day8.re-frame2-xray.core`
 
@@ -253,10 +253,9 @@ authoritative list.
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 standalone-mountable Dynamic `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `resources/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 10 tabs). The three remaining Dynamic tabs — `derivation_graph/Panel` (Graph, EP-0014), `module_view/Panel` (Frames, EP-0023) and `hicasso/Panel` (Hicasso, rf2-hic-023) — are **L4-only registry tabs**: focusable via `focus!` but with no standalone `mount-*!` facade (shell-internal). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Xray's preload and wants to take the chord back. |
-| `day8.re-frame2-xray.runtime` | `runtime.cljs` | The Xray ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
 | `window.day8.re_frame2_xray.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. Production builds elide the install entirely via the `interop/debug-enabled?` gate. |
 
-Three surfaces deliberately not re-exported through the canonical
+Two surfaces deliberately not re-exported through the canonical
 facade:
 
 - **The per-key setters in `config.cljc`** beyond the four
@@ -277,15 +276,6 @@ facade:
   to the mount facade. Re-exporting through `core` would imply
   symmetry with `open!`/`close!` (mount-side) that the surfaces
   don't have.
-
-- **`runtime.cljs`.** The Xray ↔ MCP seam is a parallel public
-  surface — public-for-tools, not public-for-host-apps — and the
-  read/mutate accessors are documented under §Dynamic accessor
-  surface below as their own contract surface (the same Tool-Pair
-  discipline that governs `:trace-bus` and `epoch-history` per
-  [`Principles.md`](./Principles.md) §Observation only). Re-exporting
-  through `core` would conflate the host-facing facade with the
-  tool-facing read seam.
 
 ### Panel reg-views
 
@@ -620,7 +610,7 @@ catalogue.
 |---|---|---|---|---|
 | `:toggle-theme` | Toggle theme (dark ↔ light) | `Settings · Theme` | `[:palette/toggle-theme]` | Dark ↔ Light cycle of the theme class. Popup radio is the canonical UI; this is the keyboard-first ergonomic shortcut. |
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `user override of prefers-reduced-motion` | `[:palette/cycle-reduced-motion]` | Three-state cycle `:os → :always → :never → :os`. Overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam. Persists across reloads. |
-| `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. The console + clipboard are **off-box egress sinks**, so the payload routes through `runtime/egress-value` FIRST (pinned to the focused frame via `with-frame` so that frame's own schema declarations govern) — sensitive slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`, fail-closed, exactly as the `get-app-db` accessor. The command surfaces no opt-in arg, so the command default is always the redacted/size-elided projection — never the raw db (rf2-mxzgg / rf2-6fgob). |
+| `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. The console + clipboard are **off-box egress sinks**, so the payload routes through `egress/egress-value` FIRST (pinned to the focused frame via `with-frame` so that frame's own schema declarations govern) — sensitive slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`, fail-closed. The command surfaces no opt-in arg, so the command default is always the redacted/size-elided projection — never the raw db (rf2-mxzgg / rf2-6fgob). See §Off-box egress. |
 | `:jump-to-settings` | Jump to Settings | `,` | `[:palette/jump-to-settings]` | Opens the Settings popup at the General tab. Equivalent to the `,` bare-key shortcut. |
 | `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `Cmd/Ctrl+Shift+M` | `[:palette/toggle-mode]` | Flip Dynamic ↔ Static. Chord parity with `Cmd/Ctrl+Shift+M` in `keybinding.cljs`. |
 | `:open-popout` | Open Xray in a pop-out window | `rf-xray-popout` | `[:palette/open-popout]` | Opens the same-origin pop-out window via `popout!`. |
@@ -663,294 +653,87 @@ catalogue.
    60` / `recents-boost-step 20` per `palette/sources.cljc`). The
    weight tunings are internal and may evolve across minor releases.
 
-## MCP API
+## No agent runtime — Xray is the human surface
 
-Per rf2-hvl1g (closure 2026-05-19) there is no dedicated `xray-mcp`
-jar. AI agent access to Xray's surfaces flows via
-`tools/re-frame2-pair-mcp/` against the framework-published Xray
-runtime API (`day8.re-frame2-xray.runtime`) — agents read the same
-trace bus + epoch history + registrar Xray itself reads, via
-re-frame2-pair-mcp's `eval-cljs` and the runtime accessors. See
-DESIGN-RATIONALE.md Lock #6 (superseded) for the reasoning.
+Xray ships **no** agent or tool runtime, no discovery sentinel, and no
+out-of-process accessor catalogue. Per rf2-hvl1g there is no `xray-mcp`
+jar; per rf2-7htk7 the browser-side `day8.re-frame2-xray.runtime` seam
+that once duplicated one is retired, with no alias, tombstone namespace
+or sentinel fallback left behind.
 
-## Runtime accessor surface (Xray ↔ MCP read contract)
+Programmer/AI inspection and mutation of a running re-frame2 app is
+`re-frame2-pair.runtime` plus
+[`tools/re-frame2-pair-mcp/`](../../re-frame2-pair-mcp/README.md). It
+reads the framework's own instrumentation — the Spec 009 trace bus,
+Tool-Pair epoch history, the registrar query API — the same surfaces
+Xray reads, and it owns its tool catalogue, privacy flags, write gates
+and origin tagging. This spec does not restate them; see
+[`skills/re-frame2-pair/SKILL.md`](../../../skills/re-frame2-pair/SKILL.md)
+for the canonical setup and tool contract.
 
-`day8.re-frame2-xray.runtime` is the **public read-and-mutate seam**
-between Xray's browser-side runtime and any out-of-process tool
-that drives a re-frame2 app via Xray (today: `tools/re-frame2-pair-mcp/`;
-tomorrow: any future MCP server / IDE plugin / record-replay harness).
-The `re-frame2-pair-mcp/eval-cljs` channel evaluates forms addressed
-at `day8.re-frame2-xray.runtime/<accessor>` against the browser's
-shadow-cljs nREPL; the return value comes back over the bencode-framed
-channel. The accessor signatures below are the **stable contract** —
-the same Tool-Pair-style discipline (the framework emits; the tool
-consumes) that governs `:trace-bus` and `epoch-history` per
-[`Principles.md`](./Principles.md) §Observation only.
+The two preloads are independent and neither implies the other:
+`day8.re-frame2-xray.preload` installs the panel, `re-frame2-pair.runtime`
+installs the agent seam, and a build that wants both lists both. See
+[`README.md`](../README.md) §Enable for the copy-pasteable pair.
 
-### Discovery sentinel
+This is the boundary [`Principles.md`](./Principles.md) already draws —
+Xray is the human surface, AI belongs in the separate Pair tool — and
+[`018-Event-Spine.md`](./018-Event-Spine.md) with it, which has the
+agent read raw instrumentation rather than an Xray-curated facade.
 
-Two markers prove the runtime landed in the host browser process:
+## Off-box egress — the two panel copy paths
 
-| Marker | Spelling | Lifetime |
+Xray's own value-egress surface is small and closed. Two HUMAN
+affordances put a value the developer is looking at onto an off-box
+sink (Tool-Pair §Privacy egress,
+[`Security.md`](../../../spec/Security.md) §Off-box egress):
+
+| Affordance | Sink | Source |
 |---|---|---|
-| CLJS var | `day8.re-frame2-xray.runtime/session-id` | Random UUID set once per preload load; survives `:after-load`; wiped by full page refresh. |
-| JS global mirror | `js/globalThis.__day8_re_frame2_xray_runtime` | JS object carrying `session-id` + `installed` ms-timestamp. The MCP-server-side probe reads this without a CLJS compile round-trip. |
+| The `Snapshot app-db` command-palette verb | JS console + system clipboard | `palette/events.cljs` |
+| The `⎘` copy button riding every value inspector (`:rf.xray/copy-value-to-clipboard`) | System clipboard | `panels/app_db_diff_events.cljs` |
 
-The install side-effect is gated on `re-frame.interop/debug-enabled?`
-— a stray production load is a no-op (no `js/globalThis` pollution).
-A page-refresh-cleared sentinel surfaces as
-`{:reason :runtime-not-preloaded}` on the next `discover-app` tool
-call with a setup hint.
+Both route the value through Xray's single named panel-local safe-egress
+fn — `day8.re-frame2-xray.egress/egress-value` — BEFORE it reaches the
+sink. That fn is a thin wrapper over the framework's normative
+wire-elision walker (`re-frame.core/elide-wire-value`) with the off-box
+defaults BAKED IN, so the shortest call is the safe one (rf2-rcogp):
+`:include-sensitive?` and `:include-large?` both default `false`, a
+frame-declared sensitive slot egresses as `:rf/redacted`, and a large
+slot as the `:rf.size/large-elided` marker.
 
-### Origin tag (`*current-origin*`)
+**Neither affordance exposes a raw-value opt-in.** Xray's copy paths are
+ALWAYS the redacted, size-elided projection — there is no
+`{:include-sensitive? true}` gesture reachable from the UI.
 
-Every mutation the runtime performs on behalf of a tool client
-carries `:tags :rf.event/origin <tool-name>` (the `:rf.*` single-root
-tag-key per rf2-y4qpy). The runtime exposes a `^:dynamic` var:
+The egress is pinned to the frame being INSPECTED, not the frame the
+affordance dispatches in. The palette wraps the snapshot in
+`(rf/with-frame tf …)` for the focused frame (rf2-mxzgg); the copy event
+wraps the observed frame (`[:focus :frame]`, falling back to
+`:target-frame` — rf2-uo0rc.2). That frame's own `:sensitive` / `:large`
+declarations then govern the redaction rather than the (empty)
+Xray-chrome frame's. A value with no resolvable frame fails closed.
 
-```clojure
-(def ^:dynamic *current-origin*
-  "Default :xray-mcp. Tool clients (re-frame2-pair-mcp et al.) rebind for
-   the synchronous extent of an eval'd form to their own origin."
-  :xray-mcp)
-```
+`egress-value` also takes an optional `:path` — the ABSOLUTE app-db path
+the value sits at. The framework's declarations (classified via the
+EP-0025 commit-plane `:sensitive` / `:large` effects; Spec 015 §Data
+classification) are keyed by absolute path, so a slice egress'd in
+isolation must tell the walker where it lives or the declaration will
+not match (rf2-a96xq). The whole-db snapshot passes no `:path` — the
+value IS the walked root.
 
-Tool clients re-bind via `(binding [runtime/*current-origin* :my-tool] ...)`
-for the synchronous extent of an eval'd form. The async-tagging gap
-(per Lock #4 / I6 — a dispatched event's downstream cascade carries
-the origin only through the synchronous handler frame) is documented;
-later cascades pick up the framework's natural origin tagging. A
-read-only `(runtime/current-origin)` accessor lets tests pin the
-rebind contract without `#'`-piercing the dynamic var.
+The sibling `:rf.xray/copy-path-to-clipboard` copies only the path
+vector (key names, no values), so it is not a value-egress site and is
+not elided.
 
-### Frame resolution
+`day8.re-frame2-xray.egress` is **internal**: no api-manifest row, not
+part of Xray's published surface, and not a seam for out-of-process
+callers. It exists because the two affordances above need it.
 
-Every accessor that operates on a frame resolves it via the same
-fallback ladder:
-
-1. Caller-supplied `:frame <id>` arg.
-2. The sole registered frame (when exactly one is registered).
-3. `nil` → accessor returns `{:ok? false :reason :no-frame-resolved
-   :hint "Pass :frame :foo or register at least one frame."}`.
-
-Multi-frame apps without an explicit `:frame` pick are surfaced
-via `discover-app`'s `:ambiguous-frame? true` flag rather than
-silently picking one. The MCP server's tool-arg layer is the right
-place to refuse mutations against an ambiguous resolution; reads
-degrade through the documented `:no-frame-resolved` fallback.
-
-### Privacy egress — the single named safe-egress entry point
-
-Every direct-read accessor routes returned values through one named
-off-box safe-egress fn before egress, so **the safe path is the short
-path** (rf2-rcogp). The framework owns the normative walker
-(`re-frame.core/elide-wire-value`) and the normative epoch projection
-(`re-frame.core/projected-record`); the runtime wraps each with the
-off-box defaults BAKED IN so a forwarder author never re-derives the
-opt-juggling per call site:
-
-```clojure
-(day8.re-frame2-xray.runtime/egress-value value)             ;; arbitrary app-db-partition value (slice, sub, trace event, …)
-(day8.re-frame2-xray.runtime/egress-record record)           ;; one :rf/epoch-record
-(day8.re-frame2-xray.runtime/egress-runtime-db-value value)  ;; a RUNTIME-DB-partition value (machine snapshot, route slice, …)
-```
-
-**Partition-aware runtime-db egress (EP-0001 rf2-jj1xer · Mike ruling
-#14).** A frame-state projection has two partitions — the user `app-db`
-(`:rf.db/app`) and the framework `runtime-db` (`:rf.db/runtime`: machine
-snapshots, route slice, spawn registry, SSR/hydration metadata, the
-elision registry). Per [Spec 011 §Off-box redaction](../../../spec/011-SSR.md)
-+ [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces),
-off-box egress (this runtime is the AI/MCP + log boundary) DEFAULT-REDACTS
-the runtime-db partition: only the app-db partition (subject to its own
-`egress-value` elision) and explicitly allowlisted serializable runtime-db
-facts cross the wire. `egress-runtime-db-value` is the partition-
-distinguishing peer of `egress-value` — it substitutes the framework
-`:rf/redacted` sentinel for a runtime-db value on the safe default path. A
-**trusted-local** caller (the developer inspecting their own running app)
-opts in to the live runtime-db value with `{:include-runtime-db? true}`;
-the value then routes through `egress-value` so the partition opt-in
-COMPOSES with — does not override — the per-slot sensitive / large off-box
-defaults. This mirrors the framework's normative
-`re-frame.epoch.tool-pair/elide-frame-state-slot`, which default-redacts
-the `:rf.db/runtime` partition of an epoch's `:frame-state-*` slots. The
-`get-machine-state` accessor uses it for its live `:state` / `:snapshot`
-reads (the registered `:spec` egresses through `egress-value` — it is not
-runtime-db state).
-
-Off-box defaults: `:include-sensitive?` and `:include-large?` both
-default `false` — sensitive slots become `:rf/redacted`, large slots
-become the `:rf.size/large-elided` marker. A caller that is itself the
-trust boundary opts back in per call
-(`{:include-sensitive? true}` / `{:include-large? true}`). `egress-record`
-routes through `projected-record` on **every** path — both the safe
-default and the opt-in — threading the opts into the normative projection
-(rf2-5w06uu). It NEVER walks the raw record through `egress-value`: doing
-so on opt-in (the former shape) both lifted the orthogonal `:rf.db/runtime`
-partition of the frame-state slots off-box just because the caller asked
-for sensitive / large APP-DB values, AND mis-rooted the app-db path
-tracker so frame-state app-db sensitive declarations never matched.
-Per [Security.md §Off-box egress](../../../spec/Security.md) the projection
-is the single normative emission site and per-tool reimplementation is
-prohibited — so the framework's `projected-record` was extended to accept
-the egress opts rather than Xray re-deriving the partition logic. The
-`:rf.db/runtime` frame-state partition stays `:rf/redacted` under
-`:include-sensitive?` / `:include-large?`; a trusted-local caller reveals
-it only with `{:include-runtime-db? true}` (the runtime-db value then
-rides the same value walk, where its own per-slot declarations apply) —
-the same partition-opt-in `egress-runtime-db-value` exposes for live reads.
-This is the runtime's half of MUST-inventory rows #2 / #15 / #17 / #19;
-callers pass plain `:include-sensitive?` / `:include-large?` /
-`:include-runtime-db?` opts.
-
-**Event-level default-suppress (the envelope, not just the value).**
-`egress-value` scrubs the VALUES carried inside a trace event, but it does
-not drop a whole event that is itself marked `:sensitive? true`. The
-framework's per-frame rings RETAIN every emitted event with no
-`:sensitive?` check (a faithful record of what the runtime emitted), so a
-sensitive event's ENVELOPE — its existence, `:op-type`, timing, source,
-handler/event ids, and any non-elided `:tags` — would survive
-value-scrubbing and cross the off-box boundary. Per Spec 009 §Privacy +
-[013-Trace-Consumer.md](013-Trace-Consumer.md) a framework-published trace
-consumer default-SUPPRESSES whole `:sensitive? true` events. So the two
-flat-trace-event accessors — `get-trace-buffer` and `get-issues` — drop
-every event for which `re-frame.core/sensitive?` is true BEFORE
-value-scrubbing, unless the caller explicitly opts in with
-`{:include-sensitive? true}` (the per-call opt-back-in — distinct from the
-panel's local-render egress profile (`:rf.xray/egress-profile`), since the
-seam is per-call). This is the runtime/MCP-seam half of the same contract the
-panel-side trace collector + `snapshot-from-rings` honour via
-`config/suppress-sensitive?` (rf2-to36uj).
-
-`egress-value` also takes an optional `:path` — the **absolute** app-db
-path the value sits at. The framework's app-db sensitive / large
-declarations (classified via the EP-0025 commit-plane `:sensitive` / `:large`
-effects — a `reg-event` returns them alongside `:db`, written `:source :effect`;
-Spec 015 §Data classification) are
-keyed by absolute path, so a slice egress'd in isolation
-(a `:path`-scoped `get-app-db` read, or one changed-path slice from
-`get-app-db-diff`) MUST tell the walker where the slice lives or the
-declaration won't match and the raw leaf would cross the boundary
-(rf2-a96xq). A whole-db read passes no `:path` (the value IS the walked
-root, `[]`).
-
-The accessors are not the only off-box egress sites: the command-palette
-`:snapshot-app-db` verb ships the focused frame's app-db to the JS console
-**and** the system clipboard — both off-box sinks — so it routes the
-captured value through `egress-value` before either sink, pinned to the
-focused frame (`with-frame tf`) so that frame's own declarations govern
-the redaction (rf2-mxzgg). The whole-db snapshot passes no `:path` (the
-value IS the walked root). Because the verb exposes no opt-in arg, the
-snapshot is always the redacted / size-elided projection — the raw-egress
-opt-in (`{:include-sensitive? true}` / `{:include-large? true}`) is
-reachable only through the runtime accessors, never the palette command.
-
-The **universal copy-to-clipboard affordance** is the same shape of
-off-box sink and routes the same way (rf2-uo0rc.2). The `⎘` copy button
-that rides every value inspector dispatches `:rf.xray/copy-value-to-clipboard`,
-which writes the copied value to the system clipboard via the
-`:rf.xray.fx/copy-to-clipboard` fx — an off-box sink. The event routes the
-value through `egress-value` **before** the clipboard write, pinned to the
-**observed** frame (`[:focus :frame]`, falling back to `:target-frame`) so
-that frame's own classification governs — a slot the frame declared
-`:sensitive` copies as `:rf/redacted`, a `:large` slot as `:rf.size/large-elided`,
-fail-closed (mirroring the snapshot's `with-frame` pinning, rf2-mxzgg).
-The sibling `:rf.xray/copy-path-to-clipboard` copies only the path vector
-(key names, no values), so it is not a value-egress site and is not
-elided. Like the snapshot, the value-copy event exposes no raw opt-in —
-the operator-controlled `{:include-sensitive? true}` / `{:include-large? true}`
-gate is reachable only through the runtime accessors.
-
-### Inspection band (9 accessors — read-only)
-
-| Accessor (fn) | Tool name | Returns | Reads |
-|---|---|---|---|
-| `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). Whole `:sensitive? true` events are default-SUPPRESSED before value-scrubbing — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj). |
-| `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`, each routed through `egress-record` → `projected-record`. `:include-sensitive?` / `:include-large?` opt the **app-db** partition's privacy / size posture back in; the frame-state `:rf.db/runtime` partition stays `:rf/redacted` unless a trusted-local caller also passes `:include-runtime-db? true` (rf2-5w06uu). |
-| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against the frame-owned `:sensitive` / `:large` app-db declarations — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
-| `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
-| `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from the frame's **runtime-db partition** at `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state; the same slot the Machine Inspector's `:rf.xray/machine-snapshots` sub + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). **Partition-aware off-box redaction (rf2-jj1xer · Mike ruling #14):** `:state` / `:snapshot` are RUNTIME-DB state, so they egress through `egress-runtime-db-value` and are REDACTED to `:rf/redacted` off-box by default; a trusted-local caller opts in with `:include-runtime-db? true` (the inner walk then honours per-slot sensitive / large declarations). `:spec` is a static registry value (not runtime-db), so it egresses through `egress-value` regardless of the runtime-db opt-in. |
-| `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf.machines/machines` — the 0-ary **global** seq of registered machine-ids (no frame argument; see the surfaces table above). The `<map>` is **this accessor's own projection** of that seq, keyed by machine-id with `rf.machines/machine-meta` (the registered spec map) as the value, each routed through `egress-value`; `:count` is the length of the seq. The underlying fn returns the seq, not the map. |
-| `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to the SEVERITY `:op-type`s (`:error` / `:warning`) only (rf2-wd1pgb — `:rf.schema/violation` / `:rf.hydration/mismatch` are `:operation` values, never `:op-type` values; a real schema violation / hydration mismatch already rides `:op-type :warning`/`:error`). Whole `:sensitive? true` issue events are default-SUPPRESSED before the op-type filter — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj, symmetric with `get-trace-buffer`). |
-| `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of the framework's closed `re-frame.registrar/kinds` set — `:event :sub :fx :cofx :interceptor :view :frame :route :head :error-projector :flow :resource :mutation :resource-scope` (rf2-ku6j74 — machines are NOT a registrar kind; see `get-machine-list` / `get-machine-state`). |
-| `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`, routed through `egress-value` (rf2-j8b0u — Spec 009's user-supplied `:rf.handler/source` override can stamp arbitrary values into the slot, so the accessor egresses unconditionally rather than judging per-read; `:include-sensitive?` / `:include-large?` opt back in). |
-
-### Resources read band (5 accessors — read-only)
-
-The Resources panel's AI / MCP read API (rf2-dh0y8o). Five read-only
-accessors on `runtime.cljs` that project the resource registry + the
-live per-frame resource-instance cache + the `:rf.resource/*` trace
-family. They apply the two-layer privacy elision documented in
-[`024-Resources-Panel.md`](./024-Resources-Panel.md) §Tool accessors and
-Spec 016 §Xray and AI tooling: the projection always summarizes
-scope/params/data (type + bounded size + redaction-aware preview, never
-the raw value); on top, the payload slots (`:data` / `:error` /
-`:refresh-error` + the key's scope/params) route through the off-box
-`resource-egress-fn` walker so a `:sensitive?` declaration egresses as
-`:rf/redacted` and a `:large?` slot as `:rf.size/large-elided`. The
-non-PII metadata (status / generation / attempt / request-id / owners /
-tags / timestamps) is NEVER redacted, so the status / tag / owner /
-request-id filters work without an opt-in; `:include-runtime-db? true`
-(trusted-local) lifts even a non-declared payload to its raw value.
-`:scope` / `:resource-id` / `:params` filter against the raw cache key
-**before** projection; the remaining axes filter the already-projected
-rows. Per EP-0002 the frame target is carried explicitly — a frameless
-call with no resolvable context fails closed (`{:ok? false :reason
-:no-frame-resolved}`).
-
-| Accessor (fn) | Tool name | Returns | Reads |
-|---|---|---|---|
-| `list-resources` | `list-resources` | `{:ok? true :resources <vec> :count <n>}` | The STATIC resource registry (`rf/registrations :resource` projected via `project-registry`, joined with `:route` registrations): id, source coords, summarized param/data schemas, request summary, stale/GC policy, tag producer, scope policy, sensitivity/large class, declaring routes. Rows carry only static registry facts (no live values), so they egress freely. Filter axis: `:resource-id` (nil lists all). |
-| `list-resource-instances` | `list-resource-instances` | `{:ok? true :frame <id> :instances <vec> :count <n>}` | The LIVE per-frame resource-instance table from the frame's runtime-db at `[:rf.runtime/resources :entries]` (EP-0001 — framework-owned runtime-db state): resource key, scope, status, timestamps, generation, request id, attempt, active owners, tags, data summary, GC eligibility. Filter axes: `:frame` `:scope` `:resource-id` `:params` `:status` `:stale?` `:tag` `:owner` `:request-id`. Payload slots egress per the band's per-slot redaction (rf2-tgm1xu); `:include-sensitive?` / `:include-large?` / `:include-runtime-db?` opt the raw values back in. |
-| `get-resource-state` | `get-resource-state` | `{:ok? true :frame <id> :state <instance-row>}` | The LIVE durable state of ONE resource instance addressed by its scoped key at `[:rf.runtime/resources :entries [scope resource-id params]]` (Spec 016 §Introspection / §Status semantics). Required: `:resource-id` AND `:scope` AND `:params` (the full scoped-key triple); any missing part fails closed with `:reason :missing-key`. `:stale?` / `:has-data?` are derived, not stored. Payload slots egress per the band's per-slot redaction; `:include-runtime-db? true` opts in to the raw payload. |
-| `get-resource-history` | `get-resource-history` | `{:ok? true :frame <id> :history <vec> :count <n>}` | The BOUNDED lifecycle timeline — projects the `:rf.resource/*` trace family out of the frame's trace ring into ordered lifecycle rows (Spec 016 §Xray and AI tooling; history MUST be bounded). Filter axes: `:resource-id` `:nav-token` `:limit` (default 50 — the bound). Whole `:sensitive? true` trace events are default-suppressed at the off-box seam unless `:include-sensitive? true`. |
-| `list-resource-invalidations` | `list-resource-invalidations` | `{:ok? true :frame <id> :invalidations <vec> :count <n>}` | The invalidation / mutation graph — projects the `:rf.resource/invalidated` trace rows: summarized scope, invalidated tags, summarized cause, matched scoped keys, refetch count (distinguishes a broad-tag storm by high `:match-count` from a zero-match invalidation, `:match-count 0`). Filter axis: `:tag` (only invalidations touching the tag). Whole `:sensitive? true` events default-suppressed unless `:include-sensitive? true`. |
-
-### Mutation band (3 accessors — write)
-
-| Accessor (fn) | Tool name | Returns | Behaviour |
-|---|---|---|---|
-| `dispatch!` | `dispatch` | `{:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}` | Fire `event-vec` tagged `:origin *current-origin*`. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors. |
-| `restore-epoch!` | `restore-epoch` | `{:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}` | Rewinds a frame to the named epoch's `:frame-state-after` via `rf/restore-epoch!` — the WHOLE frame-state (app-db AND runtime-db: machine snapshots, route slice, elision declarations, SSR metadata) in one atomic write, NOT app-db alone. `:frame-state-after` is the only restore source; the retained `:db-after` is an app-db projection used for diffs, never the restore source. Failures (per Tool-Pair §Time-travel — Restore, seven documented failure modes) emit a structured `:rf.epoch/*` trace and leave the frame-state unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus. |
-| `replace-app-db!` | `replace-app-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `(rf/replace-frame-state! frame-id {:rf.db/app value})`; the failure rows (`:rf.error/replace-frame-state-bad-keys` / `:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
-
-### Streaming band (3 accessors — subscription bookkeeping)
-
-| Accessor (fn) | Tool name | Returns | Behaviour |
-|---|---|---|---|
-| `subscribe!` | `subscribe` | `{:ok? true :sub-id <uuid> :topic <kw> :filter <map>}` | Open a streaming subscription for `:topic` ∈ `#{:trace :epoch :fx :error}` with `:filter`. Dynamic records metadata; the MCP server owns the per-tick drain pump + queue overflow bookkeeping. |
-| `unsubscribe!` | `unsubscribe` | `{:ok? true :sub-id <id> :existed? <bool>}` | Idempotent close per the catalogue entry. |
-| `list-subscriptions` | `list-subscriptions` | `{:ok? true :subs <vec> :count <n>}` | Diagnostic enumerating active runtime-side subscription metadata. Per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events` fields live MCP-side. |
-
-### Escape hatch (1 accessor)
-
-| Accessor (fn) | Tool name | Returns | Behaviour |
-|---|---|---|---|
-| `eval-form-result` | `eval-cljs` (runtime-side companion) | `{:ok? true :value <elided>}` | The MCP server renders the user's CLJS form inside a `(binding [*current-origin* …] …)` wrapper, then `cljs-eval`s the wrapped form directly. This fn is the runtime-side **result shaper** — privacy + size scrubbing applied to the eval'd value before egress with caller's `:include-sensitive?` / `:include-large?` opt-in. |
-
-### Meta band (2 accessors)
-
-| Accessor (fn) | Tool name | Returns | Behaviour |
-|---|---|---|---|
-| `health` | `discover-app` (runtime-side companion) | `{:ok? true :session-id <uuid> :debug-enabled? <bool> :frames <vec> :ambiguous-frame? <bool> :coord-annotation-enabled? <bool> :origin <kw>}` | One-call summary of the runtime's view of the world. Side-effect-free — Xray-the-panel's preload owns the trace + epoch listeners; this accessor installs no listeners of its own. |
-| `tail-build-probe` | `tail-build` (runtime-side companion) | `{:ok? true :probe <int> :session-id <uuid> :build-tick <int>}` | Returns a fresh monotonic counter every call. MCP servers poll until the value changes — proving a hot-reload landed and the runtime re-evaluated. The counter survives `:after-load` (defonce) and resets only on full page refresh (same lifetime as `session-id`). Change-detect lives MCP-side. |
-
-### Test support
-
-`reset-for-test!` clears `subscriptions` + `probe-counter` for
-fixture isolation. Does NOT touch `session-id` (per-preload constant
-by design) or the JS-global sentinel. Test-only — never call from
-production code.
-
-### Cross-side coupling — one-way
-
-The MCP server depends on the accessor signatures above (the
-contract). The runtime is independent of any server — Xray-the-panel
-loads `runtime.cljs` without an MCP server running, and any future
-MCP consumer can attach later without the runtime needing to know.
-Adding an accessor is an additive change at the Xray layer; removing
-or renaming one is a breaking change to the Tool-Pair contract and
-requires a major-version bump per §Versioning.
+Panel-local RENDER elision is a separate, weaker concern with its own
+knob — the `:rf.xray/egress-profile` config key (see
+[`015-Configuration.md`](./015-Configuration.md)) — because an in-panel
+render never leaves the box.
 
 ## Settings keys
 

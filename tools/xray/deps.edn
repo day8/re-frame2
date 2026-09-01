@@ -11,10 +11,12 @@
 ;; the repository VERSION. Published Xray and framework artefacts
 ;; therefore use the same version.
 ;;
-;; ## MCP surface
+;; ## No agent surface
 ;;
-;; AI agent access to Xray state flows via `tools/re-frame2-pair-mcp/`
-;; and `day8.re-frame2-xray.runtime`. Xray has no MCP-server dependency.
+;; Xray is the HUMAN panel. Programmer/AI inspection of a running app is
+;; `re-frame2-pair.runtime` plus `tools/re-frame2-pair-mcp/`, which read
+;; the framework's instrumentation directly — Xray carries no agent
+;; runtime, no discovery sentinel, and no MCP-server dependency.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
 

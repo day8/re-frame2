@@ -169,21 +169,6 @@
   ;; day8.re-frame2-xray.open-in-editor — the editor-URI mirror chip
   ;; (spec/API.md §Open in editor). A documented panel-author surface — `tooling`.
   {:namespace "day8.re-frame2-xray.open-in-editor" :var "open-chip" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  ;; day8.re-frame2-xray.runtime — the Xray ↔ MCP read-and-mutate seam
-  ;; (spec/API.md §Runtime accessor surface). The discovery sentinel
-  ;; (`session-id`) + the three named safe-egress entry points: `egress-value`
-  ;; (app-db partition), `egress-record` (one epoch record), and
-  ;; `egress-runtime-db-value` (the partition-aware runtime-db peer — EP-0001
-  ;; rf2-jj1xer · Mike ruling #14; default-redacts the `:rf.db/runtime`
-  ;; partition off-box unless the trusted-local `:include-runtime-db?` opt-in
-  ;; is set). Public-for-tools, not public-for-host-apps — `tooling`. (Curated
-  ;; subset: the accessor band fns are documented at their tool-name rows in
-  ;; the Xray spec, not the manifest; only the seam's named entry points are
-  ;; rowed.)
-  {:namespace "day8.re-frame2-xray.runtime" :var "egress-record" :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.runtime" :var "egress-runtime-db-value" :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.runtime" :var "egress-value"  :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
 
   ;; ---- re-frame.hicasso — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
   ;;
