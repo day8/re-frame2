@@ -538,11 +538,11 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 
 ```clojure
 ;; Level 1 — pure transition function (fastest; FSM logic only).
-;; Owned by re-frame.machines: (:require [re-frame.machines :as machines])
+;; Owned by re-frame.machines: (:require [re-frame.machines :as rf.machines])
 (deftest auth-login-happy-path-l1
   (let [snap {:state :idle :data {:attempts 0 :error nil}}
         {:keys [status snapshot]}
-        (machines/machine-transition auth-login-table snap [:submit {:email "..."}])]
+        (rf.machines/machine-transition auth-login-table snap [:submit {:email "..."}])]
     (is (= :ok status))
     (is (= :submitting (:state snapshot)))))
 

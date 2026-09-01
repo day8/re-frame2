@@ -435,7 +435,7 @@ reaches runtime-db (`:where :machine-data`).
 
 <a id="testing-transitions-are-pure-function-calls"></a>
 
-The table is a value. `(machines/machine-transition definition snapshot trigger)`
+The table is a value. `(rf.machines/machine-transition definition snapshot trigger)`
 returns the next snapshot and the effects the action described. The
 [first machine](tutorial.md#step-6--test-it-a-transition-is-a-pure-function)
 has the login cases. [Inspecting and testing](inspecting-machines.md) is the
