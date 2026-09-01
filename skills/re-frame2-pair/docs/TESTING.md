@@ -101,10 +101,12 @@ The flows (each an MCP `tools/call` against the booted runtime):
 - **dispatch + trace** — `dispatch {event "[:counter/inc]" sync true}`
   bumps the on-screen `#value` to `6` and surfaces the epoch via
   `trace-window`.
-- **hot-reload** — touch-edit `core.cljs`, confirm
-  `tail-build {probe "(re-frame2-pair.runtime/registrar-handler-ref :event :counter/inc)" wait-ms …}`
-  reports `:soft? false` once the probe flips. This is the safety-critical
-  probe-based reload contract from §4.5.
+- **hot-reload** — capture the probe's pre-edit printed value, touch-edit
+  `core.cljs`, confirm
+  `tail-build {probe "(re-frame2-pair.runtime/registrar-handler-ref :event :counter/inc)" baseline "<pre-edit value>" wait-ms …}`
+  reports `:soft? false` once a sample leaves the baseline. This is the
+  safety-critical probe-based reload contract from §4.5 — the pre-edit
+  baseline keeps a reload that lands before the first sample recognizable.
 
 Run:
 

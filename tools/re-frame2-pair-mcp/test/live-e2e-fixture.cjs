@@ -14,10 +14,13 @@
 //   2. dispatch — `dispatch {event "[:counter/inc]" sync true}` commits, the
 //                  on-screen `#value` increments 5 → 6, and `trace-window`
 //                  carries a matching `:counter/inc` epoch.
-//   3. hot-reload — a probe value is captured, the fixture's `core.cljs` is
-//                  touch-edited to trigger a shadow-cljs reload, and
-//                  `tail-build {probe … wait-ms …}` reports `:soft? false`
-//                  once the probe flips.
+//   3. hot-reload — the probe's PRE-EDIT printed value is captured as the
+//                  baseline, the fixture's `core.cljs` is touch-edited to
+//                  trigger a shadow-cljs reload, and
+//                  `tail-build {probe … baseline … wait-ms …}` reports
+//                  `:soft? false` once a sample leaves the baseline — the
+//                  reload is recognized whether it lands before or after
+//                  the first sample (rf2-1f60u).
 //
 // Unlike the CLJS unit suite (`npm test`) — which stubs nREPL and never
 // reaches `out/server.js` — this harness spawns the compiled server and
@@ -431,16 +434,26 @@ async function main() {
     console.log('OK   trace-window -> carries :counter/inc epoch');
 
     // ---- 3. hot-reload probe --------------------------------------------
-    const before = await callTool(client, 'eval-cljs', { form: PROBE });
+    // The documented order (rf2-1f60u): capture the probe's PRE-EDIT printed
+    // value first, edit, then hand tail-build the probe plus that baseline —
+    // so a reload that lands before tail-build's first sample still reads as
+    // success. Wrapping in pr-str makes :value the printed rendering the
+    // baseline arg expects, whatever shape the probe returns.
+    const before = await callTool(client, 'eval-cljs', { form: `(pr-str ${PROBE})` });
     assert(!before.isError, 'probe eval(before) returned isError: ' + before.text);
     const beforeVal = before.edn && before.edn['value'];
+    assert(typeof beforeVal === 'string', 'pre-edit probe capture did not yield a printed value: ' + before.text);
 
     const fixtureSrc = path.join(FIXTURE_DIR, 'src', 'counter', 'core.cljs');
     const original = fs.readFileSync(fixtureSrc, 'utf8');
     const marker = `\n;; live-e2e touch ${Date.now()}\n`;
     fs.writeFileSync(fixtureSrc, original + marker);
     try {
-      const tail = await callTool(client, 'tail-build', { probe: PROBE, 'wait-ms': 15000 });
+      const tail = await callTool(client, 'tail-build', {
+        probe: PROBE,
+        baseline: beforeVal,
+        'wait-ms': 15000,
+      });
       assert(!tail.isError, 'tail-build returned isError: ' + tail.text);
       const tv = tail.edn;
       assert(tv && tv['ok?'] === true, 'tail-build did not return :ok? true: ' + tail.text);
@@ -449,7 +462,7 @@ async function main() {
         'tail-build reported :soft? true — the hot-reload probe never flipped: ' + tail.text,
       );
 
-      const after = await callTool(client, 'eval-cljs', { form: PROBE });
+      const after = await callTool(client, 'eval-cljs', { form: `(pr-str ${PROBE})` });
       const afterVal = after.edn && after.edn['value'];
       assert(
         afterVal !== beforeVal,

@@ -783,18 +783,31 @@
 
 (def tail-build
   {:name "tail-build"
-   :description (str "Wait for a hot-reload to land by polling a probe form until its value changes. Returns once changed, or times out. "
+   :description (str "Wait for a hot-reload to land by polling a probe form against a PRE-EDIT baseline. "
+                     "Required order: evaluate your probe form BEFORE the source edit (eval-cljs), keep its printed value, "
+                     "make the edit, then call this tool with the same :probe plus that value as :baseline. "
+                     "Succeeds on the first sample whose value differs from :baseline — so a fast reload that lands "
+                     "before the first sample is still recognized (the first sample already differs), and a slow one "
+                     "resolves when a later poll differs. A post-edit self-baseline cannot make that distinction, so "
+                     ":baseline is required whenever :probe is supplied (:reason :missing-baseline otherwise). "
+                     "Matching uses the sample's printed form: pass the pre-edit :value verbatim (pr-str rendering; a "
+                     "string value keeps its quotes, though the plain str rendering is also accepted). If the probe's "
+                     "value cannot change for your edit, pick a source-derived fingerprint that does (e.g. a "
+                     "handler-meta hash or :line). "
                      "Examples: "
-                     "1. Default 300ms soft delay: {} -> {:ok? true :t 312 :soft? true}. "
-                     "2. Probe for a recompile signal: {:probe \"(rand)\" :wait-ms 10000} -> {:ok? true :t 1240 :soft? false}. "
-                     "3. Timed out: {:probe \"my.app/build-marker\" :wait-ms 500} -> {:ok? false :reason :timed-out}.")
+                     "1. Default 300ms soft delay (no probe): {} -> {:ok? true :t 312 :soft? true}. "
+                     "2. Reload landed before the call: {:probe \"(my.app/build-marker)\" :baseline \"41\"} -> {:ok? true :soft? false :probe-values {:baseline \"41\" :initial 42 :final 42}}. "
+                     "3. Slow reload: {:probe \"(my.app/build-marker)\" :baseline \"41\" :wait-ms 10000} -> {:ok? true :probe-values {:baseline \"41\" :initial 41 :final 42}}. "
+                     "4. Timed out (value never left the baseline): {:probe \"(my.app/build-marker)\" :baseline \"41\" :wait-ms 500} -> {:ok? false :reason :timed-out}. "
+                     "5. Probe without baseline: {:probe \"(rand)\"} -> {:ok? false :reason :missing-baseline}.")
    :typicalTokens 100
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
-                              :wait-ms {:type "integer" :description "Max wait in ms (default 5000)"}
-                              :build   {:type "string"}}
+                 :properties {:probe    {:type "string" :description "CLJS form whose value distinguishes old from new code; evaluate it BEFORE the edit to capture :baseline"}
+                              :baseline {:type "string" :description "The probe's PRE-EDIT printed value (captured via eval-cljs before the edit; pr-str rendering). Required with :probe — success is a sample differing from this."}
+                              :wait-ms  {:type "integer" :description "Max wait in ms (default 5000)"}
+                              :build    {:type "string"}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
