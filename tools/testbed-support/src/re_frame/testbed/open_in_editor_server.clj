@@ -161,10 +161,24 @@
        "var f=process.argv[1];"
        "var line=process.argv[2]||undefined;var col=process.argv[3]||undefined;"
        "var e=process.argv[4]||undefined;"
-       ;; Only a coordinate-bearing launch has anything to lose.
-       "if(line){"
+       ;; Only a coordinate-bearing launch has anything to lose — and a
+       ;; COLUMN ALONE is a coordinate. `build-file-spec` normalises a
+       ;; column with no line to `path:1:<column>`, so a `column=7` request
+       ;; asks the launcher for 1:7 and can lose it exactly as a line-bearing
+       ;; one can. Gating this probe on `line` alone let every column-only
+       ;; auto-detect launch past the capability check entirely, so a
+       ;; position-blind binary could strip `:1:7`, exit 0 and win a 200 that
+       ;; suppressed the coordinate-preserving fallback (rf2-1i1ec audit).
+       ;;
+       ;; The normalisation is repeated here rather than derived from the
+       ;; file spec: `line||1` is the same rule `build-file-spec` applies, and
+       ;; the two must agree or the probe answers about a different
+       ;; coordinate than the one being launched. `get-args.js` switches on
+       ;; the command BASENAME only, so the substituted values never change
+       ;; the fall-through verdict — they only have to be present.
+       "if(line||col){"
        "var ed=guess(e)[0];"
-       "var a=ed?getArgs(ed,'F',line,col||1):null;"
+       "var a=ed?getArgs(ed,'F',line||1,col||1):null;"
        "if(a&&a.length===1&&a[0]==='F'){"
        "process.stderr.write('" position-unsupported-error "\\n');"
        "process.exit(" position-unsupported-exit ");}}"

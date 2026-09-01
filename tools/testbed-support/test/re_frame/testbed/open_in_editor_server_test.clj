@@ -1180,7 +1180,32 @@
               (let [{:keys [ok message]} (oies/launch! f nil nil "nonexistent-dir/Brackets")]
                 (is (false? ok))
                 (is (not= oies/position-unsupported-error message)
-                    "the empty coordinate argv tokens read as absent")))))))))
+                    "the empty coordinate argv tokens read as absent")))
+
+            ;; A COLUMN with no line is the coordinate shape every probe above
+            ;; misses: they all pass 27 AND 9. `build-file-spec` normalises it
+            ;; to `path:1:<column>`, and `position-would-be-dropped?` already
+            ;; calls it a coordinate — but the shim gated its probe on the
+            ;; LINE argv token alone, which is empty here, so the whole
+            ;; capability check was skipped and a position-blind binary could
+            ;; strip `:1:7`, exit 0 and win a 200 (rf2-1i1ec audit).
+            (testing "COLUMN-ONLY, position-blind: refused on the same terms
+                      as a line-bearing launch. The argv line token is empty,
+                      so this is precisely the request the old `if(line)` gate
+                      waved through"
+              (is (= {:ok false :message oies/position-unsupported-error}
+                     (oies/launch! f nil 7 "nonexistent-dir/Brackets"))
+                  "a column alone is a coordinate the launcher can lose"))
+
+            (testing "COLUMN-ONLY POSITIVE CONTROL — the same column-only
+                      request to a position-CAPABLE command still reaches a
+                      real launch attempt. It fails (the binary does not
+                      exist) but NOT as the decline, so widening the gate did
+                      not turn column-only into a blanket refusal"
+              (let [{:keys [ok message]} (oies/launch! f nil 7 "nonexistent-dir/zed")]
+                (is (false? ok) "the nonexistent binary could not be launched")
+                (is (not= oies/position-unsupported-error message)
+                    "…and it was a launch failure, not a capability refusal")))))))))
 
 (deftest endpoint-turns-a-launch-time-decline-into-the-same-422
   (testing "the wiring that makes the shim's refusal user-visible: a
@@ -1205,4 +1230,26 @@
         (is (not (<= 200 (:status resp) 299))
             "non-2xx is what runs the client's coordinate-preserving fallback")
         (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
-            "the same token the declared-vocabulary decline emits")))))
+            "the same token the declared-vocabulary decline emits"))))
+
+  (testing "the same mapping for a COLUMN-ONLY request, which is the shape
+            that used to bypass the shim's probe altogether: `column=7` with
+            no `line` and no `editor`. The coordinate at stake is the
+            normalised 1:7 the endpoint would have handed the launcher, and
+            the client's URI fallback is what carries it"
+    (is (= "/abs/src/app.cljs:1:7"
+           (#'oies/build-file-spec "/abs/src/app.cljs" nil 7))
+        "column-only normalises to line 1 — a real coordinate, not an absent
+         one, which is why the shim must probe for it")
+    (with-redefs [oies/launch! (fn [& _]
+                                 {:ok false
+                                  :message oies/position-unsupported-error})]
+      (let [resp (oies/handle
+                   {:uri            oies/endpoint-path
+                    :request-method :post
+                    :query-string   "file=fake_ns/core.cljs&column=7"
+                    :headers        {"host" "localhost:8031"}})]
+        (is (= 422 (:status resp))
+            "a 200 here would claim 1:7 reached an editor that never got it")
+        (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
+            "one contract for the client, whatever shape the coordinate had")))))
