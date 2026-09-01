@@ -1351,7 +1351,9 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 
 **What to do.** Add `day8/re-frame2-machines` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
-Every namespace that calls `rf/reg-machine` / `rf/defmachine` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
+Every namespace that calls `rf/reg-machine` / `rf/defmachine` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines :as rf.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
+
+Take the alias while you are there. `rf.machines` is the canonical alias for a framework subsystem namespace ([Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf)), and it is the spelling the helper call sites below and in [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler) are written against. A bare `(:require [re-frame.machines])` fires the hook registrations but introduces no alias, so those call sites will not resolve.
 
 **Public API.** `(rf/reg-machine ...)` and `(rf/defmachine ...)` stay on the `re-frame.core` facade — the registration macros late-bind through the hook table to the machines artefact's implementation, and throw `:rf.error/machines-artefact-missing` when the artefact is absent. The non-registration helpers are **not** facade exports: call them as `(rf.machines/machine-transition ...)` / `(rf.machines/make-machine-handler ...)` / `(rf.machines/machines)` / `(rf.machines/machine-meta ...)` on the `re-frame.machines` namespace you already require at boot. (The tiering rule is `reg-*` macros + primary ergonomic verbs on `rf/`, advanced query/codec functions in their owning namespace — the same split as routing / resources / schemas.)
 
@@ -2332,7 +2334,7 @@ Per audit-of-audits state-machines #12, the machine-handler builder is renamed f
 (def my-handler (rf/create-machine-handler my-machine-spec))
 
 ;; after
-(def my-handler (rf.machines/make-machine-handler my-machine-spec))
+(def my-handler (rf.machines/make-machine-handler my-machine-spec))  ;; alias from M-28's require
 ```
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
