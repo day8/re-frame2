@@ -2314,21 +2314,121 @@ for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
   });
 }
 
-// The negative half. The edge is the fixture's CLASSPATH, not "anything under
-// implementation/", so it must not become a default arm by drift. A `:local/root`
-// contributes the artefact's `:paths` plus its dependency declaration — an
-// artefact's own `test/` tree is not on the fixture's classpath — and the three
-// sibling per-feature artefacts are not on it at all.
+// rf2-f9f3p — the SECOND fixture's half of the same reverse edge.
+// `re-frame2-pair-fixture-pure` is gated solely on `skills_structural` too, so
+// rf2-bbe91 armed it INCIDENTALLY for the two roots the fixtures share (core
+// and the stock Reagent adapter). It shares only two:
+// `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FIVE in-repo
+// artefacts, because the shipped preload `:require`s `re-frame.epoch`,
+// `re-frame.schemas` and `re-frame.machines` directly. Those three classified
+// `skills_structural=false` at rf2-bbe91's tip, for `src/*` and `deps.edn`
+// alike — so the one job that compiles and tests that shipped source was
+// accepted as SKIPPED on a change to three fifths of its own in-repo
+// classpath, and a skipped required job is an accepted result.
+//
+// THE ROSTER IS THE FIXTURE'S OWN `:deps` MAP, all five roots, both entry
+// shapes. The two already covered by rf2-bbe91 are pinned here as well rather
+// than assumed: their coverage is a side effect of the OTHER fixture's roster,
+// so a future narrowing of that roster would silently unarm this job, and
+// nothing else in this file would notice.
+//
+// EVERY PATH IS TRACKED, checked with `git ls-files` rather than transcribed —
+// the same trap rf2-bbe91's own note records, and it bites identically here:
+// these arms are pure path patterns, so a phantom file classifies exactly like
+// a real one and the assertion passes while pinning a route no diff can take.
+// The extensions are again the tell — the three added roots are `.cljc` and the
+// Reagent adapter is `.cljs`.
+const PAIR_FIXTURE_LOCAL_ROOTS = [
+  'implementation/core/src/re_frame/core.cljc',
+  'implementation/core/deps.edn',
+  'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+  'implementation/adapters/reagent/deps.edn',
+  'implementation/epoch/src/re_frame/epoch.cljc',
+  'implementation/epoch/deps.edn',
+  'implementation/schemas/src/re_frame/schemas.cljc',
+  'implementation/schemas/deps.edn',
+  'implementation/machines/src/re_frame/machines.cljc',
+  'implementation/machines/deps.edn',
+];
+for (const file of PAIR_FIXTURE_LOCAL_ROOTS) {
+  test(`${file} arms skills_structural — Pair fixture reverse edge (rf2-f9f3p)`, () => {
+    assert.equal(
+      classify(file).skills_structural,
+      'true',
+      `${file} is on the re-frame2-pair fixture's :local/root classpath; a change to it must ` +
+        'schedule re-frame2-pair-fixture-pure, the only job that compiles and tests the ' +
+        'shipped preload against the tree it ships beside',
+    );
+  });
+}
+
+// The dispatch only ever SETS `skills_structural`, so it cannot narrow the
+// three newly-armed artefacts' existing routing — each of which owns lanes the
+// other two do not. Pinned per artefact rather than over the intersection,
+// because the intersection is exactly what a refactor into an arm of the big
+// first-match `case` would leave standing while it dropped the rest.
+for (const [file, keys] of [
+  [
+    'implementation/epoch/src/re_frame/epoch.cljc',
+    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'mcp_conformance', 'mcp_live'],
+  ],
+  [
+    'implementation/schemas/src/re_frame/schemas.cljc',
+    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'template_expensive'],
+  ],
+  [
+    'implementation/machines/src/re_frame/machines.cljc',
+    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'tools_jvm_machines_viz', 'tools_cljs_machines_viz', 'playground'],
+  ],
+]) {
+  test(`the Pair reverse edge does not narrow ${file}'s production routing (rf2-f9f3p)`, () => {
+    const result = classify(file);
+    for (const key of keys) {
+      assert.equal(
+        result[key],
+        'true',
+        `${file} must retain ${key}; the Pair fixture reverse edge widens, it never narrows`,
+      );
+    }
+  });
+}
+
+test('re-frame2-pair-fixture-pure is job-level gated on skills_structural (rf2-f9f3p)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 're-frame2-pair-fixture-pure');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.skills_structural == 'true'/,
+  );
+});
+
+// The negative half, now covering BOTH fixtures. The edge is the two fixtures'
+// CLASSPATHS, not "anything under implementation/", so it must not become a
+// default arm by drift. A `:local/root` contributes the artefact's `:paths`
+// plus its dependency declaration — an artefact's own `test/` tree is not on
+// either fixture's classpath — and the sibling per-feature artefacts are on
+// neither.
+//
+// rf2-f9f3p moved one entry: `implementation/schemas/src/re_frame/schemas.cljc`
+// stood here as a negative under rf2-bbe91 and is now a POSITIVE above, because
+// it IS on the Pair fixture's classpath even though it is not on MIG-23's. That
+// is the whole reason this pair of files is one-toucher — the roster and the
+// assertions that pin it cannot be true in separate commits. Its slot is taken
+// by `implementation/schemas/test/*`, which is the sharper boundary anyway: it
+// pins the `src/*`-plus-`deps.edn` scope on a newly-armed artefact, from the
+// side the new arms could most plausibly over-reach.
 for (const file of [
   'implementation/core/test/re_frame/adapter/routing_arity_cljs_test.cljc',
-  'implementation/schemas/src/re_frame/schemas.cljc',
+  'implementation/schemas/test/re_frame/late_bind_missing_test.clj',
+  'implementation/epoch/test/re_frame/epoch_attribution_test.clj',
   'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
+  'implementation/flows/src/re_frame/flows.cljc',
 ]) {
-  test(`${file} does NOT arm skills_structural (reverse edge stays scoped, rf2-bbe91)`, () => {
+  test(`${file} does NOT arm skills_structural (reverse edge stays scoped, rf2-bbe91 / rf2-f9f3p)`, () => {
     assert.equal(
       classify(file).skills_structural,
       'false',
-      `${file} is not on the MIG-23 fixture's :local/root classpath; it must not queue the ` +
+      `${file} is on neither fixture's :local/root classpath; it must not queue the ` +
         'skills_structural fixture jobs',
     );
   });
