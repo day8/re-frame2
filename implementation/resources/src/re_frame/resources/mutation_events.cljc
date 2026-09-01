@@ -603,10 +603,15 @@
   refetch `:cause`; `clock-ms` is the reply's causal completion time (the
   durable stale `:invalidated-at` stamp — EP-0010, off the reply token). Returns
   `{:runtime-db <rdb'> :dispositions [<disp> …] :recovery-fx
-  [<fx> …] :restored-keys [<sk> …] :conflicted-keys [<sk> …] :refetched-keys
-  [<sk> …]}` — `:refetched-keys` names ONLY the keys whose recovery refetch was
-  actually enqueued (never a stale-only / vanished key — rf2-wcdj4). PURE
-  w.r.t. trace (the caller emits `:rf.mutation/optimistic-rolled-back`)."
+  [<fx> …] :restored-keys [<sk> …] :conflicted-keys [<sk> …] :staled-keys
+  [<sk> …] :refetched-keys [<sk> …]}` — `:staled-keys` names every SURVIVING
+  `:invalidate` key actually marked durably stale (never a vanished key): the
+  caller's `:affected-keys` evidence, because a stale-marked key IS affected
+  even when owner-free with no refetch armed (Spec 016 §Mutation completion
+  continuations — rf2-wcdj4 audit); `:refetched-keys` names ONLY the keys
+  whose recovery refetch was actually enqueued (its active-owner subset —
+  never a stale-only / vanished key — rf2-wcdj4). PURE w.r.t. trace (the
+  caller emits `:rf.mutation/optimistic-rolled-back`)."
   [inverse runtime-db on-conflict cause clock-ms]
   (let [dispositions (mapv (fn [{scoped-key :resource/key :as recorded}]
                              (mstate/rollback-entry-disposition
@@ -629,15 +634,21 @@
         ;; :resource/key (`state/entry-invalidate` — the same in-place exact-key
         ;; staling the EP-0019 restore-dangle reconciler uses), never
         ;; rediscovered through the entry's tags (`:tags` is optional and must
-        ;; not gate rollback recovery — rf2-wcdj4). A vanished entry no-ops.
-        rdb'         (reduce (fn [rdb {scoped-key :resource/key :as disp}]
+        ;; not gate rollback recovery — rf2-wcdj4). A vanished entry no-ops —
+        ;; and only a key actually marked stale accumulates into `staled-ks`,
+        ;; the caller's `:affected-keys` evidence (a stale-marked key is
+        ;; materially changed and therefore affected, refetched or not —
+        ;; rf2-wcdj4 audit).
+        [rdb' staled-ks]
+                     (reduce (fn [[rdb staled] {scoped-key :resource/key :as disp}]
                                (case (:disposition disp)
-                                 :restore    (mstate/restore-before rdb disp)
+                                 :restore    [(mstate/restore-before rdb disp) staled]
                                  :invalidate (if (get-in rdb (state/entry-path scoped-key))
-                                               (update-in rdb (state/entry-path scoped-key)
-                                                          state/entry-invalidate clock-ms)
-                                               rdb)))
-                             runtime-db dispositions)
+                                               [(update-in rdb (state/entry-path scoped-key)
+                                                           state/entry-invalidate clock-ms)
+                                                (conj staled scoped-key)]
+                                               [rdb staled])))
+                             [runtime-db []] dispositions)
         rdb''        (update rdb' state/resources-key state/reindex-keys
                              old-entries changed-ids)
         ;; one ordinary EXACT refetch per :invalidate (conflicted, non-:force)
@@ -657,6 +668,7 @@
      :recovery-fx     (mapv second recoveries)
      :restored-keys   (into [] (comp (filter restored?) (map :resource/key)) dispositions)
      :conflicted-keys (into [] (comp (filter :conflict?) (map :resource/key)) dispositions)
+     :staled-keys     staled-ks
      :refetched-keys  (mapv first recoveries)}))
 
 (defn- rollback-trace-dispositions
@@ -2060,12 +2072,17 @@
             invalidated-ks (when inv-plan
                              (vec (:invalidated-keys (plan-key-evidence inv-plan #{} settle-db))))
             ;; EP-0019 — the keys the rollback refetched on conflict ride the
-            ;; instance row's reserved `:reconciliation-refetches` slot + flow
-            ;; into the reply `:affected-keys` (a conflict-invalidated key IS
-            ;; affected). The restored keys are also affected.
+            ;; instance row's reserved `:reconciliation-refetches` slot; the
+            ;; keys it marked durably STALE (every SURVIVING `:invalidate`
+            ;; disposition — the refetched keys are its active-owner subset)
+            ;; flow into the reply `:affected-keys` (a conflict-invalidated
+            ;; key IS affected, even owner-free with no refetch armed — Spec
+            ;; 016 §Mutation completion continuations, rf2-wcdj4 audit). The
+            ;; restored keys are also affected.
             refetched-ks (vec (:refetched-keys rolled))
             restored-ks  (vec (:restored-keys rolled))
-            affected (vec (distinct (concat invalidated-ks restored-ks refetched-ks)))
+            staled-ks    (vec (:staled-keys rolled))
+            affected (vec (distinct (concat invalidated-ks restored-ks staled-ks refetched-ks)))
             ;; EP-0019 — fill the reserved `:patch-summary` slots on the failed
             ;; instance row so Xray's mutation view can show that the optimistic
             ;; apply rolled back, per-key restored-vs-conflict, and which keys
