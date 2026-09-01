@@ -297,7 +297,24 @@ const EXTERNAL_HTML_REF_ALLOWLIST = {
 
 // Build output produced by shadow-cljs at stage time — never a repo-source
 // file, so the resolver skips it (every index.html ships <script src=main.js>).
+// The exemption is from on-disk RESOLUTION only: since rf2-y1kbf the page must
+// still REFERENCE it (see loadsBuildEntrypoint / the boot-script contract in
+// scanPage), so "not resolved" no longer means "not required".
 const BUILD_OUTPUTS = new Set(['main.js']);
+
+// Does the page's TAGGED asset inventory carry a LIVE `<script src>` pointing at
+// the generated build entrypoint? (rf2-y1kbf)
+//
+// Reads the inventory's `assets` view, never the raw HTML, so the answer is only
+// yes for an actual load-time script fetch. Everything that merely MENTIONS
+// main.js — an `<a href>`/canonical link (navigation, absent from `assets`), a
+// `<link rel=preload href>` (tagged, but as a link rather than a script), prose
+// text (never a tag at all), or markup inside an HTML comment (stripped before
+// extraction) — is correctly not a boot script. Query/hash suffixes are already
+// normalised away by the inventory, so `main.js?v=2` counts.
+function loadsBuildEntrypoint(assets) {
+  return assets.some((a) => a.source === '<script src>' && BUILD_OUTPUTS.has(a.ref));
+}
 
 // ---------------------------------------------------------------------------
 // Example host-page enumeration. Walk the examples/ tree for the HTML host
@@ -1584,6 +1601,34 @@ function scanPage(io, indexAbsPath, opts = {}) {
     }
   }
 
+  // 4) BOOT-SCRIPT contract (rf2-y1kbf): the host must LOAD the compiled
+  //    entrypoint, not merely carry the shared design-system assets. The
+  //    required-asset contract above proves a page is DRESSED (favicon, OG card,
+  //    stylesheet); nothing proved it can RUN. BUILD_OUTPUTS exempts main.js from
+  //    on-disk resolution (it is shadow-cljs output, not repo source), and that
+  //    exemption used to make its ABSENCE unobservable: deleting the one
+  //    `<script src="main.js">` from any host left every other check green while
+  //    the staged page could not boot, render, or hydrate. The compile gate
+  //    never consumes the HTML and the headless wrappers require namespaces
+  //    directly, so this gate is the only one that visits the host page.
+  //
+  //    Read off the TAGGED inventory (see loadsBuildEntrypoint) so only a real
+  //    load-time script fetch satisfies it — a preload link, an anchor, prose,
+  //    or commented-out markup naming main.js does not.
+  if (!loadsBuildEntrypoint(assets)) {
+    const entrypoint = [...BUILD_OUTPUTS].join(' / ');
+    errors.push(
+      `${relIndex}: no live '<script src="${entrypoint}">' — the page never ` +
+        `loads the compiled application entrypoint, so the staged host cannot ` +
+        `boot, render, or hydrate. Add the script tag back to the page's ` +
+        `<body>. A preload <link>, an <a href>, plain text, or commented-out ` +
+        `markup naming '${entrypoint}' does NOT satisfy this: only a live ` +
+        `<script src> does. ('${entrypoint}' remains build output — it is ` +
+        `required as a page REFERENCE, never resolved as a source file.) ` +
+        `(rf2-y1kbf)`,
+    );
+  }
+
   return { relIndex, errors, refs };
 }
 
@@ -1929,6 +1974,7 @@ module.exports = {
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,
+  loadsBuildEntrypoint,
   parseSrcset,
   extractCssImports,
   extractCssUrls,
@@ -2014,9 +2060,11 @@ if (require.main === module) {
     console.error(
       `\nA missing/renamed _shared asset, a broken @import, an unallowlisted ` +
         `EXTERNAL CSS @import, an unallowlisted direct-HTML remote asset ref ` +
-        `(remote <script>/<link>/<img>), or a page that drops a required ` +
-        `shared asset without an encoded exemption fails this gate. ` +
-        `Fix the reference, restore the asset, drop the remote dependency, ` +
+        `(remote <script>/<link>/<img>), a page that drops a required ` +
+        `shared asset without an encoded exemption, or a host page that no ` +
+        `longer loads its compiled main.js entrypoint fails this gate. ` +
+        `Fix the reference, restore the asset, restore the boot script, ` +
+        `drop the remote dependency, ` +
         `encode a shared-asset exemption (with a reason) in the examples ` +
         `asset/exception manifest ` +
         `(examples/scripts/examples-asset-manifest.cjs), or allowlist an ` +
