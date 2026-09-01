@@ -555,23 +555,47 @@ second worker arrives and nothing in the change records that anyone is inside it
 reads a ready change, the criterion passes, and the merge lands under a live worker — the exact
 failure the flag exists to prevent, arriving by the one path where the flag was never the current
 worker's to set. Measured here; nothing was lost, because the commits that went green were the ones
-that landed, but that was timing rather than protection. So on a fix dispatch the flag is stale by
-construction, and the only record that a second worker is there is the mayor's dispatch ledger.
+that landed, but that was timing rather than protection.
 
-**Stuck-CLOSED — an author goes silent holding a green draft.** Both remedies above assume the author
-answers: wait for the ready mark, or message them. Measured here: three workers registered as
-*running* while idle for over an hour — no writes, tips unmoved, worktrees clean, everything pushed —
-two of them holding drafts, one reading exactly at band with nothing non-terminal and nothing failing.
-Direct messages went unanswered for half an hour. A finished change is then blocked by an interlock
-whose protected party may no longer exist, and the fleet loses the slot as well as the change.
+**The remedy belongs to the DISPATCHER, because the worker cannot supply it.** Telling the fix worker
+to mark the change ready last does nothing when the flag is already ready before it starts, and a rule
+the protected party is unable to execute is not a rule. So converting the change back to draft is part
+of dispatching a fix, done before the worker begins — and **confirm the state took rather than trusting
+the call**, since a host that ignores the request fails silently and leaves exactly the gap you were
+closing. The dispatch ledger is then the record of who is inside it, not the only one.
 
-**Do not answer that by flipping the flag on an inference.** *It looks done* is the proxy the reaping
-rules refuse one surface over, and every reason the paragraph above rejects a per-merge liveness check
-still holds. What differs is scope: this is a rare exception path — one otherwise-mergeable draft whose
-author has stopped — rather than a test on every merge. Settle it the way reaping is settled, by a read
-rather than an inference: the agent's own report, or the operator's decision to stop that agent, which
-settles liveness by making it false. Until one of those arrives the change waits, and the honest report
-says a finished change is stranded and why.
+**Stuck-CLOSED — an author appears to go silent holding a green draft. Read this one carefully,
+because the reading is usually wrong.** The remedies above assume the author answers: wait for the
+ready mark, or message them. What gets read instead is a worker that has stopped — no writes, tip
+unmoved, worktree clean, everything pushed, a direct message unanswered for half an hour, and a draft
+sitting exactly at band with nothing non-terminal and nothing failing.
+
+**Every signal in that list is also what a worker in its FINAL MINUTES looks like, and that is the
+likelier explanation.** A worker finishing up — running one last foreground gate, deleting gate logs,
+unlinking a shared-dependency link, tidying a scratch directory — writes outside the worktree and
+outside version control, and is too busy to answer. So the tip does not move, the fetch clock does not
+move, the write clock does not move, and the message goes unanswered. **The four indirect signals do
+not fail independently here; they fail together, for one cause.** Frozen-across-three-readings feels
+like the most damning pattern available and is in fact the signature of a run about to report.
+
+Measured, twice: on the first occasion five workers were reported dormant and four then completed
+alive with full reports, one answering the ping directly to say it had been on final hygiene; the
+diagnosis was retracted in full, including a second claim — that messaging was inoperative — which
+was *slow* converted into *broken*. It recurred the same day on a sixth worker whose clocks were
+frozen for over an hour and which completed normally.
+
+**So prefer the DIRECT signal where your tooling offers one** — a live progress line, a status the
+supervisor maintains — over any number of indirect clocks, and **treat the four clocks as the fallback
+they are.** If you have only the clocks, declare a window and re-read rather than acting; the error is
+cheap in exactly one direction.
+
+**And do not answer any of it by flipping the flag on an inference.** *It looks done* is the proxy the
+reaping rules refuse one surface over, and every reason the paragraph above rejects a per-merge
+liveness check still holds. Settle it the way reaping is settled, by a read rather than an inference:
+the agent's own report, or the operator's decision to stop that agent, which settles liveness by making
+it false. Until one of those arrives the change waits, and the honest report says a finished change is
+stranded and why. That rule is unchanged by the above — what changes is how often you should expect to
+reach for it, which is rarely.
 
 ---
 
