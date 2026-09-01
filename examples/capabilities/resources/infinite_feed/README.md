@@ -158,12 +158,13 @@ infinite_feed/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/infinite-feed
+npm run dev:example -- examples/infinite-feed
 ```
 
-Then open the example's [`index.html`](index.html) over HTTP. Click **Load
-more** and watch the next batch of items append; keep clicking until the feed
-runs out and the button turns into an end-of-feed marker.
+Then open the URL it prints — the runner stages this folder's
+[`index.html`](index.html) beside the bundle. Click **Load more** and watch the
+next batch of items append; keep clicking until the feed runs out and the
+button turns into an end-of-feed marker.
 
 ## Cross-references
 

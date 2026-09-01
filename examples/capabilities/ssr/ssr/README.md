@@ -187,12 +187,13 @@ logic, not mount mechanics.
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/ssr
+npm run dev:example -- examples/ssr
 ```
 
-Then serve the build output over HTTP and open this folder's
-hand-written [`index.html`](index.html) — it ships the pre-rendered
-shell and baked payload the client hydrates against.
+Then open the URL it prints. The runner stages this folder's hand-written
+[`index.html`](index.html) — the one carrying the pre-rendered shell and the
+baked payload the client hydrates against — beside the compiled bundle, so
+there is nothing to combine by hand.
 
 ## See also
 
