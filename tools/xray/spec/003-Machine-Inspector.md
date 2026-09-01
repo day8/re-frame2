@@ -910,7 +910,11 @@ the round loop advanced — the parallel analog of `direct-event-target`), so
 the event edge matches `:idle → :staged` (never the phantom `:idle → :done`);
 and each round's own regional hop is matched with `event*` `:always`
 (region-scoped, `region-local-fired-ids`), so an **ACTIONLESS** round still
-lights.
+lights. (Rounds are one of TWO continuation kinds; rf2-nb8nj generalised
+"the first round" to "the first continuation, whatever its kind" and moved
+the ordering off this map onto the structured `:cascade` — see
+[§Raised-internal-event fired-edge highlight](#raised-internal-event-fired-edge-highlight-rf2-nb8nj)
+below. Everything above still holds for a macrostep that raised nothing.)
 
 **Handled self/internal EVENT then a round (rf2-v528f).** A region can HANDLE
 the event with a real **self / internal** transition (`before == the event
@@ -996,15 +1000,42 @@ unmarked, `handled-regions-from-cascade` read that region's `:exit` /
 and minted a phantom edge for it. That set now excludes `:raised-transition`
 steps for the same reason it already excludes `:microstep` steps — the rows
 that must not count are now identifiable, which is precisely what the runtime
-change supplies. The raised hops light separately off `raised-region-hops`,
-which reads each region's own `(from, to)` out of the wrapper's composite
-region-MAP `:from` / `:to` and matches under the internal event id through
-the same region-local → region-`:on` → root-`:on` fallback the event branch
-uses; a region that handled the raise with a targetless/self transition
-(before == after, but present in the wrapper's nested `:steps`) lights its
-self/internal edge. A region's event target resolves from its first
-continuation boundary — a round if one ran, else its first raised hop, since
-`:always` is preferred before the next raise is dequeued.
+change supplies. The raised hops light separately, off each region's own
+`(from, to)` read out of the wrapper's composite region-MAP `:from` / `:to`
+and matched under the internal event id through the same region-local →
+region-`:on` → root-`:on` fallback the event branch uses; a region that
+handled the raise with a targetless/self transition (before == after, but
+present in the wrapper's nested `:steps`) lights its self/internal edge.
+
+**The ordered continuation stream — parallel rounds and raises are ONE
+sequence.** A parallel region's event target is the `:from` of its FIRST
+same-macrostep continuation, and which continuation that is has to be read
+from the order they RAN. The first cut of this section grouped rounds and
+raises into two independent buckets and preferred any round over any raise,
+reasoning that the parent loop takes `:always` before it dequeues the next
+raise. That reasoning holds only within one iteration: a raise that ENABLES
+an `:always` puts the round AFTER itself, so preferring rounds picks the
+LATER boundary. Concretely, for `:r0 --:go--> :r1` raising `[:settle]`,
+`:r1 --:settle--> :r2`, and `:r2 --:always--> :r3`, the first round starts at
+`:r2` and the dispatched event read as `:r0 → :r2` — an aggregate edge no
+region declares — so the REAL `:go` edge went dark while `:settle` and
+`:always` both lit. Silent, again: a plausible highlight, one edge short.
+
+`region-continuations` therefore builds ONE ordered per-region stream
+(`region → [{:kind :round | :raised, :from, :to, :event} …]`) from a single
+walk of the transition's structured `:cascade`, whose TOP-LEVEL steps are
+that execution order: one `:kind :microstep` step per region selected in a
+parent-owned round, one `:kind :raised-transition` wrapper per handled
+dequeue, interleaved as they ran (Spec 005 §The structured transition cascade
+— the parallel parent queue appends an enabled round as the next TOP-LEVEL
+step after the wrapper, where the flat/compound drain nests it inside). The
+event target is the first element's `:from`, whatever its kind; each element
+then lights its own edge under its own event. This is the parallel analog of
+what the single-active branch already does with `macrostep-boundary-steps`.
+The standalone `:rf.machine.microstep/transition` round evidence
+(`microstep-region-rounds`) survives as the per-region FALLBACK for a legacy
+or trimmed trace that carries the round traces without a structured cascade;
+there is nothing to interleave in that case, so the fallback is order-safe.
 
 An **ignored or guard-blocked** raise contributes no wrapper at all, so it
 mints no edge — the record never fabricates a transition that did not fire.

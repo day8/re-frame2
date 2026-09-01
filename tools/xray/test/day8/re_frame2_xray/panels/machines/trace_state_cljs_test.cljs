@@ -1880,3 +1880,125 @@
       (is (string? right-self) "the :right :settle self/internal edge exists")
       (is (= #{left-go right-self} fired)
           "the raised self/internal transition lights, attributed to :settle"))))
+
+;; ---- rf2-nb8nj (audit of PR #8933) — the ORDERED continuation stream ------
+;;
+;; A parallel region can take BOTH continuation kinds in one macrostep, and
+;; the order they ran in is the whole of the question. The parent loop prefers
+;; `:always` at each iteration, but a RAISE that ENABLES an `:always` puts
+;; that round AFTER itself — so "a round if one ran, else a raise" reads the
+;; dispatched event's target off the LATER boundary. The two kinds are now
+;; read off ONE ordered walk of the structured `:cascade` instead of two
+;; independently grouped buckets consulted with a fixed preference.
+
+(deftest fired-ids-parallel-raise-then-enabled-round-lights-all-three-edges
+  (testing "rf2-nb8nj audit — :go takes :main :r0→:r1 and raises [:settle];
+            :settle takes :r1→:r2; the round :r2--:always-->:r3 that the RAISE
+            enabled runs next. The event's direct target is :r1 (the RAISED
+            hop's :from — the FIRST continuation), not :r2 (the round's). All
+            THREE edges light. RED before the fix: preferring any round over
+            any raise read the event as :r0→:r2, a phantom aggregate, so the
+            real :go edge went dark while :settle and :always both lit."
+    (let [def       {:type    :parallel
+                     :regions {:main {:initial :r0
+                                      :states  {:r0 {:on {:go :r1}}
+                                                :r1 {:on {:settle :r2}}
+                                                :r2 {:always :r3}
+                                                :r3 {}}}
+                               :aux  {:initial :a0
+                                      :states  {:a0 {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          go-id     (region-edge-id projected :main [:r0] [:r1] :go)
+          settle-id (region-edge-id projected :main [:r1] [:r2] :settle)
+          always-id (region-edge-id projected :main [:r2] [:r3] :always)
+          ;; LIVE runtime shape, pinned by the machines-lane counterpart
+          ;; `re-frame.machine-cascade-instrumentation-cljs-test/
+          ;; parallel-raise-then-enabled-always-round-appends-in-execution-order`:
+          ;; the parent queue appends the `:raised-transition` wrapper and THEN
+          ;; the round it enabled as the next TOP-LEVEL `:kind :microstep` step
+          ;; (the parent owns the eventless loop, so the round does not nest
+          ;; inside the wrapper the way the flat/compound drain nests it),
+          ;; PLUS one standalone `:rf.machine.microstep/transition` per round.
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/chain
+                             :before {:state {:main :r0 :aux :a0}}
+                             :after  {:state {:main :r3 :aux :a0}}
+                             :event  [:go]
+                             :cascade
+                             [{:kind :exit   :region :main :state [:r0]}
+                              {:kind :action :region :main :state [:r0] :action :kick}
+                              {:kind :entry  :region :main :state [:r1]}
+                              {:kind   :raised-transition
+                               :region nil
+                               :event  [:settle]
+                               :from   {:main :r1 :aux :a0}
+                               :to     {:main :r2 :aux :a0}
+                               :steps  [{:kind :exit   :region :main :state [:r1]}
+                                        {:kind :action :region :main :state [:r1] :action :settled}
+                                        {:kind :entry  :region :main :state [:r2]}]}
+                              {:kind :microstep :region :main :microstep-index 0
+                               :from :r2 :to :r3
+                               :steps [{:kind :exit   :region :main :state [:r2]}
+                                       {:kind :action :region :main :state [:r2] :action :advance}
+                                       {:kind :entry  :region :main :state [:r3]}]}]}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/chain :region :main
+                             :from :r2 :to :r3 :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/chain)]
+      (is (every? string? [go-id settle-id always-id])
+          "all three real edges exist in the projection")
+      (is (nil? (region-edge-id projected :main [:r0] [:r2] :go))
+          "no :r0→:r2 :go edge is declared — reading the event's target off the
+           ROUND searched for a phantom aggregate")
+      (is (contains? fired go-id)
+          "the dispatched event's OWN edge lights — the raise, not the round,
+           is the first continuation boundary")
+      (is (= #{go-id settle-id always-id} fired)
+          "all three continuation kinds light, each under its own event"))))
+
+(deftest fired-ids-parallel-round-before-a-raise-keeps-the-round-as-first-boundary
+  (testing "rf2-nb8nj audit, the other order — the round runs FIRST (:r0 has an
+            enabled :always the event landed on) and the raise is dequeued
+            after it. The event target is then the ROUND's :from, and the
+            ordered stream must not have simply swapped one fixed preference
+            for another."
+    (let [def       {:type    :parallel
+                     :regions {:main {:initial :r0
+                                      :states  {:r0 {:on {:go :r1}}
+                                                :r1 {:always :r2}
+                                                :r2 {:on {:settle :r3}}
+                                                :r3 {}}}
+                               :aux  {:initial :a0
+                                      :states  {:a0 {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          go-id     (region-edge-id projected :main [:r0] [:r1] :go)
+          always-id (region-edge-id projected :main [:r1] [:r2] :always)
+          settle-id (region-edge-id projected :main [:r2] [:r3] :settle)
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/chain2
+                             :before {:state {:main :r0 :aux :a0}}
+                             :after  {:state {:main :r3 :aux :a0}}
+                             :event  [:go]
+                             :cascade
+                             [{:kind :exit   :region :main :state [:r0]}
+                              {:kind :action :region :main :state [:r0] :action :kick}
+                              {:kind :entry  :region :main :state [:r1]}
+                              {:kind :microstep :region :main :microstep-index 0
+                               :from :r1 :to :r2
+                               :steps [{:kind :entry :region :main :state [:r2]}]}
+                              {:kind   :raised-transition
+                               :region nil
+                               :event  [:settle]
+                               :from   {:main :r2 :aux :a0}
+                               :to     {:main :r3 :aux :a0}
+                               :steps  [{:kind :entry :region :main :state [:r3]}]}]}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/chain2 :region :main
+                             :from :r1 :to :r2 :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/chain2)]
+      (is (every? string? [go-id always-id settle-id]))
+      (is (= #{go-id always-id settle-id} fired)
+          "the round is the first boundary here, so :go still matches :r0→:r1 —
+           the stream is ordered, not re-prioritised"))))

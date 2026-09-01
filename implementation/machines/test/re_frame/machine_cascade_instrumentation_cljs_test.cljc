@@ -576,6 +576,72 @@
             ":right must NOT appear at top level — it declined :go and moved
              only on the raised :settle (RED before rf2-nb8nj: #{:left :right})")))))
 
+(deftest parallel-raise-then-enabled-always-round-appends-in-execution-order
+  (testing "root-parallel: :go takes :main :r0 -> :r1 and raises [:settle];
+   :settle takes :r1 -> :r2; :r2's :always then advances to :r3. The PARENT
+   loop owns the eventless round, so a round a raise ENABLED is the NEXT
+   TOP-LEVEL :kind :microstep step after the wrapper — it does NOT nest inside
+   it the way the flat/compound drain's nested machine-transition-single
+   nests it. The cascade is a faithful record in EXECUTION order either way,
+   which is the contract a consumer reads (Spec 005 §The structured transition
+   cascade)."
+    (rf/reg-machine :casc/par-chain
+      {:type :parallel
+       :data {:trail []}
+       :regions
+       {:main {:initial :r0
+               :states  {:r0 {:on {:go {:target :r1 :action :kick}}}
+                         :r1 {:on {:settle {:target :r2 :action :settled}}}
+                         :r2 {:always [{:target :r3 :action :advance}]}
+                         :r3 {}}}
+        :aux  {:initial :a0
+               :states  {:a0 {}}}}
+       :actions {:kick    (fn [{d :data}]
+                            {:data (update d :trail (fnil conj []) :action:kick)
+                             :fx   [[:raise [:settle]]]})
+                 :settled (trail-action :action:settled)
+                 :advance (trail-action :action:advance)}})
+    (rf/dispatch-sync [:casc/par-chain [:rf.machine/start]])
+    (let [evs     (record-traces!
+                    (fn [] (rf/dispatch-sync [:casc/par-chain [:go]])))
+          tr      (the-transition evs)
+          cascade (cascade-of evs)
+          w       (first (raised-steps cascade))
+          round   (first (filterv #(= :microstep (:kind %)) cascade))]
+      (is (= {:main :r3 :aux :a0} (:state (mtest/snapshot :casc/par-chain)))
+          "the event, the raise it emitted, and the round the raise enabled all
+           settle inside ONE macrostep")
+      (is (= {:main :r0 :aux :a0} (get-in tr [:tags :before :state])))
+      (is (= {:main :r3 :aux :a0} (get-in tr [:tags :after :state]))
+          "the headline trace collapses the whole three-hop walk into one pair")
+
+      ;; THE ORDERED SHAPE. Both continuation kinds sit at top level, wrapper
+      ;; first — this is what a consumer must read in ORDER rather than by
+      ;; preferring one kind over the other.
+      (is (= [:raised-transition :microstep]
+             (filterv #{:raised-transition :microstep} (mapv :kind cascade)))
+          "the raise's boundary, then the round it enabled — execution order")
+
+      (is (= [:settle] (:event w)))
+      (is (= {:main :r1 :aux :a0} (:from w))
+          "the wrapper's :from is the whole composite region-map at dequeue")
+      (is (= {:main :r2 :aux :a0} (:to w))
+          "…and its :to is where the raised transition landed, BEFORE the round")
+      (is (empty? (filterv #(= :microstep (:kind %)) (:steps w)))
+          "the enabled round is NOT nested inside the wrapper on the parallel
+           parent queue — a round is selected as one frozen CROSS-REGION set
+           against the whole configuration, so it can co-select regions the
+           raise never touched and cannot belong to the internal event")
+
+      (is (= :main (:region round)) "the round step carries its own region")
+      (is (= :r2 (:from round)))
+      (is (= :r3 (:to round))
+          "the round starts where the RAISE left off, not where :go did")
+
+      (is (= [:action:kick :action:settled :action:advance]
+             (get-in @(rf/subscribe [:rf/machine :casc/par-chain]) [:data :trail]))
+          "trail oracle for the whole macrostep"))))
+
 ;; ---- privacy / size: no source-literal or large-payload leak --------------
 
 (deftest cascade-carries-only-deltas-not-whole-data
