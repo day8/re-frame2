@@ -56,7 +56,11 @@
   popstate-driven hydration sets an internal `*hydrating?*` flag so
   the state-watcher's reaction does NOT bounce back a push for the
   state it just absorbed."
-  (:require [clojure.string :as str]
+  ;; `clojure.string` is CLJS-only here: the pure half composes through
+  ;; `share/apply-story-params` and does no string work of its own, so
+  ;; the alias survives solely for `embed-flag-from-current-url`'s
+  ;; truthiness parse down in the `#?(:cljs ...)` block.
+  (:require #?(:cljs [clojure.string :as str])
             [re-frame.story.share :as share]))
 
 ;; ---- pure: shell-state → URL params -------------------------------------
