@@ -1240,13 +1240,30 @@ rather than on liveness, which is why that paragraph is the cross-reference here
 something to restate.
 
 **The test is patch-equivalence**, which asks what each commit *does* rather than which object it
-is: an equivalent patch already upstream means the work is contained, and anything with no upstream
-equivalent is genuinely new. In the dominant toolchain that is `cherry`, which marks the two answers
-`-` and `+`. It protects in both directions at once, which is what earns it over either half of a
-rule that only ever fails safe one way. Measured here across 63 worktrees: 60 branches read one to
-three commits ahead of the trunk, 58 of those fully merged and one carrying three genuinely new
-commits. Deleting on ancestry would have kept all 58 forever; deleting on the ahead count alone
-would have destroyed those three.
+is: an equivalent patch already upstream means the work is contained. In the dominant toolchain that
+is `cherry`, which marks the two answers `-` and `+`. It earns its place over either half of a rule
+that only ever fails safe one way. Measured here across 63 worktrees: 60 branches read one to three
+commits ahead of the trunk, 58 of those fully merged and one carrying three genuinely new commits.
+Deleting on ancestry would have kept all 58 forever; deleting on the ahead count alone would have
+destroyed those three.
+
+**But its two answers are not equally strong, and reading them as symmetric is the error this
+paragraph exists to stop.** `-` is proof of containment. `+` is only the ABSENCE of proof — not
+evidence that the commit carries unmerged work. A patch identity is computed over the diff
+*including its context lines*, so a sibling change landing in neighbouring lines of the same file
+changes your commit's context, changes its identity, and leaves work that is fully present upstream
+reading `+`. Measured here: a branch whose change had already MERGED still showed one `+` commit; every
+line that commit added was present at the trunk's tip, character for character. The sibling that moved
+the context was another change to the same file.
+
+**So the rule is safe and its reading is not.** Deleting only on `-` never destroys anything, which
+is why the criterion stands unchanged — but a mayor who reads `+` as *this branch has unmerged work*
+will hunt for work that landed weeks ago, and a branch list read as a backlog is a list of phantoms.
+**The discriminating test is cheap and settles it in one step: take the lines that commit ADDED and
+look for them at the tip.** All present means the content landed and only the context moved; any
+absent means the work is genuinely outstanding. Do that before you conclude a branch is carrying
+something, and never the other way round — the cost of the two errors is not symmetric either, since
+believing `+` costs you a search, while believing a wrongly-derived `-` costs you the work.
 
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
