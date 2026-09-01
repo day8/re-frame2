@@ -128,14 +128,14 @@ Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) a
 ```clojure
 (ns app.login-test
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
   ;; cf. examples/capabilities/machines/state_machine_walkthrough
   ;; :idle --submit--> :submitting; :entry describes the HTTP fx
   (let [{:keys [status snapshot fx]}
-        (machines/machine-transition
+        (rf.machines/machine-transition
           login-flow
           {:state :idle :data {:attempts 0 :error nil}}
           [:auth.login/submit {:email "a@b.com"
@@ -146,7 +146,7 @@ Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) a
 
   ;; two failures already recorded; the third locks out and is still counted
   (let [{:keys [status snapshot]}
-        (machines/machine-transition
+        (rf.machines/machine-transition
           login-flow
           {:state :submitting :data {:attempts 2 :error nil}}
           [:auth.login/failure {:error {:message "bad creds"}}])]
@@ -176,8 +176,8 @@ Effects are asserted as data. The HTTP request is not performed in this test; th
 If a machine is already registered and you want its registered definition, use machine metadata:
 
 ```clojure
-(machines/machine-transition
-  (machines/machine-meta :auth.login/flow)
+(rf.machines/machine-transition
+  (rf.machines/machine-meta :auth.login/flow)
   snapshot
   trigger)
 ```
@@ -205,6 +205,6 @@ At runtime, the same failure aborts the macrostep atomically. The previous snaps
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `[:rf/machine id]` is `nil` | No event has addressed that singleton yet | Dispatch first, or fall back to the definition's `:initial` |
-| `machine-transition` is unresolved | Required from `re-frame.machines`, not `rf/` | `(:require [re-frame.machines :as machines])` |
+| `machine-transition` is unresolved | Required from `re-frame.machines`, not `rf/` | `(:require [re-frame.machines :as rf.machines])` |
 | Guard threw and a later candidate did not run | Thrown guards abort the macrostep | Fix the guard; do not rely on fall-through after a throw |
 | Test expected `:rf.http/managed` and got none | `:entry` did not run, or the table under test is not the `defmachine` value | Import `login-flow`; start from `:idle` so `:submitting` entry fires |

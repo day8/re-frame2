@@ -3,8 +3,8 @@
 State machines, per Spec 005. You register a machine with one macro (`reg-machine`), and the machine *is* an event handler. Its transition table — a map of `:states`, `:on`, `:entry`, `:exit`, `:after` — compiles into a `reg-event` handler at registration time. Dispatch an event at the machine's id, and the table decides the transition. The resulting `:db` and `:fx` flow through the normal cascade. The same trace bus, time-travel, and override surfaces that work for plain handlers also work for machines.
 
 ```clojure
-(:require [re-frame.core     :as rf]        ;; reg-machine / defmachine — the facade registration macros
-          [re-frame.machines :as machines]) ;; engine, query, transition, tooling, runtime helpers
+(:require [re-frame.core     :as rf]           ;; reg-machine / defmachine — the facade registration macros
+          [re-frame.machines :as rf.machines]) ;; engine, query, transition, tooling, runtime helpers
 ```
 
 Read a machine's snapshot with the ordinary `subscribe`, naming its framework sub vector. Use `@(rf/subscribe [:rf/machine machine-id])` for the snapshot, and `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` for a `:tags`-membership predicate. There is no named-read-sugar fn: every runtime-db framework read is a subscription vector, one grammar.
@@ -12,7 +12,7 @@ Read a machine's snapshot with the ordinary `subscribe`, naming its framework su
 Surfaces split two ways:
 
 - **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` registration macros.
-- **Owned by `re-frame.machines`** (reach as `re-frame.machines/<name>`, not `rf/<name>`): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
+- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
 
 The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
 
@@ -116,7 +116,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Example**:
   ```clojure
   ;; Same effect as the macro, minus the source-coord walking.
-  (machines/reg-machine* :traffic-light
+  (rf.machines/reg-machine* :traffic-light
     {:initial :red
      :states  {:red   {:on {:go {:target :green}}}
                :green {:on {:go {:target :red}}}}})
@@ -134,7 +134,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```clojure
   ;; Build the handler fn without registering it (e.g. to inspect or compose it).
   (def handler
-    (machines/make-machine-handler
+    (rf.machines/make-machine-handler
       {:initial :idle
        :states  {:idle    {:on {:start {:target :running}}}
                  :running {}}}))
@@ -156,10 +156,10 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
     - JVM-runnable; no live frame needed. `re-frame.machines` is the only namespace a caller requires.
 - **Worked example** — drive a transition and assert on the snapshot:
   ```clojure
-  (require '[re-frame.machines :as machines])
+  (require '[re-frame.machines :as rf.machines])
 
   (let [{:keys [status snapshot fx]}
-        (machines/machine-transition login-flow
+        (rf.machines/machine-transition login-flow
                                      {:state :idle :data {}}
                                      [:auth.login/submit {:email "a@b.com" :password "secret"}])]
     (is (= :ok status))
@@ -180,8 +180,8 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Example**:
   ```clojure
   ;; Every registered machine-id (the registry, not a frame's live snapshots).
-  (machines/machines)                              ;; → [:session :auth.login/flow …]
-  (contains? (set (machines/machines)) :session)
+  (rf.machines/machines)                              ;; → [:session :auth.login/flow …]
+  (contains? (set (rf.machines/machines)) :session)
   ```
 
 ### `re-frame.machines/machine-meta`
@@ -195,9 +195,9 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Example**:
   ```clojure
   ;; The registered spec back out — table, doc, schemas, source-coords.
-  (machines/machine-meta :session)
+  (rf.machines/machine-meta :session)
   ;; …or read just the declared :data schema:
-  (get-in (machines/machine-meta :session) [:schemas :data])
+  (get-in (rf.machines/machine-meta :session) [:schemas :data])
   ```
 
 ### `re-frame.machines/machine-by-system-id`
@@ -215,7 +215,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Example**:
   ```clojure
   ;; Resolve a :system-id-bound actor, then address it directly.
-  (when-let [actor (machines/machine-by-system-id :notifier)]
+  (when-let [actor (rf.machines/machine-by-system-id :notifier)]
     (rf/dispatch [actor [:notify "hello"]]))
   ```
 
@@ -298,7 +298,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   (rf/reg-event :session/stop-logger
     (fn [_ _]
-      {:fx [[:rf.machine/destroy (machines/machine-by-system-id :logger)]]}))
+      {:fx [[:rf.machine/destroy (rf.machines/machine-by-system-id :logger)]]}))
   ```
 
 **Final states and `:on-done`.** Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot. So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.

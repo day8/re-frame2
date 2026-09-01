@@ -318,12 +318,12 @@ A transition is a pure function of *(definition, snapshot, event)*. No browser, 
 ```clojure
 (ns app.login-test
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
   (let [{:keys [status snapshot fx]}
-        (machines/machine-transition
+        (rf.machines/machine-transition
           login-flow
           {:state :idle :data {:attempts 0 :error nil}}
           [:auth.login/submit {:email "a@b.com"
@@ -334,7 +334,7 @@ A transition is a pure function of *(definition, snapshot, event)*. No browser, 
 
   ;; Two failures already recorded (:attempts 2); the third is terminal.
   (let [{:keys [status snapshot]}
-        (machines/machine-transition
+        (rf.machines/machine-transition
           login-flow
           {:state :submitting :data {:attempts 2 :error nil}}
           ;; Pure-table test: invent the failure shape the action expects.

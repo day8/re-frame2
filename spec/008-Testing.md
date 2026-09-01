@@ -175,12 +175,12 @@ The `destroy-frame!` + re-`make-frame` composition (per [002 §Resetting a frame
 For testing state machine transitions, skip the frame entirely:
 
 ```clojure
-(require '[re-frame.machines :as machines])   ;; the fn's owning namespace
+(require '[re-frame.machines :as rf.machines])   ;; the fn's owning namespace
 
 (deftest auth-machine-transitions
   (let [snap-1 {:state :idle :data {}}
         {:keys [status snapshot fx]}
-        (machines/machine-transition auth-machine-table snap-1
+        (rf.machines/machine-transition auth-machine-table snap-1
                                      [:auth/login-pressed])]
     (is (= :ok status))
     (is (= :validating (:state snapshot)))
