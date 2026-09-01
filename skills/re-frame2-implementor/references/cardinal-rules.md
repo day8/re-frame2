@@ -74,11 +74,12 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
    gh issue create \
      --repo day8/re-frame2 \
      --title "spec-gap(EP-NNN): <one-line>" \
-     --body-file '/tmp/re-frame2-issue-7f3a9c.md' \
-     --label spec-gap,from-implementor
+     --body-file '/tmp/re-frame2-issue-7f3a9c.md'
    ```
 
    Single-quote the path. It is agent-authored, so nothing in it needs expanding, and single quotes keep a Windows path's backslashes literal.
+
+   **File it unlabelled — do not add `--label`.** `gh` resolves label names to ids *before* the create mutation, so a single name the target repo does not carry kills the whole call at pre-flight (`could not add label: <name> not found`, exit 1) and the approved body is never filed. A published recipe cannot know which labels `day8/re-frame2` carries on the day it runs, so it names none; a maintainer labels the issue on arrival.
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants.
 
@@ -86,11 +87,11 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
 
 - **Never paste evidence-/transcript-derived text into `--title`.** A failure string, a log line, or a suggested title can carry `$(…)`, backticks, `"`, `'`, `\`, or a newline the shell expands the moment the command runs. Engineer approval to file an issue is not approval to execute session-carried shell syntax.
 - **Author the title from a restricted safe alphabet:** letters, digits, spaces, and `- . , / ( ) :` only — no `$`, no backtick, no `"`/`'`, no `\`, no newline, no other shell metacharacter.
-- **Reviewer pass covers the title.** Re-read the assembled `--title` arg in the same pre-emission pass that scans the body for private evidence. The same rule covers any other user-influenced argument (`--label`, `--repo`): keep them agent-authored or from a fixed set, never interpolated from evidence.
+- **Reviewer pass covers the title.** Re-read the assembled `--title` arg in the same pre-emission pass that scans the body for private evidence. The same rule covers any other user-influenced argument (`--repo`, and `--search` above): keep them agent-authored or from a fixed set, never interpolated from evidence.
 
 ## 9. Approval gate before any cross-repo side effect
 
-Filing a GitHub issue against `day8/re-frame2` from inside the engineer's port repo is a cross-repo side effect. **Per-issue approval IS required.** Before the call, show the engineer the full draft — title, target repo, label set, body — and wait for an explicit OK. Invoking the skill is consent to the *workflow*, not consent to each *cross-repo write*. Treat the two as separate gates.
+Filing a GitHub issue against `day8/re-frame2` from inside the engineer's port repo is a cross-repo side effect. **Per-issue approval IS required.** Before the call, show the engineer the full draft — title, target repo, body — and wait for an explicit OK. Invoking the skill is consent to the *workflow*, not consent to each *cross-repo write*. Treat the two as separate gates.
 
 ## 10. Honour the reserved `:rf/*` scheme — with the fixed three-fx unqualified carve-out
 
