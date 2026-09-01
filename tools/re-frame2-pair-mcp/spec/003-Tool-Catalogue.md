@@ -1885,10 +1885,10 @@ value; required with `probe`, and refused without it), `wait-ms`
 
 **Returns**: one of six envelope shapes (rf2-36awg, rf2-1f60u; impl:
 [`src/re_frame2_pair_mcp/tools/tail_build.cljs`](../src/re_frame2_pair_mcp/tools/tail_build.cljs)
-lines 141-246):
+lines 141-247):
 
 1. **Success (probe + baseline supplied) — a sample left the baseline
-   within the deadline** (lines 184-190 for the fast ordering, 225-231
+   within the deadline** (lines 185-190 for the fast ordering, 226-231
    for the slow one — one envelope shape, two orderings):
 
     ```clojure
@@ -1906,7 +1906,7 @@ lines 141-246):
    reads *which ordering fired* rather than guessing.
 
 2. **Timeout (probe + baseline supplied) — every sample matched the
-   baseline for the whole of `wait-ms`** (lines 210-218):
+   baseline for the whole of `wait-ms`** (lines 212-218):
 
     ```clojure
     {:ok?          false
@@ -1933,7 +1933,7 @@ lines 141-246):
    **not** on its own evidence of a compile error — confirm that from
    actual shadow-cljs / browser output.
 
-3. **Probe errored on its initial evaluation** (lines 243-246):
+3. **Probe errored on its initial evaluation** (lines 244-247):
 
     ```clojure
     {:ok?         false
@@ -1947,7 +1947,7 @@ lines 141-246):
    baseline comparison ever ran. Almost always a malformed probe (typo,
    dotted-form host interop against a missing var, etc.).
 
-4. **`probe` without `baseline` — refused** (lines 169-173):
+4. **`probe` without `baseline` — refused** (lines 171-173):
 
     ```clojure
     {:ok?    false
@@ -1969,7 +1969,7 @@ lines 141-246):
    against the file (e.g. `handler-meta`'s `:line` for the edited
    handler) with `eval-cljs`.
 
-5. **`baseline` without `probe` — refused** (lines 145-149):
+5. **`baseline` without `probe` — refused** (lines 147-149):
 
     ```clojure
     {:ok?    false
@@ -1978,7 +1978,7 @@ lines 141-246):
               the probe form the baseline was captured from."}
     ```
 
-6. **No probe supplied — soft delay** (lines 155-163):
+6. **No probe supplied — soft delay** (lines 158-163):
 
     ```clojure
     {:ok?   true
