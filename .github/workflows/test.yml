@@ -5015,7 +5015,14 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-migration-v1-codemod-${{ hashFiles('migration/from-re-frame-v1/codemod/deps.edn') }}
+          # No salt is needed to separate the two aliases — one deps.edn
+          # declares both, so one cache entry serves both steps. But the
+          # `:integration` alias reaches implementation/core through a
+          # :local/root, and THAT artefact's own deps are not in this hash:
+          # without the second file the key would go stale whenever core's
+          # dependencies move, silently restoring a cache that lacks them
+          # (rf2-36u96).
+          key: ${{ runner.os }}-clj-migration-v1-codemod-${{ hashFiles('migration/from-re-frame-v1/codemod/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-clj-migration-v1-codemod-
             ${{ runner.os }}-clj-
@@ -5039,6 +5046,28 @@ jobs:
       # property that has no other witness anywhere in this repo.
       - name: Run JVM tests (from-re-frame-v1 codemod artefact)
         run: clojure -M:test
+
+      # rf2-36u96 — the `:integration` alias landed with rf2-8odvg's chain
+      # normalization and was then invoked by NOTHING: not this workflow, not
+      # scripts/test-jvm-tools.sh. The PR that added it therefore ran only
+      # `clojure -M:test`, leaving the artefact's one runtime proof orphaned.
+      #
+      # What that proof holds is the half `:test` structurally cannot: `:test`
+      # keeps re-frame2 off its classpath on purpose (self-containment, so the
+      # codemod runs on a bare JVM against any v1 corpus), which means it can
+      # only assert the SHAPE of the emitted text. `:integration` pulls
+      # implementation/core via :local/root and evaluates that text against the
+      # real v2 `reg-event` contract at namespace load — plus four negative
+      # controls (`:rf.error/path-removed`, `/reg-event-bad-middle-slot`,
+      # `/inline-interceptor-removed`, `/unregistered-interceptor`) that prove
+      # the harness observes registration rather than parsing. A codemod whose
+      # output the target rejects is exactly the failure rf2-8odvg was filed
+      # for, and shape alone cannot see it.
+      #
+      # Kept a SEPARATE invocation from the step above so `:test`'s
+      # self-contained classpath stays pinned by an actual run of it.
+      - name: Run JVM integration tests (emitted output vs. the real v2 reg-event contract)
+        run: clojure -M:integration
 
   node-ssr-node:
     name: Node implementation/ssr-node (bounded SSR service suite)
