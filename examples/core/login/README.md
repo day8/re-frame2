@@ -75,7 +75,7 @@ login/
   stories.index.html   — host page for the Story-showcase build.
 ```
 
-The 3 `stories*` files are an intentionally auxiliary Story showcase layered over this example (build `:examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase this worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
+The 3 `stories*` files are an intentionally auxiliary Story showcase layered over this example (build `examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase this worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
 
 ## How to run
 
