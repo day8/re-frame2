@@ -2202,6 +2202,49 @@ else
             ;;
         esac
         ;;
+      skills/re-frame2-pair-retro/*)
+        # rf2-g1m2q — this tree armed NOTHING AT ALL, not merely
+        # skills_structural=false: the four arms above were the whole of the
+        # `skills_structural` surface and the main case has no default arm, so
+        # a diff confined here classified to zero of 28 outputs.
+        #
+        # IT CANNOT INHERIT THE PAIR ARM, and that is the whole reason it needs
+        # its own. `skills/re-frame2-pair/*` requires a `/` immediately after
+        # `pair`; this tree has `-retro` there, so the pattern never matches and
+        # the near-identical prefix reads as though it were already covered.
+        #
+        # rf2-qad4l wired `skills/re-frame2-pair-retro/tests/*_test.clj` into the
+        # `skills-structural` job as its own step (a bb loop mirroring the
+        # setup-skill one), gated on this output — so until this arm existed the
+        # step fired only on a change to one of the OTHER armed trees or on an
+        # --all run, never on a change to the tests it gates. That is the
+        # surface-armed gate skipped on the very push that breaks it.
+        #
+        # ONE output, structural only. The tree is prose plus a Babashka
+        # command-contract test that loads no re-frame2 runtime, drives no live
+        # Pair op and compiles into no example build, so the expensive lanes its
+        # `skills/re-frame2-pair/*` neighbour arms have nothing to do here.
+        skills_structural=true
+        ;;
+      skills/reagent-migration/*)
+        # rf2-g1m2q — the same silent hole in the second of the two trees the
+        # measurement covered, and the same zero-output classification.
+        #
+        # rf2-vpdrf / rf2-bbe91 wired `skills/reagent-migration/tests/fixture/`
+        # into `reagent-migration-fixture-cold-start` — a MIG-23 SSR cold-start
+        # :node-test build — gated on this output. The
+        # fixture is the skill's executable half: it pins the migrated output
+        # against the real substrate, so an unclassified edit to it merged with
+        # its own suite unrun.
+        #
+        # ONE output, structural only, and the fixture is why that is not an
+        # oversight: it resolves its own deps and builds its own :node-test, so
+        # `reagent-migration-fixture-cold-start` (which skills_structural gates)
+        # is the job that runs it. Arming `cljs_node_test` or `examples_compile`
+        # instead would schedule the implementation's own heavy lanes for a diff
+        # that cannot reach them, and still not run this fixture.
+        skills_structural=true
+        ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|scripts/playground-sci-input-digest.mjs)
         # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
         # bootstrap + the re-frame2 SCI bundle). The tools-playground job
