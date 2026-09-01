@@ -2,9 +2,9 @@
 
 The complete symbol table for Xray's public surface, organised by namespace for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
 
-Surfaces fall into six namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries the common host-facing facade; `runtime` carries the tool read-and-mutate seam; `keybinding` carries the embed-host lifecycle pair. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
+Surfaces fall into five namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries the common host-facing facade; `config` carries the full configuration surface; `keybinding` carries the embed-host lifecycle pair. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
 
-For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md), [Configuration keys](config-keys.md), and [Runtime seam](runtime-seam.md). For the index of *what* this reference covers (and what it omits — the Xray-internal panel composers, the static-mode catalogues, the atom handles that mirror state the setters write to), see [the index](index.md#what-canonical-means-here).
+For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md) and [Configuration keys](config-keys.md). For the index of *what* this reference covers (and what it omits — the Xray-internal panel composers, the static-mode catalogues, the atom handles that mirror state the setters write to), see [the index](index.md#what-canonical-means-here).
 
 ## `day8.re-frame2-xray.core`
 
@@ -70,57 +70,6 @@ The lifecycle pair for the global `Ctrl+Shift+C` keydown listener. Reach here fr
 | --- | --- | --- |
 | `attach!` | `(attach!)` → nil | Install the global listener once. Honours `:rf.xray/keybinding-enabled?`. No-op on second + subsequent calls. |
 | `detach!` | `(detach!)` → nil | Remove the global listener. Idempotent. Symmetric with `attach!`. |
-
-## `day8.re-frame2-xray.runtime`
-
-The Xray ↔ tool read-and-mutate seam. Twenty surfaces — discovery, origin tag, eighteen accessors split across inspection / mutation / streaming / escape-hatch / meta / test bands. Reach here when you're writing tool-shaped code: an MCP server, an IDE plugin, a record-replay harness, a custom in-app debug panel.
-
-### Discovery + origin
-
-| Symbol | Signature | Intuition |
-| --- | --- | --- |
-| `session-id` | Var (string UUID) | Per-preload random UUID. Survives `:after-load`; wiped on full page refresh. Proves the runtime landed. |
-| `*current-origin*` | `^:dynamic` Var | The `:tags :origin` value the runtime stamps onto every mutation. Default `:xray-mcp`. Tool clients rebind for synchronous extent. |
-| `current-origin` | `(current-origin)` → keyword | Read accessor — answers "what's the current `:origin` tag?". |
-
-### Inspection band (9 read-only)
-
-| Symbol | Signature | Intuition |
-| --- | --- | --- |
-| `get-trace-buffer` | `(get-trace-buffer opts)` → map | Filtered slice of the framework's trace stream. Filter keys per Spec 009. |
-| `get-epoch-history` | `(get-epoch-history opts)` → map | Per-frame epoch ring buffer. Default depth 50. |
-| `get-app-db` | `(get-app-db opts)` → map | Live `app-db` for a frame, optionally scoped by `:path`. Routes through `elide-wire-value`. |
-| `get-app-db-diff` | `(get-app-db-diff opts)` → map | `:db-before` + `:db-after` off a named epoch record. |
-| `get-machine-state` | `(get-machine-state opts)` → map | Per-machine state read for the registered machine spec. |
-| `get-machine-list` | `(get-machine-list opts)` → map | Map of every machine in the active frame, keyed by machine-id. |
-| `get-issues` | `(get-issues opts)` → map | Trace events filtered to issue-tier op-types — error / warning / schema violation / hydration mismatch. |
-| `get-handlers` | `(get-handlers opts)` → map | Registrar listing, optionally narrowed by `:kind`. |
-| `get-source-coord` | `(get-source-coord opts)` → map | Per-registration source-coord projection. `{:ns :file :line :column}`. |
-
-### Mutation band (3 write)
-
-| Symbol | Signature | Intuition |
-| --- | --- | --- |
-| `dispatch!` | `(dispatch! event-vec opts)` → map | Fire an event tagged with the current origin. Modes `:queued` / `:sync`. |
-| `restore-epoch!` | `(restore-epoch! opts)` → map | Rewind a frame to a named epoch's canonical `:frame-state-after` (app-db + runtime-db restored atomically). |
-| `replace-app-db!` | `(replace-app-db! opts)` → map | Inject a value into a frame's `app-db`. Schema-validates. |
-
-### Streaming band (3 subscription)
-
-| Symbol | Signature | Intuition |
-| --- | --- | --- |
-| `subscribe!` | `(subscribe! opts)` → map | Open a streaming subscription. `:topic ∈ #{:trace :epoch :fx :error}`. |
-| `unsubscribe!` | `(unsubscribe! opts)` → map | Idempotent close. |
-| `list-subscriptions` | `(list-subscriptions)` → map | Diagnostic enumerating active runtime-side subscription metadata. |
-
-### Escape hatch + meta + test
-
-| Symbol | Signature | Intuition |
-| --- | --- | --- |
-| `eval-form-result` | `(eval-form-result value opts)` → map | Runtime-side result shaper for the MCP server's `eval-cljs` channel. Privacy + size scrubbing. |
-| `health` | `(health)` → map | One-call summary. `{:session-id :debug-enabled? :frames :ambiguous-frame? :coord-annotation-enabled? :origin}`. |
-| `tail-build-probe` | `(tail-build-probe)` → map | Monotonic counter for hot-reload change-detect. Survives `:after-load`. |
-| `reset-for-test!` | `(reset-for-test!)` → nil | Clears subscriptions + probe-counter. Test-only. |
 
 ## `day8.re-frame2-xray.preload`
 
@@ -199,8 +148,8 @@ If you find yourself reading source for a Xray-internal symbol because the chapt
 
 ## See also
 
-- [Index](index.md) — the navigation map for the four chapters in this folder.
+- [Index](index.md) — the navigation map for the three chapters in this folder.
 - [Mount control](mount-control.md) — `init!`, `open!`, `close!`, `toggle!`, `popout!`, `status`, the frame picker.
 - [Configuration keys](config-keys.md) — `configure!` and the per-key setters.
-- [Runtime seam](runtime-seam.md) — the read-and-mutate accessor surface for tools.
+- [Driving the app from outside](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — Xray has no agent seam; `re-frame2-pair.runtime` + the Pair MCP server is that surface.
 - [Normative spec — `tools/xray/spec/API.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) — the developer-internal source of truth.

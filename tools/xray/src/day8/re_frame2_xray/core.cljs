@@ -17,10 +17,11 @@
   live in their own namespaces: the full per-key setter inventory in
   `day8.re-frame2-xray.config`, the `attach!`/`detach!` lifecycle pair
   in `day8.re-frame2-xray.keybinding` (the embed-host escape hatch),
-  the panel reg-views under `day8.re-frame2-xray.panels.*`, and the
-  Xray ↔ MCP read-and-mutate seam in `day8.re-frame2-xray.runtime`.
+  and the panel reg-views under `day8.re-frame2-xray.panels.*`.
   Hosts that need the wider surface require those namespaces directly;
-  the facade does not chain-re-export them.
+  the facade does not chain-re-export them. Programmer/AI access to a
+  running app is not an Xray surface at all — that is
+  `re-frame2-pair.runtime` plus `tools/re-frame2-pair-mcp/`.
 
   ## Why a thin facade
 

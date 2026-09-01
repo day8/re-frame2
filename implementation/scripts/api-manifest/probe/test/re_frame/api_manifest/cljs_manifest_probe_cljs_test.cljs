@@ -36,7 +36,7 @@
     supported host-embed surface), `implementation` (the panel-leaf `Panel`
     reg-views, exported only so the shell composes them — NOT host-facing;
     rf2-oekz6s) and `tooling` (the `config` published constants, the
-    `open-in-editor` chip, the `runtime` Xray↔MCP read seam), with the rest
+    `open-in-editor` chip), with the rest
     \"otherwise unrowed-internal\". The probe checks EXISTENCE, not tier, so
     these tier reclassifications do not affect it. So only the rowed
     vars are verified to still resolve (a var renamed / removed under a
@@ -51,8 +51,6 @@
         `panel`), the five Static reg-views.
       - `day8.re-frame2-xray.config` — the published layout-host constants.
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
-      - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
-        entry points.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -89,8 +87,7 @@
             [day8.re-frame2-xray.static.routes.panel]
             [day8.re-frame2-xray.static.schemas.panel]
             [day8.re-frame2-xray.config]
-            [day8.re-frame2-xray.open-in-editor]
-            [day8.re-frame2-xray.runtime]))
+            [day8.re-frame2-xray.open-in-editor]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -125,8 +122,7 @@
    "day8.re-frame2-xray.static.routes.panel"         (emit-ns-publics day8.re-frame2-xray.static.routes.panel)
    "day8.re-frame2-xray.static.schemas.panel"        (emit-ns-publics day8.re-frame2-xray.static.schemas.panel)
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
-   "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
-   "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)})
+   "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).

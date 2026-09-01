@@ -475,8 +475,9 @@ re-frame2-pair is AI-driven (an LLM integration via nREPL). Xray is human-driven
 
 > **NOTE (2026-05-19, rf2-hvl1g).** The `xray-mcp` jar described
 > below was dropped — see DESIGN-RATIONALE.md Lock #6 supersedence.
-> AI agent access flows through `tools/re-frame2-pair-mcp/` against
-> the framework-published Xray runtime API instead. The text below
+> AI agent access flows through `re-frame2-pair.runtime` +
+> `tools/re-frame2-pair-mcp/` instead (rf2-7htk7 retired the duplicate
+> Xray-side runtime seam too). The text below
 > is preserved as historical design lineage.
 
 **Xray ships `tools/xray-mcp/`** (a separate jar, mirroring `tools/story-mcp/`). The MCP server exposes:

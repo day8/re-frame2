@@ -173,6 +173,6 @@ Every runtime-value payload crosses the wire path-projected; authored metadata c
 - [Scripts](script.md) — the `:script` body shape a `register-variant` call emits.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — `elide-wire-value`, the framework primitive the MCP jar's egress boundary calls.
-- [Xray runtime seam](../../xray/api/runtime-seam.md) — the parallel Tool-Pair contract for Xray-the-panel; same emit-and-consume discipline.
+- [re-frame2-pair MCP server](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — the sibling live-app Tool-Pair contract; same emit-and-consume discipline. (Xray is the human panel and carries no agent seam — rf2-7htk7.)
 - [re-frame2-pair skill](../../skills/re-frame2-pair.md) — the live-browser door, for driving a running app's Story runtime.
 - Normative spec — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (wire protocol, tool registry, write-surface gating) and [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary).

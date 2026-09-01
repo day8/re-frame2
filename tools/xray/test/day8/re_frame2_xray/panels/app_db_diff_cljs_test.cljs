@@ -393,14 +393,14 @@
 ;;
 ;; The system clipboard is an off-box sink. The copy fx wrote the RAW
 ;; (pr-str value) — a `{:sensitive? true}` slot or a large blob leaked
-;; verbatim. The value-copy event now routes through runtime/egress-value
+;; verbatim. The value-copy event now routes through egress/egress-value
 ;; (fail-closed: sensitive ⇒ :rf/redacted, large ⇒ :rf.size/large-elided),
 ;; pinned to the observed frame so that frame's schema declarations govern
-;; — the same fix class as the palette snapshot (rf2-mxzgg) + get-app-db
-;; (rf2-a96xq).
+;; — the same fix class as the palette snapshot (rf2-mxzgg).
+;;
 
 (defn- seed-sensitive-schema! []
-  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — EP-0025: durable app-db
+  ;; EP-0025: durable app-db
   ;; classification rides the commit-plane classification effects.
   ;; `elision/apply-classification-effects` writes a `:source :effect`
   ;; declaration (index-free :rf/path) onto :rf/default's per-frame

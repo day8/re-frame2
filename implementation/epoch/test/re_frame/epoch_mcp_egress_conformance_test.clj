@@ -57,11 +57,10 @@
   Why this file lives in implementation/epoch/test rather than under an
   MCP-server test tree: MCP-server test runners are shadow-cljs + Node
   (`npm test` -> `out/server-test.js`), and the artefacts do not
-  statically depend on `re-frame.epoch` — the runtime accessors get into
-  the running app via the injected-runtime path
-  (`day8.re-frame2-xray.runtime`), not the MCP-server bundle. The
-  framework's epoch artefact owns the projection emission site (Spec
-  Security.md §Epoch privacy posture); pinning conformance from
+  statically depend on `re-frame.epoch` — the Pair runtime helpers get
+  into the running app via the `re-frame2-pair.runtime` preload, not the
+  MCP-server bundle. The framework's epoch artefact owns the projection
+  emission site (Spec Security.md §Epoch privacy posture); pinning from
   the artefact side keeps the test on the JVM next to the contract owner.
   An MCP-side end-to-end test is the job of the SDK-driven conformance
   `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."

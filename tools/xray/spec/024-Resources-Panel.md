@@ -1,7 +1,7 @@
 # 024-Resources-Panel
 
 The Xray surface for **declarative server-state** — the consumer-side
-panel + tool-accessor + trace-family contract for the framework's
+panel + trace-family contract for the framework's
 optional Resources artefact ([`spec/016-Resources.md`](../../../spec/016-Resources.md)
 §Xray and AI tooling). The "where is my server state, what owns it, and
 is it stale?" lens.
@@ -11,7 +11,7 @@ is it stale?" lens.
 > policy, status FSM, owners vs causes, the work ledger, invalidation,
 > GC, SSR/restore). This doc is the Xray-side consumer contract: the
 > panel sections, the `:rf.xray/*` registry surface, the `:rf.resource/*`
-> trace family Xray colours/filters, the five tool accessors, and the
+> trace family Xray colours/filters, and the
 > privacy posture Xray applies. Where this doc and Spec 016 differ, Spec
 > 016 governs the server-state semantics; this doc governs Xray's
 > presentation of them.
@@ -75,7 +75,7 @@ machine snapshots:
   `:rf.xray/trace-buffer`.
 
 The Resources panel surface (`panels/resources.cljs`,
-`panels/resources_helpers.cljc`, the `runtime.cljs` Resources accessors)
+`panels/resources_helpers.cljc`)
 does **not** `:require` `re-frame.resources.*` — the reserved runtime-db
 key paths are small duplicated literals in
 `panels/resources_helpers.cljc`, the price of keeping the panel's read
@@ -113,38 +113,28 @@ Two elision layers compose:
    `:sensitive?` / `:large?` slots via `elide-wire-value`) keeps its
    sentinel status and renders `[redacted]` / `[large — elided]` with no
    raw preview.
-2. **Off-box egress** (the tool accessors). Per-slot, NOT per-entry. A
-   resource cache entry mixes **payload-bearing** slots (`:data` /
-   `:error` / `:refresh-error`, and the key's scope/params — the only
-   slots that can carry PII or a large blob) with **metadata** slots
-   (`:status`, `:generation`, `:attempt`, `:request-id`, `:current-work`,
-   `:active-owners`, `:tags`, `:loaded-at` / `:stale-at` /
-   `:invalidated-at`) — non-PII runtime bookkeeping. The accessors project
-   the **metadata BEFORE egress redaction** and route **only the payload
-   values** through the framework `egress-runtime-db-value` walker (the
-   resource cache is runtime-db state, so the off-box default REDACTS those
-   payload values per Spec 011 §Off-box redaction, ruling #14; a
-   trusted-local caller opts in with `:include-runtime-db? true`, and even
-   then per-slot `:sensitive?` / `:large?` declarations still elide, and a
-   value already redacted/elided upstream keeps its sentinel). **A redacted
-   summary therefore STILL exposes the metadata** (the EP-0003 tool
+2. **Per-slot payload egress** (`instance-row`'s optional `egress-fn`;
+   the on-box render threads `on-box-resource-egress-fn`, rf2-9zix0u).
+   Per-slot, NOT per-entry. A resource cache entry mixes
+   **payload-bearing** slots (`:data` / `:error` / `:refresh-error`, and
+   the key's scope/params — the only slots that can carry PII or a large
+   blob) with **metadata** slots (`:status`, `:generation`, `:attempt`,
+   `:request-id`, `:current-work`, `:active-owners`, `:tags`,
+   `:loaded-at` / `:stale-at` / `:invalidated-at`) — non-PII runtime
+   bookkeeping. The projection emits the metadata from the RAW entry and
+   routes **only the payload values** through the egress fn, so **a
+   redacted summary STILL exposes the metadata** (the EP-0003 tool
    contract; Spec 016 §Xray, "Xray sees redacted summaries, not raw
    values"): the `:status` / `:tag` / `:owner` / `:request-id` filters
-   (which filter the projected rows) work on the default path **without**
-   `:include-runtime-db?`, and the rows are useful even when the payload is
-   redacted. The **raw scoped key is the row identity** (never egressed in
-   place) so two entries whose scope/params redact to the same sentinel
-   cannot collapse into one. `get-resource-state` requires the **full**
-   scoped key (`:resource-id` + `:scope` + `:params`) **by key presence,
-   not value** (rf2-7iw0bw): an axis ABSENT from the call fails closed with
-   `:reason :missing-key` (a partial key cannot address an entry), but an
-   axis present with an explicit **nil** value (e.g. `:params nil`) is a
-   valid key part that addresses the nil-params entry — distinct from the
-   wildcard, never coerced to missing. `get-resource-state` resolves that full key the SAME way
-   `list-resource-instances` selects its raw entries — by scanning
-   `:entries` and matching each candidate's `:resource/key` stamp (see the
-   byte-key-id paragraph below), never by a direct map-key lookup on the
-   scoped-key vector (rf2-497rv7).
+   filter the projected rows and stay useful even when every payload is
+   redacted.
+
+   The **raw scoped key is the row identity** (never egressed in place)
+   so two entries whose scope/params redact to the same sentinel cannot
+   collapse into one. Row selection scans `:entries` and matches each
+   candidate's `:resource/key` stamp (see the byte-key-id paragraph
+   below), never a direct map-key lookup on the scoped-key vector
+   (rf2-497rv7).
 
    The per-slot declaration match happens at the entry's ABSOLUTE
    runtime-db coordinate, rooted at the entry's `key-id` (rf2-aw9cfs):
@@ -156,32 +146,28 @@ Two elision layers compose:
    reconcile-registry`) writes a resource's declared `:sensitive?` /
    `:large?` slots. A slot-only path (omitting `<key-id>`) never matches a
    real lowered declaration, so a declared-sensitive resource would
-   silently ride raw under `:include-runtime-db? true`.
+   silently ride raw.
 
-3. **Off-box egress for the TRACE-borne accessors** (`get-resource-history` /
-   `list-resource-invalidations`, rf2-e0mq7a). These two project off the
-   **trace ring**, not the live cache, so their value-bearing fields are
-   trace-event values — the scoped key's scope/params, the `:cause` (a mutation
-   may carry data), and the invalidation's `:scope` + `:matched` keys. They get
-   the **same per-slot egress posture** as the live-cache accessors, via the
-   trace-buffer peer of `resource-egress-fn`: the runtime threads
-   `egress-value` (off-box `:sensitive?` / `:large?` defaults baked in) into
-   `lifecycle-timeline` / `invalidation-graph`, which apply it to those
-   value-bearing fields **before** `summarize`. A declared-`:sensitive?` /
-   `:large?` value therefore redacts / elides **by default** and reveals only
-   under the trusted-local `:include-sensitive?` / `:include-large?` opt-ins.
-   Because these are trace values (not runtime-db `:entries` payloads) the
-   walker is the plain `egress-value`, NOT `egress-runtime-db-value` — there is
-   no runtime-db partition default to gate; the per-slot declaration posture is
-   the boundary. This composes **on top of** the upstream whole-envelope
-   default-suppress (`drop-sensitive-events` drops `:sensitive? true`
-   ENVELOPES; this scrubs the VALUES inside the survivors). The **non-PII
-   metadata** — the lifecycle shape (`:operation` / `:class` / `:resource-id` /
+3. **Per-slot egress for the TRACE-borne projections**
+   (`lifecycle-timeline` / `invalidation-graph`, rf2-e0mq7a). These two
+   project off the **trace ring**, not the live cache, so their
+   value-bearing fields are trace-event values — the scoped key's
+   scope/params, the `:cause` (a mutation may carry data), and the
+   invalidation's `:scope` + `:matched` keys. They take the same optional
+   `egress-fn` and apply it to those fields **before** `summarize`, so a
+   declared-`:sensitive?` / `:large?` value redacts / elides. Because
+   these are trace values (not runtime-db `:entries` payloads) the walk is
+   the plain per-slot one — there is no runtime-db partition default to
+   gate; the per-slot declaration posture is the boundary. This composes
+   **on top of** the upstream whole-envelope default-suppress
+   (`drop-sensitive-events` drops `:sensitive? true` ENVELOPES; this
+   scrubs the VALUES inside the survivors). The **non-PII metadata** — the
+   lifecycle shape (`:operation` / `:class` / `:resource-id` /
    `:generation` / `:owner` / `:status`) and the invalidation identity
    (`:tags`, `:match-count`, `:refetched`) — is **never egressed**, so the
-   `:tag` filter axis and the storm / zero-match distinction stay useful on the
-   default-redacted path (the same "redacted summary still exposes metadata"
-   contract as the live-cache accessors).
+   `:tag` filter axis and the storm / zero-match distinction stay useful
+   on the redacted path (the same "redacted summary still exposes
+   metadata" contract as the live-cache projection).
 
 The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
 local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
@@ -196,7 +182,7 @@ rather than ship raw under no policy. Pinned by
 `resources_local_render_cljs_test` — the Resources-arm complement to the
 App-DB arm's `local_render_cljs_test` (rf2-t55hxg.15).
 
-Resource **history is bounded** (the accessor `:limit`, default 50).
+Resource **history is bounded** (`lifecycle-timeline`'s `:limit`, default 50).
 
 ## Panel sections (top → bottom)
 
@@ -310,7 +296,7 @@ stacked sections:
    the THIRD error channel). Without this the timeline shows that a load-more
    happened but loses which cursor was used, which page index appended/failed,
    terminal-vs-in-flight, and the resulting next cursor. The **same `:page`
-   detail rides `get-resource-history`**, so MCP/AI callers retain the page
+   detail rides the `lifecycle-timeline` projection**, so any reader retains the page
    evidence too (Spec 016 §Trace surfacing). A non-infinite op carries no
    `:page` slot.
 6. **Invalidation / mutation graph** — the `:rf.resource/invalidated`
@@ -538,42 +524,47 @@ Sensitive trace events are default-suppressed at the Xray consumer seam
 (Spec 009 §Privacy — the whole-envelope gate); the surviving values are
 summarized.
 
-## Tool accessors (the AI / MCP read API)
+## No tool accessors
 
-Five accessors on `day8.re-frame2-xray.runtime` (the Xray↔MCP read seam),
-matching the candidate set in Spec 016 §Xray and AI tooling. All are
-**read-only** and apply the two-layer privacy elision above.
+The five read-only resource accessors this spec once enumerated
+(`list-resources`, `list-resource-instances`, `get-resource-state`,
+`get-resource-history`, `list-resource-invalidations`) went with the
+Xray runtime seam (rf2-7htk7). Xray is the human panel; the projections
+above are its whole resource surface.
 
-| Accessor | Returns | Filter axes |
-|---|---|---|
-| `list-resources` | the static registry rows | `:resource-id` |
-| `list-resource-instances` | the live per-frame instance rows | `:frame` `:scope` `:resource-id` `:params` `:status` `:stale?` `:tag` `:owner` `:request-id` |
-| `get-resource-state` | one instance's durable state row | `:frame` `:resource-id` `:scope` `:params` (the scoped key) |
-| `get-resource-history` | bounded lifecycle rows | `:frame` `:resource-id` `:nav-token` `:limit` (default 50) |
-| `list-resource-invalidations` | the invalidation graph rows | `:frame` `:tag` |
+An out-of-process reader — an agent, an IDE plugin, a log forwarder —
+uses `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/` against the
+framework's own registry, runtime-db and trace surfaces. It does not
+arrive through Xray, and Xray does not curate a facade for it (Spec 016
+§Xray and AI tooling names the candidate projections; the ALGEBRA for
+them survives in `panels/resources_helpers.cljc` as pure functions,
+which is what the panel itself consumes).
 
-`:scope` / `:resource-id` / `:params` filter against the raw cache key
-**before** projection (so an accessor can scope its read by the cache
-key); the remaining axes filter the already-projected rows. These three
-key axes match **by presence** (rf2-7iw0bw): an OMITTED axis is a wildcard,
-while an axis supplied with an explicit **nil** value is an EXACT match
-against a nil-valued key part (a nil-params resource stays addressable and
-distinct from "any params") — never widened to a match-everything wildcard.
-Per EP-0002
-the frame target is carried explicitly — a frameless call with no
-resolvable context fails closed (`{:ok? false :reason
-:no-frame-resolved}`).
+The per-slot egress posture the accessors carried is not lost: the
+on-box render threads its own payload-egress fn
+(`resources/on-box-resource-egress-fn`, rf2-9zix0u) through the same
+`instance-row` / `lifecycle-timeline` / `invalidation-graph` parameters,
+re-rooting each slot to the same absolute runtime-db coordinate
+(`h/resource-payload-path-suffix`) so the registry's lowered
+`:sensitive?` / `:large?` declarations match.
+
+The key-axis filter semantics that governed those accessors still govern
+the panel's own selection: `:scope` / `:resource-id` / `:params` match
+against the raw cache key **before** projection, **by presence**
+(rf2-7iw0bw) — an OMITTED axis is a wildcard, while an axis supplied
+with an explicit **nil** is an EXACT match against a nil-valued key part,
+never widened.
 
 The live `:rf.runtime/resources :entries` map is keyed on the **opaque
 CEDN-1 byte `key-id` string** (rf2-9e0tyq), with the kind-preserving
 `[scope resource-id params]` scoped-key vector carried on each entry as
-`:resource/key`. The upstream `:scope` / `:resource-id` / `:params` key
-filter therefore matches against the entry's **`:resource/key` stamp**
-(falling back to the map key only for a legacy entry that lacks it) — never
-the byte map-key, which would match nothing for live runtime data. The
-selected map preserves its byte map-keys as the row identity. Symmetrically,
-the work-ledger projection reads each row's kind-preserving `:work/id`
-vector from the record, not its byte `work-id-id` map-key.
+`:resource/key`. The key filter therefore matches against the entry's
+**`:resource/key` stamp** (falling back to the map key only for a legacy
+entry that lacks it) — never the byte map-key, which would match nothing
+for live runtime data. The selected map preserves its byte map-keys as
+the row identity. Symmetrically, the work-ledger projection reads each
+row's kind-preserving `:work/id` vector from the record, not its byte
+`work-id-id` map-key.
 
 ## `:rf.xray/*` registry surface
 

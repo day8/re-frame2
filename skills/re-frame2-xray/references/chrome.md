@@ -160,14 +160,14 @@ clipboard so a developer can capture the state they're looking at. There is
 no Share-URL affordance and no per-cascade EDN export.
 
 **The console and the clipboard are off-box egress sinks** — the same trust
-boundary the rest of the Xray / tool egress story treats as sensitive — so
-the payload goes through the runtime's safe-egress projection
-(`runtime/egress-value`), the same fail-closed, default-redaction path
-`get-app-db` uses: `include-sensitive?` and `include-large?` both default
+boundary the rest of the Xray egress story treats as sensitive — so
+the payload goes through Xray's panel-local safe-egress projection
+(`egress/egress-value`), the fail-closed, default-redaction path every
+Xray off-box sink uses: `include-sensitive?` and `include-large?` both default
 **`false`**, so sensitive slots ship as `:rf/redacted` and large slots as
 `:rf.size/large-elided` (per
-[`runtime.cljs`](../../../tools/xray/src/day8/re_frame2_xray/runtime.cljs)
-`egress-value` / `get-app-db`).
+[`egress.cljs`](../../../tools/xray/src/day8/re_frame2_xray/egress.cljs)
+`egress-value`).
 
 Do **not** tell a user this command drops the *raw* `app-db`, and do not
 present it as a way to copy a secret-bearing value off-box: a focused frame

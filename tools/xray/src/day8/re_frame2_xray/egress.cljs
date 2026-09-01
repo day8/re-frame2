@@ -1,0 +1,63 @@
+(ns day8.re-frame2-xray.egress
+  "Xray's panel-local off-box safe-egress projection.
+
+  INTERNAL to Xray. This namespace is not part of Xray's published API and
+  carries no api-manifest row: it exists because two PANEL affordances put a
+  value the developer is looking at onto an off-box sink, and both need the
+  framework's wire-elision walker with the off-box defaults already applied.
+
+  The two sinks (Security.md §Off-box egress):
+
+  - the command-palette `Snapshot app-db` verb — JS console + system
+    clipboard (`palette/events.cljs`);
+  - the universal `⎘` copy-value affordance that rides every value
+    inspector — system clipboard (`panels/app_db_diff_events.cljs`).
+
+  Programmer/AI inspection of a running app is NOT this namespace's job and
+  never was: that seam is `re-frame2-pair.runtime` plus
+  `tools/re-frame2-pair-mcp/`, which reads the framework's instrumentation
+  directly. Xray owns the human panel; Pair owns the agent runtime.
+
+  Fail-closed by construction. `re-frame.core/elide-wire-value` does NOT bake
+  the off-box defaults — a caller must know to pass
+  `:rf.size/include-sensitive? false` + `:rf.size/include-large? false`, and
+  the UNSAFE call (`pr-str` the raw value you already hold) is shorter. Baking
+  the defaults here makes the shortest call the safe one (rf2-rcogp)."
+  (:require [re-frame.core :as rf]))
+
+(defn egress-value
+  "Project `value` for an off-box sink (console, clipboard) through the
+  framework's wire-elision walker with the off-box defaults BAKED IN.
+
+  Off-box defaults: `:include-sensitive?` and `:include-large?` are both
+  `false`, so a frame-declared sensitive slot egresses as `:rf/redacted` and
+  a large slot as the `:rf.size/large-elided` marker. Xray's panel
+  affordances expose no opt-in argument — the copy and snapshot paths are
+  ALWAYS the redacted, size-elided projection.
+
+  Optional `:path` — the ABSOLUTE app-db path the value sits at. The
+  framework's `:sensitive` / `:large` declarations (EP-0025 commit-plane
+  classification effects; Spec 015 §Data classification) are keyed by
+  absolute path, so a SLICE egress'd in isolation must tell the walker where
+  it lives or the declaration will not match. Defaults to `[]` — the value IS
+  the walked root, which is what the whole-db snapshot passes.
+
+  The frame whose declarations govern is the CURRENT frame, so a caller
+  reading one frame while dispatching in another pins the lookup itself:
+
+      (rf/with-frame observed (egress/egress-value v))
+
+  Both panel call sites do exactly that — the palette dispatches against
+  `:rf/xray` while snapshotting the FOCUSED frame's db, and the copy event
+  pins the OBSERVED frame — so the inspected frame's own classification
+  governs rather than the (empty) Xray-chrome frame's. A value with no
+  resolvable frame fails closed in the walker."
+  ([value]
+   (egress-value value nil))
+  ([value {:keys [include-sensitive? include-large? path]
+           :or   {include-sensitive? false
+                  include-large?     false}}]
+   (rf/elide-wire-value value
+                        (cond-> {:rf.size/include-sensitive? include-sensitive?
+                                 :rf.size/include-large?     include-large?}
+                          (seq path) (assoc :path (vec path))))))
