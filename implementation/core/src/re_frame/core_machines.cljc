@@ -134,16 +134,18 @@
   `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and
   MUST NOT appear in `opts`."
   ([machine-id machine]
-   (reg-machine-impl 'rf/reg-machine* machine-id machine))
+   (reg-machine-impl 'rf.machines/reg-machine* machine-id machine))
   ([machine-id opts machine]
-   (reg-machine-impl 'rf/reg-machine* machine-id opts machine)))
+   (reg-machine-impl 'rf.machines/reg-machine* machine-id opts machine)))
 
 (defn reg-machine
   "Fn-form delegate the `re-frame.core/reg-machine` macro routes through
   when the spec form is not stamped (no per-element source-coords). The
   separation from `reg-machine*` keeps `:where` symbols faithful to the
-  user-facing surface — `rf/reg-machine` raises with `:where
-  'rf/reg-machine`, `rf/reg-machine*` raises with `:where 'rf/reg-machine*`.
+  surface the caller can actually REACH — `rf/reg-machine` raises with
+  `:where 'rf/reg-machine`, and `reg-machine*`, which is NOT a facade
+  export (`:facade? false`; reach it through `re-frame.machines`), raises
+  with `:where 'rf.machines/reg-machine*`.
 
   Callers should NOT invoke this directly — use `rf/reg-machine`
   (macro) or `rf.machines/reg-machine*` (plain fn). It is public only because
