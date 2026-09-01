@@ -1,14 +1,14 @@
 (ns day8.re-frame2-xray.filters.hidden-indicator-cljs-test
-  "Integration tests for the L2 'N hidden by filters' indicator
+  "Integration tests for the L2 'N events filtered out' indicator
   (rf2-jvghz, defect #1). Covers:
 
     1. `:rf.xray/hidden-by-filters` sub composition — raw vs filtered
        visible counts under an IN pill, a frame pin, and a mute.
-    2. The indicator view renders the count + cause chips + Clear
-       button whenever filtered-count < raw-count (incl. filtered-to-
-       empty).
-    3. `:rf.xray/clear-all-filters` resets pills + frame pin + mutes so
-       the filtered list snaps back to raw and the indicator vanishes.
+    2. The indicator view renders the `N events filtered out` warning
+       whenever filtered-count < raw-count (incl. filtered-to-empty);
+       the Clear Filters button + cause chips are retired (rf2-pjjwh),
+       and the `:rf.xray/clear-all-filters` bulk-reset event was
+       removed with them (rf2-rdhbk — no caller survived).
 
   Mirrors the spine_filters integration test's registry / frame /
   trace-bus setup so the sub-graph resolves through the `:rf/xray`
@@ -209,49 +209,8 @@
       (is (nil? (th/find-by-testid tree "rf-xray-filters-hidden-indicator"))
           "no banner when filtered == raw"))))
 
-;; -------------------------------------------------------------------------
-;; (3) clear-all-filters resets every surface
-;; -------------------------------------------------------------------------
-
-(deftest clear-all-filters-resets-pills-and-mutes-not-frame
-  (testing "rf2-4vp5j Workstream C — Clear Filters resets pills + mutes
-            but LEAVES the frame view scope untouched (frame is a scope,
-            not a filter)."
-    (when (and (exists? js/window) (.-localStorage js/window))
-      (xray-setup!)
-      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a] :rf/frame-x))
-      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b] :rf/frame-x))
-      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick] :rf/frame-x))
-      (frame-dispatch [:rf.xray/add-filter :in {:pattern :a}])
-      (frame-dispatch [:rf.xray/mute-event-id :noise/tick])
-      (frame-dispatch [:rf.xray/select-frame :rf/frame-x])
-      ;; Pre-clear — pills + mute active (frame is a scope, not counted).
-      (is (true? (:any-active? (frame-sub [:rf.xray/hidden-by-filters]))))
-      (frame-dispatch [:rf.xray/clear-all-filters])
-      (let [s (frame-sub [:rf.xray/hidden-by-filters])]
-        (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
-            "pills reset")
-        (is (= :rf/frame-x (frame-sub [:rf.xray/current-frame]))
-            "frame view scope is PRESERVED — Clear Filters never touches it")
-        (is (= #{} (frame-sub [:rf.xray/muted-event-ids]))
-            "mutes cleared")
-        (is (= 0 (:hidden s)) "nothing hidden after clear")
-        (is (false? (:visible? s)) "message vanishes")
-        ;; list snaps back to frame-x's full set (3 events)
-        (is (= 3 (:filtered-count s)) "filtered list snaps back to frame scope"))
-      ;; Persistence — the unmute survives a reload read.
-      (is (= #{} (spine-filters/load)) "mute localStorage cleared"))))
-
-(deftest clear-all-filters-removes-banner-from-view
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
-  (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
-  (rf/with-frame :rf/xray
-    (is (some? (th/find-by-testid (shell/shell-view)
-                               "rf-xray-filters-hidden-indicator")))
-    (rf/dispatch-sync [:rf.xray/clear-all-filters])
-    (is (nil? (th/find-by-testid (shell/shell-view)
-                              "rf-xray-filters-hidden-indicator"))
-        "banner gone after Clear filters")))
+;; (The former section (3) — `:rf.xray/clear-all-filters` resets every
+;; surface — was deleted with the event itself (rf2-rdhbk). The bulk
+;; reset had no surviving caller after rf2-pjjwh retired the Clear
+;; Filters button; recovery is per surface — each pill's `✕`, and
+;; `:rf.xray/clear-muted-event-ids` behind the mute chip/manager.)

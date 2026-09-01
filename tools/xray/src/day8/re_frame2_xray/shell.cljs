@@ -1788,27 +1788,25 @@
      ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
      (duration-cell event-bundle (:duration col-widths))]))
 
-;; ---- events ribbon (rf2-4vp5j) -----------------------------------------
+;; ---- events ribbon (rf2-4vp5j / rf2-pjjwh) -----------------------------
 ;;
 ;; The SECOND stratum below the chrome ribbon. LEFT → RIGHT:
 ;;
-;;   Events:  [◀ ▶ ⏭]  [🎯 focus-chip]  [+pill ×pill +]   …   N hidden  [Clear Filters]
+;;   ↳ filters:  [+]  [+pill ✕][×pill ✕]   …   N events filtered out
 ;;
-;; Left = spine state + navigation; right = filter actions. The
-;; `N events hidden by filters` message + Clear Filters appear ONLY when
-;; filters are active (per rf2-4vp5j Decision 3):
-;;
-;;   - both absent when no pills + no mutes (clean default → empty right);
-;;   - Clear Filters shows when ANY filter is active;
-;;   - the message shows beside it ONLY when N > 0.
+;; Left = the contextual label + add-filter icon + committed IN/OUT
+;; pills; far right = the `N events filtered out` warning, rendered
+;; ONLY when N > 0. (rf2-pjjwh retired the focus-chip and the `Clear
+;; Filters` button, and the nav cluster moved UP to the chrome ribbon
+;; per rf2-3f2di A5.)
 ;;
 ;; The hidden COUNT reflects pill/mute suppression ONLY — the frame is a
 ;; view SCOPE, not a filter (rf2-4vp5j Workstream C), so switching frames
-;; never inflates "hidden" and Clear Filters never touches the frame.
-;; The message keeps rf2-jvghz's prominent yellow accent (Mike values
-;; it). Active filters (transient — reset on reload, rf2-fhtes) can
-;; still silently suppress L2 rows within a session; this ribbon makes
-;; them a VISIBLE cause + one-click reset (`:rf.xray/clear-all-filters`).
+;; never inflates the count. Active filters (transient — reset on
+;; reload, rf2-fhtes) can still silently suppress L2 rows within a
+;; session; this ribbon makes them a VISIBLE cause. Recovery is per
+;; surface: each pill's trailing `✕` removes that pill; muted event-ids
+;; are managed through the chrome ribbon's `🔇 N` chip → mute manager.
 
 (defn filters-hidden-message
   "Pure hiccup. The `N events filtered out` warning count — the LEADING
@@ -2493,12 +2491,13 @@
   "The Dynamic chrome wrapped as a single component. Per rf2-3f2di the
   top splits into two strata reconciled to the authority reference — the
   **chrome ribbon** (`ribbon`, bar-1: `Events` label + blue-filled nav +
-  focus button + focus-chip + `Filters:` + add(+) on the left; Frame +
-  Dynamic/Static dropdowns + indicators + `⚙`/`✕` on the right) and the
-  **events ribbon** (`events-ribbon`, bar-2: the `N events filtered out`
-  warning + the green/red committed pills, with Clear Filters on the
-  right when active) — above the L2 event list, L3 tab bar, and L4
-  detail panel. Extracted from the inline composition in `shell-view` so
+  add(+) on the left; Frame + Dynamic/Static dropdowns + indicators +
+  `⚙`/`✕` on the right — rf2-pjjwh retired the focus button +
+  focus-chip) and the **events ribbon** (`events-ribbon`, bar-2: the
+  `↳ filters:` label + add(+) + the green/red committed pills, with the
+  `N events filtered out` warning on the right when N > 0 — rf2-pjjwh
+  retired the `Clear Filters` button) — above the L2 event list, L3 tab
+  bar, and L4 detail panel. Extracted from the inline composition in `shell-view` so
   the Static surface can swap in alongside it via the mode composer
   (rf2-o5f5f.1).
 
