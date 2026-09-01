@@ -42,7 +42,7 @@
 
    Run it live, from `implementation/`:
 
-     shadow-cljs watch examples/long-running-work
+     npm run dev:example -- examples/long-running-work
 
    The example tree is test-free; the coverage lives in the framework test
    tree at ns `re-frame.long-running-work-cljs-test`

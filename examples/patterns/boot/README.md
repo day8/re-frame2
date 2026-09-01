@@ -132,10 +132,11 @@ together.
 ## Running it
 
 ```sh
-shadow-cljs watch examples/boot
+# From implementation/:
+npm run dev:example -- examples/boot
 ```
 
-Then open the dev server it prints.
+Then open the URL it prints.
 
 ## Files
 

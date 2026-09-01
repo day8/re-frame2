@@ -163,7 +163,7 @@ examples/patterns/long_running_work/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/long-running-work
+npm run dev:example -- examples/long-running-work
 ```
 
 Edits recompile live; the command prints a local URL to open.
