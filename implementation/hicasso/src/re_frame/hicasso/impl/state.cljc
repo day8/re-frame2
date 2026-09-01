@@ -15,7 +15,7 @@
 
   ## What it mints — ordinary core artefacts, and nothing else
 
-  [[reg-state]] is a plain function. It calls `re-frame.subs/reg-sub` and
+  `reg-state` is a plain function. It calls `re-frame.subs/reg-sub` and
   `re-frame.events/reg-event`, which is what any application author would
   have called by hand, and then it stops. There is:
 
@@ -116,7 +116,7 @@
 
   The list is short on purpose. It is every shape that reads as an
   identity, prints legibly in a tool, survives EDN, and — the reason the
-  vector case is in it — can be COMPOSED by [[child-key]] without
+  vector case is in it — can be COMPOSED by `child-key` without
   becoming a new kind of thing. `nil` is not on it, and that exclusion is
   the whole point: `nil` is what a missing prop, a mistyped destructure
   and a forgotten argument all evaluate to, and `nil` as a key is
@@ -207,13 +207,13 @@
   programmatic doors, a **sub** under `concern` reading `[:ui concern
   ikey]` with `:default` for an absent entry, a **setter event** under
   `concern` (`[::concern ikey v]`) writing that path, and the shared
-  **clear event** [[clear-event-id]]. Re-registering replaces all three,
+  **clear event** `clear-event-id`. Re-registering replaces all three,
   which is what a namespace reload is: the last `:default` written wins.
   Returns `concern`.
 
   The three refusals — an unqualified concern, options that are not a
   map or carry an unknown key, and a bad instance key at a read or write
-  ([[check-key!]]) — share `:rf.error/hicasso-state-bad-argument`, with
+  (`check-key!`) — share `:rf.error/hicasso-state-bad-argument`, with
   the fault named in the reason; each is an argument outside the contract
   and there is one fix for each. Design record:
   docs/design/hicasso/decisions.md, HD-009."

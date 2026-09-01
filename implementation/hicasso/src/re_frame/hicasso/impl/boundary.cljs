@@ -53,7 +53,7 @@
   ## \"Nothing else\" is REFUSED rather than merely stated
 
   The three keys above, plus the `:children` the codec writes from the
-  trailing forms, are the whole of [[prop-roster]], and [[check-props!]]
+  trailing forms, are the whole of `prop-roster`, and `check-props!`
   refuses anything outside it. Without that refusal `{:on-errors …}`
   mints, crosses `rfProps` intact, and is consulted by nothing — and so
   do `{:resetKey …}` and `{:fall-back …}`. `mint-host!` refuses the same
@@ -64,7 +64,7 @@
   nothing, wearing an `:on-error` that says it does.
 
   A **shape** check on `:on-error` rides the same guard, because the
-  silent trap has a second door. [[report!]] is `(cond (vector? …) …
+  silent trap has a second door. `report!` is `(cond (vector? …) …
   (fn? …) … :else nil)`, so `{:on-error :app/boundary-failed}` — a bare
   intent keyword, which is what somebody writes who has not yet noticed
   intents are vectors here — would swallow every caught error and return
@@ -76,13 +76,13 @@
   under*, so under no frame there is nothing to dispatch it into: the
   declaration is well-spelled, well-shaped, and still cannot fire. The
   guard therefore checks the frame beside the roster and the shape rather
-  than leaving [[report!]] to find the absence at `componentDidCatch`,
+  than leaving `report!` to find the absence at `componentDidCatch`,
   where finding it costs the very error the boundary exists to report.
 
   ### Why the shape — and the frame — are refused HERE and not in `report!`
 
   The obvious place for a shape check is the arm that consumes the
-  shape, and it is the wrong one. [[report!]] runs from
+  shape, and it is the wrong one. `report!` runs from
   `componentDidCatch`, which is to say **only after something below has
   already thrown**: a refusal raised there replaces the application's
   real error with a complaint about the declaration, escapes to the next
@@ -92,7 +92,7 @@
   ever run its `componentDidCatch`, so refusing here is strictly
   earlier: a bad `:on-error` is reported on the first paint, in the
   ordinary course of loading the page, rather than on the first failure.
-  By the time [[report!]] runs, `:on-error` is nil, a function, or a
+  By the time `report!` runs, `:on-error` is nil, a function, or a
   vector with a frame to dispatch it into, and its last arm means *no
   `:on-error` was declared* — which is what it says. The frame check
   belongs here for the same reason and one sharper: a missing frame is
@@ -151,10 +151,10 @@
   it takes the *next* boundary up, turning an application's error path
   into an application-wide failure.
 
-  The mechanism is [[re-frame.hicasso.impl.presence-react]]'s, one
+  The mechanism is `re-frame.hicasso.impl.presence-react`'s, one
   component along, and **cheaper here**: presence buys a `useContext` to
   find its frame and pays for it in HD-025's stated cost, while this
-  class already has [[frame-of]] through `contextType`. So there is no
+  class already has `frame-of` through `contextType`. So there is no
   extra hook and no extra accessor — only HD-020(a)'s rule applied where
   the lowering actually happens rather than where the hiccup was written,
   with
@@ -215,12 +215,12 @@
   #{:on-error :reset-key :fallback :children})
 
 (defn- check-props!
-  "Refuse a props map outside [[prop-roster]], an `:on-error` outside the
+  "Refuse a props map outside `prop-roster`, an `:on-error` outside the
   two shapes that can fire, and an `:on-error` INTENT with no frame to
   fire it into. Returns `props`, so the one call site reads as the read
   it already was.
 
-  `frame-kw` is the caller's [[frame-of]], `nil` where no provider is
+  `frame-kw` is the caller's `frame-of`, `nil` where no provider is
   above the boundary — the deliberately supported frameless case. It is
   a parameter rather than a second read because all three refusals are
   one class and belong at one site: a declaration the boundary would
@@ -292,7 +292,7 @@
   makes it once per failure without a flag to make it so.
 
   The last arm means **no `:on-error` was declared**, and nothing else:
-  [[check-props!]] ran in this instance's own render — which React
+  `check-props!` ran in this instance's own render — which React
   always runs before it can run `componentDidCatch` — so every other
   shape was refused there, where the refusal does not cost the
   application its error path — see the namespace docstring's argument for

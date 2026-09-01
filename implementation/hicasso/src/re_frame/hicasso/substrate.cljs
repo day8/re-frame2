@@ -66,7 +66,7 @@
   would leave one of the two reading `nil`. The machinery is therefore homed
   under `substrate`.
 
-  INTERNAL, apart from [[adapter]]. Hicasso re-exports none of the spine's
+  INTERNAL, apart from `adapter`. Hicasso re-exports none of the spine's
   hook surfaces: a body reads through `h/sub` and the collector, and a second
   read path would be a second commit discipline.
 
@@ -90,7 +90,7 @@
   (`re-frame.adapter.react-shared-suite`) can assert the surfaces the spine
   produced: their presence, their kind, and that no two of them are the same
   fn object, which is what catches a cross-wired spine key. None of it is
-  application API — Hicasso publishes [[adapter]] and reads subscriptions
+  application API — Hicasso publishes `adapter` and reads subscriptions
   through `h/sub`."
   (spine/make-react-spine
     {:substrate-name        "Hicasso"

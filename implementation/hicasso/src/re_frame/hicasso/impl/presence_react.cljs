@@ -61,7 +61,7 @@
   every pass and the terminal bound stops being terminal. But a value
   derived from props does not need an effect to store it: React's own
   guidance is to adjust state *while rendering* when a prop changes, and
-  that is what happens here — [[re-frame.hicasso.impl.presence/step]] is
+  that is what happens here — `re-frame.hicasso.impl.presence/step` is
   idempotent, so the comparison converges after one extra pass and never
   loops. An
   effect would cost a paint with the wrong tree in it.
@@ -120,7 +120,7 @@
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
         ;; The fix is the machine's own
-        ;; [[re-frame.hicasso.impl.presence/settle]], the
+        ;; `re-frame.hicasso.impl.presence/settle`, the
         ;; function the enter flip already uses, applied one render
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second

@@ -149,7 +149,7 @@
   | `:on-dismiss` | ✓ | the intent the platform's own dismissal dispatches |
   | `:label` | ✓ | the accessible name, as `aria-label` |
   | `:anchor` | popover | the DOM id of the trigger to position against |
-  | `:placement` | popover | a compass word — see [[re-frame.hicasso.impl.overlay/position-areas]] |
+  | `:placement` | popover | a compass word — see `re-frame.hicasso.impl.overlay/position-areas` |
   | `:light-dismiss?` | modal | whether a backdrop click dismisses (default false) |
 
   Every other key is an ordinary attribute and reaches the element
@@ -173,7 +173,7 @@
   deliberate mint.
 
   `:rf.error/hicasso-overlay-anchor-missing` is raised from
-  [[re-frame.hicasso.impl.overlay/claim-anchor!]] — the ref callback, the
+  `re-frame.hicasso.impl.overlay/claim-anchor!` — the ref callback, the
   first moment the id can honestly be resolved. **Omitting `:anchor`
   remains legal and silent**: a modal takes none, and a popover without
   one is asking for the default position rather than failing to find a
@@ -208,7 +208,7 @@
   `popover=\"auto\"` and takes its place in the platform's LIFO stack;
   without one it is `popover=\"manual\"` and dismisses for nothing, because
   a dismissal with nowhere to go is how an open flag acquires a second
-  owner. [[re-frame.hicasso.impl.overlay/popover]]."}
+  owner. `re-frame.hicasso.impl.overlay/popover`."}
   popover impl-overlay/popover)
 
 (def ^{:doc "`overlay/modal` — a blocking dialog on the browser's own top
@@ -233,5 +233,5 @@
   dispatches `:on-dismiss`; a backdrop click does so only with
   `:light-dismiss? true`, because a destructive confirmation must not go
   away on a stray click. Without `:on-dismiss` the dialog honours no close
-  request at all. [[re-frame.hicasso.impl.overlay/modal]]."}
+  request at all. `re-frame.hicasso.impl.overlay/modal`."}
   modal impl-overlay/modal)

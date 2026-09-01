@@ -29,7 +29,7 @@
            with no error emitted at all. Cold is the ORDINARY case — a
            boundary that rendered but that nobody clicked before the teardown.
 
-  [[frame-row]] closes both with ONE mechanism. The row carries the
+  `frame-row` closes both with ONE mechanism. The row carries the
   incarnation it was minted under; a lookup compares that against the
   incarnation live *right now* and a mismatch replaces the row. So a
   retained closure keeps the predecessor's bundle and core's own
@@ -54,12 +54,12 @@
   served, each holding that request's `capture-frame` bundle, in a process
   built to be long-lived.
 
-  [[forget-frame-ops!]] is therefore ALSO wired to frame destruction,
+  `forget-frame-ops!` is therefore ALSO wired to frame destruction,
   through core's `:hicasso/on-frame-destroyed!` late-bind hook — the same
   shape every other artefact releases its frame-keyed bookkeeping through
   in `destroy-frame!`'s step 7. It changes nothing above: a row a destroyed
   incarnation leaves behind is already unreachable by every branch of
-  [[frame-row]], so dropping it earlier is hygiene and never safety.
+  `frame-row`, so dropping it earlier is hygiene and never safety.
 
   ## What lives here, and the one thing that does not
 
@@ -143,12 +143,12 @@
 (defn forget-frame-ops!
   "Drop the memoised rows — RESET, HYGIENE AND RETENTION.
 
-  It is not what makes a reincarnation safe: [[frame-row]] replaces a row
+  It is not what makes a reincarnation safe: `frame-row` replaces a row
   whose incarnation has been superseded whether or not anyone ever calls
   this, and making eviction the safety mechanism would make the fault the ns
   docstring names universal rather than curing it. The two runtime callers
   are the whole-runtime reset (0-arity) and frame destruction through
-  [[on-frame-destroyed!]] (1-arity); the rest are test fixtures."
+  `on-frame-destroyed!` (1-arity); the rest are test fixtures."
   ([] (reset! !frame-ops {}) nil)
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
 
@@ -161,7 +161,7 @@
   row stands under `frame-kw` here belongs to an incarnation that is already
   dead — the dying one, or an earlier one whose successor never looked up.
 
-  A 1-arity fn rather than [[forget-frame-ops!]] itself, so the hook's arity
+  A 1-arity fn rather than `forget-frame-ops!` itself, so the hook's arity
   is the contract rather than an accident of that door having two."
   [frame-kw]
   (forget-frame-ops! frame-kw))

@@ -2,7 +2,7 @@
   "The package's one refusal constructor, and the dev-only ledger that
   lets a refusal name the view it was raised from.
 
-  [[fail!]] builds every Hicasso throw through
+  `fail!` builds every Hicasso throw through
   `re-frame.error/ex-info-from-data`, so the ex-data is core's 4-slot
   shape — `:rf.error/id`, `:where`, `:reason`, `:recovery :no-recovery`
   — plus the refusal class's own slots from `extra` and, in dev builds,
@@ -37,8 +37,8 @@
 
 (def ^:private !origin
   "The declaration whose extent the runtime is inside right now — the
-  view whose body is running ([[traced-boundary]]), or the declaration
-  being minted ([[declaring!]]) — or nil, which is the honest answer for
+  view whose body is running (`traced-boundary`), or the declaration
+  being minted (`declaring!`) — or nil, which is the honest answer for
   a refusal raised from an event handler, a callback, a timer or a
   top-level form.
 
@@ -46,7 +46,7 @@
   `impl.collector`'s render context is: **boundary bodies do not nest.**
   A body returns hiccup and the codec turns a child boundary into an
   *element*, so React runs that child's body later, after this one has
-  returned. [[traced-boundary]] saves and restores anyway — the cost is
+  returned. `traced-boundary` saves and restores anyway — the cost is
   one local in a dev-only wrapper, and an invariant that is cheap to
   survive should be survived rather than relied upon."
   (volatile! nil))
@@ -63,14 +63,14 @@
   simply carries no `:source` — the same ABSENCE a production build
   shows, and the same one an undeclared name shows. Nothing here
   distinguishes those two, because nothing needs to: the only reader is
-  [[with-origin]], and its question is *is there a coordinate to stamp*."
+  `with-origin`, and its question is *is there a coordinate to stamp*."
   [decl-name coord]
   (swap! !sources assoc decl-name coord)
   (vreset! !origin decl-name)
   nil)
 
 (defn declared!
-  "Close the declaration extent [[declaring!]] opened. Paired by the
+  "Close the declaration extent `declaring!` opened. Paired by the
   macro expansion in a `finally`, so the origin does not outlive the
   `def` and a later refusal from ordinary application code is not
   attributed to whichever view happened to be declared last.
@@ -85,7 +85,7 @@
   — inherited that dead declaration's `:view` and `:source` and pointed
   its reader at a file that has nothing to do with the failure.
 
-  Nothing is lost by closing it: [[fail!]] builds the whole ex-data
+  Nothing is lost by closing it: `fail!` builds the whole ex-data
   before it throws, so the refusal on its way out already carries the
   coordinate of the declaration that is wrong."
   []
@@ -126,7 +126,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private ambient
-  "The two keys [[fail!]] supplies from the ledger rather than from the
+  "The two keys `fail!` supplies from the ledger rather than from the
   call site. They are REMOVED from `extra` before the merge, because
   outside every declaration extent — and in production — there is no
   origin to overwrite a forged `:view` with, and the constructor's

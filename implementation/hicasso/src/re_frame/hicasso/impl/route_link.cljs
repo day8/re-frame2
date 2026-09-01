@@ -19,7 +19,7 @@
   boundary count, and the census's 106 links live INSIDE rows that are
   already boundaries — an author byline is not a unit of re-render. So
   `route-link` is a plain function like
-  [[re-frame.bench.hicasso.shapes.card/card]]: called from a body it
+  `re-frame.bench.hicasso.shapes.card/card`: called from a body it
   inlines, mints no boundary, adds no hook, and reads no subscription at
   all (the link model is a pure calculation), so the ≤2-hook budget and
   every page's boundary arithmetic are untouched by links.
@@ -30,7 +30,7 @@
     payload and the click decision come from the substrate-neutral
     late-bound seams routing publishes for exactly this consumer class —
     `:routing/link-model` here at render, `:routing/activate-link!` in
-    the lowered closure ([[re-frame.hicasso.impl.intent]]). This
+    the lowered closure (`re-frame.hicasso.impl.intent`). This
     file restates NO routing law: `rf/route-link` and this one both run
     the same two
     definitions, and the packaging graph stays
@@ -40,7 +40,7 @@
     render scope has unwound); a missing routing artefact fails at the
     LINK SITE with `:rf.error/routing-artefact-missing`; and the
     route-click one-intent law holds — the click produces the one
-    routing intent, see [[on-click-roster!]].
+    routing intent, see `on-click-roster!`.
     **(Declined:** a fn-only `:on-click` roster. That narrowing is only
     forced on a surface with no in-band spelling for
     \"cancel-and-replace\"; Hicasso has one — `[::h/prevent [:app/event]]`
@@ -58,7 +58,7 @@
     it; the census counts no prefetch site, and the opt-in is sugar over
     an event a Hicasso author can already spell (`:on-mouse-enter
     [:rf.route/prefetch {…}]`). `:prefetch` is one of the keys the link
-    owns ([[control-keys]]), so it never reaches the anchor as an
+    owns (`control-keys`), so it never reaches the anchor as an
     attribute; routing's link model is what reads it.
 
   ## Composition with `::h/prevent`
@@ -103,7 +103,7 @@
 (defn on-click-roster!
   "Refuse, AT RENDER, an `:on-click` outside the route-click roster: nil,
   `[::h/prevent [:app/event]]` (the declarative veto), `h/event`, or a plain
-  function. The same roster [[intent/lower-veto]] enforces at lowering;
+  function. The same roster `intent/lower-veto` enforces at lowering;
   stated twice because the two failures land differently — this one fails
   at the site that wrote the link, with the render stack, before any
   anchor exists. A BARE intent vector is the taught mistake and gets the
@@ -145,7 +145,7 @@
   Fails loud at render when routing is absent
   (`:rf.error/routing-artefact-missing`, naming the `:to`), when rendered
   outside a boundary, or when `:on-click` is outside the roster
-  ([[on-click-roster!]]) — the roster check runs BEFORE the link model is
+  (`on-click-roster!`) — the roster check runs BEFORE the link model is
   consulted, so the author's own mistake is what the stack names."
   [{:keys [to on-click] :as props} & children]
   (let [frame-kw (require-frame! to)
