@@ -13,8 +13,9 @@
  *     these tests would have caught it).
  *   - each parsed build recovers its :output-dir and :init-fn.
  *   - the real-repo derivation is non-vacuous (the project ships well over a
- *     dozen example builds) and the three UIx examples resolve to a runnable
- *     entry with a colocated index.html on disk.
+ *     dozen example builds) and every DOCUMENTED build — core, capability and
+ *     substrate (the three UIx examples plus the Hicasso login) — resolves to a
+ *     runnable entry with a colocated index.html on disk.
  *
  * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
  */
