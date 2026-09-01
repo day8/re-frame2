@@ -101,6 +101,37 @@ and the canonical
 [`examples/core/counter`](../../../examples/core/counter/)
 example.
 
+## Hot-reload contract
+
+shadow-cljs calls a `:browser` build's module `:init-fn` exactly once, at
+bundle load, and thereafter invokes only `^:dev/after-load` hooks. Every
+emitted browser entry point therefore carries such a hook — `mount!` on the
+Reagent and UIx scaffolds, `reload!` on the Story scaffold, `render!` on the
+SSR client — and that hook, not `init`, is what a save re-runs.
+
+Two things must ride it, and both are normative for every variant:
+
+1. **Re-render into the retained root.** The React root lives in a `defonce`
+   cell; the hook renders into it rather than creating a second root over a
+   live DOM node, and `rf/frame-root` reuses the already-live frame without
+   re-seeding.
+2. **Re-register the app-db schema.** `reg-app-schema` is invoked from a
+   `register-schema!` fn rather than at namespace load (an app-db schema is
+   frame-local, so a bare load-time call would raise
+   `:rf.error/no-frame-context`). A reload therefore re-evaluates the schema
+   `def` but re-registers nothing on its own, and the framework keeps
+   validating against the boot-time value until a page refresh. The hook
+   calls `register-schema!` so the just-loaded schema reaches the live frame.
+   Re-registering the same `(frame, path)` replaces the entry in place, so
+   the frame, its `app-db` and the mounted root are untouched — see
+   [Spec 010 §Multiple schemas at the same path](../../../spec/010-Schemas.md#multiple-schemas-at-the-same-path).
+
+On the Reagent and UIx scaffolds `init` delegates to the hook, so boot and
+reload traverse one path. The Story and SSR scaffolds have their own one-time
+boot ceremonies (route-listener install; frame → schema → hydrate → root), so
+there `init` attaches the schema itself and the hook re-attaches it. The SSR
+hook must NOT re-hydrate or replay seed events.
+
 ## Xray devtools
 
 The **Reagent** scaffold ships [Xray](../../xray/) — the in-app

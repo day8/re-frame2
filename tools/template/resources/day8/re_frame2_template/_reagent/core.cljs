@@ -38,7 +38,17 @@
 ;; (running the `:initial-events` seed synchronously, so the initial render sees
 ;; the seeded app-db), and REUSES the live frame WITHOUT re-seeding on every
 ;; later render — so a reload leaves your app-db exactly as you left it.
+;;
+;; The schema registration is here rather than in `init` for the same reason
+;; the render is: registration is a fn call, not a load-time side effect, so
+;; reloading schema.cljs re-evaluates `CounterDb` and re-registers nothing.
+;; Running it here — the one path both boot and every reload take — is what
+;; makes an edited schema validate the live frame instead of the boot-time
+;; value. It replaces the entry for the same (frame, path) in place, and on
+;; the first call it still runs BEFORE `frame-root` creates the frame, so the
+;; `:initial-events` seed is validated from the very first write.
 (defn ^:dev/after-load mount! []
+  (schema/register-schema!)
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (when-not @react-root
@@ -66,7 +76,6 @@
   ;;        :large     [[:documents :upload]]}))
   ;; See the README's privacy section for HTTP carriers and response bodies.
   ;;
-  ;; Schema attachment is frame-local; it names the app frame explicitly so
-  ;; the `:initial-events` seed is validated from the very first write.
-  (schema/register-schema!)
+  ;; `mount!` attaches the app-db schema before it renders — see its comment
+  ;; above for why that belongs on the reload path rather than here.
   (mount!))

@@ -74,7 +74,9 @@
 ;;
 ;; ssr-handler owns the per-request frame id. Its initial events run inside
 ;; that frame, so the zero-arity helper attaches to the ambient request frame.
-;; The browser knows its frame id and uses the explicit arity.
+;; The browser knows its frame id and uses the explicit arity — at boot in
+;; `init`, and again from the `^:dev/after-load` hook so an edited `CounterDb`
+;; reaches the live client frame without a page refresh.
 (defn register-schema!
   ([] (rf/reg-app-schema [] CounterDb))
   ([frame-id] (rf/reg-app-schema [] {:frame frame-id} CounterDb)))
@@ -152,8 +154,16 @@
 ;; It never creates a root and never re-hydrates: the root is established once
 ;; in `init`, and HYDRATE happens once there too, so a reload cannot re-seed the
 ;; server slice over live interactive state.
+;;
+;; It DOES re-attach the app-db schema, against the already-live `app-frame`.
+;; Registration is a fn call, not a load-time side effect, so reloading this
+;; file re-evaluates `CounterDb` and re-registers nothing — without that call
+;; the client keeps validating against the boot-time schema until you refresh
+;; the page. Re-registering replaces the entry for the same (frame, path) in
+;; place: no new frame, no re-seed, and the adopted server DOM is untouched.
 #?(:cljs
    (defn ^:dev/after-load render! []
+     (register-schema! app-frame)
      (when-let [root @react-root]
        ;; Render inside the app-frame's `frame-provider`, so every `dispatch`
        ;; and `subscribe` down in the view tree resolves to the hydrated frame.
