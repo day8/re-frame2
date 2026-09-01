@@ -944,6 +944,21 @@ control and missed every punctuation-final hit, so the census read zero on four 
 its control read green. If the target ends in punctuation, carries a backslash, or spans a line,
 the control must too.
 
+**But for the line-spanning case that advice is inert, and it is the one case where a matched
+control actively reassures you.** Most search tools take a LINE as their unit, so a target broken
+across two lines is not merely hard to match — it cannot be seen at all, whatever the pattern. A
+control sharing that shape is invisible in exactly the same way: both come back zero, and the
+check reports a clean pattern over an unsearched target. Every other hazard here is caught by a
+control that bites; this one is caught only by changing the instrument. **Run the search twice —
+once line-oriented, once over the text with whitespace collapsed — because neither result is a
+superset of the other.** Measured four times in one session: a census found one site
+line-oriented and missed four line-broken ones, then found those four flattened and missed the
+first; a second census caught a stale phrase only when flattened; and twice a hand-written probe
+of a wrapped field reported data loss that had not happened. **Wrapped text is the common case,
+not the exotic one** — anything hard-wrapped to a column, which is most prose documents and many
+tracker fields, will break a long enough probe somewhere. So keep a probe short enough to sit
+inside one line, and where the target is genuinely longer, flatten before believing a zero.
+
 **This is not a fact about searching, and reading it as one is how it gets past you.** ANY
 instrument that can answer "nothing here" gives the same answer when misused, and a misused one
 raises no error — so its all-clear is complete, well-formed and plausible. Measured: a
