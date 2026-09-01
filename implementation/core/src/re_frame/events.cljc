@@ -903,8 +903,9 @@
 ;; §`:rf/set-db`. The framework's OWN registration goes through the private
 ;; `registrar/register!` path (see `register-set-db-standard!`), so this guard —
 ;; which fires only on the public `register-event!` entry — does not reject the
-;; framework's own seeding. The set is deliberately narrow (today only
-;; `:rf/set-db`): the OTHER framework `:rf/*` events (`:rf/hydrate`,
+;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`
+;; and `:rf/settle-flows` — see the def's docstring for why each is in): the
+;; OTHER framework `:rf/*` events (`:rf/hydrate`,
 ;; `:rf.route/url-requested`, `:rf/server-init`, …) are still registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
