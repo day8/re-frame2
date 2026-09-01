@@ -804,11 +804,16 @@
           (request!)
           (let [tok-a (request-token f rid)]
             (is (some? tok-a) "A's registration carries a token")
-            ;; A correlated wire reply settles A and empties the slot. A's
-            ;; deadline is never cancelled — nothing here can cancel it.
+            ;; A correlated wire reply settles A and empties the slot. It
+            ;; echoes A's own registration token, which is what a server that
+            ;; honours the wire contract does. A's deadline is never
+            ;; cancelled — nothing here can cancel it.
             (rf/dispatch-sync [:ws/connection
                                [:ws/received {:source-socket-id live-id
-                                              :body {:type :reply :request-id rid :ok true}}]]
+                                              :body {:type          :reply
+                                                     :request-id    rid
+                                                     :request-token tok-a
+                                                     :ok            true}}]]
                               {:frame f})
             (is (not (contains? (in-flight) rid)) "A settled on the server's reply")
             (is (= 1 (count (log))) "A's caller was answered exactly once")
@@ -908,6 +913,103 @@
               (is (= 2 (count (log))))
               (is (= :ws/timeout (:error (last (log))))
                   "no caller is left waiting: two registrations, two terminal outcomes"))))))))
+
+(defn- wire-reply-cannot-settle-a-later-same-id-registration-test []
+  ;; rf2-tb442, SECOND PASS (audit of PR #8946) — the wire half of the same
+  ;; gap the registration token closed on the deadline side.
+  ;;
+  ;; A is pending under R. B re-registers R: A is settled locally with
+  ;; :ws/superseded, but A's request is already ON THE WIRE, and before the
+  ;; fix it went out carrying nothing but the id. So the server had no way to
+  ;; say which registration its reply answered, and :receive-message matched
+  ;; the SLOT: A's reply arrived, found B's entry, cleared it and fired B's
+  ;; callback with A's body. B's callback count stayed at exactly one — which
+  ;; is what makes this the quieter half of the bug. The outcome was on time,
+  ;; well-formed, and about a question B never asked; B's own reply then
+  ;; arrived as unsolicited.
+  ;;
+  ;; The registration :token now rides out as :request-token and comes back
+  ;; on the reply (schema/ReplyMessage requires it), so a reply settles the
+  ;; slot only while the token it echoes is still the slot's.
+  (log-tb442-reply!)
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id   (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              ;; The reusable per-feature id the spec recommends — again, the
+              ;; whole point is that this value legitimately recurs.
+              rid       [:feature/load "gamma"]
+              in-flight #(get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+              log       #(get-in (rf/app-db-value f) [:messages :reply-log])
+              inbox     #(get-in (rf/app-db-value f) [:messages :received])
+              request!  (fn [tag]
+                          (rf/dispatch-sync
+                            [:ws/connection
+                             [:ws/request {:request-id rid
+                                           ;; :silent-no-echo, so the mock
+                                           ;; server answers nothing and we
+                                           ;; inject each reply ourselves —
+                                           ;; the ORDER is the whole subject.
+                                           :body       {:type :silent-no-echo :tag tag}
+                                           :reply      [:ws.test/log-tb442-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f}))
+              ;; A server reply as the wire contract requires it: the id it
+              ;; was filed under AND the registration token it answers.
+              reply!    (fn [token tag]
+                          (rf/dispatch-sync
+                            [:ws/connection
+                             [:ws/received {:source-socket-id live-id
+                                            :body {:type          :reply
+                                                   :request-id    rid
+                                                   :request-token token
+                                                   :ok            true
+                                                   :echo          {:type :request :tag tag}}}]]
+                            {:frame f}))]
+          ;; --- A registers and stays pending --------------------------------
+          (request! "A")
+          (let [tok-a (request-token f rid)]
+            (is (some? tok-a) "A's registration carries a token")
+            (is (nil? (log)) "positive control: nothing has settled yet")
+
+            ;; --- B takes the same id while A is genuinely still outstanding --
+            (request! "B")
+            (let [tok-b (request-token f rid)]
+              (is (not= tok-a tok-b) "the slot now holds a different registration")
+              (is (= [{:origin :ws/local :request-id rid :ok false :error :ws/superseded}]
+                     (log))
+                  "A is settled locally as superseded — but A's request is on the wire")
+
+              ;; --- A's SERVER reply lands first -------------------------------
+              ;; It passes :trusted-frame? (live socket, closed contract) and
+              ;; names an id the slot really does hold. Only the token stands
+              ;; between it and B.
+              (reply! tok-a "A")
+              (is (= tok-b (get-in (in-flight) [rid :token]))
+                  "THE REGRESSION: a superseded registration's wire reply does not clear the later registration's slot")
+              (is (= 1 (count (log)))
+                  "THE REGRESSION: and does not fire the later registration's callback with the earlier request's body")
+              (is (some #(= {:type :request :tag "A"} (:echo %)) (inbox))
+                  "A's reply is not swallowed — it reaches the inbox as an unsolicited vetted frame")
+
+              ;; --- B's own reply still settles B ------------------------------
+              ;; Without this the assertions above would pass on a check that
+              ;; simply refuses every wire reply.
+              (reply! tok-b "B")
+              (is (not (contains? (in-flight) rid))
+                  "B settles on the reply that actually answers B")
+              (is (= 2 (count (log))))
+              (let [outcome (last (log))]
+                (is (= :ws/server (:origin outcome)) "…and it is marked server-originated")
+                (is (= tok-b (:request-token outcome))
+                    "the outcome carries the token of the registration it answers")
+                (is (= {:type :request :tag "B"} (:echo outcome))
+                    "B's caller gets B's OWN body, never the superseded request's")))))))))
 
 (defn- clean-disconnect-fails-in-flight-request-test []
   ;; rf2-b2jpr — a clean :ws/disconnect destroys the only socket capable of
@@ -1334,6 +1436,15 @@
               ;; it can never be read as a locally minted loss/timeout.
               (is (= :ws/server (:origin last-reply))
                   "a correlated wire reply is marked as server-originated")
+              ;; rf2-tb442 (audit PR #8946): the registration discriminator
+              ;; made the ROUND TRIP through the real mock server —
+              ;; :register-request put it on the outbound frame, the server
+              ;; echoed it, and :receive-message matched it against the slot.
+              ;; Pinned against :next-token rather than a literal, so it reads
+              ;; as "the token this registration was minted with".
+              (is (= (dec (get-in snap [:data :next-token]))
+                     (:request-token last-reply))
+                  "the registration token went out on the wire and came back on the reply")
               ;; rf2-eygytk: assert the APP-LEVEL boundary — the reply is the
               ;; app's own body and carries NONE of the EP-0011 uniform
               ;; reply-envelope vocabulary. This path is Pattern-WebSocket
@@ -1528,6 +1639,16 @@
               ;; frame pass the wire contract under a :type that has
               ;; nothing to do with request-reply.
               (deliver! {:type :push :note "hi" :request-id rid})
+              ;; (6) rf2-tb442 — an otherwise PERFECT reply that omits
+              ;; :request-token. This is the shape a server which ignores
+              ;; the registration discriminator sends back, and admitting
+              ;; it would restore correlate-by-id-alone for every request.
+              ;; :request-token is required by ReplyMessage, so the frame
+              ;; is refused at the wire contract instead: nothing in the
+              ;; connection moves, the slot below survives, and the
+              ;; rejection record names the missing key on the very first
+              ;; reply rather than leaving a silent mis-correlation.
+              (deliver! {:type :reply :request-id rid :ok true})
 
               (let [db (rf/app-db-value f)]
                 (is (= pre-msgs (get-in db [:messages :received]))
@@ -1550,8 +1671,8 @@
                     by-event   (into #{} (keep #(-> % :tags :event-id)) rejections)]
                 (is (contains? by-event :ws/handle-message)
                     "each refusal is observable and attributed to the ingress")
-                (is (<= 5 (count rejections))
-                    "every one of the five hostile frames was refused, not just the first"))
+                (is (<= 6 (count rejections))
+                    "every one of the six refused frames was refused, not just the first"))
 
               ;; Control: a VALID push still lands after all that.
               (deliver! {:type :push :note "still fine"})
@@ -1603,7 +1724,7 @@
         ;; A wire reply WITHOUT the machine's :origin stamp has no arm in
         ;; the closed RequestOutcome union — provenance is required, not
         ;; inferred from shape.
-        (send! {:type :reply :request-id rid :ok true})
+        (send! {:type :reply :request-id rid :request-token 0 :ok true})
         (is (nil? (reply))
             "an unstamped wire reply has no arm in the closed outcome union")
         ;; A body claiming to be locally minted but carrying wire fields
@@ -1620,8 +1741,14 @@
                                      @traces))]
           (is (contains? by-event :ws.app/request-reply)
               "the correlated-reply-path refusal is observable and attributed"))
-        ;; Controls: BOTH legitimate producers still land.
+        ;; A stamped server reply that drops the registration discriminator
+        ;; still has no arm: :request-token is a REQUIRED field of the
+        ;; closed wire-reply shape, shared with ReplyMessage.
         (send! {:origin :ws/server :type :reply :request-id rid :ok true})
+        (is (nil? (reply))
+            "a server outcome missing :request-token fails the closed :ws/server arm")
+        ;; Controls: BOTH legitimate producers still land.
+        (send! {:origin :ws/server :type :reply :request-id rid :request-token 0 :ok true})
         (is (= :ws/server (:origin (reply)))
             "a properly stamped server reply lands")
         (send! {:origin :ws/local :request-id rid :ok false :error :ws/connection-lost})
@@ -1778,6 +1905,14 @@
             the displaced caller is settled once with :ws/superseded rather than
             silently overwritten, and its now-obsolete timer is inert"
     (duplicate-in-flight-request-supersedes-test)))
+
+(deftest websocket-wire-reply-cannot-settle-a-later-same-id-registration
+  (testing "rf2-tb442 (audit PR #8946) — a SERVER reply answering a superseded
+            registration can neither clear the later same-id registration's slot
+            nor deliver its body to that registration's caller; the registration
+            token rides the wire and the reply must echo it back. The later
+            registration still settles on the reply that actually answers it"
+    (wire-reply-cannot-settle-a-later-same-id-registration-test)))
 
 (deftest websocket-clean-disconnect-fails-in-flight-request
   (testing "rf2-b2jpr — a clean :ws/disconnect settles every in-flight request
