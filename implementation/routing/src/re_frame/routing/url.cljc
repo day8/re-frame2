@@ -158,36 +158,20 @@
   (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
 
 #?(:clj
-   (defn- percent-escape-non-ascii
-     "Percent-escape every non-ASCII CHARACTER of `s` as its UTF-8 bytes,
-     leaving ASCII — existing `%XX` escapes included — untouched. The
-     result is pure ASCII, so `URLDecoder` under ISO-8859-1 recovers the
-     exact byte sequence the string denotes.
+   (defn- hex-nibble
+     "The value of the ASCII hex digit whose code unit is `n`, or -1 when
+     `n` is not one.
 
-     A literal (unescaped) non-ASCII character is legal input: both hosts
-     pass it through today (`decodeURIComponent(\"café\")` is `\"café\"`),
-     so escaping it here is what keeps that passthrough intact once the
-     bytes go through a STRICT decoder.
-
-     Runs are escaped whole, not character by character, so a surrogate
-     PAIR encodes as the one astral code point it spells rather than as
-     two unpaired halves.
-
-     Folding a literal into an ADJACENT escape run cannot change the
-     verdict in either direction. A literal character's UTF-8 encoding
-     always begins with a LEAD byte (`C2`–`F4`), never a continuation
-     byte, so it can never complete a truncated escape run that
-     `decodeURIComponent` would have rejected (`%C3é` throws on both
-     hosts); and the concatenation of two individually valid UTF-8
-     sequences is itself valid, so it can never spoil a run the browser
-     accepts (`%41é` is `\"Aé\"` on both)."
-     ^String [^String s]
-     (clojure.string/replace
-       s
-       #"[^\x00-\x7F]+"
-       (fn [^String run]
-         (apply str (map #(format "%%%02X" (bit-and (int %) 0xFF))
-                         (.getBytes run java.nio.charset.StandardCharsets/UTF_8)))))))
+     Deliberately NOT `Character/digit` (nor `Integer/parseInt`, which
+     defers to it): those also accept non-ASCII digit characters — the
+     Arabic-Indic `٦`, say — which `decodeURIComponent` refuses. The
+     escape grammar is ASCII-only, so the reader must be too."
+     ^long [^long n]
+     (cond
+       (and (<= (int \0) n) (<= n (int \9))) (- n (int \0))
+       (and (<= (int \a) n) (<= n (int \f))) (+ 10 (- n (int \a)))
+       (and (<= (int \A) n) (<= n (int \F))) (+ 10 (- n (int \A)))
+       :else -1)))
 
 #?(:clj
    (defn- strict-utf8-decode
@@ -215,26 +199,102 @@
          (.decode (java.nio.ByteBuffer/wrap bs))
          (.toString))))
 
+#?(:clj
+   (defn- decode-percent-escapes
+     "`decodeURIComponent`'s own decode loop, transplanted to the JVM.
+
+     One left-to-right walk with a SEGMENTATION SEAM at every literal
+     character. Consecutive `%XX` escapes accumulate into a byte buffer;
+     the moment a non-`%` character arrives (or the string ends) that
+     buffer is flushed through `strict-utf8-decode` and the literal
+     character is appended VERBATIM. So the strict UTF-8 decoder sees
+     exactly the bytes the percent escapes contributed, and nothing else.
+
+     THE SEAM IS THE POINT, and it is the whole of rf2-k2d2t's second
+     half. A Java string, like a JavaScript string, is a sequence of
+     UTF-16 CODE UNITS and may legally hold an UNPAIRED SURROGATE. Such a
+     code unit spells no code point, so it has no UTF-8 encoding at all —
+     and the previous JVM arm reached the byte level by escaping every
+     literal non-ASCII character with `String.getBytes(UTF_8)`, whose
+     REPLACE action silently turned that code unit into the byte `0x3F`,
+     a literal `?`. `decodeURIComponent` never encodes a literal at all:
+     it copies it straight to the output. So a lone U+D800 came back as
+     `?` on the JVM and as the raw code unit in the browser — the same
+     class of host divergence this namespace exists to rule out, and
+     doubly bad because `?` is a legitimate character the lone surrogate
+     was thus ALIASED onto. Copying literals through, rather than
+     round-tripping them via bytes, is what removes the lossy step.
+
+     WHAT THE SEAM DOES NOT WEAKEN. A PERCENT-ENCODED lone surrogate is a
+     different thing entirely and must still fail closed: `%ED%A0%80`
+     puts the bytes `ED A0 80` in the buffer, and UTF-8 has no encoding
+     for a surrogate, so `strict-utf8-decode` reports and the nil
+     sentinel stands. The two rows pull in opposite directions on
+     purpose.
+
+     The seam is also what makes a TRUNCATED escape run fail closed
+     against a following literal: `%C3é` flushes the single byte `C3` on
+     its own, which is malformed, exactly as `decodeURIComponent` throws
+     there. The previous arm reached the same verdict by a different
+     route (`C3` concatenated with `é`'s lead byte is malformed too), so
+     that behaviour is preserved rather than restored.
+
+     Throws `IllegalArgumentException` for a structurally malformed
+     escape (`%`, `%a`, `%zz`) — the same class `URLDecoder` threw, which
+     is what `safe-url-decode`'s sentinel already catches."
+     ^String [^String s]
+     (let [n   (.length s)
+           out (StringBuilder. n)
+           buf (java.io.ByteArrayOutputStream. 8)]
+       (letfn [(flush-escape-run! []
+                 (when (pos? (.size buf))
+                   (.append out (strict-utf8-decode (.toByteArray buf)))
+                   (.reset buf)))]
+         (loop [i 0]
+           (if (<= n i)
+             (do (flush-escape-run!)
+                 (.toString out))
+             (let [c (.charAt s i)]
+               (if (= \% c)
+                 (let [hi (if (< (inc i) n) (hex-nibble (int (.charAt s (inc i)))) -1)
+                       lo (if (< (+ i 2) n) (hex-nibble (int (.charAt s (+ i 2)))) -1)]
+                   (when (or (neg? hi) (neg? lo))
+                     (throw (IllegalArgumentException.
+                              (format "URI malformed: incomplete or non-hex %% escape at index %d" i))))
+                   (.write buf (int (+ (* 16 hi) lo)))
+                   (recur (+ i 3)))
+                 (do (flush-escape-run!)
+                     (.append out c)
+                     (recur (inc i)))))))))))
+
 (defn url-decode
   "Decode a percent-encoded string back to its raw form. Round-trip
   inverse of url-encode.
 
   HOST-SYMMETRIC: on both hosts this IS `decodeURIComponent`. The CLJS
-  arm calls it; the JVM arm emulates it on top of `java.net.URLDecoder`,
-  which needs TWO corrections rather than one:
+  arm calls it; the JVM arm is `decode-percent-escapes` above, which
+  walks the string the way `decodeURIComponent` itself does. Reaching
+  that shape took THREE corrections to `java.net.URLDecoder`, and the
+  third is why `URLDecoder` is no longer in the path at all:
 
   1. `URLDecoder` is the `application/x-www-form-urlencoded` decoder, so
      it turns a bare `+` into a SPACE. `+` must stay a LITERAL `+` on
-     both hosts, in path captures and query values alike, so every bare
-     `+` is pre-escaped to `%2B` before URLDecoder sees it: `+` → `+`,
+     both hosts, in path captures and query values alike: `+` → `+`,
      `%2B` → `+`, `%20` → space, real spaces → space (rf2-9a9ix).
   2. `URLDecoder` decodes bytes with the REPLACE malformed-input action,
      so an INVALID UTF-8 sequence is silently rewritten to U+FFFD and a
-     string comes back; `decodeURIComponent` throws `URIError`. Repairing
-     only (1) left that standing, and it was the worse half: for
+     string comes back; `decodeURIComponent` throws `URIError`. For
      `%C0%80`, `%ED%A0%80`, `%FF` or `%E0%80%80` the JVM returned a
      value and CLJS returned the nil sentinel, so `malformed-url?` read
      FALSE on JVM and TRUE on CLJS (rf2-k2d2t).
+  3. Reaching a strict byte decoder by percent-escaping literal non-ASCII
+     characters — the first repair of (2) — pushed each literal through
+     `String.getBytes(UTF_8)`, whose REPLACE action turns an UNPAIRED
+     SURROGATE code unit into the byte `0x3F`. `decodeURIComponent`
+     copies a literal to the output untouched, so a lone U+D800 came
+     back as `?` on the JVM and as the raw code unit in the browser
+     (rf2-k2d2t again). `decode-percent-escapes` never encodes a literal
+     at all; see its docstring for why the seam is where it is.
 
   The consequence of (2) was a whole-tree Spec 011 mismatch on a
   security-adjacent sink, and the server was the PERMISSIVE side: a
@@ -245,28 +305,21 @@
   URLs, partner integrations with broken escaping\") was not the posture
   the JVM arm actually had.
 
-  So the JVM arm decodes in three stages: pre-escape (bare `+`, then
-  every literal non-ASCII character), then `URLDecoder` under ISO-8859-1
-  — the 1:1 byte↔char charset, which performs the SAME structural
-  validation as before (`%`, `%a`, `%zz` still throw
-  `IllegalArgumentException`) while substituting nothing — and finally a
-  STRICT UTF-8 decode of the recovered bytes.
+  Structural validation is unchanged in substance: `%`, `%a` and `%zz`
+  still throw `IllegalArgumentException`, now from the escape reader
+  rather than from `URLDecoder`. Its hex reader is ASCII-only on purpose
+  (see `hex-nibble`).
 
   Per Spec 012 §Bidirectional URL ↔ params §`+` is a literal:
   `decodeURIComponent` is the de-facto reference, the browser is the
   canonical host, and the JVM matches it. A host-divergent decoder
   yields a different `:params` / `:query` slice for the same URL on JVM
   (SSR) vs CLJS (browser) — the exact Spec 011 hydration-mismatch class
-  the spec names there. Both corrections are conformance repairs to that
-  standing requirement, not new policy; §Route-miss ¶5 already requires
-  malformed percent-encoding to fail the whole match closed."
+  the spec names there. All three corrections are conformance repairs to
+  that standing requirement, not new policy; §Route-miss ¶5 already
+  requires malformed percent-encoding to fail the whole match closed."
   [s]
-  #?(:clj  (-> (str s)
-               (.replace "+" "%2B")
-               (percent-escape-non-ascii)
-               (java.net.URLDecoder/decode "ISO-8859-1")
-               (.getBytes java.nio.charset.StandardCharsets/ISO_8859_1)
-               (strict-utf8-decode))
+  #?(:clj  (decode-percent-escapes (str s))
      :cljs (js/decodeURIComponent (str s))))
 
 (defn safe-url-decode

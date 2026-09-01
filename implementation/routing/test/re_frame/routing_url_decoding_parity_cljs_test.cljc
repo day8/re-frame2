@@ -50,7 +50,34 @@
   of this namespace red on the invalid-UTF-8 table, on the
   `malformed-url?` positions and on the production `match-url` prism,
   while every valid-input control — `%EF%BF%BD` included — stays green,
-  proving those controls are not what carries the suite."
+  proving those controls are not what carries the suite.
+
+  THE SECOND HALF: LITERAL UTF-16 CODE UNITS. The first strict-decoder
+  fix reached the byte level by percent-escaping every literal non-ASCII
+  character with `String.getBytes(UTF_8)`, which silently REPLACES an
+  unpaired surrogate code unit with the byte `0x3F` — a literal `?`.
+  Java strings, like JavaScript strings, can legally hold one, and
+  `decodeURIComponent` copies a literal to its output untouched rather
+  than encoding it, so a lone U+D800 decoded to `?` on the JVM and to
+  the raw code unit in the browser: the same host divergence again, and
+  aliased onto a legitimate character. The JVM arm now segments the
+  input, strict-decoding only the bytes the percent escapes contribute.
+
+  THOSE TWO ROWS PULL IN OPPOSITE DIRECTIONS AND BOTH ARE ASSERTED HERE.
+  A LITERAL lone surrogate must SURVIVE; a PERCENT-ENCODED one
+  (`%ED%A0%80`) must still be nil, because UTF-8 has no encoding for a
+  surrogate. A fix that merely passed everything through would satisfy
+  the first and break the second, so the valid surrogate PAIR and the
+  escaped-lone-surrogate rows are what keep the seam honest in both
+  directions.
+
+  EVERY SURROGATE CASE IS BUILT FROM NUMERIC CODE UNITS AND ASSERTED AS
+  A VECTOR OF CODE UNITS. An unpaired surrogate cannot be written as a
+  source literal at all (it has no UTF-8 encoding, which is the bug),
+  and on output a lone surrogate, a `?` and a U+FFFD are all mojibake in
+  a terminal and indistinguishable by eye. Comparing rendered strings
+  would answer \"no divergence\" in the same confident voice as a real
+  all-clear."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -65,6 +92,34 @@
   (test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn routing/reset-counters!}))
+
+;; ---- code-unit instruments ----------------------------------------------
+;;
+;; A UTF-16 code unit is the unit of both a Java string and a JavaScript
+;; string, and it is the unit this suite's surrogate half is about. Both
+;; helpers below are index-based on purpose: `count`/`.length` and
+;; `.charAt`/`.charCodeAt` agree on both hosts that the index runs over
+;; CODE UNITS, whereas iterating a JS string with `Array.from` or `for
+;; ... of` walks CODE POINTS and silently collapses a surrogate pair to
+;; one element. A census run through the wrong instrument reports "no
+;; divergence" exactly as convincingly as a real one.
+
+(defn- code-units
+  "`s` as a vector of its UTF-16 code units; nil passes through so the
+  fail-closed sentinel stays distinguishable from an empty decode."
+  [s]
+  (when (some? s)
+    (mapv (fn [i]
+            #?(:clj  (int (.charAt ^String s i))
+               :cljs (.charCodeAt s i)))
+          (range (count s)))))
+
+(defn- from-code-units
+  "A string built from literal UTF-16 code units. The only way to write
+  an UNPAIRED surrogate: it has no UTF-8 encoding, so it cannot appear
+  as a character literal in this (UTF-8) source file."
+  [& ns]
+  (apply str (map char ns)))
 
 ;; ---- the UTF-8 validity boundary ----------------------------------------
 ;;
@@ -81,7 +136,10 @@
    ["%FF"       "invalid lead byte — FF can never begin a UTF-8 sequence"]
    ["%E0%80%80" "overlong — a three-byte encoding of a code point that needs one"]
    ["%C3"       "truncated — a two-byte lead with no continuation byte"]
-   ["%80"       "bare continuation byte — 80 with no lead"]])
+   ["%80"       "bare continuation byte — 80 with no lead"]
+   ["%ED%BF%BF" "lone LOW surrogate U+DFFF, escaped — the other half of the range"]
+   ["%ED%A0%BD%ED%B8%80"
+    "CESU-8: U+1F600's two surrogate halves escaped INDIVIDUALLY rather than as the astral code point. Each half is a surrogate, so each is refused — a pair is only a pair in UTF-16"]])
 
 (def ^:private valid-decodes
   "Inputs that MUST still decode, with their literal expected output.
@@ -151,6 +209,84 @@
     (is (nil? (url/safe-url-decode "%E2%82é"))
         "same, with a two-byte truncation")))
 
+;; ---- literal UTF-16 code units: the surrogate seam ------------------------
+;;
+;; Everything above is about the BYTES a percent escape contributes.
+;; This section is about the CODE UNITS a literal contributes, which the
+;; decoder must never route through a byte encoder at all.
+
+(def ^:private literal-code-unit-passthrough
+  "Inputs carrying LITERAL (unescaped) UTF-16 code units, with the exact
+  code-unit vector `decodeURIComponent` returns for each. Every
+  expectation is a literal vector measured against native
+  `decodeURIComponent`, never derived from `url-decode` itself — a
+  decoder that changed on one host only must not be able to rewrite what
+  it is compared against."
+  [[[0xD800]                 [55296]
+    "LONE HIGH surrogate — no UTF-8 encoding exists, so the previous JVM arm's String.getBytes(UTF_8) substituted 0x3F and it decoded to `?`"]
+   [[0xDFFF]                 [57343]
+    "LONE LOW surrogate — the other half of the range, same substitution"]
+   [[97 0xD800 98]           [97 55296 98]
+    "EMBEDDED lone surrogate — `a`, U+D800, `b`; the JVM returned [97 63 98]"]
+   [[0xD83D 0xDE00]          [55357 56832]
+    "THE PAIR CONTROL: a WELL-FORMED surrogate pair (U+1F600) must survive as its two code units. This is what stops the fix from being `pass everything through` — it was already correct, and must stay correct"]
+   [[0xDFFF 0xD800]          [57343 55296]
+    "a low unit followed by a high unit — adjacent but REVERSED, so still two unpaired halves rather than a pair"]])
+
+(deftest url-decode-preserves-literal-utf16-code-units-on-both-hosts
+  (testing "a literal code unit is COPIED to the output, never encoded.
+            `decodeURIComponent` only ever decodes the bytes percent
+            escapes contribute; routing a literal through a UTF-8 encoder
+            to reach the strict decoder replaced an unpaired surrogate
+            with `?` on the JVM (rf2-k2d2t)"
+    (doseq [[in-units expected-units why] literal-code-unit-passthrough]
+      (is (= expected-units
+             (code-units (url/safe-url-decode (apply from-code-units in-units))))
+          why)))
+
+  (testing "a literal lone surrogate ADJACENT to a valid escape run: the
+            seam keeps them apart, so neither corrupts the other"
+    (is (= [55296 233]
+           (code-units (url/safe-url-decode (str (from-code-units 0xD800) "%C3%A9"))))
+        "literal U+D800 then %C3%A9 — the escape still decodes to é")
+    (is (= [233 55296]
+           (code-units (url/safe-url-decode (str "%C3%A9" (from-code-units 0xD800)))))
+        "and in the other order")
+    (is (= [65 55296]
+           (code-units (url/safe-url-decode (str "%41" (from-code-units 0xD800)))))
+        "an ASCII escape beside one, too"))
+
+  (testing "THE COUNTERWEIGHT. A PERCENT-ENCODED lone surrogate must
+            still fail closed: UTF-8 has no encoding for a surrogate, so
+            those bytes are malformed however they arrived. A fix that
+            preserved literals by weakening the escaped-byte check would
+            red here"
+    (is (nil? (url/safe-url-decode "%ED%A0%80"))
+        "escaped lone HIGH surrogate stays nil")
+    (is (nil? (url/safe-url-decode "%ED%BF%BF"))
+        "escaped lone LOW surrogate stays nil")
+    (is (nil? (url/safe-url-decode "%ED%A0%BD%ED%B8%80"))
+        "and CESU-8 — U+1F600's halves escaped individually — stays nil")
+    (is (= [55357 56832] (code-units (url/safe-url-decode "%F0%9F%98%80")))
+        "while the SAME code point escaped properly, as one four-byte
+         UTF-8 sequence, decodes to the same pair the literal control
+         carries — so the three rows above are refusing the encoding, not
+         the code point")
+    (is (nil? (url/safe-url-decode (str "%C3" (from-code-units 0xD800))))
+        "a TRUNCATED escape run flushed against a literal surrogate is
+         still malformed — the seam does not rescue it"))
+
+  (testing "`malformed-url?` agrees across hosts for a literal code unit
+            in a path segment. It reads FALSE on both — a lone surrogate
+            is not malformed PERCENT-ENCODING — where the escaped form
+            reads TRUE on both"
+    (is (false? (routing/malformed-url? (str "/p/" (from-code-units 0xD800))))
+        "literal lone surrogate in a path segment: decodable on both hosts")
+    (is (false? (routing/malformed-url? (str "/p/x?q=" (from-code-units 0xDFFF))))
+        "and in a query value")
+    (is (true? (routing/malformed-url? "/p/%ED%A0%80"))
+        "while the percent-encoded form is malformed on both hosts")))
+
 ;; ---- the public predicate, in all four URL positions ---------------------
 
 (deftest malformed-url?-agrees-across-hosts-in-every-url-position
@@ -212,7 +348,12 @@
             value containing a REAL U+FFFD, which `url-encode` emits as
             %EF%BF%BD and the strict decoder must read back"
     (rf/reg-route :decode-parity/round {:params [:map [:slug :string]]} "/r/:slug")
-    (doseq [slug ["café" "日本" "a�b" "it's~a(test)!" "50% done"]]
+    (doseq [slug ["café" "日本" "a�b" "it's~a(test)!" "50% done"
+                  ;; a WELL-FORMED surrogate pair, built from code units:
+                  ;; `url-encode` emits it as the astral code point's
+                  ;; four UTF-8 bytes and the segmenting decoder must
+                  ;; read those back as the same two code units.
+                  (from-code-units 0xD83D 0xDE00)]]
       (let [built  (routing/route-url {:to :decode-parity/round :params {:slug slug}})
             parsed (routing/match-url built)]
         (is (some? parsed)
