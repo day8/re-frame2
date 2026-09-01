@@ -484,7 +484,8 @@
 
 (defn ^:private node-available?
   "Whether a `node` binary is on PATH — the real-subprocess regressions below
-  need it. Returns false (⇒ the test self-skips with a note) rather than
+  need it. Returns false (⇒ the test self-skips with a note, or FAILS when
+  `RF2_REQUIRE_NODE_PROBES` is set — see `skip-or-fail`) rather than
   hard-failing on a node-less box."
   []
   (try
@@ -492,6 +493,41 @@
       (and (.waitFor p 10 java.util.concurrent.TimeUnit/SECONDS)
            (zero? (.exitValue p))))
     (catch Throwable _ false)))
+
+;; ---------------------------------------------------------------------------
+;; A SKIP MUST NOT READ AS A PASS IN A LANE THAT ARMED THE PREREQUISITE
+;; (rf2-cl8mg).
+;;
+;; Every real-subprocess block below self-skips when `node` — or the pinned
+;; `launch-editor` package — is missing, so a node-less developer box stays
+;; green. That is right for a laptop and wrong for CI: the exit code cannot
+;; distinguish a run from a skip, and the `jvm-tools-testbed-support` job used
+;; to install no node deps at all, so every launch-editor-backed block skipped
+;; and the job reported green on coverage it never had (42 tests / 229
+;; assertions there against 42 / 260 with the dependency present — the
+;; 31-assertion delta was the only signal, and nothing read it).
+;;
+;; The job now installs the dependency AND sets `RF2_REQUIRE_NODE_PROBES`,
+;; which flips the skip into a failure: a lane that declared the prerequisite
+;; present and then reached a skip has lost the gate it exists to be, and says
+;; so instead of passing quietly.
+;; ---------------------------------------------------------------------------
+
+(def ^:private node-probes-required?
+  "Whether a missing node prerequisite must FAIL rather than self-skip — true
+  when `RF2_REQUIRE_NODE_PROBES` is set in the environment. Read once."
+  (delay (some? (System/getenv "RF2_REQUIRE_NODE_PROBES"))))
+
+(defn ^:private skip-or-fail
+  "Record the self-skip for `missing`, or FAIL when the environment declares
+  the prerequisites present. One assertion either way, so the suite's
+  assertion count does not move with the skip."
+  [missing]
+  (is (not @node-probes-required?)
+      (str "skipped: " missing
+           " — but RF2_REQUIRE_NODE_PROBES is set, so this lane declared the "
+           "prerequisite present. A skip here is lost coverage, not a pass: "
+           "install node and run `npm ci` in `implementation/` (rf2-cl8mg).")))
 
 (def ^:private one-mib-plus
   "Comfortably more than a plausible OS pipe buffer (~64 KiB)."
@@ -516,7 +552,7 @@
   ;; manufactured. The 8 s budget bounds a reintroduced wait-before-drain to a
   ;; timeout RESULT at ~8 s (this assertion then goes red) instead of hanging.
   (if-not (node-available?)
-    (is true "skipped: node not on PATH")
+    (skip-or-fail "node not on PATH")
     (let [f    (tmp-existing-file)
           shim (str "var b='x'.repeat(" one-mib-plus ");"
                     "process.stdout.write(b);process.exit(0);")]
@@ -533,7 +569,7 @@
   ;; FAILURE carrying a BOUNDED diagnostic (never the timeout, never unbounded
   ;; memory), plus a small-stderr control.
   (if-not (node-available?)
-    (is true "skipped: node not on PATH")
+    (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
       (testing "huge stderr + nonzero exit ⇒ bounded non-timeout diagnostic"
         (let [shim (str "var b='y'.repeat(" one-mib-plus ");"
@@ -558,7 +594,7 @@
   ;; WITHIN the (short, test-configurable) budget — proving the wait is bounded
   ;; and the budget is honoured, not the hardcoded 10 s.
   (if-not (node-available?)
-    (is true "skipped: node not on PATH")
+    (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
       (with-redefs [oies/launch-shim "setInterval(function(){},1000);"] ;; never exits
         (binding [oies/*launch-timeout-ms* 500]
@@ -574,7 +610,7 @@
   ;; child that traps SIGTERM — the force path is exercised on POSIX CI; on
   ;; Windows `.destroy` already terminates forcibly).
   (if-not (node-available?)
-    (is true "skipped: node not on PATH")
+    (skip-or-fail "node not on PATH")
     (let [pb   (doto (ProcessBuilder. ["node" "-e"
                                        "process.on('SIGTERM',function(){});setInterval(function(){},1000);"])
                  (.redirectOutput java.lang.ProcessBuilder$Redirect/DISCARD)
@@ -1039,7 +1075,9 @@
 
 (defn ^:private launch-editor-installed?
   "Whether the pinned `launch-editor` package is present in this checkout.
-  A JVM lane that never ran `npm ci` self-skips rather than failing red."
+  A checkout that never ran `npm ci` self-skips rather than failing red —
+  unless `RF2_REQUIRE_NODE_PROBES` is set, which is how a lane that DID
+  install it refuses to pass on the skip (`skip-or-fail`, rf2-cl8mg)."
   []
   (.isDirectory (io/file @implementation-dir "node_modules" "launch-editor")))
 
@@ -1100,7 +1138,7 @@
             in this namespace rests on, asked of the package rather than
             asserted from prose"
     (if-not (and (node-available?) (launch-editor-installed?))
-      (is true "skipped: node or launch-editor not installed")
+      (skip-or-fail "node or launch-editor not installed")
       (let [probe (run-dependency-probe)]
         (testing "the probe returned the keys it was asked for (a silently
                   empty map must not read as a pass)"
@@ -1150,7 +1188,7 @@
             the position-CAPABLE control cannot open anything either — the two
             cases differ only in the probe's verdict"
     (if-not (and (node-available?) (launch-editor-installed?))
-      (is true "skipped: node or launch-editor not installed")
+      (skip-or-fail "node or launch-editor not installed")
       (let [f (.getAbsolutePath (tmp-existing-file))]
         (with-dev-cwd*
           (fn []
