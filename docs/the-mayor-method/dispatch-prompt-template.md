@@ -41,6 +41,27 @@ The order is what makes it accurate. Each step is a check the next depends on.
    walk adjacent snapshot pairs newest-first to the first text-bearing change, and you
    re-enumerate a bead's children before concluding a decision is absent. Every one of
    those binds the mayor writing the brief exactly as it binds the worker reading it.
+
+   **And one cheap query tells you when skipping the walk is guaranteed to burn a dispatch:
+   has this item ever been CLOSED and reopened?** The rule above is unconditional, which is
+   why it gets skipped — an unconditional instruction competes with every other unconditional
+   instruction. This is the case where skipping it is not a gamble but a certainty. A reopened
+   item's description is stale *by construction*: it describes the defect as originally found,
+   the work that closed it has shipped, and the live instruction is whatever note reopened it.
+   Nothing about the rendered item says so — the description still reads as a current bug
+   report, because it once was one. Measured across one session: three briefs written from
+   descriptions whose work had already merged, and **all three items showed a closed-to-open
+   transition in their status history while the control, never closed, showed none**. Ask the
+   tracker for the item's status over time rather than its status now.
+
+   **The three consequences differ, and only the first is obvious.** The dispatch may re-do
+   finished work; it may point a worker at a defect that no longer exists, whose deliverable is
+   then a refutation; or — the expensive one — it may describe a *smaller* problem than the one
+   the reopening found, so the worker fixes what you asked and the real defect survives with an
+   item now closed over it. The worker's own history walk catches all three, which is why this
+   costs a dispatch rather than a defect. **Do not let that safety net become the plan**: it
+   spends a worker's context re-deriving what one query answers, and the mayor learns nothing,
+   because a brief refuted politely reads much like a brief fulfilled.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
