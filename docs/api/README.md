@@ -2,9 +2,7 @@
 
 This is the complete public API reference for the manifest-tracked namespaces of
 the ClojureScript implementation of re-frame2 — one page per public namespace, with
-the boundary of "manifest-tracked" set out under Completeness below. The one
-public surface that falls outside it is the Hicasso view layer, which keeps its own
-reference: [Hicasso API reference](../core/hicasso/api-reference.md). Entries use a
+the boundary of "manifest-tracked" set out under Completeness below. Entries use a
 consistent shape: Kind, Signature, Description (contract, including error
 ids where they are part of the surface), and an Example where a call is worth
 showing. The Example is optional — many contract-only surfaces (compile-time template
@@ -21,7 +19,7 @@ chose it.
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
-| The Hicasso view layer | [Hicasso API reference](../core/hicasso/api-reference.md) — a separate corpus, not a page here |
+| The Hicasso view layer | [`re-frame.hicasso`](re-frame.hicasso.md) for the door's vars; [Hicasso API reference](../core/hicasso/api-reference.md) for the full contract and the optional modules |
 | Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
@@ -46,16 +44,23 @@ no page — or an eligible var with no member heading (`### \`var\``, or a
 red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 (`### \`re-frame.machines/machine-transition\``).
 
-Where Hicasso sits. `re-frame.hicasso` and its optional modules carry no
-api-manifest rows, so the enforcement above neither demands a page here nor notices
-their absence. That is deliberate rather than an oversight: the view layer is
-pre-alpha, its surface is still moving, and it documents itself in
-[its own API reference](../core/hicasso/api-reference.md) alongside the guide that
-teaches it. Read this corpus for the pipeline — events, app-db, subscriptions,
-effects, the optional capabilities and the substrate adapters — and read the Hicasso
-reference for `h/defview`, `h/sub`, `h/mount!` and the rest of the authoring model.
-The two do not overlap: a Hicasso application uses both, because Hicasso replaces the
-view notation and nothing else.
+Where Hicasso sits. The **door** — `re-frame.hicasso` — is manifest-tracked like
+any other published namespace, and has been since rf2-phm7g. It is a split-host
+`.cljc`: its three authoring macros are the `:clj` arm the JVM generator
+introspects, and its eleven runtime vars are the `:cljs` arm the analyzer probe
+reconciles, so a public added, removed or renamed on either host turns the
+api-manifest gate red. Its **optional modules** (`.forms`, `.overlay`, `.motion`,
+`.native`, `.substrate`, `.server`, the test kit and the tool tier) still carry no
+rows, so the enforcement above neither demands a page for them nor notices their
+absence — deliberately, while that surface is still moving.
+
+The split follows the depth, not the coverage. Read
+[`re-frame.hicasso`](re-frame.hicasso.md) here for the door's var index, and the
+[Hicasso API reference](../core/hicasso/api-reference.md) for the full authoring
+contract and every optional module. Read this corpus for the pipeline — events,
+app-db, subscriptions, effects, the optional capabilities and the substrate
+adapters. A Hicasso application uses both, because Hicasso replaces the view
+notation and nothing else.
 
 ## Namespaces
 
@@ -85,6 +90,7 @@ view notation and nothing else.
 |---|---|
 | [re-frame.adapter.reagent](re-frame.adapter.reagent.md) | Stock / slim Reagent substrate |
 | [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
+| [re-frame.hicasso](re-frame.hicasso.md) | The Hicasso view layer's door — authoring macros, reads, roots, markup |
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
@@ -108,7 +114,8 @@ view notation and nothing else.
 
 - [Core guide](../core/introduction.md) — progressive teaching
 - [Hicasso API reference](../core/hicasso/api-reference.md) — the view layer's own
-  corpus, outside the api-manifest
+  corpus: the door's full contract, and the optional modules, which carry no
+  api-manifest rows
 - [spec/API.md](../../spec/API.md) — normative var catalogue with tiers (projection of
   the api-manifest)
 - Feature guides under Machines, Resources, Routing, SSR, Async tabs

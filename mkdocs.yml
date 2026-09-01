@@ -328,6 +328,7 @@ nav:
     - "re-frame.performance": api/re-frame.performance.md
     - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
+    - "re-frame.hicasso": api/re-frame.hicasso.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
 
