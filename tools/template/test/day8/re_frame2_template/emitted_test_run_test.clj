@@ -1028,6 +1028,118 @@
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :uix))))))
 
+;; --- the hot-reload schema seam (rf2-a0442) --------------------------------
+;;
+;; `reg-app-schema` is frame-local, so the scaffold cannot call it at namespace
+;; load — it lives inside `schema/register-schema!`. A hot reload therefore
+;; re-evaluates `schema.cljs`'s `CounterDb` def and re-registers NOTHING on its
+;; own, and before rf2-a0442 the only caller was `core/init`, which shadow runs
+;; once at bundle load. An edited schema never reached the live frame: a
+;; source-valid write stayed rejected, a newly invalid one stayed accepted,
+;; until a full page refresh.
+;;
+;; `template_emission_test.clj` pins the fix's static half — every emitted
+;; `^:dev/after-load` hook calls `register-schema!`, before its render. This
+;; tier proves the other half EXECUTABLY, against real generated source: that
+;; the call replaces the schema on a LIVE frame, in both directions, without
+;; recreating the frame or disturbing the counter state set before it.
+;;
+;; Deliberately the CHEAPEST tier that can prove it: only the `:test`
+;; (`:node-test`) build compiles, so there is no `:browser` build, no
+;; `node_modules` requirement and no Chromium. The hook's OTHER job — the
+;; retained-root re-render — is DOM-bound and already covered (rf2-r0kk7 /
+;; rf2-w1k3i); this tier is about the schema registry alone.
+
+(defn- install-schema-reload-regression!
+  "Copy `test-support/schema_reload_test.cljs` into the generated project's
+  test tree. The emitted `:test` build's `:ns-regexp \"-test$\"` picks it up
+  alongside the scaffold's own `events_test.cljs`, so it compiles and runs
+  against the REAL emitted `schema.cljs` / `events.cljs` / `subs.cljs`.
+
+  Kept out of the scaffold on purpose: it is a regression net for the
+  template, not something a newcomer should find in their first app."
+  [^java.io.File root ^java.io.File proj]
+  (let [src (io/file root "tools/template/test-support/schema_reload_test.cljs")
+        dst (io/file proj "test/acme/my_app/schema_reload_test.cljs")]
+    (io/make-parents dst)
+    (io/copy src dst)
+    (.isFile dst)))
+
+(deftest schema-reload-seam-runs-test
+  (testing "in a generated project, re-running the scaffold's own
+            register-schema! after a schema edit replaces the schema on the
+            live frame — the seam the ^:dev/after-load hook depends on
+            (rf2-a0442)"
+    (if-not @enabled?
+      (skip-if-disabled! :schema-reload)
+      (do
+        (is @clojure-cli-available?
+            "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+        (is @node-available?
+            "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+        (when (and @clojure-cli-available? @node-available?)
+          (let [root      (repo-root)
+                node-mods (io/file root "implementation/node_modules")
+                ;; The `:node-test` bundle SHIMS its npm requires and resolves
+                ;; them at RUN time, where Node honours NODE_PATH — so this
+                ;; tier needs no project-local node_modules symlink/junction
+                ;; (that is a `:browser`-compile requirement, and this tier
+                ;; compiles no `:browser` build).
+                env       {"NODE_PATH" (.getCanonicalPath node-mods)}
+                tmp       (tmp-dir "rf2-template-schema-reload-")]
+            (try
+              (let [proj (run-template! tmp "acme/my-app" :reagent)]
+                (rewrite-deps-for-local-run! root proj :reagent)
+                (is (install-schema-reload-regression! root proj)
+                    "the rf2-a0442 regression namespace must land in the
+                     generated project's test tree")
+                (is (.isDirectory node-mods)
+                    (str "implementation/node_modules must exist for the "
+                         "compiled :node-test bundle to resolve its npm "
+                         "requires at run time (`npm install` in "
+                         "implementation/). Looked in "
+                         (.getPath node-mods)))
+                (testing "schema-reload — shadow-cljs compile test"
+                  (let [{:keys [exit out]}
+                        (run-process! ["clojure" "-M:shadow"
+                                       "-m" "shadow.cljs.devtools.cli"
+                                       "compile" "test"]
+                                      proj env)]
+                    (is (zero? exit)
+                        (str "`clojure -M:shadow compile test` exited " exit
+                             " for the rf2-a0442 schema-reload regression. "
+                             "Output:\n" out))))
+                (testing "schema-reload — node out/node-test.js"
+                  (let [bundle (io/file proj "out/node-test.js")]
+                    (is (.isFile bundle)
+                        "the compile step produced out/node-test.js")
+                    (when (.isFile bundle)
+                      (let [{:keys [exit out]}
+                            (run-process! ["node" "out/node-test.js"] proj env)]
+                        ;; Pin the namespace line first: a regression file that
+                        ;; failed to land, or an `:ns-regexp` that stopped
+                        ;; matching it, would otherwise ship a green
+                        ;; "0 failures" that proved nothing.
+                        (is (string/includes?
+                              out "Testing acme.my-app.schema-reload-test")
+                            (str "the rf2-a0442 regression namespace must be "
+                                 "IN the compiled bundle — without this line "
+                                 "the run below is green about the scaffold's "
+                                 "own tests only. Output:\n" out))
+                        (is (zero? exit)
+                            (str "`node out/node-test.js` exited " exit
+                                 " with the rf2-a0442 schema-reload regression "
+                                 "installed. Output:\n" out))
+                        (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
+                            (str "expected the cljs.test summary line — a "
+                                 "silent zero-test run would otherwise pass. "
+                                 "Got:\n" out))
+                        (is (re-find #"0 failures, 0 errors" out)
+                            (str "expected '0 failures, 0 errors'. Got:\n"
+                                 out)))))))
+              (finally
+                (delete-recursively tmp)))))))))
+
 (deftest reagent-with-story-emitted-tests-run-test
   ;; The only tier that actually shadow-compiles +
   ;; node-runs the `:include-story? true` scaffold. Reagent-only because
