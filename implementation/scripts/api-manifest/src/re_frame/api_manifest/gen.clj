@@ -103,6 +103,13 @@
     re-frame.ssr
     re-frame.ssr.ring
     re-frame.epoch
+    ;; The Hicasso view substrate's public door. A `.cljc` whose `:clj` arm
+    ;; is the three authoring macros (`defview` / `event` / `defhost`) and
+    ;; whose `:cljs` arm is the runtime aliases — a SPLIT-HOST public
+    ;; namespace, so each host inventories the arm it can see: `ns-publics`
+    ;; here returns the macros, and the CLJS probe reconciles the aliases
+    ;; against these same `:classification` rows (rf2-phm7g).
+    re-frame.hicasso
     ;; Tool artefacts with JVM-loadable public surfaces.
     re-frame.story
     ;; MCP support namespaces — the tooling trace/egress surfaces the

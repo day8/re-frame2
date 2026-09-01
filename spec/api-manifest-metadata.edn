@@ -183,7 +183,46 @@
   {:namespace "day8.re-frame2-xray.runtime" :var "egress-record" :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.runtime" :var "egress-runtime-db-value" :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.runtime" :var "egress-value"  :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}]
+  {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+
+  ;; ---- re-frame.hicasso — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
+  ;;
+  ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
+  ;; generator's `jvm-namespaces`, where `ns-publics` returns its `#?(:clj …)`
+  ;; arm — the three authoring macros, rowed under `:classification` below.
+  ;; What the JVM cannot see is the `#?(:cljs (do …))` arm: eleven runtime
+  ;; aliases that exist only under ClojureScript. So the rows land HERE, for
+  ;; the reason this key exists — a row the JVM generator cannot introspect —
+  ;; and the CLJS probe reconciles them against the live analyzer surface.
+  ;; This is the exact MIRROR of `:jvm-only-classification` below, which does
+  ;; the same bookkeeping in the other direction for the same class of `.cljc`
+  ;; door; between them a split-host namespace is inventoried on both hosts
+  ;; and neither can silently gain or lose a public.
+  ;;
+  ;; `advanced` throughout, restrictive-by-default per spec/API.md §Tier
+  ;; taxonomy: Hicasso is an OPT-IN published substrate, so its door is not
+  ;; the front-porch set the Guide and skills load by default (that set is
+  ;; `re-frame.core`'s, which is what doc-guide-check projects against).
+  ;; `:kind` is the curated human assertion the probe deliberately does NOT
+  ;; reconcile (see `cljs-probe`'s "Why `:kind` is NOT reconciled"):
+  ;; `error-boundary` and `portal` are value-`def`s bound to component objects
+  ;; placed in hiccup rather than called, so they read `:var`; the rest are
+  ;; `defn`s or explicit `fn`s. Owner splits on the contract that actually
+  ;; owns each door: the four root-lifecycle verbs are 004C's
+  ;; (§Roots-and-Mount names `re-frame.hicasso`'s `impl/mount.cljs` as its
+  ;; in-tree realisation), the rest are 006's, which carries Hicasso's row in
+  ;; the canonical substrate inventory.
+  {:namespace "re-frame.hicasso" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "hydrate!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "mount!"         :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "reg-state"      :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
@@ -1593,4 +1632,24 @@
   ;; cross-tool egress helper, not an application surface.
   ["re-frame.mcp-base.sensitive" "sensitive-stamp?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "malformed-count"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
-  ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}}}
+  ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+
+  ;; =========================================================================
+  ;; re-frame.hicasso — the JVM ARM of the split-host door (rf2-phm7g).
+  ;; =========================================================================
+  ;; The door's `#?(:clj …)` arm is these three authoring macros and nothing
+  ;; else, so `ns-publics` on the JVM returns exactly them and the generator
+  ;; derives their `:kind :macro` from the live vars. Their CLJS-arm siblings
+  ;; — the eleven runtime aliases the JVM cannot see — are rowed under
+  ;; `:cljs-only` above; that block carries the reasoning for the shared
+  ;; `advanced` tier and the 004C/006 owner split.
+  ;;
+  ;; These rows need NO `:jvm-only-classification` entry. Each macro is
+  ;; `:require-macros`-referred by the door's own `:cljs` arm
+  ;; (`hicasso.cljc`'s `#?(:cljs (:require-macros [re-frame.hicasso :refer
+  ;; [defview defhost event]]))`), so the CLJS analyzer carries it and the
+  ;; probe reconciles it normally — the case that key's own docstring
+  ;; excludes ("an entry is needed only where the CLJS host has NOTHING").
+  ["re-frame.hicasso" "defview"]  {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.hicasso" "defhost"]  {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.hicasso" "event"]    {:tier :advanced :owner "006" :status "v1"}}}

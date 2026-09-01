@@ -34,6 +34,12 @@
          day8/re-frame2-ssr      {:local/root "../../ssr"}
          day8/re-frame2-ssr-ring {:local/root "../../ssr-ring"}
          day8/re-frame2-epoch    {:local/root "../../epoch"}
+         ;; Hicasso publishes `re-frame.hicasso` — a `.cljc` door whose
+         ;; `:clj` arm is the three authoring macros. Those load on the JVM
+         ;; (the `:cljs` arm's impl requires are reader-conditional away), so
+         ;; the generator introspects them like any other artefact; the door's
+         ;; CLJS runtime aliases are the probe's half.
+         day8/re-frame2-hicasso  {:local/root "../../hicasso"}
          ;; Tool artefacts with JVM-loadable (.cljc) public namespaces.
          day8/re-frame2-story    {:local/root "../../../tools/story"}
          day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}
