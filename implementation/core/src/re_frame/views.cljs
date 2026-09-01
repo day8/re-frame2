@@ -422,9 +422,10 @@
 ;;   2. `view-coord-attr`                 — debug-only source-coord stamp
 ;;   3. `trace/handler-scope-from-meta`   — pre-compute view's HandlerScope
 ;;   4. `build-frame-aware-view`          — assemble the per-render wrapped fn
-;;   5. `registrar/register!`             — install in the :view kind
+;;   5. `apply-adapter-componentize-view` — substrate's mountable head
+;;   6. `registrar/register!`             — install in the :view kind
 ;;
-;; reg-view* itself becomes a five-line straight-line composition.
+;; reg-view* itself becomes a six-line straight-line composition.
 
 (defn- apply-adapter-wrap-view
   "Consult the `:adapter/wrap-view` late-bind hook (rf2-00li) for a
@@ -461,6 +462,33 @@
     (if (some? wrapped)
       [wrapped true]
       [render-fn false])))
+
+(defn- apply-adapter-componentize-view
+  "Consult the `:adapter/componentize-view` late-bind hook (rf2-oz7wr) for
+  the substrate's own COMPONENT HEAD, given the fully-composed wrapper.
+  Returns the head to register and hand back from `reg-view*`.
+
+  `build-frame-aware-view` returns `(with-meta (fn frame-aware-view …)
+  {:contextType frame-context})`, and `cljs.core/with-meta` on a fn yields a
+  `MetaFn` — an IFn OBJECT, not a JS function. Reagent's create-class /
+  fn-to-class machinery reads that meta and converts the MetaFn into a React
+  component type, so Reagent does NOT publish this hook and the head is
+  returned unchanged. A React-hook substrate has no such conversion: React
+  rejects the MetaFn as an element type, so `(rf/view id)` — the value the
+  public docs advertise as a UIx component head — could not be mounted at
+  all. Those adapters publish the hook and hand back a mountable, marked
+  shell that forwards to this wrapper.
+
+  Consulted LAST, after the substrate wrap and the frame-aware wrapper have
+  been composed, so the shell is the OUTERMOST layer and every existing
+  wrapper keeps its frame, tracing, source-coordinate and unmount behaviour
+  underneath it. Same sticky-hook / routed-resolution contract as
+  `:adapter/wrap-view` above: nil means \"this substrate needs no
+  componentization\" — keep the wrapper as the head."
+  [id metadata wrapped]
+  (let [hook (late-bind/get-fn-cached :adapter/componentize-view)
+        head (when hook (hook id metadata wrapped))]
+    (if (some? head) head wrapped)))
 
 (defn- view-coord-attr
   "Capture the source-coord stamp for the inline hiccup-walk
@@ -638,16 +666,26 @@
   (Handler-meta `:sensitive?` annotation has been removed; per-path
   classification is the v2 mechanism.)
 
-  The body is a five-line pipeline; the work lives in the named
+  The value registered and returned is the substrate's own COMPONENT HEAD
+  (rf2-oz7wr). On Reagent that is the `:contextType`-carrying wrapper
+  itself, which Reagent's class machinery converts. A React-hook substrate
+  publishes `:adapter/componentize-view` and the head is a mountable,
+  substrate-marked shell wrapping it — so `(rf/view id)` can be handed
+  straight to `$` / `React.createElement` as a component type, as the public
+  UIx docs advertise, while remaining the callable render fn Spec 001
+  §`(re-frame.core/view id)` describes.
+
+  The body is a six-line pipeline; the work lives in the named
   helpers above."
   [id metadata render-fn]
   (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
         coord-attr (view-coord-attr id metadata wrap-applied?)
         view-scope (trace/handler-scope-from-meta :view id metadata)
         wrapped    (build-frame-aware-view id render-fn view-scope coord-attr
-                                           wrap-applied?)]
-    (registrar/register! :view id (assoc metadata :handler-fn wrapped))
-    wrapped))
+                                           wrap-applied?)
+        head       (apply-adapter-componentize-view id metadata wrapped)]
+    (registrar/register! :view id (assoc metadata :handler-fn head))
+    head))
 
 ;; ---- late-bind publication (rf2-vh1k3) ------------------------------------
 ;;

@@ -6580,12 +6580,14 @@
 ;; mount/unmount needs a DOM (jsdom is NOT in the node runner), so this is
 ;; a browser-DOM assertion — the neighbour of refcount-cleanup-on-unmount.
 ;;
-;; A registered view's wrapper (`(rf/view id)`) is rendered through
-;; `React/createElement` as a function component so the spine wrap-view's
+;; The registered head `(rf/view id)` is rendered DIRECTLY through
+;; `React/createElement` as a function component, so the spine wrap-view's
 ;; useEffect belongs to a real React instance whose teardown fires the
-;; cleanup. The probe is built in the suite (raw `React/createElement`, no
-;; substrate `defui`/`$` needed) so every React-hook adapter forwards it
-;; unchanged — a gap on one is a gap on all.
+;; cleanup. Since rf2-oz7wr that head is the adapter's `componentize-view`
+;; shell — a genuine JS function — so no intermediate host is needed. The
+;; probe is built in the suite (raw `React/createElement`, no substrate
+;; `defui`/`$` needed) so every React-hook adapter forwards it unchanged — a
+;; gap on one is a gap on all.
 
 (defn assert-view-unmount-emits-on-react-hook-teardown
   "rf2-te71r: mounting then unmounting a registered view under a
@@ -6609,20 +6611,20 @@
               (swap! recorded conj ev))))
         ;; Register a trivial DOM-rooted view. Its wrapper carries the
         ;; spine wrap-view's unmount-sentinel child (which holds the
-        ;; useEffect arm). `(rf/view id)` returns a CLJS `MetaFn` (the
-        ;; `:contextType` meta makes it an object, not a raw JS function),
-        ;; so React cannot use it as a component type directly — mount it
-        ;; via a plain JS-function host component that INVOKES the
-        ;; registered view. The spine sentinel element rides in the
-        ;; returned tree and React renders it as a real instance whose
-        ;; teardown fires the cleanup.
+        ;; useEffect arm), and `(rf/view id)` is the adapter's mountable
+        ;; component head (rf2-oz7wr), so it goes STRAIGHT into
+        ;; `React/createElement` as the component type — no host component
+        ;; invoking it. The spine sentinel element rides in the returned
+        ;; tree and React renders it as a real instance whose teardown fires
+        ;; the cleanup. Mounting the registered head itself is what makes
+        ;; this a proof about the advertised value rather than about a
+        ;; workaround wrapped around it.
         (rf/reg-view* view-id (fn [] (React/createElement "div" #js {} "probe")))
-        (let [render-fn  (rf/view view-id)
-              host       (fn host-cmp [_props] (render-fn))
+        (let [head       (rf/view view-id)
               mount-node (make-mount-node!)
               root       (react-dom-client/createRoot mount-node)]
           (try
-            (act-fn (fn [] (.render root (React/createElement host #js {}))))
+            (act-fn (fn [] (.render root (React/createElement head #js {}))))
             (is (empty? @recorded)
                 "no :rf.view/unmounted before teardown")
             (act-fn (fn [] (.unmount root)))
@@ -6666,16 +6668,16 @@
               (swap! recorded conj ev))))
         ;; Registered view returns a VOID DOM root (an <input>). The spine's
         ;; wrap-view must Fragment-wrap it with the sentinel as a sibling so
-        ;; React never sees children on the void element.
+        ;; React never sees children on the void element. Mounted through the
+        ;; registered head directly (rf2-oz7wr) — no manual-invocation host.
         (rf/reg-view* view-id (fn [] (React/createElement "input" #js {:type "text"})))
-        (let [render-fn  (rf/view view-id)
-              host       (fn host-cmp [_props] (render-fn))
+        (let [head       (rf/view view-id)
               mount-node (make-mount-node!)
               root       (react-dom-client/createRoot mount-node)
               ;; Capture console.warn + console.error across the mount: React
               ;; reports the void-element-children violation via console.error.
               warns      (with-captured-console-warn+error
-                           (fn [] (act-fn (fn [] (.render root (React/createElement host #js {}))))))
+                           (fn [] (act-fn (fn [] (.render root (React/createElement head #js {}))))))
               void-msgs  (filter #(and (string? %)
                                        (re-find #"(?i)void element" %))
                                  warns)]
@@ -6703,13 +6705,15 @@
   what a developer READS in the component tree; rf2-fa4ly pinned the stamp
   and never exercised the mount.
 
-  `wrap-view` is the right head to mount on this substrate: the registered
-  handler-fn from `views/reg-view*` carries `:contextType` metadata, and
-  `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a JS
-  function — so it is Reagent's class machinery that turns it into a React
-  component type. A React-hook substrate has no such conversion; its
-  component head is the `wrap-view` output, which is where the spine's stamp
-  lands.
+  `wrap-view` is the head this row mounts because it is the surface whose
+  OWN stamp is under test: `wrap-view` is published for direct use by
+  code-gen and library scaffolding (`re-frame.adapter.uix/wrap-view`), so
+  its `displayName` has to be right independently of the registry. Since
+  rf2-oz7wr a REGISTERED view's mounted head is instead the adapter's
+  `componentize-view` shell, which carries the same
+  `performance/entry-id` stamp from the same single source; the registry
+  path's own direct mount is covered by
+  `re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test`.
 
   Browser-DOM gate (real createRoot); skipped on node-test via
   `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."

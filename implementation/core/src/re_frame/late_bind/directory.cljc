@@ -1058,6 +1058,11 @@
     :chained?    true
     :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements."}
+   {:key         :adapter/componentize-view
+    :producer-ns '[re-frame.adapter.uix]
+    :chained?    true
+    :design-bead "rf2-oz7wr"
+    :description "Turns the composed registration wrapper into the substrate's own mountable COMPONENT HEAD — the value `views/reg-view*` registers and `(rf/view id)` returns. `build-frame-aware-view` yields `(with-meta (fn …) {:contextType frame-context})`, and `cljs.core/with-meta` on a fn is a `MetaFn` (an IFn object, not a JS function): Reagent's create-class machinery reads that meta and converts it, so Reagent does NOT publish this hook and its head stays unchanged; React has no such conversion and rejects the MetaFn as an element type, so UIx publishes a shell that React can mount. The spine (`make-componentize-view`) builds the substrate-agnostic forwarding shell and the adapter stamps its substrate's component marker on it — the rf2-z7hfp seam split, so `$` routes props through UIx's lossless `argv` channel rather than the keyword-mangling JS-prop conversion. Absent-hook fallback in `apply-adapter-componentize-view` returns the wrapper unchanged."}
    {:key         :adapter/arm-hiccup-emitter-if-unarmed!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim

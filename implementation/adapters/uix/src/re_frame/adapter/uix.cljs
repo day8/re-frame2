@@ -196,6 +196,40 @@
   first-encounter warning cannot suppress a later test's same-id warning."
   (:clear-warned-non-dom-roots! spine-fns))
 
+;; ---- registered-view component head — UIx-NATIVE half (rf2-oz7wr) ---------
+;;
+;; `views/reg-view*` hands its composed wrapper to `:adapter/componentize-view`
+;; and registers whatever comes back, so `(rf/view id)` is what a caller mounts.
+;; Without this the registered value is a `MetaFn` (the `:contextType` meta
+;; Reagent's class machinery reads), which React rejects as an element type —
+;; the documented `($ (rf/view ::row) props)` form could not mount at all.
+;;
+;; The spine builds the mountable shell; the ONE substrate-native step is
+;; stamping UIx's own component marker on it, and it belongs here for exactly
+;; the rf2-z7hfp reason `frame-provider` does. The marker is what makes
+;; `uix.compiler.alpha/component-element` take the `uix-component-element`
+;; branch, which stashes the ORIGINAL CLJS props map on `argv` and folds
+;; trailing `$` children onto `:children` — the lossless channel. Unmarked, `$`
+;; would fall through to `react-component-element` → `interpret-attrs`, which
+;; is what stringified keyword prop values and dropped their namespaces before
+;; rf2-z7hfp (`:frame` silently becoming `:rf/default`). So stripping the meta
+;; alone would have produced a head React could mount and then mangled its
+;; props; the marker is the half that makes the mount CORRECT.
+;;
+;; Not a `defui`: `defui` glues `argv` into a CLJS map for its own body, and
+;; this shell must hand the props object DOWN untouched so the registered
+;; component — itself typically a `defui` — reads them in its own idiom. The
+;; shell is a marked forwarder, which is what keeps `(rf/reg-view* ::row row)`
+;; free of any wrapper ceremony for the caller.
+
+(defn- componentize-view
+  "Build the UIx component head for a registered view. Delegates the shell
+  to the spine core and stamps UIx's `uix-component?` marker on it."
+  [id metadata wrapped]
+  (let [shell ((:componentize-view spine-fns) id metadata wrapped)]
+    (set! (.-uix-component? ^js shell) true)
+    shell))
+
 ;; ---- adapter Var ----------------------------------------------------------
 
 (def adapter
@@ -209,5 +243,6 @@
   lifecycle wiring. The native provider stays in this namespace so the spine
   has no dependency on UIx's element macro."
   (spine/make-react-adapter spine-fns
-                            {:kind           :rf.adapter/uix
-                             :frame-provider frame-provider}))
+                            {:kind              :rf.adapter/uix
+                             :frame-provider    frame-provider
+                             :componentize-view componentize-view}))
