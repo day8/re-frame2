@@ -1856,7 +1856,24 @@ module.exports = {
       // detail-source renderer plus the expected/actual fields. The
       // source-coord chip's open-in-editor button text reads "open"
       // alongside the file:line.
-      if (!/at\s+counter_with_stories\/stories\.cljs:\d+/.test(detailText)) {
+      //
+      // rf2-ak6re — match the classpath-relative TAIL, not the whole
+      // `:file`. This assertion originally pinned the leading edge of
+      // the path, which held only while Story's macro stamped the
+      // reader's `:file` verbatim. rf2-3xq1v routed
+      // `re-frame.story.macros/coords-form` through
+      // `re-frame.source-coords/coords-form`, which absolutises at
+      // macro-expansion time (rf2-wvsxg), so the renderer now emits
+      // `at <checkout>/tools/story/testbeds/counter_with_stories/
+      // stories.cljs:438` — an on-disk location whose prefix differs
+      // per machine. The tail is what carries the signal this
+      // scenario exists to check (the coord names the play's own
+      // source file, with a line), and it is stable across hosts;
+      // `[\\/]` accepts the Windows separator, and the leading `\S*`
+      // is optional so a host that cannot resolve a root (in-jar
+      // source, synthetic coord) still passes on the relative
+      // spelling that path ships verbatim.
+      if (!/\bat\s+\S*counter_with_stories[\\/]stories\.cljs:\d+/.test(detailText)) {
         throw new Error(
           `failing-play detail missing source-coord (at <file>:<line>); got: ${detailText.slice(0, 300)}`,
         );
