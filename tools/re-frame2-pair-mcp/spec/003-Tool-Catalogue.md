@@ -348,7 +348,7 @@ load-bearing: each carries different recovery semantics.
 
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:no-such-frame`, `:reserved-tool-frame`, `:no-new-epoch`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:no-such-frame`, `:reserved-tool-frame`, `:no-new-epoch`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:missing-baseline`, `:baseline-without-probe`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
 | `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
@@ -1839,65 +1839,146 @@ unfiltered view.
 
 ## tail-build
 
-Wait for a hot-reload to land by polling a probe form until its
-value changes from its pre-call value. Times out after `wait-ms`.
+Wait for a hot-reload to land by polling a probe form against a
+**caller-supplied pre-edit `baseline`** (rf2-1f60u). Times out after
+`wait-ms`.
 
-**Args**: `probe` (string — a CLJS form whose value should change
-after the reload), `wait-ms` (integer, default 5000), `build` (string).
+The order is **capture, edit, wait**, and it starts *before* the edit
+because the comparison evidence must predate the change: evaluate the
+probe once with `eval-cljs`, keep its printed `:value` verbatim, make
+the source edit, then call this tool with the same `probe` plus that
+value as `baseline`.
 
-**Returns**: one of four envelope shapes (rf2-36awg; impl:
+Success is **the first sample whose value differs from `baseline`** —
+including the very first one. That is what makes a successful reload
+recognizable whether it lands before or after this call obtains its
+first sample:
+
+- **Fast reload** — it landed in the gap between the file write and the
+  first nREPL evaluation, so the first sample already differs from the
+  baseline → immediate success.
+- **Slow reload** — samples still match the baseline until a later poll
+  differs → success then.
+
+The pre-rf2-1f60u contract self-baselined on its own first post-call
+sample, so under the fast ordering every sample was "the new value" and
+the tool returned `:timed-out` on a reload that had in fact succeeded. A
+post-edit self-baseline cannot distinguish *already reloaded* from
+*never changed*, which is why `baseline` is **required whenever `probe`
+is supplied** (`:reason :missing-baseline` otherwise). Pre-alpha: there
+is no legacy self-baseline mode and no compatibility alias.
+
+**Baseline matching** compares printed forms. A sample still counts as
+the baseline when its `pr-str` **or** its `str` rendering equals the
+supplied string. `pr-str` is the canonical capture — it is what
+`eval-cljs`'s `:value` shows — and the forgiving `str` rendering means a
+string-valued probe captured without its quotes compares as intended
+instead of false-succeeding on the very first sample. A JSON-numeric
+`baseline` (`41`) is normalised to its printed form before comparison,
+and `:probe-values :baseline` echoes that normalised **string** while
+`:initial` / `:final` carry the sampled values themselves.
+
+**Args**: `probe` (string — a CLJS form whose value must change once the
+edit reloads), `baseline` (string — the probe's **pre-edit** printed
+value; required with `probe`, and refused without it), `wait-ms`
+(integer, default 5000), `build` (string).
+
+**Returns**: one of six envelope shapes (rf2-36awg, rf2-1f60u; impl:
 [`src/re_frame2_pair_mcp/tools/tail_build.cljs`](../src/re_frame2_pair_mcp/tools/tail_build.cljs)
-lines 79-137):
+lines 141-246):
 
-1. **Success (probe supplied) — probe value changed within the
-   deadline** (lines 117-123):
+1. **Success (probe + baseline supplied) — a sample left the baseline
+   within the deadline** (lines 184-190 for the fast ordering, 225-231
+   for the slow one — one envelope shape, two orderings):
 
     ```clojure
     {:ok?          true
      :t            <ms>
      :soft?        false
-     :probe-values {:initial <v>   ; pre-poll value of the probe form
-                    :final   <v>}} ; final value at completion
+     :probe-values {:baseline <string>  ; the caller's pre-edit evidence
+                    :initial  <v>       ; first post-edit sample
+                    :final    <v>}}     ; the sample that left the baseline
     ```
 
-   `:probe-values` confirms the comparison drove completion — callers
-   read both ends rather than guessing which transition fired.
+   A fast reload reads `:initial` = `:final` ≠ `:baseline` (the first
+   sample already differed); a slow one reads `:initial` = `:baseline`
+   and `:final` ≠ `:baseline`. Carrying all three ends means the caller
+   reads *which ordering fired* rather than guessing.
 
-2. **Timeout (probe supplied) — value never differed from initial
-   within `wait-ms`** (lines 105-111):
+2. **Timeout (probe + baseline supplied) — every sample matched the
+   baseline for the whole of `wait-ms`** (lines 210-218):
 
     ```clojure
     {:ok?          false
      :reason       :timed-out
      :timed-out?   true
-     :probe-values {:initial <v>   ; pre-poll value of the probe form
-                    :final   <v>}  ; last value the polling loop saw
-     :note         "Probe value did not change within wait-ms. Possible
-                    causes: (a) compile error in shadow stalled the
-                    rebuild, (b) probe form returns the same value
-                    before and after the reload, (c) probe form errored
-                    — check :probe-values to disambiguate."}
+     :probe-values {:baseline <string>  ; the caller's pre-edit evidence
+                    :initial  <v>       ; first post-edit sample
+                    :final    <v>}      ; last value the polling loop saw
+     :note         "Probe value never left the supplied baseline within
+                    wait-ms. Possible causes: (a) a compile error in
+                    shadow stalled the rebuild (confirm from
+                    shadow/browser output, not from this timeout alone),
+                    (b) the probe form cannot discriminate this edit —
+                    its value is the same before and after the reload;
+                    choose a source-derived fingerprint that changes
+                    (e.g. a handler-meta hash or :line), (c) the probe
+                    form errored on some samples — check :probe-values
+                    to disambiguate."}
     ```
 
-   With both ends visible the operator distinguishes "compile didn't
-   land" from "probe form returns the same value before and after"
-   without an extra round-trip.
+   With the baseline visible alongside both ends, the operator
+   distinguishes "the rebuild stalled" from "this probe cannot
+   discriminate the edit" without an extra round-trip. A timeout is
+   **not** on its own evidence of a compile error — confirm that from
+   actual shadow-cljs / browser output.
 
-3. **Probe errored on initial evaluation** (lines 134-137):
+3. **Probe errored on its initial evaluation** (lines 243-246):
 
     ```clojure
     {:ok?         false
      :reason      :probe-errored
      :probe-error "<stringified exception message>"
-     :note        "Probe form raised an exception on every iteration.
-                   The form is likely malformed."}
+     :note        "Probe form raised an exception on its initial
+                   evaluation. The form is likely malformed."}
     ```
 
    Distinct from `:timed-out` — the probe form itself threw, so no
-   before/after delta could be measured. Almost always a malformed
-   probe (typo, dotted-form host interop against a missing var, etc.).
+   baseline comparison ever ran. Almost always a malformed probe (typo,
+   dotted-form host interop against a missing var, etc.).
 
-4. **No probe supplied — soft delay** (lines 79-84):
+4. **`probe` without `baseline` — refused** (lines 169-173):
+
+    ```clojure
+    {:ok?    false
+     :reason :missing-baseline
+     :note   "tail-build requires :baseline whenever :probe is supplied.
+              Evaluate the SAME probe form (eval-cljs) BEFORE making the
+              source edit, keep its printed :value verbatim, edit, then
+              pass it here. The pre-edit baseline is what makes a reload
+              recognizable even when it lands before this call's first
+              sample — a post-edit self-baseline cannot distinguish
+              'already reloaded' from 'never changed'."}
+    ```
+
+   Refused **before** any nREPL round-trip: the racy self-baseline shape
+   is rejected with the capture recipe rather than served. If the edit
+   has not happened yet, capture the baseline and follow the order
+   above; if it already has, do not fabricate one — verify directly
+   instead, by reading a source-derived fingerprint you can check
+   against the file (e.g. `handler-meta`'s `:line` for the edited
+   handler) with `eval-cljs`.
+
+5. **`baseline` without `probe` — refused** (lines 145-149):
+
+    ```clojure
+    {:ok?    false
+     :reason :baseline-without-probe
+     :note   ":baseline without :probe has nothing to compare — supply
+              the probe form the baseline was captured from."}
+    ```
+
+6. **No probe supplied — soft delay** (lines 155-163):
 
     ```clojure
     {:ok?   true
@@ -1908,6 +1989,18 @@ lines 79-137):
 
    Matches the bash shim's behaviour. The `:probe-values` slot does
    NOT appear in this envelope; tests pin its absence.
+
+   **`:soft? true` is a DELAY, not evidence.** This envelope is `:ok?
+   true` because the wait completed, not because anything was observed
+   about the running code — no probe was sampled and no baseline was
+   compared, so it says nothing at all about whether a reload landed. It
+   therefore **does not satisfy the post-edit gate**: after a source
+   edit, do not treat it as licence to `dispatch`, `trace-window`, or
+   otherwise interact with the app. The supported post-edit paths are
+   the probe + baseline comparison above, or — when no pre-edit baseline
+   exists — the direct source-derived verification named under envelope
+   4. See [`ops.md` §Hot-reload
+   coordination](../../../skills/re-frame2-pair/references/ops.md).
 
 ## snapshot
 

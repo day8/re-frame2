@@ -187,12 +187,13 @@ release candidate even though they are not required PR checks.
 
 ### Known coverage gap — probe-based reload
 
-`hot-reload/wait`'s probe-based confirmation (§4.5) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. Yet the only way to genuinely exercise it requires a real browser + real shadow-cljs + real edit + real compile pipeline — i.e. the E2E surface, which is manual/nightly diagnostic, not required PR coverage.
+`tail-build`'s probe-based confirmation (§4.5) is *safety-critical* — Claude uses it to gate dispatches after a source edit, and a false positive means Claude interacts with stale code. The *comparison logic* is now pinned without a browser: since rf2-1f60u the probe is compared against a caller-supplied **pre-edit `baseline`**, so `tail_build_test.cljs` can script the real orderings — baseline captured, reload landing before the first sample, reload landing after it, and a value that never leaves the baseline (which must still time out). What still needs a real browser + real shadow-cljs + real edit + real compile pipeline is the *end-to-end* claim that a genuine reload moves the probe at all — i.e. the E2E surface, which is manual/nightly diagnostic, not required PR coverage.
 
 Mitigation while E2E remains manual/nightly:
 
 - **Unit-test the probe-selection heuristics** (which probe to pick for a `reg-*` edit vs a view edit vs no-good-probe-available). Cheap; catches drift in the selection logic without needing a browser.
-- **Soft-confirmation signalling**: when no probe is available, `hot-reload/wait` returns `:soft? true`; SKILL.md asks Claude to surface this to the user rather than trust it as a hard landing confirmation.
+- **Keep the non-vacuity control green.** A baseline-aware comparison must not turn every stable value into a success, so the stuck-on-baseline case is pinned to `:reason :timed-out`. If that test ever goes green by returning `:ok? true`, the gate has stopped gating.
+- **`:soft? true` is a delay, not a soft confirmation.** A probe-less `tail-build` samples nothing and compares nothing, so it is not weak evidence of a reload — it is no evidence. SKILL.md and [`ops.md` §Hot-reload coordination](../references/ops.md#hot-reload-coordination) accordingly bar it from opening the post-edit gate; when no pre-edit baseline exists the route is direct source-derived verification (`handler-meta` `:line` against the file), not a timer.
 - **Never force release on a broken probe path.**
 
 ## What's explicitly **not** tested yet

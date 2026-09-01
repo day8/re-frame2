@@ -128,10 +128,13 @@ MCP server:
 - dispatch + trace — `dispatch {event "[:counter/inc]" sync true}`
   commits, the on-screen `#value` reads `6`, and `trace-window` carries a
   matching `:counter/inc` epoch.
-- hot-reload — capture a `registrar-handler-ref` probe, touch-edit the
-  fixture's `core.cljs` to trigger a shadow-cljs reload, and confirm
-  `tail-build {probe … wait-ms …}` reports `:soft? false` once the probe
-  flips.
+- hot-reload — capture a `registrar-handler-ref` probe's **pre-edit**
+  value, touch-edit the fixture's `core.cljs` to trigger a shadow-cljs
+  reload, and confirm `tail-build {probe … baseline "<pre-edit value>"
+  wait-ms …}` reports `:soft? false` once a sample leaves that baseline.
+  The baseline is captured before the edit on purpose: it is what keeps
+  a reload that lands before `tail-build`'s first sample recognizable
+  (rf2-1f60u).
 
 Requires an already-running fixture (`npx shadow-cljs watch app` in the
 fixture dir) plus a resolvable Playwright (for the browser that hosts the
