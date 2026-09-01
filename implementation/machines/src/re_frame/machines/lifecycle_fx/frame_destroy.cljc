@@ -38,10 +38,18 @@
   teardown projection in the swap that dissocs it. Reversing that vector
   IS the reverse-creation walk, and because it rides the durable
   runtime-db value it survives every supported round trip —
-  `replace-runtime-db!`, `restore-epoch!`, SSR hydration — with no restore
-  callback. The process-side `re-frame.machines.spawn-order` atom is a
-  transient cache of the same order (Spec 002 §Durable vs transient) and
-  is NOT consulted for ordering here.
+  `replace-frame-state!`, `restore-epoch!`, SSR hydration — with no restore
+  callback.
+
+  The process-side `re-frame.machines.spawn-order` atom is a transient
+  cache (Spec 002 §Durable vs transient) and this walk does not consult it
+  at all — neither for ORDER nor for MEMBERSHIP. No runtime-state install
+  clears it, so after a restore that rewinds PAST a spawn it names an actor
+  the installed durable value discarded; unioning it into the membership
+  reaped that dead actor, and — the durable segment walking first — placed
+  it AFTER the older actor durable state kept, inverting the reverse-creation
+  order this walk exists to honour (rf2-1vlyg audit). What the frame holds
+  is what its runtime-db says it holds.
 
   rf2-1vlyg — this used to be the other way round. The atom was the
   authority, and a restored actor absent from it was ranked by parsing the
@@ -183,11 +191,10 @@
          because the vector is durable runtime-db state rather than
          process-side bookkeeping (rf2-1vlyg).
       b. UNSEQUENCED spawned actors — snapshots carrying
-         `:rf/machine-type`, or ids recorded in the transient cache, that
-         the durable vector does not name. Only a directly-assoc'd
-         fixture / hand-built payload reaches here. Walked in
-         `unsequenced-order`: deterministic, with no reverse-creation
-         claim, because nothing ever sequenced them.
+         `:rf/machine-type` that the durable vector does not name. Only a
+         directly-assoc'd fixture / hand-built payload reaches here.
+         Walked in `unsequenced-order`: deterministic, with no
+         reverse-creation claim, because nothing ever sequenced them.
       c. Singleton stragglers — snapshots with no `:rf/machine-type`
          (registered via `reg-machine`, seeded directly). Runtime-db iteration
          order — there is no reverse-creation contract for singletons.
@@ -223,25 +230,29 @@
           newest-first (reverse durable)
           ;; Spawned actors the durable order does not name. A spawn always
           ;; records itself, so this is the directly-assoc'd fixture /
-          ;; hand-built payload case only. The transient cache is unioned in
-          ;; so an actor recorded there but already gone from runtime-db is
-          ;; still reaped, exactly as before.
-          unsequenced  (->> (concat (keys snapshots)
-                                    (spawn-order/frame-order frame-id))
+          ;; hand-built payload case only.
+          ;;
+          ;; Membership comes from the DURABLE snapshots alone. The transient
+          ;; `spawn-order` cache used to be unioned in here, which reaped
+          ;; actors the frame no longer holds: no runtime-state install clears
+          ;; that cache, so after a `restore-epoch!` / `replace-frame-state!`
+          ;; that rewinds PAST a spawn it still names the discarded actor —
+          ;; and because the durable segment walks first, the discarded NEWER
+          ;; actor was torn down AFTER the older one durable state kept,
+          ;; inverting the very reverse-creation order this walk exists to
+          ;; honour (rf2-1vlyg audit). A cache-only id has no snapshot, no
+          ;; durable order entry and no state to tear down; it is not a live
+          ;; actor of this frame.
+          unsequenced  (->> (keys snapshots)
                             (remove durable-set)
                             distinct
                             ;; Partition on the durable `:rf/machine-type`
                             ;; discriminator: a spawned snapshot MUST get the
                             ;; full teardown (registrar cleanup / system-id
                             ;; release / timer cancel / snapshot dissoc), while
-                            ;; a singleton keeps the exit-only path below. An
-                            ;; id present only in the transient cache has no
-                            ;; snapshot to classify and is treated as spawned —
-                            ;; it is one only a spawn could have recorded.
+                            ;; a singleton keeps the exit-only path below.
                             (group-by (fn [actor-id]
-                                        (if-let [snapshot (get snapshots actor-id)]
-                                          (spawned-snapshot? snapshot)
-                                          true))))
+                                        (spawned-snapshot? (get snapshots actor-id)))))
           singleton-stragglers (get unsequenced false)
           unsequenced-spawned  (unsequenced-order (get unsequenced true))]
       ;; (a) Durably sequenced spawned actors: full destroy, newest first.
