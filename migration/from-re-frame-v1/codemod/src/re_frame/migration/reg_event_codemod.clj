@@ -326,6 +326,15 @@
 ;; free-occurrence analysis (`free-in-form?`) walks DOWN through a handler body
 ;; asking "is this param ever read?". Opposite directions, one vocabulary — so
 ;; the vocabulary lives here, above both.
+;;
+;; The two consumers consult it differently, and deliberately: the shadow check
+;; matches a head by its SIMPLE name and treats an unrecognised head as a
+;; possible binder (`binding-head` / `unrecognised-form-binds?`), because a MISS
+;; there fails open into a silent semantic swap. A miss in the free-occurrence
+;; walk fails the safe way — an unrecognised head falls through to
+;; `free-in-children?`, whose bare LHS occurrence reads as free, and "referenced"
+;; is the branch that keeps the name-preserving rebind — so it consults the sets
+;; directly and stays as it is.
 
 (def ^:private binding-vector-forms
   "Head symbols whose SECOND child is a binding vector of name/value pairs
@@ -431,6 +440,23 @@
 ;; direction only: an enclosing binding sends the site down the M-70 flag
 ;; route, so the worst case is a human glance at a site that could have been
 ;; lowered, never a silent semantic swap.
+;;
+;; WHAT COUNTS AS A BINDER IS A RULE, NOT A ROSTER (rf2-8odvg reopen). Asking
+;; the roster whether it holds this exact spelling is what reopened this bead
+;; three times, each on the next spelling of the same hole — most recently
+;; `(clojure.core/let [path ...] ...)`, which the unqualified vocabulary missed
+;; and therefore lowered. Two rules replace the roster lookup, and both fail
+;; CLOSED, i.e. towards the flag:
+;;
+;;   * a recognised binder is matched by its SIMPLE name, so every qualified
+;;     spelling of it counts (`binding-head`); and
+;;   * a head OUTSIDE the vocabulary no longer binds nothing — a vector child
+;;     that binds the name, read as either a binding vector or a params vector,
+;;     makes the form a binder (`unrecognised-form-binds?`).
+;;
+;; Together they cover the spellings nobody has enumerated yet — a project
+;; macro, `defmethod`, `when-first`, `dotimes` — without a general analyser,
+;; which the bead's non-goals exclude.
 
 (def ^:private standard-path-ns
   "The one v1 namespace whose `path` is the standard interceptor constructor."
@@ -549,16 +575,51 @@
   attr-map? [params] body)` or `(head name ([params] body)+)`."
   '#{defn defn- defmacro})
 
+(defn- binding-head
+  "Normalise a call-head symbol to the SIMPLE name the binding vocabulary above
+  is keyed by, so a namespace-qualified spelling of a binder is recognised
+  (`clojure.core/let`, `cljs.core/let`, a `[clojure.core :as c]` alias's
+  `c/let`). Returns nil for a non-symbol head.
+
+  The namespace is DISCARDED rather than resolved (rf2-8odvg reopen — a
+  `(clojure.core/let [path app.interceptors/path] ...)` around the registration
+  was lowered as the framework constructor). Resolving it would be the fail-OPEN
+  choice: an unrecognised `my.macros/let` would then bind nothing, and a site it
+  really does shadow would be silently rewritten. Discarding it is fail-CLOSED —
+  a custom macro that merely shares a binder's simple name sends the site down
+  the M-70 flag route, which costs a human glance and never a semantic swap."
+  [hd]
+  (when (symbol? hd) (symbol (name hd))))
+
+(defn- unrecognised-form-binds?
+  "Catch-all for an enclosing form whose head is NOT in the binding vocabulary
+  (`defmethod`, `when-first`, `dotimes`, `deftype`/`defrecord` methods, `are`,
+  any project macro): does any vector child bind `target`, read either as a
+  `let`-shaped binding vector or as a params vector?
+
+  Enumerating binder spellings one at a time is what reopened rf2-8odvg three
+  times, so the unrecognised case gets a rule instead of a roster. It is narrow
+  in practice — it fires only when a form enclosing the registration has a
+  vector child that literally binds the name — and, like every other branch
+  here, it can only ever produce a flag."
+  [target vector-kids arity-params]
+  (boolean (or (some #(binding-vector-binds? target %) vector-kids)
+               (some #(params-bind? target %) vector-kids)
+               (some #(params-bind? target %) arity-params))))
+
 (defn- form-binds?
   "Does the list NODE `node` lexically bind the simple name `target` anywhere in
   its scope? Recognises the same binding vocabulary as the free-occurrence
   analysis — `let`-shape, `for`/`doseq`-shape, `fn`/`fn*`, `letfn` — plus the
-  `defn` family, whose params scope over a registrar call in the body. A head
-  we do not recognise binds nothing."
+  `defn` family, whose params scope over a registrar call in the body, each
+  matched by SIMPLE name so a qualified spelling counts (`binding-head`). A head
+  outside that vocabulary falls to `unrecognised-form-binds?` rather than
+  binding nothing."
   [target node]
   (let [kids (sig-children node)
-        hd   (when (and (seq kids) (= :token (n/tag (first kids))))
-               (try (n/sexpr (first kids)) (catch Exception _ nil)))
+        hd   (some-> (when (and (seq kids) (= :token (n/tag (first kids))))
+                       (try (n/sexpr (first kids)) (catch Exception _ nil)))
+                     binding-head)
         rest-kids (rest kids)
         vector-kids (filter #(= :vector (n/tag %)) rest-kids)
         ;; `(fn ([a] ..) ([a b] ..))` / `(defn f ([a] ..))` — an arity is a
@@ -569,7 +630,7 @@
                                  (when (= :vector (some-> p n/tag)) p))))
                            rest-kids)]
     (cond
-      (not (symbol? hd)) false
+      (nil? hd) (unrecognised-form-binds? target vector-kids arity-params)
 
       (contains? binding-vector-forms hd)
       (boolean (some #(binding-vector-binds? target %) (take 1 vector-kids)))
@@ -596,7 +657,7 @@
                       (sig-children vnode)))
               (take 1 vector-kids)))
 
-      :else false)))
+      :else (unrecognised-form-binds? target vector-kids arity-params))))
 
 (defn- enclosing-scope-binds?
   "Walking OUT from `zloc` (a registrar call site), does any enclosing form
