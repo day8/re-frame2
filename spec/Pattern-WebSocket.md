@@ -78,6 +78,20 @@ The connection machine composes the locked substrate:
 ;; self-dispatch.
 (defn- socket-id [data] (get-in data [:rf/spawned [:active]]))
 
+;; The body the machine hands a waiting `:reply-event` when IT — not the server
+;; — decides a request is over: the wire went away, or the deadline elapsed.
+;; `:origin :ws/local` is the machine's own stamp, and it is what makes this
+;; outcome distinguishable from server bytes at the callback. A frame off the
+;; network cannot reach this shape, because the machine assoc's `:origin` after
+;; receipt rather than reading it off the frame. Both local producers — the
+;; lost wire and the elapsed deadline — mint through here, so the two cannot
+;; drift into two different failure shapes.
+(defn- local-failure [request-id error]
+  {:origin     :ws/local
+   :request-id request-id
+   :ok         false
+   :error      error})
+
 ;; The in-flight half of losing the wire, shared by EVERY door out of `:active`
 ;; that destroys the socket — the guarded `:ws/closed` drop, the clean
 ;; `:ws/disconnect`, and the app-level `:ws/fatal` escape hatch. Clear every
@@ -97,10 +111,7 @@ The connection machine composes the locked substrate:
                (keep (fn [[rid {:keys [reply-event]}]]
                        (when reply-event
                          [:dispatch (conj reply-event
-                                          {:origin     :ws/local
-                                           :request-id rid
-                                           :ok         false
-                                           :error      :ws/connection-lost})])))
+                                          (local-failure rid :ws/connection-lost))])))
                (:in-flight data))})
 
 (rf/reg-event :ws/connection
@@ -275,8 +286,23 @@ The connection machine composes the locked substrate:
                             :source-socket-id (socket-id data)}]]}]]})
 
       :clear-request
+      ;; A request's deadline fired — a `:ws/request-timeout` that passed
+      ;; `:current-socket?`, so the socket is still live but the reply never
+      ;; came. FAIL the request, don't just forget it: clear the in-flight slot
+      ;; AND fire the waiting `:reply-event` with an explicit timeout body, so a
+      ;; request that times out on a live socket learns its outcome instead of
+      ;; hanging forever. This is `fail-in-flight`'s per-request twin — same
+      ;; local-failure shape, scoped to the single request whose timer elapsed
+      ;; rather than the whole in-flight set. (A request registered without a
+      ;; `:reply` has a nil `:reply-event`, so the dispatch is guarded.)
       (fn [{:keys [data] [_ {:keys [request-id]}] :event}]
-        {:data (update data :in-flight dissoc request-id)})
+        (let [{:keys [reply-event]} (get-in data [:in-flight request-id])]
+          {:data (update data :in-flight dissoc request-id)
+           :fx   (cond-> []
+                   reply-event (conj [:dispatch
+                                      (conj reply-event
+                                            (local-failure request-id
+                                                           :ws/timeout))]))}))
 
       :record-and-reset
       ;; Compound action — record fresh opts AND reset the retry counter.
@@ -501,7 +527,7 @@ Request-reply protocols carry a correlation id on every request and matching rep
 1. **Caller dispatches `[:ws/connection [:ws/request {:request-id ..., :body ..., :reply [::handler ...], :timeout-ms 10000}]]`.**
 2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout.
 3. **`:ws/received` arrives with `{:body {:type :reply :request-id ... :ok ...}}`.** The `:connected` state's `:trusted-frame?` guard checks the connection epoch **and** the closed wire contract; only then does the handler branch on the vetted `:type`. A `:reply` looks up the in-flight entry, clears the slot, and dispatches the registered reply event with the machine's `:origin :ws/server` stamp added; a `:push` only routes to `[:ws/handle-message body]`. Branch on `:type`, not on the presence of a `:request-id` — the frame's declared kind is part of the contract you just checked, whereas presence-of-a-key is a shape test a widened arm re-opens.
-4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry; the caller's reply event never fires. (Apps that want to surface "request timed out" to the caller can do so by dispatching a per-feature error event from `:clear-request` instead.)
+4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry **and fires the caller's `:reply-event`** with `{:origin :ws/local :ok false :error :ws/timeout}` — the per-request twin of the loss body in item 5, minted through the same `local-failure` helper. A timeout is a terminal outcome, so the caller must learn it: clearing the slot silently would leave a request that timed out on a *live* socket waiting forever, with no reply and no timer left to fire. The socket is still up, so this is the one door where nothing else will ever settle the slot.
 5. **Losing the wire fails the slot — by every door, not only the drop.** A request accepted into `:in-flight` settles exactly once, and it settles whenever the socket goes away rather than only when it is lost underneath us. Every transition that exits `:active` destroys the socket actor, so all three doors run the shared `fail-in-flight` helper: the guarded `:ws/closed` drop (`:on-socket-lost`, which also bumps the retry counter), the clean `:ws/disconnect` (`:fail-in-flight`), and the app-level `:ws/fatal` escape hatch (`:on-fatal-error`, which also records the error). Each still-in-flight `:reply-event` fires with `{:origin :ws/local :ok false :error :ws/connection-lost}` and `:in-flight` is cleared, so no correlation slot leaks and no caller hangs. Semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution. (`:ws/auth-failed` is the exception that proves the rule — `:register-request` is bound only on `:connected`, so `:in-flight` is provably empty by the time that door can be taken, and plain `:record-error` is correct there.)
 
 **Two producers reach the reply event, so say which is which — with a key the sender cannot set.** A correlated wire reply and a locally minted loss/timeout failure both arrive at the caller's `:reply-event`, and they are different facts: one is the server's claim, the other is the machine's own truth about the connection. Discriminating between them by *shape* hands the choice to the sender, because a hostile server that has seen the wire request id can send back whatever shape the "local failure" arm describes and have its frame recorded as a connection fact the app minted itself. So the machine **stamps** `:origin` — `:ws/server` on the wire body as it hands it on, `:ws/local` on the bodies it mints — and the outcome schema is a closed union dispatching on that stamp. Stamped after receipt, `:origin` is not forgeable from the wire.
