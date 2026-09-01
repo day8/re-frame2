@@ -34,19 +34,20 @@
             [websocket.schema :as ws.schema]
             [websocket.connection :as ws.connection]
             [websocket.messages :as messages]
-            [websocket.core])
-  (:require-macros [re-frame.core :refer [with-frame with-new-frame]]))
+            [websocket.core :as ws.core])
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
 ;; TEST-ONLY RE-REGISTRATION SCAFFOLDING
 ;; ============================================================================
 ;;
-;; The websocket example's sub-namespaces — `websocket.schema`,
-;; `websocket.connection`, `websocket.messages` — each install their
-;; reg-machine / reg-event / reg-sub / reg-app-schema entries at
-;; ns-load time (the production-app idiom; loading the ns IS the
-;; registration). The example's `core.cljs` then registers the top-level
-;; `:ws.app/initialise` event in the same idiomatic ns-load shape.
+;; The websocket example's namespaces — `websocket.schema`,
+;; `websocket.connection`, `websocket.messages`, `websocket.core` — each
+;; install their reg-machine / reg-event / reg-cofx / reg-sub /
+;; reg-app-schema entries at ns-load time (the production-app idiom;
+;; loading the ns IS the registration). Each does it by calling its own
+;; `register!`, and that named entry point is the whole reason this file
+;; can recover the registrations without owning a copy of them.
 ;;
 ;; Some test fixtures upstream of this example (alphabetically before
 ;; `re-frame.websocket-cljs-test` in the node-test run order) call
@@ -56,8 +57,8 @@
 ;; this test ns gets a chance to run. `register-all!` recovers from that
 ;; — the `:each` fixture's `:init-fn` calls it. Idempotent
 ;; (last-write-wins). Production `(websocket.core/run)` does NOT call it;
-;; the example's sub-namespaces install their registrations at ns-load,
-;; so the recovery dance lives here (the example source stays test-free).
+;; the example's namespaces install their registrations at ns-load, so the
+;; recovery dance lives here (the example source stays test-free).
 ;;
 ;; The narrow `(rf/reg-sub :rf/... ...)` calls below are recovery only —
 ;; the user-code 'must not register under :rf/*' rule (Spec Conventions
@@ -97,148 +98,45 @@
       (contains? (get-in rt [:rf.runtime/machines :snapshots machine-id :tags]) tag))))
 
 (defn- register-all!
-  "Re-fire every `reg-*` the websocket example depends on. Safe to call
-   at any point — every `reg-*` is last-write-wins. Each block below
-   mirrors the ns-load registrations in the named sub-namespace; if a
-   `reg-*` is added there, mirror it here so the recovery is complete.
+  "Recover every `reg-*` the websocket example owns, by calling the
+   example's OWN registration entry points. Safe to call at any point —
+   every `reg-*` is last-write-wins.
 
-   KNOW WHICH HALF OF THE EXAMPLE THESE TESTS ACTUALLY DRIVE, because
-   last-write-wins cuts both ways: this fixture runs on every test, so
-   where a block below re-declares a handler BODY inline, that body — not
-   the example's — is what the suite exercises, and an edit to the
-   example's copy alone changes nothing here (measured rf2-tb442: a fault
-   planted in `websocket.messages`' `:ws.app/request-reply` body left the
-   suite fully green). Where a block instead points at an example VAR —
-   `ws.connection/connection-machine`, `messages/socket-actor-machine`,
-   `ws.schema/InboundMessage` / `RequestOutcome`, and the mock server the
-   actor reaches through — the example's own code IS under test, and a
-   fault planted there reds immediately. The machine, the schemas and the
-   mock transport are therefore genuinely covered; the two ingress
-   handler bodies are covered only as far as their twins here agree with
-   them. Mirror a body change into both, or the drift is invisible."
+   THERE IS DELIBERATELY NO TEST-LOCAL COPY OF ANY EXAMPLE REGISTRATION
+   HERE, and re-introducing one silently guts this suite. This fn used to
+   re-declare the two ingress handlers, their bodies and their boundary
+   metadata inline; because it runs on EVERY test and `reg-*` is
+   last-write-wins, those copies replaced the example's own handlers
+   before a single assertion ran. The suite then certified the copy: a
+   fault planted in `websocket.messages`' `:ws.app/request-reply` body
+   left it fully green, and `inbound-boundary-structural-test` read back
+   the metadata this file had just installed rather than the example's
+   (measured, rf2-idv1m). Calling `register!` is what puts the shipped
+   definitions under test; `example-registrations-are-live-test` is the
+   tripwire that fails first if a twin ever comes back.
+
+   The only thing this file still installs itself is the FRAMEWORK's
+   `:rf.machine/*` fx and subs, which no example namespace owns."
   []
   (re-register-machines-fx-and-subs!)
-
-  ;; --- websocket.schema --------------------------------------------------
-  ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db, not app-db — an
-  ;; `reg-app-schema` on a machine-snapshot path no longer validates anything
-  ;; (app schemas validate the app-db partition only, Mike ruling #11). The
-  ;; machine's own `:data-schema` is the snapshot-validation surface; the
-  ;; vestigial app-schema reg is dropped. Only the genuine app-db slice
-  ;; (`[:messages]`) keeps its app-schema.
-  ;;
   ;; rf2-ofzxh9 — `reg-app-schema` is EP-0002 context-required frame-local
   ;; (rf2-5q7um6): it resolves `*current-frame*` and raises
   ;; `:rf.error/no-frame-context` under no scope. `register-all!` runs from
   ;; the fixture's `:init-fn`, which fires OUTSIDE the fixture's ambient
   ;; `*current-frame*` binding (`make-reset-runtime-fixture` invokes `:init-fn`
   ;; before it `binding`s the ambient frame around the test body). Bare, this
-  ;; threw `:rf.error/no-frame-context` — and because the node-test build runs
-  ;; every `*_cljs_test` ns in ONE shared JS runtime, that throw, fired during
-  ;; a concurrently-pending async test's `done` window, surfaced as the
+  ;; threw `:rf.error/no-frame-context` — and because the node-test build
+  ;; runs every `*_cljs_test` ns in ONE shared JS runtime, that throw, fired
+  ;; during a concurrently-pending async test's `done` window, surfaced as the
   ;; intermittent `FAIL in () (:) unexpected reject: :rf.error/no-frame-context`
-  ;; + `Async test called done more than one time` flake. Name `:rf/default`
-  ;; explicitly here, mirroring the example's own `(with-frame :rf/default …)`
-  ;; ns-load idiom (examples/patterns/websocket/schema.cljs) — the fixture has
-  ;; already `ensure-default-frame!`'d it.
-  (with-frame :rf/default
-    (rf/reg-app-schema [:messages]                 ws.schema/MessagesSlice))
-
-  ;; --- websocket.connection ----------------------------------------------
-  (rf/reg-machine :ws/connection ws.connection/connection-machine)
-  (subs/reg-runtime-sub :ws/snapshot (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :ws/connection])))
-  (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
-  ;; The per-tag subs mirror the example: each chains off the framework
-  ;; `:rf.machine/has-tag?` sub rather than re-reading the snapshot's :tags.
-  (rf/reg-sub :ws/connecting?     :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]     (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/authenticating? :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating] (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/connected?      :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]      (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/reconnecting?   :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]   (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/failed?         :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]         (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/queue-depth    :<- [:ws/snapshot] (fn [snap _] (count (get-in snap [:data :queue]))))
-  (rf/reg-sub :ws/retries        :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :retries])))
-  (rf/reg-sub :ws/error          :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :error])))
-  (rf/reg-event :ws.connection/initialise
-    (fn handler-ws-connection-initialise [_ _]
-      {:fx [[:dispatch [:ws/connection [:rf.machine/start]]]]}))
-
-  ;; --- websocket.messages -------------------------------------------------
-  (rf/reg-machine :websocket/socket messages/socket-actor-machine)
-  ;; UNTRUSTED INGRESS — mirrors the example's registration exactly: the
-  ;; closed InboundMessage wire union as :schema plus the
-  ;; :rf.schema/at-boundary interceptor, so the check is release-resident
-  ;; (rf2-iyjae). The boundary-rejection tests below exercise THIS
-  ;; registration (register-all! is last-write-wins over the ns-load one).
-  (rf/reg-event :ws/handle-message
-    {:schema       [:cat [:= :ws/handle-message] ws.schema/InboundMessage]
-     :interceptors [:rf.schema/at-boundary]}
-    (fn handler-ws-handle-message [{:keys [db]} [_ body]]
-      {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
-        (-> db
-            (update-in [:messages :received]
-                       (fn [received]
-                         (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
-            (assoc-in [:messages :rx-count] (inc rx-seq))
-            (cond-> (:request-id body)
-              (assoc-in [:messages :last-reply] body))))}))
-  (rf/reg-event :ws.app/send
-    (fn handler-app-send [{:keys [db]} [_ body]]
-      {:db (assoc-in db [:messages :draft] "")
-       :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
-  ;; EP-0017 (rf2-1g0ba6): the request-id is a DURABLE correlation fact (it
-  ;; is folded into the connection machine's :in-flight slot and the reply is
-  ;; matched against it), so it must be a FOLDED FACT from a recordable cofx,
-  ;; NOT an ambient `(random-uuid)` read inside the handler — replay would
-  ;; otherwise mint a fresh id and break the correlation. Mirrors the
-  ;; production `:ws.app/request-id` reg-cofx in
-  ;; examples/patterns/websocket/messages.cljs.
-  (rf/reg-cofx :ws.app/request-id
-    {:recordable? true
-     :doc "Replayable correlation id for an outbound request-reply (EP-0017)."}
-    (fn [] (random-uuid)))
-  (rf/reg-event :ws.app/request
-    {:rf.cofx/requires [:ws.app/request-id]}
-    (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
-      {:fx [[:dispatch [:ws/connection
-                        [:ws/request {:request-id rid
-                                      :body       {:type :request
-                                                   :body body}
-                                      :reply      [:ws.app/request-reply]
-                                      :timeout-ms 5000}]]]]}))
-  ;; The SECOND untrusted ingress — a correlated reply is still the
-  ;; server's bytes. RequestOutcome admits exactly the closed wire :reply
-  ;; arm OR the machine's locally synthesised loss/timeout failure shape
-  ;; (rf2-iyjae). Mirrors the example's registration.
-  (rf/reg-event :ws.app/request-reply
-    {:schema       [:cat [:= :ws.app/request-reply] ws.schema/RequestOutcome]
-     :interceptors [:rf.schema/at-boundary]}
-    (fn handler-app-request-reply [{:keys [db]} [_ body]]
-      {:db (assoc-in db [:messages :last-reply] body)}))
-  (rf/reg-event :ws.app/subscribe-demo
-    (fn handler-app-subscribe-demo [_ _]
-      {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
-  (rf/reg-event :ws.app/edit-draft
-    (fn handler-app-edit-draft [{:keys [db]} [_ text]]
-      {:db (assoc-in db [:messages :draft] text)}))
-  (rf/reg-event :ws.messages/initialise
-    (fn handler-messages-initialise [{:keys [db]} _]
-      {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
-  (rf/reg-sub :messages            (fn [db _] (:messages db)))
-  (rf/reg-sub :messages/draft      :<- [:messages] (fn [m _] (:draft m)))
-  (rf/reg-sub :messages/received   :<- [:messages] (fn [m _] (:received m)))
-  (rf/reg-sub :messages/last-reply :<- [:messages] (fn [m _] (:last-reply m)))
-
-  ;; --- websocket.core ----------------------------------------------------
-  (rf/reg-event :ws.app/initialise
-    {:doc "App boot. Seeds the messages slice + materialises the
-           connection machine's initial `:disconnected` snapshot.
-
-           Namespaced under `:ws.app/*` (not `:app/initialise`) so the
-           example can coexist with the realworld + counter examples
-           without re-registering a common event key."}
-    (fn handler-app-initialise [_ _]
-      {:fx [[:dispatch [:ws.messages/initialise]]
-            [:dispatch [:ws.connection/initialise]]]})))
+  ;; + `Async test called done more than one time` flake. The example's own
+  ;; `websocket.schema/register!` names `:rf/default` explicitly in its
+  ;; `(rf/with-frame :rf/default …)` — exactly what this call site needs,
+  ;; and one more thing that stays correct here only because it is not copied.
+  (ws.schema/register!)
+  (ws.connection/register!)
+  (messages/register!)
+  (ws.core/register!))
 
 ;; `:init-fn` re-fires every `rf/reg-*` this example owns so the ns-load
 ;; registrations the tests depend on are present even when an
@@ -1586,6 +1484,52 @@
       (is (some #{:rf.schema/at-boundary} (:interceptors m))
           (str ingress " attaches :rf.schema/at-boundary — the release-resident half")))))
 
+(defn- example-registrations-are-live-test []
+  ;; rf2-idv1m — THE ANTI-SHADOWING CONTROL, and the reason the fixture
+  ;; above calls the example's `register!` fns instead of re-declaring what
+  ;; they install.
+  ;;
+  ;; `register-all!` used to mirror the two ingress registrations inline.
+  ;; It runs on every test and `reg-*` is last-write-wins, so those copies
+  ;; replaced the example's own handlers before a single assertion ran, and
+  ;; the suite became a certificate for the copy: a fault planted in
+  ;; `websocket.messages`' `:ws.app/request-reply` body left all 29 tests
+  ;; green, and `inbound-boundary-structural-test` read back the `:schema`
+  ;; and `:rf.schema/at-boundary` this very file had just installed rather
+  ;; than the example's. Three assertions, one per way the coupling can be
+  ;; lost.
+  (with-new-frame [f (new-frame)]
+    (let [m (rf/handler-meta :event :ws.app/request-reply)]
+      ;; (1) IDENTITY. The live registration is the EXAMPLE's, not a
+      ;; look-alike. The example documents this ingress at length and the
+      ;; hand-mirrored twin never carried the prose, so the registered
+      ;; `:doc` is a direct, cheap witness to WHICH definition won the
+      ;; last write — and it is what reds first if a twin comes back.
+      (is (some? (:doc m))
+          ":ws.app/request-reply is registered with the example's own :doc")
+      (is (str/includes? (str (:doc m)) "RequestOutcome")
+          "the live :ws.app/request-reply IS websocket.messages' registration")
+      ;; (2) BOUNDARY METADATA, read off the live registry. Reds if the
+      ;; example drops `:rf.schema/at-boundary` (the release-resident half)
+      ;; or its closed `:schema`. This is the same pair
+      ;; `inbound-boundary-structural-test` pins — asserted here too,
+      ;; because until this fn existed that test was reading the fixture's
+      ;; own metadata back to itself.
+      (is (some? (:schema m))
+          "the example declares the closed RequestOutcome wire contract")
+      (is (some #{:rf.schema/at-boundary} (:interceptors m))
+          "the example attaches :rf.schema/at-boundary"))
+    ;; (3) BODY. Driven through a real dispatch, so it is the REGISTERED
+    ;; handler that runs. Reds if the example's handler body stops
+    ;; recording the outcome — the exact fault that used to pass.
+    (let [outcome {:origin     :ws/local
+                   :request-id (random-uuid)
+                   :ok         false
+                   :error      :ws/timeout}]
+      (rf/dispatch-sync [:ws.app/request-reply outcome] {:frame f})
+      (is (= outcome (get-in (rf/app-db-value f) [:messages :last-reply]))
+          "the example's own :ws.app/request-reply body recorded the outcome"))))
+
 (defn- inbound-boundary-rejection-test []
   ;; Malformed and unknown frames from the LIVE socket are refused, and
   ;; refused EARLY: the audit of the first rf2-iyjae pass found the
@@ -2011,3 +1955,10 @@
             raw bearer sentinel is absent from the exercised snapshot,
             app-db, event and trace surface"
     (credential-discipline-test)))
+
+(deftest websocket-example-registrations-are-live
+  (testing "rf2-idv1m — the suite exercises the EXAMPLE's ingress
+            registration, not a fixture-local twin: its :doc, its closed
+            :schema, its :rf.schema/at-boundary and its handler body are all
+            read back off the live registry / a real dispatch"
+    (example-registrations-are-live-test)))

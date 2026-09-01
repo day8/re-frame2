@@ -297,14 +297,22 @@
 ;; SCHEMA REGISTRATIONS
 ;; ============================================================================
 
-;; Only `:messages` gets an app-schema here, and that's on purpose. A
-;; machine's snapshot lives in runtime-db, not app-db, so pointing
-;; `reg-app-schema` at a snapshot path would validate precisely nothing —
-;; the machine's own `[:schemas :data]` is what guards that.
-;;
-;; One wrinkle: `reg-app-schema` is frame-local, so it needs a frame in
-;; scope. Call it bare at ns-load and you get :rf.error/no-frame-context.
-;; This example lives in the :rf/default frame, so we name that frame
-;; explicitly. See docs/core/glossary.md#capture-frame.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:messages]                   MessagesSlice))
+(defn register!
+  "Install the app-schema this namespace owns, in one re-invocable place.
+   Called once at ns-load below — see `websocket.messages/register!` for
+   why the block is named rather than left as a bare top-level form."
+  []
+  ;; Only `:messages` gets an app-schema here, and that's on purpose. A
+  ;; machine's snapshot lives in runtime-db, not app-db, so pointing
+  ;; `reg-app-schema` at a snapshot path would validate precisely nothing —
+  ;; the machine's own `[:schemas :data]` is what guards that.
+  ;;
+  ;; One wrinkle: `reg-app-schema` is frame-local, so it needs a frame in
+  ;; scope. Call it bare at ns-load and you get :rf.error/no-frame-context.
+  ;; This example lives in the :rf/default frame, so we name that frame
+  ;; explicitly. See docs/core/glossary.md#capture-frame.
+  (rf/with-frame :rf/default
+    (rf/reg-app-schema [:messages]                   MessagesSlice)))
+
+;; Loading this namespace registers it — the production-app idiom.
+(register!)

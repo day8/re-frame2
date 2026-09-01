@@ -70,18 +70,26 @@
 ;; APP-BOOT EVENT
 ;; ============================================================================
 
-(rf/reg-event :ws.app/initialise
-  {:doc "Boot the app: seed the messages slice and bring the connection
-         machine to life in its `:disconnected` start state.
+(defn register!
+  "Install the boot event this namespace owns, in one re-invocable place.
+   Called once at ns-load below — see `websocket.messages/register!` for
+   why the block is named rather than left as a bare top-level form."
+  []
+  (rf/reg-event :ws.app/initialise
+    {:doc "Boot the app: seed the messages slice and bring the connection
+           machine to life in its `:disconnected` start state.
 
-         The `:ws.app/*` prefix (rather than a plain `:app/initialise`)
-         is deliberate. Several examples (the realworld + counter
-         examples among them) share one test bundle, and a common event
-         key would have them stepping on each other's registrations.
-         Namespacing keeps each example to itself."}
-  (fn handler-app-initialise [_ _]
-    {:fx [[:dispatch [:ws.messages/initialise]]
-          [:dispatch [:ws.connection/initialise]]]}))
+           The `:ws.app/*` prefix (rather than a plain `:app/initialise`)
+           is deliberate. Several examples (the realworld + counter
+           examples among them) share one test bundle, and a common event
+           key would have them stepping on each other's registrations.
+           Namespacing keeps each example to itself."}
+    (fn handler-app-initialise [_ _]
+      {:fx [[:dispatch [:ws.messages/initialise]]
+            [:dispatch [:ws.connection/initialise]]]})))
+
+;; Loading this namespace registers it — the production-app idiom.
+(register!)
 
 ;; ============================================================================
 ;; MOUNT

@@ -746,70 +746,78 @@
 ;; MACHINE HANDLER + SUBSCRIPTIONS + INIT EVENT
 ;; ============================================================================
 
-;; `reg-machine` marks this registration `:rf/machine? true` — the flag a
-;; declarative `:spawn` looks for when resolving its target. An unregistered
-;; target is rejected with `:rf.error/machine-spawn-unregistered-type`; no
-;; child snapshot is created.
-(rf/reg-machine :ws/connection connection-machine)
+(defn register!
+  "Install every `reg-*` this namespace owns, in one re-invocable place.
+   Called once at ns-load below — see `websocket.messages/register!` for
+   why the block is named rather than left as bare top-level forms."
+  []
+  ;; `reg-machine` marks this registration `:rf/machine? true` — the flag a
+  ;; declarative `:spawn` looks for when resolving its target. An unregistered
+  ;; target is rejected with `:rf.error/machine-spawn-unregistered-type`; no
+  ;; child snapshot is created.
+  (rf/reg-machine :ws/connection connection-machine)
 
-;; --- subs -------------------------------------------------------------
-;; The machine's snapshot lives in runtime-db, not app-db, so we read it
-;; through the framework `:rf/machine` sub rather than poking at app-db.
-;; See docs/machines/glossary.md#snapshot.
-(rf/reg-sub :ws/snapshot
-  :<- [:rf/machine :ws/connection]
-  (fn [snapshot _] snapshot))
+  ;; --- subs -------------------------------------------------------------
+  ;; The machine's snapshot lives in runtime-db, not app-db, so we read it
+  ;; through the framework `:rf/machine` sub rather than poking at app-db.
+  ;; See docs/machines/glossary.md#snapshot.
+  (rf/reg-sub :ws/snapshot
+    :<- [:rf/machine :ws/connection]
+    (fn [snapshot _] snapshot))
 
-(rf/reg-sub :ws/state
-  :<- [:ws/snapshot]
-  (fn [snap _] (:state snap)))
+  (rf/reg-sub :ws/state
+    :<- [:ws/snapshot]
+    (fn [snap _] (:state snap)))
 
-;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
-;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
-;; tag)`), which returns the snapshot's tag-containment bit directly — so a
-;; view can ask "connected?" and get a boolean without unpacking the
-;; hierarchical `:state` vector or re-reading the snapshot itself.
-;; See docs/machines/glossary.md#state-tag.
-(rf/reg-sub :ws/connecting?
-  :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]
-  (fn [has-tag? _] has-tag?))
+  ;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
+  ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
+  ;; tag)`), which returns the snapshot's tag-containment bit directly — so a
+  ;; view can ask "connected?" and get a boolean without unpacking the
+  ;; hierarchical `:state` vector or re-reading the snapshot itself.
+  ;; See docs/machines/glossary.md#state-tag.
+  (rf/reg-sub :ws/connecting?
+    :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]
+    (fn [has-tag? _] has-tag?))
 
-(rf/reg-sub :ws/authenticating?
-  :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating]
-  (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/authenticating?
+    :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating]
+    (fn [has-tag? _] has-tag?))
 
-(rf/reg-sub :ws/connected?
-  :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]
-  (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/connected?
+    :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]
+    (fn [has-tag? _] has-tag?))
 
-(rf/reg-sub :ws/reconnecting?
-  :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]
-  (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/reconnecting?
+    :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]
+    (fn [has-tag? _] has-tag?))
 
-(rf/reg-sub :ws/failed?
-  :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]
-  (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/failed?
+    :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]
+    (fn [has-tag? _] has-tag?))
 
-(rf/reg-sub :ws/queue-depth
-  :<- [:ws/snapshot]
-  (fn [snap _] (count (get-in snap [:data :queue]))))
+  (rf/reg-sub :ws/queue-depth
+    :<- [:ws/snapshot]
+    (fn [snap _] (count (get-in snap [:data :queue]))))
 
-(rf/reg-sub :ws/retries
-  :<- [:ws/snapshot]
-  (fn [snap _] (get-in snap [:data :retries])))
+  (rf/reg-sub :ws/retries
+    :<- [:ws/snapshot]
+    (fn [snap _] (get-in snap [:data :retries])))
 
-(rf/reg-sub :ws/error
-  :<- [:ws/snapshot]
-  (fn [snap _] (get-in snap [:data :error])))
+  (rf/reg-sub :ws/error
+    :<- [:ws/snapshot]
+    (fn [snap _] (get-in snap [:data :error])))
 
-;; --- init event -------------------------------------------------------
-(rf/reg-event :ws.connection/initialise
-  {:doc "Wake the connection machine up in its `:disconnected` start
-         state. A machine's first snapshot only materialises when it first
-         receives an event, so this gives it the canonical eager kick."}
-  (fn handler-ws-connection-initialise [_ _]
-    ;; `[:rf.machine/start]` is re-frame2's spelling of XState v5's
-    ;; `createActor(machine).start()`: it runs the initial-entry cascade
-    ;; and then stops, materialising the `:disconnected` snapshot so tests
-    ;; (and the UI) can read the state before anyone clicks Connect.
-    {:fx [[:dispatch [:ws/connection [:rf.machine/start]]]]}))
+  ;; --- init event -------------------------------------------------------
+  (rf/reg-event :ws.connection/initialise
+    {:doc "Wake the connection machine up in its `:disconnected` start
+           state. A machine's first snapshot only materialises when it first
+           receives an event, so this gives it the canonical eager kick."}
+    (fn handler-ws-connection-initialise [_ _]
+      ;; `[:rf.machine/start]` is re-frame2's spelling of XState v5's
+      ;; `createActor(machine).start()`: it runs the initial-entry cascade
+      ;; and then stops, materialising the `:disconnected` snapshot so tests
+      ;; (and the UI) can read the state before anyone clicks Connect.
+      {:fx [[:dispatch [:ws/connection [:rf.machine/start]]]]})))
+
+;; Loading this namespace registers it — the production-app idiom.
+(register!)

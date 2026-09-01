@@ -455,153 +455,168 @@
 ;; REGISTRATIONS
 ;; ============================================================================
 
-;; Register the actor the connection machine spawns. As before,
-;; `reg-machine` is what flips on `:rf/machine? true` — the flag the spawn
-;; needs to find its target.
-(rf/reg-machine :websocket/socket socket-actor-machine)
+(defn register!
+  "Install every `reg-*` this namespace owns, in one re-invocable place.
 
-;; For every message that comes in — a correlated reply or a server push —
-;; the connection machine dispatches `[:ws/handle-message body]`, and this
-;; handler is where it lands in app-db for the views to read.
-;;
-;; This is a SYSTEM BOUNDARY: the body is the server's bytes, and on a
-;; compromised or hostile server it is whatever the sender chose.
-;; `:rf.schema/at-boundary` is what keeps the check in the RELEASE build
-;; (a bare `:schema` is a dev diagnostic and elides under :advanced). A
-;; frame that fails the closed `InboundMessage` union is dropped whole:
-;; the handler never runs, nothing reaches app-db, and the always-on
-;; `:rf.error/schema-validation-failure` record is the counter to alert
-;; on. See spec/Pattern-WebSocket.md §Inbound frames are untrusted.
-;;
-;; The connection machine holds the frame to this SAME contract one step
-;; earlier, in its `:trusted-frame?` guard — it has to, because it clears
-;; correlation slots the frame names. That is not a reason to relax the
-;; check here: this is the ingress app-db is behind, and every refused
-;; frame the machine forwards arrives here precisely so this handler
-;; produces the one canonical rejection record.
-(rf/reg-event :ws/handle-message
-  {:doc "Fold one inbound frame into app-db. UNTRUSTED INGRESS — the body
-         is validated against the closed `InboundMessage` wire union, in
-         every build, before this handler runs. It joins the
-         [:messages :received] log, and if it's a correlated reply it also
-         lands at [:messages :last-reply]. Each one gets a monotonic
-         `:rx-seq` stamp on the way in — that's the inbox's stable React
-         `:key`. (Server pushes carry no `:request-id`, so we can't lean
-         on identity from the wire, and list position shifts as new
-         messages arrive at the top.)"
-   :schema       [:cat [:= :ws/handle-message] schema/InboundMessage]
-   :interceptors [:rf.schema/at-boundary]}
-  (fn handler-ws-handle-message [{:keys [db]} [_ body]]
-    {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
-      (-> db
-          (update-in [:messages :received]
-                     (fn [received]
-                       (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
-          (assoc-in [:messages :rx-count] (inc rx-seq))
-          (cond-> (:request-id body)
-            (assoc-in [:messages :last-reply] body))))}))
+   It is called once at ns-load below, so loading the namespace still IS
+   the registration — the production-app idiom the rest of this example
+   assumes, and `core/run` does nothing extra. Naming the block buys one
+   thing: a test fixture that has to recover from an upstream
+   `registrar/clear-all!` re-fires THESE definitions rather than keeping a
+   hand-mirrored copy, so the handler bodies and the boundary metadata
+   below are the only ones that exist anywhere and cannot drift out from
+   under the tests that certify them."
+  []
+  ;; Register the actor the connection machine spawns. As before,
+  ;; `reg-machine` is what flips on `:rf/machine? true` — the flag the spawn
+  ;; needs to find its target.
+  (rf/reg-machine :websocket/socket socket-actor-machine)
 
-;; --- app-level events -------------------------------------------------
-(rf/reg-event :ws.app/send
-  {:doc "Send the form's current draft, and clear the input."}
-  (fn handler-app-send [{:keys [db]} [_ body]]
-    {:db (assoc-in db [:messages :draft] "")
-     :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
+  ;; For every message that comes in — a correlated reply or a server push —
+  ;; the connection machine dispatches `[:ws/handle-message body]`, and this
+  ;; handler is where it lands in app-db for the views to read.
+  ;;
+  ;; This is a SYSTEM BOUNDARY: the body is the server's bytes, and on a
+  ;; compromised or hostile server it is whatever the sender chose.
+  ;; `:rf.schema/at-boundary` is what keeps the check in the RELEASE build
+  ;; (a bare `:schema` is a dev diagnostic and elides under :advanced). A
+  ;; frame that fails the closed `InboundMessage` union is dropped whole:
+  ;; the handler never runs, nothing reaches app-db, and the always-on
+  ;; `:rf.error/schema-validation-failure` record is the counter to alert
+  ;; on. See spec/Pattern-WebSocket.md §Inbound frames are untrusted.
+  ;;
+  ;; The connection machine holds the frame to this SAME contract one step
+  ;; earlier, in its `:trusted-frame?` guard — it has to, because it clears
+  ;; correlation slots the frame names. That is not a reason to relax the
+  ;; check here: this is the ingress app-db is behind, and every refused
+  ;; frame the machine forwards arrives here precisely so this handler
+  ;; produces the one canonical rejection record.
+  (rf/reg-event :ws/handle-message
+    {:doc "Fold one inbound frame into app-db. UNTRUSTED INGRESS — the body
+           is validated against the closed `InboundMessage` wire union, in
+           every build, before this handler runs. It joins the
+           [:messages :received] log, and if it's a correlated reply it also
+           lands at [:messages :last-reply]. Each one gets a monotonic
+           `:rx-seq` stamp on the way in — that's the inbox's stable React
+           `:key`. (Server pushes carry no `:request-id`, so we can't lean
+           on identity from the wire, and list position shifts as new
+           messages arrive at the top.)"
+     :schema       [:cat [:= :ws/handle-message] schema/InboundMessage]
+     :interceptors [:rf.schema/at-boundary]}
+    (fn handler-ws-handle-message [{:keys [db]} [_ body]]
+      {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
+        (-> db
+            (update-in [:messages :received]
+                       (fn [received]
+                         (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
+            (assoc-in [:messages :rx-count] (inc rx-seq))
+            (cond-> (:request-id body)
+              (assoc-in [:messages :last-reply] body))))}))
 
-;; The request-id is a fact the system has to *remember*: it's written into
-;; the machine's :in-flight slot, and the reply that eventually comes back
-;; is matched against it. So it can't be conjured with a bare
-;; `(random-uuid)` at the handler — replay would mint a fresh one, it
-;; wouldn't match the recorded request, and the correlation would silently
-;; fall apart. The fix is to make the id a *recordable* coeffect: a
-;; `reg-cofx` that runs at context-assembly, gets written onto the event's
-;; causal token, and is replayed back verbatim. `:ws.app/request` asks for
-;; it via `:rf.cofx/requires` and reads it from the coeffects map.
-;; See docs/core/glossary.md#recordable-vs-ambient-coeffects.
-(rf/reg-cofx :ws.app/request-id
-  {:recordable? true
-   :doc "A replayable correlation id for one request-reply round-trip."}
-  (fn [] (random-uuid)))
+  ;; --- app-level events -------------------------------------------------
+  (rf/reg-event :ws.app/send
+    {:doc "Send the form's current draft, and clear the input."}
+    (fn handler-app-send [{:keys [db]} [_ body]]
+      {:db (assoc-in db [:messages :draft] "")
+       :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
 
-(rf/reg-event :ws.app/request
-  {:doc "Fire off a request and expect a reply back. It goes through the
-         connection machine's correlation slot; when the mock server
-         echoes, the reply turns up at [:messages :last-reply]. The
-         correlation id comes from the `:ws.app/request-id` recordable
-         coeffect (never minted on the spot), so a replay reuses the same
-         id and the reply still finds its request.
+  ;; The request-id is a fact the system has to *remember*: it's written into
+  ;; the machine's :in-flight slot, and the reply that eventually comes back
+  ;; is matched against it. So it can't be conjured with a bare
+  ;; `(random-uuid)` at the handler — replay would mint a fresh one, it
+  ;; wouldn't match the recorded request, and the correlation would silently
+  ;; fall apart. The fix is to make the id a *recordable* coeffect: a
+  ;; `reg-cofx` that runs at context-assembly, gets written onto the event's
+  ;; causal token, and is replayed back verbatim. `:ws.app/request` asks for
+  ;; it via `:rf.cofx/requires` and reads it from the coeffects map.
+  ;; See docs/core/glossary.md#recordable-vs-ambient-coeffects.
+  (rf/reg-cofx :ws.app/request-id
+    {:recordable? true
+     :doc "A replayable correlation id for one request-reply round-trip."}
+    (fn [] (random-uuid)))
 
-         Worth being clear: this is *the app's* request/reply, not a
-         framework feature. re-frame2 ships no managed WebSocket, so
-         per-message correlation over an open socket is yours to build —
-         here, from a `:request-id`, a registered `:reply` target, and the
-         machine's `:in-flight` map. The wire `:request-id` is your own
-         protocol detail, kept deliberately separate from anything the
-         framework does."
-   :rf.cofx/requires [:ws.app/request-id]}
-  (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
-    {:fx [[:dispatch [:ws/connection
-                      [:ws/request {:request-id rid
-                                    :body       {:type :request
-                                                 :body body}
-                                    :reply      [:ws.app/request-reply]
-                                    :timeout-ms 5000}]]]]}))
+  (rf/reg-event :ws.app/request
+    {:doc "Fire off a request and expect a reply back. It goes through the
+           connection machine's correlation slot; when the mock server
+           echoes, the reply turns up at [:messages :last-reply]. The
+           correlation id comes from the `:ws.app/request-id` recordable
+           coeffect (never minted on the spot), so a replay reuses the same
+           id and the reply still finds its request.
 
-(rf/reg-event :ws.app/request-reply
-  {:doc "The request's outcome arrived. Two producers reach this event,
-         and the closed `RequestOutcome` union admits exactly those two —
-         discriminating on `:origin`, which the connection machine stamps
-         after receipt and no sender can forge. (1) `:ws/server` — the
-         correlated WIRE reply, and it reached this event only because the
-         `:request-token` it echoed still identified the registration in
-         the slot: a reply under a REUSED id that answers a registration
-         since displaced never gets here. This is the SECOND untrusted
-         ingress: a reply arriving under a known :request-id is still the
-         server's bytes, held to the closed `ReplyMessage` fields in every
-         build.
-         (2) `:ws/local` — a failure the machine minted itself when the
-         socket dropped or the deadline elapsed. Local truth about the
-         connection, and unreachable from the wire.
+           Worth being clear: this is *the app's* request/reply, not a
+           framework feature. re-frame2 ships no managed WebSocket, so
+           per-message correlation over an open socket is yours to build —
+           here, from a `:request-id`, a registered `:reply` target, and the
+           machine's `:in-flight` map. The wire `:request-id` is your own
+           protocol detail, kept deliberately separate from anything the
+           framework does."
+     :rf.cofx/requires [:ws.app/request-id]}
+    (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
+      {:fx [[:dispatch [:ws/connection
+                        [:ws/request {:request-id rid
+                                      :body       {:type :request
+                                                   :body body}
+                                      :reply      [:ws.app/request-reply]
+                                      :timeout-ms 5000}]]]]}))
 
-         Both are checked here even though the machine already held the
-         frame to the same wire contract upstream. The two checks answer
-         different questions: the machine's guards protect its own
-         correlation state, this one protects app-db, and a boundary that
-         only holds because something upstream is careful is not a
-         boundary. Either way the outcome files at [:messages :last-reply].
-         See :ws.app/request for the correlation it completes."
-   :schema       [:cat [:= :ws.app/request-reply] schema/RequestOutcome]
-   :interceptors [:rf.schema/at-boundary]}
-  (fn handler-app-request-reply [{:keys [db]} [_ body]]
-    {:db (assoc-in db [:messages :last-reply] body)}))
+  (rf/reg-event :ws.app/request-reply
+    {:doc "The request's outcome arrived. Two producers reach this event,
+           and the closed `RequestOutcome` union admits exactly those two —
+           discriminating on `:origin`, which the connection machine stamps
+           after receipt and no sender can forge. (1) `:ws/server` — the
+           correlated WIRE reply, and it reached this event only because the
+           `:request-token` it echoed still identified the registration in
+           the slot: a reply under a REUSED id that answers a registration
+           since displaced never gets here. This is the SECOND untrusted
+           ingress: a reply arriving under a known :request-id is still the
+           server's bytes, held to the closed `ReplyMessage` fields in every
+           build.
+           (2) `:ws/local` — a failure the machine minted itself when the
+           socket dropped or the deadline elapsed. Local truth about the
+           connection, and unreachable from the wire.
 
-(rf/reg-event :ws.app/subscribe-demo
-  {:doc "Subscribe to a demo topic. The mock server acks with a synthetic
-         push, so you get to watch the subscribe-then-push shape play out
-         end to end."}
-  (fn handler-app-subscribe-demo [_ _]
-    {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
+           Both are checked here even though the machine already held the
+           frame to the same wire contract upstream. The two checks answer
+           different questions: the machine's guards protect its own
+           correlation state, this one protects app-db, and a boundary that
+           only holds because something upstream is careful is not a
+           boundary. Either way the outcome files at [:messages :last-reply].
+           See :ws.app/request for the correlation it completes."
+     :schema       [:cat [:= :ws.app/request-reply] schema/RequestOutcome]
+     :interceptors [:rf.schema/at-boundary]}
+    (fn handler-app-request-reply [{:keys [db]} [_ body]]
+      {:db (assoc-in db [:messages :last-reply] body)}))
 
-(rf/reg-event :ws.app/edit-draft
-  (fn handler-app-edit-draft [{:keys [db]} [_ text]]
-    {:db (assoc-in db [:messages :draft] text)}))
+  (rf/reg-event :ws.app/subscribe-demo
+    {:doc "Subscribe to a demo topic. The mock server acks with a synthetic
+           push, so you get to watch the subscribe-then-push shape play out
+           end to end."}
+    (fn handler-app-subscribe-demo [_ _]
+      {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
 
-(rf/reg-event :ws.messages/initialise
-  (fn handler-messages-initialise [{:keys [db]} _]
-    {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
+  (rf/reg-event :ws.app/edit-draft
+    (fn handler-app-edit-draft [{:keys [db]} [_ text]]
+      {:db (assoc-in db [:messages :draft] text)}))
 
-;; --- subs -------------------------------------------------------------
-(rf/reg-sub :messages/slice
-  (fn [db _] (:messages db)))
+  (rf/reg-event :ws.messages/initialise
+    (fn handler-messages-initialise [{:keys [db]} _]
+      {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
 
-(rf/reg-sub :messages/draft
-  :<- [:messages/slice]
-  (fn [m _] (:draft m)))
+  ;; --- subs -------------------------------------------------------------
+  (rf/reg-sub :messages/slice
+    (fn [db _] (:messages db)))
 
-(rf/reg-sub :messages/received
-  :<- [:messages/slice]
-  (fn [m _] (:received m)))
+  (rf/reg-sub :messages/draft
+    :<- [:messages/slice]
+    (fn [m _] (:draft m)))
 
-(rf/reg-sub :messages/last-reply
-  :<- [:messages/slice]
-  (fn [m _] (:last-reply m)))
+  (rf/reg-sub :messages/received
+    :<- [:messages/slice]
+    (fn [m _] (:received m)))
+
+  (rf/reg-sub :messages/last-reply
+    :<- [:messages/slice]
+    (fn [m _] (:last-reply m))))
+
+;; Loading this namespace registers it — the production-app idiom.
+(register!)
