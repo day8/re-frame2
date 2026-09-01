@@ -4778,6 +4778,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The suite's real-node blocks resolve `require('launch-editor')` from
+      # `implementation/`, so this lane needs BOTH node and that package.
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
       - name: Set up Clojure CLI
         run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
 
@@ -4793,13 +4802,38 @@ jobs:
             ${{ runner.os }}-clj-tools-testbed-support-
             ${{ runner.os }}-clj-
 
+      # THE STEP THAT ARMS THE PROBES (rf2-cl8mg). Without it
+      # `launch-editor-installed?` is false and every launch-editor-backed block
+      # self-skips: this job reported 42 tests / 229 assertions where the same
+      # suite with the dependency present reports 42 / 260, and the exit code is
+      # 0 either way. Among the skipped blocks is the column-only refusal PR
+      # #8932 added precisely because no existing test could reach that path.
+      #
+      # `launch-editor` is a devDependency of implementation/package.json, and
+      # the whole lockfile installs in seconds (110 packages, no browser fetch —
+      # nothing in this lockfile carries an install script on Linux), so
+      # arming it does NOT drag a disproportionate tree in for one small
+      # package. Plain `npm ci` from `implementation/`, exactly as this
+      # workflow's other node jobs do.
+      - name: Install implementation node deps (arms the launch-editor probes)
+        working-directory: implementation
+        run: npm ci
+
       # `open_in_editor_server_test.clj`, 32 tests / 153 assertions, covering the
       # dev-only open-in-editor server the browser testbeds consume. It is `.clj`,
       # so the `:node-test` build that carries this tree on its source paths
       # cannot load it: this job is the artefact's only PR-time JVM lane. Found by
       # the test-lane bijection gate as an ORPHAN (rf2-4hc9p) — a fully wired
       # `:test` alias no lane ran.
+      #
+      # RF2_REQUIRE_NODE_PROBES closes the loop the install alone cannot: the
+      # blocks self-skip on a node-less developer box by design, so installing
+      # the dependency makes them run today but leaves the job able to go green
+      # on a skip tomorrow. With the flag set, a skip FAILS (`skip-or-fail`) and
+      # names the missing prerequisite.
       - name: Run JVM tests (tools/testbed-support artefact)
+        env:
+          RF2_REQUIRE_NODE_PROBES: '1'
         run: clojure -M:test
 
   jvm-tools-template:
