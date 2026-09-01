@@ -160,6 +160,98 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
+;; ---- rf2-b7je1 (audit reopen): OMITTED slots clear their stale values ----
+;;
+;; The first repair cleared only the keys the call EMITTED. `build-params`
+;; deliberately omits empty / nil / default slots, so a base-url carrying
+;; `modes=` / `overrides=` / `substrate=` survived a call that requested
+;; `[]` / `{}` / `:reagent` — the hydrator then restored state the caller
+;; never asked for, breaking the exact-cell invariant by OMISSION rather
+;; than by order. The builder is authoritative over the whole
+;; `share/story-query-keys` vocabulary, including the slots it declines
+;; to emit.
+
+(def ^:private stale-story-params
+  "A stale, PARSEABLE wire value for every key in the Story vocabulary.
+  Parseable on purpose: a surviving value must be visible to
+  `parse-params` as restored state, not merely as an extra fragment."
+  {"variant"    "story.old%2Fa"
+   "workspace"  "story.old%2Fws"
+   "mode-tab"   "docs"
+   "modes"      "Mode.app%2Fstale"
+   "viewport"   "tablet"
+   "background" "dark"
+   "tag-filter" "stale"
+   "overrides"  "%7B%3Afoo%201%7D"
+   "substrate"  "uix"})
+
+(def ^:private stale-base-url
+  "Base URL carrying every stale Story key, in vocabulary order, plus two
+  unrelated params and a hash route."
+  (str "https://example.test/?"
+       (str/join "&" (map #(str (name %) "=" (get stale-story-params (name %)))
+                          share/story-query-keys))
+       "&from=index&embed=1#/stories"))
+
+(deftest story-query-keys-is-the-whole-build-params-vocabulary
+  (testing "rf2-b7je1 — the clear set is only correct while it equals what
+            build-params can emit. A slot added to build-params without a
+            matching story-query-keys entry silently reopens the stale-value
+            hole, so pin the two against each other."
+    (let [emitted (->> (share/build-params
+                         {:variant-id     :story.a/b
+                          :workspace-id   :story.a/ws
+                          :mode-tab       :docs        ; :dev is the omitted default
+                          :active-modes   [:Mode.app/dark]
+                          :viewport       :tablet
+                          :background     :dark
+                          :tag-filter     [:slow]
+                          :cell-overrides {:label "x"}
+                          :substrate      :my.lib/uix}) ; :reagent is the omitted default
+                       (map #(first (str/split % #"=" 2)))
+                       set)]
+      (is (= (set (map name share/story-query-keys)) emitted)
+          "build-params with every slot populated emits exactly the vocabulary"))))
+
+(deftest variant-share-url-clears-stale-omitted-keys
+  (testing "rf2-b7je1 audit — a base-url carrying stale values for keys this
+            call OMITS comes back carrying none of them; the browser
+            first-value read and parse-params see the requested cell with no
+            stale optional state; unrelated params and the hash survive."
+    (is (= (set (map name share/story-query-keys))
+           (set (keys stale-story-params)))
+        "the fixture carries a stale value for every key in the vocabulary")
+    (let [url    (share/variant-share-url
+                   :story.new/b
+                   stale-base-url
+                   ;; Every optional slot empty / default — so build-params
+                   ;; emits `variant=` and nothing else.
+                   {:active-modes [] :cell-overrides {} :substrate :reagent})
+          getter (first-value-getter url)
+          parsed (share/parse-params getter)]
+      (is (= 1 (query-key-count url "variant"))
+          "exactly one variant= — the requested one")
+      (doseq [k (map name share/story-query-keys)
+              :when (not= k "variant")]
+        (is (zero? (query-key-count url k))
+            (str "stale " k "= is cleared when the call omits that slot")))
+      (is (= "story.new/b" (get getter "variant"))
+          "browser first-value read sees the requested variant")
+      (is (= :story.new/b (:variant-id parsed))
+          "parse-params reconstructs the requested variant")
+      (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
+                    :background :tag-filter :cell-overrides :substrate]]
+        (is (nil? (get parsed slot))
+            (str "parse-params restores no stale " slot)))
+      (is (= "index" (get getter "from"))
+          "unrelated from= survives with its value")
+      (is (= "1" (get getter "embed"))
+          "unrelated embed= survives — it is chrome state, not shell state")
+      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant=")
+          "unrelated entries keep their order ahead of the generated params")
+      (is (str/ends-with? url "#/stories")
+          "the hash route survives, after the query"))))
+
 (deftest variant-share-url-inserts-query-before-hash-route
   (testing "hash-routed Story links keep query params in location.search"
     (let [url (share/variant-share-url

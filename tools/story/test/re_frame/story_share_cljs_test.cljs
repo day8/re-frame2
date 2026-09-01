@@ -67,6 +67,56 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
+(deftest variant-share-url-clears-stale-omitted-keys-cljs
+  (testing "rf2-b7je1 audit — build-params omits empty / default optional
+            slots, so a base-url carrying stale modes / overrides /
+            substrate survived a call requesting [] / {} / :reagent. Read
+            through the REAL URLSearchParams the url-state hydrator uses:
+            every omitted Story key must be absent, not merely later in the
+            string, because .get would happily return the stale value."
+    (let [stale  {"variant"    "story.old%2Fa"
+                  "workspace"  "story.old%2Fws"
+                  "mode-tab"   "docs"
+                  "modes"      "Mode.app%2Fstale"
+                  "viewport"   "tablet"
+                  "background" "dark"
+                  "tag-filter" "stale"
+                  "overrides"  "%7B%3Afoo%201%7D"
+                  "substrate"  "uix"}
+          base   (str "https://example.test/?"
+                      (str/join "&" (map #(str (name %) "=" (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1#/stories")
+          url    (share/variant-share-url
+                   :story.new/b
+                   base
+                   {:active-modes [] :cell-overrides {} :substrate :reagent})
+          search (second (str/split (first (str/split url #"#" 2)) #"\?" 2))
+          usp    (js/URLSearchParams. search)]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "story.new/b" (.get usp "variant"))
+          "URLSearchParams.get returns the requested variant")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value")
+      (doseq [k (map name share/story-query-keys)
+              :when (not= k "variant")]
+        (is (zero? (count (.getAll usp k)))
+            (str "URLSearchParams sees no stale " k "= at all")))
+      ;; The hydrator's own read path: getter map -> share/parse-params.
+      (let [parsed (share/parse-params
+                     (into {} (map (fn [k] [k (.get usp k)]))
+                           (map name share/story-query-keys)))]
+        (is (= :story.new/b (:variant-id parsed))
+            "parse-params over real URLSearchParams reads the requested variant")
+        (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
+                      :background :tag-filter :cell-overrides :substrate]]
+          (is (nil? (get parsed slot))
+              (str "parse-params restores no stale " slot))))
+      (is (= "index" (.get usp "from")) "unrelated from= survives")
+      (is (= "1" (.get usp "embed")) "unrelated embed= survives")
+      (is (str/ends-with? url "#/stories") "the hash route survives"))))
+
 (deftest parse-share-url-params-cljs
   (testing "CLJS parser reconstructs the share URL tokens used by the shell hydrator"
     (is (= :story.counter/loaded
