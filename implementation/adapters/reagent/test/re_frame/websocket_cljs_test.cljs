@@ -661,7 +661,13 @@
               (is (false? (:ok reply)) "reply is an explicit failure")
               (is (= :ws/connection-lost (:error reply)))
               (is (= rid (:request-id reply))
-                  "the failure names the dropped request"))))))))
+                  "the failure names the dropped request")
+              ;; LOSS PROVENANCE CONTROL (rf2-iyjae audit): the loss body is
+              ;; the MACHINE's truth about the connection, and it says so.
+              ;; :origin is stamped after receipt, so the hostile-frame test
+              ;; below can prove no server frame reaches this arm.
+              (is (= :ws/local (:origin reply))
+                  "a connection-loss outcome is marked as locally minted"))))))))
 
 (defn- timeout-fails-in-flight-request-test []
   ;; rf2-vqg8l6 — a request that TIMES OUT while the socket is still ALIVE must
@@ -715,7 +721,11 @@
               (is (false? (:ok reply)) "reply is an explicit failure")
               (is (= :ws/timeout (:error reply)))
               (is (= rid (:request-id reply))
-                  "the failure names the timed-out request"))))))))
+                  "the failure names the timed-out request")
+              ;; TIMEOUT PROVENANCE CONTROL (rf2-iyjae audit) — the twin of
+              ;; the loss control in drop-fails-in-flight-request-test.
+              (is (= :ws/local (:origin reply))
+                  "a timeout outcome is marked as locally minted"))))))))
 
 (defn- clean-disconnect-fails-in-flight-request-test []
   ;; rf2-b2jpr — a clean :ws/disconnect destroys the only socket capable of
@@ -772,10 +782,10 @@
             (is (nil? (socket-id-of s)) "the socket actor is torn down")
             (is (= {} (get-in s [:data :in-flight]))
                 ":in-flight cleared on clean disconnect — no stranded slot")
-            (is (= [{:request-id rid :ok false :error :ws/connection-lost}]
+            (is (= [{:origin :ws/local :request-id rid :ok false :error :ws/connection-lost}]
                    (log))
                 "exactly one reply-event invocation, with the documented connection-termination body")
-            (is (= {:request-id rid :ok false :error :ws/connection-lost}
+            (is (= {:origin :ws/local :request-id rid :ok false :error :ws/connection-lost}
                    (get-in (rf/app-db-value f) [:messages :last-reply]))
                 "the synthesised failure body passes the closed RequestOutcome boundary"))
           ;; At-most-once control: deliver the already-scheduled timeout,
@@ -1020,6 +1030,12 @@
               (is (= {:type :request :body "hello"}
                      (:echo last-reply))
                   (str "echo body round-tripped, got " (:echo last-reply)))
+              ;; SERVER PROVENANCE CONTROL (rf2-iyjae audit): the machine
+              ;; marks a wire reply as the server's, so the closed
+              ;; RequestOutcome union routes it to the :ws/server arm and
+              ;; it can never be read as a locally minted loss/timeout.
+              (is (= :ws/server (:origin last-reply))
+                  "a correlated wire reply is marked as server-originated")
               ;; rf2-eygytk: assert the APP-LEVEL boundary — the reply is the
               ;; app's own body and carries NONE of the EP-0011 uniform
               ;; reply-envelope vocabulary. This path is Pattern-WebSocket
@@ -1102,14 +1118,19 @@
 (defn- handle-message-newest-first-test []
   ;; :ws/handle-message is the dispatch :ws/received uses for pushed
   ;; bodies. The slice keeps them newest-first.
+  ;; The frames here satisfy the closed PushMessage arm — since rf2-iyjae's
+  ;; audit the push arm is `:closed true` (an OPEN arm would let a hostile
+  ;; frame carry a :request-id past the wire contract), so a test frame with
+  ;; an ad-hoc extra key would now be refused at the ingress and this test
+  ;; would be asserting against an empty log.
   (with-new-frame [f (new-frame)]
-    (rf/dispatch-sync [:ws/handle-message {:type :push :n 1}] {:frame f})
-    (rf/dispatch-sync [:ws/handle-message {:type :push :n 2}] {:frame f})
-    (rf/dispatch-sync [:ws/handle-message {:type :push :n 3}] {:frame f})
+    (rf/dispatch-sync [:ws/handle-message {:type :push :note "1"}] {:frame f})
+    (rf/dispatch-sync [:ws/handle-message {:type :push :note "2"}] {:frame f})
+    (rf/dispatch-sync [:ws/handle-message {:type :push :note "3"}] {:frame f})
     (let [received (get-in (rf/app-db-value f) [:messages :received])]
-      (is (= [{:type :push :n 3}
-              {:type :push :n 2}
-              {:type :push :n 1}]
+      (is (= [{:type :push :note "3"}
+              {:type :push :note "2"}
+              {:type :push :note "1"}]
              (mapv #(dissoc % :rx-seq) received))
           ":received list is newest-first")
       ;; Each message carries a monotonic :rx-seq stamp; newest-first means
@@ -1142,13 +1163,16 @@
           (str ingress " attaches :rf.schema/at-boundary — the release-resident half")))))
 
 (defn- inbound-boundary-rejection-test []
-  ;; Malformed and unknown frames from the LIVE socket are refused at the
-  ;; ingress: the handler never runs, [:messages :received] and
-  ;; [:messages :last-reply] don't move, and each refusal is observable as
-  ;; the :rf.error/schema-validation-failure signal attributed to the
-  ;; ingress event. Both app-db-writing ingresses are exercised — the
-  ;; push path (:ws/handle-message) and the correlated-reply path
-  ;; (:ws.app/request-reply). A valid frame still lands afterwards.
+  ;; Malformed and unknown frames from the LIVE socket are refused, and
+  ;; refused EARLY: the audit of the first rf2-iyjae pass found the
+  ;; connection machine settling correlation state on the strength of an
+  ;; unvalidated frame, so app-db stayed clean while a pending request's
+  ;; :in-flight slot was silently consumed and its caller left waiting
+  ;; forever. The assertions below therefore pin THREE things per hostile
+  ;; frame: [:messages :received] and [:messages :last-reply] do not move,
+  ;; the refusal is observable as :rf.error/schema-validation-failure
+  ;; attributed to the ingress, and — the one the first pass missed — the
+  ;; :in-flight slot is still there afterwards.
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
@@ -1156,8 +1180,15 @@
                            [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
-        (let [live-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
-              traces  (atom [])]
+        (let [live-id  (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              traces   (atom [])
+              in-flight #(get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+              deliver! (fn [body]
+                         (rf/dispatch-sync [:ws/connection
+                                            [:ws/received {:source-socket-id live-id
+                                                           :body             body}]]
+                                           {:frame f}))]
           (rf/register-listener! :trace ::boundary-traces
                                  (fn [r] (swap! traces conj r)))
           (try
@@ -1166,39 +1197,52 @@
                   pre-reply (get-in pre-db [:messages :last-reply])
                   rid       (random-uuid)]
               ;; Park a request in-flight (the mock doesn't echo this
-              ;; :type), so a malformed correlated reply has a slot to
-              ;; target and reaches the SECOND ingress too.
+              ;; :type), so every hostile frame below has a real
+              ;; correlation slot to try to consume.
               (rf/dispatch-sync [:ws/connection
                                  [:ws/request {:request-id rid
                                                :body       {:type :silent-no-echo}
                                                :reply      [:ws.app/request-reply]
                                                :timeout-ms 5000}]]
                                 {:frame f})
+              (is (contains? (in-flight) rid)
+                  "positive control: the request is genuinely in-flight before the hostile frames")
+
               ;; (1) unknown :type — the closed union has no arm for it.
-              (rf/dispatch-sync [:ws/connection
-                                 [:ws/received {:source-socket-id live-id
-                                                :body {:type :evil/exec :cmd "drop tables"}}]]
-                                {:frame f})
+              (deliver! {:type :evil/exec :cmd "drop tables"})
               ;; (2) malformed :push — :note must be a string.
-              (rf/dispatch-sync [:ws/connection
-                                 [:ws/received {:source-socket-id live-id
-                                                :body {:type :push :note 42}}]]
-                                {:frame f})
+              (deliver! {:type :push :note 42})
               ;; (3) malformed correlated :reply — right :request-id, but
-              ;; missing :ok. :receive-message routes it to BOTH ingresses;
-              ;; each must refuse it (it fails ReplyMessage, and carrying a
-              ;; :type means it can't pose as a local loss body either).
-              (rf/dispatch-sync [:ws/connection
-                                 [:ws/received {:source-socket-id live-id
-                                                :body {:type :reply :request-id rid}}]]
-                                {:frame f})
+              ;; missing :ok. It names a live slot, so before the audit fix
+              ;; this frame cleared that slot on its way to being refused.
+              (deliver! {:type :reply :request-id rid})
+              ;; (4) LOCAL-FAILURE-SHAPED hostile frame. A server that saw
+              ;; the wire request id sends back exactly the body the
+              ;; machine mints for a timeout, with no :type at all. The
+              ;; closed InboundMessage union has no arm for a frame without
+              ;; a :type, so it never reaches the correlation branch — and
+              ;; because :origin is stamped by the MACHINE after receipt,
+              ;; it could not have matched the :ws/local arm of
+              ;; RequestOutcome even if it had.
+              (deliver! {:request-id rid :ok false :error :ws/timeout})
+              ;; (5) hostile PUSH smuggling a :request-id. This is why the
+              ;; push arm is `:closed true`: an open arm would let this
+              ;; frame pass the wire contract under a :type that has
+              ;; nothing to do with request-reply.
+              (deliver! {:type :push :note "hi" :request-id rid})
+
               (let [db (rf/app-db-value f)]
                 (is (= pre-msgs (get-in db [:messages :received]))
                     "no malformed/unknown frame reached [:messages :received]")
                 (is (= pre-reply (get-in db [:messages :last-reply]))
                     "no malformed/unknown frame moved [:messages :last-reply]"))
+              ;; THE AUDIT ASSERTION: refusing a frame at app-db is not
+              ;; enough if the machine already spent the correlation.
+              (is (contains? (in-flight) rid)
+                  ":in-flight survives every hostile frame — no silently consumed correlation")
+
               ;; The refusals are observable — the schema-validation
-              ;; failure signal fired, attributed to EACH ingress. (In this
+              ;; failure signal fired, attributed to the ingress. (In this
               ;; dev lane the signal is step-1's :where :event emission; the
               ;; :source :boundary spelling is the production build's, where
               ;; the interceptor takes over — see the structural test.)
@@ -1207,19 +1251,85 @@
                                        @traces)
                     by-event   (into #{} (keep #(-> % :tags :event-id)) rejections)]
                 (is (contains? by-event :ws/handle-message)
-                    "the push-path refusal is observable and attributed")
-                (is (contains? by-event :ws.app/request-reply)
-                    "the correlated-reply-path refusal is observable and attributed"))
+                    "each refusal is observable and attributed to the ingress")
+                (is (<= 5 (count rejections))
+                    "every one of the five hostile frames was refused, not just the first"))
+
               ;; Control: a VALID push still lands after all that.
-              (rf/dispatch-sync [:ws/connection
-                                 [:ws/received {:source-socket-id live-id
-                                                :body {:type :push :note "still fine"}}]]
-                                {:frame f})
+              (deliver! {:type :push :note "still fine"})
               (is (= (inc (count pre-msgs))
                      (count (get-in (rf/app-db-value f) [:messages :received])))
-                  "a valid frame still lands — the boundary rejects, it doesn't block"))
+                  "a valid frame still lands — the boundary rejects, it doesn't block")
+
+              ;; PENDING-TIMEOUT CONTROL. The request the hostile frames
+              ;; tried to consume is still live, so its deadline still
+              ;; settles it — with the machine's own locally minted body.
+              ;; This is the assertion that makes "the slot survived" mean
+              ;; "the caller still gets an answer" rather than "the map
+              ;; still has a key in it".
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/request-timeout {:request-id       rid
+                                                       :source-socket-id live-id}]]
+                                {:frame f})
+              (is (not (contains? (in-flight) rid))
+                  "the surviving slot settles on its own deadline")
+              (is (= {:origin :ws/local :request-id rid :ok false :error :ws/timeout}
+                     (get-in (rf/app-db-value f) [:messages :last-reply]))
+                  "the caller is answered by the machine's locally minted timeout, not by the hostile frame"))
             (finally
               (rf/unregister-listener! :trace ::boundary-traces))))))))
+
+(defn- request-reply-ingress-rejection-test []
+  ;; The SECOND app-db-writing ingress, held to its own contract. Since the
+  ;; audit fix the connection machine refuses a bad frame before it ever
+  ;; reaches a :reply-event, so this ingress is no longer exercised through
+  ;; the machine — which is exactly why it needs its own test. A boundary
+  ;; that is only safe because something upstream is careful is not a
+  ;; boundary.
+  ;;
+  ;; The outcome is delivered from inside a cascade (an :fx dispatch), the
+  ;; way the machine delivers one, rather than as a bare top-level
+  ;; dispatch-sync.
+  (rf/reg-event :ws.test/forward-outcome
+    (fn handler-ws-test-forward-outcome [_ [_ body]]
+      {:fx [[:dispatch [:ws.app/request-reply body]]]}))
+  (with-new-frame [f (new-frame)]
+    (rf/dispatch-sync [:ws.messages/initialise] {:frame f})
+    (let [traces (atom [])
+          rid    (random-uuid)
+          send!  #(rf/dispatch-sync [:ws.test/forward-outcome %] {:frame f})
+          reply  #(get-in (rf/app-db-value f) [:messages :last-reply])]
+      (rf/register-listener! :trace ::outcome-traces (fn [r] (swap! traces conj r)))
+      (try
+        ;; A wire reply WITHOUT the machine's :origin stamp has no arm in
+        ;; the closed RequestOutcome union — provenance is required, not
+        ;; inferred from shape.
+        (send! {:type :reply :request-id rid :ok true})
+        (is (nil? (reply))
+            "an unstamped wire reply has no arm in the closed outcome union")
+        ;; A body claiming to be locally minted but carrying wire fields
+        ;; fails the closed :ws/local arm.
+        (send! {:origin :ws/local :type :reply :request-id rid :ok false :error :ws/timeout})
+        (is (nil? (reply))
+            "a wire-shaped body cannot borrow the locally-minted arm")
+        ;; An unknown :origin is a rejection, not a fall-through.
+        (send! {:origin :ws/somewhere-else :request-id rid :ok false :error :ws/timeout})
+        (is (nil? (reply))
+            "an unrecognised :origin is refused by the closed multi")
+        (let [by-event (into #{} (keep #(-> % :tags :event-id))
+                             (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                     @traces))]
+          (is (contains? by-event :ws.app/request-reply)
+              "the correlated-reply-path refusal is observable and attributed"))
+        ;; Controls: BOTH legitimate producers still land.
+        (send! {:origin :ws/server :type :reply :request-id rid :ok true})
+        (is (= :ws/server (:origin (reply)))
+            "a properly stamped server reply lands")
+        (send! {:origin :ws/local :request-id rid :ok false :error :ws/connection-lost})
+        (is (= :ws/local (:origin (reply)))
+            "a locally minted loss body lands")
+        (finally
+          (rf/unregister-listener! :trace ::outcome-traces))))))
 
 (defn- credential-discipline-test []
   ;; AC 2 (rf2-iyjae): the resolved bearer is a distinctive sentinel
@@ -1227,6 +1337,18 @@
   ;; must be absent from the machine snapshot, app-db, and the whole
   ;; exercised event/trace surface across connect, drop/reconnect, and
   ;; rotation — and resolution must genuinely GATE authentication.
+  ;;
+  ;; Known limit, recorded so a green here is not over-read (rf2-iyjae
+  ;; audit): this sweep reads serialisable surfaces, and a value captured
+  ;; by a lexical host closure is on none of them. It cannot tell a bearer
+  ;; resolved at the auth write from one resolved at socket-open and held
+  ;; by the stored socket handle for the socket's lifetime — the audit
+  ;; found exactly that, and the repair (resolving inside
+  ;; mock-socket-for-actor's :auth branch, so the stored handle closes
+  ;; over :cred-ref alone) is structural. What IS behavioural, and asserted
+  ;; below, is that resolution gates authentication: an unresolvable
+  ;; reference fails auth, so the seam is load-bearing rather than
+  ;; decorative.
   (with-sync-mock!
     (fn []
       (with-new-frame [f (new-frame)]
@@ -1398,10 +1520,19 @@
     (inbound-boundary-structural-test)))
 
 (deftest websocket-inbound-boundary-rejection
-  (testing "rf2-iyjae — malformed bodies and unknown :type values from the
-            live socket are refused at both ingresses, observably, without
-            touching :messages or :last-reply; a valid frame still lands"
+  (testing "rf2-iyjae — malformed bodies, unknown :type values, a
+            local-failure-shaped frame and a :request-id-smuggling push are
+            all refused observably, without touching :messages,
+            :last-reply, or the pending :in-flight correlation; a valid
+            frame still lands and the surviving request still times out"
     (inbound-boundary-rejection-test)))
+
+(deftest websocket-request-reply-ingress-rejection
+  (testing "rf2-iyjae — :ws.app/request-reply holds its own closed
+            RequestOutcome contract independently of the machine: an
+            unstamped or wrongly stamped outcome is refused observably,
+            while both legitimate producers still land"
+    (request-reply-ingress-rejection-test)))
 
 (deftest websocket-credential-discipline
   (testing "rf2-iyjae — connect/reconnect/rotation authenticate through the
