@@ -410,6 +410,107 @@
         (is (= :interceptors (:flag (first findings))) (str label " flag kind"))
         (is (= src source) (str label " left unchanged"))))))
 
+(deftest shadowed-bare-path-flagged-under-a-qualified-binder
+  (testing "a QUALIFIED spelling of a binder shadows too (rf2-8odvg reopen probe)"
+    ;; `clojure.core/let` is valid Clojure and binds exactly as `let` does, but
+    ;; the binding vocabulary is keyed by simple names — matching the head
+    ;; verbatim missed it and lowered the local as the framework constructor.
+    (doseq [[label binder]
+            [["clojure.core/let" "clojure.core/let"]
+             ["cljs.core/let"    "cljs.core/let"]
+             ["aliased core/let" "c/let"]
+             ["clojure.core/fn"  nil]]]
+      (let [src (if binder
+                  (str "(ns app.events\n"
+                       "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                       "(" binder " [path app.interceptors/path]\n"
+                       "  (reg-event-db :counter/inc\n"
+                       "    {:interceptors [(path :tenant)]}\n"
+                       "    (fn [db _] (update db :value inc))))\n")
+                  (str "(ns app.events\n"
+                       "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                       "((clojure.core/fn [path]\n"
+                       "   (reg-event-db :counter/inc\n"
+                       "     {:interceptors [(path :tenant)]}\n"
+                       "     (fn [db _] (update db :value inc))))\n"
+                       " app.interceptors/path)\n"))
+            {:keys [source findings]} (cm/rewrite-string src)]
+        (is (= [:flag :interceptors]
+               ((juxt :action :flag) (first findings)))
+            (str label " must flag, not lower"))
+        (is (not (str/includes? source ":rf.interceptor/path"))
+            (str label " must never emit the framework ref"))
+        (is (= src source) (str label " left byte-for-byte unchanged"))))))
+
+(deftest shadowed-bare-path-flagged-under-an-unrecognised-binder
+  (testing "a head outside the vocabulary that binds `path` in a vector child flags"
+    ;; The roster will never hold every binder spelling; a form enclosing the
+    ;; registration whose vector child binds the name is treated as a binder
+    ;; whatever its head, which can only ever produce a flag.
+    (doseq [[label open close]
+            [["defmethod"  "(defmethod install! :web [_ path]"        ")"]
+             ["when-first" "(when-first [path paths]"                 ")"]
+             ["dotimes"    "(dotimes [path 3]"                        ")"]
+             ["project macro" "(app.macros/with-scope [path :tenant]" ")"]]]
+      (let [src (str "(ns app.events\n"
+                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                     open "\n"
+                     "  (reg-event-db :x\n"
+                     "    {:interceptors [(path :tenant)]}\n"
+                     "    (fn [db _] (assoc db :k 1)))" close "\n")
+            {:keys [source findings]} (cm/rewrite-string src)]
+        (is (= [:flag :interceptors]
+               ((juxt :action :flag) (first findings)))
+            (str label " must flag"))
+        (is (= src source) (str label " left unchanged"))))))
+
+(deftest unrecognised-head-without-a-path-binding-still-lowers
+  (testing "the catch-all is narrow: an enclosing form that does NOT bind `path` is inert"
+    ;; Non-vacuity for the branch above — `deftest`/`testing`/`comment` and a
+    ;; `doseq` binding some OTHER name must leave the standard site mechanical.
+    (doseq [[label open close]
+            [["deftest"  "(deftest registers (testing \"x\""       "))"]
+             ["comment"  "(comment"                                ")"]
+             ["defmethod other param" "(defmethod install! :web [_ opts]" ")"]
+             ["doseq other name"      "(doseq [k [:a :b]]"          ")"]]]
+      (let [src (str "(ns app.events\n"
+                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                     open "\n"
+                     "  (reg-event-db :x\n"
+                     "    {:interceptors [(path :counter)]}\n"
+                     "    (fn [db _] (assoc db :k 1)))" close "\n")
+            {:keys [source findings]} (cm/rewrite-string src)]
+        (is (= :rewrite (:action (first findings))) (str label " must still rewrite"))
+        (is (str/includes? source "[[:rf.interceptor/path [:counter]]]")
+            (str label " must still lower the standard head"))))))
+
+(deftest qualified-binder-shadowing-does-not-suppress-a-qualified-head
+  (testing "a `clojure.core/let` local named `path` cannot shadow `rf/path`"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(clojure.core/let [path app.interceptors/path]\n"
+                   "  (rf/reg-event-db :counter/inc\n"
+                   "    {:interceptors [(rf/path :counter)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
+
+(deftest qualified-binder-shadow-idempotent
+  (testing "the qualified-binder site is stable across a second run"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "(clojure.core/let [path app.interceptors/path]\n"
+                   "  (reg-event-db :counter/inc\n"
+                   "    {:interceptors [(path :tenant)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          once  (rewrite src)
+          twice (rewrite once)]
+      (is (= src once) "first run leaves the source unchanged")
+      (is (= once twice) "second run is a no-op too")
+      (is (= [:flag :interceptors]
+             ((juxt :action :flag) (only-finding twice)))
+          "the flag survives the re-scan"))))
+
 (deftest shadowing-does-not-suppress-a-qualified-head
   (testing "a local named `path` cannot shadow `rf/path` — the standard site still lowers"
     (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
