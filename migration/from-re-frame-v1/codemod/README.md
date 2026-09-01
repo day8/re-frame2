@@ -50,9 +50,14 @@ mechanical and flags the rest (`rf2-8odvg`):
   A custom function that merely shares the simple name `path` — say
   `(app.interceptors/path :tenant)` — is *not* the standard constructor: it
   flags like any other custom inline call below rather than being silently
-  replaced (`rf2-8odvg` reopen). Positional chains are wrapped (or merged)
-  into the one metadata-map `:interceptors` form; entry declaration order is
-  preserved.
+  replaced (`rf2-8odvg` reopen). What the ns form makes *available* is not
+  what a bare head *denotes*, so a **bare** `path` must also survive the
+  lexical scopes around the call site: a `let`, `fn`, `defn`, `letfn`,
+  `for`/`doseq` (or any of their kin) that rebinds the name makes the call a
+  local, and the site flags. A qualified head such as `rf/path` cannot be
+  shadowed — locals are always simple symbols — so it is unaffected.
+  Positional chains are wrapped (or merged) into the one metadata-map
+  `:interceptors` form; entry declaration order is preserved.
 - **Entries that are already v2 refs are preserved verbatim.**
 - **Anything else flags the whole site** (`:flag :interceptors`, source
   unchanged): a custom value, a var, `(rf/debug)`, a `path` call whose head
@@ -143,7 +148,9 @@ clojure -M:integration
 The migration tests in `test/` exercise the full coverage matrix over
 representative v1 snippets: simple `-db`, `-db` with a path interceptor (every
 mechanical chain shape — metadata / positional / bare / metadata-plus-vector —
-lowered to `[:rf.interceptor/path [p…]]` refs), custom inline interceptors
+lowered to `[:rf.interceptor/path [p…]]` refs), path-head resolution (custom
+`*/path` fns and lexically shadowed bare `path` heads flag; qualified heads are
+unaffected by a local of the same name), custom inline interceptors
 flagged as unresolved M-70 Type B, the `reg-event` invalid-survivor rescan,
 `-fx` rename, `-ctx`, nil-capable bodies (`when` / `if` / `get` / `cond` / `and` / `or` /
 `some->` / literal `nil`), complex `-db` (var / multi-arity / destructured db

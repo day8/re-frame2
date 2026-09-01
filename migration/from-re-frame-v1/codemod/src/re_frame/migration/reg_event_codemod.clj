@@ -48,10 +48,12 @@
         metadata-`:interceptors`, positional-vector, bare-middle, and
         metadata-plus-vector source shapes. The call HEAD must actually
         resolve to `re-frame.core/path` through the file's ns form (the full
-        namespace, an `:as` alias of it, or a bare `path` it `:refer`s); a
-        custom function that merely SHARES the simple name `path` is NOT the
-        standard constructor and flags like any other custom inline call
-        (rf2-8odvg reopen; decision table at `path-head-context` below).
+        namespace, an `:as` alias of it, or a bare `path` it `:refer`s) AND,
+        for a bare head, survive the lexical scopes around the call site: a
+        custom function that merely SHARES the simple name `path`, or a
+        `let`/`fn`/`letfn`/`defn` binding that rebinds it, is NOT the standard
+        constructor and flags like any other custom inline call (rf2-8odvg
+        reopen; decision table at `path-head-context` below).
         Positional chains are wrapped into (or merged into) the ONE
         metadata-map `:interceptors` form; entry declaration order is
         preserved.
@@ -315,6 +317,60 @@
       p0)))
 
 ;; ---------------------------------------------------------------------------
+;; Lexical binding vocabulary (shared)
+;; ---------------------------------------------------------------------------
+;;
+;; Two analyses below need to know which source forms BIND a name and which
+;; names they bind. The call-site shadow check (`enclosing-scope-binds?`) walks
+;; UP from an occurrence asking "is this bare symbol a local?"; the
+;; free-occurrence analysis (`free-in-form?`) walks DOWN through a handler body
+;; asking "is this param ever read?". Opposite directions, one vocabulary — so
+;; the vocabulary lives here, above both.
+
+(def ^:private binding-vector-forms
+  "Head symbols whose SECOND child is a binding vector of name/value pairs
+  (`let`-shape): the LHS names shadow within the rest of the form."
+  '#{let let* loop loop* binding if-let when-let if-some when-some
+     with-open with-local-vars with-redefs})
+
+(def ^:private seq-binding-forms
+  "Head symbols whose SECOND child is a seq-binding vector (`for`/`doseq`-shape):
+  `[x coll, y coll2, :let [...] ...]`. We treat every even-index non-keyword
+  entry as a bound LHS (conservative: over-binding only makes us MORE likely to
+  call a name unreferenced, but we additionally honour `:let` LHS names)."
+  '#{for doseq})
+
+(defn- collect-binding-names
+  "Collect every symbol that a destructuring LHS form `lhs` binds. Handles plain
+  symbols, vector/seq destructuring (incl. `:as`/`& rest`), and map destructuring
+  (`:keys`/`:strs`/`:syms`, `:as`, and `{local key}` pairs). Conservative: when
+  unsure we still add any contained symbol, which only widens shadowing."
+  [lhs]
+  (cond
+    (symbol? lhs) #{lhs}
+
+    (vector? lhs)
+    (into #{} (mapcat collect-binding-names) lhs)
+
+    (map? lhs)
+    (reduce-kv
+      (fn [acc k v]
+        (cond
+          ;; {:keys [a b]} / {:strs [..]} / {:syms [..]}
+          (and (keyword? k) (#{:keys :strs :syms} k) (vector? v))
+          (into acc (map (fn [s] (symbol (name s)))) v)
+          ;; {:as whole}
+          (= :as k) (conj acc v)
+          ;; {:or {...}} / {:keys ...} handled above; skip other keyword keys
+          (keyword? k) acc
+          ;; {local :some/key} — the LHS (k) is the binding
+          :else (into acc (collect-binding-names k))))
+      #{}
+      lhs)
+
+    :else #{}))
+
+;; ---------------------------------------------------------------------------
 ;; Middle-slot (interceptor chain) analysis — the M-70 x M-73 composition
 ;; ---------------------------------------------------------------------------
 ;;
@@ -340,7 +396,9 @@
 ;;                                     re-frame.core `:as A`.
 ;;   * bare `path`, ns form present  — standard iff the ns form refers `path`
 ;;                                     from re-frame.core (`:refer [... path
-;;                                     ...]` / `:refer :all` / `:use`).
+;;                                     ...]` / `:refer :all` / `:use`) AND no
+;;                                     enclosing lexical scope binds the name
+;;                                     (see below).
 ;;   * anything else, ns form present — NOT the standard constructor (a
 ;;                                     custom namespace or alias, an alias the
 ;;                                     ns form does not resolve, a local
@@ -357,6 +415,22 @@
 ;; A require clause the parser cannot read (e.g. one inside a reader
 ;; conditional) contributes nothing, so aliases it declares degrade to the
 ;; FLAG route — never to a silent rewrite.
+;;
+;; NS AVAILABILITY IS NOT CALL-SITE RESOLUTION (rf2-8odvg reopen). The table
+;; above answers "what does this file make the name `path` mean at the top
+;; level?"; a BARE head additionally has to survive the lexical scopes it sits
+;; inside. In
+;;
+;;   (let [path app.interceptors/path]
+;;     (reg-event-db :x {:interceptors [(path :tenant)]} ...))
+;;
+;; the ns form refers re-frame.core/path, yet the call denotes the local. So a
+;; bare head is standard only when NO enclosing form binds the simple name
+;; `path` (`enclosing-scope-binds?`) — a qualified head cannot be shadowed,
+;; because locals are always simple symbols. The check is conservative in one
+;; direction only: an enclosing binding sends the site down the M-70 flag
+;; route, so the worst case is a human glance at a site that could have been
+;; lowered, never a silent semantic swap.
 
 (def ^:private standard-path-ns
   "The one v1 namespace whose `path` is the standard interceptor constructor."
@@ -437,13 +511,115 @@
                                            (and (set? r) (contains? r "path"))))
                                     rf))}))))
 
+(defn- binding-vector-binds?
+  "Does the `let`/`for`-shaped binding VECTOR node `vnode` bind `target`?
+  Even-index entries are the LHS positions; a `:let` modifier (the
+  `for`/`doseq` shape) contributes the LHS positions of its own vector.
+  Deliberately POSITION-INSENSITIVE — a binding introduced after the call site
+  still counts — because the only error that direction can produce is a flag
+  where a lowering was possible, never a silent wrong rewrite. A binding
+  vector whose sexpr cannot be read counts as binding `target`, same reason."
+  [target vnode]
+  (let [v (try (n/sexpr vnode) (catch Exception _ ::unreadable))]
+    (cond
+      (= ::unreadable v) true
+      (not (vector? v))  false
+      :else
+      (boolean
+        (some (fn [[lhs rhs]]
+                (if (= :let lhs)
+                  (and (vector? rhs)
+                       (some #(contains? (collect-binding-names (first %)) target)
+                             (partition-all 2 rhs)))
+                  (contains? (collect-binding-names lhs) target)))
+              (partition-all 2 v))))))
+
+(defn- params-bind?
+  "Does the fn params VECTOR node `vnode` bind `target`? Unreadable params
+  count as binding it (conservative, as above)."
+  [target vnode]
+  (let [v (try (n/sexpr vnode) (catch Exception _ ::unreadable))]
+    (cond
+      (= ::unreadable v) true
+      (vector? v)        (contains? (collect-binding-names v) target)
+      :else              false)))
+
+(def ^:private defn-forms
+  "Head symbols whose arities are `defn`-shaped: `(head name docstring?
+  attr-map? [params] body)` or `(head name ([params] body)+)`."
+  '#{defn defn- defmacro})
+
+(defn- form-binds?
+  "Does the list NODE `node` lexically bind the simple name `target` anywhere in
+  its scope? Recognises the same binding vocabulary as the free-occurrence
+  analysis — `let`-shape, `for`/`doseq`-shape, `fn`/`fn*`, `letfn` — plus the
+  `defn` family, whose params scope over a registrar call in the body. A head
+  we do not recognise binds nothing."
+  [target node]
+  (let [kids (sig-children node)
+        hd   (when (and (seq kids) (= :token (n/tag (first kids))))
+               (try (n/sexpr (first kids)) (catch Exception _ nil)))
+        rest-kids (rest kids)
+        vector-kids (filter #(= :vector (n/tag %)) rest-kids)
+        ;; `(fn ([a] ..) ([a b] ..))` / `(defn f ([a] ..))` — an arity is a
+        ;; list whose FIRST child is the params vector.
+        arity-params (keep (fn [k]
+                             (when (= :list (n/tag k))
+                               (let [p (first (sig-children k))]
+                                 (when (= :vector (some-> p n/tag)) p))))
+                           rest-kids)]
+    (cond
+      (not (symbol? hd)) false
+
+      (contains? binding-vector-forms hd)
+      (boolean (some #(binding-vector-binds? target %) (take 1 vector-kids)))
+
+      (contains? seq-binding-forms hd)
+      (boolean (some #(binding-vector-binds? target %) (take 1 vector-kids)))
+
+      (or (#{'fn 'fn*} hd) (contains? defn-forms hd))
+      (boolean (or (some #(params-bind? target %) (take 1 vector-kids))
+                   (some #(params-bind? target %) arity-params)))
+
+      ;; letfn: the fnspec NAMES are in scope across the whole form, and each
+      ;; fnspec's params scope over its own body.
+      (= 'letfn hd)
+      (boolean
+        (some (fn [vnode]
+                (some (fn [spec]
+                        (when (= :list (n/tag spec))
+                          (let [ks (sig-children spec)]
+                            (or (= target (try (n/sexpr (first ks))
+                                               (catch Exception _ nil)))
+                                (some #(params-bind? target %)
+                                      (take 1 (filter #(= :vector (n/tag %)) ks)))))))
+                      (sig-children vnode)))
+              (take 1 vector-kids)))
+
+      :else false)))
+
+(defn- enclosing-scope-binds?
+  "Walking OUT from `zloc` (a registrar call site), does any enclosing form
+  lexically bind the simple name `target`? This is the call-site half of head
+  resolution: `path-head-context` establishes what the ns form makes AVAILABLE,
+  which is not the same question as what a bare `path` at this call site
+  actually DENOTES (rf2-8odvg reopen — a `(let [path app.interceptors/path] ...)`
+  around the registration was lowered as the framework constructor)."
+  [target zloc]
+  (loop [z (z/up zloc)]
+    (cond
+      (nil? z) false
+      (and (= :list (z/tag z)) (form-binds? target (z/node z))) true
+      :else (recur (z/up z)))))
+
 (defn- standard-path-head?
   "Does the call-head symbol `hv` — already known to carry the simple name
   `path` — actually denote the STANDARD `re-frame.core/path` constructor
-  under `path-ctx` (per `path-head-context`)? Decision table in the section
-  comment above."
-  [hv {:keys [ns? rf-aliases bare-path?]}]
+  under `path-ctx` (per `path-head-context`, plus the call site's
+  `:shadowed-bare-path?`)? Decision table in the section comment above."
+  [hv {:keys [ns? rf-aliases bare-path? shadowed-bare-path?]}]
   (if-let [q (namespace hv)]
+    ;; A namespace-qualified symbol names a var: no local binding can shadow it.
     (or (= q standard-path-ns)
         (if ns?
           (contains? rf-aliases q)
@@ -451,7 +627,8 @@
           ;; keep the conventional reading; a dotted one is a concrete
           ;; namespace and must BE re-frame.core (the branch above).
           (not (str/includes? q "."))))
-    (or (not ns?) (boolean bare-path?))))
+    (and (not shadowed-bare-path?)
+         (or (not ns?) (boolean bare-path?)))))
 
 (defn- path-literal?
   "A value usable as a literal path segment: keyword / string / number /
@@ -729,7 +906,13 @@
         base    {:file file :line line :col col :form form-kw}
         kids    (sig-children (z/node zloc))
         ;; kids: (HEAD ID middle... HANDLER)
-        middles (vec (drop 2 (or (butlast kids) ())))]
+        middles (vec (drop 2 (or (butlast kids) ())))
+        ;; `path-ctx` is derived once per SOURCE (what the ns form makes
+        ;; available); a bare `path` head also has to survive the lexical
+        ;; scopes enclosing THIS site, which is a per-call-site fact.
+        path-ctx (cond-> path-ctx
+                   (enclosing-scope-binds? 'path zloc)
+                   (assoc :shadowed-bare-path? true))]
     (case form-kw
       :reg-event-ctx
       {:finding (finding base {:action :flag :flag :ctx :target nil
@@ -827,49 +1010,10 @@
 ;; rebinds the same name). We walk the body's sexpr, tracking the set of names a
 ;; binding form has shadowed; a bare occurrence of the target name that is NOT in
 ;; the shadowed set counts as a free reference.
-
-(def ^:private binding-vector-forms
-  "Head symbols whose SECOND child is a binding vector of name/value pairs
-  (`let`-shape): the LHS names shadow within the rest of the form."
-  '#{let let* loop loop* binding if-let when-let if-some when-some
-     with-open with-local-vars with-redefs})
-
-(def ^:private seq-binding-forms
-  "Head symbols whose SECOND child is a seq-binding vector (`for`/`doseq`-shape):
-  `[x coll, y coll2, :let [...] ...]`. We treat every even-index non-keyword
-  entry as a bound LHS (conservative: over-binding only makes us MORE likely to
-  call a name unreferenced, but we additionally honour `:let` LHS names)."
-  '#{for doseq})
-
-(defn- collect-binding-names
-  "Collect every symbol that a destructuring LHS form `lhs` binds. Handles plain
-  symbols, vector/seq destructuring (incl. `:as`/`& rest`), and map destructuring
-  (`:keys`/`:strs`/`:syms`, `:as`, and `{local key}` pairs). Conservative: when
-  unsure we still add any contained symbol, which only widens shadowing."
-  [lhs]
-  (cond
-    (symbol? lhs) #{lhs}
-
-    (vector? lhs)
-    (into #{} (mapcat collect-binding-names) lhs)
-
-    (map? lhs)
-    (reduce-kv
-      (fn [acc k v]
-        (cond
-          ;; {:keys [a b]} / {:strs [..]} / {:syms [..]}
-          (and (keyword? k) (#{:keys :strs :syms} k) (vector? v))
-          (into acc (map (fn [s] (symbol (name s)))) v)
-          ;; {:as whole}
-          (= :as k) (conj acc v)
-          ;; {:or {...}} / {:keys ...} handled above; skip other keyword keys
-          (keyword? k) acc
-          ;; {local :some/key} — the LHS (k) is the binding
-          :else (into acc (collect-binding-names k))))
-      #{}
-      lhs)
-
-    :else #{}))
+;;
+;; The binding-form vocabulary this shares with the call-site shadow check
+;; (`binding-vector-forms`, `seq-binding-forms`, `collect-binding-names`) is
+;; defined once, above the middle-slot section.
 
 (declare free-in-form?)
 
