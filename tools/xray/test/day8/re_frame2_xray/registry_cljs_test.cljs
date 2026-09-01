@@ -2105,8 +2105,14 @@
 (deftest fx-copy-value-to-clipboard-fires-with-pr-str
   (testing ":rf.xray/copy-value-to-clipboard routes through the clipboard fx"
     (setup-xray-frame!)
+    ;; rf2-7htk7 — a LIVE observed frame is what lets a value round-trip at
+    ;; all: with none selected the egress fails closed and the fx receives
+    ;; `:rf/redacted` (pinned in app_db_diff_cljs_test §7c). This test is
+    ;; about the fx wiring, so it selects one.
+    (rf/make-frame {:id :rf/default})
     (install-capture-fx!)
     (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
       (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1}]))
     (is (= 1 (count @captured-fx)))
     (let [[fx-id args] (first @captured-fx)]
