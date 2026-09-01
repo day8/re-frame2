@@ -2428,14 +2428,23 @@
 ;; DELETE banners its error on `[:article :error]`, where beta's page shows it
 ;; until the next load.
 ;;
+;; `:article/delete-success` is the fourth, and it was excluded from the first
+;; pass because it writes no db at all. It navigates, and navigation is the
+;; route's own state — the most visible state there is. Delete alpha, walk to
+;; beta before the server answers, and the late success took beta's reader home
+;; and threw away the route they had chosen. Refusing it strands nothing: the
+;; deletion succeeded on the server either way, so there is no retry to lose
+;; and nothing left half-done.
+;;
 ;; The fix is the gate alone, with NO reset half — the difference from
 ;; rf2-84iek that matters. `[:comment-form]` was a boot-time singleton that
 ;; rode across the navigation still `:submitting`, so gating it without a
 ;; reset would have locked beta's form; `[:article]` is rebuilt wholesale by
-;; `:article/load` on a slug change and the Follow button carries no pending
-;; state, so the navigation has already released everything a refused settle
-;; would have touched. `beta-slice-is-rebuilt` below is what pins that, and it
-;; is why refusing strands nothing.
+;; `:article/load` on a slug change, and neither the Follow button nor the
+;; Delete button carries any pending or disabled state, so the navigation has
+;; already released everything a refused settle would have touched.
+;; `beta-slice-is-rebuilt` below is what pins that, and it is why refusing
+;; strands nothing.
 ;;
 ;; These reuse `with-held-comment-fx` — the shared held-request harness for
 ;; the article page, comment-flavoured only in its name.
@@ -2526,6 +2535,60 @@
         (is (nil? (:error (article-slice* f)))
             "a LATE alpha DELETE failure does not banner its error over beta's page (rf2-amhpk)")))))
 
+(defn- article-delete-cross-slug-late-success-is-refused-test []
+  ;; The fourth of the shape, and the one the first pass excluded because it
+  ;; writes no db. Navigation is state all the same — the reader's own — and a
+  ;; late alpha success took it away from them.
+  (with-held-comment-fx :realworld.test/article-delete-cross-slug-ok
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "alice" false)
+      (rf/dispatch-sync [:article/delete] {:frame f})
+      (let [delete-req (req-by-method+url @lowered :delete "/articles/alpha")]
+        (is (some? delete-req) "the article DELETE went out and is held open")
+        (is (= [:article/delete-success "alpha"] (:on-success delete-req))
+            "the DELETE's SUCCESS target carries the slug it was issued on, not
+             just its failure target")
+        ;; The reader gives up waiting and reads another article.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
+        (settle-article-with-author! f lowered "beta" "bob" true)
+        ;; The strand control, exactly as for the three writes above: the
+        ;; navigation already rebuilt the slice, and the delete left no pending
+        ;; flag or disabled control behind, so refusing this settle abandons
+        ;; nothing. The server deletion stands; alpha is simply gone.
+        (is (= "beta" (:slug (article-slice* f)))
+            "beta-slice-is-rebuilt — [:article] is beta's before the late settle")
+        ;; Alpha's DELETE succeeds, far too late.
+        (rf/dispatch-sync (conj (:on-success delete-req) {:status :ok :value nil})
+                          {:frame f})
+        (is (= :realworld.article/show
+               (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "a LATE alpha DELETE SUCCESS does not yank beta's reader home (rf2-amhpk)")
+        (is (= {:slug "beta"} (route-params* f))
+            "…the reader's own newer route choice is the one that stands")
+        (is (= "beta" (:slug (article-slice* f)))
+            "…and beta's article is still the one on screen")))))
+
+(defn- article-delete-current-slug-still-navigates-home-test []
+  ;; The navigation control for the gate above: refusing a STALE success must
+  ;; not cost the ordinary one. Delete the article you are reading, settle it
+  ;; while you are still reading it, and you go home as before.
+  (with-held-comment-fx :realworld.test/article-delete-current-slug
+    (fn [f lowered]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "alice" false)
+      (rf/dispatch-sync [:article/delete] {:frame f})
+      (let [delete-req (req-by-method+url @lowered :delete "/articles/alpha")]
+        (is (= :realworld.article/show
+               (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "still on the article while the DELETE is out")
+        (rf/dispatch-sync (conj (:on-success delete-req) {:status :ok :value nil})
+                          {:frame f})
+        (is (= :realworld/home
+               (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            ":article/delete-success still navigates home when its own slug is
+             the one on screen — the gate is not vacuous (rf2-amhpk)")))))
+
 (defn- article-social-gates-are-not-vacuous-test []
   ;; The control that keeps the three refusals above honest: a gate wired to
   ;; refuse everything would satisfy all of them and break the app. On the
@@ -2570,6 +2633,12 @@
   (testing "a LATE alpha DELETE failure cannot banner its error over beta's
             page (rf2-amhpk)"
     (article-delete-cross-slug-late-failure-is-refused-test))
+  (testing "a LATE alpha DELETE success cannot navigate beta's reader home
+            (rf2-amhpk)"
+    (article-delete-cross-slug-late-success-is-refused-test))
+  (testing "…while a delete settled on its own slug still goes home — the
+            navigation control (rf2-amhpk)"
+    (article-delete-current-slug-still-navigates-home-test))
   (testing "on the CURRENT slug all three settles still do their ordinary job
             — the gates' non-vacuity control (rf2-amhpk)"
     (article-social-gates-are-not-vacuous-test)))
