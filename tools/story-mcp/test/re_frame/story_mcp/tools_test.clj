@@ -32,6 +32,7 @@
             [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.registry :as registry]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
@@ -1179,6 +1180,53 @@
   (let [r (invoke "run-variant" {:variant-id "story.nope/missing"})]
     (is (error? r))
     (is (re-find #"not found" (-> r :content first :text)))))
+
+(deftest lifecycle-tools-refuse-with-no-adapter
+  ;; The NEGATIVE CONTROL for rf2-c9t52. `reset-story-and-config` installs
+  ;; `plain-atom` before every test — exactly the boot a consuming project's
+  ;; preloaded namespace performs — so this test REMOVES that boot for its own
+  ;; duration via core's test-only cold-start seam, and restores it in a
+  ;; `finally`. (The `:each` fixture re-installs regardless, so a failure here
+  ;; cannot leak a cold adapter slot into a later test.)
+  ;;
+  ;; Without the guard both lifecycle tools return the ORDINARY success
+  ;; envelope with `:status :pass` over an empty app-db and zero assertions —
+  ;; a success-shaped NON-RUN. The distinction this pins is against
+  ;; `run-variant-happy` directly above, which asserts the SAME variant is
+  ;; vacuously `:pass` WITH an adapter installed: executed-and-assertion-free
+  ;; stays green (Story's intentional rule, untouched); never-executed is an
+  ;; error.
+  (try
+    (is (true? (lifecycle/adapter-installed?))
+        "precondition: the :each fixture installed plain-atom")
+    (substrate-adapter/reset-lifecycle-state-for-tests!)
+    (is (false? (lifecycle/adapter-installed?))
+        "the cold-start seam left this process with no adapter")
+    (doseq [tool-name ["run-variant" "preview-variant"]]
+      (testing tool-name
+        (let [r (invoke tool-name {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (error? r) "a missing adapter is an error, never a run outcome")
+          (is (= :rf.error/no-adapter-installed (:rf.error s))
+              "the stable machine-readable id is core's own for this condition")
+          (is (= tool-name (:tool s)))
+          (is (= :init-an-adapter-in-the-preloaded-namespace (:recovery s))
+              "the recovery names the fix")
+          (is (not (contains? s :status))
+              "the refusal carries NO run verdict — it is not a run")
+          (is (re-find #"rf/init!" (-> r :content first :text))
+              "the human sentence names rf/init!")
+          (is (re-find #"plain-atom" (-> r :content first :text))
+              "the human sentence names the renderer-free headless substrate"))))
+    (finally
+      (rf/init! plain-atom/adapter)))
+  (testing "restoration is green"
+    (is (true? (lifecycle/adapter-installed?)))
+    (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= :pass (:status s))
+          "with the adapter restored the assertion-free variant is vacuously :pass again"))))
 
 (deftest run-variant-cannot-run-reachable
   ;; The distinct THIRD verdict `:cannot-run` must be
