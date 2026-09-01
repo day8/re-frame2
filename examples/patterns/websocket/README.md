@@ -84,11 +84,12 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
-- A deadline belongs to a registration, not to an id. The correlation id is the
+- Every outcome belongs to a registration, not to an id. The correlation id is the
   app's, and reusing one — `[:feature/load slug]` is a recommended shape — is
   allowed, so on one long-lived socket the same id can be registered twice. Each
   registration therefore takes a `:token` from `:data`'s `:next-token` counter,
-  the scheduled timeout carries it, and the `:own-request-timeout?`
+  and **both** things that can settle a slot are held to it. The scheduled timeout
+  carries the token, and the `:own-request-timeout?`
   [guard](../../../docs/machines/glossary.md#guard) admits a timeout only while
   that token still occupies the slot. That is what stops a completed request's
   uncancelled timer from deleting a *later* request's slot and handing its caller
@@ -97,6 +98,19 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   id that is still in flight supersedes rather than overwrites: the displaced
   caller is settled with `{:origin :ws/local :ok false :error :ws/superseded}`
   before the new request goes out, so no caller is ever dropped on the floor.
+
+- The server's reply is held to the same token — the same gap, one door further
+  out. Supersede an id and *both* requests are on the wire under it, so a reply
+  naming only the id answers whichever registration happens to hold the slot when
+  it lands: one callback, on time, well-formed, and about a question that caller
+  never asked. So the token rides out too, as `:request-token` beside
+  `:request-id`; `ReplyMessage` requires it echoed back; and the `:reply` branch
+  settles the slot only while the echoed token is still the slot's. A mismatch
+  isn't an error — it's an answer to a registration that has moved on, so it is
+  treated as an unsolicited reply: nothing clears, no callback fires, and the
+  frame joins the inbox like any other vetted frame. It is a correctness
+  discriminator rather than a secret; provenance stays `:origin`'s job, stamped
+  after receipt where no sender can reach it.
 
 - In-flight requests fail on a socket drop. A request already on the wire
   when the socket dies can't be answered on this connection, so `:on-socket-lost`
