@@ -47,11 +47,12 @@ the headline success path 404s and you'll watch the failure branch instead.
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/managed-http-counter
+npm run dev:example -- examples/managed-http-counter
 ```
 
-Then serve the build output over HTTP (with this folder's [`api/`](api/)
-directory staged alongside it, per the note above) and open it in a browser.
+Then open the URL it prints. The runner stages this folder's [`api/`](api/)
+fixture alongside the bundle, so the success button's request finds
+`api/inc.json` rather than a 404.
 
 ## Cross-references
 

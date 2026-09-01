@@ -81,14 +81,14 @@ The 3 `stories*` files are an intentionally auxiliary Story showcase layered ove
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/login
+npm run dev:example -- examples/login
 ```
 
-To run the Story showcase instead, watch its build and open the Story shell:
+Then open the URL it prints. To run the Story showcase instead:
 
 ```bash
 # From implementation/:
-shadow-cljs watch :examples/login-with-stories   # then open http://localhost:8041/#/stories
+npm run dev:example -- examples/login-with-stories
 ```
 
-`#/` renders the live login app; `#/stories` mounts the Story shell with every reachable state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on either surface to open Xray over the auth-submit cascade.
+Open the printed URL for the live login app, or append `#/stories` to it for the Story shell with every reachable state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on either surface to open Xray over the auth-submit cascade.

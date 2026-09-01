@@ -112,8 +112,8 @@ counter/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/counter
+npm run dev:example -- examples/counter
 ```
 
-Then open the served page. The minus and plus buttons drive the event pipeline
+Then open the URL it prints. The minus and plus buttons drive the event pipeline
 described above.

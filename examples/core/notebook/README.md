@@ -156,7 +156,9 @@ notebook/
 ## How to run
 
 ```bash
-shadow-cljs watch examples/notebook
+# From implementation/:
+npm run dev:example -- examples/notebook
 ```
 
-Then open [`index.html`](index.html) against the watch build.
+Then open the URL it prints — the runner stages this folder's
+[`index.html`](index.html) beside the compiled bundle for you.
