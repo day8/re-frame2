@@ -19,6 +19,17 @@
     entire public surface IS the documented adapter API (spec/API.md
     §UIx adapter), so BOTH directions are checked (a var added
     without a row, or a row with no live var, → RED).
+  - `re-frame.hicasso` (rf2-phm7g) — fully-rowed, and the one covered
+    namespace that is NOT CLJS-only. The door is a SPLIT-HOST `.cljc`:
+    its `#?(:clj …)` arm is three authoring macros the JVM generator
+    introspects and rows under `:classification`, and its `#?(:cljs …)`
+    arm is eleven runtime aliases the JVM cannot see, rowed under
+    `:cljs-only`. Both arms land on ONE live analyzer surface, because
+    the macros are `:require-macros`-referred by the door's own
+    ClojureScript arm — so `reconcile-rows` carries both row sets and
+    the probe holds the whole door to full completeness. This is the
+    case `:jvm-only-classification` mirrors from the other side, and
+    the reason that key needs no entry here.
   - The Xray public surface (rf2-jhn46) — curated subsets (direction 1
     only). spec/API.md tiers the Xray surfaces `internal-public` (the
     `mount` shell lifecycle + the `panels` `mount-<panel>!` family — the
@@ -62,6 +73,7 @@
             ;; requires are load-bearing.
             [re-frame.adapter.reagent]
             [re-frame.adapter.uix]
+            [re-frame.hicasso]
             [day8.re-frame2-xray.mount]
             [day8.re-frame2-xray.panels]
             [day8.re-frame2-xray.panels.epoch-panel]
@@ -89,6 +101,14 @@
    namespace, enumerated off the analyzer at compile time."
   {"re-frame.adapter.reagent"  (emit-ns-publics re-frame.adapter.reagent)
    "re-frame.adapter.uix"      (emit-ns-publics re-frame.adapter.uix)
+   ;; The Hicasso door (rf2-phm7g) — a SPLIT-HOST `.cljc`, and the first
+   ;; namespace the probe covers that the JVM generator ALSO owns. The
+   ;; analyzer surface here is the door's `#?(:cljs …)` arm (the runtime
+   ;; aliases, rowed under `:cljs-only`) plus the three `:require-macros`-
+   ;; referred authoring macros (rowed under `:classification`, because the
+   ;; JVM introspects them). `reconcile-rows` below carries both sets, so
+   ;; the two arms reconcile against one live surface.
+   "re-frame.hicasso"          (emit-ns-publics re-frame.hicasso)
    "day8.re-frame2-xray.mount" (emit-ns-publics day8.re-frame2-xray.mount)
    ;; The Xray public surface (rf2-jhn46) — curated subsets (direction 1).
    "day8.re-frame2-xray.panels"                      (emit-ns-publics day8.re-frame2-xray.panels)
@@ -111,19 +131,38 @@
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The two adapter namespaces — their public surface IS the documented
-   adapter API. The Xray mount surface stays a curated subset (direction 1
-   only), so it is deliberately absent here."
+   adapter API — and the Hicasso door, which is likewise its whole
+   documented authoring surface (`re-frame.hicasso.impl.*` is where the
+   non-surface lives, and the door re-exports none of it). The Xray mount
+   surface stays a curated subset (direction 1 only), so it is deliberately
+   absent here."
   #{"re-frame.adapter.reagent"
-    "re-frame.adapter.uix"})
+    "re-frame.adapter.uix"
+    "re-frame.hicasso"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
    compile time (no runtime filesystem)."
   (emit-cljs-only-rows))
 
+(def hicasso-classification-rows
+  "The `re-frame.hicasso` `:classification` rows — the door's three
+   authoring macros (rf2-phm7g).
+
+   Every other namespace this probe covers is CLJS-only, so all its rows
+   live under `:cljs-only`. The Hicasso door does not: it is a `.cljc` the
+   JVM generator owns, so its macros are curated under `:classification`
+   and their `:kind`/`:tier` are the generator's. They still need
+   reconciling HERE, because they are `:require-macros`-referred into the
+   door's own ClojureScript arm and so appear on the live analyzer surface
+   — and without them the `fully-rowed` completeness check above would
+   report three live publics with no row."
+  (emit-classification-rows "re-frame.hicasso"))
+
 (def reconcile-rows
-  "Every row the probe reconciles: the `:cljs-only` surfaces."
-  cljs-only-rows)
+  "Every row the probe reconciles: the `:cljs-only` surfaces, plus the
+   Hicasso door's JVM-owned `:classification` rows."
+  (into (vec cljs-only-rows) hicasso-classification-rows))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
@@ -152,3 +191,30 @@
       (is (contains? live-publics ns-str)
           (str ns-str " is marked :fully-rowed but is not in live-publics "
                "— add its :require + emit-ns-publics entry.")))))
+
+(deftest runtime-verified-rows-are-actually-covered
+  (testing ":runtime-verified? true means the probe really covers that namespace"
+    ;; NON-VACUITY, and generic (rf2-phm7g). Every check above is conditional
+    ;; on a namespace being IN `live-publics`: `reconcile` filters its rows to
+    ;; the covered set, so deleting a namespace's `emit-ns-publics` entry
+    ;; removes its rows from the reconciliation and the probe goes GREEN over a
+    ;; surface it no longer looks at — the exact fail-open shape that left the
+    ;; Hicasso door uninventoried on both hosts.
+    ;;
+    ;; The sidecar already states the intended invariant, in a field: a
+    ;; `:cljs-only` row is `:runtime-verified? true` "once the probe covers its
+    ;; namespace". That was a hand-maintained boolean nothing executed. Here it
+    ;; is executed. Uncovered-by-design rows (`re-frame.core`'s reader-
+    ;; conditional pair, which the JVM generator owns) carry `false` and are
+    ;; unaffected, so this asserts the flag rather than the roster and needs no
+    ;; edit when a namespace is legitimately added or dropped.
+    (doseq [ns-str (->> cljs-only-rows
+                        (filter :runtime-verified?)
+                        (map :namespace)
+                        distinct
+                        sort)]
+      (is (contains? live-publics ns-str)
+          (str ns-str " has :cljs-only rows marked :runtime-verified? true, "
+               "but the probe does not enumerate it — either add its :require "
+               "+ emit-ns-publics entry, or set those rows "
+               ":runtime-verified? false in spec/api-manifest-metadata.edn.")))))

@@ -190,3 +190,35 @@
           "precondition: facade rows exist")
       (is (empty? (gen/implementation-facade-rows rows))
           "the committed manifest must not carry an implementation-only facade row"))))
+
+;; ---------------------------------------------------------------------------
+;; Roster non-vacuity — every enrolled namespace actually contributes rows.
+;; ---------------------------------------------------------------------------
+
+(deftest every-jvm-namespace-contributes-rows
+  (testing "each namespace in the generator's roster yields at least one
+            committed manifest row — an enrolled namespace that silently
+            inventories NOTHING is the fail-open shape (rf2-phm7g)"
+    ;; NON-VACUITY, and generic. `--check` compares a regenerated manifest
+    ;; against the committed one, so it is green whenever the two AGREE —
+    ;; including when they agree that a rostered namespace contributes no
+    ;; rows at all. A namespace whose every public acquired `^:no-doc`, or
+    ;; whose surface moved wholesale behind a reader conditional, would
+    ;; drop out of the inventory with the drift check still reporting OK.
+    ;; That is how `re-frame.hicasso` could have been ADDED to the roster
+    ;; and still inventoried nothing on this host.
+    ;;
+    ;; Asserted over the roster rather than over a named namespace, so it
+    ;; needs no edit when an artefact joins or leaves. `extra-vars` is
+    ;; deliberately out of scope: it names individual vars whose home
+    ;; namespace is mostly internal, and `resolve-extra-var` already throws
+    ;; when one stops resolving.
+    (let [rows       (:vars (gen/read-committed-manifest))
+          rowed-nses (set (map :namespace rows))]
+      (is (seq rows) "precondition: the committed manifest carries rows")
+      (doseq [ns-sym gen/jvm-namespaces]
+        (is (contains? rowed-nses (name ns-sym))
+            (str ns-sym " is in the generator's jvm-namespaces roster but "
+                 "contributes NO row to the committed manifest — it either "
+                 "exposes no public var on this host (drop it from the "
+                 "roster) or its surface has silently vanished."))))))
