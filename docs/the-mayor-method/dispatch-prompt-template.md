@@ -562,18 +562,27 @@ extraction that silently returns the wrong two hundred lines is worse than eithe
 that trade-off was weighing. Match the block's opening and closing text instead.
 
 **But match that closing text as a HEADING — anchored to the start of a line — because a block
-that documents its own boundaries contains its own end anchor.** The gate-mechanics block opens
-by naming where it stops and which neighbouring section it is not, so BOTH of its boundary
-strings occur twice in this file: once as the real heading, once inside that sentence. A plain
-search for the closing text stops at the mention, and the extraction returns the block's first
-five lines out of a hundred and sixty-four — 206 characters of 11,925 — while raising no error,
-because both anchors were found. Measured on this document.
+that documents its own boundaries contains its own end anchor.** The gate-mechanics block opens by
+naming where it stops, so its CLOSING string occurs twice in this file: once as the real heading,
+once inside that opening sentence. A plain search for it stops at the mention, and the extraction
+returns the block's opening paragraph instead of the block — raising no error, because both anchors
+were found. Measured on this document.
+
+**The opening heading is NOT doubled, and that asymmetry is the durable part.** A block that says
+where it stops must name its closing anchor; whether it also repeats its own heading text is an
+accident of phrasing, and this one stopped repeating it when that sentence was reworded to say
+"from this heading". So the trap sits on the closing anchor specifically, which is where anchoring
+to the start of a line is load-bearing.
 
 That is a worse failure than the stale line range this rule exists to avoid, and worse in the way
 that matters: a stale range returns the wrong two hundred lines, which reads wrong on sight, where
 this returns a plausible opening paragraph that reads like a short block. **So check the extracted
-SIZE before you paste it** — a block you can read in one screen is not the one you meant to send,
-and that check costs nothing where the paste costs a worker.
+size before you paste it — and check it as a CLASS, not against a remembered number.** The two
+outcomes are orders of magnitude apart, a few hundred characters against many thousands, so the
+reliable test is whether the extraction ENDS at the closing heading, which cannot drift. A count
+here would be a measured constant about a living document, and the one this passage used to quote
+had drifted about a fifth before a reread caught it — [the same failure](#counts-are-claims-and-they-go-stale-first)
+one section up, wearing the other hat.
 
 ---
 
