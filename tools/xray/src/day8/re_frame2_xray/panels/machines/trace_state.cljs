@@ -347,18 +347,52 @@
   [cascade]
   (filterv #(= :microstep (:kind %)) cascade))
 
+(defn- raised-cascade-steps
+  "rf2-nb8nj — the `:kind :raised-transition` steps off a transition trace's
+  `:cascade`, in FIFO dequeue order. Both engines append ONE such wrapper per
+  HANDLED internal-event dequeue — `{:kind :raised-transition :event <vec>
+  :from <state> :to <state> :region <r-or-nil> :steps [...]}` — so a
+  same-macrostep raise that moved the machine on is explained in the same
+  trace as the dispatched event instead of being discarded (flat/compound) or
+  flattened in with the external rows (root-parallel).
+
+  `:from`/`:to` are the RAW before/after `:state` values: a keyword or path
+  vector for a single-active machine, a whole composite region-MAP for a
+  root-parallel one. The runtime's synthetic `[:rf.machine/done <path>]`
+  completion signal rides this same wrapper — it is a `[:raise …]` fx like
+  any other, so there is no separate done-state shape to special-case. Empty
+  when the macrostep handled no internal event."
+  [cascade]
+  (filterv #(= :raised-transition (:kind %)) cascade))
+
+(defn- macrostep-boundary-steps
+  "rf2-nb8nj — every step that marks where the DISPATCHED event's own
+  transition ended and same-macrostep continuation began: the `:always`
+  microsteps AND the raised-event wrappers, in cascade (execution) order.
+  Both carry `:from`/`:to`, which is all `direct-event-target` needs."
+  [cascade]
+  (filterv #(#{:microstep :raised-transition} (:kind %)) cascade))
+
 (defn- direct-event-target
-  "rf2-8i1tg3 — the state the DISPATCHED event's own (non-`:always`)
-  transition landed in, as opposed to `to-path-from-trace`'s `:after`,
-  which is the FINAL state once every subsequent `:always` microstep
-  has also settled. When `microsteps` ran (`(seq microsteps)` true),
-  that direct target is the FIRST microstep's `:from` — the state the
-  event-driven transition committed before the `:always` loop took
-  over. With no microsteps, the event-driven transition's target IS
-  the settled `:after`, so `to-path-from-trace` already reads it."
-  [ev microsteps]
-  (if (seq microsteps)
-    (normalise-path (:from (first microsteps)))
+  "rf2-8i1tg3 / rf2-nb8nj — the state the DISPATCHED event's own transition
+  landed in, as opposed to `to-path-from-trace`'s `:after`, which is the
+  FINAL state once every subsequent same-macrostep step has also settled.
+  When `boundaries` ran (`(seq boundaries)` true), that direct target is the
+  FIRST boundary's `:from` — the state the event-driven transition committed
+  before the settle loop took over. With no boundaries, the event-driven
+  transition's target IS the settled `:after`, so `to-path-from-trace`
+  already reads it.
+
+  rf2-nb8nj — a RAISED-event wrapper is as much a boundary as an `:always`
+  microstep, and it was the un-handled case: a macrostep whose event raised
+  an internal event but ran no `:always` had NO boundary at all, so this
+  returned the post-raise settled state and the dispatched event's edge was
+  matched as `(before, settled, event)` — an aggregate edge that does not
+  exist. That lit nothing, the same silent miss rf2-8i1tg3 fixed for
+  `:always`, reached by the other route."
+  [ev boundaries]
+  (if (seq boundaries)
+    (normalise-path (:from (first boundaries)))
     (to-path-from-trace ev)))
 
 (defn- handled-regions-from-cascade
@@ -381,13 +415,63 @@
   counting them would mark it event-handled and mint a PHANTOM event edge. Event
   handling is derived from the non-microstep (`:exit` / `:action` / `:entry`)
   steps alone; the round edges light off the standalone round evidence
-  (`microstep-region-rounds`), not this set. Returns the set of non-nil
-  `:region`s present in the non-microstep cascade steps."
+  (`microstep-region-rounds`), not this set.
+
+  rf2-nb8nj — `:kind :raised-transition` steps are EXCLUDED for the SAME
+  reason, and this is the exclusion the runtime previously made impossible.
+  A raised internal event is re-broadcast across EVERY region, so a region
+  that DECLINED the external event can still move on the raise. Before
+  rf2-nb8nj the parallel parent queue flattened the rebroadcast's rows
+  straight into the accumulator with no boundary and no trigger event, so
+  those `:exit`/`:action`/`:entry` rows were indistinguishable from the
+  external event's — this set counted the raise-only region as having handled
+  the DISPATCHED event and minted a phantom event edge for it. The runtime
+  now nests those rows under a wrapper carrying their own `:event`, so
+  removing the wrapper removes exactly the misattributed rows; the raised
+  hops light their own edges off `raised-region-hops` instead. Returns the
+  set of non-nil `:region`s present in the remaining cascade steps."
   [cascade]
   (into #{}
-        (comp (remove #(= :microstep (:kind %)))
+        (comp (remove #(#{:microstep :raised-transition} (:kind %)))
               (keep :region))
         cascade))
+
+(defn- raised-region-hops
+  "rf2-nb8nj — per-region hops taken under a RAISED internal event, read off
+  a root-parallel macrostep's `:raised-transition` wrappers:
+  `region -> [{:from :to :event} …]` in FIFO dequeue order.
+
+  A parallel wrapper's `:from`/`:to` are the whole composite region-MAPs (the
+  same shape as the trace's `:before`/`:after`), so each region's own hop is
+  the pair of values under its key. `:event` is the internal event's id
+  keyword — the head of the wrapper's `:event` vector — which is what
+  `chart.layout` mints the region's edge under, so these light as the
+  INTERNAL event's edges rather than the dispatched one's.
+
+  A region is included when it MOVED under the raise, or when it stayed put
+  but contributed rows to the wrapper's nested `:steps` (a real self/internal
+  transition selected by the raised event). A region that simply declined the
+  raise contributes nothing. Returns `{}` for a cascade with no wrappers, or
+  for a single-active machine (whose wrapper `:from`/`:to` are not maps)."
+  [cascade]
+  (reduce
+    (fn [acc {:keys [from to event steps]}]
+      (if-not (and (map? from) (map? to))
+        acc
+        (let [handled (into #{} (keep :region) steps)
+              ev-id   (if (vector? event) (first event) event)]
+          (reduce-kv
+            (fn [acc* region region-from]
+              (let [region-to (get to region)]
+                (if (or (not= region-from region-to)
+                        (contains? handled region))
+                  (update acc* region (fnil conj [])
+                          {:from region-from :to region-to :event ev-id})
+                  acc*)))
+            acc
+            from))))
+    {}
+    (raised-cascade-steps cascade)))
 
 (defn- region-local-fired-ids
   "rf2-8ncxrf — fired-edge ids for ONE region that CHANGED state (its
@@ -632,19 +716,60 @@
   that DECLINED the event but later took an `:always` round (its first round's
   `:from` equals its pre-event state, and it is ABSENT from the non-microstep
   event cascade) gains NO phantom event edge — only its round edges light.
+
+  rf2-nb8nj — RAISED internal events, the third continuation shape alongside
+  the event and the parent-owned rounds. `region->raised` (from
+  `raised-region-hops`) carries each region's hops under a same-macrostep
+  raise, with the INTERNAL event's own id. Two things follow. The settled
+  `after` is no more the EVENT's target here than it is under rounds, so a
+  region moved by a raise resolves its event target from its first
+  continuation boundary — a round if one ran, else its first raised hop.
+  And each raised hop lights its OWN edge under its OWN event, through the
+  same region-local → region-`:on` → root-`:on` fallback the event branch
+  uses, so the dispatched event and the internal event show as distinct
+  causal steps rather than one aggregate. A region that moved ONLY on the
+  raise is ABSENT from `handled-regions` (the wrapper is excluded there), so
+  it mints no phantom edge for the dispatched event.
   Returns a seq of ids."
-  [edges before-map after-map event* handled-regions region->rounds]
+  [edges before-map after-map event* handled-regions region->rounds region->raised]
   (when event*
     (mapcat
       (fn [[region region-before]]
         (let [region-after (get after-map region)
               rounds       (get region->rounds region)
-              ;; rf2-bvwv4q — with parent-owned rounds the macrostep `:after`
-              ;; is the FINAL settled state; the state the EVENT committed is
-              ;; the FIRST round's `:from`. With no rounds it IS `:after`.
-              event-target (if (seq rounds) (:from (first rounds)) region-after)
+              raised       (get region->raised region)
+              ;; rf2-bvwv4q / rf2-nb8nj — with parent-owned rounds or raised
+              ;; hops the macrostep `:after` is the FINAL settled state; the
+              ;; state the EVENT committed is the FIRST continuation
+              ;; boundary's `:from`. `:always` is preferred before the next
+              ;; raise is dequeued, so a round — when one ran — is the earlier
+              ;; boundary. With neither, the event's target IS `:after`.
+              event-target (cond
+                             (seq rounds) (:from (first rounds))
+                             (seq raised) (:from (first raised))
+                             :else        region-after)
               from*        (normalise-path region-before)
               ev-to*       (normalise-path event-target)
+              ;; rf2-nb8nj — each raised hop's OWN regional edge, matched
+              ;; under the INTERNAL event id. A hop that moved the region
+              ;; takes the same three-way fallback as the event branch; a
+              ;; handled-but-unchanged hop lights the self/internal edge.
+              raised-ids   (mapcat
+                             (fn [{:keys [from to event]}]
+                               (let [h-from (normalise-path from)
+                                     h-to   (normalise-path to)]
+                                 (if (not= from to)
+                                   (or (seq (region-local-fired-ids
+                                              edges region h-from h-to event))
+                                       (seq (region-machine-on-fired-ids
+                                              edges region h-to event))
+                                       (region-root-on-fired-ids
+                                         edges region h-to event))
+                                   (or (seq (region-self-internal-fired-ids
+                                              edges region h-from event))
+                                       (region-machine-internal-fired-ids
+                                         edges region event)))))
+                             raised)
               ;; rf2-bvwv4q — each parent-owned round's OWN regional edge
               ;; (`:event :always`, region-scoped). Lit directly off the round
               ;; evidence so an ACTIONLESS `:always` round still highlights.
@@ -690,7 +815,8 @@
                   (region-machine-internal-fired-ids edges region event*))
 
               :else nil)
-            always-ids)))
+            always-ids
+            raised-ids)))
       before-map)))
 
 (defn extract-fired-edge-ids
@@ -781,31 +907,59 @@
                  ;; evidence (rf2-bvwv4q) so every region that moved (on the
                  ;; event, via the root `:on`, or on an `:always` round) OR was
                  ;; handled-unchanged lights its edge.
-                 (parallel-transition-fired-ids
-                   edges
-                   (if (map? before-raw) before-raw {})
-                   (if (map? after-raw) after-raw {})
-                   event*
-                   (handled-regions-from-cascade (cascade-from-trace ev))
-                   region->rounds)
+                 (let [cascade (cascade-from-trace ev)]
+                   (parallel-transition-fired-ids
+                     edges
+                     (if (map? before-raw) before-raw {})
+                     (if (map? after-raw) after-raw {})
+                     event*
+                     (handled-regions-from-cascade cascade)
+                     region->rounds
+                     (raised-region-hops cascade)))
                  ;; Single-active (flat / compound): the existing
                  ;; (from, to, event) match + machine-level fallback —
                  ;; PLUS (rf2-8i1tg3) the direct event-driven target
-                 ;; (not the post-`:always` settled state) and every
-                 ;; `:always` microstep's own edge.
-                 (let [from*      (from-path-from-trace ev)
-                       microsteps (microstep-cascade-steps (cascade-from-trace ev))
-                       to*        (direct-event-target ev microsteps)]
+                 ;; (not the post-settle state) and every `:always`
+                 ;; microstep's own edge — PLUS (rf2-nb8nj) every
+                 ;; same-macrostep RAISED transition's own edge, matched
+                 ;; under the internal event that selected it, and the
+                 ;; `:always` microsteps nested inside those raises.
+                 (let [cascade    (cascade-from-trace ev)
+                       microsteps (microstep-cascade-steps cascade)
+                       raised     (raised-cascade-steps cascade)
+                       from*      (from-path-from-trace ev)
+                       to*        (direct-event-target
+                                    ev (macrostep-boundary-steps cascade))
+                       ;; `:always` hops light under the synthetic `:always`
+                       ;; event id `chart.layout` mints eventless edges with
+                       ;; (rf2-oy49f1); a raised hop lights under its own
+                       ;; internal event id.
+                       always-ids (fn [steps]
+                                    (mapcat
+                                      (fn [{step-from :from step-to :to}]
+                                        (single-transition-fired-ids
+                                          edges
+                                          (normalise-path step-from)
+                                          (normalise-path step-to)
+                                          :always))
+                                      steps))]
                    (when (and from* to* event*)
                      (concat
                        (single-transition-fired-ids edges from* to* event*)
-                       (mapcat (fn [{step-from :from step-to :to}]
-                                 (single-transition-fired-ids
-                                   edges
-                                   (normalise-path step-from)
-                                   (normalise-path step-to)
-                                   :always))
-                               microsteps))))))))
+                       (always-ids microsteps)
+                       (mapcat
+                         (fn [{r-from :from r-to :to r-event :event r-steps :steps}]
+                           (let [ev-id (if (vector? r-event) (first r-event) r-event)]
+                             (concat
+                               (single-transition-fired-ids
+                                 edges
+                                 (normalise-path r-from)
+                                 (normalise-path r-to)
+                                 ev-id)
+                               ;; an `:always` the raise ENABLED settles
+                               ;; inside the wrapper — light its edge too.
+                               (always-ids (microstep-cascade-steps r-steps)))))
+                         raised))))))))
          set)))
 
 ;; ---- guard-blocked-edge ids (rf2-fzrzlw) --------------------------------

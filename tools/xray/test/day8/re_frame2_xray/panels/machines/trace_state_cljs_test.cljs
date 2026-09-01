@@ -1695,3 +1695,188 @@
                        def events :hvac/controller)]
       (is (= #{climate-id} fired)
           "the changed climate region still lights without a cascade"))))
+
+;; ---- rf2-nb8nj — RAISED (internal) events are their own causal step ------
+;;
+;; The runtime now records one `:kind :raised-transition` wrapper per HANDLED
+;; internal-event dequeue, carrying that event and its own from/to/steps.
+;; Two consumer obligations follow: the dispatched event and the internal
+;; event must light as DISTINCT edges, and a parallel region that moved ONLY
+;; on the raise must no longer read as having handled the dispatched event.
+
+(defn- raise-chain-definition
+  "`:go` is event-driven (:idle -> :working) and its action raises [:settle];
+  `:working` handles `:settle` straight through to `:done`. The runtime
+  settles the raise BEFORE the outer `:rf.machine/transition` commits, so the
+  trace's `:after` is `:done` — never the event-driven `:working` target.
+  The `:always` analogue of this fixture is `always-microstep-definition`."
+  []
+  {:initial :idle
+   :states  {:idle    {:on {:go :working}}
+             :working {:on {:settle :done}}
+             :done    {:final? true}}})
+
+(deftest extract-fired-edge-ids-raised-transition-lights-direct-and-raised-edges
+  (testing "rf2-nb8nj — a macrostep whose event RAISED an internal event
+            lights BOTH the dispatched event's own edge (:idle -> :working)
+            AND the raised event's own edge (:working -> :done), each under
+            its OWN event id — NOT the (from, FINAL-settled, event) triple
+            that matches no declared edge. Before rf2-nb8nj this macrostep
+            carried no cascade boundary at all, so the derivation searched
+            for a phantom :idle -> :done :go edge and lit NOTHING."
+    (let [def       (raise-chain-definition)
+          go-id     (canonical-edge-id def [:idle]    [:working] :go)
+          settle-id (canonical-edge-id def [:working] [:done]    :settle)
+          events    [{:operation  :rf.machine/transition
+                      :tags       {:machine-id :cart}
+                      :from       [:idle]
+                      :to         [:done]
+                      :event      :go
+                      :microsteps 0
+                      :cascade    [{:kind :exit   :state [:idle]    :region nil}
+                                   {:kind :action :state [:idle]    :region nil}
+                                   {:kind :entry  :state [:working] :region nil}
+                                   {:kind   :raised-transition
+                                    :region nil
+                                    :event  [:settle]
+                                    :from   [:working]
+                                    :to     [:done]
+                                    :steps  [{:kind :exit  :state [:working] :region nil}
+                                             {:kind :entry :state [:done]    :region nil}]}]}]
+          fired     (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (string? go-id))
+      (is (string? settle-id))
+      (is (not= go-id settle-id))
+      (is (nil? (canonical-edge-id def [:idle] [:done] :go))
+          "no :idle->:done :go edge is declared — the aggregate match was a phantom")
+      (is (= #{go-id settle-id} fired)
+          "the dispatched event and the internal event light as DISTINCT edges"))))
+
+(deftest extract-fired-edge-ids-always-nested-inside-a-raise-still-lights
+  (testing "rf2-nb8nj — an :always transition ENABLED by a raised transition
+            settles INSIDE that raise's nested :steps, not at top level. Its
+            edge must still light, attributed to the internal event's hop."
+    (let [def       {:initial :idle
+                     :states  {:idle     {:on {:go :working}}
+                               :working  {:on {:settle :checking}}
+                               :checking {:always :done}
+                               :done     {:final? true}}}
+          go-id     (canonical-edge-id def [:idle]     [:working]  :go)
+          settle-id (canonical-edge-id def [:working]  [:checking] :settle)
+          always-id (canonical-edge-id def [:checking] [:done]     :always)
+          events    [{:operation :rf.machine/transition
+                      :tags      {:machine-id :cart}
+                      :from      [:idle]
+                      :to        [:done]
+                      :event     :go
+                      :cascade   [{:kind :entry :state [:working] :region nil}
+                                  {:kind   :raised-transition
+                                   :region nil
+                                   :event  [:settle]
+                                   :from   [:working]
+                                   :to     [:done]
+                                   :steps  [{:kind :entry :state [:checking] :region nil}
+                                            {:kind            :microstep
+                                             :microstep-index 0
+                                             :from            [:checking]
+                                             :to              [:done]
+                                             :steps           []}]}]}]
+          fired     (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (every? string? [go-id settle-id always-id]))
+      (is (= #{go-id settle-id always-id} fired)
+          "the nested :always microstep's edge lights alongside its enclosing raise"))))
+
+(deftest extract-fired-edge-ids-no-raised-transitions-unaffected
+  (testing "rf2-nb8nj regression guard — a macrostep with no raised events is
+            unaffected by the raised-boundary derivation (falls through to the
+            pre-existing to-path-from-trace read)"
+    (let [def         (toy-definition)
+          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
+          events      [{:operation :rf.machine/transition
+                        :tags      {:machine-id :cart}
+                        :from      [:empty]
+                        :to        [:populated]
+                        :event     :populate
+                        :cascade   [{:kind :entry :state [:populated] :region nil}]}]
+          fired       (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (= #{populate-id} fired)))))
+
+(deftest fired-ids-parallel-raise-only-region-is-not-event-handled
+  (testing "rf2-nb8nj — :left handles :go and raises [:settle]; :right
+            DECLINES :go and moves only on the rebroadcast raise. The raised
+            rows now ride a :raised-transition wrapper, so :right is NOT in
+            handled-regions and mints NO phantom :go edge — it lights its own
+            :settle edge instead. Before rf2-nb8nj the parallel parent queue
+            flattened those rows in with no boundary, so :right read as having
+            handled :go."
+    (let [def       {:type :parallel
+                     :regions {:left  {:initial :l0
+                                       :states  {:l0 {:on {:go :l1}}
+                                                 :l1 {}}}
+                               :right {:initial :r0
+                                       :states  {:r0 {:on {:settle :r1}}
+                                                 :r1 {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          left-go   (region-edge-id projected :left  [:l0] [:l1] :go)
+          right-set (region-edge-id projected :right [:r0] [:r1] :settle)
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/raise
+                             :before {:state {:left :l0 :right :r0}}
+                             :after  {:state {:left :l1 :right :r1}}
+                             :event  [:go]
+                             :cascade
+                             [{:kind :exit   :region :left :state [:l0]}
+                              {:kind :action :region :left :state [:l0]}
+                              {:kind :entry  :region :left :state [:l1]}
+                              {:kind   :raised-transition
+                               :region nil
+                               :event  [:settle]
+                               :from   {:left :l1 :right :r0}
+                               :to     {:left :l1 :right :r1}
+                               :steps  [{:kind :exit  :region :right :state [:r0]}
+                                        {:kind :entry :region :right :state [:r1]}]}]}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/raise)]
+      (is (every? string? [left-go right-set]))
+      (is (nil? (region-edge-id projected :right [:r0] [:r1] :go))
+          "no :go edge is declared in :right — a phantom would have to invent one")
+      (is (= #{left-go right-set} fired)
+          ":left lights its :go edge and :right lights its RAISED :settle edge"))))
+
+(deftest fired-ids-parallel-raise-handled-unchanged-region-lights-self-edge
+  (testing "rf2-nb8nj — a region that handles the RAISED event with a
+            targetless/self transition (before == after) still lights its
+            self/internal edge off the wrapper's nested :steps, rather than
+            being read as resting"
+    (let [def        {:type :parallel
+                      :regions {:left  {:initial :l0
+                                        :states  {:l0 {:on {:go :l1}}
+                                                  :l1 {}}}
+                                :right {:initial :r0
+                                        :states  {:r0 {:on {:settle {:action :note}}}}}}}
+          projected  (:edges (chart-layout/project-definition def))
+          left-go    (region-edge-id projected :left [:l0] [:l1] :go)
+          right-self (->> projected
+                          (some (fn [e]
+                                  (when (and (:internal? e)
+                                             (= :settle (:event e))
+                                             (= (chart-layout/region-scoped-id :right [:r0])
+                                                (:source e)))
+                                    (:id e)))))
+          events     [{:operation :rf.machine/transition
+                       :tags {:actor-id :par/raise2
+                              :before {:state {:left :l0 :right :r0}}
+                              :after  {:state {:left :l1 :right :r0}}
+                              :event  [:go]
+                              :cascade
+                              [{:kind :entry :region :left :state [:l1]}
+                               {:kind   :raised-transition
+                                :region nil
+                                :event  [:settle]
+                                :from   {:left :l1 :right :r0}
+                                :to     {:left :l1 :right :r0}
+                                :steps  [{:kind :action :region :right :state [] :action :note}]}]}}]
+          fired      (trace-state/extract-fired-edge-ids def events :par/raise2)]
+      (is (string? left-go))
+      (is (string? right-self) "the :right :settle self/internal edge exists")
+      (is (= #{left-go right-self} fired)
+          "the raised self/internal transition lights, attributed to :settle"))))

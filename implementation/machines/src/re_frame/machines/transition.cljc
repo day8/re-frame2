@@ -4127,7 +4127,55 @@
                           ;; Split the deferred result's fx into the surfaced
                           ;; raised events (append to the BACK, behind pending
                           ;; siblings — FIFO) and the real do-fx-bound fx.
-                          (let [{new-raises :raises real-fx :rest} (split-raise-fx fx2)]
+                          (let [{new-raises :raises real-fx :rest} (split-raise-fx fx2)
+                                ;; rf2-nb8nj — append one
+                                ;; `:kind :raised-transition` boundary carrying
+                                ;; the nested result's OWN cascade, so the
+                                ;; macrostep record stays lossless. Previously
+                                ;; this `recur` passed `cascade` unchanged, which
+                                ;; DISCARDED the raised transition's exit /
+                                ;; action / entry rows outright: the outer trace
+                                ;; could report `:before :idle` / `:after :done`
+                                ;; while its `:cascade` explained only
+                                ;; `:idle → :working`.
+                                ;;
+                                ;; The wrapper mirrors the `:microstep` step's
+                                ;; shape (`:region` / `:from` / `:to` / `:steps`)
+                                ;; and swaps the microstep INDEX for the
+                                ;; triggering internal `:event` — one nested
+                                ;; boundary rather than a second trace protocol.
+                                ;; `:steps` is the nested call's whole cascade,
+                                ;; so an `:always` transition the raise ENABLED
+                                ;; settles inside this boundary (attributed to
+                                ;; the internal event that enabled it) rather
+                                ;; than at top level.
+                                ;;
+                                ;; Gated on the nested Result's `::handled?`:
+                                ;; an IGNORED or GUARD-BLOCKED raise selected no
+                                ;; transition, so it must fabricate no
+                                ;; handled-transition wrapper (its cascade is
+                                ;; empty either way — the gate is what makes the
+                                ;; absence intentional rather than incidental).
+                                ;; A HANDLED targetless raise still records its
+                                ;; boundary, with `:from` equal to `:to`.
+                                ;;
+                                ;; The runtime's synthetic
+                                ;; `[:rf.machine/done <path>]` completion signal
+                                ;; is itself a `[:raise …]` fx (`done-raise-fx`),
+                                ;; so it rides THIS boundary too — no separate
+                                ;; done-state dialect.
+                                ;;
+                                ;; `::microsteps` is untouched: it stays the
+                                ;; `:always`-iteration count, not a step count.
+                                cascade' (if (result/handled? step-result)
+                                           (conj cascade
+                                                 {:kind   :raised-transition
+                                                  :region (:rf/region m)
+                                                  :event  ev
+                                                  :from   (:state snap)
+                                                  :to     (:state snap2)
+                                                  :steps  (result/cascade step-result)})
+                                           cascade)]
                             (recur snap2
                                    ;; Thread the augmented machine forward so the
                                    ;; generated facts from THIS raise's ensure are
@@ -4141,7 +4189,7 @@
                                    always-depth
                                    (inc raise-depth)
                                    (conj visited (:state snap2))
-                                   cascade)))))))
+                                   cascade')))))))
 
                 ;; ---- (3) quiescent — commit -------------------------------
                 ;;

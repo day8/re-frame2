@@ -1343,7 +1343,44 @@
                 (if (result/fail? step)
                   step
                   (result/with-ok [snap2 fx2] step
-                    (let [[new-raises real-fx] (split-raises fx2)]
+                    (let [[new-raises real-fx] (split-raises fx2)
+                          ;; rf2-nb8nj — group the rebroadcast's rows under ONE
+                          ;; `:kind :raised-transition` boundary instead of
+                          ;; flattening them straight into the accumulator.
+                          ;; The geometry always survived here, but with no
+                          ;; boundary and no trigger event its exit / action /
+                          ;; entry rows were indistinguishable from the EXTERNAL
+                          ;; event's — which is worse than losing them, because
+                          ;; Xray's `handled-regions-from-cascade` treats any
+                          ;; non-`:microstep` row's `:region` as evidence that
+                          ;; the region handled the DISPATCHED event. A region
+                          ;; that declined the external event and moved only on
+                          ;; the raise was therefore misattributed and lit a
+                          ;; phantom event edge.
+                          ;;
+                          ;; Identical shape and gate to the flat/compound drain
+                          ;; (`transition/drain-to-fixed-point`) — one schema-
+                          ;; approved wrapper across both engines, so a consumer
+                          ;; traverses one thing. `:region` is nil: a raise is
+                          ;; re-broadcast across EVERY region, so the boundary
+                          ;; belongs to no single one; the nested `:steps` keep
+                          ;; their own per-region stamps. `:from` / `:to` are the
+                          ;; whole composite region-MAPs, matching the parallel
+                          ;; trace's `:before` / `:after` shape.
+                          ;;
+                          ;; The synthetic `[:rf.machine/done <path>]` region
+                          ;; completion signal enters this same queue, so it is
+                          ;; represented by the same mechanism — no parallel
+                          ;; done-state dialect.
+                          acc-casc' (if (result/handled? step)
+                                      (conj acc-casc
+                                            {:kind   :raised-transition
+                                             :region nil
+                                             :event  ev
+                                             :from   (:state cur-snap)
+                                             :to     (:state snap2)
+                                             :steps  (result/cascade step)})
+                                      acc-casc)]
                       (recur snap2
                              m'
                              ;; FIFO: drop the just-processed
@@ -1353,7 +1390,7 @@
                              (into acc-fx real-fx)
                              (inc depth)
                              (+ acc-micro (result/microsteps step))
-                             (into acc-casc (result/cascade step))
+                             acc-casc'
                              (conj visited (:state snap2)))))))))))))))
 
 ;; ---- parallel done-state / `:on-done` signal ------------------------------

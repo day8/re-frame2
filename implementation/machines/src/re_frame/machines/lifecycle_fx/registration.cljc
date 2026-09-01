@@ -714,8 +714,19 @@
       ;; entry (shallowest-first + initial-descent), each step with its
       ;; `:kind` / `:state` / `:region` / `:action` / `:data-delta`, plus a
       ;; `:microstep` step (carrying nested `:steps`) per `:always`
-      ;; iteration, with per-region structure for parallel machines. This is
-      ;; the contract Xray's epoch panel renders. It rides under
+      ;; iteration, with per-region structure for parallel machines.
+      ;;
+      ;; rf2-nb8nj — plus one `:raised-transition` step per HANDLED dequeue
+      ;; off the internal-event queue, in FIFO order, carrying that internal
+      ;; `:event` and its own nested `:steps`. The walk therefore spans the
+      ;; WHOLE macrostep: every hop between `:before` and `:after` is
+      ;; explained, and a raised transition's rows are NESTED rather than
+      ;; laid alongside the external event's, so a consumer reading the
+      ;; top-level steps reads the dispatched event's geometry and nothing
+      ;; else. `:microsteps` above stays the `:always`-iteration count — it
+      ;; is not a step count and does not include raised dequeues.
+      ;;
+      ;; This is the contract Xray's epoch panel renders. It rides under
       ;; the same handler-scope `:sensitive?` stamp as `:before` / `:after`
       ;; (per Spec 005 §Privacy), so a sensitive machine's cascade
       ;; `:data-delta`s are scrubbed at egress alongside the snapshot slots.
