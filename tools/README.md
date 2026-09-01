@@ -137,18 +137,16 @@ wired into the build, and consumers can use it today.
   [`tools/machines-viz/README.md`](./machines-viz/README.md).
 
 - `tools/testbed-support/` — a small dev-only support library
-  (3 namespaces: `re-frame.testbed.config`,
-  `re-frame.testbed.story-host`, and the security-sensitive
-  `re-frame.testbed.open-in-editor-server`) the Xray / Story browser
-  testbeds share.
-  `config/resolve-source-root` derives the on-disk source root for
-  "open in editor" from a build-env `checkout-root` `goog-define` (seeded
-  per build via `#shadow/env`, so it's cross-platform with no hardcoded
-  checkout path) with a `?checkout-root=` per-session override, normalising both tiers to
-  a canonical forward-slash form so Windows and POSIX checkout roots
-  resolve identically. `story-host/mount-with-hash-routing!` owns the
+  (2 namespaces: `re-frame.testbed.story-host` and the
+  security-sensitive `re-frame.testbed.open-in-editor-server`) the Xray /
+  Story browser testbeds share.
+  `story-host/mount-with-hash-routing!` owns the
   live-app ↔ Story-shell hash-toggle host harness the showcase testbeds
-  share. It is
+  share. `open-in-editor-server/handler` is the JVM-side
+  `POST /__rf-open-in-editor` endpoint every testbed `:dev-http` entry
+  runs; it resolves a classpath-relative source coordinate against the
+  live JVM source paths at request time, so "open in editor" needs no
+  checkout path configured anywhere. It is
   not a published jar — no `deps.edn`/Clojars coord; it's wired into
   the testbed builds as an extra source path in
   `implementation/shadow-cljs.edn`. Bundle-isolated (nothing under

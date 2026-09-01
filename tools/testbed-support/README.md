@@ -3,30 +3,27 @@
 Dev-only support shared by the Xray and Story browser testbeds. It is not a
 published library and no production namespace depends on it.
 
-The surface contains three namespaces:
+The surface contains two namespaces:
 
-- `re-frame.testbed.config` resolves an on-disk source root for source
-  coordinates.
 - `re-frame.testbed.story-host` switches one `#app` node between a live app and
   the Story shell.
 - `re-frame.testbed.open-in-editor-server` provides the JVM-side
   `POST /__rf-open-in-editor` handler used by shadow-cljs dev servers.
 
-## Source-root configuration
+## Adding a testbed
 
-`resolve-source-root` appends a caller-supplied source subdirectory, such as
-`tools/xray/testbeds`, to the checkout root. The checkout root comes from one of
-two places, in precedence order:
+Three steps, and none of them is a source path or a checkout root:
 
-1. `?checkout-root=<path>` in the browser URL, for a per-session override.
-2. The `re-frame.testbed.config/checkout-root` goog-define, seeded from
-   `RF2_TESTBED_PROJECT_ROOT` by `implementation/shadow-cljs.edn`.
+1. Wire `re-frame.testbed.open-in-editor-server/handler` on the build's
+   `:dev-http` entry in `implementation/shadow-cljs.edn`.
+2. Call `mount-with-hash-routing!` from the build's entry point, if the
+   testbed needs the live-app ↔ Story-shell hash toggle.
+3. `npm run dev -- <build-id>` from `implementation/`.
 
-The result uses forward slashes and one separator at each join. Both raw and
-percent-encoded Windows separators are accepted. Query parsing preserves a
-literal `+`, because checkout directory names may contain one. When neither
-root is available, the resolver returns `nil` and open-in-editor remains a
-no-op.
+"Open in editor" then works with nothing configured. The endpoint resolves a
+classpath-relative source coordinate against the live JVM source paths at
+request time, so it finds the file in whatever clone is running the watch, at
+any path, on any OS.
 
 ## Story host
 
@@ -45,16 +42,16 @@ each install. This matters during hot reload: recompiling a top-level CLJS
 function changes its JavaScript identity, so `addEventListener` cannot dedupe a
 listener from the previous compile.
 
-Pass `{:source-subdir "..."}` when the host should also configure Story's
-open-in-editor project root:
+The host takes the live-app root view and nothing else:
 
 ```clojure
-(mount-with-hash-routing!
-  live-app
-  {:source-subdir "tools/story/testbeds"})
+(mount-with-hash-routing! live-app)
 ```
 
-Omit the option when the consumer manages `story/configure!` itself.
+It neither reads nor writes Story configuration. A host that wants
+`:rf.story/project-root` set — an external or non-shadow host relying on the
+client's `editor://` URI fallback rather than on a dev server — calls
+`story/configure!` itself.
 
 ## Open-in-editor server
 
@@ -100,8 +97,9 @@ npm run test:testbed-support
 npm run test:browser
 ```
 
-The focused Node suite covers config parsing and Story-host listener lifecycle.
-The browser suite covers the real React-root handoff on a DOM node.
+The focused Node suite covers the Story-host listener lifecycle and the
+client's endpoint-declined / URI-fallback contract. The browser suite covers
+the real React-root handoff on a DOM node.
 
 From `tools/testbed-support/`:
 
@@ -110,7 +108,9 @@ clojure -M:test
 ```
 
 The JVM suite covers file resolution, query parsing, launch argument handling,
-JSON responses, and the method/loopback/origin guard.
+JSON responses, and the method/loopback/origin guard. It also witnesses a real
+relative Story coordinate and a real relative Xray coordinate resolving to
+their on-disk files through the handler, with `launch!` stubbed.
 
 ## See also
 

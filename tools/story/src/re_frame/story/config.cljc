@@ -306,18 +306,16 @@
 ;; So in static mode the project-root is FAIL-CLOSED: `set-project-root!`
 ;; ignores it (the slot stays nil; open-in-editor degrades to the same no-op
 ;; the spec already documents for a missing root) UNLESS a host has made the
-;; explicit, static-export-aware opt-in below. The opt-in is DISTINCT from the
-;; dev testbed root helper (`re-frame.testbed.config/resolve-source-root`):
-;; that helper exists to wire dev testbeds, and a static export passing its
-;; result is exactly the accidental-leak case this guard closes. A host that
-;; genuinely wants a "published site that links back into the author's editor"
-;; (e.g. an internal docs deploy) flips this opt-in deliberately.
+;; explicit, static-export-aware opt-in below. A host that genuinely wants a
+;; "published site that links back into the author's editor" (e.g. an internal
+;; docs deploy) flips this opt-in deliberately.
 ;;
-;; This is a runtime guard. The static build ALSO drops the `RF2_TESTBED_
-;; PROJECT_ROOT` → `checkout-root` goog-define seed (see implementation/
-;; shadow-cljs.edn :story-static/*), so no ambient checkout STRING is inlined
-;; into the advanced bundle in the first place; this guard is the framework-
-;; level defence that protects every downstream static export regardless of
+;; This is a runtime guard. No build in this repository derives a checkout path
+;; from its environment — the dev testbeds resolve source files through the dev
+;; server's open-in-editor endpoint at request time — so no ambient checkout
+;; STRING is available to inline into an advanced bundle in the first place;
+;; this guard is the framework-level defence that protects every downstream
+;; static export regardless of
 ;; what its entry-point's `configure!` passes.
 
 (defonce

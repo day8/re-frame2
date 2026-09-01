@@ -206,8 +206,9 @@
 ;; `static-mode?` `config/set-project-root!` fails closed — a passed root is
 ;; ignored (the slot stays nil) unless a host explicitly opts in via
 ;; `config/set-allow-static-project-root!`. The dev path (static-mode? false)
-;; is unaffected. This is the compile-level counterpart to the release-mode
-;; sentinel-leak check in `npm run test:story-static`.
+;; is unaffected. This guard is now the whole of the defence: no build in the
+;; repository derives a checkout path from its environment for a host to pass
+;; in (rf2-3xq1v), so there is no ambient value for it to have to catch.
 
 (def ^:private sentinel-root
   "A sentinel absolute checkout root that must NEVER survive into the

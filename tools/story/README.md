@@ -154,8 +154,9 @@ Xray preload is wired — press `Ctrl+Shift+C`).
 | `:examples/hicasso-counter` | 8045 | http://localhost:8045/#/stories | the deck authored on the native substrate (`:substrates #{:hicasso}`) |
 
 Name the Story build(s) you want to watch and `npm run dev`
-(`implementation/scripts/dev-testbed.cjs`) prints each shell URL on start
-and seeds `RF2_TESTBED_PROJECT_ROOT` so "open in editor" works:
+(`implementation/scripts/dev-testbed.cjs`) prints each shell URL on start.
+"Open in editor" works with nothing configured — each build's `:dev-http`
+entry runs the JVM open-in-editor endpoint:
 
 ```bash
 # from implementation/
@@ -165,8 +166,7 @@ npm run dev -- :examples/login-form
 npm run dev -- :examples/login-with-stories :examples/counter-with-stories
 ```
 
-Equivalently, the raw watch (no URL printing, no `RF2_TESTBED_PROJECT_ROOT`
-seeding for open-in-editor):
+Equivalently, the raw watch (no URL printing):
 
 ```bash
 npx shadow-cljs watch :examples/login-form

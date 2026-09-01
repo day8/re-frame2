@@ -2771,15 +2771,20 @@ the verb so the affordance is read inline with the cascade rhythm
   `rf-xray-epoch-handler-verb-plain` (fallback). The `aria-label` +
   `title` carry `open <file>:<line> in editor`.
 
-**Composition with the testbed-boot precondition (rf2-2c5xb).** The
-`:rf.xray/open-in-editor` event resolves the file path against
-`:rf.xray/project-root`. Testbeds that host the panel-gallery (or any
-xray-instrumented surface) MUST seed `:rf.xray/project-root` at boot
-via `xray-config/configure!` (with a query-string override slot) —
-without it the chip ships bare classpath-relative paths that don't
-resolve to the operator's filesystem. The verb-link's event payload
-is unchanged by this requirement; it is the downstream URI builder
-that consumes `:rf.xray/project-root`.
+**Composition with the testbed-boot precondition (rf2-2c5xb, superseded
+by rf2-3xq1v).** The `:rf.xray/open-in-editor` event's URI-fallback path
+resolves the file path against `:rf.xray/project-root`. Testbeds hosting
+the panel-gallery (or any xray-instrumented surface) once had to seed
+that slot at boot; they no longer do. `open-coord!` PREFERS the dev
+server's `POST /__rf-open-in-editor` endpoint, which resolves a
+classpath-relative `:file` against the live source paths at request time
+(see [`015-Configuration.md` §Open-in-editor launch
+modes](./015-Configuration.md#open-in-editor-launch-modes-rf2-wn3bh--option-b-dev-server-endpoint)),
+so a repository testbed served by a `:dev-http` entry running that
+handler needs no project-root at all. `:rf.xray/project-root` remains the
+knob for hosts running WITHOUT a re-frame2 dev server, where the
+`editor://` URI fallback does need an absolute path. The verb-link's
+event payload is unchanged either way.
 
 #### §9.1.6.2 Shared `coord-chip` component (rf2-xjgdk audit L2 · `panels/shared/coord_chip.cljs`)
 

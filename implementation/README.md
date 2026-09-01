@@ -373,10 +373,12 @@ harness still falls back if that port is busy too.
 ## Running the dev testbeds
 
 `npm run dev` (`scripts/dev-testbed.cjs`) is the cross-platform launcher
-for the Xray / Story driving surfaces. It seeds `RF2_TESTBED_PROJECT_ROOT`
-(so "open in editor" works on a fresh clone at any path, on any OS) and
-spawns `shadow-cljs watch` for the explicit build-ids you name,
-printing each watched build's served URL on start:
+for the Xray / Story driving surfaces. It spawns `shadow-cljs watch` for
+the explicit build-ids you name, printing each watched build's served URL
+on start. "Open in editor" needs nothing from it — every testbed's
+`:dev-http` entry runs the JVM open-in-editor endpoint, which resolves
+source coordinates against the live source paths at request time, so the
+chips work on a fresh clone at any path, on any OS:
 
 ```sh
 cd implementation
