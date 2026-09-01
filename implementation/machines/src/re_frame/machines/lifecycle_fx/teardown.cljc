@@ -7,6 +7,12 @@
   destroy) the runtime applies a five-step runtime-db projection:
 
     1. dissoc snapshot at `[:rf.runtime/machines :snapshots actor-id]`
+    1b. drop the actor from the durable spawn-order vector at
+       `[:rf.runtime/machines :spawn-order]` — the frame's recorded
+       total creation order (rf2-1vlyg), pruned when it empties. This
+       is the teardown half of the append `install-spawn!` makes; both
+       ride the same swap as the snapshot mutation, so the order can
+       never name a dead actor or omit a live one.
     2. release `[:rf.runtime/machines :system-ids <sid>]` reverse-index
        entry (if bound)
     3. clear `[:rf.runtime/machines :spawned parent-id invoke-id]` slot
@@ -40,8 +46,12 @@
   This namespace is PURE — it does not unregister handlers, abort
   in-flight HTTP, or emit traces. Those are caller side effects whose
   ordering relative to db mutation is contract (Spec 005 §Cancellation
-  cascade D6-D8)."
-  (:require [re-frame.machines.paths :as paths]))
+  cascade D6-D8). The `spawn-order` fns it reaches for step 1b are
+  likewise pure runtime-db → runtime-db; the transient atom that ns also
+  owns is untouched here (its `forget!` stays a caller side effect,
+  because it must run even when no runtime-db swap lands)."
+  (:require [re-frame.machines.paths :as paths]
+            [re-frame.machines.spawn-order :as spawn-order]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -104,6 +114,17 @@
         new-db       (cond-> db
                        actor-id     (update-in (paths/snapshot-path)
                                                dissoc actor-id)
+                       ;; (1b) rf2-1vlyg — drop the actor from the DURABLE
+                       ;; spawn-order vector in the same swap that dissocs its
+                       ;; snapshot, so the recorded creation order tracks the
+                       ;; LIVE actors exactly. Every destroy path routes through
+                       ;; this projection (explicit / tracked / exit-cascade /
+                       ;; `:final?` auto-destroy), so one removal site covers
+                       ;; them all: a destroyed actor can neither be exited a
+                       ;; second time by a later frame destroy nor accumulate as
+                       ;; an unbounded stale entry. The slot is pruned when it
+                       ;; empties (`forget-in-runtime-db`), mirroring `:spawned`.
+                       actor-id     (spawn-order/forget-in-runtime-db actor-id)
                        released-sid (update-in (paths/system-id-path)
                                                dissoc released-sid)
                        track?       (update-in (paths/spawned-path parent-id)

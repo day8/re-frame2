@@ -32,28 +32,43 @@
      `:machines/teardown-on-frame-destroy!`; called from
      `frame/destroy-frame!`.
 
-  Source-of-truth on order: a process-side
-  `re-frame.machines.spawn-order` atom records each spawned actor at
-  install time. Snapshots that landed via direct `[:rf.runtime/machines :snapshots]` assoc
-  (test fixtures, hydration payloads, `replace-runtime-db!`, `restore-epoch!`)
-  are not tracked in the transient channel but DO live in the durable
-  runtime-db — the walker covers them as a stragglers pass after the
-  recorded vector drains.
+  Source-of-truth on order: the DURABLE `[:rf.runtime/machines
+  :spawn-order]` vector, appended by `install-spawn!` in the same
+  runtime-db swap that lands each snapshot and pruned by the unified
+  teardown projection in the swap that dissocs it. Reversing that vector
+  IS the reverse-creation walk, and because it rides the durable
+  runtime-db value it survives every supported round trip —
+  `replace-runtime-db!`, `restore-epoch!`, SSR hydration — with no restore
+  callback. The process-side `re-frame.machines.spawn-order` atom is a
+  transient cache of the same order (Spec 002 §Durable vs transient) and
+  is NOT consulted for ordering here.
 
-  Restore/hydration/full-runtime-db-replacement repopulate
-  durable runtime-db snapshots WITHOUT repopulating the process-side
-  spawn-order atom (the atom is transient bookkeeping, not durable state per
-  Spec 002 §Durable vs transient). A restored SPAWNED actor's snapshot
-  carries `:rf/machine-type` at its root (stamped by `install-spawn!`; a
-  SINGLETON snapshot never carries it — actor_liveness_test:213). The
-  straggler pass therefore SPLITS on that durable discriminator: spawned
-  stragglers run the full `destroy/destroy-single-actor!` teardown (registrar
-  cleanup, system-id release, timer cancel, snapshot dissoc) in
-  reverse-creation order DERIVED from the durable actor-id (the
-  `#<n>` suffix), not the singleton straggler path that skips all of that.
-  True singletons keep the exit-cascade-only straggler path."
-  (:require [clojure.string :as str]
-            [re-frame.frame :as frame]
+  rf2-1vlyg — this used to be the other way round. The atom was the
+  authority, and a restored actor absent from it was ranked by parsing the
+  `#<n>` suffix off its actor-id. That suffix is allocated by a
+  **per-id-prefix** counter, so it sequences one machine type and cannot
+  order two: three actors created `:probe/a#1`, `:probe/a#2`, `:probe/b#1`
+  sorted to `[:probe/a#2 :probe/a#1 :probe/b#1]`, exiting the OLDER
+  `:probe/a#2` ahead of the NEWEST actor and inverting the stack
+  discipline Spec 005 §Cross-Spec Interactions §1 pins. An id supplied
+  through `:fixed-actor-id` carries no suffix at all. The parse was
+  attempting to reconstruct information the durable state did not contain,
+  which no cleverer parse could fix — so the order is now recorded.
+
+  Snapshots can still land by direct `[:rf.runtime/machines :snapshots]`
+  assoc, outside any spawn (test fixtures, hand-built payloads); those
+  carry no durable order entry and are walked as an UNSEQUENCED tail,
+  deterministically but with no reverse-creation claim attached — there is
+  no order to honour for actors nothing ever sequenced.
+
+  A restored SPAWNED actor's snapshot carries `:rf/machine-type` at its
+  root (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
+  — actor_liveness_test:213). The walk SPLITS on that durable
+  discriminator: spawned actors run the full
+  `destroy/destroy-single-actor!` teardown (registrar cleanup, system-id
+  release, timer cancel, snapshot dissoc); true singletons keep the
+  exit-cascade-only straggler path."
+  (:require [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
@@ -64,16 +79,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- frame-machines-snapshot
-  "Snapshot of `[:rf.runtime/machines :snapshots]` on `frame-id`'s
-  RUNTIME-DB (a map of actor-id → snapshot), or an empty map. Read at the
-  start of the walk so we have a stable view of which actors were live; the
-  walk itself swaps the container and these reads are not re-evaluated.
+(defn- frame-runtime-db
+  "`frame-id`'s RUNTIME-DB value, or nil. Read ONCE at the start of the
+  walk so the snapshot map and the durable spawn-order vector come from
+  the same instant and cannot disagree; the walk itself swaps the
+  container and this read is not re-evaluated.
   EP-0001: machine snapshots are durable runtime-db state."
   [frame-id]
-  (let [container (frame/runtime-db-container frame-id)
-        rt        (when container (adapter/read-container container))]
-    (or (get-in rt (paths/snapshot-path)) {})))
+  (when-let [container (frame/runtime-db-container frame-id)]
+    (adapter/read-container container)))
 
 (defn- spawned-snapshot?
   "True iff `snapshot` is a spawned actor's snapshot, not
@@ -88,29 +102,21 @@
   [snapshot]
   (some? (:rf/machine-type snapshot)))
 
-(defn- creation-rank
-  "Derive a best-effort creation-order rank for a restored
-  spawned `actor-id` whose process-side spawn-order entry was lost across
-  restore/hydration. Spawned ids are allocated as `<type>#<n>` with a
-  monotonic per-type counter (`allocate-actor-id-in-runtime-db`), so the
-  trailing `#<n>` integer is the durable creation sequence the spawn-order
-  vector would otherwise carry. Returns the parsed `n` as a Long, or -1
-  for an id with no `#<n>` suffix (explicit `:fixed-actor-id` literals,
-  region-prefixed ids) so those sort oldest — there is no reverse-creation
-  contract to honour for ids the allocator never sequenced.
+(defn- unsequenced-order
+  "Deterministic walk order for spawned actors the durable spawn-order
+  vector does NOT carry — snapshots assoc'd straight into
+  `[:rf.runtime/machines :snapshots]` by a fixture or a hand-built
+  payload, which no spawn ever sequenced.
 
-  Ordering the spawned-straggler walk by DESCENDING rank reconstructs the
-  newest-first exit order Spec 005 §Cross-Spec Interactions §1 requires,
-  derived purely from durable runtime-db."
-  [actor-id]
-  (let [s (name actor-id)
-        i (str/last-index-of s "#")]
-    (if (and i (< (inc i) (count s)))
-      (let [tail (subs s (inc i))]
-        (if (re-matches #"\d+" tail)
-          #?(:clj (Long/parseLong tail) :cljs (js/parseInt tail 10))
-          -1))
-      -1)))
+  Sorted by the printed actor-id purely so the walk is REPRODUCIBLE
+  (runtime-db map iteration order is not). This is explicitly **not** a
+  creation order and makes no reverse-creation claim: nothing recorded one
+  for these actors, and per rf2-1vlyg the id spelling cannot supply it —
+  the `#<n>` suffix sequences a single id-prefix, and a `:fixed-actor-id`
+  has no suffix at all. Every actor that went through `install-spawn!`
+  carries a real durable rank and never reaches this tail."
+  [actor-ids]
+  (sort-by str actor-ids))
 
 (defn- emit-lifecycle-destroyed!
   "Emit the `:rf.machine.lifecycle/destroyed` notification per actor,
@@ -164,17 +170,24 @@
   against double-invocation, fail-soft against missing artefacts.
 
   The orchestration is:
-   1. Snapshot `[:rf.runtime/machines :snapshots]` once.
+   1. Read the frame's runtime-db once — both the
+      `[:rf.runtime/machines :snapshots]` map and the durable
+      `[:rf.runtime/machines :spawn-order]` vector come from that one
+      instant.
    2. Build the disposal order in three segments:
-      a. Recorded spawn-order reversed (newest first) — the live-process
-         spawned actors, walked in true reverse-creation order.
-      b. SPAWNED stragglers — snapshots that carry `:rf/machine-type` but
-         are absent from the (transient) spawn-order atom. This is the
-         restore / hydration / `replace-runtime-db!` case:
-         durable runtime-db carries the snapshot, the transient atom does
-         not. Walked newest-first by `creation-rank` derived from the
-         durable `<type>#<n>` actor-id, so reverse-creation order is
-         reconstructed from durable state alone.
+      a. The durable spawn-order vector REVERSED (newest first) — every
+         actor that went through `install-spawn!`, in true
+         reverse-creation order. This is the whole of the ordering
+         contract, and it holds identically for a live process and for a
+         frame that has been restored, hydrated or wholesale-replaced,
+         because the vector is durable runtime-db state rather than
+         process-side bookkeeping (rf2-1vlyg).
+      b. UNSEQUENCED spawned actors — snapshots carrying
+         `:rf/machine-type`, or ids recorded in the transient cache, that
+         the durable vector does not name. Only a directly-assoc'd
+         fixture / hand-built payload reaches here. Walked in
+         `unsequenced-order`: deterministic, with no reverse-creation
+         claim, because nothing ever sequenced them.
       c. Singleton stragglers — snapshots with no `:rf/machine-type`
          (registered via `reg-machine`, seeded directly). Runtime-db iteration
          order — there is no reverse-creation contract for singletons.
@@ -183,7 +196,7 @@
          work so trace consumers see the signal while the handler
          still resolves — same convention as Spec 005 §Cancellation
          cascade D6.
-      b. Spawned actors (recorded OR restored straggler): run the full
+      b. Spawned actors (durably sequenced OR unsequenced): run the full
          single-actor destroy — exit-cascade → http-abort →
          timer cancel → unified teardown projection →
          system-id-release trace → registrar cleanup → spawn-order forget.
@@ -195,30 +208,43 @@
    4. Clear the frame's spawn-order slot."
   [frame-id]
   (when frame-id
-    (let [snapshots    (frame-machines-snapshot frame-id)
-          recorded     (spawn-order/frame-order frame-id)
-          ;; Reverse recorded vector → newest spawn first.
-          newest-first (reverse recorded)
-          recorded-set (set recorded)
-          ;; Stragglers: actor-ids in [:rf.runtime/machines :snapshots] but absent
-          ;; from the recorded spawn-order vector. Covers singleton
-          ;; machines (registered via `reg-machine`), hydrated SSR
-          ;; payloads, restored runtime-db, and test fixtures that seed
-          ;; snapshots directly.
-          stragglers   (remove recorded-set (keys snapshots))
-          ;; Partition stragglers on the durable
-          ;; `:rf/machine-type` discriminator. Spawned stragglers (restore
-          ;; / hydration / replace-runtime-db! repopulated the durable
-          ;; snapshot but not the transient spawn-order atom) MUST get the
-          ;; full spawned teardown, ordered newest-first by the durable
-          ;; `#<n>` creation rank. Singletons keep the exit-only path.
-          {spawned-stragglers   true
-           singleton-stragglers false}
-          (group-by (fn [actor-id] (spawned-snapshot? (get snapshots actor-id)))
-                    stragglers)
-          spawned-stragglers'  (sort-by creation-rank #(compare %2 %1)
-                                        spawned-stragglers)]
-      ;; (b) Recorded spawned actors: full destroy in reverse-creation order.
+    (let [runtime-db   (frame-runtime-db frame-id)
+          snapshots    (or (get-in runtime-db (paths/snapshot-path)) {})
+          ;; The DURABLE total creation order, oldest → newest. Written by
+          ;; `install-spawn!` inside the swap that landed each snapshot and
+          ;; pruned by the teardown projection inside the swap that removed
+          ;; it, so it names exactly the live spawned actors — and it says so
+          ;; identically before and after a restore / hydration /
+          ;; `replace-runtime-db!`, which is the whole point (rf2-1vlyg).
+          durable      (spawn-order/durable-order runtime-db)
+          durable-set  (set durable)
+          ;; Reverse the durable vector → newest spawn first. THE
+          ;; reverse-creation walk, per Spec 005 §Cross-Spec Interactions §1.
+          newest-first (reverse durable)
+          ;; Spawned actors the durable order does not name. A spawn always
+          ;; records itself, so this is the directly-assoc'd fixture /
+          ;; hand-built payload case only. The transient cache is unioned in
+          ;; so an actor recorded there but already gone from runtime-db is
+          ;; still reaped, exactly as before.
+          unsequenced  (->> (concat (keys snapshots)
+                                    (spawn-order/frame-order frame-id))
+                            (remove durable-set)
+                            distinct
+                            ;; Partition on the durable `:rf/machine-type`
+                            ;; discriminator: a spawned snapshot MUST get the
+                            ;; full teardown (registrar cleanup / system-id
+                            ;; release / timer cancel / snapshot dissoc), while
+                            ;; a singleton keeps the exit-only path below. An
+                            ;; id present only in the transient cache has no
+                            ;; snapshot to classify and is treated as spawned —
+                            ;; it is one only a spawn could have recorded.
+                            (group-by (fn [actor-id]
+                                        (if-let [snapshot (get snapshots actor-id)]
+                                          (spawned-snapshot? snapshot)
+                                          true))))
+          singleton-stragglers (get unsequenced false)
+          unsequenced-spawned  (unsequenced-order (get unsequenced true))]
+      ;; (a) Durably sequenced spawned actors: full destroy, newest first.
       (doseq [actor-id newest-first]
         (let [snapshot (get snapshots actor-id)]
           (emit-lifecycle-destroyed! frame-id actor-id snapshot))
@@ -227,11 +253,10 @@
         ;; bad actor can't strand the rest of the cascade.
         (try (destroy/destroy-single-actor! frame-id actor-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
-      ;; (b') Restored spawned stragglers: SAME full destroy, newest-first
-      ;; by durable creation rank. These get the complete spawned teardown
-      ;; (registrar cleanup / system-id release / timer cancel / snapshot
-      ;; dissoc), not the exit-only singleton straggler path.
-      (doseq [actor-id spawned-stragglers']
+      ;; (b) Unsequenced spawned actors: the SAME full teardown, in a
+      ;; deterministic order that claims no creation sequence — nothing ever
+      ;; recorded one for them (see `unsequenced-order`).
+      (doseq [actor-id unsequenced-spawned]
         (let [snapshot (get snapshots actor-id)]
           (emit-lifecycle-destroyed! frame-id actor-id snapshot))
         (try (destroy/destroy-single-actor! frame-id actor-id)

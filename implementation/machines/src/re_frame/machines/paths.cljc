@@ -1,7 +1,7 @@
 (ns re-frame.machines.paths
   "Runtime-db path constructors for the runtime-owned machines slots.
 
-  The machines runtime keeps four sibling maps under the reserved
+  The machines runtime keeps five sibling slots under the reserved
   `:rf.runtime/machines` child of each frame's **runtime-db** partition
   (Conventions §Reserved runtime-db keys — machine snapshots are durable
   framework state, so they live in the runtime-db partition):
@@ -10,6 +10,34 @@
     - `:system-ids`    — system-id → actor-id reverse index
     - `:spawned`       — parent-id → invoke-id → join-state / spawned-id
     - `:spawn-counter` — machine-id → int (hand-emitted-spawn fallback)
+    - `:spawn-order`   — vector of actor-id, **oldest → newest**
+
+  `:spawn-order` is the durable TOTAL creation order over the frame's live
+  spawned actors, and it is the ONLY authority for the reverse-creation
+  disposal contract (Spec 005 §Cross-Spec Interactions §1). It exists
+  because no other durable fact carries a frame-global sequence:
+  `:spawn-counter` (and the parent-snapshot-resident `:rf/spawn-counter`
+  the declarative path bumps) are **per-id-prefix** allocators, so the
+  `#<n>` suffix of an actor-id sequences that prefix ALONE and cannot
+  order two actors of different machine types — and an id supplied
+  through `:fixed-actor-id` carries no suffix at all. Deriving disposal
+  order from the id spelling is therefore reconstructing information the
+  durable state does not contain; this slot records it instead (rf2-1vlyg).
+
+  It is written by exactly two places, each inside the SAME runtime-db
+  swap as the snapshot mutation it accompanies, so the order and the
+  snapshots can never disagree: the spawn install
+  (`lifecycle-fx.spawn/install-spawn!`) appends, and the unified teardown
+  projection (`lifecycle-fx.teardown/teardown-actor`) removes. Because it
+  rides the durable runtime-db value it survives every supported round
+  trip — `replace-runtime-db!`, epoch restore, and the SSR machine-runtime
+  projection (which re-projects `:snapshots` and carries its siblings
+  verbatim) — without a restore callback. Allocated lazily and pruned when
+  it empties, mirroring `:spawned`.
+
+  The pure constructors/removers for the slot live in
+  `re-frame.machines.spawn-order` alongside the transient process-side
+  cache of the same order.
 
   These constructors are the single source of truth for the literal
   path vectors that `src/` reads and writes (`get-in` / `update-in` /
@@ -50,6 +78,15 @@
     (system-id-path sid) => [:rf.runtime/machines :system-ids sid]"
   ([]    [:rf.runtime/machines :system-ids])
   ([sid] [:rf.runtime/machines :system-ids sid]))
+
+(defn spawn-order-path
+  "Path (in the runtime-db value) to the `:spawn-order` slot — the durable
+  oldest-to-newest vector of live spawned actor-ids that carries the
+  frame's TOTAL creation order (see ns docstring).
+
+    (spawn-order-path) => [:rf.runtime/machines :spawn-order]"
+  []
+  [:rf.runtime/machines :spawn-order])
 
 (defn spawned-path
   "Path (in the runtime-db value) to the `:spawned` slot, optionally
