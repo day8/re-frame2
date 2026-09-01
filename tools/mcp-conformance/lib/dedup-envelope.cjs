@@ -49,12 +49,18 @@
 // ## Reference grammar (rf2-kjv05) — MIRRORED, not invented here
 //
 // Occupying the namespace is not the same as owning it: an ordinary
-// payload value can spell `de-dupe.cache/…` — a symbol a re-frame app
-// holds in app-db, or, once JSON has erased the symbol/string
-// distinction, a plain string of that spelling. A PREFIX-only decoder
-// reads all of those as references and turns payload data into another
-// subtree, into `undefined`, or into a thrown missing-entry error. So in
-// VALUE position a token `de-dupe.cache/<name>` is
+// payload value can spell `de-dupe.cache/…`. On the Clojure side that is
+// a symbol, a KEYWORD or a string a re-frame app holds in app-db; by the
+// time it reaches here JSON has erased all three onto ONE spelling —
+// exactly the spelling a real reference arrives under. That erasure is
+// the reason this decoder cannot be the place the collision is settled,
+// and the reason the encoder escapes all three types rather than the
+// symbols alone (rf2-kjv05 was reopened on precisely the keyword gap:
+// the Clojure round-trip stayed exact while the JSON projection was
+// corrupt, in value and map-KEY position both). A PREFIX-only decoder
+// reads every such value as a reference and turns payload data into
+// another subtree, into `undefined`, or into a thrown missing-entry
+// error. So in VALUE position a token `de-dupe.cache/<name>` is
 //
 //   - a REFERENCE to slot N, when `<name>` is exactly `cache-<digits>`;
 //   - an ESCAPED LITERAL of `de-dupe.cache/<rest>`, when `<name>` is
@@ -66,6 +72,15 @@
 // grammar); the encoder escapes every payload token that would
 // otherwise read as one of the first two forms, so a conformant
 // server's output is unambiguous by construction.
+//
+// The grammar here is deliberately TYPE-BLIND, which is what lets the
+// two halves stay in step: a JSON string is all this side ever sees, so
+// widening the encoder's escape set (symbols, then keywords and strings)
+// changed nothing here — the same three rules already decoded the wider
+// output. What this decoder does NOT do is recover which Clojure type a
+// token started as; nothing on the JSON wire can, and the codec's claim
+// is that the JSON PROJECTION survives it unchanged, not that the
+// Clojure type does.
 //
 // A `cache-<digits>` token is a reference whether or not the table holds
 // that slot, so a truncated or hand-mangled table still fails LOUD here

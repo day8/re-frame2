@@ -83,13 +83,25 @@
   (a payload `de-dupe.cache/!cache-1` rides out as `…/!!cache-1`), which
   is what makes the round-trip exact rather than merely usually-exact.
 
-  Both a SYMBOL and a same-spelled STRING are escaped, because JSON
-  erases the distinction between them: Cheshire renders the symbol
-  `de-dupe.cache/cache-1` and the string \"de-dupe.cache/cache-1\" as one
-  JSON string, so escaping only symbols would leave the JSON projection
-  inexact even though the Clojure round-trip held. Cache KEYS are
-  unaffected — they are the allocator's own `cache-N` symbols and never
-  carry an escape.
+  A SYMBOL, a KEYWORD and a same-spelled STRING are all escaped, because
+  JSON erases the distinctions between them: Cheshire renders the symbol
+  `de-dupe.cache/cache-1`, the keyword `:de-dupe.cache/cache-1` and the
+  string \"de-dupe.cache/cache-1\" as ONE JSON string. Those three are
+  exactly the scalars a JSON encoder flattens to a bare namespaced
+  string, which is why `token-name` tests `ident?` and `string?` and
+  nothing else. Escaping only some of them leaves the JSON projection
+  inexact even where the Clojure round-trip holds — that was the keyword
+  gap the first cut at rf2-kjv05 left behind, and it corrupted VALUE and
+  map-KEY positions alike, since a keyword is the ordinary spelling of
+  both in re-frame app-db data. Cache KEYS are unaffected — they are the
+  allocator's own `cache-N` symbols and never carry an escape.
+
+  What the grammar does NOT restore is the TYPE across JSON: a payload
+  symbol, keyword and string in this namespace all arrive at a Node
+  consumer as the same string, exactly as they would anywhere else in
+  the payload. The guarantee is that the JSON PROJECTION survives the
+  codec unchanged — dedup then expand is the identity on it — not that
+  JSON grew a type system.
 
   A missing reference stays a LOUD failure: `cache-<digits>` is a
   reference whether or not the table holds that slot, so a truncated or
@@ -180,11 +192,12 @@
 ;;      an ordinary payload symbol in `de-dupe.cache` was aliased to a cache
 ;;      slot and `expand` stopped being the exact inverse it promised
 ;;      (rf2-kjv05). References are now spelled `cache-<digits>` and colliding
-;;      payload tokens are escaped by the encoder — see the namespace
-;;      docstring's §Reference grammar. This IS a wire change, taken as one
-;;      pre-alpha cut across the codec, the spec and the Node decoder; the
-;;      cache-element namespace, the `cache-N` key spelling and the
-;;      `:rf.mcp/dedup-table` envelope are untouched.
+;;      payload tokens are escaped by the encoder — for symbols, KEYWORDS and
+;;      strings alike, which is the set JSON flattens onto one spelling; see
+;;      the namespace docstring's §Reference grammar. This IS a wire change,
+;;      taken as one pre-alpha cut across the codec, the spec and the Node
+;;      decoder; the cache-element namespace, the `cache-N` key spelling and
+;;      the `:rf.mcp/dedup-table` envelope are untouched.
 ;;
 ;; ---------------------------------------------------------------------------
 
@@ -204,7 +217,9 @@
 ;;
 ;; See the namespace docstring's §Reference grammar for the WHY. In value
 ;; position `de-dupe.cache/cache-<digits>` is a reference, `de-dupe.cache/!…`
-;; is an escaped literal, and everything else in the namespace is data.
+;; is an escaped literal, and everything else in the namespace is data. A
+;; TOKEN, throughout this section, is a symbol, a keyword or a string spelled
+;; that way — the three scalars JSON flattens onto one string.
 
 (def ^:private cache-element-prefix
   "`de-dupe.cache/` — the same wire namespace as `cache-element-ns`, in
@@ -229,25 +244,29 @@
   (str/starts-with? nm escape-marker))
 
 (defn ^:private token-name
-  "For a SYMBOL or STRING spelled `de-dupe.cache/<name>`, that `<name>`;
-  nil for every other value. Strings count as well as symbols because
-  JSON collapses the two onto one spelling — see the namespace
-  docstring's §Reference grammar."
+  "For a SYMBOL, KEYWORD or STRING spelled `de-dupe.cache/<name>`, that
+  `<name>`; nil for every other value. All three count, because JSON
+  collapses them onto one spelling — see the namespace docstring's
+  §Reference grammar. `ident?` rather than `symbol?` is the whole of the
+  keyword arm: the three types below are exactly the scalars a JSON
+  encoder renders as a bare namespaced string."
   [x]
   (cond
-    (symbol? x) (when (= cache-element-ns (namespace x)) (name x))
+    (ident? x)  (when (= cache-element-ns (namespace x)) (name x))
     (string? x) (when (str/starts-with? x cache-element-prefix)
                   (subs x (count cache-element-prefix)))
     :else       nil))
 
 (defn ^:private retoken
-  "A token of the same TYPE as `x` (symbol in, symbol out; string in,
-  string out) spelled `de-dupe.cache/<nm>`. Type preservation is what
-  keeps the Clojure round-trip exact while the JSON one flattens."
+  "A token of the same TYPE as `x` (symbol in, symbol out; keyword in,
+  keyword out; string in, string out) spelled `de-dupe.cache/<nm>`. Type
+  preservation is what keeps the Clojure round-trip exact while the JSON
+  one flattens."
   [x nm]
-  (if (symbol? x)
-    (symbol cache-element-ns nm)
-    (str cache-element-prefix nm)))
+  (cond
+    (symbol? x)  (symbol cache-element-ns nm)
+    (keyword? x) (keyword cache-element-ns nm)
+    :else        (str cache-element-prefix nm)))
 
 (defn ^:private cache-element?
   "True when `x` is a cache-element symbol — a reference to another slot
@@ -256,7 +275,14 @@
   ordinary payload symbol such as `de-dupe.cache/not-a-ref` shares the
   namespace and is DATA. Payload tokens that WOULD spell a reference are
   escaped on the way in (`escape-token`), so the encoder never emits an
-  ambiguous one."
+  ambiguous one.
+
+  SYMBOL, deliberately, where `escape-token` takes any ident or string:
+  `make-cache-element` only ever emits symbols, so on the Clojure side a
+  keyword or string is payload however it is spelled. It is escaped
+  anyway because JSON will erase it onto the symbol's own spelling
+  downstream — the escape is the JSON projection's protection, not this
+  predicate's."
   [x]
   (and (symbol? x)
        (= cache-element-ns (namespace x))
