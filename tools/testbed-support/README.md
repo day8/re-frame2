@@ -74,13 +74,33 @@ into a browser bundle.
 
 A 200 from this endpoint means the whole source coordinate reached an editor,
 not merely that a process exited. `launch-editor` encodes a position per editor
-binary and has no case for `windsurf`, so it would launch Windsurf with the
-bare file and still exit 0. A coordinate-bearing `editor=windsurf` request is
-therefore declined with 422 `editor-position-unsupported` before Node is
-spawned, and the browser's `windsurf://file/<path>:<line>:<column>` fallback —
-which does carry the position — opens the file at the right place. A Windsurf
-request with no line or column is served normally. Every other editor in the
-vocabulary is unaffected.
+binary and falls through to a bare-file launch for binaries it has no case for
+— which still exits 0. A coordinate-bearing request that would take that
+fall-through is declined with 422 `editor-position-unsupported`, and the
+browser's `editor://` fallback — which does carry the position — opens the file
+at the right place instead.
+
+Two routes answer that question, because the endpoint does not always choose
+the binary:
+
+- **A named editor.** `editor=windsurf` maps to a command the pinned
+  `launch-editor` has no `get-args.js` case for, so it is declined before Node
+  is spawned. The browser then navigates
+  `windsurf://file/<path>:<line>:<column>`.
+- **No editor at all.** The client sends no `editor` parameter for a nil
+  preference or a `{:custom …}` one, which puts `launch-editor` on auto-detect:
+  it picks a binary from the running process list, and that list reaches
+  editors with no position case (Brackets on every platform; on Windows also
+  `Cursor.exe`, whose capitalised process name the lowercase `cursor` case does
+  not match). The launch shim therefore asks `get-args.js` itself what it would
+  emit before launching, and declines the same way if the coordinate would be
+  dropped. A nil preference then falls back to the default `vscode://` scheme,
+  and a `{:custom …}` preference to its own template — which auto-detect had
+  been ignoring.
+
+A request carrying no line or column is never declined: there is nothing to
+lose, and classpath resolution is worth having. Editors whose position
+`launch-editor` does encode are unaffected and keep preferring the endpoint.
 
 ## Wiring
 

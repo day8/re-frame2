@@ -49,7 +49,13 @@
   everything else. At the pinned 2.14.1 — which is also the newest published
   release — it has no `windsurf` case, so Windsurf alone in this endpoint's
   vocabulary loses the coordinate. Drop an entry here when a pinned release
-  starts encoding that editor's position; the contract test comes with it."
+  starts encoding that editor's position; the contract test comes with it.
+
+  Covers the commands this endpoint NAMES, and only those — it is the cheap
+  half, letting a hint we already know about be declined without spawning
+  Node at all. The binary auto-detect picks is decided inside the dependency,
+  so `launch-shim` asks `get-args.js` itself; that probe is the general
+  answer and this set is a fast path in front of it."
   #{"windsurf"})
 
 (defn position-would-be-dropped?
@@ -58,10 +64,29 @@
   A request carrying no coordinate loses nothing by going through the
   endpoint, and the endpoint's classpath resolution is real value the
   client-side `editor://` URI fallback cannot supply — so only a
-  coordinate-BEARING request to a position-blind command is declined."
+  coordinate-BEARING request to a position-blind command is declined.
+
+  Answers only for a command this endpoint NAMED. A nil `command` is
+  launch-editor's auto-detect, whose binary is chosen inside the dependency
+  from the running process list — unknowable here, so the same capability
+  question is asked at launch time by `launch-shim` instead. Both routes
+  answer with `position-unsupported-error`."
   [command line column]
   (boolean (and (or line column)
                 (contains? commands-without-position-support command))))
+
+(def position-unsupported-error
+  "The single client-visible error token for a launch declined because the
+  coordinate would not have survived it — emitted by BOTH capability routes
+  (the declared-vocabulary check above and the launch-time probe in
+  `launch-shim`), so the browser sees one contract rather than two."
+  "editor-position-unsupported")
+
+(def position-unsupported-exit
+  "The shim's exit code for a launch DECLINED by its capability probe.
+  Distinct from 1 (a launch that was attempted and failed) so `launch!` can
+  tell a refusal from a failure without scraping stderr."
+  3)
 
 ;; Core owns classpath URL decoding; this endpoint adds runtime cwd fallback.
 
@@ -102,9 +127,47 @@
 ;; spec and optional editor binary are passed as separate argv tokens.
 
 (def ^:private launch-shim
-  ;; Exit nonzero from launch-editor's callback so the JVM sees failures.
+  ;; Runs launch-editor's OWN capability question before launching, then exits
+  ;; nonzero from its callback so the JVM sees failures.
+  ;;
+  ;; `commands-without-position-support` can only answer for a command this
+  ;; endpoint NAMED. When no `editor` hint is sent — the client omits it for a
+  ;; nil preference and for `{:custom …}` — `guessEditor` picks the binary from
+  ;; the running process list, and that list reaches editors `get-args.js` has
+  ;; no case for: `Brackets.exe` on all three platforms, and on Windows
+  ;; `Cursor.exe` too (the registry stores the capitalised process name while
+  ;; the switch matches lowercase `cursor`). Either would launch the bare file,
+  ;; exit 0, and make this endpoint answer 200 to a coordinate-bearing request
+  ;; (rf2-1i1ec audit).
+  ;;
+  ;; So the probe asks the dependency instead of predicting it: resolve the
+  ;; editor with the same `guessEditor` the launch will use, then ask
+  ;; `getArgumentsForPosition` what it would emit for a sentinel filename.
+  ;; `get-args.js` interpolates the position into every case it encodes and
+  ;; falls through to `return [fileName]` for the rest, so an argv that is the
+  ;; sentinel ALONE is exactly the documented drop — no editor list here to
+  ;; keep in step with the dependency, and a future release that learns an
+  ;; editor's position syntax lifts the decline with no edit.
+  ;;
+  ;; Auto-detect is therefore scanned twice on this path (once here, once
+  ;; inside `launchEditor`). The resolved binary cannot be handed back as
+  ;; `specifiedEditor` to save the second scan — launch-editor shell-parses
+  ;; that argument, which would split a Windows path at its spaces.
   (str "var l=require('launch-editor');"
-       "var f=process.argv[1];var e=process.argv[2]||undefined;"
+       "var guess=require('launch-editor/guess');"
+       "var getArgs=require('launch-editor/get-args');"
+       ;; argv: <file-spec> <line> <column> [<editor hint>] — the optional
+       ;; hint is last so the coordinate tokens sit at fixed positions.
+       "var f=process.argv[1];"
+       "var line=process.argv[2]||undefined;var col=process.argv[3]||undefined;"
+       "var e=process.argv[4]||undefined;"
+       ;; Only a coordinate-bearing launch has anything to lose.
+       "if(line){"
+       "var ed=guess(e)[0];"
+       "var a=ed?getArgs(ed,'F',line,col||1):null;"
+       "if(a&&a.length===1&&a[0]==='F'){"
+       "process.stderr.write('" position-unsupported-error "\\n');"
+       "process.exit(" position-unsupported-exit ");}}"
        "l(f,e,function(file,msg){"
        "process.stderr.write('launch-editor: '+(msg||'no editor found')+'\\n');"
        "process.exit(1);});"))
@@ -178,12 +241,20 @@
   thread. OS pipes are bounded, so a child that fills an undrained pipe blocks
   on the write and never reaches `process.exit` — the parent would then time
   out waiting for an exit its own undrained pipe prevents (rf2-j538f7.21). A
-  bounded head of stderr is retained as the failure diagnostic."
+  bounded head of stderr is retained as the failure diagnostic.
+
+  `line` and `column` are ALSO passed as their own argv tokens, not only
+  folded into the file spec: the shim's capability probe has to know whether
+  a coordinate is at stake before it hands the spec to launch-editor, and
+  re-parsing the spec there would duplicate the dependency's own position
+  regex. An absent value is an empty token, which the shim reads as falsy.
+  The optional editor hint stays LAST so those positions are fixed."
   [abs-path line column command]
   (if-not (file-exists? abs-path)
     {:ok false :message "file-not-found"}
     (let [file-spec (build-file-spec abs-path line column)
-          args (cond-> ["node" "-e" launch-shim file-spec]
+          args (cond-> ["node" "-e" launch-shim file-spec
+                        (str line) (str column)]
                  command (conj command))]
       (try
         (let [pb (doto (ProcessBuilder. ^java.util.List args)
@@ -204,8 +275,16 @@
                 {:ok false :message "launch-editor timed out"})
             (let [exit (.exitValue proc)
                   err  (deref err-drain 1000 "")]
-              (if (zero? exit)
-                {:ok true}
+              (cond
+                (zero? exit) {:ok true}
+
+                ;; The shim's capability probe refused BEFORE launching: read
+                ;; the verdict off the exit code rather than off stderr, so the
+                ;; client-visible error is a contract and not a scraped string.
+                (= exit position-unsupported-exit)
+                {:ok false :message position-unsupported-error}
+
+                :else
                 {:ok false
                  :message (or (when (seq err) (str/trim err))
                               (str "launch-editor exited " exit))}))))
@@ -353,10 +432,13 @@
   Query keys are `file` (required), `line`, `column`, and `editor`. Only a
   local POST reaches `launch!`. Invalid input produces JSON 400/403/405
   responses; missing files and launch failures produce 422, as does a
-  coordinate-bearing request for an editor whose `launch-editor` command
-  cannot carry the position (`position-would-be-dropped?`) — every one of
-  those non-2xx answers hands the launch to the client's `editor://` URI
-  fallback, which does carry it."
+  coordinate-bearing request whose editor cannot carry the position — either
+  because this endpoint named a position-blind command
+  (`position-would-be-dropped?`, answered here without spawning Node) or
+  because the binary `launch-editor` picked by auto-detect turned out to be
+  one (`launch-shim`'s probe, answered at launch time). Every one of those
+  non-2xx answers hands the launch to the client's `editor://` URI fallback,
+  which does carry the coordinate."
   [{:keys [uri request-method query-string] :as req}]
   (when (= uri endpoint-path)
     (let [ao (allow-origin req)]
@@ -394,7 +476,7 @@
               ;; decline before spawning so the client's coordinate-preserving
               ;; `editor://` URI fallback gets its turn (rf2-1i1ec).
               (position-would-be-dropped? cmd line column)
-              (json-resp 422 ao {:ok false :error "editor-position-unsupported"})
+              (json-resp 422 ao {:ok false :error position-unsupported-error})
 
               :else
               (let [abs-path (resolve-file file)

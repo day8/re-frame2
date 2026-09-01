@@ -745,8 +745,13 @@
     (is (false? (oies/position-would-be-dropped? "idea" 27 9)))
     (is (false? (oies/position-would-be-dropped? "code-insiders" 27 9)))
     (is (false? (oies/position-would-be-dropped? nil 27 9))
-        "auto-detect is not declined — launch-editor picks the binary and we
-         have made no claim about which")))
+        "this predicate answers for NAMED commands only. nil is auto-detect,
+         whose binary launch-editor chooses from the running process list —
+         so the capability question is asked of the dependency at launch time
+         instead, by launch-shim's probe. That auto-detect route is NOT
+         undeclined: it is covered by
+         launch-declines-when-the-resolved-editor-would-drop-the-position and
+         endpoint-turns-a-launch-time-decline-into-the-same-422 below")))
 
 (deftest endpoint-declines-coordinate-bearing-windsurf-request
   (testing "editor=windsurf with line+column is DECLINED before Node is
@@ -1006,3 +1011,198 @@
           (is (= file (#'editor-uri/compose-path nil file))
               (str tool " composes to itself with no project-root — the
                    composition step the retired pipeline used to feed")))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-1i1ec (audit) — auto-detect is a capability question too
+;; ---------------------------------------------------------------------------
+;;
+;; The declared-vocabulary decline above closes `editor=windsurf`. It cannot
+;; close the path where no `editor` is sent at all — which the client takes
+;; for a nil preference AND for `{:custom …}` — because launch-editor then
+;; picks the binary itself, from the running process list. Its registries
+;; reach editors `get-args.js` has no case for, so that route could still
+;; launch a bare file, exit 0, answer 200, and suppress the coordinate-
+;; preserving URI fallback.
+;;
+;; `launch-shim` therefore asks the dependency rather than predicting it. The
+;; tests below pin that in three places: the dependency really does behave
+;; this way (a probe of the installed package, which also guards the declared
+;; set against drift), the shim really does decline it (real node children,
+;; none of which can open an editor), and a launch-time decline really does
+;; reach the client as the same 422 the declared route emits.
+
+(def ^:private implementation-dir
+  "The directory `shadow-cljs watch` runs the dev server from — and the only
+  one from which `require('launch-editor')` resolves, since `node -e` walks
+  up from the working directory."
+  (delay (io/file @repo-root "implementation")))
+
+(defn ^:private launch-editor-installed?
+  "Whether the pinned `launch-editor` package is present in this checkout.
+  A JVM lane that never ran `npm ci` self-skips rather than failing red."
+  []
+  (.isDirectory (io/file @implementation-dir "node_modules" "launch-editor")))
+
+(defn ^:private with-dev-cwd*
+  "Run `f` with `user.dir` at `implementation/` — `launch!` reads it at
+  request time to set the child's working directory, so this is what makes
+  the shim's `require` resolve exactly as it does under `shadow-cljs watch`."
+  [f]
+  (let [prev (System/getProperty "user.dir")]
+    (try
+      (System/setProperty "user.dir" (.getAbsolutePath ^File @implementation-dir))
+      (f)
+      (finally (System/setProperty "user.dir" prev)))))
+
+(def ^:private dependency-probe-script
+  "Ask the INSTALLED `launch-editor` what it would do — the same two questions
+  `launch-shim` asks, put to the same two modules. Emits `key<TAB><json>` per
+  line. `F` is a sentinel filename: `get-args.js` interpolates the position
+  into every case it encodes and falls through to `return [fileName]` for the
+  rest, so an argv of the sentinel ALONE is exactly the documented drop."
+  (str "var g=require('launch-editor/guess');"
+       "var a=require('launch-editor/get-args');"
+       "function say(k,v){process.stdout.write(k+'\\t'+JSON.stringify(v)+'\\n');}"
+       "['code','code-insiders','cursor','zed','idea','windsurf'].forEach("
+       "function(c){say(c,a(c,'F',27,9));});"
+       ;; The auto-detect class: names that appear in the process registries
+       ;; but not in the get-args switch.
+       "say('brackets',a('Brackets','F',27,9));"
+       "say('win-cursor-exe',a('C:\\\\x\\\\Cursor.exe','F',27,9));"
+       ;; …and the registries that can select them, one per platform.
+       "say('win-process',g.getEditorFromWindowsProcesses("
+       "'C:\\\\Program Files\\\\Brackets\\\\Brackets.exe\\r\\n'));"
+       "say('linux-process',g.getEditorFromLinuxProcesses('Brackets\\n'));"
+       "say('mac-process',g.getEditorFromMacProcesses("
+       "'/Applications/Brackets.app/Contents/MacOS/Brackets'));"))
+
+(defn ^:private run-dependency-probe
+  "Run `dependency-probe-script` under node from `implementation/` and return
+  its `key → raw JSON` map. Values are compared as JSON text: exact, and with
+  no JSON dependency on this artefact's tiny test classpath."
+  []
+  (let [pb   (doto (ProcessBuilder. ^java.util.List ["node" "-e" dependency-probe-script])
+               (.directory ^File @implementation-dir)
+               (.redirectErrorStream false))
+        proc (.start pb)
+        out  (slurp (.getInputStream proc))]
+    (.waitFor proc 30 java.util.concurrent.TimeUnit/SECONDS)
+    (is (zero? (.exitValue proc))
+        (str "the dependency probe itself ran: " (slurp (.getErrorStream proc))))
+    (into {}
+          (for [line  (str/split-lines out)
+                :when (str/includes? line "\t")]
+            (let [[k v] (str/split line #"\t" 2)]
+              [k v])))))
+
+(deftest launch-editor-2-14-1-really-does-drop-these-positions
+  (testing "the installed dependency's own answers — the premise every decline
+            in this namespace rests on, asked of the package rather than
+            asserted from prose"
+    (if-not (and (node-available?) (launch-editor-installed?))
+      (is true "skipped: node or launch-editor not installed")
+      (let [probe (run-dependency-probe)]
+        (testing "the probe returned the keys it was asked for (a silently
+                  empty map must not read as a pass)"
+          (is (= 11 (count probe)) "every probed key came back")
+          (is (contains? probe "windsurf")))
+
+        (testing "every command this endpoint DECLARES position-blind really is
+                  — and no more. This is the drift guard: a launch-editor
+                  release that learns one of these makes it red, which is the
+                  signal to drop the entry from the set"
+          (doseq [cmd oies/commands-without-position-support]
+            (is (= "[\"F\"]" (get probe cmd))
+                (str cmd " is invoked with the bare file — the coordinate is
+                     dropped inside the dependency"))))
+
+        (testing "every OTHER command in the vocabulary carries the position,
+                  so the decline is as narrow as the invariant allows"
+          (doseq [cmd (remove oies/commands-without-position-support
+                              (vals oies/editor-command-by-keyword))]
+            (let [argv (get probe cmd)]
+              (is (some? argv) (str cmd " was probed"))
+              (is (not= "[\"F\"]" argv)
+                  (str cmd " is not a bare-file launch"))
+              (is (str/includes? argv "27")
+                  (str cmd " argv carries the requested line")))))
+
+        (testing "AUTO-DETECT reaches position-blind binaries the declared set
+                  cannot name — the audit's finding. Brackets is in all three
+                  process registries with no get-args case; on Windows so is
+                  Cursor.exe, whose basename the lowercase `cursor` case
+                  does not match"
+          (is (= "[\"F\"]" (get probe "brackets")))
+          (is (= "[\"F\"]" (get probe "win-cursor-exe")))
+          (is (= "\"C:\\\\Program Files\\\\Brackets\\\\Brackets.exe\""
+                 (get probe "win-process"))
+              "the Windows registry selects Brackets from a process list")
+          (is (= "\"brackets\"" (get probe "linux-process")))
+          (is (= "\"brackets\"" (get probe "mac-process"))))))))
+
+(deftest launch-declines-when-the-resolved-editor-would-drop-the-position
+  (testing "the shim's probe runs for real: a coordinate-bearing launch whose
+            resolved editor has no position syntax is refused BEFORE
+            launch-editor is called, and comes back as the same
+            client-visible token the declared route emits.
+
+            Every command below is under a directory that does not exist, so
+            the position-CAPABLE control cannot open anything either — the two
+            cases differ only in the probe's verdict"
+    (if-not (and (node-available?) (launch-editor-installed?))
+      (is true "skipped: node or launch-editor not installed")
+      (let [f (.getAbsolutePath (tmp-existing-file))]
+        (with-dev-cwd*
+          (fn []
+            (testing "a position-blind command the endpoint never names — the
+                      class auto-detect reaches"
+              (is (= {:ok false :message oies/position-unsupported-error}
+                     (oies/launch! f 27 9 "nonexistent-dir/Brackets"))))
+
+            (testing "windsurf reaches the same verdict here too, so the
+                      handler's pre-spawn fast path is an optimisation and not
+                      the only thing standing between it and a false 200"
+              (is (= {:ok false :message oies/position-unsupported-error}
+                     (oies/launch! f 27 9 "windsurf"))))
+
+            (testing "POSITIVE CONTROL — a position-CARRYING command is passed
+                      through to a real launch attempt. It still fails, because
+                      the binary does not exist, but NOT as the decline: the
+                      probe is discriminating, not refusing everything"
+              (let [{:keys [ok message]} (oies/launch! f 27 9 "nonexistent-dir/zed")]
+                (is (false? ok) "the nonexistent binary could not be launched")
+                (is (not= oies/position-unsupported-error message)
+                    "…and it was a launch failure, not a capability refusal")))
+
+            (testing "a coordinate-FREE launch is never refused: there is no
+                      position to lose, so even a position-blind command
+                      reaches the launcher"
+              (let [{:keys [ok message]} (oies/launch! f nil nil "nonexistent-dir/Brackets")]
+                (is (false? ok))
+                (is (not= oies/position-unsupported-error message)
+                    "the empty coordinate argv tokens read as absent")))))))))
+
+(deftest endpoint-turns-a-launch-time-decline-into-the-same-422
+  (testing "the wiring that makes the shim's refusal user-visible: a
+            coordinate-bearing request with NO editor param — what the client
+            sends for a nil preference and for {:custom …} — answers 422
+            `editor-position-unsupported` when the launch declines. Same
+            status and same token as the declared-vocabulary route, so the
+            browser has one contract to honour rather than two.
+
+            `launch!` is stubbed with the verdict the previous test proves the
+            real shim returns; what is under test here is the mapping"
+    (with-redefs [oies/launch! (fn [& _]
+                                 {:ok false
+                                  :message oies/position-unsupported-error})]
+      (let [resp (oies/handle
+                   {:uri            oies/endpoint-path
+                    :request-method :post
+                    :query-string   "file=fake_ns/core.cljs&line=27&column=9"
+                    :headers        {"host" "localhost:8031"}})]
+        (is (= 422 (:status resp))
+            "a 200 here would claim 27:9 reached an editor that never got it")
+        (is (not (<= 200 (:status resp) 299))
+            "non-2xx is what runs the client's coordinate-preserving fallback")
+        (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
+            "the same token the declared-vocabulary decline emits")))))
