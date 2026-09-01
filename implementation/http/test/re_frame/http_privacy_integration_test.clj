@@ -5,13 +5,23 @@
   Exercises the real :rf.http/managed dispatch path against an in-process
   HTTP server and asserts the emitted trace events on the trace bus are
   correctly redacted / stamped per the per-call, per-request, and
-  handler-meta sensitivity sources."
+  handler-meta sensitivity sources.
+
+  The schemas artefact is a test-only dep here, so requiring it binds the
+  shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)
+  — the same load-bearing require the sibling `re-frame.http-privacy-body-test`
+  carries. Without it `privacy-body/decode-schema-marks` finds the hook
+  unbound, returns no marks, and every `:decode`-schema-classified assertion
+  below reads its secret back VERBATIM (rf2-zvbm9)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
             [re-frame.http.managed :as http-managed]
+            ;; load-bearing: binds the shared schema walker hooks the
+            ;; `:decode`-schema redaction/elision path late-binds (rf2-zvbm9).
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
