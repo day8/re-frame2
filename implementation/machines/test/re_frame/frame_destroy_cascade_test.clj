@@ -295,7 +295,7 @@
 
 ;; ---- restore / hydration: spawned snapshots absent from spawn-order ------
 ;;
-;; Restore / SSR hydration / `replace-runtime-db!` / `restore-epoch!`
+;; Restore / SSR hydration / `replace-frame-state!` / `restore-epoch!`
 ;; repopulate the DURABLE runtime-db snapshots WITHOUT repopulating the
 ;; PROCESS-SIDE (transient) `spawn-order` atom (Spec 002 §Durable vs
 ;; transient: the atom is runtime bookkeeping, not durable state). A restored
@@ -308,11 +308,19 @@
 ;; runs the `:exit` cascade + HTTP abort only and is reserved for restored
 ;; SINGLETON snapshots that carry no `:rf/machine-type`.)
 ;;
-;; These tests model restore by spawning normally, then wiping ONLY the
-;; transient spawn-order atom (`spawn-order/reset-all!`) while leaving the
-;; durable runtime-db snapshots in place — exactly the post-restore /
-;; post-hydration state. Asserting on the durable runtime-db cleanup then
-;; pins that the spawned-straggler path runs full teardown.
+;; The tests in THIS section model an SSR / preload hydration into a FRESH
+;; PROCESS: durable snapshots arrive on the wire and the transient atom was
+;; never populated at all. `spawn-order/reset-all!` reproduces exactly that —
+;; an empty cache beside a full runtime-db.
+;;
+;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`,
+;; and reading it as one is what rf2-1vlyg's first pass got wrong: no
+;; production install path clears the cache (`:machines/on-frame-restored!`
+;; cancels `:after` timers and nothing else), so after an in-process install
+;; the cache is POPULATED and may name actors the installed durable value
+;; discarded. That harder shape has its own section — §in-process runtime-state
+;; install, below — driven through core's real write surface with no reach into
+;; machines internals.
 
 (defn- runtime-snapshots
   "The `[:rf.runtime/machines :snapshots]` map on `frame-id`'s runtime-db."
@@ -567,3 +575,176 @@
           "frame destroy exits only the two survivors, newest-first — the dead actor is not exited a second time")
       (is (nil? (runtime-spawn-order :probedd/auth))
           "the slot is pruned once it empties — no unbounded stale entry survives the frame"))))
+
+;; ---- in-process runtime-state install: the transient cache goes stale -----
+;;
+;; An IN-PROCESS whole/partial runtime-state install — `restore-epoch!`,
+;; `replace-frame-state!`, a captured-value `swap-runtime-db!` revert — replaces
+;; the durable runtime-db and touches NOTHING process-side. No production path
+;; clears the frame's transient spawn-order cache: `:machines/on-frame-restored!`
+;; cancels `:after` timers and nothing else. So an install that rewinds PAST a
+;; spawn leaves the discarded actor named in the cache while durable state has
+;; dropped it — the cache is not merely EMPTY after a round trip (the
+;; fresh-process shape above), it is WRONG.
+;;
+;; The invariant that settles it (rf2-1vlyg): a cache entry is evidence that a
+;; spawn once COMMITTED IN THIS PROCESS, never evidence that the actor is still
+;; in the frame's durable state. Both consumers confirm against the live
+;; runtime-db before believing it — frame destroy takes its whole membership
+;; from the durable snapshots + durable order, and the destroy liveness probe
+;; re-reads the live runtime-db before trusting a cache hit. That holds for
+;; EVERY install path, including those that fire no hook at all, which is why it
+;; is enforced where the cache is READ rather than at each install site.
+;;
+;; These tests drive the loss boundary through `frame/replace-frame-state!` —
+;; core's ONE frame-state write surface, and the very fn
+;; `epoch/perform-restore!` calls to install a restored epoch. No test below
+;; resets a machines internal by hand.
+
+(defn- reg-staged-probe-machines!
+  "Two child TYPES under DIFFERENT id-prefixes, each appending its stamped
+  `:rf/self-id` to `exit-log` from its active state's `:exit`, plus a boot
+  machine that spawns them on SEPARATE events (and can destroy the second).
+  Staging the two spawns apart is what lets a test capture a frame-state
+  BETWEEN them — the value a `restore-epoch!` rewinds to."
+  [exit-log]
+  (let [child (fn [] {:initial :running
+                      :data    {}
+                      :states  {:running
+                                {:exit (fn [{data :data}]
+                                         (swap! exit-log conj (:rf/self-id data))
+                                         {})}}})
+        spawn (fn [t] [:rf.machine/spawn {:machine-id t :id-prefix t}])]
+    (rf/reg-machine :stage/a (child))
+    (rf/reg-machine :stage/b (child))
+    (rf/reg-machine :stage/boot
+                    {:initial :idle
+                     :data    {}
+                     :states  {:idle {:on {:spawn-a {:action (fn [_] {:fx [(spawn :stage/a)]})}
+                                           :spawn-b {:action (fn [_] {:fx [(spawn :stage/b)]})}
+                                           :drop-b  {:action (fn [_]
+                                                               {:fx [[:rf.machine/destroy :stage/b#1]]})}}}}})))
+
+(defn- collect-traces!
+  "Run `body-fn` with a trace listener attached; return the collected
+  envelopes."
+  [body-fn]
+  (let [traces (atom [])
+        cb-key (gensym ::destroy-cascade-cb)]
+    (rf/register-listener! :trace cb-key (fn [ev] (swap! traces conj ev)))
+    (try (body-fn) (finally (rf/unregister-listener! :trace cb-key)))
+    @traces))
+
+(defn- destroyed-actor-ids
+  "The `:actor-id` tags of every `operation` trace in `traces`, in emission
+  order, narrowed to `of-interest`."
+  [traces operation of-interest]
+  (->> traces
+       (filter #(= operation (:operation %)))
+       (map #(:actor-id (:tags %)))
+       (filterv of-interest)))
+
+(deftest restore-past-a-spawn-does-not-reap-the-discarded-actor
+  (testing "an in-process frame-state install that rewinds PAST a spawn leaves the discarded actor in the transient cache; frame destroy must reap only what durable state still carries"
+    (rf/make-frame {:id :stage/auth :doc "in-process restore frame"})
+    (let [exit-log (atom [])]
+      (reg-staged-probe-machines! exit-log)
+      (rf/dispatch-sync [:stage/boot [:spawn-a]] {:frame :stage/auth})
+      ;; The value `restore-epoch!` would reinstall — captured while ONLY
+      ;; :stage/a#1 is live.
+      (let [captured (rf/frame-state-value :stage/auth)]
+        (is (= [:stage/a#1] (runtime-spawn-order :stage/auth))
+            "the durable order carries a#1 at capture time (non-vacuity control)")
+        (rf/dispatch-sync [:stage/boot [:spawn-b]] {:frame :stage/auth})
+        (is (= [:stage/a#1 :stage/b#1] (runtime-spawn-order :stage/auth))
+            "b#1 is recorded NEWER than a#1 in the durable order (non-vacuity control)")
+        (is (= [:stage/a#1 :stage/b#1] (spawn-order/frame-order :stage/auth))
+            "the transient cache carries both (non-vacuity control)")
+        ;; --- the loss boundary: a whole frame-state install through core's
+        ;; ONE write surface, the same fn epoch/perform-restore! calls.
+        (frame/replace-frame-state! :stage/auth captured)
+        (is (= [:stage/a#1] (runtime-spawn-order :stage/auth))
+            "the durable order rewound past b#1")
+        (is (nil? (get (runtime-snapshots :stage/auth) :stage/b#1))
+            "b#1's snapshot is gone from durable state — the install DISCARDED that actor")
+        (is (= [:stage/a#1 :stage/b#1] (spawn-order/frame-order :stage/auth))
+            (str "the transient cache still names the discarded b#1 — no production "
+                 "install path clears it. This is the CONDITION under test, not a "
+                 "defect the fix papers over by clearing it."))
+        ;; --- the discriminator ---
+        (let [traces (collect-traces! #(rf/destroy-frame! :stage/auth))]
+          (is (= [:stage/a#1]
+                 (destroyed-actor-ids traces :rf.machine.lifecycle/destroyed
+                                      #{:stage/a#1 :stage/b#1}))
+              (str "only the actor durable state still carries is reaped. Unioning the "
+                   "stale transient cache into the walk reaps :stage/b#1 as well — and "
+                   "since the durable segment goes FIRST, it places the discarded newer "
+                   "b#1 AFTER the older a#1, inverting the reverse-creation discipline "
+                   "Spec 005 §Cross-Spec Interactions §1 pins."))
+          (is (= [:stage/a#1] (filterv #{:stage/a#1 :stage/b#1} @exit-log))
+              "only a#1's :exit cascade ran"))))))
+
+(deftest explicit-destroy-of-a-restore-discarded-actor-is-silent
+  (testing "after an install that rewinds past its spawn, an explicit :rf.machine/destroy of the discarded actor is the silent-idempotent no-op Spec 005 pins — a stale cache entry alone must not report it live"
+    (rf/make-frame {:id :stagex/auth :doc "silent-destroy-after-restore frame"})
+    (let [exit-log (atom [])]
+      (reg-staged-probe-machines! exit-log)
+      (rf/dispatch-sync [:stage/boot [:spawn-a]] {:frame :stagex/auth})
+      (let [captured (rf/frame-state-value :stagex/auth)]
+        (rf/dispatch-sync [:stage/boot [:spawn-b]] {:frame :stagex/auth})
+        (is (some? (get (runtime-snapshots :stagex/auth) :stage/b#1))
+            "b#1 is live before the install (non-vacuity control)")
+        (frame/replace-frame-state! :stagex/auth captured)
+        (is (nil? (get (runtime-snapshots :stagex/auth) :stage/b#1))
+            "b#1 was discarded by the install")
+        (is (some? (some #{:stage/b#1} (spawn-order/frame-order :stagex/auth)))
+            "the stale cache entry for b#1 survives the install (the condition under test)")
+        (reset! exit-log [])
+        (let [traces (collect-traces!
+                       #(rf/dispatch-sync [:stage/boot [:drop-b]] {:frame :stagex/auth}))]
+          (is (= [] (destroyed-actor-ids traces :rf.machine/destroyed #{:stage/b#1}))
+              (str "no :rf.machine/destroyed for an actor durable state no longer carries. "
+                   "Spec 005 §Destroy is silent-idempotent: an already-gone actor emits no "
+                   "trace, runs no teardown and raises no error."))
+          (is (= [] @exit-log)
+              "and no :exit cascade ran for the discarded actor"))))))
+
+(deftest mixed-prefix-order-survives-a-real-frame-state-reinstall
+  (testing "the DURABLE vector, not the transient cache, carries reverse-creation teardown through a genuine in-process frame-state reinstall"
+    (rf/make-frame {:id :probere/auth :doc "reinstall ordering frame"})
+    (let [exit-log (atom [])]
+      (reg-probe-machines! exit-log)
+      (rf/reg-machine :probere/boot
+                      {:initial :idle
+                       :data    {}
+                       :states  {:idle {:on {:drop-all
+                                             {:action (fn [_]
+                                                        {:fx [[:rf.machine/destroy :probe/a#1]
+                                                              [:rf.machine/destroy :probe/a#2]
+                                                              [:rf.machine/destroy :probe/b#1]]})}}}}})
+      (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probere/auth})
+      (let [captured (rf/frame-state-value :probere/auth)]
+        (is (= [:probe/a#1 :probe/a#2 :probe/b#1] (runtime-spawn-order :probere/auth))
+            "the durable order is recorded at capture time (non-vacuity control)")
+        ;; Empty the transient cache the ORDINARY way — three explicit
+        ;; destroys, each running `spawn-order/forget!`. No internals reset.
+        (rf/dispatch-sync [:probere/boot [:drop-all]] {:frame :probere/auth})
+        (is (= [] (spawn-order/frame-order :probere/auth))
+            "the transient cache is empty after the destroys (non-vacuity control)")
+        (is (nil? (runtime-spawn-order :probere/auth))
+            "and the durable slot is pruned once it empties")
+        (reset! exit-log [])
+        ;; Reinstall the captured frame-state — the whole-value install
+        ;; `restore-epoch!` performs. Only the DURABLE order comes back.
+        (frame/replace-frame-state! :probere/auth captured)
+        (is (= [:probe/a#1 :probe/a#2 :probe/b#1] (runtime-spawn-order :probere/auth))
+            "the durable order rode the install back in")
+        (is (= [] (spawn-order/frame-order :probere/auth))
+            (str "the transient cache is STILL empty — no install path repopulates it, "
+                 "so the walk below has nothing but the durable vector to read"))
+        (rf/destroy-frame! :probere/auth)
+        (is (= [:probe/b#1 :probe/a#2 :probe/a#1]
+               (filterv #{:probe/a#1 :probe/a#2 :probe/b#1} @exit-log))
+            (str "exact reverse creation order, read off the reinstalled durable vector. "
+                 "Descending-suffix sorting — the pre-rf2-1vlyg fallback — yields "
+                 "[:probe/a#2 :probe/a#1 :probe/b#1]."))))))
