@@ -2863,13 +2863,16 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 ```clojure
 (def Machines
-  ;; The machine runtime's four sub-containers — :snapshots is the per-machine
+  ;; The machine runtime's five sub-containers — :snapshots is the per-machine
   ;; snapshot map, :system-ids is the system-id reverse index, :spawned is
-  ;; the declarative-spawn/spawn-all registry, and :spawn-counter is the
+  ;; the declarative-spawn/spawn-all registry, :spawn-counter is the
   ;; hand-emitted-spawn fallback counter (the parallel slot
-  ;; the declarative path tracks inside the parent's snapshot). All four are
-  ;; allocated lazily — absent until the first write — so a frame that uses
-  ;; no machines carries no machine sub-keys at all.
+  ;; the declarative path tracks inside the parent's snapshot), and
+  ;; :spawn-order is the durable oldest→newest creation order over the
+  ;; frame's LIVE spawned actors — the sole authority for reverse-creation
+  ;; disposal on frame destroy. All five are allocated lazily — absent until
+  ;; the first write — so a frame that uses no machines carries no machine
+  ;; sub-keys at all.
   [:map
    [:snapshots     {:optional true} [:map-of :keyword :rf/machine-snapshot]]
    [:system-ids    {:optional true} [:map-of :any :keyword]]                     ;; <system-id> → <gensym'd-machine-id>
@@ -2878,7 +2881,8 @@ A frame owns two durable partitions held as one physical frame-state container (
                                                       [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
                                                            InvokeAllJoinState     ;; :spawn-all LIVE child-bearing join bookkeeping
                                                            InvokeAllRejectedState]]]] ;; :spawn-all pre-per-child REJECT sentinel (childless — atomic reject)
-   [:spawn-counter {:optional true} [:map-of :keyword :int]]])                   ;; per-machine-id integer counter for hand-emitted :rf.machine/spawn fxs
+   [:spawn-counter {:optional true} [:map-of :keyword :int]]                     ;; per-machine-id integer counter for hand-emitted :rf.machine/spawn fxs
+   [:spawn-order   {:optional true} [:vector :keyword]]])                        ;; live spawned actor-ids, OLDEST → NEWEST — the frame-global total creation order frame destroy reverses. Appended by the spawn install in the same swap that lands the snapshot; removed by the unified teardown projection in the same swap that dissocs it; pruned when it empties.
 
 (def InvokeAllJoinState
   ;; Join bookkeeping for a :spawn-all invocation.
@@ -3008,7 +3012,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 **Four subsystems, four sub-containers** (paths are relative to runtime-db; in a frame-state projection they sit under `:rf.db/runtime`):
 
-- **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here). The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
+- **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here); the durable oldest-to-newest creation order over the frame's live spawned actors lives at `[:rf.runtime/machines :spawn-order]` — the sole authority for reverse-creation disposal on frame destroy, since the per-id-prefix `#<n>` suffix cannot order actors of different machine types and is absent on a `:fixed-actor-id`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:route-id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token ([012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the blocking route resources keeping the transition `:loading` per nav-token — keyed on the CEDN-1 byte `key-id` the resource cache is keyed on, so two `=`-equal but byte-distinct identities are two wait points, with **no** promised order) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan and pruned by that artefact's readiness projection as each requirement settles. Routing has **no** settle handler and consults **no** blocking predicate: per [012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection) it seeds `:transition` / `:error` at commit and the Resources artefact reconciles them thereafter. The slot is absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). Its sibling `[:rf.runtime/routing :resource-plan]` (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the **full** set of scoped resource identities the plan for that nav-token owns — blocking and non-blocking alike, byte-keyed and unordered exactly as the blocking slot is) is written by the same plan and read on the *next* full activation to compute the kept/added/removed plan diff for attach-before-release owner handoff (EP-0037 R2, [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans)); a superseded nav-token's slot is cleared when its route owner is released, exactly like the blocking slot. The saved scroll-position LRU is **not** here — it is a host-side transient cache ([012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced (EP-0025) from the **four commit-plane data-classification effects** (durable app-db, `:source :effect`), **subsystem projection-relative declarations** (`reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, lowered per instance), and **flow outputs** (`:source :flow`) — the sources union at egress lookup. They are **not** sourced from a frame `:sensitive {:app-db …}` annotation, an imperative `add-marks` / `set-marks` API, or app-db schema slot props (all removed by EP-0025: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
 - **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
