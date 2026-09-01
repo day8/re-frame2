@@ -962,7 +962,11 @@
           needs-two   (fn [a b] [:span a b])
           form2-buggy (fn [] (fn []
                                (swap! calls inc)
-                               [:div (needs-two "x")]))]
+                               ;; Deliberately wrong arity — this call IS the fixture payload: the row needs
+                               ;; a genuine ArityException raised INSIDE the render body. clj-kondo is right
+                               ;; that it is a mismatch and cannot know it is intentional.
+                               [:div #_{:clj-kondo/ignore [:invalid-arity]}
+                                     (needs-two "x")]))]
       (reset! calls 0)
       (is (thrown? clojure.lang.ArityException
                    (emit/emit-element [form2-buggy]))
@@ -990,7 +994,11 @@
           needs-two   (fn [a b] [:span a b])
           form2-buggy (fn [x] (fn [x]
                                 (swap! calls inc)
-                                [:div (needs-two x)]))]
+                                ;; Deliberately wrong arity — this call IS the fixture payload: the row needs
+                                ;; a genuine ArityException raised INSIDE the render body. clj-kondo is right
+                                ;; that it is a mismatch and cannot know it is intentional.
+                                [:div #_{:clj-kondo/ignore [:invalid-arity]}
+                                      (needs-two x)]))]
       (reset! calls 0)
       (is (thrown-with-msg? clojure.lang.ArityException
                             #"Wrong number of args \(1\)"
@@ -1017,7 +1025,11 @@
     (let [needs-two (fn [a b] [:span a b])
           form2     (fn [x] (fn [& xs]
                               (if (seq xs)
-                                [:div (needs-two x)]
+                                ;; Deliberately wrong arity — this call IS the fixture payload: the row needs
+                                ;; a genuine ArityException raised INSIDE the render body. clj-kondo is right
+                                ;; that it is a mismatch and cannot know it is intentional.
+                                [:div #_{:clj-kondo/ignore [:invalid-arity]}
+                                      (needs-two x)]
                                 [:p "zero-arity retry reached this"])))]
       (is (thrown? clojure.lang.ArityException
                    (emit/emit-element [form2 "x"]))
