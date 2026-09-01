@@ -22,8 +22,8 @@
  *     fingerprints and NO UIx spine or Hicasso strings;
  *   - the UIx login bundle contains the UIx spine's gensym-prefix strings and
  *     NO Reagent or Hicasso fingerprints;
- *   - the Hicasso login bundle contains the Hicasso codec's own markers and
- *     NO Reagent or UIx fingerprints.
+ *   - the Hicasso login bundle contains the Hicasso codec's AND adapter's own
+ *     markers and NO Reagent or UIx fingerprints.
  *
  * A regression — e.g. a stray `[re-frame.adapter.reagent]` slipping into
  * `login.model` — drags Reagent into all three bundles, so the UIx and
@@ -42,8 +42,10 @@
  *     parameterised on (re-frame.adapter.uix). They reach the bundle as
  *     string literals (the spine derives a watch-key keyword namespace from
  *     them), unique to the substrate's adapter, and reachable on every mount.
- *   Hicasso — `hicassoBoundary` / `rf.error/hicasso-empty-vector`: the SAME
- *     two literals scripts/check-bundle-isolation.cjs already carries for the
+ *   Hicasso — TWO TIERS, because the artefact ships a view runtime and an
+ *     adapter and a bundle can carry either without the other.
+ *     `hicassoBoundary` / `rf.error/hicasso-empty-vector` are the SAME two
+ *     literals scripts/check-bundle-isolation.cjs already carries for the
  *     `hicasso` artefact, and the choice matters more here than the others'.
  *     Most Hicasso strings would make a FALSE-GREEN sentinel: the package's
  *     complaint machinery folds away under `:advanced` with `goog.DEBUG`
@@ -56,6 +58,13 @@
  *     `mark-boundary!` stamps via `unchecked-set` with a literal string key,
  *     ungated; `rf.error/hicasso-empty-vector` is a refusal id minted by
  *     `fail!` on the path every build keeps.
+ *     But BOTH live in `re-frame.hicasso.impl.codec` alone, and the codec is
+ *     not what a Hicasso application installs as its SUBSTRATE. So the set
+ *     also carries `rf-hic-sub-` / `rf-hic-use-sub-`, the gensym prefixes
+ *     `re-frame.hicasso.substrate` parameterises the shared spine on —
+ *     the exact analogue of the UIx pair. Without them a leak of the
+ *     adapter ALONE into the Reagent / UIx login bundles answered ABSENT on
+ *     every Hicasso sentinel and the gate passed (rf2-fmns2 audit of #8954).
  *
  * Each view layer's set is checked PRESENT in its own bundle (methodology
  * sanity — proves the grep has signal + the model and views actually compiled
@@ -64,8 +73,10 @@
  * letting the cross-bundle ABSENT greps go silently vacuous — re-derive from a
  * sibling literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx: the
  * `-use-sub-` / `-derived-` prefixes, or the substrate-name warning text;
- * Hicasso: re-read check_production_erasure.cjs's own positive controls, which
- * is where these two came from).
+ * Hicasso: for the codec tier, re-read check_production_erasure.cjs's own
+ * positive controls, which is where those two came from; for the adapter tier,
+ * re-read `re-frame.hicasso.substrate`'s `make-react-spine` call — and keep
+ * ONE marker from EACH tier, or the gap this set closed reopens).
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -103,6 +114,7 @@ const UIX_SENTINELS = [
 ];
 
 const HICASSO_SENTINELS = [
+  // --- VIEW tier: re-frame.hicasso.impl.codec (the interpreted Hiccup runtime)
   // re-frame.hicasso.impl.codec — mark-boundary!'s own-property marker, set
   // with a literal string key via `unchecked-set` and never goog.DEBUG-gated.
   { source: 're-frame.hicasso.impl.codec mark-boundary! (hicassoBoundary)',
@@ -111,6 +123,36 @@ const HICASSO_SENTINELS = [
   // minted by `fail!` on the path every build keeps.
   { source: 're-frame.hicasso.impl.codec vector-kind (hicasso-empty-vector)',
     sentinel: 'rf.error/hicasso-empty-vector' },
+
+  // --- ADAPTER tier: re-frame.hicasso.substrate (the standalone adapter)
+  // The two above are BOTH codec-only, and the codec is NOT what the login arm
+  // installs. `re-frame.hicasso.substrate` — the adapter `hicasso.login.core`
+  // passes to `rf/init!` — `:require`s only `react` plus core's
+  // `adapter.context` / `frame` / `substrate.spine` / `views.frame-boundary`;
+  // it never names the codec or the public `re-frame.hicasso` door. So a
+  // codec-only sentinel set answers ABSENT for a bundle carrying the whole
+  // Hicasso ADAPTER, and the two ABSENT arms below would have passed while a
+  // foreign adapter sat in the Reagent and UIx login bundles. The own-bundle
+  // PRESENT arm could not reveal it either: `hicasso.login.core` requires the
+  // public door as well, so its bundle carries both tiers regardless.
+  //
+  // These two close that half, and they are the DIRECT ANALOGUE of the UIx
+  // pair above — the same spine, the same key, one substrate over. Same
+  // production-stability argument, too: `re-frame.substrate.spine` calls
+  // `(gensym gensym-prefix-sub)` per subscription and derives the
+  // `use-subscribe` watch-key keyword namespace from `gensym-prefix-use-sub`
+  // by `subs` at adapter-construction time, so both reach the `:advanced`
+  // bundle as string literals on paths no `goog.DEBUG` guards. The sibling
+  // gate hicasso/scripts/check_bundle_isolation.cjs already leans on exactly
+  // this for the UIx twin: `rf-uix-sub-` is one of its POSITIVE CONTROLS,
+  // proved PRESENT in an `:advanced` release bundle.
+  //
+  // `rf-hic-` is unique to that one namespace repo-wide, so an occurrence in a
+  // Reagent or UIx login bundle can only have come from the Hicasso adapter.
+  { source: 're-frame.hicasso.substrate spine subscribe gensym prefix',
+    sentinel: 'rf-hic-sub-' },
+  { source: 're-frame.hicasso.substrate spine use-subscribe gensym prefix',
+    sentinel: 'rf-hic-use-sub-' },
 ];
 
 // Each login bundle: the view runtime it MUST contain (own) + the two it must NOT.
@@ -259,7 +301,10 @@ function main() {
       console.error('  / codec refactor) or the build stopped depending on its view layer.');
       console.error('  Re-derive the sentinel set in this script (Reagent: Compiler.parse-tag /');
       console.error('  ReagentInput; UIx: the -use-sub- / -derived- gensym prefixes; Hicasso:');
-      console.error('  hicasso/scripts/check_production_erasure.cjs\'s own positive controls).');
+      console.error('  codec tier — hicasso/scripts/check_production_erasure.cjs\'s own positive');
+      console.error('  controls; adapter tier — re-frame.hicasso.substrate\'s make-react-spine');
+      console.error('  gensym prefixes. Keep one marker from EACH Hicasso tier: a codec-only');
+      console.error('  set answers ABSENT for a bundle carrying the adapter alone.');
     }
   }
   console.error('');
