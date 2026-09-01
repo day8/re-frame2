@@ -925,12 +925,16 @@ and both readings went wrong in a single day here, in opposite directions.
    then tidying scratch files and shared-dependency links, works outside the worktree and outside
    version control and is too busy to answer. Tip, fetch clock, write clock and a direct message then
    read as dead *together*, for one cause, which is why corroborating one with another does not help
-   here. **Frozen on every clock across several readings is the signature of a run about to report**,
-   not of a dead one. Measured twice in one day, on five workers and then on a sixth: every one
-   completed alive, and on the second occasion the supervisor's own one-line progress string named the
-   phase outright while the four clocks said otherwise. Where no direct status exists, declare a window
-   and re-read rather than acting — waiting costs a tick, and acting costs a duplicate worker in a live
-   worktree.
+   here. **So frozen on every clock, across any number of readings, is AMBIGUOUS — it is exactly what
+   healthy foreground work looks like, and exactly what a stopped worker looks like.** It cannot
+   identify either, and no amount of re-reading the same four clocks converts it into evidence; a
+   freeze that has run an hour is still the same non-signal it was in the first minute. Measured twice
+   in one day, on five workers and then on a sixth: **five of those six completed alive** — the
+   remaining one was never explained — and on the second occasion the supervisor's own one-line
+   progress string named the phase outright while the four clocks said otherwise. Where no direct
+   status exists, declare a window and re-read rather than acting: not because waiting resolves the
+   ambiguity, but because the two errors are priced differently — waiting costs a tick, and acting
+   costs a duplicate worker in a live worktree.
 
    **That clock says "no activity" in four voices and you can only tell them apart with a control.**
    Besides the reading worker and the poller treated just below, a path that resolves to nothing
@@ -1333,8 +1337,8 @@ the context was another change to the same file.
 is why the criterion stands unchanged — but a mayor who reads `+` as *this branch has unmerged work*
 will hunt for work that landed weeks ago, and a branch list read as a backlog is a list of phantoms.
 The cheap triage is to take the lines that commit ADDED and look for them at the tip: where they are
-all there, the likeliest reading by far is that the content landed and only the context moved. Run it
-first, because it is seconds and it settles the common case.
+all there, the likeliest reading is that the content landed and only the context moved. Run it first
+because it costs seconds and tells you where to point the real check — never because it finishes one.
 
 **But it is triage, not a verdict, and it is wrong in BOTH directions — which is the correction this
 paragraph carries.** A line search has no notion of path, location, multiplicity or order, and it

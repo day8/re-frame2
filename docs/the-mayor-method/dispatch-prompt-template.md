@@ -570,19 +570,26 @@ ready mark, or message them. What gets read instead is a worker that has stopped
 unmoved, worktree clean, everything pushed, a direct message unanswered for half an hour, and a draft
 sitting exactly at band with nothing non-terminal and nothing failing.
 
-**Every signal in that list is also what a worker in its FINAL MINUTES looks like, and that is the
-likelier explanation.** A worker finishing up — running one last foreground gate, deleting gate logs,
-unlinking a shared-dependency link, tidying a scratch directory — writes outside the worktree and
-outside version control, and is too busy to answer. So the tip does not move, the fetch clock does not
-move, the write clock does not move, and the message goes unanswered. **The four indirect signals do
-not fail independently here; they fail together, for one cause.** Frozen-across-three-readings feels
-like the most damning pattern available and is in fact the signature of a run about to report.
+**Every signal in that list is also what a worker in its FINAL MINUTES looks like.** A worker
+finishing up — running one last foreground gate, deleting gate logs, unlinking a shared-dependency
+link, tidying a scratch directory — writes outside the worktree and outside version control, and is
+too busy to answer. So the tip does not move, the fetch clock does not move, the write clock does not
+move, and the message goes unanswered. **The four indirect signals do not fail independently here;
+they fail together, for one cause.**
+
+**Which makes the frozen reading AMBIGUOUS, and that is the whole finding — not that it means the
+opposite.** Frozen-across-three-readings feels like the most damning pattern available, and it is
+compatible with a stopped worker and with healthy foreground work alike, so it identifies neither.
+Re-reading the same four clocks cannot break the tie, however long the freeze runs: an hour of it is
+the same non-signal as a minute of it.
 
 Measured, twice: on the first occasion five workers were reported dormant and four then completed
-alive with full reports, one answering the ping directly to say it had been on final hygiene; the
-diagnosis was retracted in full, including a second claim — that messaging was inoperative — which
-was *slow* converted into *broken*. It recurred the same day on a sixth worker whose clocks were
-frozen for over an hour and which completed normally.
+alive with full reports, one answering the ping directly to say it had been on final hygiene, while
+the fifth was never explained either way; the diagnosis was retracted in full, including a second
+claim — that messaging was inoperative — which was *slow* converted into *broken*. It recurred the
+same day on a sixth worker whose clocks were frozen for over an hour and which completed normally.
+**Five of six alive is the sourced count; treat it as a warning against the dormancy reading, not as
+a licence for its inverse.**
 
 **So prefer the DIRECT signal where your tooling offers one** — a live progress line, a status the
 supervisor maintains — over any number of indirect clocks, and **treat the four clocks as the fallback
