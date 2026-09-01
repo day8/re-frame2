@@ -519,9 +519,11 @@
   rf2-jqvgp — the ORDER of the reservation against that emit is itself the
   contract. The attempt's timer-table slot is reserved BEFORE the fan-out, so
   the announced attempt is a CANCELLABLE one from the instant it becomes
-  visible: the recheck's abort reclaims it by its own token and emits the
-  mirrored `/cancelled`, leaving no `/scheduled` row that can never be followed
-  by `/fired` or `/cancelled` (Spec 005 §Trace event catalogue pairs the two by
+  visible, and the mirrored `/cancelled` closes it — emitted by the destroying
+  frame's own `cancel-all-timers!` sweep where that reached the sentinel first,
+  and by the recheck's own token-exact abort otherwise. Either way no
+  `/scheduled` row is left that can never be followed by `/fired` or
+  `/cancelled` (Spec 005 §Trace event catalogue pairs the two by
   `(actor-id, state, epoch)`). The host clock is still armed AFTER the emit, so
   `/scheduled` still precedes even a synchronously-firing host callback. The
   abort releases nothing further — see the comment at that recheck for why the
@@ -627,10 +629,12 @@
             ;; 005 §Trace event catalogue has the two events mirror each other
             ;; precisely so consumers can pair them by `(actor-id, state,
             ;; epoch)`. Reserving first makes the attempt a claimable one from
-            ;; the instant it is announced, so every abort below closes the pair
-            ;; with the entry's OWN `/cancelled`. The host clock is still armed
-            ;; after the emit, so a host that fires synchronously cannot beat
-            ;; `/scheduled` to the stream.
+            ;; the instant it is announced, so the pair below is closed by the
+            ;; entry's OWN `/cancelled` — whether the claim comes from the
+            ;; destroying frame's `cancel-all-timers!` sweep (which can now see
+            ;; the sentinel) or from the abort's token-exact reclaim. The host
+            ;; clock is still armed after the emit, so a host that fires
+            ;; synchronously cannot beat `/scheduled` to the stream.
             (swap! after-timers assoc-in [frame-id k] reservation)
             (when emit-scheduled-trace?
               (trace/emit! :rf.machine :rf.machine.timer/scheduled
