@@ -1,29 +1,33 @@
 #!/usr/bin/env node
 /*
- * Login cross-substrate bundle-isolation verifier (bead rf2-ppbvav; the
- * Helix login arm left with the Helix adapter at S7/W13, rf2-d6epb).
+ * Login cross-view-layer bundle-isolation verifier (bead rf2-ppbvav; the
+ * Helix login arm left with the Helix adapter at S7/W13, rf2-d6epb; the
+ * Hicasso arm arrived with rf2-fmns2).
  *
- * The two login examples — Reagent (`login.core`) and UIx
- * (`uix.login.core`) — share ONE substrate-free model owner,
+ * The three login examples — Reagent (`login.core`), UIx
+ * (`uix.login.core`) and Hicasso (`hicasso.login.core`) — share ONE
+ * substrate-free model owner,
  * `login.model` (examples/core/login/model.cljs): the single source for every
  * `auth.login` schema, fx, machine, event, sub, and the frame config. Each
  * example `:require`s that model and adds only its own views + mount.
  *
- * This gate proves the model stayed substrate-free. Because both builds
+ * This gate proves the model stayed substrate-free. Because all three builds
  * import `login.model`, if that namespace ever `:require`d a view library or
- * adapter (Reagent or UIx), the foreign substrate's fingerprint would
- * appear in the login bundle it doesn't belong in. So the binding claim is
- * cross-substrate absence: each login bundle carries EXACTLY its own substrate
- * and not the other.
+ * adapter (Reagent, UIx or Hicasso), the foreign runtime's fingerprint would
+ * appear in the login bundles it doesn't belong in. So the binding claim is
+ * cross-view-layer absence: each login bundle carries EXACTLY its own view
+ * runtime and neither of the other two.
  *
  *   - the Reagent login bundle contains stock-Reagent's reactive-atom
- *     fingerprints and NO UIx spine strings;
+ *     fingerprints and NO UIx spine or Hicasso strings;
  *   - the UIx login bundle contains the UIx spine's gensym-prefix strings and
- *     NO Reagent fingerprints.
+ *     NO Reagent or Hicasso fingerprints;
+ *   - the Hicasso login bundle contains the Hicasso codec's own markers and
+ *     NO Reagent or UIx fingerprints.
  *
  * A regression — e.g. a stray `[re-frame.adapter.reagent]` slipping into
- * `login.model` — drags Reagent into both bundles, so the UIx
- * ABSENT checks fail. That is the substrate-free proof.
+ * `login.model` — drags Reagent into all three bundles, so the UIx and
+ * Hicasso ABSENT checks fail. That is the substrate-free proof.
  *
  * Strategy mirrors scripts/check-bundle-isolation.cjs (rf2-51x5) and
  * scripts/check-uix-reagent-free.cjs (rf2-jicu2): grep, not parse. Closure
@@ -38,14 +42,30 @@
  *     parameterised on (re-frame.adapter.uix). They reach the bundle as
  *     string literals (the spine derives a watch-key keyword namespace from
  *     them), unique to the substrate's adapter, and reachable on every mount.
+ *   Hicasso — `hicassoBoundary` / `rf.error/hicasso-empty-vector`: the SAME
+ *     two literals scripts/check-bundle-isolation.cjs already carries for the
+ *     `hicasso` artefact, and the choice matters more here than the others'.
+ *     Most Hicasso strings would make a FALSE-GREEN sentinel: the package's
+ *     complaint machinery folds away under `:advanced` with `goog.DEBUG`
+ *     false (hicasso/scripts/check_production_erasure.cjs asserts exactly
+ *     that), so a sentinel taken from a dev-guarded refusal is absent from
+ *     every bundle INCLUDING one that ships the whole runtime. These two are
+ *     that script's own positive controls — proved PRESENT in the
+ *     `:hicasso-release` `:advanced` bundle — so they are absent only when
+ *     the code is absent. `hicassoBoundary` is the own-property marker
+ *     `mark-boundary!` stamps via `unchecked-set` with a literal string key,
+ *     ungated; `rf.error/hicasso-empty-vector` is a refusal id minted by
+ *     `fail!` on the path every build keeps.
  *
- * Each substrate set is checked PRESENT in its own bundle (methodology sanity —
- * proves the grep has signal + the model and views actually compiled in) and
- * ABSENT in the other (the isolation proof). If a future refactor displaces
- * a sentinel, its own-bundle PRESENT check fails fast rather than letting the
- * cross-bundle ABSENT greps go silently vacuous — re-derive from a sibling
- * literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx: the
- * `-use-sub-` / `-derived-` prefixes, or the substrate-name warning text).
+ * Each view layer's set is checked PRESENT in its own bundle (methodology
+ * sanity — proves the grep has signal + the model and views actually compiled
+ * in) and ABSENT in the other two (the isolation proof). If a future refactor
+ * displaces a sentinel, its own-bundle PRESENT check fails fast rather than
+ * letting the cross-bundle ABSENT greps go silently vacuous — re-derive from a
+ * sibling literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx: the
+ * `-use-sub-` / `-derived-` prefixes, or the substrate-name warning text;
+ * Hicasso: re-read check_production_erasure.cjs's own positive controls, which
+ * is where these two came from).
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -82,14 +102,26 @@ const UIX_SENTINELS = [
     sentinel: 'rf-uix-use-sub-' },
 ];
 
-// Each login bundle: the substrate it MUST contain (own) + the one it must NOT.
+const HICASSO_SENTINELS = [
+  // re-frame.hicasso.impl.codec — mark-boundary!'s own-property marker, set
+  // with a literal string key via `unchecked-set` and never goog.DEBUG-gated.
+  { source: 're-frame.hicasso.impl.codec mark-boundary! (hicassoBoundary)',
+    sentinel: 'hicassoBoundary' },
+  // re-frame.hicasso.impl.codec — vector-kind's empty-vector refusal id,
+  // minted by `fail!` on the path every build keeps.
+  { source: 're-frame.hicasso.impl.codec vector-kind (hicasso-empty-vector)',
+    sentinel: 'rf.error/hicasso-empty-vector' },
+];
+
+// Each login bundle: the view runtime it MUST contain (own) + the two it must NOT.
 const BUNDLES = [
   {
     name: 'Reagent login',
     dir: 'login',
     own: { label: 'Reagent', sentinels: REAGENT_SENTINELS },
     foreign: [
-      { label: 'UIx',   sentinels: UIX_SENTINELS },
+      { label: 'UIx',     sentinels: UIX_SENTINELS },
+      { label: 'Hicasso', sentinels: HICASSO_SENTINELS },
     ],
   },
   {
@@ -98,6 +130,16 @@ const BUNDLES = [
     own: { label: 'UIx', sentinels: UIX_SENTINELS },
     foreign: [
       { label: 'Reagent', sentinels: REAGENT_SENTINELS },
+      { label: 'Hicasso', sentinels: HICASSO_SENTINELS },
+    ],
+  },
+  {
+    name: 'Hicasso login',
+    dir: 'login-hicasso',
+    own: { label: 'Hicasso', sentinels: HICASSO_SENTINELS },
+    foreign: [
+      { label: 'Reagent', sentinels: REAGENT_SENTINELS },
+      { label: 'UIx',     sentinels: UIX_SENTINELS },
     ],
   },
 ];
@@ -176,9 +218,9 @@ function checkBundle(spec) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Login cross-substrate bundle isolation (rf2-ppbvav) ===');
-  report.detail('One substrate-free login.model, two builds; each login bundle');
-  report.detail('must carry ONLY its own substrate.');
+  report.detail('=== Login cross-view-layer bundle isolation (rf2-ppbvav) ===');
+  report.detail('One substrate-free login.model, three builds; each login bundle');
+  report.detail('must carry ONLY its own view runtime.');
   report.detail('');
 
   const results = BUNDLES.map(checkBundle);
@@ -201,27 +243,29 @@ function main() {
   for (const r of results) {
     if (r.ok) continue;
     if (!r.foreignOk) {
-      console.error(`${r.name}: a FOREIGN substrate leaked into the bundle.`);
+      console.error(`${r.name}: a FOREIGN view runtime leaked into the bundle.`);
       console.error('  The shared substrate-free login.model (examples/core/login/model.cljs)');
       console.error('  appears to have pulled in a view library / adapter — the isolation');
       console.error('  claim (rf2-ppbvav) is broken. Likely cause: a `:require` on');
-      console.error('  `reagent.*` / `uix.*` or `re-frame.adapter.*` slipped');
-      console.error('  into login.model (which every login build imports) or into another');
-      console.error('  substrate-agnostic ns it pulls. Keep login.model substrate-free —');
-      console.error('  views, roots, adapter init, and mounts belong ONLY in each core.cljs.');
+      console.error('  `reagent.*` / `uix.*` / `re-frame.hicasso.*` or `re-frame.adapter.*`');
+      console.error('  slipped into login.model (which every login build imports) or into');
+      console.error('  another substrate-agnostic ns it pulls. Keep login.model');
+      console.error('  substrate-free — views, roots, adapter init, and mounts belong ONLY');
+      console.error('  in each core.cljs.');
     }
     if (!r.ownOk) {
-      console.error(`${r.name}: the OWN-substrate present-check failed — the grep would`);
+      console.error(`${r.name}: the OWN view-runtime present-check failed — the grep would`);
       console.error('  be vacuous. Either the sentinel strings have moved (a spine / adapter');
-      console.error('  refactor) or the build stopped depending on its adapter. Re-derive the');
-      console.error('  substrate sentinel set in this script (Reagent: Compiler.parse-tag /');
-      console.error('  ReagentInput; UIx: the -use-sub- / -derived- gensym prefixes).');
+      console.error('  / codec refactor) or the build stopped depending on its view layer.');
+      console.error('  Re-derive the sentinel set in this script (Reagent: Compiler.parse-tag /');
+      console.error('  ReagentInput; UIx: the -use-sub- / -derived- gensym prefixes; Hicasso:');
+      console.error('  hicasso/scripts/check_production_erasure.cjs\'s own positive controls).');
     }
   }
   console.error('');
   console.error('Reproduce with:');
   console.error('  cd implementation && shadow-cljs release examples/login \\');
-  console.error('    examples/login-uix \\');
+  console.error('    examples/login-uix examples/login-hicasso \\');
   console.error('    && node scripts/check-login-bundle-isolation.cjs');
   process.exit(1);
 }
@@ -231,9 +275,12 @@ function main() {
 // check-bundle-isolation.cjs requires a runtime's descriptor to name a checker
 // whose COVERS_RUNTIMES includes it, so an unrelated existing checker can NOT be
 // reused for a new runtime it never inspects. This gate proves the shared
-// login.model stays substrate-free across the Reagent / UIx login
-// bundles, so it isolates both adapter runtimes.
-const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix'];
+// login.model stays substrate-free across the Reagent / UIx / Hicasso login
+// bundles, so it isolates all three view runtimes. (`hicasso` is additionally
+// covered by the GENERIC counter-bundle gate in check-bundle-isolation.cjs —
+// it is listed here because this checker really does inspect it, not to claim
+// a dedicated-gate descriptor it does not have.)
+const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix', 'hicasso'];
 
 module.exports = { COVERS_RUNTIMES };
 

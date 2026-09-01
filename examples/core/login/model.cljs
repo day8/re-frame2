@@ -39,11 +39,12 @@
    `auth.login` registration — the schemas, the demo fx, the `:auth.login/flow`
    machine, the form-slice events, and the named subs — plus the initial form
    slice and the shared frame config. It names NO substrate: no view library, no
-   adapter. The two login examples — Reagent (`login.core`) and UIx
-   (`uix.login.core`) — each `:require` this namespace for its side-effecting
+   adapter. The three login examples — Reagent (`login.core`), UIx
+   (`uix.login.core`) and Hicasso (`hicasso.login.core`) — each `:require` this
+   namespace for its side-effecting
    registrations and its `frame-config` / schema Vars, and add ONLY their own
    substrate-specific views, root, adapter init, and visible provider mount.
-   One model, two view layers.
+   One model, three view layers.
 
    Why one owner and not three copies? Because the logic of a login flow doesn't
    care which view library draws it, so duplicating it three times is 38
@@ -723,9 +724,11 @@
 ;; FRAME CONFIG  (substrate-free)
 ;; ============================================================================
 ;;
-;; The one piece of `frame-root` config the three mounts share. Each
-;; substrate's `mount!` merges this into its root props alongside a
-;; substrate-specific `:id` / `:doc`:
+;; The one piece of frame config the three mounts share. The Reagent and UIx
+;; entries merge it into their `frame-root` props alongside a
+;; substrate-specific `:id` / `:doc`; the Hicasso entry merges it into the
+;; `rf/make-frame` call its root then joins, because `h/mount!`'s config carries
+;; no `:fx-overrides` key. Same map either way:
 ;;
 ;;   - `:fx-overrides` swaps in our fake backend: it points `:rf.http/managed` at
 ;;     the in-process demo stub above, so the example stands on its own with
