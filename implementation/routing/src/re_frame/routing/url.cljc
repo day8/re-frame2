@@ -34,12 +34,48 @@
 ;; per-segment.
 
 (defn url-encode
-  "Encode a single component (named param or query value). Uses
-  encodeURIComponent semantics on CLJS; emulates it on JVM (URLEncoder
-  + + → %20 swap)."
+  "Encode a single component (named param or query value) with
+  `encodeURIComponent` semantics on BOTH hosts.
+
+  HOST-SYMMETRIC: identical route data produces one canonical URL byte
+  string on JVM (SSR) and CLJS (browser). CLJS calls
+  `encodeURIComponent` directly; the JVM arm emulates it on top of
+  `java.net.URLEncoder`, which needs TWO corrections rather than one:
+
+  1. `URLEncoder` is the `application/x-www-form-urlencoded` encoder, so
+     it emits `+` for a space where `encodeURIComponent` emits `%20`.
+  2. `URLEncoder`'s unescaped set is NARROWER. `encodeURIComponent`
+     leaves the whole RFC-2396 *mark* set literal — `- _ . ! ~ * ' ( )`
+     — while `URLEncoder` escapes five of those nine: `!` `'` `(` `)`
+     `~` (`- _ . *` already agree). Repairing only (1) left those five
+     divergent, so a legitimate slug like `draft~1` emitted
+     `/articles/draft%7E1` from SSR and `/articles/draft~1` from the
+     hydrated client (rf2-j3tud).
+
+  Both spellings decode to the same route, but that is weaker than the
+  invariant Spec 012 §Bidirectional URL ↔ params actually promises:
+  component-wise `encodeURIComponent` emission, one host-independent
+  canonical URL. `route-link`'s `:href`, SSR canonical head links
+  (`docs/ssr/head.md`), copied URLs, cache keys and snapshots all read
+  those bytes, and a differing `:href` between the server tree and the
+  first client tree is the Spec 011 hydration-mismatch class.
+
+  CLJS is normative — it IS `encodeURIComponent`, the de-facto browser
+  reference the spec names — so the JVM moves to match it, exactly as
+  `url-decode` below already does for `+`.
+
+  The five unescapes are unambiguous: every `%XX` in `URLEncoder` output
+  is one it generated, so a `%21` in that output can only have come from
+  a literal `!`. A literal `%` in the input is already `%25`, and no
+  `%25`-prefixed run can spell one of these escapes."
   [s]
   #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
-               (.replace "+" "%20"))
+               (.replace "+" "%20")
+               (.replace "%21" "!")
+               (.replace "%27" "'")
+               (.replace "%28" "(")
+               (.replace "%29" ")")
+               (.replace "%7E" "~"))
      :cljs (js/encodeURIComponent (str s))))
 
 (defn url-encode-splat
