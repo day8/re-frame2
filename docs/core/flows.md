@@ -283,10 +283,17 @@ This is the single most important safety property of flows, so it's worth statin
 
 - **app-db is left unchanged.** Not the handler's `:db`, not any *earlier* flow's output in the same pass — nothing lands. There is no partial commit. The event you dispatched is simply as if it never reached app-db.
 - **No `db-changed` trace fires** — the commit record tooling like Xray watches for — and **`:fx` is skipped** — no `:dispatch`-issued children, no HTTP, no navigation queued by this event.
-- **The failure surfaces on the error stream** as `:rf.error/flow-eval-exception`, carrying the offending flow id and the originating event. This rides the *always-on production error substrate*, so even in a `:advanced` production build your Sentry/Honeybadger/Rollbar monitor gets the record. A per-flow `:rf.flow/failed` trace fires first with the full detail, but that one is dev-only and elides in production.
+- **The failure surfaces on the error stream** as `:rf.error/flow-eval-exception`, carrying the offending flow id, the originating event, and a `:phase` naming which half of the evaluation failed (below). This rides the *always-on production error substrate*, so even in a `:advanced` production build your Sentry/Honeybadger/Rollbar monitor gets the record. A per-flow `:rf.flow/failed` trace fires first with the full detail, but that one is dev-only and elides in production.
 - **The dirty-check resets cleanly.** Because the whole commit was discarded, the bookkeeping rolls back too — the aborted event is *not* retried; every flow in that pass simply re-evaluates on the next event's pass.
 
 The same atomic rule covers a throw in a [coeffect](glossary.md#coeffect) supplier, the handler body, or an [interceptor](glossary.md#interceptor)'s `:after` step: an event either commits in full or not at all. A flow's `:derive` throwing is just one more pre-install throw.
+
+**Two ways to fail, and the error says which.** Not every flow failure is your `:derive` fn blowing up. It can also return perfectly good value that the framework then can't *put* anywhere — if the pending app-db holds, say, a vector at `[:report :totals]` and your `:output-path` is `[:report :totals :net]`, the `assoc-in` is what throws, after your code has already done its job. So the failure carries a `:phase`:
+
+- **`:phase :derive`** — your `:derive` fn threw. Fix the fn so it survives the inputs it is handed.
+- **`:phase :output-write`** — your `:derive` fn returned normally and re-frame could not install the result at the flow's `:output-path`. Fix the `:output-path`, or the shape app-db holds at its parent. There is nothing wrong in the `:derive` fn, so don't go looking there.
+
+The framework tells these apart *structurally* — by which of two separate `try` blocks caught the throw, never by pattern-matching the exception message — so the attribution is trustworthy rather than a guess. `:phase` rides the always-on error record next to `:flow-id`, so a production monitor sees it too; the dev-only `:rf.flow/failed` trace carries it alongside a `:path` naming the output path involved.
 
 ??? note "Going deeper — the asymmetry to remember"
 
@@ -392,6 +399,6 @@ The **shape** errors are the ones you meet while you're still typing the call �
 
 There's one more refusal, and if you meet it at all you'll meet it first. Flows ship in their own optional artefact, `day8/re-frame2-flows`, and the whole flow API (`reg-flow`, `clear-flow`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) is published through late binding rather than baked into the core. If that artefact isn't on the classpath — or you forgot the one-time `(:require [re-frame.flows])` that loads its registration hooks — the *first* flow call throws `:rf.error/flows-artefact-missing` (a thrown ex-info naming the calling fn, not a trace) rather than silently no-opping. Add `day8/re-frame2-flows` to your deps and require it once, somewhere in your app. (Same require-to-register convention the schemas / machines / routing artefacts use.)
 
-The one error that surfaces at *runtime* rather than registration is `:rf.error/flow-eval-exception` — a `:derive` function throwing — which aborts the event as described in [What happens when a derive throws](#what-happens-when-a-derive-throws). (A flow's `:schema` failing is *not* an error of this kind: it's the observational `:rf.error/schema-validation-failure` diagnostic — the value still commits; see [Validating a flow's output](#validating-a-flows-output).)
+The one error that surfaces at *runtime* rather than registration is `:rf.error/flow-eval-exception` — a `:derive` function throwing, or its returned value failing to install at the `:output-path`, told apart by the record's `:phase` — which aborts the event as described in [What happens when a derive throws](#what-happens-when-a-derive-throws). (A flow's `:schema` failing is *not* an error of this kind: it's the observational `:rf.error/schema-validation-failure` diagnostic — the value still commits; see [Validating a flow's output](#validating-a-flows-output).)
 
 And that's flows: the derivation you already knew how to write, its answer moved into app-db — with the framework holding the pen.

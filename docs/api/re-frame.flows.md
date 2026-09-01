@@ -246,7 +246,7 @@ The flow-transform entry point the router installs, plus the test-fixture resets
   - `db` is the pending `app-db` partition; `runtime-db` is the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs).
   - The router installs and calls this as the outermost `:after` interceptor. It fires last, against the chain's pending `:db` effect and before the `:db` install. Applications never call it.
   - Flow outputs write `app-db` only.
-  - A flow `:derive` throw halts the walk (downstream flows do not run), rolls back the frame's dirty-check bookkeeping, and re-raises as `:rf.error/flow-eval-exception` (ex-data carries `:rf.flow/failed-id`). The router discards the pending `:db` effect, so the event aborts with no partial commit.
+  - A flow evaluation throw halts the walk (downstream flows do not run), rolls back the frame's dirty-check bookkeeping, and re-raises as `:rf.error/flow-eval-exception`. The router discards the pending `:db` effect, so the event aborts with no partial commit. The ex-data names both the flow and the failing phase — `:rf.flow/failed-id`, `:rf.flow/failed-phase` (`:derive` when your `:derive` fn threw, `:output-write` when it returned and the `assoc-in` of that value at the flow's `:output-path` threw) and `:rf.flow/output-path`.
 
 ### `reset-flows!`
 
@@ -268,7 +268,9 @@ The flow-transform entry point the router installs, plus the test-fixture resets
 
 ## Failure semantics
 
-**Production-survivable.** A throw inside a flow's `:derive` fn surfaces as `:rf.error/flow-eval-exception` on the always-on error-emit substrate. Registered `register-error-listener!` callbacks fire even under CLJS `:advanced` + `goog.DEBUG=false`. The error is not trace-only; production deployments catch it.
+**Production-survivable.** A throw during flow evaluation surfaces as `:rf.error/flow-eval-exception` on the always-on error-emit substrate. Registered `register-error-listener!` callbacks fire even under CLJS `:advanced` + `goog.DEBUG=false`. The error is not trace-only; production deployments catch it.
+
+**The record names which phase failed.** Alongside `:where :flow-eval` and `:flow-id`, the error record carries a top-level `:phase` — `:derive` when your `:derive` fn threw, or `:output-write` when it returned normally and re-frame could not install the returned value at the flow's declared `:output-path` (typically the pending `app-db` holds a container at that path that cannot accept the path's final segment). The two are told apart structurally, not by matching on the exception message, so an `:output-write` failure never gets reported as your code throwing — on `:output-write` the fix is the `:output-path` or the shape at its parent, and there is no point reading the `:derive` fn. `:phase` rides the top level of the record precisely so it survives an egress profile that drops `:exception`.
 
 See [Report errors in production](../core/how-to/report-errors-in-production.md) for wiring the always-on error listeners that catch these in a deployed app.
 
