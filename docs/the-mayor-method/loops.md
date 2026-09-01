@@ -1068,6 +1068,39 @@ and both readings went wrong in a single day here, in opposite directions.
    the probe read *running* five minutes in; all six were resumed on that reading, none
    redispatched, and every one kept its context.
 
+**A finished change is not a strand, and publishing it is not salvage.** Everything above prices one
+action — redispatch — and prices it to favour waiting, correctly, because acting on a wrong *no task*
+destroys a live run. A second action sits beside it and is priced the other way. Where a change is
+already green at the band and its published head matches its branch tip, the only step left is the
+publish flag its author sets last, and taking that step costs nothing if the author was alive after
+all: it wakes to find its work landed, which is what it was trying to do. Verify the change against
+§1 yourself, publish it, retire the agent — and do **not** reopen its items or redispatch, which are
+the moves that carry the cost step 3 is written around. **Read the whole of §1 for it**: the case
+looks finished, which is exactly when a clause gets waived.
+
+**What makes that reading available is a signal none of the four clocks carries: the tracker's own
+record that the worker CLOSED its items.** It is the mirror of the claim signal above — a positive
+act by the agent, landing outside the tree where no file clock can see it — and it is the one thing
+separating this case from the false signature above, because a worker on its third local gate attempt
+has not reached its close step. **It proves the worker REACHED that step, not that nothing remains**,
+so it does not convert green-and-draft into *finished*; the four parts still observe no agent, and the
+warning above stands unchanged. It only makes the finished reading *available* where those four leave
+it ambiguous, and it is checkable in one call.
+
+**The residual risk is one thing and worth naming: an author who had found a further problem and not
+yet pushed the fix.** A closed item says the work was declared done, not that nothing was learned
+after — the third-gate-attempt worker above would present this way too. What bounds it is that you
+merge the PUBLISHED head, which CI graded, so the loss is a fix that was never pushed rather than a
+regression you introduced; the remedy is an ordinary follow-up change, not a destroyed run. That is
+the whole of the asymmetry with step 3, and it is why the pricing inverts.
+
+Measured twice in one day, on two unrelated workers: each had closed every item it held, each had a
+change green at the band with its published head matching, and each had sat two hours and one hour
+past its last write. Both were genuinely past their work — their final lines were *"cleaning up my
+gate artefacts"* and *"now opening the draft PR"*, the second re-attempting a step it had already
+completed. Waiting had bought nothing on either, and one of them was fencing an unrelated item that
+could not dispatch until it merged.
+
 **Never build a commit from someone else's uncommitted work.** Only that worker knows whether it forms
 a coherent change.
 
