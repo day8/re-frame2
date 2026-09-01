@@ -2152,6 +2152,96 @@
           wrapped)
         user-fn))))
 
+;; ---- registered-view component head — substrate-agnostic CORE (rf2-oz7wr) --
+;;
+;; `views/reg-view*` composes its wrappers and hands back
+;; `(with-meta (fn frame-aware-view …) {:contextType frame-context})`. On
+;; Reagent that MetaFn IS the right head: Reagent's create-class / fn-to-class
+;; machinery reads the `:contextType` meta for the React static field and
+;; converts the IFn into a component type. A React-hook substrate has no such
+;; conversion — `cljs.core/with-meta` on a fn yields a `MetaFn` OBJECT, which
+;; `React.createElement` rejects as an element type — so `(rf/view id)`, the
+;; value the public docs advertise as a UIx component head, could not be
+;; mounted at all (rf2-oz7wr). The existing React-hook coverage only ever
+;; mounted it through a hand-written host component that INVOKED it, which
+;; proved teardown below the workaround rather than the advertised head.
+;;
+;; Seam placement mirrors rf2-z7hfp's `frame-provider` split, for the same
+;; reason: the substrate-agnostic CORE is here, and the substrate-NATIVE half
+;; lives in the adapter, ABOVE where that substrate's element macro marshals
+;; props. This core builds the outer SHELL — a genuine JS function React can
+;; mount, forwarding to the composed wrapper — and each adapter stamps it with
+;; its own substrate's component marker so `$` routes props through the
+;; LOSSLESS channel (UIx's `argv`) rather than converting them to JS props and
+;; dropping keyword namespaces. Merely stripping the meta would have produced a
+;; mountable head on the CONVERTING path, which is the silent-mangling class
+;; rf2-z7hfp closed at the provider seam.
+
+(defn- react-props?
+  "True when `x` is the props OBJECT React passes a function component, and
+  not a CLJS value a direct caller passed positionally.
+
+  Mirrors `uix.compiler.alpha/pojo?`: a plain JS object that is not a React
+  element. CLJS collections fail the constructor test (theirs is their own
+  deftype), and a React element passed positionally to a direct invocation
+  fails the `$$typeof` test — so the two calling conventions the registered
+  head serves stay distinguishable. The constructor test runs FIRST so a
+  null-prototype object answers false rather than throwing on the absent
+  `hasOwnProperty`."
+  [x]
+  (and (some? x)
+       (identical? (.-constructor ^js x) js/Object)
+       (not (.hasOwnProperty ^js x "$$typeof"))))
+
+(defn make-componentize-view
+  "Return the `componentize-view` CORE (rf2-oz7wr) — shape
+  `(id metadata wrapped) -> js-fn`, where `wrapped` is the fully-composed
+  registration wrapper `views/build-frame-aware-view` produced.
+
+  The returned shell is a plain JS function, so React mounts it as an
+  ordinary function component and every hook the registered view calls
+  (`use-subscribe`, `use-frame`, the spine wrap-view's frame read) belongs
+  to a REAL fiber of its own — no caller-supplied host, and instance
+  lifetime belongs to the registered view rather than to an ad-hoc wrapper.
+  It is built ONCE at registration, so `(rf/view id)` is reference-stable
+  across renders and React reconciles it as the same component type.
+
+  Two calling conventions reach the shell and it keeps them apart:
+
+    * REACT RENDER — `Component(props, secondArg)`. react-dom 19.2.0's
+      `updateFunctionComponent` passes `void 0` for `secondArg`, so the call
+      arrives with arity 2. The shell forwards the props object ALONE, which
+      is what keeps that stray `undefined` out of the user render-fn and out
+      of the dev-only render-args capture `:rf.view/rendered` carries
+      (rf2-rpgq8).
+    * DIRECT INVOCATION — `((rf/view id) {:label \"hi\"} 42)`, the headless
+      shape Spec 001 §`(re-frame.core/view id)` describes and the render-
+      trace suites use. Forwarded unchanged, so the registered head stays a
+      callable render fn as well as a mountable component.
+
+  The props object is forwarded UNCONVERTED. A substrate that marks the
+  shell as its own component type has already carried the original CLJS
+  props on that object (UIx stashes them on `argv`), and the registered
+  render-fn — typically that substrate's own native component — reads them
+  in its own idiom. Nothing in this path converts props, so a nested
+  namespaced keyword survives the mount by construction.
+
+  `displayName` is stamped from `performance/entry-id` — the same single
+  source `wrap-view` and `build-name` use, so the name React DevTools shows
+  for the mounted registry head is the `<id>` of its own `rf:render:<id>`
+  measure (Spec 009 §Naming convention, rf2-976bw). Dev-only: the shell
+  itself is a CORRECTNESS seam and is built in production too, but the name
+  string rides `interop/debug-enabled?` and elides with the rest."
+  []
+  (fn componentize-view [id _metadata wrapped]
+    (let [shell (fn view-component [& args]
+                  (if (react-props? (first args))
+                    (wrapped (first args))
+                    (apply wrapped args)))]
+      (when interop/debug-enabled?
+        (set! (.-displayName ^js shell) (performance/entry-id id)))
+      shell)))
+
 (defn install-clear-warn-once-step!
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
   late-bind hook. The hook is chained — each adapter and re-frame.views
@@ -2507,6 +2597,7 @@
        :flush-views!               …
        :flush-render!              …
        :wrap-view                  …
+       :componentize-view          …
        :clear-warned-non-dom-roots! …}
 
   Note (rf2-z7hfp): the spine no longer produces `:frame-provider` or
@@ -2578,6 +2669,10 @@
                                (subs s 0 (dec n))
                                s))
         wrap-view-fn       (make-wrap-view warn-fn)
+        ;; rf2-oz7wr — the substrate-agnostic half of the registered-view
+        ;; component head. The adapter marks the shell this returns with its
+        ;; own substrate's component marker before publishing it.
+        componentize-fn    (make-componentize-view)
         render-fn          (make-render active-roots-cell after-render-sentinel)
         dispose-fn         (make-dispose-adapter!
                              {:active-roots-cell active-roots-cell
@@ -3134,6 +3229,10 @@
      ;; :flush-render! contract slot by make-react-adapter.
      :flush-render!               flush-render!
      :wrap-view                   wrap-view-fn
+     ;; rf2-oz7wr — `:adapter/componentize-view` CORE. The adapter marks the
+     ;; shell as its own substrate's component type and passes the marking
+     ;; wrapper to make-react-adapter as `:componentize-view`.
+     :componentize-view           componentize-fn
      :clear-warned-non-dom-roots! clear-warned
      ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
      ;; this via substrate-adapter/route-hook!.
@@ -3183,6 +3282,14 @@
 ;;     excludes the four hooks above does NOT apply. Without this hook
 ;;     `(interop/after-render f)` under these adapters would be a silent
 ;;     no-op.
+;;   :adapter/componentize-view — rf2-oz7wr. Turns the composed registration
+;;     wrapper into a head the substrate can MOUNT: a genuine JS function
+;;     component stamped with the substrate's own component marker, so
+;;     `(rf/view id)` is directly usable as a `$` / createElement component
+;;     type and its props reach the registered view through the substrate's
+;;     lossless channel. Not published by Reagent, whose class machinery
+;;     already converts the `:contextType` MetaFn; the absent-hook fallback
+;;     in `views/reg-view*` keeps that head unchanged.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord injection
 ;;     via React.cloneElement (the views.cljs inline hiccup-walk would
 ;;     mis-classify React-element output as a non-DOM root). Production-
@@ -3204,6 +3311,16 @@
                         element-macro dependency, mirroring how
                         `make-ratom-adapter` takes the Reagent-component
                         `register-context-provider` in.
+      :componentize-view — the substrate's registered-view head factory
+                        (rf2-oz7wr), shape `(id metadata wrapped) -> head`.
+                        Passed in for the SAME reason as `:frame-provider`:
+                        the shell must carry that substrate's own component
+                        marker, and stamping it is the one substrate-native
+                        step, so the adapter wraps the spine's
+                        `:componentize-view` core with it. Keeping the marker
+                        out of the spine is what stops this ns growing a
+                        per-substrate branch — the drift rf2-z7hfp removed
+                        from the provider seam.
 
   Builds the 9-key substrate adapter map, routes the five React-hook
   late-bind hooks against it (`substrate-adapter/route-hook!`), and wires
@@ -3222,7 +3339,7 @@
   `spine-fns` map, `:kind`, and native `:frame-provider`. The former
   hand-copied route-hook block + chained installs (byte-identical across
   the UIx twins) now live once."
-  [spine-fns {:keys [kind frame-provider]}]
+  [spine-fns {:keys [kind frame-provider componentize-view]}]
   (let [adapter {:kind                      kind
                  :make-state-container      (:make-state-container      spine-fns)
                  :read-container            (:read-container            spine-fns)
@@ -3249,6 +3366,11 @@
       rf-disposable/-dispose)
     (substrate-adapter/route-hook! adapter :adapter/wrap-view
       (:wrap-view spine-fns))
+    ;; rf2-oz7wr — the registered-view component head. Routed (not chained by
+    ;; identity) like every other `:adapter/*` hook, so a loaded-but-inactive
+    ;; React-hook adapter cannot claim a Reagent registration.
+    (substrate-adapter/route-hook! adapter :adapter/componentize-view
+      componentize-view)
     (substrate-adapter/route-hook! adapter :adapter/after-render
       (:after-render-hook spine-fns))
     ;; Chained warn-once clear (rf2-4edk): chained (NOT routed by installed-
