@@ -302,11 +302,33 @@
                                  :operation :rf.event/db-changed
                                  :tags {:rf.db/path [:counter]
                                         :rf.db/old 1 :rf.db/new 2}})))))
-  (testing "fx → fx-id → arg"
+  (testing "fx → fx-id → arg, off the framework's canonical :rf.fx/args
+            (rf2-vbadq — `re-frame.fx` emits the PLURAL key on every
+            `:rf.fx/handled` row; the singular `:rf.fx/arg` this test
+            once fabricated is a shape no producer emits)"
+    (is (= ":app/audit → {:message \"saved\"}"
+           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                                 :tags {:rf.fx/id   :app/audit
+                                        :rf.fx/args {:message "saved"}}}))))
     (is (= ":http-xhrio → \"GET /api\""
            (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
-                                 :tags {:rf.fx/id :http-xhrio
-                                        :rf.fx/arg "GET /api"}})))))
+                                 :tags {:rf.fx/id   :http-xhrio
+                                        :rf.fx/args "GET /api"}})))))
+  (testing "fx arg presence is KEY PRESENCE, not truthiness — false and
+            nil are valid effect arguments and must stay visible
+            (rf2-vbadq)"
+    (is (= ":app/toggle → false"
+           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                                 :tags {:rf.fx/id   :app/toggle
+                                        :rf.fx/args false}}))))
+    (is (= ":app/clear → nil"
+           (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                                 :tags {:rf.fx/id   :app/clear
+                                        :rf.fx/args nil}}))))
+    (testing "control — a row genuinely without :rf.fx/args stays id-only"
+      (is (= ":app/audit"
+             (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
+                                   :tags {:rf.fx/id :app/audit}}))))))
   (testing "sub → sub-id"
     (is (= ":app/counter"
            (h/target-detail (ev {:id 1 :op-type :rf.sub :operation :rf.sub/run

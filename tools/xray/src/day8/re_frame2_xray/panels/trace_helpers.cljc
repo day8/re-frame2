@@ -573,10 +573,19 @@
           :else nil))
 
       :fx
+      ;; rf2-vbadq — the framework emits effect arguments under the
+      ;; CANONICAL PLURAL `:rf.fx/args` (`re-frame.fx`, on the handled,
+      ;; exception, skipped-on-platform and no-such-fx rows alike). The
+      ;; earlier singular `:rf.fx/arg` / `:rf.fx/value` reads matched no
+      ;; producer, so every real row projected its fx-id alone.
+      ;; Presence is by KEY, not truthiness: `false` and `nil` are valid
+      ;; effect arguments, so only a genuinely absent key falls back to
+      ;; the id-only form.
       (when-let [fx-id (or (:rf.fx/id tags) (:rf.fx/effect-id tags))]
-        (str fx-id
-             (when-let [arg (or (:rf.fx/arg tags) (:rf.fx/value tags))]
-               (str " → " (pr-str-safe arg)))))
+        (let [args (get tags :rf.fx/args tags-absent)]
+          (str fx-id
+               (when-not (= args tags-absent)
+                 (str " → " (pr-str-safe args))))))
 
       :flow
       (let [flow-id (or (:rf.flow/id tags) (:flow-id tags))
