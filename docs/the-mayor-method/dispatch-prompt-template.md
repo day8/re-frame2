@@ -969,7 +969,11 @@ restore. Five cautions on the plant itself:
   carriage return sits between the text and the line ending. This defeats a single-line anchor as
   readily as a multi-line one, so the caution above does not cover it. **Read the match count
   before you run the gate**: zero is unambiguous and free, where the hash convicts a no-op plant
-  only after a whole run has been spent.
+  only after a whole run has been spent. Measured, and it is the CHECK rather than the hazard that
+  the measurement is of: a worker's plant matched zero lines because an intervening checkout had
+  restored the translated endings, and the match count caught it before a run was spent. Note what
+  that implies about timing — the endings can change under you *between* one plant and the next, so
+  the count is read per plant rather than once per session.
 * **A hash proves the SOURCE changed, not that the runtime ever saw it.** One plant applied
   genuinely — the hashes differed — but the file was not in the build's module graph, so the
   watcher served the pre-plant compile and the witness came back green. A green sabotage run is
