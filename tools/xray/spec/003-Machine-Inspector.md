@@ -945,6 +945,62 @@ machines-viz edge-ids the live chart mints (agreement by construction).
 [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) §Parallel
 `:always`-round BROWSER proof.
 
+### Raised-internal-event fired-edge highlight (rf2-nb8nj)
+
+A same-macrostep **raised** internal event (`{:fx [[:raise [:settle]]]}`, and
+the runtime's synthetic `[:rf.machine/done <path>]` completion signal, which
+is the same fx) can select a real transition and move the machine on before
+the macrostep commits. It is the third continuation shape alongside the
+dispatched event and the parent-owned `:always` rounds, and until rf2-nb8nj
+the trace could not describe it: the flat/compound drain **discarded** the
+raised transition's cascade rows outright, and the parallel parent queue
+**flattened** them into the accumulator with no boundary and no trigger event.
+Spec 005 §The structured transition cascade now defines one
+`:kind :raised-transition` step per **handled** dequeue, in FIFO order,
+carrying that internal `:event` and its own nested `:steps`.
+
+Both consumer defects this fixes were **silent** — each produced a
+well-formed highlight rather than an error.
+
+**Single-active — the dispatched event's edge lit nothing.** This is the
+rf2-8i1tg3 failure reached by the other route. A macrostep whose event raised
+an internal event but ran no `:always` had **no cascade boundary at all**, so
+`direct-event-target` fell through to the settled `:after` and the match
+became `(before, settled, event)` — the aggregate edge that does not exist.
+`direct-event-target` now takes the first of the `:microstep` **and**
+`:raised-transition` boundaries (`macrostep-boundary-steps`), which is the
+state the dispatched event committed either way. Each raised hop then lights
+its **own** edge under its **own** internal event id, and an `:always`
+transition the raise **enabled** settles inside that wrapper's `:steps`, so
+its edge is matched from there rather than at top level. The dispatched event
+and the internal event therefore appear as **distinct causal steps**. With no
+raised events the derivation is a no-op, exactly as the `:microsteps 0` case
+is.
+
+**Parallel — a raise-only region was counted as event-handled.** This one was
+worse than a miss, because it lit an edge that never fired. A raise is
+re-broadcast across **every** region, so a region that DECLINED the external
+event can still move on it; with the rebroadcast's rows flattened in
+unmarked, `handled-regions-from-cascade` read that region's `:exit` /
+`:action` / `:entry` rows as evidence it had handled the **dispatched** event
+and minted a phantom edge for it. That set now excludes `:raised-transition`
+steps for the same reason it already excludes `:microstep` steps — the rows
+that must not count are now identifiable, which is precisely what the runtime
+change supplies. The raised hops light separately off `raised-region-hops`,
+which reads each region's own `(from, to)` out of the wrapper's composite
+region-MAP `:from` / `:to` and matches under the internal event id through
+the same region-local → region-`:on` → root-`:on` fallback the event branch
+uses; a region that handled the raise with a targetless/self transition
+(before == after, but present in the wrapper's nested `:steps`) lights its
+self/internal edge. A region's event target resolves from its first
+continuation boundary — a round if one ran, else its first raised hop, since
+`:always` is preferred before the next raise is dequeued.
+
+An **ignored or guard-blocked** raise contributes no wrapper at all, so it
+mints no edge — the record never fabricates a transition that did not fire.
+The returned ids remain the EXACT canonical machines-viz edge-ids the live
+chart mints (agreement by construction).
+
 ### Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)
 
 A guard-blocked no-op (above) emits NO `:rf.machine/transition`, so the chart's

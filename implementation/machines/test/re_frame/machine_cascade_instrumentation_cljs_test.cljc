@@ -298,6 +298,284 @@
       (is (some #(= :win (:action %)) (:steps microstep))
           "the eventless transition's :win action is explainable inside the microstep"))))
 
+;; ---- raised (internal) events appear as their own cascade boundary --------
+;;
+;; rf2-nb8nj — a same-macrostep raised event selects a REAL transition whose
+;; exit/action/entry geometry belongs to THAT event, not to the dispatched
+;; one. Before this fix the flat/compound drain discarded those rows outright
+;; (the loop recurred with the cascade unchanged) and the parallel parent
+;; queue flattened them in with no boundary, so the cascade could say
+;; `:idle -> :done` while explaining only `:idle -> :working`.
+;;
+;; The record is one nested `:kind :raised-transition` wrapper per HANDLED
+;; dequeue, in actual FIFO order, carrying the internal `:event`, its
+;; `:from`/`:to`, and the nested ordered `:steps`.
+
+(defn- raised-steps
+  "The `:kind :raised-transition` wrappers off a cascade, in cascade order."
+  [cascade]
+  (filterv #(= :raised-transition (:kind %)) cascade))
+
+(defn- reg-settle! []
+  ;; The item's own reproduction: external `:go` moves :idle -> :working and
+  ;; its action raises [:settle]; :working handles :settle with :target :done
+  ;; plus entry/exit actions.
+  (rf/reg-machine :casc/settle
+    {:initial :idle
+     :data    {:trail []}
+     :actions {:start   (fn [{d :data}]
+                          {:data (update d :trail (fnil conj []) :action:go)
+                           :fx   [[:raise [:settle]]]})
+               :settled (trail-action :action:settle)
+               :exit-working (trail-action :exit:working)
+               :enter-done   (trail-action :entry:done)}
+     :states  {:idle    {:on {:go {:target :working :action :start}}}
+               :working {:exit :exit-working
+                         :on   {:settle {:target :done :action :settled}}}
+               :done    {:entry :enter-done}}}))
+
+(deftest raised-event-transition-is-recorded-as-its-own-cascade-boundary
+  (testing "external :go raises [:settle], which moves :working -> :done in the
+   SAME macrostep. The committed snapshot is :done (raise FIFO semantics
+   already worked), and the single :rf.machine/transition cascade explains the
+   WHOLE walk: the :go geometry, then one :raised-transition wrapper carrying
+   the raised event and its own ordered exit/action/entry steps"
+    (reg-settle!)
+    (rf/dispatch-sync [:casc/settle [:rf.machine/start]])
+    (let [evs     (record-traces!
+                    (fn [] (rf/dispatch-sync [:casc/settle [:go]])))
+          tr      (the-transition evs)
+          cascade (cascade-of evs)
+          raised  (raised-steps cascade)]
+      ;; Premise: the FOLD is already correct — only the record was lossy.
+      (is (= :done (:state (mtest/snapshot :casc/settle)))
+          "the committed snapshot is :done — FIFO raise semantics")
+      (is (= :idle (get-in tr [:tags :before :state])))
+      (is (= :done (get-in tr [:tags :after :state]))
+          "the headline trace spans the WHOLE macrostep")
+
+      ;; The external event's own geometry stays the headline, un-nested.
+      (let [outer (remove #(= :raised-transition (:kind %)) cascade)]
+        (is (= [:exit :action :entry] (mapv :kind outer))
+            "the external :go transition's own exit/action/entry stay at top level")
+        (is (= [nil :start nil] (mapv :action outer))
+            "the top-level rows are the :go transition's, not the raise's"))
+
+      ;; The raised event's rows are neither discarded nor flattened.
+      (is (= 1 (count raised))
+          "exactly one :raised-transition wrapper (RED before rf2-nb8nj: the
+           flat drain recurred with the cascade unchanged, so this was 0)")
+      (let [w (first raised)]
+        (is (= [:settle] (:event w)) "the wrapper names the internal event")
+        (is (= :working (:from w)) "from-state is where the raise was dequeued")
+        (is (= :done    (:to w))   "to-state is where the raised transition landed")
+        (is (nil? (:region w))     "flat/compound machines carry :region nil")
+        (is (vector? (:steps w))   "the wrapper carries its own nested steps")
+        (is (= [:exit :action :entry] (mapv :kind (:steps w)))
+            "the raised transition's own LCA walk rides INSIDE the wrapper")
+        (is (= [:exit-working :settled :enter-done] (mapv :action (:steps w)))
+            "exit :working -> :settled @ LCA -> entry :done"))
+
+      ;; The wrapper sits AFTER the external rows — execution order.
+      (is (= :raised-transition (:kind (last cascade)))
+          "the raised boundary is appended in execution order")
+
+      ;; Trail oracle: the flattened action order the cascade must explain.
+      (is (= [:action:go :exit:working :action:settle :entry:done]
+             (get-in @(rf/subscribe [:rf/machine :casc/settle]) [:data :trail]))
+          "trail oracle for the whole macrostep"))))
+
+(deftest raised-wrappers-follow-actual-fifo-dequeue-order
+  (testing "two raises emitted by one action are dequeued FIFO, and the
+   cascade's :raised-transition wrappers appear in that same order"
+    (rf/reg-machine :casc/fifo
+      {:initial :a
+       :actions {:fan-out (fn [_] {:fx [[:raise [:first]] [:raise [:second]]]})
+                 :noop    (fn [_] {})}
+       :states  {:a {:on {:go {:target :b :action :fan-out}}}
+                 :b {:on {:first {:target :c :action :noop}}}
+                 :c {:on {:second {:target :d :action :noop}}}
+                 :d {}}})
+    (rf/dispatch-sync [:casc/fifo [:rf.machine/start]])
+    (let [evs    (record-traces!
+                   (fn [] (rf/dispatch-sync [:casc/fifo [:go]])))
+          raised (raised-steps (cascade-of evs))]
+      (is (= :d (:state (mtest/snapshot :casc/fifo))))
+      (is (= [[:first] [:second]] (mapv :event raised))
+          "wrappers are ordered by actual FIFO dequeue order")
+      (is (= [[:b :c] [:c :d]] (mapv (juxt :from :to) raised))
+          "each wrapper's from/to is its own hop, not the macrostep's span"))))
+
+(deftest always-enabled-by-a-raised-transition-rides-inside-its-wrapper
+  (testing "an :always transition enabled by a raised transition settles
+   INSIDE that raise's nested cascade, so the microstep is attributed to the
+   internal event that enabled it rather than to the dispatched event"
+    (rf/reg-machine :casc/raise-always
+      {:initial :a
+       :data    {:n 0}
+       :actions {:kick  (fn [_] {:fx [[:raise [:tick]]]})
+                 :count (fn [{d :data}] {:data {:n (inc (:n d))}})
+                 :win   (fn [{d :data}] {:data (assoc d :won true)})}
+       :states  {:a {:on {:go {:target :b :action :kick}}}
+                 :b {:on {:tick {:target :c :action :count}}}
+                 :c {:always [{:target :d :action :win}]}
+                 :d {}}})
+    (rf/dispatch-sync [:casc/raise-always [:rf.machine/start]])
+    (let [evs     (record-traces!
+                    (fn [] (rf/dispatch-sync [:casc/raise-always [:go]])))
+          cascade (cascade-of evs)
+          raised  (raised-steps cascade)
+          w       (first raised)]
+      (is (= :d (:state (mtest/snapshot :casc/raise-always))))
+      (is (= 1 (count raised)))
+      (is (empty? (filterv #(= :microstep (:kind %)) cascade))
+          "the :always did NOT settle at top level — it was enabled by the raise")
+      (let [nested-micro (filterv #(= :microstep (:kind %)) (:steps w))]
+        (is (= 1 (count nested-micro))
+            "the :always microstep rides inside the raised boundary")
+        (is (= :c (:from (first nested-micro))))
+        (is (= :d (:to   (first nested-micro))))
+        (is (some #(= :win (:action %)) (:steps (first nested-micro)))
+            "the eventless transition's action is explainable inside the nest")))))
+
+(deftest ignored-and-guard-blocked-raises-fabricate-no-wrapper
+  (testing "a raised event no state handles, and a raised event whose only
+   candidate is guard-blocked, each contribute NO :raised-transition wrapper —
+   an unhandled internal event is not a transition"
+    (rf/reg-machine :casc/ignored
+      {:initial :a
+       :data    {:open? false}
+       :guards  {:open? (fn [{d :data}] (:open? d))}
+       :actions {:raise-unknown (fn [_] {:fx [[:raise [:nobody-handles-this]]]})
+                 :raise-guarded (fn [_] {:fx [[:raise [:blocked]]]})
+                 :noop          (fn [_] {})}
+       :states  {:a {:on {:go      {:target :b :action :raise-unknown}
+                          :guarded {:target :b :action :raise-guarded}}}
+                 :b {:on {:blocked {:guard :open? :target :c :action :noop}}}
+                 :c {}}})
+    (rf/dispatch-sync [:casc/ignored [:rf.machine/start]])
+    (let [evs (record-traces!
+                (fn [] (rf/dispatch-sync [:casc/ignored [:go]])))]
+      (is (= :b (:state (mtest/snapshot :casc/ignored))))
+      (is (empty? (raised-steps (cascade-of evs)))
+          "an IGNORED raised event fabricates no handled-transition wrapper"))
+    ;; reset to :a is not needed — re-register a fresh machine for the guard leg
+    (rf/reg-machine :casc/guarded
+      {:initial :a
+       :data    {:open? false}
+       :guards  {:open? (fn [{d :data}] (:open? d))}
+       :actions {:kick (fn [_] {:fx [[:raise [:blocked]]]})
+                 :noop (fn [_] {})}
+       :states  {:a {:on {:go {:target :b :action :kick}}}
+                 :b {:on {:blocked {:guard :open? :target :c :action :noop}}}
+                 :c {}}})
+    (rf/dispatch-sync [:casc/guarded [:rf.machine/start]])
+    (let [evs (record-traces!
+                (fn [] (rf/dispatch-sync [:casc/guarded [:go]])))]
+      (is (= :b (:state (mtest/snapshot :casc/guarded)))
+          "the guard blocked the raised transition — the machine rests at :b")
+      (is (empty? (raised-steps (cascade-of evs)))
+          "a GUARD-BLOCKED raised event fabricates no handled-transition wrapper"))))
+
+(deftest targetless-raised-transition-records-its-action-boundary
+  (testing "a handled raised transition with NO :target still records its
+   boundary — the wrapper is present with :from equal to :to and the action
+   step nested inside it"
+    (rf/reg-machine :casc/targetless
+      {:initial :a
+       :data    {:hits 0}
+       :actions {:kick (fn [_] {:fx [[:raise [:ping]]]})
+                 :bump (fn [{d :data}] {:data {:hits (inc (:hits d))}})}
+       :states  {:a {:on {:go {:target :b :action :kick}}}
+                 :b {:on {:ping {:action :bump}}}}})
+    (rf/dispatch-sync [:casc/targetless [:rf.machine/start]])
+    (let [evs    (record-traces!
+                   (fn [] (rf/dispatch-sync [:casc/targetless [:go]])))
+          raised (raised-steps (cascade-of evs))
+          w      (first raised)]
+      (is (= 1 (count raised))
+          "a targetless HANDLED raise still records its boundary")
+      (is (= [:ping] (:event w)))
+      (is (= (:from w) (:to w))
+          ":from equals :to for an internal (targetless) raised transition")
+      (is (= [:action] (mapv :kind (:steps w)))
+          "action-only — no exit/entry boundary")
+      (is (= [:bump] (mapv :action (:steps w)))))))
+
+(deftest synthetic-done-state-signal-uses-the-same-raised-boundary
+  (testing "the runtime's synthetic [:rf.machine/done <path>] completion event
+   is raised through the SAME internal-event queue, so it is recorded by the
+   SAME mechanism — one :raised-transition wrapper, no special dialect"
+    (rf/reg-machine :casc/done
+      {:initial :work
+       :data    {}
+       :actions {:finish (fn [{d :data}] {:data (assoc d :finished true)})}
+       :states  {:work {:initial :step
+                        :on      {:rf.machine/done {:target :wrapped :action :finish}}
+                        :states  {:step {:on {:go {:target :end}}}
+                                  :end  {:final? true}}}
+                 :wrapped {}}})
+    (rf/dispatch-sync [:casc/done [:rf.machine/start]])
+    (let [evs    (record-traces!
+                   (fn [] (rf/dispatch-sync [:casc/done [:go]])))
+          raised (raised-steps (cascade-of evs))
+          w      (first raised)]
+      (is (= :wrapped (:state (mtest/snapshot :casc/done)))
+          "the done signal advanced the enclosing compound")
+      (is (= 1 (count raised))
+          "the synthetic done signal rides the same raised-transition boundary")
+      (is (= :rf.machine/done (first (:event w)))
+          "the wrapper names the synthetic completion event")
+      (is (some #(= :finish (:action %)) (:steps w))
+          "the done-driven transition's action is explainable inside the wrapper"))))
+
+;; ---- root-parallel: raised rebroadcast is GROUPED, not flattened ----------
+
+(deftest parallel-raised-rebroadcast-is-grouped-under-its-internal-event
+  (testing "a raised event re-broadcast across a parallel root's regions
+   contributes its rows INSIDE one :raised-transition wrapper, so they are no
+   longer indistinguishable from the external event's rows. Before rf2-nb8nj
+   the parallel parent queue flattened them straight into the accumulator,
+   which made Xray read them as evidence that :b's region handled :go."
+    (rf/reg-machine :casc/par
+      {:type :parallel
+       :data {:trail []}
+       :regions
+       {:left  {:initial :l0
+                :states  {:l0 {:on {:go {:target :l1 :action :left-go}}}
+                          :l1 {}}}
+        :right {:initial :r0
+                :states  {:r0 {:on {:settle {:target :r1 :action :right-settle}}}
+                          :r1 {}}}}
+       :actions {:left-go      (fn [{d :data}]
+                                 {:data (update d :trail (fnil conj []) :action:left-go)
+                                  :fx   [[:raise [:settle]]]})
+                 :right-settle (trail-action :action:right-settle)}})
+    (rf/dispatch-sync [:casc/par [:rf.machine/start]])
+    (let [evs     (record-traces!
+                    (fn [] (rf/dispatch-sync [:casc/par [:go]])))
+          cascade (cascade-of evs)
+          raised  (raised-steps cascade)
+          w       (first raised)]
+      (is (= {:left :l1 :right :r1} (:state (mtest/snapshot :casc/par)))
+          "both regions moved — :go in :left, the raised :settle in :right")
+      (is (= 1 (count raised))
+          "the rebroadcast contributes ONE boundary (RED before rf2-nb8nj:
+           its rows were flattened into the accumulator with no boundary)")
+      (is (= [:settle] (:event w)))
+      (is (some #(= :right-settle (:action %)) (:steps w))
+          ":right's raised-transition rows ride inside the wrapper")
+
+      ;; The misattribution the item names: the top-level (non-wrapper,
+      ;; non-microstep) rows must name ONLY the region that handled :go.
+      (let [outer-regions (into #{}
+                                (comp (remove #(#{:microstep :raised-transition} (:kind %)))
+                                      (keep :region))
+                                cascade)]
+        (is (= #{:left} outer-regions)
+            ":right must NOT appear at top level — it declined :go and moved
+             only on the raised :settle (RED before rf2-nb8nj: #{:left :right})")))))
+
 ;; ---- privacy / size: no source-literal or large-payload leak --------------
 
 (deftest cascade-carries-only-deltas-not-whole-data

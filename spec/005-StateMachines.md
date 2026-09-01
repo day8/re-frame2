@@ -633,11 +633,12 @@ Both traces flow through the standard trace bus, so `*handler-scope*` auto-stamp
 
 The per-action `:rf.machine/action-ran` stream above lets a tool *reconstruct* what ran, but only by re-walking the LCA geometry to know which state each action belonged to and in what cascade order. The macrostep's headline `:rf.machine/transition` trace therefore **also carries a structured `:cascade` field** — the engine emits, in a single trace, the ordered step sequence that explains *how* the transition reached its after-state. One trace, one place for tooling to read; this is the contract Xray's epoch panel renders, and it **removes the need for app-level `:data :trail` workarounds**.
 
-`:cascade` is a **vector of self-describing step maps in execution order**, following the ordering [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) already defines — **exit deepest-first → transition `:action` at the LCA → entry shallowest-first + initial-descent**, then one step per `:always`/eventless microstep:
+`:cascade` is a **vector of self-describing step maps in execution order**, following the ordering [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca) already defines — **exit deepest-first → transition `:action` at the LCA → entry shallowest-first + initial-descent**, then one step per `:always`/eventless microstep and one per handled raised internal event:
 
 ```clojure
 ;; one cascade step (the structural shape the consumer reads)
-{:kind   :exit | :action | :entry | :microstep   ;; the structural boundary
+{:kind   :exit | :action | :entry                ;; the structural boundary
+         | :microstep | :raised-transition        ;;   (the two nesting kinds)
  :state  [:running :conditioning :heating]        ;; state-path exited/entered;
                                                    ;;   the transition's decl-path for :action
  :region :climate | nil                            ;; parallel region (nil for flat/compound)
@@ -664,16 +665,39 @@ The per-action `:rf.machine/action-ran` stream above lets a tool *reconstruct* w
  :from            :asking
  :to              :winner
  :steps           [ …exit/action/entry step maps for the eventless transition… ]}
+
+;; a :raised-transition step is the SAME nesting shape for a same-macrostep
+;; internal event: it swaps the microstep INDEX for the triggering :event
+{:kind   :raised-transition
+ :region nil                                     ;; nil on the parallel parent queue —
+                                                 ;;   a raise re-broadcasts across EVERY
+                                                 ;;   region, so the boundary belongs to
+                                                 ;;   none of them; the nested :steps keep
+                                                 ;;   their own per-region stamps
+ :event  [:settle]                               ;; the internal event vector, verbatim
+ :from   :working                                ;; state where the raise was DEQUEUED
+ :to     :done                                   ;;   and where its transition landed
+                                                 ;;   (equal for a targetless raise;
+                                                 ;;    whole region-MAPs on a parallel root,
+                                                 ;;    matching :before / :after)
+ :steps  [ …exit/action/entry (+ nested :microstep) maps for the raised transition… ]}
 ```
 
 Key properties:
 
-- **Complete configuration walk.** Every state exited and entered is recorded — *including* boundaries with no declared `:exit`/`:entry` action (`:action nil`, empty `:data-delta`) — so the geometry is explainable without the spec. (An app-level `:data :trail` only captured *action-bearing* boundaries; the cascade is a superset.)
-- **`:kind` is structural, not the action driver phase.** It is the closed set `:exit / :action / :entry / :microstep`. The orthogonal driver phase (`:transition` / `:always` / `:after-action` / `:initial-entry` / `:destroy-exit`) is what the per-action `:rf.machine/action-ran` emit stamps under `:phase`; the two dimensions never smear (see the `action-ran` `:phase` set above).
+- **Complete configuration walk.** Every state exited and entered is recorded — *including* boundaries with no declared `:exit`/`:entry` action (`:action nil`, empty `:data-delta`) — so the geometry is explainable without the spec. (An app-level `:data :trail` only captured *action-bearing* boundaries; the cascade is a superset.) **The walk spans the WHOLE macrostep**, so it covers every state change between the trace's `:before` and `:after` — including the ones a same-macrostep raised internal event selected, which are the subject of the `:raised-transition` property below.
+- **`:kind` is structural, not the action driver phase.** It is the closed set `:exit / :action / :entry / :microstep / :raised-transition`. The orthogonal driver phase (`:transition` / `:always` / `:after-action` / `:initial-entry` / `:destroy-exit`) is what the per-action `:rf.machine/action-ran` emit stamps under `:phase`; the two dimensions never smear (see the `action-ran` `:phase` set above).
 - **`:data-delta` is the minimal per-step contribution** — only the `:data` keys that step's action *changed*, never the whole (possibly large) `:data` map. This keeps the cascade small and side-steps a large-payload leak.
 - **`:source` is an additive, history-only field.** An `:entry` step produced by a `:type :history` restore carries `:source :recorded` (the owning compound's last-active configuration was replayed) or `:source :default` (no recording existed yet, so the leaf came from the history node's `:default-target` / the compound's `:initial`), matching the `:rf.machine.history/restored` event's `:source` (see [§History states](#history-states-type-history--shallow--deep--default-target)). The key is **absent on every non-history step** — a consumer treats its absence as "ordinary cascade entry".
 - **Per-region structure for parallel machines.** Each step carries its `:region`; the cascade is the per-region step sequences concatenated in region declaration order, so a consumer can group by `:region`. Flat / compound machines carry `:region nil`.
 - **`:always` microsteps are explainable.** Each eventless macrostep iteration appends a `:microstep` step carrying its own nested `:steps` — so "all the steps" = the entry/exit cascade **plus** the microstep stream, rather than a bare count. This composes with the per-microstep `:rf.machine.microstep/transition` stream (the latter stays the per-microstep marker; `:cascade` is the macrostep-level structured rollup).
+- **Raised internal events are explainable, and attributed.** Each **handled** dequeue off the internal-event queue (per [§Drain semantics](#drain-semantics)) appends one `:raised-transition` step, in actual FIFO dequeue order, carrying the internal `:event` plus that transition's own nested `:steps`. Two properties follow, and both are contracts a consumer may rely on:
+  - **Nothing is lost.** The cascade explains every hop between `:before` and `:after`, so a macrostep whose external event raised `[:settle]` cannot report `:idle → :done` while explaining only `:idle → :working`.
+  - **Nothing is misattributed.** The raised transition's exit/action/entry rows sit *inside* the wrapper, never alongside the external event's, so a consumer reading the top-level steps is reading the dispatched event's own geometry and nothing else. This is what lets a tool tell "this region handled the dispatched event" from "this region declined it and moved on the rebroadcast raise" — on a parallel root a raise is re-broadcast across **every** region, so the two are otherwise indistinguishable.
+
+  An `:always` transition **enabled by** a raised transition settles inside that wrapper's `:steps` rather than at top level, which places it under the internal event that enabled it. An **ignored or guard-blocked** raised event selects no transition and therefore contributes **no** step — the record never fabricates a transition that did not fire. A **handled targetless** raise still records its boundary, with `:from` equal to `:to`. The runtime's synthetic `[:rf.machine/done <path>]` completion signal (per [§Final states](#final-states-final--on-done--output-key)) is raised through this same queue and so rides this same step — there is no separate done-state shape, and no parallel-only dialect.
+
+  `:microsteps` on the trace is unaffected: it remains the count of **`:always` iterations**, not a count of cascade steps.
 - **Bootstrap composition.** When one handler call both bootstraps the machine *and* processes a user event (the same call the `:before`/`:after` slots span), the initial-entry cascade's `:entry` steps prepend the event-driven steps, matching the macrostep the trace reports.
 
 The privacy story rides the same machine-declared `:data` redaction as `:before` / `:after` (see [§Privacy — redacting machine `:data` at trace egress](#privacy--redacting-machine-data-at-trace-egress)). The field is observability via `trace/emit!` (production-elided through the standard `interop/debug-enabled?` gate), never production app-db, so it adds no new elision concern beyond the existing trace payload.
