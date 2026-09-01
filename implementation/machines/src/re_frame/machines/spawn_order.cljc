@@ -22,18 +22,47 @@
   survives `replace-runtime-db!`, epoch restore, and SSR hydration, which
   is precisely what the transient channel below does not.
 
-  **The process-side `spawn-order` atom is a transient CACHE of the same
-  order, never the authority** (rf2-1vlyg). It is runtime bookkeeping in
-  the Spec 002 §Durable vs transient sense: it has no observer contract,
-  is not serialised, and is empty after any state round trip. Destroy
-  keeps consulting it as a liveness bit (`destroy/actor-live?` — it is
-  set on spawn and cleared on destroy regardless of whether a runtime-db
-  swap landed), but frame destroy takes its ORDER from the durable vector
-  alone. Before rf2-1vlyg, frame destroy fell back to parsing the `#<n>`
-  suffix of a restored actor-id when this atom was empty; that suffix is a
-  per-id-prefix sequence and cannot order actors of different machine
-  types, so the fallback emitted a confident wrong order. The durable
-  vector replaced it.
+  **The process-side `spawn-order` atom is a transient CACHE, never the
+  authority** (rf2-1vlyg). It is runtime bookkeeping in the Spec 002
+  §Durable vs transient sense: no observer contract, not serialised, and
+  absent in any fresh process. Before rf2-1vlyg, frame destroy fell back
+  to parsing the `#<n>` suffix of a restored actor-id when this atom was
+  empty; that suffix is a per-id-prefix sequence and cannot order actors
+  of different machine types, so the fallback emitted a confident wrong
+  order. The durable vector replaced it.
+
+  ## What a cache entry means, and what it does not
+
+  An entry says **a spawn COMMITTED in this process** — `record!` runs
+  only after `install-spawn!` reports `:committed`, so by the time an id
+  is in here its snapshot and its durable order entry have landed. It
+  never says the actor is **still** in the frame's durable state.
+
+  The gap is not hypothetical, and it is worse than emptiness. An
+  in-process runtime-state install — `restore-epoch!`,
+  `replace-frame-state!`, a captured-value runtime-db revert — replaces
+  the durable value and touches nothing process-side; no production path
+  clears this atom (`:machines/on-frame-restored!` cancels `:after`
+  timers and nothing else). An install that rewinds PAST a spawn
+  therefore leaves the discarded actor named here while durable state has
+  dropped it: the cache is not merely stale, it is WRONG about liveness.
+
+  **So every consumer confirms against the LIVE runtime-db before
+  believing an entry.** `frame-destroy/teardown-on-frame-destroy!` takes
+  its whole membership from the durable snapshots plus the durable order
+  and never unions this atom in; `destroy/actor-live?` re-reads the live
+  runtime-db before trusting a cache hit. Enforcing the invariant where
+  the cache is READ — rather than reconciling it at each install site —
+  is what makes it hold for install paths that fire no hook at all
+  (`replace-frame-state!` fires none) and for paths not yet written.
+
+  That leaves the cache exactly ONE job, which no durable read can do:
+  compensating for a runtime-db argument that is a STALE drain-time read.
+  A `:rf.machine/destroy` effect carries the `old-db` captured at the
+  start of its drain, so a spawn and a destroy back-to-back in one `:fx`
+  vector present an actor that is genuinely live but absent from that
+  value. A cache hit tells `actor-live?` to go and look at the live
+  container instead of trusting `old-db`'s silence.
 
   Shape (both channels): a vector used as an append-only stack, the
   transient one keyed by frame — `{<frame-id> [<actor-id-1> …]}`. Spawn
@@ -120,10 +149,15 @@
 
 (defn frame-order
   "Return `frame-id`'s TRANSIENT spawn-order vector (oldest → newest), or
-  an empty vector when no spawns have been recorded in this process. This
-  is the cache, not the authority — it is empty after any state round
-  trip, so a caller that needs the frame's real creation order reads
-  `durable-order` off the runtime-db instead."
+  an empty vector when no spawns have been recorded in this process.
+
+  This is the cache, not the authority (see the ns docstring). It is empty
+  in a fresh process, and after an in-process runtime-state install it can
+  name actors the installed durable value DISCARDED — so it answers
+  neither \"what order?\" nor \"is this actor live?\" on its own. A caller
+  that needs the frame's real creation order reads `durable-order` off the
+  runtime-db; a caller testing liveness confirms a hit here against the
+  live runtime-db."
   [frame-id]
   (or (get @spawn-order frame-id) []))
 

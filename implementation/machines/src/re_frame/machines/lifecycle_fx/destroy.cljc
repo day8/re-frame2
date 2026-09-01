@@ -112,31 +112,51 @@
     {:owner-gone? (fn [] (not (continue?)))
      :owner-token (frame/current-event-owner-token)}))
 
+(defn- snapshot-present?
+  "True iff `runtime-db` carries a machine snapshot at `actor-id`. A nil
+  `runtime-db` (unknown / destroyed frame) carries nothing."
+  [runtime-db actor-id]
+  (and (some? runtime-db)
+       (contains? (get-in runtime-db (paths/snapshot-path)) actor-id)))
+
 (defn- actor-live?
   "The silent-idempotent liveness probe, shared by the
   keyword/tracked destroy paths (`destroy-machine-fx` /
   `destroy-tracked!`) and the per-actor
   `destroy-single-actor!` path. An actor with a resolved
-  `actor-id` is live iff ANY of the following survive:
+  `actor-id` is live iff EITHER of the following survives:
 
     - **Registrar entry present** at `actor-id`. Normal spawned actors resolve
       lazily without a per-instance entry, but teardown still recognises and
       clears a stale or externally installed entry.
     - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`
-      (covers the mid-drain handler-replaced window + hand-crafted call
-      sites).
-    - **Spawn-order entry present** for `actor-id` in the per-frame
-      spawn-order channel. `spawn-order/record!` runs unconditionally on
-      spawn and `spawn-order/forget!` unconditionally on destroy, so the
-      entry's presence/absence is the most reliable \"alive-or-gone\" bit —
-      notably it covers the back-to-back spawn-then-destroy in the same
-      `:fx` vector, where the snapshot swap may not yet have landed.
+      in `runtime-db` — or, when `runtime-db` does not carry it, in the
+      frame's LIVE runtime-db. The second read is gated on a hit in the
+      transient `spawn-order` cache, which is what makes it cheap: only an
+      id a spawn committed in this process can be in the stale-read window
+      at all.
 
-  A truly-already-destroyed actor has all three gone — the unified
-  teardown projection, registrar cleanup, and `spawn-order/forget!`
-  run atomically per `destroy-single-actor!` / `destroy-resolved!` /
-  `finalize-machine`. See Spec 005 §Destroy is silent-idempotent
-  for the normative paragraph.
+  The `runtime-db` argument is often a drain-time `old-db`, captured when
+  the `:rf.machine/destroy` effect entered. A spawn and a destroy
+  back-to-back in one `:fx` vector therefore present an actor that IS
+  live and yet absent from that value — the window the third clause used
+  to cover by trusting the cache outright.
+
+  Trusting it outright was wrong (rf2-1vlyg audit): no production
+  runtime-state install clears the cache, so after a `restore-epoch!` /
+  `replace-frame-state!` that rewinds PAST a spawn, a cache entry names an
+  actor the installed durable value DISCARDED. The bare-cache clause
+  reported such an actor live and ran a full teardown — trace, `:exit`
+  cascade and all — for something no longer in the frame, in violation of
+  Spec 005 §Destroy is silent-idempotent. Re-reading the LIVE runtime-db
+  covers the stale-`old-db` window exactly (`spawn-order/record!` runs
+  only after `install-spawn!` commits, so a cached id whose actor is live
+  always has a live snapshot) while giving durable state the last word.
+
+  A truly-already-destroyed actor has both signals gone — the unified
+  teardown projection and registrar cleanup run atomically per
+  `destroy-single-actor!` / `destroy-resolved!` / `finalize-machine`.
+  See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
 
   This is the ONE liveness probe every destroy shape consults
   (rf2-s2bsmw). The tracked form pairs it with the exact-incarnation
@@ -145,9 +165,9 @@
   [frame-id actor-id runtime-db]
   (and actor-id
        (or (some? (registrar/lookup :event actor-id))
-           (and (some? runtime-db)
-                (contains? (get-in runtime-db (paths/snapshot-path)) actor-id))
-           (some #(= actor-id %) (spawn-order/frame-order frame-id)))))
+           (snapshot-present? runtime-db actor-id)
+           (and (some #(= actor-id %) (spawn-order/frame-order frame-id))
+                (snapshot-present? (frame/frame-runtime-db-value frame-id) actor-id)))))
 
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
