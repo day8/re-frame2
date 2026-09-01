@@ -748,8 +748,10 @@ exact-token teardown cascade described below is the sole executable exception.
    partition projections whose source watches the cache reactions used.
 6. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
    machine `:after` timers; schemas; flows; routing host caches and URL ownership;
-   Resources work handles; plain managed HTTP; `:dispatch-later` host timers; and the
-   Hicasso substrate's memoised frame-ops row (`:hicasso/on-frame-destroyed!`).
+   Resources work handles; plain managed HTTP; `:dispatch-later` host timers; the
+   Hicasso substrate's memoised frame-ops row (`:hicasso/on-frame-destroyed!`); and the
+   frame's generation-provenance row — which descriptor pool its generation was
+   resolved against (`:live-frame/on-frame-destroyed!`).
 7. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
    Lifecycle-dead is already published, so public metadata lookup does not resolve the
    frame; the trace is self-contained and carries the dying frame id in `:tags :frame`.

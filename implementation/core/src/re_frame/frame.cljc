@@ -4305,6 +4305,14 @@
                                               eviction is lazy and so never
                                               fires for a per-request id
                                               (rf2-uejlj).
+         :live-frame/on-frame-destroyed!    — drop the frame's generation-
+                                              provenance row (which descriptor
+                                              pool its generation was resolved
+                                              against). Written by every
+                                              successful `make-frame` and read
+                                              only while the frame is live, so
+                                              its lifetime is the frame's
+                                              (rf2-cq0yi).
     7. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
     7a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
@@ -4617,6 +4625,27 @@
         ;; and is untouched by this. No-op when the day8/re-frame2-hicasso
         ;; artefact is absent (the hook is unbound).
         (safe-call-hook! :hicasso/on-frame-destroyed! id)
+        ;; rf2-cq0yi — release the frame's generation-PROVENANCE row: the
+        ;; `re-frame.live-frame` side table naming which descriptor pool this
+        ;; frame's current generation was resolved against (nil = the live
+        ;; source store; a real descriptors value = `make-frame`'s 2-arity
+        ;; explicit pool). EVERY successful public `make-frame` writes one and
+        ;; nothing removed it: destroying N never-reused ids left N permanent
+        ;; rows, and the 2-arity additionally kept the caller's explicit
+        ;; descriptor pool reachable. Same shape as the Hicasso row above, one
+        ;; layer down, and it bites for the same reason — the documented
+        ;; per-request SSR recipe mints a fresh id per request, so a long-lived
+        ;; server accumulated one row per request served. Its only reader is
+        ;; `live-frame/reproject-live-frame!`, already a no-op for a frame
+        ;; carrying no generation, so the row is needed only while the frame is
+        ;; live. Keyed and unconditional, needing no incarnation token: this
+        ;; destroy still owns the id's reservation and a same-id successor is
+        ;; constructable only after the step-9 dissoc, so the row standing here
+        ;; is this dying incarnation's. Reached by late-bind because
+        ;; `re-frame.live-frame` requires THIS ns (a back-require would invert
+        ;; the load order); published by the same `make-frame`-rooted once-body
+        ;; that writes the rows, so it is bound whenever a row can exist.
+        (safe-call-hook! :live-frame/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
