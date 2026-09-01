@@ -618,6 +618,52 @@ else
         ;;
     esac
 
+    # rf2-bbe91 (audit reopen of PR #8868) — the REVERSE edge into the MIG-23
+    # SSR cold-start fixture. `reagent-migration-fixture-cold-start` is gated
+    # solely on `skills_structural`, and before this dispatch that output was
+    # armed only from the skill trees themselves. So the fixture fired on a
+    # change to the RECIPE but never on a change to the SUBSTRATE it pins the
+    # recipe against — a core adapter-lifecycle, SSR, Hicasso server-render or
+    # Reagent adapter change skipped the only cross-artefact witness that the
+    # documented cold start still works, which is the very regression the
+    # fixture exists to catch. A skipped job is an accepted result, so the
+    # aggregator could not notice.
+    #
+    # The roster is the fixture's own declared classpath —
+    # `skills/reagent-migration/tests/fixture/deps.edn` resolves exactly these
+    # four artefacts as `:local/root`, and the job's cache key hashes the same
+    # four `deps.edn` files. `src/*` + `deps.edn` rather than the whole tree
+    # because a `:local/root` contributes the artefact's `:paths` and its
+    # dependency declaration and nothing else: an artefact's own `test/` tree is
+    # not on this fixture's classpath and cannot change what it compiles.
+    #
+    # ITS OWN DISPATCH RATHER THAN FOUR ARMS OF THE BIG `case` BELOW, for the
+    # reason rf2-65ajl gives just under this: a POSIX `case` takes the FIRST
+    # match, and all four of these trees already have arms there
+    # (`implementation/core/*`, `implementation/adapters/*`, the per-feature
+    # fan-out that carries `implementation/ssr/*`, and `implementation/
+    # hicasso/*`). An arm placed above them would SHADOW those arms and
+    # silently narrow four artefacts' coverage to one output; placed below, it
+    # would never match. A dispatch consulted for every file can do neither —
+    # it only ever SETS `skills_structural`, so it cannot narrow anything.
+    #
+    # THE FAN-OUT IS DELIBERATE AND WIDER THAN THE ONE JOB, which is worth
+    # stating because `skills_structural` gates three things. Firing it here
+    # also schedules `re-frame2-pair-fixture-pure`, and that is CORRECT for
+    # two of the four: `skills/re-frame2-pair/tests/fixture/deps.edn` declares
+    # core and the Reagent adapter as `:local/root` too, so it carries the
+    # identical unarmed reverse dependency and this closes it as well. For ssr
+    # and hicasso it over-fires that job, and it over-fires the cheap Babashka
+    # `skills-structural` job for all four. TESTING.md's routing rule prefers
+    # exactly that trade ("when in doubt, over-classify"), and the alternative
+    # — a 29th output existing only to split two fixture jobs apart — buys a
+    # few runner-minutes for a permanent widening of the matrix.
+    case "$file" in
+      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/hicasso/src/*|implementation/hicasso/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn)
+        skills_structural=true
+        ;;
+    esac
+
     # rf2-65ajl — its own dispatch rather than an arm of the big `case` below,
     # for the reason a POSIX `case` takes the FIRST match: the full gate's
     # roster straddles two trees that already have arms there

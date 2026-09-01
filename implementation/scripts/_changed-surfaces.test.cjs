@@ -2269,6 +2269,98 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
   });
 }
 
+// rf2-bbe91 (audit reopen of PR #8868) — the REVERSE edge into the MIG-23 SSR
+// cold-start fixture. rf2-g1m2q above armed `skills_structural` from the SKILL
+// trees, which fires `reagent-migration-fixture-cold-start` on a change to the
+// RECIPE. It left the other direction open: the fixture pins the recipe against
+// four in-repo artefacts it resolves as `:local/root`, and a change to any of
+// THOSE classified `skills_structural=false`, so the only cross-artefact
+// cold-start witness was skipped on exactly the substrate change that could
+// break it. A skipped job is an accepted result, so the aggregator stayed green.
+//
+// The roster below IS `skills/reagent-migration/tests/fixture/deps.edn`'s
+// `:deps` map, and the same four `deps.edn` files the job's cache key hashes.
+//
+// EVERY PATH HERE IS TRACKED, checked with `git ls-files`, not transcribed from
+// prose. The extensions are the trap: the Hicasso server door and the stock
+// Reagent adapter are `.cljs`, not `.cljc`, and the reopening audit's own note
+// spelled both `.cljc`. Nothing would have caught it — these arms are pure path
+// patterns, so a phantom file classifies identically to a real one and the
+// assertion passes while pinning a route no diff can ever take. That is the
+// same defect rf2-qxg24 removes from the examples_compile fixture list in this
+// file, and it is why the negative half below uses tracked paths too.
+const MIG23_FIXTURE_LOCAL_ROOTS = [
+  'implementation/core/src/re_frame/core.cljc',
+  'implementation/ssr/src/re_frame/ssr.cljc',
+  'implementation/hicasso/src/re_frame/hicasso/server.cljs',
+  'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+];
+for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
+  test(`${file} arms skills_structural — MIG-23 cold-start reverse edge (rf2-bbe91)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.skills_structural,
+      'true',
+      `${file} is on the MIG-23 cold-start fixture's :local/root classpath; a change to it ` +
+        'must schedule reagent-migration-fixture-cold-start, the only cross-artefact witness ' +
+        'that the documented SSR cold start still works',
+    );
+  });
+}
+
+// The negative half. The edge is the fixture's CLASSPATH, not "anything under
+// implementation/", so it must not become a default arm by drift. A `:local/root`
+// contributes the artefact's `:paths` plus its dependency declaration — an
+// artefact's own `test/` tree is not on the fixture's classpath — and the three
+// sibling per-feature artefacts are not on it at all.
+for (const file of [
+  'implementation/core/test/re_frame/adapter/routing_arity_cljs_test.cljc',
+  'implementation/schemas/src/re_frame/schemas.cljc',
+  'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
+]) {
+  test(`${file} does NOT arm skills_structural (reverse edge stays scoped, rf2-bbe91)`, () => {
+    assert.equal(
+      classify(file).skills_structural,
+      'false',
+      `${file} is not on the MIG-23 fixture's :local/root classpath; it must not queue the ` +
+        'skills_structural fixture jobs',
+    );
+  });
+}
+
+// The dispatch only ever SETS `skills_structural`, so it cannot narrow the four
+// artefacts' existing routing. Pinned because a future refactor into an arm of
+// the big first-match `case` WOULD narrow it, silently and in exactly one
+// direction — the failure the dispatch's own comment exists to prevent.
+test('the MIG-23 reverse edge does not narrow core/ssr/reagent production routing (rf2-bbe91)', () => {
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+    'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+  ]) {
+    const result = classify(file);
+    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod', 'bundle_isolation']) {
+      assert.equal(
+        result[key],
+        'true',
+        `${file} must retain ${key}; the cold-start reverse edge widens, it never narrows`,
+      );
+    }
+  }
+});
+
+test('reagent-migration-fixture-cold-start is job-level gated on skills_structural (rf2-bbe91)', () => {
+  const block = jobBlock(
+    fs.readFileSync(WORKFLOW, 'utf8'),
+    'reagent-migration-fixture-cold-start',
+  );
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.skills_structural == 'true'/,
+  );
+});
+
 test('cljs-browser job is job-level gated on cljs_browser (browser consumer, rf2-11yjq)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-browser');
   assert.match(block, /needs: detect_changed_surfaces/);

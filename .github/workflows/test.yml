@@ -5820,8 +5820,15 @@ jobs:
   # Node. The fixture has no package-lock.json (dev-only, deps pinned exactly in
   # package.json), so `npm install` — not `npm ci` — bootstraps shadow-cljs.
   #
-  # GATED ON `skills_structural`, which `skills/reagent-migration/*` arms
-  # (rf2-g1m2q) — so a diff confined to the skill tree schedules this job.
+  # GATED ON `skills_structural`, which two directions arm. The skill tree
+  # itself (`skills/reagent-migration/*`, rf2-g1m2q) covers a change to the
+  # RECIPE. The fixture's four `:local/root` artefacts — core, ssr, hicasso and
+  # the stock Reagent adapter, at `src/*` + `deps.edn` — cover a change to the
+  # SUBSTRATE the recipe is pinned against (rf2-bbe91). Without that second
+  # edge this job was skipped on exactly the adapter-lifecycle, SSR or
+  # server-render change it exists to witness, and a skipped job is an accepted
+  # result, so the aggregator could not tell. Both directions are pinned in
+  # `implementation/scripts/_changed-surfaces.test.cjs`.
   # ---------------------------------------------------------------------------
   reagent-migration-fixture-cold-start:
     name: reagent-migration MIG-23 SSR cold-start node-test (rf2-vpdrf)
