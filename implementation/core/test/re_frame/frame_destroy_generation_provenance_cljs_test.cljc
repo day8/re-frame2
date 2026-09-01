@@ -26,6 +26,12 @@
   `:live-frame/on-frame-destroyed!` and invoked from `destroy-frame!`'s step-6
   auxiliary-cleanup pass beside its siblings.
 
+  Every case below starts from a COMPLETE late-bind registry, so none of them
+  can see whether that publication survives a hot reload of the producing
+  namespace — see `live_frame_teardown_hook_reload_jvm_test`, which constructs
+  the discriminating state (once-flag latched, this one key missing) that the
+  audit of PR #8887 measured.
+
   ## Why each case asserts PRESENCE before it asserts absence
 
   A leak is an ABSENCE, and \"the key is gone after teardown\" passes trivially
@@ -97,12 +103,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest make-frame-publishes-the-destroy-release-hook-rf2-cq0yi
-  (testing "rf2-cq0yi: the release is published from the SAME `make-frame`-rooted
-            once-body that installs the rest of the provenance wiring, so it is
-            bound before the first row can exist. This pins the REGISTRATION
-            half directly: a release function that is never published is a
-            silent no-op at teardown, and every other case in this file would
-            then be red for a reason indistinguishable from a broken release."
+  (testing "rf2-cq0yi: the release is published at `re-frame.live-frame`'s NS
+            LOAD, which strictly precedes any `make-frame`, so it is bound
+            before the first row can exist. This pins the REGISTRATION half
+            directly: a release function that is never published is a silent
+            no-op at teardown, and every other case in this file would then be
+            red for a reason indistinguishable from a broken release.
+
+            What this case CANNOT see is whether the publication re-arms on a
+            hot reload — every case here starts from a complete registry, which
+            is green whether the key is published at load time or from the
+            `make-frame`-rooted once-body. That distinction is the audit of
+            PR #8887 and is pinned by
+            `live_frame_teardown_hook_reload_jvm_test`."
     (let [f (rf/make-frame {:id :cq0yi-hook/main})]
       (is (some? (late-bind/get-fn :live-frame/on-frame-destroyed!))
           ":live-frame/on-frame-destroyed! is published once a frame exists")

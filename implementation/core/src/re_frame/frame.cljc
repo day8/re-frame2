@@ -4643,8 +4643,10 @@
         ;; constructable only after the step-9 dissoc, so the row standing here
         ;; is this dying incarnation's. Reached by late-bind because
         ;; `re-frame.live-frame` requires THIS ns (a back-require would invert
-        ;; the load order); published by the same `make-frame`-rooted once-body
-        ;; that writes the rows, so it is bound whenever a row can exist.
+        ;; the load order); published at `re-frame.live-frame`'s NS LOAD, which
+        ;; strictly precedes the first `make-frame`, so it is bound whenever a
+        ;; row can exist — and re-armed on every hot reload of that ns, which a
+        ;; `defonce`-guarded once-body could not do (rf2-cq0yi).
         (safe-call-hook! :live-frame/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
