@@ -30,6 +30,16 @@
       and a console/page-error capture that must stay free of both the
       invalid-element-type and the hook-boundary diagnostics.
 
+    - `boot-order-*` — the audit's row. The same direct mount, but the view
+      is registered at NS-LOAD, before any adapter is installed, which is the
+      order `docs/core/how-to/boot-and-mount-an-app.md` prescribes and the
+      order the first fix could not survive: `:adapter/componentize-view` is
+      routed, so at registration it declined, and `rf/init!` seats the adapter
+      without revisiting existing `:view` slots. The row asserts its own
+      premise (no adapter at registration; the reg-time head really was the
+      MetaFn) before mounting, so it cannot silently decay into a copy of the
+      row above.
+
     - `native-defui-control-*` — AC5's NON-VACUITY control. The SAME probe
       body, mounted as an unregistered native `defui`, so the harness is
       shown to pass independently of the registry path. When the registry
@@ -52,9 +62,11 @@
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]))
 
-(use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
+;; further down the file, and the position is load-bearing —
+;; `make-reset-runtime-fixture` snapshots the registrar AT CALL TIME as its
+;; ns-load baseline (rf2-7hwnu), and the boot-order row's whole premise is a
+;; registration that already exists when the fixture is built.
 
 ;; ---- DOM gate ladder -------------------------------------------------------
 ;; Mirrors the shared suite's ladder (its helpers are private), so this file
@@ -175,6 +187,41 @@
        ($ :span {:data-testid "n"} (str n))
        children)))
 
+;; ---- the CANONICAL BOOT ORDER, captured at ns-load (rf2-oz7wr audit) -------
+;;
+;; `docs/core/how-to/boot-and-mount-an-app.md` has the registration namespaces
+;; load FIRST — every `reg-event` / `reg-sub` / view registration runs as a
+;; top-level form — and `run` calls `rf/init!` afterwards. The three forms
+;; below are exactly that order, and they run at NS-LOAD so no fixture can
+;; have installed an adapter first.
+;;
+;; This is the order the original fix could not survive. `reg-view*` asked
+;; `:adapter/componentize-view` at registration; the hook is ROUTED, so with no
+;; adapter installed it declined, the slot kept the `MetaFn`, and `init!` — which
+;; only seats the adapter — never revisited it. Every row that installed the
+;; adapter BEFORE registering (the two below, and the whole shared suite) sailed
+;; past that, which is why the audit reopened the bead.
+;;
+;; `adapter-at-registration` and `head-at-registration` make the premise
+;; CHECKABLE rather than assumed: the row asserts there really was no adapter
+;; at registration time, and that the reg-time answer really was the
+;; un-mountable `MetaFn`. Without those two, a bundle that happened to install
+;; an adapter earlier would turn this row into a second copy of
+;; `direct-mount-of-registered-view-head` while still reading as a boot-order
+;; witness.
+
+(def ^:private boot-row-id :rf.uix-direct-mount/boot-row)
+
+(rf/reg-view* boot-row-id probe-body)
+
+(def ^:private adapter-at-registration (rf/current-adapter))
+(def ^:private head-at-registration    (rf/view boot-row-id))
+
+;; NOW the fixture — see the note under the ns form for why the order matters.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter uix-adapter/adapter}))
+
 ;; ---- shared registration + world setup -------------------------------------
 
 (defn- seed-world!
@@ -292,6 +339,42 @@
                `$` route props through the lossless `argv` channel instead of
                converting them and dropping keyword namespaces")
           (assert-mount-case "registry head" (run-mount-case act-fn head)))))))
+
+;; ---- the canonical boot order: register at ns-load, THEN init! ------------
+
+(deftest boot-order-registration-yields-a-mountable-head-after-init
+  (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
+            adapter, is still directly mountable through ($ (rf/view id) …)
+            once the adapter is in (rf2-oz7wr audit)"
+    ;; Premise first. If either of these two fails the row below proves
+    ;; nothing — it would just be `direct-mount-of-registered-view-head` again
+    ;; under a different name.
+    (is (nil? adapter-at-registration)
+        (str "premise: no adapter was installed when this ns registered its"
+             " view at load time — the canonical boot order; got "
+             (pr-str adapter-at-registration)))
+    (is (not (instance? js/Function head-at-registration))
+        "premise: the reg-time head really was the un-mountable MetaFn, so the
+         head the row mounts below can only have come from a re-derivation
+         against the adapter `rf/init!` seated afterwards")
+    (with-browser-act
+      (fn [act-fn]
+        (seed-world!)
+        ;; No registration here. The fixture has installed UIx; the only thing
+        ;; that has happened since ns-load is `rf/init!`.
+        (let [head (rf/view boot-row-id)]
+          (is (instance? js/Function head)
+              "the lookup hands back a real JS function React can use as an
+               element type, even though registration ran before the adapter
+               existed (rf2-oz7wr audit)")
+          (is (true? (.-uix-component? ^js head))
+              "and it carries UIx's component marker, so `$` still routes props
+               through the lossless `argv` channel")
+          (is (identical? head (rf/view boot-row-id))
+              "the re-derived head is memoized — a second lookup returns the
+               SAME object, so React reconciles it as one component type
+               instead of remounting the subtree on every render")
+          (assert-mount-case "boot-order head" (run-mount-case act-fn head)))))))
 
 ;; ---- AC5 — the non-vacuity control ----------------------------------------
 
