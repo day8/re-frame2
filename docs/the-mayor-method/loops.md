@@ -528,6 +528,18 @@ constraint a measurement window is already fenced under, seen from the other sid
 is held for a quiet machine, and a heavyweight gate is what makes the machine loud. Keep one
 vocabulary for the two rather than inventing a second.
 
+**And the fleet shares one ALLOWANCE — the same shape a third time, and the one the ceiling
+hides best.** Surfaces are contention for files and a heavyweight gate is contention for the
+machine; the account quota every worker draws on is contention for a resource with no local
+evidence at all, since nothing in a worktree, a gate log or a run listing says how much of it
+is left. So N workers are not N independent bets — they fail TOGETHER, mid-run, on a limit none
+of them approached alone. Measured here: a saturated fleet of six died inside the same minute,
+three of them holding work that was not on the remote. **The remedy is not a smaller fleet**,
+which would trade a recoverable failure for a permanently slower one; it is that *push
+continuously* is what makes a fleet-wide kill survivable. Read a worker that has not pushed for
+a long stretch as the exposure it is, and expect the salvage under *The stranded sweep* to be
+wanted for the whole fleet at once rather than for one worker.
+
 **A queued measurement window makes an otherwise-free slot not free.** The drain clause in
 the filter list does not reach this case — it lifts only once the exclusive items are all
 that remains — so where ordinary work is still available, nothing above holds you back and
@@ -927,6 +939,20 @@ and both readings went wrong in a single day here, in opposite directions.
    cost beyond what the hold was already costing, and an answer means the interval was over. Measured
    here: three workers died on a stated reset an hour away; the operator re-authenticated within
    minutes; one probe resumed all three. Hold on the clock only once the probe has refused.
+
+   **But a probe's ANSWER is not the only reading of it, and its LIVENESS arrives far sooner.**
+   The rule above is written around a reply, and a reply is what step 2 rightly calls the read —
+   yet a resumed worker that is *working* has not replied and will not for many minutes, so a
+   mayor waiting for words waits out most of the interval the probe existed to cut short. Ask the
+   harness whether that agent is RUNNING instead. It costs one call, and it is decisive in one
+   direction: an agent under an exhausted allowance dies within seconds of being resumed, so
+   minutes of running is positive evidence the allowance came back. **Stillness is not the
+   converse** — an empty listing restores the ambiguity rather than settling it — so read this
+   exactly as the per-item fetch-head clock is read under *The stranded sweep*: movement proves
+   life and needs no corroboration, absence only sends you to another signal. Measured here: six
+   workers died together on a reset two and a half hours out, the operator re-authenticated, and
+   the probe read *running* five minutes in; all six were resumed on that reading, none
+   redispatched, and every one kept its context.
 
 **Never build a commit from someone else's uncommitted work.** Only that worker knows whether it forms
 a coherent change.
