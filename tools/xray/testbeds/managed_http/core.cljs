@@ -90,8 +90,6 @@
             [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [day8.re-frame2-xray.config :as xray-config]
-            [re-frame.testbed.config :as testbed-config]
             [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -497,11 +495,12 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn- resolve-source-root []
-  (testbed-config/resolve-source-root "tools/xray/testbeds"))
-
+;; No open-in-editor project-root is configured here. The dev server answers
+;; `POST /__rf-open-in-editor` (`re-frame.testbed.open-in-editor-server`,
+;; wired on this build's `:dev-http` entry) and resolves a classpath-relative
+;; source coordinate against the live JVM source paths at request time, so a
+;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; establish the host frame explicitly, run the boot dispatch under its

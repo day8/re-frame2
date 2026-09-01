@@ -353,15 +353,15 @@
                 ;; `:story-static/counter-with-stories` builds below.
                 "../tools/story/testbeds"
                 ;; tools/testbed-support (rf2-5dphw — shared testbed
-                ;; helpers). Two public namespaces:
-                ;; `re-frame.testbed.config`, which derives the
-                ;; open-in-editor project-root from the build-env
-                ;; `re-frame.testbed.config/checkout-root` goog-define (seeded
-                ;; per build below via `#shadow/env`), replacing the six
-                ;; hardcoded personal-path defaults the Xray / Story
-                ;; testbeds previously copied; and
+                ;; helpers). One browser namespace:
                 ;; `re-frame.testbed.story-host`, the live-app ↔ Story-shell
-                ;; hash-toggle host harness the showcase testbeds share. The
+                ;; hash-toggle host harness the showcase testbeds share.
+                ;; Open-in-editor source resolution is NOT a browser concern
+                ;; here: the JVM-only `re-frame.testbed.open-in-editor-server`
+                ;; handler, wired on the `:dev-http` entries below, resolves
+                ;; classpath-relative coordinates at request time, so no
+                ;; browser-side source-root plumbing is needed (rf2-3xq1v).
+                ;; The
                 ;; `src` path carries the helper namespaces; the dedicated
                 ;; `test` path carries the `*-cljs-test` suites the :node-test
                 ;; build's `cljs-test$` ns-regexp discovers — the same
@@ -1308,14 +1308,6 @@
   {:target           :browser
    :output-dir       "out/examples/two-frame-isolation"
    :asset-path       "."
-   ;; rf2-5dphw — seed the build-env project-root for open-in-editor. The
-   ;; `dev` npm script exports RF2_TESTBED_PROJECT_ROOT (node-resolved
-   ;; repo root, cross-platform); the shared `re-frame.testbed.config`
-   ;; helper joins it with the tool subdir. `#shadow/env` reads the env
-   ;; var at config load (default "" when unset → graceful no-op).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn two-frame-isolation.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1344,11 +1336,6 @@
   {:target           :browser
    :output-dir       "out/examples/standard-epochs"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn standard-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1375,11 +1362,6 @@
   {:target           :browser
    :output-dir       "out/examples/routes-epochs"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn routes-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1413,11 +1395,6 @@
   {:target           :browser
    :output-dir       "out/examples/machine-epochs"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn machine-epochs.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1451,11 +1428,6 @@
   {:target           :browser
    :output-dir       "out/examples/edn-inspector"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn edn-inspector.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
 
@@ -1491,11 +1463,6 @@
   {:target           :browser
    :output-dir       "out/examples/managed-http"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn managed-http.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
@@ -1522,11 +1489,6 @@
   {:target           :browser
    :output-dir       "out/testbeds/panel-gallery"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn panel-gallery.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
 
@@ -1813,11 +1775,6 @@
   {:target           :browser
    :output-dir       "out/examples/counter-with-stories"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn counter-with-stories.core/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray (the
@@ -1840,22 +1797,15 @@
   ;;
   ;; The `nine-states.*` namespaces resolve via the `../examples/reagent`
   ;; source-path (already on :source-paths near the top of this file). The
-  ;; showcase host declares `:source-subdir "examples/reagent"` to the shared
-  ;; `re-frame.testbed.story-host` helper, which resolves the open-in-editor
-  ;; project-root through `re-frame.testbed.config` (rf2-77wqzi) — so this
-  ;; build seeds the `checkout-root` closure-define from the build env, exactly
-  ;; like the counter-with-stories / login-form testbed builds. Without the
-  ;; define the Story 'open in editor' chips resolve `nine_states/stories.cljs`
-  ;; against a nil root (the false-green rf2-77wqzi fixed).
+  ;; Story 'open in editor' chips need no build-time configuration: this
+  ;; build's `:dev-http` entry runs the JVM
+  ;; `re-frame.testbed.open-in-editor-server` handler, which resolves
+  ;; `nine_states/stories.cljs` against the live source paths at request
+  ;; time (rf2-3xq1v).
   :examples/nine-states-with-stories
   {:target           :browser
    :output-dir       "out/examples/nine-states-with-stories"
    :asset-path       "."
-   ;; rf2-77wqzi — build-env project-root for open-in-editor (see
-   ;; :examples/login-form above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn nine-states.stories-host/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
@@ -1876,23 +1826,15 @@
   ;;
   ;; The `login.*` namespaces resolve via the `../examples/reagent`
   ;; source-path (already on :source-paths near the top of this file). The
-  ;; showcase host declares `:source-subdir "examples/reagent"` to the shared
-  ;; `re-frame.testbed.story-host` helper, which resolves the open-in-editor
-  ;; project-root through `re-frame.testbed.config` (rf2-77wqzi) — so this
-  ;; build seeds the `checkout-root` closure-define from the build env, exactly
-  ;; like the counter-with-stories / login-form testbed builds. Without the
-  ;; define the Story 'open in editor' chips resolve `login/stories.cljs`
-  ;; against a nil root (the false-green rf2-77wqzi fixed). Mirrors
-  ;; :examples/nine-states-with-stories above.
+  ;; Story 'open in editor' chips need no build-time configuration: this
+  ;; build's `:dev-http` entry runs the JVM
+  ;; `re-frame.testbed.open-in-editor-server` handler, which resolves
+  ;; `login/stories.cljs` against the live source paths at request time
+  ;; (rf2-3xq1v). Mirrors :examples/nine-states-with-stories above.
   :examples/login-with-stories
   {:target           :browser
    :output-dir       "out/examples/login-with-stories"
    :asset-path       "."
-   ;; rf2-77wqzi — build-env project-root for open-in-editor (see
-   ;; :examples/login-form above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn login.stories-host/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
@@ -1921,11 +1863,6 @@
   {:target           :browser
    :output-dir       "out/examples/login-form"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn login-form.core/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
@@ -1951,11 +1888,6 @@
   {:target           :browser
    :output-dir       "out/examples/hicasso-counter"
    :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/login-form above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn hicasso-counter.core/run}}
    ;; rf2-qhhxp — pair-MCP + inline Xray, matching the sibling Story
    ;; testbed builds.
@@ -1981,15 +1913,9 @@
   {:target           :browser
    :output-dir       "out/story-static/counter-with-stories"
    :asset-path       "."
-   ;; Static-export self-containment: the static build does NOT seed the
-   ;; `re-frame.testbed.config/checkout-root` goog-define from
-   ;; `RF2_TESTBED_PROJECT_ROOT`. That env-derived define is for DEV testbeds
-   ;; (it powers the open-in-editor chip's absolute-path resolution under
-   ;; `shadow-cljs watch`). Inlining it into an `:advanced` static bundle
-   ;; would bake the BUILD machine's checkout root (often a `C:/Users/<name>/`
-   ;; home path) into a publishable artifact as a string constant. The
-   ;; published export is dev-tool-free, so only `static-mode? true` rides
-   ;; here; the open-in-editor project-root stays nil (and the framework
+   ;; Static-export self-containment: no build-machine path is available to
+   ;; leak. The published export is dev-tool-free, so only `static-mode? true`
+   ;; rides here; the open-in-editor project-root stays nil (and the framework
    ;; guard in `re-frame.story.config/set-project-root!` fails closed under
    ;; static mode regardless). A downstream consumer that genuinely wants a
    ;; deep-link-to-editor static site opts in explicitly in their own entry.

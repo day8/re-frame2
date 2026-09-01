@@ -118,11 +118,10 @@
   ;; the canonical Story vocabulary for us.
   (install-live-frame!)
   ;; Hand off to the shared router so that reloading on `#/stories` lands you
-  ;; back on the shell instead of bouncing to the app. The `:source-subdir`
-  ;; opt is the one thing the helper can't guess: it says this showcase's
-  ;; Story source lives under `examples/core`, which lets the host find the
-  ;; on-disk project root and pass it to Story and Xray. Leave it out and the
-  ;; 'open in editor' chips try to resolve `login/stories.cljs` against a nil
-  ;; root — and miss. We pass `live-app-root` (not the bare `login-app`) so
-  ;; the `#/` surface arrives already wrapped in its frame.
-  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "examples/core"}))
+  ;; back on the shell instead of bouncing to the app. No project-root is
+  ;; configured: the dev server's `POST /__rf-open-in-editor` endpoint
+  ;; resolves `login/stories.cljs` against the live JVM source paths at
+  ;; request time, so the 'open in editor' chips land on the real file with
+  ;; nothing to configure. We pass `live-app-root` (not the bare `login-app`)
+  ;; so the `#/` surface arrives already wrapped in its frame.
+  (story-host/mount-with-hash-routing! live-app-root))

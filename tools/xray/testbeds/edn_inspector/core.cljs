@@ -100,13 +100,6 @@
             ;; `[data-rf-xray-host]`. The documented manual alternative to
             ;; the `:preloads` wiring, so no shadow-cljs.edn edit is needed.
             [day8.re-frame2-xray.core :as xray]
-            ;; Xray's `configure!` to seed `:project-root` so the Event
-            ;; lens 'open' chip resolves a classpath-relative `:file` to
-            ;; an absolute on-disk URI.
-            [day8.re-frame2-xray.config :as xray-config]
-            ;; Shared testbed-config helper: derives the open-in-editor
-            ;; project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]
             ;; The shared step-driver runner. This deck supplies a `steps`
             ;; vector + registers `:edn-inspector/run-step` via
             ;; `runner/reg-runner!`; the runner drives the ONE-button series
@@ -555,15 +548,12 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-;; The open-in-editor project-root is derived from the build environment,
-;; not a hardcoded personal path (mirrors standard_epochs).
-(defn- resolve-source-root []
-  (testbed-config/resolve-source-root "tools/xray/testbeds"))
-
+;; No open-in-editor project-root is configured here. The dev server answers
+;; `POST /__rf-open-in-editor` (`re-frame.testbed.open-in-editor-server`,
+;; wired on this build's `:dev-http` entry) and resolves a classpath-relative
+;; source coordinate against the live JVM source paths at request time, so a
+;; repository testbed needs no root of its own (mirrors standard_epochs).
 (defn ^:export run []
-  ;; Configure Xray BEFORE `rf/init!` so any source-coord chip a panel
-  ;; surfaces resolves its classpath-relative `:file` to an on-disk URI.
-  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the single, plain host frame, scope the boot dispatch, and

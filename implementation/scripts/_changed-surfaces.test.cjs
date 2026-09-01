@@ -853,7 +853,7 @@ test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () =
 // on that arm; deleting it makes them red rather than making CI quietly empty.
 
 test('testbed-support src change runs cljs + cljs-browser (rf2-as6bg)', () => {
-  const result = classify('tools/testbed-support/src/re_frame/testbed/config.cljs');
+  const result = classify('tools/testbed-support/src/re_frame/testbed/story_host.cljs');
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
 });

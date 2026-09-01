@@ -122,14 +122,6 @@ function flushDiagnostics(diagnostics) {
   console.error('--------------------------------');
 }
 
-// A sentinel absolute checkout root, injected as RF2_TESTBED_PROJECT_ROOT
-// into the static build's environment. The static export MUST NOT consume
-// this env var (the dev-testbed `checkout-root` goog-define is not seeded for the
-// :story-static/* build), so this string must NOT survive into the emitted
-// bundle or manifest. `assertNoSentinelLeak` below enforces that.
-const PROJECT_ROOT_SENTINEL =
-  'C:/Users/rf2-static-leak-sentinel/code/should-not-be-bundled';
-
 function runBuild(diagnostics) {
   // Use process.execPath directly without shell:true — on Windows the
   // installed node.exe path commonly contains spaces ("Program Files"),
@@ -137,18 +129,11 @@ function runBuild(diagnostics) {
   // argv pass-through verbatim.
   const script = path.join(__dirname, 'story-build.cjs');
   diagnostics.add(`Process: ${process.execPath} ${script}`);
-  // Inject the sentinel checkout root the same way a dev launcher would
-  // (`RF2_TESTBED_PROJECT_ROOT`). The static-export build deliberately does
-  // NOT seed `re-frame.testbed.config/checkout-root` from this env var, so the
-  // sentinel must not appear anywhere in the published artifact — the
-  // self-containment contract (a published bundle carries no build-machine
-  // checkout path). `assertNoSentinelLeak` verifies it post-build.
   const result = spawnSync(process.execPath, [script], {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, RF2_TESTBED_PROJECT_ROOT: PROJECT_ROOT_SENTINEL },
   });
   if (result.stdout) addChunk(diagnostics, '[story-build:stdout] ', result.stdout);
   if (result.stderr) addChunk(diagnostics, '[story-build:stderr] ', result.stderr, 'stderr');
@@ -159,31 +144,6 @@ function runBuild(diagnostics) {
     throw new Error(`story-build.cjs failed (exit ${result.status})`);
   }
   diagnostics.add(`story-build.cjs exited ${result.status}`);
-}
-
-// Static-export self-containment: scan the emitted bundle + manifest for the
-// build-time RF2_TESTBED_PROJECT_ROOT sentinel. The published export must
-// carry NO ambient machine-local checkout path baked in. The advanced bundle
-// inlines goog-define string constants, so a regression that re-seeds
-// `re-frame.testbed.config/checkout-root` from the env var would surface here as
-// the sentinel string embedded in main.js.
-function assertNoSentinelLeak(diagnostics) {
-  const filesToScan = ['main.js', 'manifest.json', 'index.html'];
-  for (const fileName of filesToScan) {
-    const p = path.join(OUT_DIR, fileName);
-    if (!fs.existsSync(p)) continue;
-    const contents = fs.readFileSync(p, 'utf8');
-    if (contents.includes(PROJECT_ROOT_SENTINEL)) {
-      throw new Error(
-        `static-export self-containment violated: the build-machine checkout ` +
-          `sentinel ("${PROJECT_ROOT_SENTINEL}") leaked into ${fileName}. The ` +
-          `:story-static/* build must NOT seed re-frame.testbed.config/checkout-root ` +
-          `from RF2_TESTBED_PROJECT_ROOT — a published bundle carries no ` +
-          `machine-local checkout path.`,
-      );
-    }
-    diagnostics.add(`Sentinel-leak scan clean: ${fileName}`);
-  }
 }
 
 // Resolve the port via the shared harness primitive: prefer DEFAULT_PORT
@@ -345,16 +305,6 @@ async function smokeTest(baseUrl, diagnostics) {
       flushDiagnostics(diagnostics);
       process.exit(1);
     }
-  }
-
-  // 2b. Static-export self-containment: the build ran with a sentinel
-  //     RF2_TESTBED_PROJECT_ROOT; assert it did NOT leak into the bundle.
-  try {
-    assertNoSentinelLeak(diagnostics);
-  } catch (err) {
-    console.error(err.message || err);
-    flushDiagnostics(diagnostics);
-    process.exit(1);
   }
 
   // 3. Publish the ownership token BEFORE spawning http-server. The

@@ -2,13 +2,18 @@
   "Hosts a live app and the Story shell on one `#app` node.
 
   The consumer owns frame/image boot and supplies the live root view. This
-  namespace owns only the React-root handoff, hash routing, and optional Story
-  source-root configuration. `defonce` handles keep those resources stable
-  across hot reload."
-  (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
-            [re-frame.story :as story]
-            [re-frame.testbed.config :as testbed-config]))
+  namespace owns only the React-root handoff and hash routing. `defonce`
+  handles keep those resources stable across hot reload.
+
+  Source-file resolution is NOT this namespace's job. The dev server's
+  `POST /__rf-open-in-editor` endpoint
+  (`re-frame.testbed.open-in-editor-server`) resolves a classpath-relative
+  source coordinate against the live JVM source paths at request time, so a
+  repository testbed needs no project-root configuration at all. A host that
+  wants one anyway — an external or non-shadow host relying on the client's
+  `editor://` URI fallback — calls `story/configure!` itself."
+  (:require [reagent.dom.client :as rdc]
+            [re-frame.story :as story]))
 
 ;; The live app and the Story shell each own their own React root on the
 ;; same node, one at a time. Each mount path tears down the other owner first.
@@ -49,13 +54,6 @@
       (mount-stories!)
       (mount-app!))))
 
-(defn- configure-story-source-root!
-  "Configure Story's project root when the consumer declares a source subdir."
-  [source-subdir]
-  (when (and (string? source-subdir) (not (str/blank? source-subdir)))
-    (story/configure!
-     {:rf.story/project-root (testbed-config/resolve-source-root source-subdir)})))
-
 (defn- mount-router!
   "Replace the hash listener and render the surface selected by the URL."
   [root-view]
@@ -70,11 +68,10 @@
 (defn mount-with-hash-routing!
   "Mount `root-view` for normal hashes and the Story shell for `#/stories...`.
 
-  Call after the consumer has completed frame/image boot. An optional
-  `:source-subdir` configures the open-in-editor root through
-  `re-frame.testbed.config`; omit it when the consumer owns Story config.
-  Repeated calls replace the listener and are safe across hot reload."
-  ([root-view] (mount-with-hash-routing! root-view nil))
-  ([root-view {:keys [source-subdir]}]
-   (configure-story-source-root! source-subdir)
-   (mount-router! root-view)))
+  Call after the consumer has completed frame/image boot. Repeated calls
+  replace the listener and are safe across hot reload.
+
+  Story configuration belongs to the consumer: this host neither reads nor
+  writes `:rf.story/project-root`."
+  [root-view]
+  (mount-router! root-view))

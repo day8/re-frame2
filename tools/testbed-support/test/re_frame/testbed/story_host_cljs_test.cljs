@@ -1,13 +1,20 @@
 (ns re-frame.testbed.story-host-cljs-test
-  "Node tests for Story-host routing and source-root configuration.
+  "Node tests for Story-host routing.
 
   A fake window records listener identity while mount functions are stubbed.
   Rebinding `on-hash-change!` simulates CLJS hot reload and verifies that the
-  previous listener is removed rather than stacked."
+  previous listener is removed rather than stacked.
+
+  The host used to carry a second job — resolving an open-in-editor source
+  root from a build-seeded checkout path and writing it into Story's config.
+  That path is retired: the dev server's `POST /__rf-open-in-editor` endpoint
+  resolves classpath-relative coordinates at request time, so the host owns
+  only the React-root handoff and hash routing. The surviving Story-config
+  assertion below is the KEPT carve-out — the public
+  `:rf.story/project-root` option remains the consumer's to set, and the host
+  must not disturb it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.story.config :as story-config]
-            [re-frame.testbed.config :as testbed-config]
             [re-frame.testbed.story-host :as host]))
 
 ;; A JS Set gives the fake window browser-like listener identity semantics.
@@ -52,7 +59,7 @@
 (use-fixtures :each
   {:before (fn []
              (reset-host-handles!)
-             ;; Source-root tests mutate Story's global config.
+             ;; The carve-out test below writes Story's global config.
              (story-config/set-project-root! nil))
    :after  (fn []
              ;; Restore the Node baseline for subsequent namespaces.
@@ -127,79 +134,32 @@
           "one hash change runs the mount switch exactly once — proving a
            single active listener, not an N-deep stack"))))
 
-;; Source-subdir options configure Story without requiring a DOM.
+;; ---- the KEPT carve-out ---------------------------------------------------
+;;
+;; `:rf.story/project-root` survives the checkout-root retirement as a public
+;; option external and non-shadow hosts still need for the client's
+;; `editor://` URI fallback. What went away is the HOST writing it on the
+;; consumer's behalf, so the property to pin is the negative one: mounting
+;; neither sets a root nor clears one the consumer set.
 
-(deftest source-subdir-configures-absolute-project-root
-  (testing "a source subdir configures an absolute Story project root"
-    (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"]
-      (#'host/configure-story-source-root! "examples/core")
-      (is (= "/home/dev/re-frame2/examples/core"
-             (story-config/get-project-root))
-          "Story's project-root is the absolute checkout/subdir join")
-      ;; Compose a representative classpath-relative coordinate.
-      (let [composed (str (story-config/get-project-root) "/" "login/stories.cljs")]
-        (is (= "/home/dev/re-frame2/examples/core/login/stories.cljs"
-               composed)
-            "the composed editor path reaches the real example source file")
-        (is (str/includes? composed "/examples/core/")
-            "the example source-root segment is present (not missing)")))))
-
-(deftest example-story-builds-resolve-absolute-source-coords
-  (testing "example Story builds resolve coordinates beneath their source subdir"
-    (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"]
-      (doseq [[build coord subdir expected]
-              [[:examples/login-with-stories
-                "login/stories.cljs"
-                "examples/core"
-                "/home/dev/re-frame2/examples/core/login/stories.cljs"]
-               [:examples/nine-states-with-stories
-                "nine_states/stories.cljs"
-                "examples/patterns"
-                "/home/dev/re-frame2/examples/patterns/nine_states/stories.cljs"]]]
-        (story-config/set-project-root! nil)
-        (#'host/configure-story-source-root! subdir)
-        (let [root     (story-config/get-project-root)
-              composed (str root "/" coord)]
-          (is (= (str "/home/dev/re-frame2/" subdir) root)
-              (str build " configures the absolute " subdir " root"))
-          (is (= expected composed)
-              (str build " Story coord composes to the real on-disk file"))
-          (is (str/includes? composed (str "/" subdir "/"))
-              (str build " keeps the example source-root segment")))))))
-
-(deftest source-subdir-omitted-configures-no-root
-  (testing "nil and blank source subdirs do not change Story config"
-    (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"]
-      ;; nil subdir skips configuration
-      (#'host/configure-story-source-root! nil)
-      (is (nil? (story-config/get-project-root))
-          "nil subdir configures nothing")
-      ;; blank subdir also skips configuration
-      (#'host/configure-story-source-root! "   ")
-      (is (nil? (story-config/get-project-root))
-          "blank subdir configures nothing"))))
-
-(deftest source-subdir-with-no-resolvable-root-degrades-to-no-op
-  (testing "a declared subdir with no checkout root configures no project root"
-    (with-redefs [testbed-config/checkout-root ""]
-      (#'host/configure-story-source-root! "examples/reagent")
-      (is (nil? (story-config/get-project-root))
-          "no resolvable root → Story's root stays nil (no broken prefix)"))))
-
-(deftest mount-with-hash-routing-arity-2-configures-project-root
-  (testing "the public two-arity entry configures the declared source subdir"
+(deftest mount-does-not-write-story-project-root
+  (testing "mounting with no Story config leaves the project-root slot unset —
+            the retired `:source-subdir` path was the only thing that wrote it"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
-      (with-redefs [testbed-config/checkout-root "/home/dev/re-frame2"
-                    host/mount-app!     (constantly nil)
+      (is (nil? (story-config/get-project-root))
+          "fixture baseline: the slot starts unset")
+      (with-redefs [host/mount-app!     (constantly nil)
                     host/mount-stories! (constantly nil)]
-        (host/mount-with-hash-routing! dummy-view {:source-subdir "examples/reagent"}))
-      (is (= "/home/dev/re-frame2/examples/reagent"
-             (story-config/get-project-root))
-          "the 2-arity call configured the resolved absolute root"))))
+        (host/mount-with-hash-routing! dummy-view))
+      (is (nil? (story-config/get-project-root))
+          "mounting configured no root — source-file resolution is the
+           dev-server endpoint's job, not the host's"))))
 
-(deftest mount-with-hash-routing-arity-1-leaves-root-untouched
-  (testing "the one-arity entry leaves consumer-owned Story config untouched"
+(deftest mount-leaves-a-consumer-set-project-root-untouched
+  (testing "a consumer that DOES set `:rf.story/project-root` (an external or
+            non-shadow host leaning on the URI fallback) keeps it across a
+            mount — the carve-out is genuinely reachable, not just undeleted"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
       (story-config/set-project-root! "/preset/by/consumer")
@@ -207,4 +167,4 @@
                     host/mount-stories! (constantly nil)]
         (host/mount-with-hash-routing! dummy-view))
       (is (= "/preset/by/consumer" (story-config/get-project-root))
-          "1-arity call left the consumer-set root untouched"))))
+          "the consumer-set root survived the mount untouched"))))
