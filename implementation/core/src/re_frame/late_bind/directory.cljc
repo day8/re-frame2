@@ -445,6 +445,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-u5kmf8"
     :description "Epoch-restore host-transient quiesce for machine `:after` timers. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: releases the restored frame's in-flight `:after` host-clock handles (the orphaned async host work the unwound epochs spawned — NOT frame-state) so a leaked wall-clock timer never fires against the restored state. Emits one `:rf.machine.timer/cancelled :reason :on-restore` per entry. The restore counterpart of `:machines/on-frame-destroyed!` (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
+   {:key         :machines/rearm-after-hydration!
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-jqvgp"
+    :description "SSR-hydration host-work RECONSTRUCTION for machine `:after` timers — the client-side counterpart of the server-side wire projection `:machines/project-ssr-runtime-db`, and the deliberate OPPOSITE of `:machines/on-frame-restored!`. The server suppresses `:after` timers (Spec 005 §SSR mode) and the wire carries only durable snapshot facts, so a machine hydrated in an `:after`-bearing state arrived with the right `:state` / `:data` / `:rf/after-epoch` and NO live timer. Consulted by `re-frame.ssr.hydrate/hydrate-event-handler*` as a PRESENCE gate (absent hook → no machines artefact → no re-arm fx emitted); the `:rf.machine/hydrate-rearm` fx it gates runs this same body AFTER the payload runtime-db has committed, walking the hydrated snapshots' ACTIVE configuration (flat/compound ancestors + leaf, each parallel region's active path, and the root-owned parallel `:after`) and arming one client timer per live declaration at the epoch the snapshot already carries. Re-runs NO entry / action / raise / spawn and writes no snapshot — the whole point is host work without replayed history (Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\"). Restore keeps CANCELLING; only hydration arms."}
    {:key         :machines/teardown-on-frame-destroy!
     :producer-ns 're-frame.machines
     :design-bead "rf2-vsigt"

@@ -295,6 +295,12 @@
   ;; 016 §SSR and hydration — Resources recomputes its reverse indexes from
   ;; entries, orphans SSR owners, surfaces clock skew). Absent hook leaves
   ;; the runtime-db unchanged (no resources artefact loaded).
+  ;;
+  ;; That hook reconciles the installed VALUE. Its counterpart for HOST work
+  ;; is the `:machines/rearm-after-hydration!` gate on the `:fx` vector
+  ;; below (rf2-jqvgp): machine `:after` timers are suppressed server-side
+  ;; and cannot ride the wire, so the machines artefact re-arms them from
+  ;; the hydrated snapshots once the runtime-db has committed.
   [db runtime-db frame payload new-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
@@ -358,7 +364,42 @@
                    (conj [:rf.ssr/check-version       version])
 
                    (and client? schema-digest)
-                   (conj [:rf.ssr/check-schema-digest schema-digest]))}
+                   (conj [:rf.ssr/check-schema-digest schema-digest])
+
+                   ;; LATE-BOUND cross-subsystem hydration RE-ARM (rf2-jqvgp).
+                   ;; The `:resources/hydrate-runtime-db` hook below is PURE —
+                   ;; it reshapes the runtime-db value being installed. Machines
+                   ;; needs the other half: HOST work. A machine hydrated in an
+                   ;; `:after`-bearing state carries the right `:state` / `:data`
+                   ;; / `:rf/after-epoch` and no live timer, because the server
+                   ;; suppressed timer scheduling (Spec 005 §SSR mode) and a
+                   ;; wall-clock handle is not serialisable. Spec 011 §`:after`
+                   ;; is no-op under SSR requires those timers to begin running
+                   ;; on the client against the preserved epoch, so the machines
+                   ;; artefact re-arms them — WITHOUT re-running entry actions,
+                   ;; raises or spawns the server already performed.
+                   ;;
+                   ;; An EFFECT rather than a hook call inside the handler,
+                   ;; because arming host clocks is not something a pure handler
+                   ;; may do and because the walk must read the runtime-db AFTER
+                   ;; it commits: `commit-frame-effects!` installs both
+                   ;; partitions before `run-fx-effects!` walks this vector.
+                   ;;
+                   ;; Gated three ways, each of which independently means "no
+                   ;; timers": `client?` (a server-side / isomorphic-loopback
+                   ;; hydrate arms nothing, same gate the two `:rf.ssr/check-*`
+                   ;; fxs use), `payload-rt` (only a server-settled runtime-db
+                   ;; slice needs reconstructing — a client-only payload's
+                   ;; machines are already running their own timers), and the
+                   ;; hook's presence (an SSR app without the machines artefact
+                   ;; emits nothing, so `:rf.machine/hydrate-rearm` is never
+                   ;; requested from a runtime that has no handler for it).
+                   ;; The rejected paths — malformed payload, wrong frame-id —
+                   ;; return before this handler and so arm nothing either.
+                   (and client?
+                        (some? payload-rt)
+                        (some? (late-bind/get-fn :machines/rearm-after-hydration!)))
+                   (conj [:rf.machine/hydrate-rearm {}]))}
       ;; Install the runtime-db partition when EITHER a server-settled
       ;; runtime-db slice rode the payload OR hydration metadata was produced.
       ;; The metadata merges on top of the payload slice (server-hash/version

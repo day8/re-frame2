@@ -768,6 +768,39 @@
                             {:emit-scheduled-trace? false})
     nil))
 
+(defn rearm-hydrated-after-timer!
+  "Arm ONE `:after` timer for a node the hydrated snapshot says is ALREADY
+  active. The SSR hydration re-arm seam
+  (`re-frame.machines.hydrate/rearm-after-timers!`) is the only caller.
+
+  This is deliberately NOT a second scheduling mechanism: it is the
+  ordinary `schedule-after-timer!` arm with two differences that both
+  follow from hydration not being a state ENTRY.
+
+    - The `epoch` is the one the hydrated snapshot ALREADY carries; it is
+      never bumped. Entry bumps (`commit-snapshot`'s `bump-after-epochs`)
+      because a re-entry must invalidate the prior visit's in-flight
+      timer; hydration re-establishes host work for a visit that already
+      happened, so bumping would strand the very snapshot being restored.
+    - The `/scheduled` trace is emitted HERE rather than by the pure side.
+      No transition ran, so `build-after-fx` never fired — without this
+      the reconstructed timer would arm untraced (and emitting a
+      state-entry cascade to get the trace would replay the server's
+      entry effects, the worse bug). The row is the ORDINARY
+      `:rf.machine.timer/scheduled` shape, so the existing
+      scheduled→fired / →cancelled pairing on `(actor-id, state, epoch)`
+      holds for a hydrated timer exactly as for an entered one.
+
+  Never server-armed: hydration re-arm runs on the client by contract
+  (Spec 011 §`:after` is no-op under SSR), and the caller has already
+  refused a `:server` frame, so `server?` is passed `false`. Idempotent
+  through the ordinary timer-table key — a second hydration supersedes
+  the first arm rather than duplicating it."
+  [frame-id parent-id invoke-id state delay-key epoch snapshot]
+  (schedule-after-timer! frame-id parent-id invoke-id state delay-key epoch
+                         false snapshot {:emit-scheduled-trace? true})
+  nil)
+
 (defn after-cancel-fx
   "fx handler for `:rf.machine/after-cancel`. Emitted on exit from an
   :after-bearing state node to release the host-clock timer handles and

@@ -627,9 +627,15 @@
   [machine path]
   (grammar/node-at (:states machine) path))
 
-(defn- nodes-along-path
+(defn nodes-along-path
   "Return [[prefix-path node] ...] from root down to leaf. Skips nodes
-  that don't resolve (defensive)."
+  that don't resolve (defensive).
+
+  Public because the SSR hydration re-arm
+  (`re-frame.machines.hydrate`) needs the SAME root→leaf enumeration the
+  cascade uses: a hydrated snapshot's active path may carry `:after` on
+  an ancestor as well as on the leaf, and every one of them is a live
+  declaration whose client timer must be reconstructed."
   [machine path]
   (loop [m   (:states machine)
          p   path
@@ -877,13 +883,19 @@
     [:data :rf/after-epoch-by-region rn]
     [:data :rf/after-epoch]))
 
-(defn- node-epoch
+(defn node-epoch
   "Read the per-node `:after` epoch for the scheduling node at `decl-path`
   from `snapshot`. Absent nodes read as 0 (a node never entered has no
   in-flight timer; a carried epoch of 0 against an absent node is the
   bootstrap-then-stale shape). `decl-path` is the absolute state path the
   `:after` was declared at (for a region, the path WITHIN the region —
-  matching the `:rf/invoke-id` the timer carries)."
+  matching the `:rf/invoke-id` the timer carries).
+
+  Public because the SSR hydration re-arm
+  (`re-frame.machines.hydrate`) must arm each reconstructed timer at the
+  epoch the hydrated snapshot ALREADY carries — reading it through this
+  one accessor is what keeps the flat / per-region slot rule from being
+  restated (and drifting) at the hydration seam."
   [machine snapshot decl-path]
   (or (get-in snapshot (conj (after-epoch-path machine) (vec decl-path))) 0))
 

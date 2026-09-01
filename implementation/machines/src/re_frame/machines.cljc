@@ -46,6 +46,7 @@
             [re-frame.image-assembly :as image-assembly]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
+            [re-frame.machines.hydrate :as machines-hydrate]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
             [re-frame.machines.lifecycle-fx.join :as join]
@@ -342,6 +343,25 @@
   {:doc "Machine-internal: cancel a previously-scheduled `:after` timer. Per Spec 005 §Timed transitions. Not for direct application use."}
   after-cancel-fx)
 
+;; SSR hydration re-arm. Emitted by the `:rf/hydrate` handler (via the
+;; `:machines/rearm-after-hydration!` presence gate) so it runs AFTER the
+;; payload's runtime-db has committed — `commit-frame-effects!` installs
+;; both partitions before `run-fx-effects!` walks `:fx`, which is exactly
+;; the ordering the re-arm needs: it reads the just-installed snapshots.
+;; Deliberately NOT a state-entry replay — see `re-frame.machines.hydrate`.
+(fx/reg-fx :rf.machine/hydrate-rearm
+  {:doc "Machine-internal: reconstruct the host `:after` timer table for the frame's just-hydrated machine snapshots, at each snapshot's existing `:rf/after-epoch` and without replaying entry effects. Per Spec 011 §`:after` is no-op under SSR (\"`:after` timers begin running on the client\"). Not for direct application use."}
+  (fn [{frame-id :frame} _args]
+    (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
+          ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
+          ;; never a synthesised `:rf/default` — the timers would otherwise
+          ;; be armed against a frame nobody hydrated.
+          frame-id (frame/require-frame-stamp!
+                     frame-id :rf.machine/hydrate-rearm
+                     {:where 'rf.machine/hydrate-rearm})]
+      (machines-hydrate/rearm-after-timers! frame-id))
+    nil))
+
 (fx/reg-fx :rf.machine/update-snapshot
   {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
   update-snapshot/update-snapshot-fx)
@@ -514,6 +534,19 @@
 ;; statically require the machines artefact.
 (late-bind/set-fn! :machines/on-frame-restored!
                    (fn [frame-id] (timer/cancel-frame-timers-on-restore! frame-id)))
+;; SSR hydration re-arm hook. `re-frame.ssr.hydrate/hydrate-event-handler*`
+;; consults it purely as a PRESENCE gate — an SSR app without the machines
+;; artefact finds it unbound and emits no re-arm fx — and the
+;; `:rf.machine/hydrate-rearm` fx registered above runs this same body with
+;; the committed frame. The counterpart of the SERVER-side projection hook
+;; `:machines/project-ssr-runtime-db`: that one puts the durable snapshot on
+;; the wire, this one rebuilds the host work the snapshot implies but cannot
+;; carry. NOT the epoch-restore hook — `:machines/on-frame-restored!` cancels
+;; and must keep cancelling (Managed-Effects: "epoch restore MUST NOT revive
+;; host work"); hydration arms timers that were never armed at all.
+;; Late-bound so SSR never statically requires the machines artefact.
+(late-bind/set-fn! :machines/rearm-after-hydration!
+                   machines-hydrate/rearm-after-timers!)
 ;; Frame-destroy machine-cascade hook. `frame/destroy-frame!` calls this
 ;; hook BEFORE the sub-cache / adapter teardown so each active machine's
 ;; `:exit` cascade runs against a live container in reverse-creation order
