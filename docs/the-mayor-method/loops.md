@@ -62,6 +62,15 @@ a draft, so the interlock costs this loop nothing to remember. See
 [*Publishing the change*](dispatch-prompt-template.md#publishing-the-change) in
 `dispatch-prompt-template.md`.
 
+**With one exception this loop DOES have to remember, because it is the loop that creates
+it.** The flag protects whoever is inside the change, and it is set by whoever finished
+last — so a fix dispatch onto an EXISTING ready change inherits a flag its original author
+set, and nothing in the change records that somebody is inside it now. The interlock is then
+already open before the second worker starts. **So converting that change back to draft is
+part of dispatching the fix, not part of the fix**: do it yourself, before the worker begins,
+and confirm the state took rather than assuming the call did. The fix worker marks it ready
+last, exactly as any other worker does.
+
 Resolve the head first — the branch name **and** the head revision — because
 clauses 4 and 5 are both keyed to it.
 
@@ -902,6 +911,19 @@ and both readings went wrong in a single day here, in opposite directions.
    dispatch are exactly when you need it, because the first thing every brief tells a worker to do is
    read. Its absence proves nothing — not every dispatch claims — which is why the sweep starts from
    the worktrees in the first place.
+
+   **And if your tooling maintains a live status for a running agent, read THAT before any of these.**
+   Every signal in this step is indirect — it infers a worker from the traces it leaves — and they
+   share a blind spot wide enough to matter: a worker in its **final minutes**, running a last gate and
+   then tidying scratch files and shared-dependency links, works outside the worktree and outside
+   version control and is too busy to answer. Tip, fetch clock, write clock and a direct message then
+   read as dead *together*, for one cause, which is why corroborating one with another does not help
+   here. **Frozen on every clock across several readings is the signature of a run about to report**,
+   not of a dead one. Measured twice in one day, on five workers and then on a sixth: every one
+   completed alive, and on the second occasion the supervisor's own one-line progress string named the
+   phase outright while the four clocks said otherwise. Where no direct status exists, declare a window
+   and re-read rather than acting — waiting costs a tick, and acting costs a duplicate worker in a live
+   worktree.
 
    **That clock says "no activity" in four voices and you can only tell them apart with a control.**
    Besides the reading worker and the poller treated just below, a path that resolves to nothing
