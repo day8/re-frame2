@@ -1114,9 +1114,9 @@ The single-axis selection that every layer reads from.
 
 | Layer | Surface | Reads from spine | Notes |
 |---|---|---|---|
-| L1.5 events ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries |
+| L1 chrome ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries (the nav cluster lives on the chrome ribbon — rf2-3f2di A5) |
 | L1 chrome ribbon | Frame picker (VIEW SCOPE) | `:rf.xray/view-scope-frame` | Writes `:view-scope-frame` (+ spine `:focus :frame`) via `:rf.xray/select-frame` |
-| L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-event-bundles`, which the L2 list reads; `N hidden` + `Clear Filters` surface when a filter suppresses rows |
+| L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-event-bundles`, which the L2 list reads; the `N events filtered out` warning surfaces when a filter suppresses rows (the `Clear Filters` button was retired — rf2-pjjwh) |
 | L2 event list | Head-row mode cue | `:mode`, `:head?` | Pulse on head row in LIVE; pinned-row glyph in RETRO (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control) |
 | L2 event list | Row gutter glyph | `:dispatch-id` | `◉` on focused row; `●` elsewhere |
 | L2 event list | Auto-scroll behaviour | `:mode`, `:head?` | LIVE: auto-scroll bottom; RETRO: sticky position |
@@ -1141,8 +1141,8 @@ The single-axis selection that every layer reads from.
         ▼
 :rf.xray/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
         │
-        ├──── L1 chrome ribbon (frame picker, mode dropdown, ⚙ ✕)
-        ├──── L1.5 events ribbon (nav, focus-chip, filter pills, N-hidden + Clear Filters)
+        ├──── L1 chrome ribbon (Events label + nav, + filter add, frame picker, mode dropdown, ⚙ ✕)
+        ├──── L1.5 events ribbon (filter pills, N-events-filtered-out warning)
         ├──── L2 event list (focused row, auto-scroll)
         ├──── L3 tab bar (count badges)
         └──── L4 detail panel (per-tab content)
@@ -1195,7 +1195,7 @@ panel).
 **Frame is a view SCOPE, not a filter (rf2-4vp5j).** The frame picker is
 NOT part of the filter system. It is a single, defaulted VIEW SCOPE
 (default = the head epoch's frame); it is never counted as "hidden",
-never listed as a filter cause, and never reset by Clear Filters. See
+never listed as a filter cause, and never touched by removing filters. See
 [§Frame picker is a view scope](#frame-picker-is-a-view-scope-rf2-4vp5j)
 below.
 
@@ -1356,21 +1356,25 @@ write that stops.
 
 A host-supplied seed via `(xray-config/configure! {:rf.xray/filters {:in […] :out […]}})` is a distinct category from the transient user filters above: it is the host's EXPLICIT boot baseline. `mount.cljs`'s `::seed-configured-filters` first-mount hook — which runs immediately AFTER `::reset-transient-filters` — re-applies a non-empty seed to `:active-filters` on **every** load, ignoring localStorage entirely (rf2-fhtes). So the host's opted-in posture always wins over a user's stale session filters and never depends on a genuinely-empty first install; it is neither durable user-filter persistence nor an unreachable first-install-only value. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Xray itself ships with `nil` seed (first-session honesty) — a `nil` seed keeps the first paint fully unfiltered.
 
-### "N events hidden by filters" indicator + Clear Filters (rf2-jvghz)
+### "N events filtered out" warning (rf2-jvghz / rf2-pjjwh)
 
 Because filters reset on load (above) but can still hide rows *within* a
-session, the events ribbon carries an in-session safety net: when ANY
-suppressing filter is active (an IN/OUT pill or a non-empty mute set),
-the ribbon's far-right action cluster renders a **`Clear Filters`**
-button; beside it, an **`N events hidden by filters`** message renders
-*only when N > 0* (`N = max 0 (raw-visible − filtered-visible)`, both
-counts taken over the L2 list's visible-row set, both scoped to the
-selected frame). An active pill that happens to hide nothing → button
-present, message absent. The frame view-scope is excluded from the count
-entirely (frame ≠ filter — rf2-4vp5j), so switching frames never inflates
-N and `Clear Filters` never clears the frame. The pure model lives in
-`filters/hidden.cljc` (`summary`); `Clear Filters` resets the pills + the
-mute set (not the frame).
+session, the events ribbon carries an in-session safety net: an **`N
+events filtered out`** warning renders at the ribbon's far right *only
+when N > 0* (`N = max 0 (raw-visible − filtered-visible)`, both counts
+taken over the L2 list's visible-row set, both scoped to the selected
+frame). An active pill that happens to hide nothing → no warning. The
+frame view-scope is excluded from the count entirely (frame ≠ filter —
+rf2-4vp5j), so switching frames never inflates N. The pure model lives
+in `filters/hidden.cljc` (`summary`).
+
+**Recovery is per surface (rf2-pjjwh — the bulk `Clear Filters` button
+was retired, and the orphaned `:rf.xray/clear-all-filters` event was
+removed with it per rf2-rdhbk):** each pill's trailing `✕` removes that
+pill; muted event-ids are managed separately through the chrome
+ribbon's `🔇 N` chip → mute manager (per-row unmute / `Unmute all`,
+backed by `:rf.xray/clear-muted-event-ids`). Neither path touches the
+frame view-scope.
 
 ### Frame picker is a view scope (rf2-4vp5j)
 
@@ -1401,7 +1405,7 @@ frame composed into `filtered-event-bundles`" framing in §6):
   atomic move.
 - **NOT persisted, NOT counted as hidden.** The view scope resets to its
   head-frame default on load (rf2-swclw) and is excluded from the
-  hidden-by-filters count + `Clear Filters` (above).
+  hidden-by-filters count (above).
 
 Full per-pill management lives in the ribbon strip + per-pill edit popup + mute manager modal (rf2-ikuwt) per spec §3. The Settings popup carried no Filters tab in v1 ship (the discoverability-pointer tab from earlier drafts was retired per rf2-wknb3 — see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
 

@@ -18,10 +18,10 @@
 
   The picker-selected frame is a single, defaulted VIEW SCOPE — it is
   NOT part of the filter chain conceptually. It is therefore NEVER
-  counted as 'hidden', never listed as a cause, and never reset by
-  Clear Filters. The caller computes the raw/filtered counts WITHIN the
-  selected frame so switching frames does not inflate the count; this
-  ns only models pill + mute suppression.
+  counted as 'hidden', never listed as a cause, and never touched by
+  removing filters. The caller computes the raw/filtered counts WITHIN
+  the selected frame so switching frames does not inflate the count;
+  this ns only models pill + mute suppression.
 
   ## The count contract
 
@@ -62,15 +62,16 @@
 
 (defn any-filter-active?
   "True iff ANY suppressing FILTER is active: IN/OUT pills or a non-empty
-  mute set. This is the predicate behind 'is there anything a Clear
-  Filters click would reset?'. It is independent of the hidden COUNT — a
-  pill can be active yet hide nothing (it happens to match every current
-  event-bundle); the count is what gates the message's render, this predicate
-  is what 'Clear Filters' acts on.
+  mute set. It is independent of the hidden COUNT — a pill can be active
+  yet hide nothing (it happens to match every current event-bundle); the
+  count is what gates the warning's render, this predicate answers
+  whether any suppressing surface is engaged at all.
 
-  The frame is a view SCOPE, not a filter — it is NOT part
-  of this predicate, so a frame selection alone never shows the events-
-  ribbon action cluster and Clear Filters never resets the frame."
+  The frame is a view SCOPE, not a filter — it is NOT part of this
+  predicate, so a frame selection alone never reads as an active
+  filter. (The `Clear Filters` button this predicate once gated was
+  retired per rf2-pjjwh; recovery is per surface — each pill's `✕`,
+  and the mute chip/manager for muted event-ids.)"
   [{:keys [filters muted]}]
   (boolean
     (or (pills-present? filters)
@@ -113,7 +114,7 @@
        :raw-count       <int>
        :filtered-count  <int>
        :visible?        <bool>    ; should the N-hidden message render?
-       :any-active?     <bool>    ; would Clear Filters reset anything?
+       :any-active?     <bool>    ; is any suppressing filter engaged?
        :pills           [{…} …]   ; IN/OUT pill summaries
        :muted-count     <int>}    ; muted event-ids
 

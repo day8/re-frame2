@@ -7,8 +7,8 @@
   so there is nothing to keep it off the CLJS lane (rf2-odlm3).
 
   Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
-  it is never counted as hidden, never a cause, never reset by Clear
-  Filters. The summary model carries no `:frame` key and
+  it is never counted as hidden, never a cause, never touched by
+  removing filters. The summary model carries no `:frame` key and
   `any-filter-active?` ignores frame state entirely."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -63,9 +63,8 @@
 
 (deftest any-filter-active?-independent-of-hidden-count
   (testing "a filter can be active yet hide nothing (it matches every
-            current cascade) — any-filter-active? is about whether a
-            Clear Filters click would reset anything, not about the
-            count"
+            current cascade) — any-filter-active? is about whether any
+            suppressing surface is engaged, not about the count"
     (is (true? (hidden/any-filter-active?
                  {:filters {:in [{:pattern :a}] :out []}
                   :muted #{}})))))

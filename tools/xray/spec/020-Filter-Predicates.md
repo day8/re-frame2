@@ -57,11 +57,13 @@ is a single, defaulted VIEW SCOPE, not a filter predicate. The
 `:rf.xray/filtered-event-bundles` sub scopes cascades to the selected frame
 (`matcher/filter-event-bundles-by-view-scope`) BEFORE applying the IN/OUT
 pills + mutes; the frame scope is never counted as "hidden" and is never
-reset by the `:rf.xray/clear-all-filters` event. Pills + mutes are the
-only suppressing filters this doc models. (rf2-pjjwh — the `Clear Filters`
-*button* was retired from the events ribbon; the
-`:rf.xray/clear-all-filters` event remains for programmatic / Cmd-K reset.
-Pills are removed individually via each pill's `✕`.) See
+touched by removing filters. Pills + mutes are the only suppressing
+filters this doc models. (rf2-pjjwh — the `Clear Filters` *button* was
+retired from the events ribbon, and the orphaned
+`:rf.xray/clear-all-filters` event was removed with it per rf2-rdhbk —
+the call-site census found no surviving caller. Pills are removed
+individually via each pill's `✕`; muted event-ids are managed through
+the chrome ribbon's `🔇 N` chip → mute manager.) See
 [`018-Event-Spine.md` §7 Frame picker is a view scope](018-Event-Spine.md).
 
 ### §3.1 Causal lineage under epoch-per-event — frame-qualified identity (rf2-3fc89f.25)
@@ -166,10 +168,12 @@ both scoped to the selected frame. The frame view-scope is excluded
 model lives in `filters/hidden.cljc` (`summary`).
 
 **rf2-pjjwh — the `Clear Filters` button was retired** (not in the Figma
-surface); pills are removed individually via each pill's `✕`. The
-`:rf.xray/clear-all-filters` event survives as the programmatic / Cmd-K
-reset path. The whole events ribbon is hidden by default and animates open
-only once the first filter exists.
+surface); pills are removed individually via each pill's `✕`, and muted
+event-ids are managed through the chrome ribbon's `🔇 N` chip → mute
+manager. The orphaned `:rf.xray/clear-all-filters` event was removed with
+the button (rf2-rdhbk — no palette verb, keybinding, or programmatic
+caller survived). The whole events ribbon is hidden by default and
+animates open only once the first filter exists.
 
 ## §9 Cross-references
 

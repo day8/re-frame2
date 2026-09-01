@@ -406,29 +406,12 @@
              :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})
           {:db (close-popup db)}))))
 
-  ;; ---- clear-all ------------------------------------------------------
-  ;;
-  ;; One-click reset behind the events ribbon's `Clear Filters` button.
-  ;; Resets every suppressing FILTER so the filtered list snaps back to
-  ;; the (frame-scoped) raw list:
-  ;;
-  ;;   1. IN/OUT pills        → `{:in [] :out []}` (+ persist)
-  ;;   2. muted event-ids     → `:rf.xray/clear-muted-event-ids` (+ its
-  ;;      own persist fx)
-  ;;
-  ;; The FRAME is a view SCOPE, not a filter — Clear Filters must NOT
-  ;; change the frame; the picker's selection survives a Clear Filters.
-  ;;
-  ;; Pills are reset inline (this handler already owns the
-  ;; `:active-filters` slot + persist fx); the mute reset routes through
-  ;; its owning event via `:dispatch` so its persistence /
-  ;; instrumentation stays in one place.
-  (rf/reg-event :rf.xray/clear-all-filters
-    (fn [{:keys [db]} _event]
-      (let [cleared {:in [] :out []}]
-        {:db (assoc db :active-filters cleared)
-         :fx [[:rf.xray.filters/persist cleared]
-              [:dispatch [:rf.xray/clear-muted-event-ids]]]})))
+  ;; (The `:rf.xray/clear-all-filters` bulk-reset event was REMOVED with
+  ;; the `Clear Filters` button it backed — rf2-pjjwh retired the button,
+  ;; and the call-site census found no surviving caller (rf2-rdhbk): no
+  ;; palette verb, no keybinding, no programmatic dispatch. Pills are
+  ;; removed individually via each pill's `✕`; muted event-ids reset via
+  ;; `:rf.xray/clear-muted-event-ids` behind the L1 mute chip/manager.)
 
   ;; ---- right-click row → OUT filter shortcut --------------------------
   ;;

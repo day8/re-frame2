@@ -46,8 +46,7 @@
         in the v2 `(fn [ctx args] ...)` shape. We capture the call
         site via reg-fx replacement (same pattern as time_travel_
         cljs_test.cljs) and assert the args round-trip.
-    (5) **Edge cases** — empty app-db, override-takes-precedence,
-        clear-all-filter events.
+    (5) **Edge cases** — empty app-db, override-takes-precedence.
 
   Aim: ~30-50 deftests. The panel tests cover most paths transitively;
   this file's job is the smoke surface + the registered-fx isolation
@@ -531,9 +530,9 @@
    :rf.xray/cancellation-cascade-open
    :rf.xray/cancellation-cascade-set-expanded
    :rf.xray/cancellation-cascade-toggle-expand
-   ;; rf2-jvghz — one-click reset behind the L2 'N hidden by filters'
-   ;; indicator (resets IN/OUT pills + frame pin + mutes).
-   :rf.xray/clear-all-filters
+   ;; (The rf2-jvghz `:rf.xray/clear-all-filters` bulk reset was removed
+   ;; per rf2-rdhbk — no caller survived rf2-pjjwh's Clear Filters
+   ;; button retirement.)
    :rf.xray/clear-machine-selection
    ;; rf2-hga49 — clear the tab-ribbon Reset failure flash.
    :rf.xray/clear-reset-flash
