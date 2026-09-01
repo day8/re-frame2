@@ -571,7 +571,16 @@ else
     # below, not this list — `testbeds/*` is deliberately NOT here, because a
     # first-match `case` would then swallow the extension narrowing.
     case "$file" in
-      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+      # rf2-qxg24 — `implementation/security/*` is NOT here. It is a src-less
+      # test partition (`:paths []`, `:deps {}`, no `src/` tree, no published
+      # artefact), so nothing under it can appear in a compiled example
+      # closure: the all-examples compiler has no edge to a test-only tree.
+      # It was added to this arm by 5bb3cd9cd1 as a side effect — that commit
+      # wanted `implementation_jvm` + `cljs_node_test` and reached for a
+      # generic feature arm that happened to set five outputs — and the toll
+      # was real: security-only commit d1fa5ff493 made the ~10-minute
+      # all-examples job its critical path.
+      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
       # rf2-in6c4 — top-level testbed CLJS sources. The extensions are the
@@ -1047,7 +1056,18 @@ else
         # files a change is most likely to be in.
         ssr_node=true
         ;;
-      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/deps.edn)
+      # rf2-qxg24 — `implementation/security/*` LEFT this arm for the src-less
+      # tier below. This arm is the PRODUCTION per-feature fan-out: every other
+      # tree in it publishes a Maven artefact whose source rides a shipped
+      # bundle, which is what earns `cljs_browser` + `cljs_prod` +
+      # `bundle_isolation`. The security partition publishes nothing. Its
+      # namespaces are all `-security-cljs-test`, and `:browser-test` selects
+      # only `*-dom-cljs-test`, so the browser lane cannot observe an edit to
+      # it; the production and bundle-isolation builds do not require the test
+      # tree at all. Its JVM job and its consolidated `:node-test` inclusion
+      # are unchanged — those are the two lanes that DO run these tests, and
+      # the tier below sets exactly them.
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by
@@ -1276,7 +1296,21 @@ else
         # suite is the cheaper error, and TESTING.md says to prefer it.
         migration_hicasso_codemod=true
         ;;
-      implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
+      implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*|implementation/security/*)
+        # rf2-qxg24 — `implementation/security/*` JOINED this arm, closing a
+        # contradiction the file carried with itself. The comment below already
+        # named the security tier as the PRECEDENT for omitting the browser /
+        # production / bundle gates, while two earlier, executable arms put
+        # security in the production fan-out and the examples-compile roster
+        # and thereby armed all four. Prose lost to code, silently, for as long
+        # as nobody classified a security path and read the output. All four
+        # source-less tiers now take the same route, which is what the prose
+        # said all along.
+        #
+        # The four tiers are alike in the way that matters here: `:paths []`,
+        # `:deps {}`, no `src/` tree, no Maven artefact — test surfaces on the
+        # root test classpath and nothing else.
+        #
         # rf2-dxndhc — the three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)
         # are src-less `.cljc` TEST surfaces on the root test classpath

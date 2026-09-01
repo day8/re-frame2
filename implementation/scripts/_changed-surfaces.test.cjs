@@ -2053,7 +2053,13 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/ssr-ring/src/re_frame/ssr/ring.clj',
     'implementation/resources/src/re_frame/resources.cljc',
-    'implementation/security/src/re_frame/security.cljc',
+    // rf2-qxg24 — `implementation/security/src/re_frame/security.cljc` is GONE
+    // from this list. It never existed: the security partition is deliberately
+    // src-less, so this row asserted that an imaginary file could change a
+    // compiled example closure. It passed anyway, and would have gone on
+    // passing forever, because these arms are pure path patterns — a phantom
+    // path classifies exactly like a real one. The tier's real routing is
+    // pinned below, from tracked paths.
     'implementation/scripts/check-examples-compile.cjs',
     'tools/story/src/re_frame/story.cljs',
     'tools/xray/src/day8/re_frame2_xray/preload.cljs',
@@ -3514,6 +3520,100 @@ test('a src-less conformance tier does NOT widen production bundles (no bundle_i
   assert.equal(result.bundle_isolation, 'false');
   assert.equal(result.cljs_browser, 'false');
   assert.equal(result.cljs_prod, 'false');
+});
+
+// rf2-qxg24 — the security tier is the FOURTH source-less partition and now
+// takes the same route as the three above. It had been the stated precedent for
+// that route since rf2-dxndhc while two earlier executable arms classified it
+// as a shipped production feature, arming `cljs_browser`, `cljs_prod`,
+// `bundle_isolation` and `examples_compile` on every security-only edit.
+//
+// NONE of those four gates can observe an edit here. `implementation/security`
+// is `:paths []` / `:deps {}` with no `src/` tree and no published artefact;
+// `:browser-test` selects only `*-dom-cljs-test` namespaces and every namespace
+// in this tree is `-security-cljs-test`; the production and bundle-isolation
+// builds do not require the test tree; and the all-examples compiler has no
+// edge to it. The toll was not theoretical — security-only commit d1fa5ff493
+// made the ~10-minute all-examples job its critical path.
+//
+// Paths are TRACKED files, checked with `git ls-files`. That is the whole point
+// of this bead: the row this replaces asserted from
+// `implementation/security/src/re_frame/security.cljc`, which has never
+// existed.
+const SECURITY_TIER_FILES = [
+  'implementation/security/deps.edn',
+  'implementation/security/test/re_frame/security/mcp_egress_security_cljs_test.cljc',
+  'implementation/security/test/re_frame/security/schema_redaction_security_cljs_test.cljc',
+  'implementation/security/test/re_frame/security/gen.cljc',
+];
+for (const file of SECURITY_TIER_FILES) {
+  test(`${file} arms implementation_jvm + cljs_node_test ONLY (src-less security tier, rf2-qxg24)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      'a security-tier change must still run the jvm-security suite (its own :test alias)',
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      'a security-tier change must still run the consolidated :node-test build',
+    );
+    // The four gates this bead removes, locked so the broad production arm
+    // cannot silently return.
+    for (const key of ['examples_compile', 'cljs_browser', 'cljs_prod', 'bundle_isolation']) {
+      assert.equal(
+        result[key],
+        'false',
+        `${file} is a source-less test partition; ${key} cannot observe it and must not be armed`,
+      );
+    }
+  });
+}
+
+test('jvm-security remains gated on implementation_jvm and in the aggregator (rf2-qxg24 criterion 4)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'jvm-security');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+  assert.match(
+    block,
+    /implementation\/security/,
+    'jvm-security must still run from implementation/security',
+  );
+  assert.match(
+    jobBlock(workflow, 'all-required-passed'),
+    /- jvm-security\r?\n/,
+    'narrowing the security tier must not drop its required JVM job from the aggregator',
+  );
+});
+
+test('narrowing the security tier leaves the production per-feature fan-out intact (rf2-qxg24 criterion 5)', () => {
+  // The arms security LEFT still route every src-bearing artefact exactly as
+  // before. This is the regression that matters: the edit removed one entry
+  // from two shared patterns, and a fat-fingered pattern would take a sibling
+  // with it — silently, since fewer gates always passes.
+  for (const file of [
+    'implementation/schemas/src/re_frame/schemas.cljc',
+    'implementation/machines/src/re_frame/machines.cljc',
+    'implementation/routing/src/re_frame/routing.cljc',
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/http/src/re_frame/http.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+    'implementation/resources/src/re_frame/resources.cljc',
+  ]) {
+    const result = classify(file);
+    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod', 'bundle_isolation', 'examples_compile']) {
+      assert.equal(
+        result[key],
+        'true',
+        `${file} is a src-bearing published artefact; it must retain ${key}`,
+      );
+    }
+  }
 });
 
 test('jvm-resources is job-level gated on implementation_jvm (rf2-dxndhc)', () => {
