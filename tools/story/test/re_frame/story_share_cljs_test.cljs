@@ -117,6 +117,121 @@
       (is (= "1" (.get usp "embed")) "unrelated embed= survives")
       (is (str/ends-with? url "#/stories") "the hash route survives"))))
 
+;; ---- rf2-b7je1 (audit reopen 2): ownership compares DECODED key names ----
+;;
+;; This is the arm that matters, because the disagreement is with a real
+;; browser API rather than with an emulation of one. Ownership was
+;; matched on the fragment's RAW key text; `URLSearchParams` compares key
+;; names after percent-decoding. So `%76ariant=` — a valid spelling of
+;; `variant=` — was a different string to the builder and the SAME key to
+;; the browser: the stale entry survived, the generated one was appended
+;; behind it, and `.get` (first-value) handed the hydrator the stale
+;; value. Asserted through `js/URLSearchParams` itself, so the pin cannot
+;; drift from what the shell will actually read.
+
+(defn- escape-first-char
+  "Spell `k` with its leading character percent-encoded — \"variant\" →
+  \"%76ariant\". Browser-equivalent to `k`, and sharing no prefix with
+  it, so a raw-text ownership test cannot match it."
+  [k]
+  (str "%"
+       (.toUpperCase (.toString (.charCodeAt k 0) 16))
+       (subs k 1)))
+
+(defn- search-of
+  "The query-string portion of `url` — between `?` and any `#`."
+  [url]
+  (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))
+
+(deftest escaped-story-keys-are-the-same-keys-to-urlsearchparams
+  (testing "rf2-b7je1 — the fixture below is only a regression if the real
+            URLSearchParams reads the escaped spellings as the owned keys.
+            Pin that against the browser API before relying on it."
+    (doseq [k (map name share/story-query-keys)]
+      (let [esc (escape-first-char k)
+            usp (js/URLSearchParams. (str esc "=x"))]
+        (is (not= esc k)
+            (str k " is genuinely respelled, so raw matching cannot see it"))
+        (is (= "x" (.get usp k))
+            (str "URLSearchParams reads " esc " as the key " k))))))
+
+(deftest variant-share-url-owns-percent-encoded-keys-cljs
+  (testing "rf2-b7je1 audit — a base-url spelling every Story key with an
+            escape is carrying those keys as far as the browser is
+            concerned. Read the result back through the REAL
+            URLSearchParams the hydrator uses: one value for each key this
+            call emits, none at all for the ones it omits, unrelated
+            params untouched."
+    (let [stale  {"variant"    "story.old%2Fa"
+                  "workspace"  "story.old%2Fws"
+                  "mode-tab"   "docs"
+                  "modes"      "Mode.app%2Fstale"
+                  "viewport"   "tablet"
+                  "background" "dark"
+                  "tag-filter" "stale"
+                  "overrides"  "%7B%3Afoo%201%7D"
+                  "substrate"  "uix"}
+          base   (str "https://example.test/?"
+                      (str/join "&" (map #(str (escape-first-char (name %))
+                                               "="
+                                               (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1#/stories")
+          url    (share/variant-share-url
+                   :story.new/b
+                   base
+                   {:active-modes [:Mode.app/dark]})
+          usp    (js/URLSearchParams. (search-of url))]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "story.new/b" (.get usp "variant"))
+          "URLSearchParams.get returns the requested variant, not the stale one")
+      (is (= "Mode.app/dark" (.get usp "modes"))
+          "URLSearchParams.get returns the requested modes")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value the browser can see")
+      (is (= 1 (count (.getAll usp "modes")))
+          "exactly one modes value the browser can see")
+      (doseq [k (map name share/story-query-keys)
+              :when (not (#{"variant" "modes"} k))]
+        (is (zero? (count (.getAll usp k)))
+            (str "URLSearchParams sees no stale " k "= at all")))
+      (let [parsed (share/parse-params
+                     (into {} (map (fn [k] [k (.get usp k)]))
+                           (map name share/story-query-keys)))]
+        (is (= :story.new/b (:variant-id parsed))
+            "the hydrator's own read path recovers the requested variant")
+        (is (= [:Mode.app/dark] (:active-modes parsed))
+            "and the requested modes")
+        (doseq [slot [:workspace-id :mode-tab :viewport :background
+                      :tag-filter :cell-overrides :substrate]]
+          (is (nil? (get parsed slot))
+              (str "parse-params restores no stale " slot))))
+      (is (= "index" (.get usp "from")) "unrelated from= survives")
+      (is (= "1" (.get usp "embed")) "unrelated embed= survives")
+      (is (str/ends-with? url "#/stories") "the hash route survives"))))
+
+(deftest undecodable-and-unowned-keys-survive-cljs
+  (testing "rf2-b7je1 audit — decoding is an ownership TEST, not a rewrite.
+            A key half js/decodeURIComponent throws on is preserved
+            byte-for-byte, and `mode+tab` reads as `mode tab` to the
+            browser, so it is not Story's `mode-tab` and must stay."
+    (let [url (share/variant-share-url
+                :story.new/b
+                "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index"
+                nil)
+          usp (js/URLSearchParams. (search-of url))]
+      (is (str/starts-with?
+            url
+            "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index&variant=")
+          "every undecodable / unowned entry survives verbatim and in order")
+      (is (= 1 (count (.getAll usp "variant")))
+          "the generated variant= is still the only one")
+      (is (= "notmine" (.get usp "mode tab"))
+          "the browser reads mode+tab as `mode tab` — not Story's key")
+      (is (zero? (count (.getAll usp "mode-tab")))
+          "and nothing of Story's was cleared on its account"))))
+
 (deftest parse-share-url-params-cljs
   (testing "CLJS parser reconstructs the share URL tokens used by the shell hydrator"
     (is (= :story.counter/loaded
