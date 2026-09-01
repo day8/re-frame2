@@ -459,6 +459,18 @@
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
 
+(def ^:private framework-private-handler-metas
+  "event-id → handler-meta, for framework-OWNED events that are deliberately
+  NEVER registered (Spec 013 §Sequencing). Consulted by `resolve-unhandled`.
+
+  A `delay` rather than a literal map: `event-handler-meta` builds the
+  `:rf/event-handler` interceptor wrapper, and building it at namespace load
+  would fix a load-order dependency between two namespaces that already have
+  one in the other direction. The delay is forced on the first unresolved event
+  and is a map lookup thereafter — and the whole table is only reached AFTER
+  `registrar/lookup` missed, which is already the cold path."
+  (delay {events/settle-flows-event-id (events/settle-flows-handler-meta)}))
+
 (defn- resolve-unhandled
   "The pluggable unresolved-handler resolver seam.
 
@@ -475,6 +487,20 @@
   write only the snapshot, and `restore-epoch!` reverts liveness with zero
   registrar drift.
 
+  Per Spec 013 §Sequencing the framework is itself a registrant here, ahead of
+  the late-bound one: `framework-private-handler-metas` holds the handler-metas
+  for framework-OWNED event ids that are deliberately never registered. Today
+  that is `:rf/settle-flows`, the flow-settle event the `:fx` walk enqueues
+  after it registered or cleared a flow. Resolving it HERE rather than seeding
+  it into the registrar is what keeps it off `registrar/registrations :event` —
+  so the framework's own follow-up drain adds no row to an app's event
+  catalogue — and is also why it needs no EP-0023 image-standard registration:
+  a generation-routed `registrar/lookup` returns nil for an unregistered id and
+  arrives here unchanged. It is checked BEFORE the late-bound hook because the
+  framework's own ids are not the optional artefact's to claim; an app
+  `reg-event` cannot reach either, since `registrar/lookup` above wins and
+  `events/reserved-event-ids` refuses that registration outright.
+
   Returns a registrar-shaped handler-meta map (which `process-event*`
   drives the cascade with, identical to a registered handler) or nil. Nil
   — when the hook is unregistered (machines artefact absent) OR the
@@ -489,10 +515,11 @@
   the drain — it degrades to nil (the genuine no-such-handler), never
   propagates."
   [event frame]
-  (when-let [resolve! (late-bind/get-fn-cached :machines/resolve-actor-handler-meta)]
-    (try
-      (resolve! event frame)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (or (get @framework-private-handler-metas (first event))
+      (when-let [resolve! (late-bind/get-fn-cached :machines/resolve-actor-handler-meta)]
+        (try
+          (resolve! event frame)
+          (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 ;; Cross-frame dispatch-sync warnings + the no-handler error path live
 ;; in `re-frame.router.diagnostics`. Every one of those fns runs on a

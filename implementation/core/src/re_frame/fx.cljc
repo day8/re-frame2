@@ -434,10 +434,20 @@
 (defn- call-frame-scoped-hook!
   "Resolve `hook-key` and invoke it with `(hook args {:frame frame-id})`.
   When the hook is unregistered (producing artefact absent), this is a
-  no-op — matches the pre-refactor `when-let` shape."
+  no-op — matches the pre-refactor `when-let` shape.
+
+  Returns `true` when the hook resolved and ran, `nil` when it did not, so a
+  caller can tell \"the effect happened\" from \"the producing artefact is
+  absent, so this effect was inert\". `:rf.fx/clear-flow` needs exactly that
+  distinction to decide whether to request a flow settle (Spec 013
+  §Sequencing); the hooks themselves return nothing meaningful, so this is the
+  only signal available without widening their contracts. `handle-one-fx`
+  discards a reserved body's value (Spec 002 §`:fx` ordering rule 4), so
+  nothing downstream reads it."
   [hook-key frame-id args]
   (when-let [f (late-bind/get-fn hook-key)]
-    (f args {:frame frame-id})))
+    (f args {:frame frame-id})
+    true))
 
 ;; ---- two reserved-fx policies (rf2-snsup5; split rf2-1w4af) ---------------
 ;;
@@ -764,6 +774,75 @@
       (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
         (f event opts)))))
 
+;; ---- flow-settle request (Spec 013 §Sequencing) ---------------------------
+
+(def ^:dynamic ^:private *flow-settle-requested*
+  "An atom bound by `do-fx` for the duration of ONE event's `:fx` walk, or nil
+  outside one. A flow-lifecycle reserved fx sets it; the walk's terminal branch
+  reads it and enqueues at most one settle event.
+
+  An atom rather than a return value because the request must survive the walk:
+  `handle-one-fx` deliberately discards a reserved body's value (Spec 002 §`:fx`
+  ordering rule 4 — one bad fx must not halt the rest), so there is no return
+  channel from a reserved body to the end of the walk.
+
+  Nil-when-unbound is load-bearing in two places. `do-fx` is the single
+  universal effect-execution choke point but not the only caller of these
+  bodies in principle, and — the case that actually occurs — a dry run binds
+  `*effect-sink*`, which RECORDS each entry and executes nothing, so no body
+  runs, nothing is requested, and a dry run cannot enqueue a settle."
+  nil)
+
+(defn- request-flow-settle!
+  "Ask the current `:fx` walk to settle this frame's flows when it finishes.
+
+  Called by `:rf.fx/reg-flow` / `:rf.fx/clear-flow` after the flows hook
+  returned — so a build without the flows artefact, where the hook is
+  unresolved and the effect no-ops, requests nothing and pays nothing.
+
+  Idempotent by construction: N lifecycle effects in one `:fx` vector set the
+  same flag and produce exactly ONE settle event, because one pass over the
+  registry settles every mutation the walk made, whatever their number."
+  []
+  (some-> *flow-settle-requested* (reset! true))
+  nil)
+
+(defn- settle-flows-if-requested!
+  "Enqueue the one settle event a completed `:fx` walk asked for, if it did.
+
+  Placed at the END of the walk rather than inside the lifecycle bodies so the
+  settle observes the registry as the WHOLE walk left it — a `:fx` vector that
+  clears one flow and registers another settles both in a single pass, in
+  topological order, with one app-db install.
+
+  It goes through `child-dispatch!`, the same seam `:dispatch` uses, so the
+  settle inherits the parent's `:fx-overrides` / `:interceptor-overrides` /
+  `:trace-id` / `:origin` and lands on the parent's own frame. `:source` is
+  `:fx-dispatch`: the settle's immediate trigger genuinely IS the fx walk that
+  queued it, and `:source` is a CLOSED enum (Spec 002 §Routing) — a new member
+  would be a Spec 002 change this does not need.
+
+  Back of the queue, not front. Run-to-completion means the whole queue drains
+  before the originating dispatch returns either way, so both placements settle
+  within the boundary the contract promises; the back is the one that settles
+  ONCE over everything the cascade did, rather than settling early and leaving
+  the cascade's own later writes to the next event.
+
+  The event id is written here as a LITERAL rather than read from
+  `re-frame.events/settle-flows-event-id`, which defines it: `re-frame.events`
+  requires `re-frame.cofx`, which requires this namespace, so the edge cannot
+  be added in this direction. The two are held together by the round trip
+  instead — an id that did not match would resolve through neither the
+  registrar nor `router/resolve-unhandled`, raising
+  `:rf.error/no-such-handler` and leaving every flow-lifecycle effect
+  unsettled, which is exactly what the settle tests assert against."
+  [frame-id parent-envelope]
+  (when (some-> *flow-settle-requested* deref)
+    (child-dispatch! frame-id parent-envelope
+                     [:rf/settle-flows]
+                     {:source :fx-dispatch}))
+  nil)
+
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.
   Driven by `handle-one-fx`; emit of `:rf.fx/handled` lives in the
@@ -855,18 +934,37 @@
    ;; `call-frame-scoped-hook!` passes `{:frame frame-id}` as the second
    ;; arg, so one hook pair serves both surfaces.
    ;;
-   ;; ONE-EVENT LAG — THE LEAST-OBVIOUS FLOW BEHAVIOUR (Spec 013
-   ;; §Sequencing). The `:fx` walk is the LAST drain stage — it runs
-   ;; AFTER the flow-transform `:after` has already evaluated this event's
-   ;; flows (Spec 013 §Drain integration: step 4 runs after step 2). So a
-   ;; flow registered HERE was not in the registry when the flow transform
-   ;; walked, and does NOT compute its initial output on THIS event — it
-   ;; first fires on the NEXT drain on the same frame. This lag is
-   ;; structural (a synchronous re-walk would need a second `app-db`
-   ;; install, breaking the one-install-per-event invariant), NOT a bug.
-   ;; Callers needing the initial value immediately dispatch a follow-up
-   ;; no-op event from the SAME handler (see Spec 013 §Sequencing). Do not
-   ;; "fix" this by re-running the flow transform after `:fx`.
+   ;; SETTLING ON THE DISPATCHING FRAME (Spec 013 §Sequencing). The `:fx`
+   ;; walk is the LAST drain stage — it runs AFTER the flow-transform
+   ;; `:after` has already evaluated this event's flows (Spec 013 §Drain
+   ;; integration: step 4 runs after step 2). So a flow registered HERE
+   ;; was not in the registry when the flow transform walked, and a flow
+   ;; cleared HERE was still in it. Left there, the app-db consequence of
+   ;; either effect arrives one drain late, and the CLEAR case is
+   ;; incoherent at the dispatch boundary: the registry row is already
+   ;; gone while the derived value it owned is still present.
+   ;;
+   ;; So both bodies below call `request-flow-settle!`, and the end of the
+   ;; walk enqueues ONE `[:rf/settle-flows]` on this frame
+   ;; (`settle-flows-if-requested!`). Run-to-completion drains it inside
+   ;; the same pass, so both arms have settled by the time the dispatch
+   ;; returns.
+   ;;
+   ;; Note what this does NOT do, because it is what the ordering was
+   ;; protecting. It does NOT re-run the flow transform after `:fx`, and
+   ;; it does NOT install `app-db` a second time inside THIS event: the
+   ;; settle is a separate dequeued event with its own single install, so
+   ;; the one-install-per-event invariant (Spec 013 §Drain integration
+   ;; property 4) and the atomic-commit contract (§Failure semantics)
+   ;; both stand untouched. That separation also keeps the failure
+   ;; boundary where it belongs — a newly registered flow whose `:derive`
+   ;; throws aborts the SETTLE, not the event that registered it, so the
+   ;; registering event's own `:db` write still commits and the throw
+   ;; reports through the ordinary `:rf.error/flow-eval-exception` path
+   ;; with its usual `:phase` discriminator.
+   ;;
+   ;; This is the framework performing, once, the follow-up no-op
+   ;; dispatch the contract used to make every caller hand-write.
    ;; rf2-bqstzr — `:rf.fx/reg-flow` carries the SAME 3-slot triple as the
    ;; `reg-flow` macro: `[:rf.fx/reg-flow [flow-id metadata derive-fn]]`. The
    ;; dispatching frame threads through as the `:frame` metadata key (the frame
@@ -880,11 +978,22 @@
    (fn [frame-id _parent-envelope args]
      (when-let [f (late-bind/get-fn :flows/reg-flow)]
        (let [[flow-id metadata derive-fn] args]
-         (f flow-id (assoc metadata :frame frame-id) derive-fn))))
+         (f flow-id (assoc metadata :frame frame-id) derive-fn)
+         ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
+         ;; bad registration shape) requests nothing — there is no mutation
+         ;; to settle. Inside the `when-let`, so a build without the flows
+         ;; artefact requests nothing either.
+         (request-flow-settle!))))
 
    :rf.fx/clear-flow
    (fn [frame-id _parent-envelope args]
-     (call-frame-scoped-hook! :flows/clear-flow frame-id args))})
+     (when (call-frame-scoped-hook! :flows/clear-flow frame-id args)
+       ;; `clear-flow` over an unregistered id is a legitimate no-op, and it
+       ;; still requests a settle. Distinguishing the two would mean widening
+       ;; the hook's return contract to report whether it MUTATED, to save a
+       ;; pass that a settle over an unchanged registry already makes free:
+       ;; the dirty check recomputes nothing, so the settle installs nothing.
+       (request-flow-settle!)))})
 
 (defn- emit-fx-error!
   "Fan a runtime `:rf.error/*` fx-category out through BOTH error
@@ -1934,7 +2043,11 @@
   ([frame-id fx-vec active-platform
     {:keys [overrides origin-event parent-envelope effects
             frame-incarnation-token]}]
-   (binding [*exact-frame-owner-token* frame-incarnation-token]
+   (binding [*exact-frame-owner-token* frame-incarnation-token
+             ;; Spec 013 §Sequencing — the flow-settle request slot for THIS
+             ;; walk. Fresh per `do-fx` call, so one event's lifecycle effects
+             ;; can never settle another's.
+             *flow-settle-requested*  (atom false)]
      (loop [pairs (seq fx-vec)]
        (cond
          (not (exact-owner-live? frame-id))
@@ -1949,7 +2062,17 @@
                           (some? effects)
                           (assoc :rf.event/fx          (:fx effects)
                                  :rf.event/db-present? (contains? effects :db))))
-           (if (exact-owner-live? frame-id) :ok stale-incarnation))
+           ;; Spec 013 §Sequencing: the walk is over, so the flow registry is
+           ;; in its final shape for this event — settle it on this frame if
+           ;; the walk touched it. AFTER the terminal `:rf.fx/do-fx` marker so
+           ;; the settle's own dispatch trace reads as what it is, a
+           ;; consequence of the completed walk rather than part of it; and
+           ;; behind the same liveness check every other tail stage uses, so a
+           ;; frame destroyed mid-walk queues nothing.
+           (if (exact-owner-live? frame-id)
+             (do (settle-flows-if-requested! frame-id parent-envelope)
+                 (if (exact-owner-live? frame-id) :ok stale-incarnation))
+             stale-incarnation))
 
          :else
          (let [pair (first pairs)]
