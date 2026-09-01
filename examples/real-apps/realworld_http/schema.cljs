@@ -41,9 +41,12 @@
 
    `:slug` is the ACTIVE ROUTE IDENTITY a route-keyed slice is loading — the
    correlation fact `reply-for-current-slug?` (comments.cljs) gates every
-   article/comments settle against, so a late reply for a slug the reader has
-   left can't overwrite the current page. Optional because only the
-   `/article/:slug`-driven slices (`:article`, `:comments`) carry it."
+   article/comments settle that WRITES a slice against, so a late reply for a
+   slug the reader has left can't overwrite the current page. (A settle whose
+   outcome is a NAVIGATION asks the route instead — `article-route-for-slug?`,
+   same file: THIS slug outlives a walk to a non-article page, the route's
+   does not.) Optional because only the `/article/:slug`-driven slices
+   (`:article`, `:comments`) carry it."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
