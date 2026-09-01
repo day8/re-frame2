@@ -1068,3 +1068,90 @@
           "streaming passed the variadic inner the complete arg sequence")
       (is (= 1 @calls)
           "streaming invoked the variadic inner exactly once"))))
+
+;; ===========================================================================
+;; rf2-mocn3 (audit) — the selection must not be MORE permissive than CLJS
+;;
+;; The first repair replaced exception-driven probing with a walk down the
+;; inner's declared arities, taking the longest accepted PREFIX. That is not
+;; what a compiled ClojureScript fn does. Only a fn with a SINGLE fixed arity
+;; and no variadic tail compiles to a bare JavaScript function, and only a
+;; bare JavaScript function drops extra arguments; anything with more than one
+;; arm compiles to a dispatcher that switches on `arguments.length` and throws
+;; `Invalid arity: n`. Measured on node (see the cross-host table in
+;; `re-frame.ssr.form2-arity-cljs-test`):
+;;
+;;   (fn [x] …)               at 3 args → returns
+;;   (fn ([x] …) ([x y] …))   at 3 args → throws `Invalid arity: 3`
+;;   (fn ([] …) ([x] …))      at 2 args → throws `Invalid arity: 2`
+;;
+;; The prefix walk selected arity 2 and arity 1 for those last two and
+;; rendered, so a shared `.cljc` Form-2 component rendered on the server and
+;; failed on hydration — the exact parity the repair exists to hold.
+;;
+;; The cross-host table proves the AGREEMENT on both hosts through the sync
+;; emitter. What is here is the second public consumer: streaming shares one
+;; resolver with sync, so every row asserts through BOTH.
+;; ===========================================================================
+
+(deftest emit-form-2-multi-arity-inner-refuses-what-cljs-refuses
+  (testing "rf2-mocn3 — a multi-arity inner handed a count no arm declares is
+            REFUSED on both server paths, as the client refuses it, rather
+            than silently rendering some shorter arm's output"
+    ;; The audit's two shapes verbatim. Under the prefix walk the first
+    ;; rendered `<p>m2|a|b</p>` and the second `<p>m1|a</p>`.
+    (let [multi-1-2 (fn [& _] (fn ([x]   [:p (str "m1|" x)])
+                                  ([x y] [:p (str "m2|" x "|" y)])))
+          multi-0-1 (fn [& _] (fn ([]  [:p "m0"])
+                                  ([x] [:p (str "m1|" x)])))]
+      (is (thrown? clojure.lang.ArityException
+                   (emit/emit-element [multi-1-2 "a" "b" "c"]))
+          "sync emit refuses a 1-or-2-arity inner handed 3 args")
+      (is (thrown? clojure.lang.ArityException
+                   (streaming/render-shell [multi-1-2 "a" "b" "c"]))
+          "streaming refuses a 1-or-2-arity inner handed 3 args")
+      (is (thrown? clojure.lang.ArityException
+                   (emit/emit-element [multi-0-1 "a" "b"]))
+          "sync emit refuses a 0-or-1-arity inner handed 2 args")
+      (is (thrown? clojure.lang.ArityException
+                   (streaming/render-shell [multi-0-1 "a" "b"]))
+          "streaming refuses a 0-or-1-arity inner handed 2 args")
+
+      ;; NON-VACUITY. The same two inners must still render through every arm
+      ;; they DO declare — otherwise the rows above would be satisfied by a
+      ;; blanket refusal of multi-arity inners, which is a different (and
+      ;; worse) behaviour wearing the same green.
+      (is (= "<p>m2|a|b</p>" (emit/emit-element [multi-1-2 "a" "b"]))
+          "sync emit selects the exact 2-arity arm")
+      (is (= "<p>m2|a|b</p>"
+             (:shell-html (streaming/render-shell [multi-1-2 "a" "b"])))
+          "streaming selects the exact 2-arity arm")
+      (is (= "<p>m1|a</p>" (emit/emit-element [multi-1-2 "a"]))
+          "sync emit selects the exact 1-arity arm")
+      (is (= "<p>m1|a</p>"
+             (:shell-html (streaming/render-shell [multi-1-2 "a"])))
+          "streaming selects the exact 1-arity arm")
+      (is (= "<p>m0</p>" (emit/emit-element [multi-0-1]))
+          "sync emit selects the exact 0-arity arm")
+      (is (= "<p>m0</p>" (:shell-html (streaming/render-shell [multi-0-1])))
+          "streaming selects the exact 0-arity arm")))
+
+  (testing "rf2-mocn3 — a fixed+variadic inner routes by the same rules: the
+            exact fixed arm when one matches, otherwise the variadic arm with
+            the WHOLE arg list, on both server paths"
+    ;; `(fn ([a] …) ([a b & r] …))` — fixed arity 1 plus a variadic arm
+    ;; requiring 2. The compiled CLJS dispatcher sends 1 arg to the fixed arm
+    ;; and 3 to the variadic one; so must the JVM. Note the prefix walk would
+    ;; have sent 3 args to the ARITY-1 arm, dropping two props.
+    (let [mixed (fn [& _] (fn ([a] [:p (str "mx1|" a)])
+                              ([a b & r] [:p (str "mxv|" a "|" b "|"
+                                                  (str/join "," r))])))]
+      (is (= "<p>mxv|a|b|c</p>" (emit/emit-element [mixed "a" "b" "c"]))
+          "sync emit hands the satisfied variadic arm every arg")
+      (is (= "<p>mxv|a|b|c</p>"
+             (:shell-html (streaming/render-shell [mixed "a" "b" "c"])))
+          "streaming hands the satisfied variadic arm every arg")
+      (is (= "<p>mx1|a</p>" (emit/emit-element [mixed "a"]))
+          "sync emit prefers the exact fixed arm")
+      (is (= "<p>mx1|a</p>" (:shell-html (streaming/render-shell [mixed "a"])))
+          "streaming prefers the exact fixed arm"))))

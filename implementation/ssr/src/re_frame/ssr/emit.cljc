@@ -378,48 +378,95 @@
                   :element el}})))
 
 #?(:clj
-   (defn- accepts-arity?
-     "Does the compiled fn `f` accept an invocation of EXACTLY `k` arguments?
+   (defn- declared-fixed-arities
+     "The set of FIXED arities the compiled fn `f` declares.
 
      Read off the class, not discovered by calling: a Clojure fn compiles to
-     a class declaring one `invoke` method per FIXED arity, and a variadic fn
-     additionally extends `clojure.lang.RestFn`, whose `getRequiredArity`
-     gives the number of params before the `&`. Both halves are needed —
-     `(fn [& xs] …)` declares NO `invoke` method, and `(fn [a & xs] …)`
-     accepts any arity from ONE up, so \"variadic\" must never be read as
-     \"accepts zero\".
+     a class declaring one `invoke` method per fixed arity. A purely variadic
+     `(fn [& xs] …)` declares NONE, so this returns `#{}` for it — the
+     variadic tail is `variadic-required-arity`'s business, and the two must
+     stay separate so \"accepts any arity\" is never read as \"accepts zero\".
 
      Only ever called on a `fn?` value (`resolve-component-head` guards),
      which matters: a Var is `ifn?` but not `fn?`, and `clojure.lang.Var`
      declares `invoke` for arities 0–21 regardless of what it holds, so
      inspecting one would answer yes to everything."
-     [f k]
-     (boolean
-       (or (some (fn [^java.lang.reflect.Method m]
-                   (and (= "invoke" (.getName m))
-                        (= k (alength (.getParameterTypes m)))))
-                 (.getDeclaredMethods (class f)))
-           (and (instance? clojure.lang.RestFn f)
-                (>= k (.getRequiredArity ^clojure.lang.RestFn f)))))))
+     [f]
+     (into #{}
+           (keep (fn [^java.lang.reflect.Method m]
+                   (when (= "invoke" (.getName m))
+                     (alength (.getParameterTypes m)))))
+           (.getDeclaredMethods (class f)))))
+
+#?(:clj
+   (defn- variadic-required-arity
+     "The number of params before the `&` when `f` is VARIADIC, else `nil`.
+     A variadic fn extends `clojure.lang.RestFn`, whose `getRequiredArity`
+     gives that count: `(fn [& xs] …)` reports 0, `(fn [a & xs] …)` reports 1."
+     [f]
+     (when (instance? clojure.lang.RestFn f)
+       (.getRequiredArity ^clojure.lang.RestFn f))))
 
 #?(:clj
    (defn- form-2-invocation-arity
-     "How many of the component's `n` args to pass `inner`: `n` itself when
-     `inner` accepts them all, else the LONGEST accepted prefix (zero
-     included), else `nil` when `inner` declares no arity at or below `n`."
+     "How many of the component's `n` args to hand `inner` — modelling what
+     the SAME `inner`, compiled by ClojureScript, would accept — or `nil` when
+     CLJS would reject the call too and the JVM should simply pass all `n` and
+     let its own `ArityException` report the real call.
+
+     rf2-mocn3 (audit) — this used to walk every declared arity downward and
+     take the longest accepted prefix, which is NOT what a compiled CLJS fn
+     does. Only a fn with a SINGLE fixed arity and no variadic tail compiles
+     to a bare JavaScript function, and only a bare JavaScript function drops
+     extra arguments. Anything with more than one arm compiles to a dispatcher
+     that switches on `arguments.length` and throws `Invalid arity: n` when no
+     arm matches. Measured on node against `cljs.core/apply`, which is exactly
+     what the `:cljs` branch of `invoke-form-2-render-fn` calls:
+
+       (fn [x] …)                  at 3 args  → returns (extra args dropped)
+       (fn ([x] …) ([x y] …))      at 3 args  → throws `Invalid arity: 3`
+       (fn ([] …) ([x] …))         at 2 args  → throws `Invalid arity: 2`
+
+     The prefix walk selected 2 and 1 for those last two and rendered happily,
+     so a shared `.cljc` Form-2 component could render on the server and blow
+     up on hydration — the precise parity this helper exists to hold.
+
+     So the three selection rules mirror the three shapes the dispatcher has:
+
+       1. an EXACT fixed arm for `n`               → `n`
+       2. a variadic arm whose required count is
+          satisfied by `n`                         → `n` (the whole arg list)
+       3. exactly ONE fixed arity, no variadic
+          tail, shorter than `n`                   → that arity (truncate)
+
+     Rule 3 is deliberately narrow, and widening it would be a DIFFERENT
+     behaviour wearing this name. Nothing here ever SUPPLIES missing args:
+     CLJS does pass `undefined` for them, but fabricating `nil` props on the
+     server is the kind of silent divergence this helper exists to prevent, so
+     an inner that declares only arities above `n` falls through to `nil`."
      [inner n]
-     (first (filter #(accepts-arity? inner %) (range n -1 -1)))))
+     (let [fixed    (declared-fixed-arities inner)
+           required (variadic-required-arity inner)]
+       (cond
+         (contains? fixed n)            n
+         (and required (>= n required)) n
+         (and (nil? required)
+              (= 1 (count fixed))
+              (< (first fixed) n))      (first fixed)
+         :else                          nil))))
 
 (defn- invoke-form-2-render-fn
-  "Invoke a Form-2 inner render fn with `args`, tolerating an inner that
-  declares FEWER params than the component was passed. The idiomatic
+  "Invoke a Form-2 inner render fn with `args`, on the JVM under the SAME
+  arity rules the compiled CLJS `inner` would follow. The idiomatic
   Reagent/UIx Form-2 inner either takes the SAME args as the outer
   (`(fn [x] …)`), ignores them and closes over the outer's (`(fn [] …)`), or
   — just as validly — takes a non-zero PREFIX of them (`(fn [kept] …)` under
-  an `(fn [kept ignored] …)` outer). On CLJS all three are equivalent, since
-  JS arity leniency drops extra args, so `(apply inner args)` renders them
-  all. The JVM is strict, so this helper emulates that leniency by CHOOSING
-  the call shape.
+  an `(fn [kept ignored] …)` outer). Those all compile to a bare JavaScript
+  function, which drops extra arguments, so the client renders them; the JVM
+  is strict, so this helper picks the call shape rather than being told it.
+  What it must NOT do is be MORE permissive than the client, which is why
+  `form-2-invocation-arity` models the compiled dispatcher rather than
+  helpfully finding some arity that works.
 
   rf2-mocn3 — it used to DISCOVER the shape instead, with
   `(try (apply inner args) (catch ArityException _ (inner)))`, and that is
@@ -433,13 +480,12 @@
   so a prefix-taking inner was rejected on the server while rendering fine in
   the browser.
 
-  So: select from the inner's DECLARED arities (`accepts-arity?`), then
-  invoke exactly once. No user code runs inside a catch here, and anything
-  the render throws propagates unchanged. When the inner declares no
-  compatible arity at all there is no shape to choose — CLJS has no
-  equivalent of supplying missing args, so widening is not on the table —
-  and `(apply inner args)` lets the inner's own `ArityException` report the
-  real call rather than a fabricated zero-arity retry."
+  So: select the shape from the inner's DECLARED arities
+  (`form-2-invocation-arity`), then invoke exactly once. No user code runs
+  inside a catch here, and anything the render throws propagates unchanged.
+  When there is no shape CLJS would accept either, `(apply inner args)` lets
+  the inner's own `ArityException` report the real call rather than a
+  fabricated retry — the server fails where the client fails."
   [inner args]
   #?(:clj  (let [k (form-2-invocation-arity inner (count args))]
              (apply inner (if k (take k args) args)))
