@@ -1292,11 +1292,32 @@ the context was another change to the same file.
 **So the rule is safe and its reading is not.** Deleting only on `-` never destroys anything, which
 is why the criterion stands unchanged — but a mayor who reads `+` as *this branch has unmerged work*
 will hunt for work that landed weeks ago, and a branch list read as a backlog is a list of phantoms.
-**The discriminating test is cheap and settles it in one step: take the lines that commit ADDED and
-look for them at the tip.** All present means the content landed and only the context moved; any
-absent means the work is genuinely outstanding. Do that before you conclude a branch is carrying
-something, and never the other way round — the cost of the two errors is not symmetric either, since
-believing `+` costs you a search, while believing a wrongly-derived `-` costs you the work.
+The cheap triage is to take the lines that commit ADDED and look for them at the tip: where they are
+all there, the likeliest reading by far is that the content landed and only the context moved. Run it
+first, because it is seconds and it settles the common case.
+
+**But it is triage, not a verdict, and it is wrong in BOTH directions — which is the correction this
+paragraph carries.** A line search has no notion of path, location, multiplicity or order, and it
+cannot see a deletion at all. So *all present* is satisfied by lines that exist somewhere at the tip
+while this branch's actual change is wholly absent — the more generic the added lines, the more
+certain that is, and a commit whose substance is a deletion or a replacement scans clean having been
+inspected for nothing. And *any absent* is equally weak in reverse: upstream can carry the same work
+through a rename, a reformat or a follow-on rewrite, so the change is fully present and the exact
+line is not. **To CONCLUDE either way, compare the commit's whole patch against the tip at the paths
+it touches, deletions included** — a three-way comparison from the branch's parent is enough, and it
+is the only thing here that answers the question actually asked.
+
+**This matters even though the rule already forbids deleting on it.** The damage from a wrong
+*landed* reading is not a lost branch — it is a mayor who stops looking, files nothing, and leaves
+real unmerged work sitting under a name that now reads as residue. The cost of the two errors stays
+asymmetric, which is why the conservative half survives untouched: believing `+` costs you a search,
+while believing a wrongly-derived `-` costs you the work.
+
+**And note the shape of the mistake, because it recurs wherever an instrument is cheap.** This
+document already warns that [a search returning ZERO is not a check that
+passed](dispatch-prompt-template.md#quality-gates--how-a-gate-is-run); the inversion is the same
+defect and reads even better, because a scan returning EVERYTHING looks like corroboration rather
+than like silence. Ask what the instrument compared, not what it answered.
 
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
