@@ -2322,17 +2322,17 @@ Per audit-of-audits state-machines #12, the machine-handler builder is renamed f
 
 | Old | New | Surface |
 |---|---|---|
-| `re-frame.core/create-machine-handler` | `re-frame.core/make-machine-handler` | the public builder fn |
+| `re-frame.core/create-machine-handler` | `re-frame.machines/make-machine-handler` | the public builder fn |
 | `:machines/create-machine-handler` | `:machines/make-machine-handler` | the late-bind hook key |
 
-**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate; v1-→-v2 migrations land directly on the new name.
+**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate; v1-→-v2 migrations land directly on the new name. The builder also moved off the `re-frame.core` facade in [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) — apply both changes together, so the renamed call lands on `re-frame.machines`.
 
 ```clojure
 ;; before
 (def my-handler (rf/create-machine-handler my-machine-spec))
 
 ;; after
-(def my-handler (rf/make-machine-handler my-machine-spec))
+(def my-handler (rf.machines/make-machine-handler my-machine-spec))
 ```
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
