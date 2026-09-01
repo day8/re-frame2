@@ -515,6 +515,33 @@ commit guard both have, and the reason they hold. The rejected alternative, havi
 worker liveness before every merge, works but must be remembered on every merge forever, and it
 re-introduces exactly the worktree-activity sweep the merge loop deliberately does not do.
 
+**But the flag is only as good as the author eventually setting it, and it fails in BOTH
+directions.** Both were measured in one session, and neither is visible from the change.
+
+**Stale-OPEN — a fix dispatch inherits a flag somebody else already set.** A fix worker goes onto an
+EXISTING change whose original author finished and marked it ready, so the flag is set before the
+second worker arrives and nothing in the change records that anyone is inside it now. The merge loop
+reads a ready change, the criterion passes, and the merge lands under a live worker — the exact
+failure the flag exists to prevent, arriving by the one path where the flag was never the current
+worker's to set. Measured here; nothing was lost, because the commits that went green were the ones
+that landed, but that was timing rather than protection. So on a fix dispatch the flag is stale by
+construction, and the only record that a second worker is there is the mayor's dispatch ledger.
+
+**Stuck-CLOSED — an author goes silent holding a green draft.** Both remedies above assume the author
+answers: wait for the ready mark, or message them. Measured here: three workers registered as
+*running* while idle for over an hour — no writes, tips unmoved, worktrees clean, everything pushed —
+two of them holding drafts, one reading exactly at band with nothing non-terminal and nothing failing.
+Direct messages went unanswered for half an hour. A finished change is then blocked by an interlock
+whose protected party may no longer exist, and the fleet loses the slot as well as the change.
+
+**Do not answer that by flipping the flag on an inference.** *It looks done* is the proxy the reaping
+rules refuse one surface over, and every reason the paragraph above rejects a per-merge liveness check
+still holds. What differs is scope: this is a rare exception path — one otherwise-mergeable draft whose
+author has stopped — rather than a test on every merge. Settle it the way reaping is settled, by a read
+rather than an inference: the agent's own report, or the operator's decision to stop that agent, which
+settles liveness by making it false. Until one of those arrives the change waits, and the honest report
+says a finished change is stranded and why.
+
 ---
 
 ## Pasting a block
@@ -1006,7 +1033,9 @@ moved most. In the dominant toolchain that is the three-dot form, `<TRUNK>...HEA
 - Worktree cleanup deleting *through* a link into the shared tree it points at → the worker unlinks before reporting
   done, and the cleanup path disarms before removing.
 - A change merged out from under a worker still working on it → it is published as a draft and marked ready
-  only as the author's last act, which the host enforces by refusing to merge a draft.
+  only as the author's last act, which the host enforces by refusing to merge a draft. **Except on a fix
+  dispatch, where the flag was already set by somebody else and protects nothing** — and the same flag
+  strands a finished change when its author goes silent. Both are under *Publishing the change*.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not on the hand-off; a real
   failure gets a fix worker, never an override.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
