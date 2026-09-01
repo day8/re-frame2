@@ -87,16 +87,38 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 - In-flight requests fail on a socket drop. A request already on the wire
   when the socket dies can't be answered on this connection, so `:on-socket-lost`
   clears the `:in-flight` map and fires each waiting `:reply` event with an
-  explicit `{:ok false :error :ws/connection-lost}` body — at-most-once
-  semantics, no silent leak, and no double-execution from a blind replay.
+  explicit `{:origin :ws/local :ok false :error :ws/connection-lost}` body —
+  at-most-once semantics, no silent leak, and no double-execution from a
+  blind replay.
+
+- Inbound frames are vetted before the machine acts on them, not just before
+  they reach app-db. `:receive-message` clears an `:in-flight` slot the frame
+  itself names, so the closed `InboundMessage` wire contract is applied in the
+  `:trusted-frame?` guard — ahead of the branch. Check only at the app-db
+  ingress and a hostile frame naming a pending `:request-id` is duly refused
+  there while having already spent the correlation: app-db clean, rejection
+  counter fired, caller waiting forever for a reply that can no longer come.
+  A frame that fails the guard takes a `:refuse-frame` candidate that returns
+  no `:data` at all, and is still handed to the ingress so the one canonical
+  `:rf.error/schema-validation-failure` record is produced there.
+
+- Request outcomes carry provenance the sender cannot forge. Two producers
+  reach the caller's `:reply` event — a correlated wire reply and a
+  loss/timeout failure the machine minted itself — and they are different
+  facts. The machine stamps `:origin` (`:ws/server` / `:ws/local`) *after*
+  receipt and the closed `RequestOutcome` union dispatches on that stamp, so
+  a server that has seen the wire request id cannot send back a body shaped
+  like a local connection failure and have it recorded as one.
 
 - Reconnect cascade with credential rotation threaded through — and no raw
   credential anywhere the framework can see. Machine `:data` is inspectable
   (snapshots, traces, recorder fixtures), so it carries only an opaque
   `:cred-ref`; the socket actor exchanges the reference for the real bearer
-  inside its private host closure at authentication time
-  (`resolve-credential` in `messages.cljs`), uses it for the one auth send,
-  and discards it. Leaving `:active` destroys the actor (the declarative
+  inside the `:auth` branch of its private host closure
+  (`resolve-credential` in `messages.cljs`), writes it to that one wire
+  frame, and lets it go out of scope there. Resolving it in the enclosing
+  scope instead would keep it alive as long as the stored socket handle —
+  which is the whole connection. Leaving `:active` destroys the actor (the declarative
   `:spawn` desugars to a `:rf.machine/destroy` on exit), and the runtime
   clears its id from the `:rf/spawned` slot — so the connection machine needs
   no `:exit` action to forget the id. The actor itself does carry one: an
@@ -125,7 +147,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 | `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example — same state chart, but here the live socket id comes from the framework's `:rf/spawned` slot instead of the spec's hand-recorded `:socket-id`. |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
-| `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) for the connection machine's `:data` slice and the `[:messages]` app-db slice. |
+| `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) — the connection machine's `:data` slice, the `[:messages]` app-db slice, and the closed inbound wire contract (`InboundMessage`, plus `RequestOutcome` keyed on the machine-stamped `:origin`). |
 | `index.html` | Minimal harness. |
 
 ## Mock WebSocket server

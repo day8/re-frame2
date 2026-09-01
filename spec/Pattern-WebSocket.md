@@ -114,7 +114,19 @@ The connection machine composes the locked substrate:
       ;; every straggler from a replaced connection is dropped for free.
       (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
         (let [live (socket-id data)]
-          (and (some? live) (= source-socket-id live))))}
+          (and (some? live) (= source-socket-id live))))
+
+      :trusted-frame?
+      ;; The inbound gate. Vouching for the SENDER is not vouching for the
+      ;; BYTES, and `:receive-message` clears an `:in-flight` slot the frame
+      ;; itself names — so the frame is held to the closed `InboundMessage`
+      ;; contract here, before any branching or state change. See §Vet the
+      ;; frame before the machine acts on it. One named guard rather than an
+      ;; `:and` of two — 005 ships no guard combinator data form; compound
+      ;; logic goes in one guard whose NAME carries the meaning.
+      (fn [{:keys [data] [_ {:keys [source-socket-id body]}] :event}]
+        (and (current-socket? data source-socket-id)
+             (valid-inbound-frame? body)))}      ;; a compiled InboundMessage validator
 
      :actions
      {:record-connection-opts
@@ -317,28 +329,38 @@ The connection machine composes the locked substrate:
         :connected
         {:entry  :on-connected
          :always [{:guard :has-queued-messages? :action :flush-queue}]
-         :on     {;; Inbound message — the :current-socket? guard suppresses a
-                  ;; straggler dispatched in-flight from a prior socket whose
-                  ;; destroy hadn't flushed by the time the dispatch landed. A
-                  ;; body carrying a :request-id is a correlated reply; without
-                  ;; one it's a server push. Either way the body flows through
-                  ;; the generic :ws/handle-message handler.
-                  :ws/received {:guard  :current-socket?
-                                :action (fn [{:keys [data] [_ {:keys [body]}] :event}]
-                                          (if-let [rid (:request-id body)]
-                                            ;; Correlated reply — clear the
-                                            ;; in-flight slot, hand the body to
-                                            ;; :ws/handle-message, and fire the
-                                            ;; registered reply event.
-                                            (let [{:keys [reply-event]}
-                                                  (get-in data [:in-flight rid])]
-                                              {:data (update data :in-flight dissoc rid)
-                                               :fx   (cond-> [[:dispatch [:ws/handle-message body]]]
-                                                       reply-event
-                                                       (conj [:dispatch (conj reply-event body)]))})
-                                            ;; Server push — translate to a
-                                            ;; named running-app event.
-                                            {:fx [[:dispatch [:ws/handle-message body]]]}))}
+         :on     {;; Inbound frame. TWO candidates, first-match-wins: a frame
+                  ;; must clear both halves of the gate — :current-socket?
+                  ;; (not a straggler from a socket we have replaced) AND the
+                  ;; closed InboundMessage wire contract — before this machine
+                  ;; acts on it. See §Vet the frame before the machine acts on
+                  ;; it for why the app-db ingress check downstream is not
+                  ;; sufficient on its own.
+                  :ws/received [{:guard  :trusted-frame?
+                                 :action (fn [{:keys [data] [_ {:keys [body]}] :event}]
+                                           ;; Branch on the VETTED :type, not on
+                                           ;; "is there a :request-id?".
+                                           (if (= :reply (:type body))
+                                             (let [rid   (:request-id body)
+                                                   entry (get-in data [:in-flight rid])]
+                                               (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
+                                                 entry
+                                                 (assoc :data (update data :in-flight dissoc rid))
+                                                 (:reply-event entry)
+                                                 ;; :origin is the machine's own
+                                                 ;; stamp — see §Message correlation.
+                                                 (update :fx conj
+                                                         [:dispatch (conj (:reply-event entry)
+                                                                          (assoc body :origin :ws/server))])))
+                                             ;; Server push — translate to a
+                                             ;; named running-app event.
+                                             {:fx [[:dispatch [:ws/handle-message body]]]}))}
+                                ;; Failed the wire contract: hand it to the
+                                ;; ingress, which owns refusal, and change
+                                ;; nothing. Note the absent :data key.
+                                {:guard  :current-socket?
+                                 :action (fn [{[_ {:keys [body]}] :event}]
+                                           {:fx [[:dispatch [:ws/handle-message body]]]})}]
 
                   ;; Override the parent's :ws/send: while :connected the
                   ;; message goes straight to the wire instead of queueing.
@@ -382,7 +404,7 @@ The connection machine composes the locked substrate:
             :ws/rotate-cred {:action :rotate-cred}}}}}))
 ```
 
-The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. It is also where the opaque `:cred-ref` becomes a real credential: the actor resolves the reference inside its own host closure as the socket opens, attaches the bearer to the auth wire frame, and discards it — the bearer never enters machine `:data` or a dispatch (see §Parameters). Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
+The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. It is also where the opaque `:cred-ref` becomes a real credential: the actor resolves the reference inside its own host closure **at the auth write**, attaches the bearer to that wire frame, and lets it go out of scope in the same expression — the bearer never enters machine `:data` or a dispatch (see §Parameters). Resolve it in the enclosing scope instead and the socket handle, which is retained for the socket's whole life, closes over the bearer for just as long: a live credential parked host-side that no snapshot sweep can see. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.
 
 ### Parameters
 
@@ -393,7 +415,7 @@ The connection's `:url` and an **opaque credential reference** arrive on the `:w
                                            :cred-ref (current-session-cred-ref)}]])
 ```
 
-`:cred-ref` is a REFERENCE — a session id, a vault index, any opaque key your auth slice issues — never the bearer itself. Machine `:data` is framework-inspectable (snapshots, trace emissions, recorder fixtures, pair tooling), so a raw bearer, cookie, or refresh token must never enter `:data` or ride a dispatch payload. The socket actor exchanges the reference for the real credential inside its own host closure at the moment it opens/authenticates the socket — the worked example's `resolve-credential` seam in `examples/patterns/websocket/messages.cljs` — writes it to the auth wire frame, and discards it.
+`:cred-ref` is a REFERENCE — a session id, a vault index, any opaque key your auth slice issues — never the bearer itself. Machine `:data` is framework-inspectable (snapshots, trace emissions, recorder fixtures, pair tooling), so a raw bearer, cookie, or refresh token must never enter `:data` or ride a dispatch payload. The socket actor exchanges the reference for the real credential inside its own host closure at the moment it authenticates the socket — the worked example's `resolve-credential` seam in `examples/patterns/websocket/messages.cljs` — writes it to the auth wire frame, and lets it go out of scope there. "At the write" is narrower than "while opening the socket", and deliberately so: anything the socket's enclosing scope resolves is retained by the socket handle for the connection's lifetime.
 
 `:record-connection-opts` persists URL + reference into `:data`; the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a rotated credential (via `[:ws/connection [:ws/rotate-cred new-cred-ref]]`, carrying only the new reference) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
 
@@ -421,9 +443,11 @@ Request-reply protocols carry a correlation id on every request and matching rep
 
 1. **Caller dispatches `[:ws/connection [:ws/request {:request-id ..., :body ..., :reply [::handler ...], :timeout-ms 10000}]]`.**
 2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout.
-3. **`:ws/received` arrives with `{:body {:request-id ... :result ...}}`.** The `:connected` state's handler checks the connection-epoch guard (`:current-socket?`), hands the body to the generic `[:ws/handle-message body]` handler, and — when the body carries a `:request-id` — also looks up the in-flight entry, clears the slot, and dispatches the registered reply event. A body without `:request-id` is a pure server push that only routes to `:ws/handle-message`.
+3. **`:ws/received` arrives with `{:body {:type :reply :request-id ... :ok ...}}`.** The `:connected` state's `:trusted-frame?` guard checks the connection epoch **and** the closed wire contract; only then does the handler branch on the vetted `:type`. A `:reply` looks up the in-flight entry, clears the slot, and dispatches the registered reply event with the machine's `:origin :ws/server` stamp added; a `:push` only routes to `[:ws/handle-message body]`. Branch on `:type`, not on the presence of a `:request-id` — the frame's declared kind is part of the contract you just checked, whereas presence-of-a-key is a shape test a widened arm re-opens.
 4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry; the caller's reply event never fires. (Apps that want to surface "request timed out" to the caller can do so by dispatching a per-feature error event from `:clear-request` instead.)
-5. **Connection loss fails the slot.** When the live socket drops (`:ws/closed` → `:reconnecting`), `:on-socket-lost` fails every still-in-flight request — each `:reply-event` fires with `{:ok false :error :ws/connection-lost}` and `:in-flight` is cleared — so no correlation slot leaks across the reconnect and no caller hangs. Loss semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution.
+5. **Connection loss fails the slot.** When the live socket drops (`:ws/closed` → `:reconnecting`), `:on-socket-lost` fails every still-in-flight request — each `:reply-event` fires with `{:origin :ws/local :ok false :error :ws/connection-lost}` and `:in-flight` is cleared — so no correlation slot leaks across the reconnect and no caller hangs. Loss semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution.
+
+**Two producers reach the reply event, so say which is which — with a key the sender cannot set.** A correlated wire reply and a locally minted loss/timeout failure both arrive at the caller's `:reply-event`, and they are different facts: one is the server's claim, the other is the machine's own truth about the connection. Discriminating between them by *shape* hands the choice to the sender, because a hostile server that has seen the wire request id can send back whatever shape the "local failure" arm describes and have its frame recorded as a connection fact the app minted itself. So the machine **stamps** `:origin` — `:ws/server` on the wire body as it hands it on, `:ws/local` on the bodies it mints — and the outcome schema is a closed union dispatching on that stamp. Stamped after receipt, `:origin` is not forgeable from the wire.
 
 The correlation id can be any `=`-comparable value — a `(random-uuid)` is the canonical default, but per-feature `[:feature/load slug]` vectors compose with [Spec 014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)'s precedent. Each request-reply *over* the open socket is a Pattern-AsyncEffect interaction; the connection machine is the long-lived host that performs the correlation step Pattern-AsyncEffect leaves to the caller.
 
@@ -435,7 +459,7 @@ Use `:after` on `:connected` to schedule a periodic ping: `:after {30000 {:targe
 
 ### Server-pushed events
 
-Server pushes (`:ws/received` events with no `:request-id`) are translated into named dispatched events the running-app handlers consume. The connection machine's role is mechanical — receive, validate the socket-id, translate, dispatch. The socket-id check is the machine's own routing concern; the *payload* it hands on is unexamined. Semantic interpretation, and the payload check that goes with it, live in the receiving event handler:
+Server pushes (`:ws/received` events whose vetted `:type` is a push kind) are translated into named dispatched events the running-app handlers consume. The connection machine's role is mechanical — receive, vet, translate, dispatch. *Semantic* interpretation lives in the receiving event handler, which is where the ingress check that guards `app-db` belongs:
 
 ```clojure
 ;; The wire shape the server is allowed to push. A closed `:multi` with no
@@ -466,6 +490,14 @@ A bare `:schema` is not that check. It is an ordinary registration diagnostic �
 
 **Put it at the ingress, not on everything downstream.** `:ws/handle-message` is where the wire crosses into the app; `[:notes/append msg]` and `[:chat/typing msg]` carry a value the app has already accepted, so their own `:schema` is an ordinary dev tripwire like any other and should stay one. The correlated request-reply path is the second ingress: a reply body arriving under a known `:request-id` is still the server's bytes, so a `:reply` event that writes it into `app-db` wants the same treatment as the push path.
 
+### Vet the frame before the machine acts on it
+
+`app-db` is not the only state an inbound frame reaches. The connection machine reads the frame to decide what it *is*, and on a correlated reply it **clears an `:in-flight` slot the frame itself named**. That is durable machine state changing on the say-so of bytes nobody has checked yet — and the ingress check downstream cannot undo it. A hostile frame carrying a pending `:request-id` and a malformed body is refused at `:ws/handle-message`, `app-db` never moves, every rejection counter fires as designed — and the caller's request has been silently consumed, with no reply and no timeout left to fire, because its slot is gone. The check that would have caught it ran one step too late.
+
+So the same closed `InboundMessage` contract is applied **in the machine's guard**, ahead of any branching or state change: `:trusted-frame?` above asks both questions — right socket, and a frame the contract admits — and a frame that fails takes a second candidate whose action returns no `:data` at all. Enforcing at both places is not redundancy to trim. They protect different state and they answer to different owners: the guard protects the machine's correlation bookkeeping, the ingress protects `app-db`, and a boundary that holds only because something upstream is careful is not a boundary. Wiring the frame that failed the guard through to the ingress anyway keeps refusal in one place — the ingress owns the `:rf.error/schema-validation-failure` record, so the machine does not mint a second rejection vocabulary beside the framework's.
+
+**Close the arms, too.** A `:multi` with open arms is only half-closed: an open `:push` arm accepts `{:type :push … :request-id <a live one>}`, which passes the wire contract under a kind that has nothing to do with request-reply and then reaches whatever the machine does with a `:request-id`. Closing each arm (`[:map {:closed true} …]`) is what makes "the contract says which fields a push has" mean it.
+
 ### Re-authentication on reconnect
 
 Credential expiry across reconnects has two recovery paths, both supported by the worked machine. **Proactive**: the auth machine refreshes the credential host-side and dispatches `[:ws/connection [:ws/rotate-cred new-cred-ref]]` carrying only the opaque reference; the `:rotate-cred` action updates `:data :cred-ref`; the next `:active` entry's `:spawn` `:data` fn picks up the fresh reference and the new socket resolves it to the new bearer. **Reactive**: a reconnect into `:authenticating` fails with `:ws/auth-failed` and the machine transitions to `:failed`; the auth machine observes via a `[:rf/machine <id>]` subscription (per [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)), runs its refresh, and dispatches `[:ws/connection [:ws/connect {:url ... :cred-ref new-cred-ref}]]` to re-target. Either way, only the opaque reference lands in `:data`; the bearer stays host-side, resolved by the spawning socket's own closure.
@@ -483,13 +515,15 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Per-message machine-spawn-and-destroy.** The connection machine is long-lived. Spawning a new machine per outgoing message is structural overkill — use a single connection machine with `:in-flight` correlation tracking instead.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across message boundaries is state-machine-shaped. Use this pattern.
 - **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data` — under the runtime-maintained `:rf/spawned` slot.
-- **Leaking in-flight requests when the socket drops.** A request already on the wire when the connection is lost can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after reconnect and the slot never clears). Fail each on loss — fire its `:reply-event` with `{:ok false :error :ws/connection-lost}` and clear `:in-flight` (the worked example's `:on-socket-lost`) — so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
+- **Leaking in-flight requests when the socket drops.** A request already on the wire when the connection is lost can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after reconnect and the slot never clears). Fail each on loss — fire its `:reply-event` with `{:origin :ws/local :ok false :error :ws/connection-lost}` and clear `:in-flight` (the worked example's `:on-socket-lost`) — so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
 - **Anchoring the `:spawn` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
 - **Storing a raw bearer / cookie / refresh token in machine `:data`, or dispatching one through the machine.** `:data` is framework-inspectable — app-db snapshots, trace emissions, recorder fixtures, pair tooling — so a credential held there is liable to be serialised somewhere nobody inspects character-by-character. Carry an opaque `:cred-ref` and resolve it to the real bearer inside the socket actor's host closure at authentication time (see §Parameters).
 - **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:cred-ref` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a credential expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/rotate-cred` slot at the parent level.
 - **Skipping the connection-epoch check on socket-sourced events.** Without `:current-socket?` (or equivalent) on `:ws/received` **and** on the lifecycle transitions `:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`, a slow event from a torn-down socket can land after a reconnect and act on the fresh connection: a stale `:message` processed against the new `:in-flight` map (wrong-reply dispatch, or a slot cleared by a stale correlation id), or a stale `:ws/closed` tearing the live connection back to `:reconnecting`. The guard is one key; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
-- **Declaring a `:schema` on the receiving handler and calling the ingress guarded.** That schema is a development diagnostic and elides, so on the build facing the real network there is no check at all. The connection machine validates the socket-id, never the payload, so nothing else covers it either. Add `:rf.schema/at-boundary` to the handler's `:interceptors` — see [§Inbound frames are untrusted](#inbound-frames-are-untrusted-and-schema-alone-will-not-check-them).
+- **Declaring a `:schema` on the receiving handler and calling the ingress guarded.** That schema is a development diagnostic and elides, so on the build facing the real network there is no check at all. Add `:rf.schema/at-boundary` to the handler's `:interceptors` — see [§Inbound frames are untrusted](#inbound-frames-are-untrusted-and-schema-alone-will-not-check-them).
+- **Letting the connection machine branch on the frame — or clear a correlation slot — before the frame has been vetted.** Checking only at the `app-db` ingress leaves the machine's own `:in-flight` map reachable by bytes the ingress will go on to refuse: the frame is rejected, `app-db` is untouched, the rejection counter fires, and the caller's request has still been silently consumed with no reply and no surviving timeout. Apply the wire contract in the transition guard, ahead of the branch — see [§Vet the frame before the machine acts on it](#vet-the-frame-before-the-machine-acts-on-it).
+- **Discriminating a locally minted outcome from a server reply by shape.** If the "the connection failed" arm of your reply contract is recognised by its fields, a server that has seen the wire request id can send those fields and have its frame recorded as the app's own connection fact. Stamp provenance on receipt (`:origin`) and dispatch the union on the stamp — see [§Message correlation for request-reply](#message-correlation-for-request-reply).
 
 ## Composition with related patterns
 
