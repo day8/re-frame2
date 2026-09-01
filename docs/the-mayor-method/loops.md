@@ -379,6 +379,13 @@ candidate. Once you have established the failure is the change's own and not the
 not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
 gate, not a proxy that already passed.
 
+**If that change is already marked ready, convert it back to draft first, and confirm the state
+took.** The flag is set by whoever finished last, so a fix dispatch inherits one the previous
+author set and the interlock is open before the second worker starts — [the exception the
+criterion names](#the-criterion), and the only one this loop has to remember, because this loop
+is what creates it. It belongs here rather than in the brief: the worker cannot set a flag that
+is already ready, and by the time it could, the merge has landed underneath it.
+
 **But a red on a change still published as a DRAFT belongs to its author, for as long as that
 author is alive.** The draft flag means the worker has not finished, and a worker briefed to push as
 it goes will publish reds by design: one here deleted a gate's witness in its first commit and the
