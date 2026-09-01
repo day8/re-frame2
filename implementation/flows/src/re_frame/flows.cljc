@@ -264,9 +264,10 @@
                 (let [new-output      (::output derived)
                       flow-elapsed-ms (when interop/debug-enabled?
                                         (- (interop/now-ms) t0))
-                      old-output (when interop/debug-enabled?
-                                   (get-in db (:output-path flow)))
-                      new-db     (assoc-in db (:output-path flow) new-output)]
+                      old-output      (when interop/debug-enabled?
+                                        (get-in db (:output-path flow)))
+                      new-db          (assoc-in db (:output-path flow)
+                                                new-output)]
                   (registry/pass-set-flow-last-inputs!
                     pass flow-id new-inputs)
                   (when interop/debug-enabled?
