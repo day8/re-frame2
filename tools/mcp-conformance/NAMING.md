@@ -27,7 +27,7 @@ repeat either full catalogue.
 | `preview-<thing>` | Execute and report rendered or resolved state without a pass/fail claim. | `preview-variant` |
 | `explain-<thing>` | Read derivation or resolution reasoning without executing. | `explain-variant` |
 | `describe-<thing>` | Read composed behaviour and its provenance for an addressed runtime context. | `describe-image` |
-| `record-as-<thing>` | Capture activity and return it as an artefact. | `record-as-variant` |
+| `record-as-<thing>` | Capture activity and return it as an artefact. **Reserved — no shipped tool currently bears it.** Its one bearer, story-mcp's `record-as-variant`, was retired under rf2-5saz7; the prefix stays catalogued because it is what keeps a live observer from being misnamed `record-as-…` (a capture-as-persisted-artefact claim). | — |
 | `tail-<thing>` | Wait for an external state change or timeout. | `tail-build` |
 | `watch-<thing>` | Wait until a predicate over live signals holds or times out. | `watch-until` |
 
