@@ -5348,26 +5348,39 @@ jobs:
       # Single Maven/gitlibs cache that covers BOTH shadow-cljs boots in
       # this job — the re-frame2-pair-mcp server bundle compile AND the hermetic
       # fixture watch (rf2-c565x). The fixture at
-      # `skills/re-frame2-pair/tests/fixture/` resolves core + reagent +
-      # epoch as `:local/root` entries, so a cold-cache run pulls every
-      # transitive dep of those three artefacts (Reagent, Malli, …)
+      # `skills/re-frame2-pair/tests/fixture/` resolves FIVE in-repo
+      # artefacts as `:local/root` entries — core, reagent, epoch, schemas
+      # and machines (the last two because the shipped preload `:require`s
+      # `re-frame.schemas` and `re-frame.machines` directly, per the
+      # fixture's own deps.edn) — so a cold-cache run pulls every
+      # transitive dep of those five artefacts (Reagent, Malli, …)
       # before shadow-cljs can even write the nREPL port file.
       #
       # On a cold-cache GHA runner that resolve takes >240s and the
       # hermetic orchestrator's `SHADOW_BOOT_TIMEOUT_MS` watchdog fires
       # before the port file lands — "boot failed: nREPL port not
       # found". Hashing the fixture's deps.edn / shadow-cljs.edn and the
-      # three local-root deps.edn files into the cache key keeps the
+      # five local-root deps.edn files into the cache key keeps the
       # cache warm across runs that don't touch those files; the wider
       # `restore-keys` ladder still lets a partial hit land when only
       # one file changes.
+      #
+      # THE KEY MUST NAME ALL FIVE (rf2-cd0zz). It named only core, reagent
+      # and epoch, so a schemas or machines dependency bump left the key
+      # unchanged: the pre-bump entry kept being restored and — because an
+      # exact key hit suppresses the save — never refreshed, returning the
+      # very cold-resolve cost this key exists to amortise. Same omission
+      # rf2-nsb3e fixed on `re-frame2-pair-fixture-pure` below; it was
+      # unreachable while the job was skipped on those artefacts, and
+      # rf2-f9f3p armed the reverse edges that now SCHEDULE this job on a
+      # change under implementation/{epoch,schemas,machines}.
       - name: Cache Maven / gitlibs (shadow-cljs deps for re-frame2-pair-mcp build + hermetic fixture)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-mcp-conformance-re-frame2-pair-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn') }}
+          key: ${{ runner.os }}-mcp-conformance-re-frame2-pair-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-mcp-conformance-re-frame2-pair-
             ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
@@ -5820,9 +5833,10 @@ jobs:
       # rf2-f9f3p armed the reverse edges that now SCHEDULE it on a change under
       # implementation/{epoch,schemas,machines}, which is what made it live.
       #
-      # `mcp-conformance-re-frame2-pair` builds this same fixture and still
-      # carries the narrow three-artefact list — tracked as its own bead
-      # (rf2-cd0zz), not fixed here, since this file is one-toucher.
+      # `mcp-conformance-re-frame2-pair` above and `mcp-live` in
+      # expensive-tests.yml build this same fixture; both carried a key that
+      # named fewer than five, and both were widened to this roster under
+      # rf2-cd0zz. All three sites keyed on this fixture now name it in full.
       - name: Cache Maven / gitlibs (fixture pure-test deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
