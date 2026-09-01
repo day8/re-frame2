@@ -4,25 +4,36 @@
   exactly like the explicit-destroy path (`destroy/teardown-live-actor!`,
   destroy.cljc step 7).
 
-  `spawn-order/frame-order` is `actor-live?`'s \"most reliable
-  alive-or-gone bit\" (destroy.cljc:83): `record!` runs unconditionally on
-  spawn, `forget!` unconditionally on destroy. If finalize omits the
-  `forget!`, a finished actor STAYS recorded even though its snapshot is
-  dissoc'd — so:
-
-    - a later stale `[:rf.machine/destroy id]` sees it LIVE (spawn-order
-      hit) → `teardown-live-actor!` RE-RUNS → a PHANTOM
-      `:rf.machine/destroyed` trace + a RE-FIRED resource release, violating
-      the silent-idempotent destroy contract (Spec 005 §Destroy is
-      silent-idempotent); and
-    - frame-destroy's spawn-order walk (frame_destroy.cljc segment (b))
-      emits a PHANTOM `:rf.machine.lifecycle/destroyed :parent-frame-destroyed`
-      for the already-finished actor.
+  `record!` runs when a spawn commits and `forget!` when a destroy tears
+  the actor down, so the channel tracks exactly the actors this process
+  spawned and has not yet destroyed. If finalize omits the `forget!`, a
+  finished actor STAYS recorded even though its snapshot is dissoc'd —
+  bookkeeping that names an actor the frame no longer holds.
 
   These JVM+CLJS tests pin: (1) finalize forgets the actor from
   spawn-order; (2) a subsequent stale destroy is a SILENT no-op — no phantom
   destroyed trace, no re-fired release; (3) frame-destroy emits no phantom
   for the finished actor.
+
+  Which of the three actually DISCRIMINATE changed under rf2-1vlyg, and it
+  is worth saying rather than leaving a reader to assume. This channel used
+  to be `actor-live?`'s standalone alive-or-gone bit, and frame destroy
+  unioned it into its walk membership — so a stranded entry made (2) emit a
+  phantom `:rf.machine/destroyed` and (3) a phantom
+  `:rf.machine.lifecycle/destroyed :parent-frame-destroyed`. Both consumers
+  now confirm against the LIVE runtime-db first (rf2-1vlyg audit: no
+  runtime-state install clears this cache, so a `restore-epoch!` that
+  rewinds past a spawn leaves it naming a DISCARDED actor, and believing it
+  reaped the dead). A stranded entry can therefore no longer resurrect a
+  dissoc'd actor by itself.
+
+  So (2) and (3) still pin their contracts — an already-finished actor is
+  never re-reaped — but they no longer FAIL on a missing `forget!`;
+  measured by deleting it from `finalize-machine`, which reds (1) and the
+  `frame-order` assertion inside (3) and leaves their trace assertions
+  green. (1), which asserts on `frame-order` directly, is the pin that
+  keeps the `forget!` honest, and it is why this suite still catches
+  rf2-p6fw3q's regression.
 
   Named `*-cljs-test.cljc` so both cognitect.test-runner (JVM, plain-atom)
   and shadow-cljs (CLJS, reagent) discover it."
