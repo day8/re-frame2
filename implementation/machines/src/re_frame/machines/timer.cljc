@@ -801,6 +801,64 @@
                          false snapshot {:emit-scheduled-trace? true})
   nil)
 
+(defn cancel-timers-absent-from!
+  "Release every `:after` host timer `frame-id` holds that the just-hydrated
+  snapshots no longer declare — the CANCEL half of the SSR hydration
+  reconcile. `re-frame.machines.hydrate/rearm-after-timers!` is the only
+  caller, and it runs this BEFORE arming the live set.
+
+  `:rf/hydrate` replaces the runtime-db WHOLESALE, but this table is host
+  state and survives that replacement untouched, so arming the replacement's
+  live declarations is only half the operation. An `:after`-bearing state
+  that hydrates into a no-`:after` state, an actor the replacement drops,
+  and a shrunken delay set all leave a handle here that no installed
+  snapshot claims. `schedule-after-timer!`'s leading `:on-supersede` cannot
+  reach any of them: it touches the ONE `{:parent :spawn :delay}` key it is
+  arming, so a declaration the replacement never mentions is never visited.
+  The set DIFFERENCE has to be taken explicitly. Left alone, a literal
+  handle lingers until it fires, and a subscription-delay entry additionally
+  holds its reaction, its change-watcher and its `(frame, query-v)`
+  subscription ref-count alive — the epoch / active-path gates suppress the
+  eventual stale TRANSITION, but they release no host work.
+
+  `live-decls` is the exact set of `[parent-id invoke-id delay-key]` triples
+  the installed snapshots keep live; `present-actors` is the set of actor-ids
+  those snapshots hold. Everything in this frame's inner table outside
+  `live-decls` is cancelled, stamped with the closed-set `:reason` that names
+  why it went away: `:on-destroy` when the replacement dropped the actor
+  entirely, `:on-exit` when the actor survived but its declaring node is no
+  longer on the active configuration. Both are the ORDINARY readings of the
+  Spec 005 §Trace event catalogue vocabulary — hydration adds no seventh
+  reason — so the scheduled→cancelled pairing a tool already renders on
+  `(actor-id, state, epoch)` stays coherent across a hydration.
+
+  Sibling frames are untouched (the table is per-frame), and a live
+  declaration is left in place for the arm phase to retain / supersede.
+
+  rf2-ijlhj — a BATCH like `cancel-frame-timers-on-restore!`: it snapshots
+  the `[k entry]` pairs, cancels each by its snapshotted attempt token
+  (`cancel-snapshotted-entry!`, never re-reading the current occupant), and
+  short-circuits once a callback-published same-id successor B has replaced
+  the incarnation captured at entry."
+  [frame-id live-decls present-actors]
+  (let [live        (into #{}
+                          (map (fn [[parent-id invoke-id delay-key]]
+                                 (after-timer-key parent-id invoke-id delay-key)))
+                          live-decls)
+        owner-gone? (successor-published?-fn frame-id)]
+    (loop [pairs (into []
+                       (remove (fn [[k _]] (contains? live k)))
+                       (get @after-timers frame-id))]
+      (when (and (seq pairs) (not (owner-gone?)))
+        (let [[k entry] (first pairs)]
+          (cancel-snapshotted-entry! frame-id k entry
+                                     (if (contains? present-actors (:parent k))
+                                       :on-exit
+                                       :on-destroy)
+                                     owner-gone?))
+        (recur (subvec pairs 1)))))
+  nil)
+
 (defn after-cancel-fx
   "fx handler for `:rf.machine/after-cancel`. Emitted on exit from an
   :after-bearing state node to release the host-clock timer handles and

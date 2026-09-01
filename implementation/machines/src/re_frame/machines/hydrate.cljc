@@ -28,9 +28,24 @@
 
   Given a frame whose runtime-db has just been REPLACED by a hydration
   payload, walk `[:rf.runtime/machines :snapshots]`, resolve each actor's
-  machine spec the same way dispatch does, enumerate the `:after`
-  declarations the snapshot's ACTIVE configuration keeps live, and arm one
-  client timer for each at the epoch already recorded.
+  machine spec the same way dispatch does, and enumerate the `:after`
+  declarations the snapshot's ACTIVE configuration keeps live. That
+  enumeration is then RECONCILED against the frame's timer table, not
+  merely added to it: every entry outside the live set is cancelled, and
+  the live set is armed at the epoch already recorded.
+
+  The cancel half exists because the two sides of a hydration are not
+  symmetrical. `:rf/hydrate` replaces runtime-db wholesale, but the timer
+  table is host state and survives that replacement untouched — so a frame
+  that already held timers (from before the hydration, or from an earlier
+  one) keeps a handle for every declaration the replacement DROPS: an
+  actor that is gone from the new snapshots, an `:after`-bearing state
+  replaced by a no-`:after` one, a shrunken delay set. Superseding cannot
+  reach those; it only ever touches the one timer-table key it is arming.
+  The epoch and active-path gates would suppress the eventual stale
+  TRANSITION, but the host work would still be held — a literal handle
+  until it fired, and a subscription-delay entry indefinitely, holding its
+  reaction, its change-watcher and its subscription ref-count with it.
 
   Enumeration is ACTIVE-configuration-shaped, not whole-spec-shaped:
 
@@ -191,36 +206,93 @@
 
       :else [])))
 
+(defn live-declarations
+  "PURE. Every `:after` declaration the whole `snapshots` map keeps live, as
+  a vector of `active-after-decls` entries each carrying its owning
+  `:actor-id` and the `:snapshot` the arm must resolve its delay against.
+
+  This is the enumeration BOTH halves of the reconcile read: the cancel
+  half takes the set of `[actor-id invoke-id delay-key]` identities from it,
+  the arm half walks it. Computing it once is what makes the two halves
+  agree by construction — a table entry is cancelled if and only if this
+  walk did not produce it.
+
+  A snapshot that is not a map, or whose actor resolves to no machine spec,
+  contributes nothing and takes nothing else down with it (Spec 011
+  §The `:rf/hydrate` event — hydration is best-effort)."
+  [snapshots]
+  (vec (for [[actor-id snapshot] snapshots
+             :when (map? snapshot)
+             :let  [spec (resolver/spec-from-id-or-snapshot actor-id snapshot)]
+             :when (map? spec)
+             decl  (active-after-decls spec snapshot)]
+         (assoc decl :actor-id actor-id :snapshot snapshot))))
+
 (defn rearm-after-timers!
-  "Reconstruct the host-side `:after` timer table for `frame-id` from the
+  "RECONCILE the host-side `:after` timer table for `frame-id` to the
   machine snapshots its runtime-db currently holds. The body behind the
   `:machines/rearm-after-hydration!` late-bind hook and the
   `:rf.machine/hydrate-rearm` fx; called ONLY after a valid `:rf/hydrate`
   has committed the payload's runtime-db.
 
+  A reconcile, not a union. `:rf/hydrate` replaces runtime-db WHOLESALE
+  while the timer table — host state — survives the replacement untouched,
+  so arming the replacement's live declarations is only half of it. The
+  frame may hold timers from before the hydration, or from an earlier
+  `:rf/hydrate`; where the replacement drops an actor, moves an
+  `:after`-bearing state to a no-`:after` one, or shrinks a delay set,
+  those handles belong to declarations no installed snapshot makes.
+  Superseding cannot reach them (`schedule-after-timer!` only ever touches
+  the one key it is arming), so the two phases are explicit:
+
+    1. CANCEL — `timer/cancel-timers-absent-from!` takes the set
+       difference and releases every entry outside the live set, each with
+       the ordinary closed-set `:reason` naming why it went
+       (`:on-destroy` for a dropped actor, `:on-exit` for a declaring node
+       no longer on the active configuration). A subscription-delay entry
+       releases its reaction, watcher and subscription ref-count with it.
+    2. ARM — one `rearm-hydrated-after-timer!` per live declaration, at
+       the epoch the snapshot already carries. A declaration that was
+       already armed is superseded in place by the ordinary timer-table
+       key, so repeating an identical hydration leaves one handle per
+       declaration rather than two.
+
   Refuses a `:server` frame — the frame's own `:platform` config resolved
   the way `registration/prepare-machine-ctx` resolves it, so this seam and
   `build-after-fx`'s server-skip can never disagree about which platform a
   frame is. A frame with no `:platform` config is a client (the machines
-  default), so an ordinary JVM test frame re-arms.
+  default), so an ordinary JVM test frame re-arms. The refusal covers the
+  cancel phase too: a server-side hydrate reconciles nothing, because it
+  arms nothing to reconcile against.
 
-  Idempotent by the ordinary timer-table key: a second install over the
-  same snapshots supersedes the first arm (one `:on-supersede` cancel,
-  one fresh arm) rather than leaving two handles on one declaration.
+  Runs NO cascade in either phase — no `:entry`, no `:exit`, no `:action`,
+  no `:raise`, no `:spawn`, and no snapshot write. A cancelled timer's
+  state is simply not entered on the client; the durable exit already
+  happened wherever the replacement snapshot came from.
 
-  Returns nil; the only observable is the timer table plus one
-  `:rf.machine.timer/scheduled` trace per armed declaration."
+  Sibling frames are untouched (the table is partitioned per frame), and
+  epoch restore keeps its opposite contract — `:machines/on-frame-restored!`
+  cancels and never re-arms, and shares no callback with this seam.
+
+  Returns nil; the only observables are the timer table, one
+  `:rf.machine.timer/scheduled` trace per armed declaration, and one
+  `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
   (when (and frame-id
              (not= :server (or (:platform (frame/frame-meta frame-id)) :client)))
     (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
-                            (paths/snapshot-path))]
-      (doseq [[actor-id snapshot] snapshots
-              :when (map? snapshot)
-              :let  [spec (resolver/spec-from-id-or-snapshot actor-id snapshot)]
-              :when (map? spec)
-              decl  (active-after-decls spec snapshot)]
+                            (paths/snapshot-path))
+          live      (live-declarations snapshots)]
+      ;; PHASE 1 — release the host work the replacement snapshots dropped.
+      ;; Before the arm, so a declaration that survives is superseded by its
+      ;; own re-arm rather than cancelled and re-created.
+      (timer/cancel-timers-absent-from!
+        frame-id
+        (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
+        (set (keys snapshots)))
+      ;; PHASE 2 — arm / supersede the live set.
+      (doseq [decl live]
         (timer/rearm-hydrated-after-timer!
-          frame-id actor-id (:invoke-id decl) (:state decl)
-          (:delay-key decl) (:epoch decl) snapshot))))
+          frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
+          (:delay-key decl) (:epoch decl) (:snapshot decl)))))
   nil)
