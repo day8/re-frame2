@@ -55,6 +55,33 @@
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
 
+;; ---- the Story-owned query vocabulary -----------------------------------
+
+(def ^:no-doc story-query-keys
+  "The COMPLETE set of query keys the Story share URL owns, in the order
+  `build-params` emits them — the §URL scheme list in the ns docstring
+  above, written down once so the three places that need it agree:
+  `build-params` emits a SUBSET of it, `parse-params` reads ALL of it,
+  and `append-query-params` CLEARS all of it before appending.
+
+  All of it, not merely the subset a given call emits (rf2-b7je1 audit).
+  `build-params` deliberately omits empty / nil / default slots so the
+  URL stays minimal, so a builder that cleared only the emitted keys
+  would leave a stale `modes=` / `overrides=` / `substrate=` standing on
+  the base-url when the caller asked for `[]` / `{}` / `:reagent` — and
+  the hydrator would then restore state nobody requested, which is the
+  exact-cell share invariant broken by omission rather than by order.
+  The builder is authoritative over its whole key set, including the
+  slots it declines to emit.
+
+  `embed` is deliberately NOT a member: per
+  `re-frame.story.ui.url-state/embed-flag-from-current-url` it is chrome
+  state rather than shell state and never round-trips through
+  `parse-params`, so the builder must PRESERVE it like any other
+  third-party param."
+  [:variant :workspace :mode-tab :modes :viewport :background :tag-filter
+   :overrides :substrate])
+
 ;; ---- pure: URL encoding -------------------------------------------------
 
 (defn- ^:no-doc url-encode
@@ -368,20 +395,26 @@
   "Merge already-encoded query `params` into `base-url`, inserting them
   before any hash fragment.
 
-  Key-aware (rf2-b7je1): every existing occurrence of a key emitted by
-  THIS call is removed before the generated value is appended, so the
-  result carries exactly one value per Story-owned key. The browser
-  hydrator (`re-frame.story.ui.url-state/params->getter`) reads each
-  key with `URLSearchParams.get`, whose first-value semantics would
+  Key-aware (rf2-b7je1): every existing occurrence of a key in
+  `story-query-keys` is removed before the generated params are
+  appended, so the result carries exactly one value for each key the
+  builder owns and NO value for the ones this call chose to omit. The
+  browser hydrator (`re-frame.story.ui.url-state/params->getter`) reads
+  each key with `URLSearchParams.get`, whose first-value semantics would
   otherwise select a stale value already on `base-url` — opening a
   different cell than the one shared. Unrelated existing entries
   (e.g. `from=index`, `embed=1`) are preserved verbatim, in order,
-  ahead of the generated params."
+  ahead of the generated params.
+
+  The clear set is `story-query-keys` rather than the keys of `params`
+  precisely because `build-params` omits empty / default slots: clearing
+  only what is emitted leaves a stale `modes=` standing when the caller
+  requests no modes at all."
   [base-url params]
   (let [[path fragment] (split-fragment base-url)
         qidx            (str/index-of path "?")
         bare            (if qidx (subs path 0 qidx) path)
-        owned           (into #{} (map query-param-key) params)
+        owned           (into #{} (map (comp url-encode name)) story-query-keys)
         kept            (when qidx
                           (->> (str/split (subs path (inc qidx)) #"&" -1)
                                (remove #(contains? owned (query-param-key %)))))
@@ -436,9 +469,14 @@
   - `:overrides`  — one `pr-str`-printed EDN map (delimiter-safe)
   - `:substrate`  — substrate id (omitted when `:reagent` default)
 
+  — i.e. exactly the keys of `story-query-keys`, which is where that
+  vocabulary is written down.
+
   Returns a vector of `k=v` URL fragments. Pure data → data;
   JVM-testable. Slots whose value is empty/nil/default are omitted so
-  the URL is the minimal canonical form."
+  the URL is the minimal canonical form — an omission the SHARE-URL
+  builder compensates for by clearing the whole of `story-query-keys`
+  off `base-url`, not just the subset returned here."
   [{:keys [variant-id workspace-id mode-tab
            active-modes viewport background tag-filter
            cell-overrides substrate]}]
@@ -519,6 +557,12 @@
   Empty / nil parts are omitted (e.g. no modes → no `modes=` param).
   If `base-url` contains a hash route, params are inserted before `#`
   so the query remains available via `window.location.search`.
+
+  The returned URL is authoritative for the whole Story vocabulary
+  (`story-query-keys`): a Story key already on `base-url` is replaced by
+  this call's value, or REMOVED when this call omits that slot, so the
+  reader lands on the requested cell and nothing else. Unrelated query
+  params (`from=`, `embed=`, …) and the hash route survive untouched.
   Pure data → data; JVM + CLJS-portable."
   ([variant-id]                (variant-share-url variant-id "" nil))
   ([variant-id opts]           (variant-share-url variant-id "" opts))
