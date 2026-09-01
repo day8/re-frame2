@@ -3907,9 +3907,9 @@ jobs:
       #     remeasured. The freehand-views Views roster scenario and its
       #     staged surface went with the rf2-0yp7w Freehand retirement
       #     (rf2-l86mm).
-      #   - Story :play-script CI-as-test gate (rf2-3qcxk): drives the
+      #   - Story :script CI-as-test gate (rf2-3qcxk): drives the
       #     live Story shell over the runner's own testbed roster and
-      #     runs every variant's :play-script. This is the gate that
+      #     runs every variant's :script. This is the gate that
       #     renders the assertion-strip, so the rf2-5lw9w
       #     assertion-strip :key fix stays covered on the PR critical
       #     path.
@@ -3923,7 +3923,7 @@ jobs:
         run: npm run test:xray-feature-gate:smoke
 
       # rf2-3qcxk — every Story variant whose body carries a
-      # `:play-script` slot doubles as an automated regression test.
+      # `:script` slot doubles as an automated regression test.
       # The runner discovers them via `re-frame.story.play.ci-runner`,
       # drives each through the live shell, and reports a structured
       # pass/fail row per variant. Kept on the PR critical path: it
@@ -3937,7 +3937,7 @@ jobs:
       # this sentence read "a single-testbed compile" straight through
       # the roster growing a second entry under rf2-kttom. The runner
       # names each entry as it drives it.
-      - name: Run Story :play-script CI-as-test gate
+      - name: Run Story :script CI-as-test gate
         if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
         run: npm run test:story-play-scripts
 
@@ -3960,7 +3960,7 @@ jobs:
       # rare PR that edits the runner itself, where it is the only step that
       # exercises the diff at all. Cost when it does run is one extra testbed
       # compile (login-form; counter-with-stories is already compiled by the
-      # play-script step, and both share this job's keyed .shadow-cljs cache)
+      # play-scripts step, and both share this job's keyed .shadow-cljs cache)
       # plus the two Playwright specs.
       #
       # The nightly sweep in expensive-tests.yml is unchanged and remains the
@@ -3988,7 +3988,7 @@ jobs:
       # It shares this job's keyed .shadow-cljs cache with the steps above, but
       # note it compiles its OWN build target (:story-static/counter-with-
       # stories, the static-export entry point) rather than reusing the
-      # play-script step's dev compile — the two are different shadow-cljs
+      # play-scripts step's dev compile — the two are different shadow-cljs
       # builds of the same testbed, which is precisely the point of the gate.
       #
       # The nightly sweep in expensive-tests.yml is unchanged and remains the
@@ -4000,7 +4000,7 @@ jobs:
       # rf2-315cf (Option B) — on a RED browser gate, upload the failed-run
       # evidence so the failure is a downloadable, off-CI post-mortem
       # (spec/017 §Failed-run artifacts in CI). Two paths are surfaced:
-      #   - implementation/out/story-play-scripts/ — the play-script run
+      #   - implementation/out/story-play-scripts/ — the play-scripts run
       #     evidence (per-row expected/actual + per-step diagnostics) the
       #     runner persists ONLY when a play deviates from its expected
       #     status (rf2-5x1wt.7 run-evidence projection).

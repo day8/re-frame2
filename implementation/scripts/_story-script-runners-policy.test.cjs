@@ -11,7 +11,7 @@
  *
  * Covers all three rf2-wf5al findings:
  *
- *   1. The :play-script runner must FAIL on an uncaught browser
+ *   1. The play-scripts runner must FAIL on an uncaught browser
  *      `pageerror` even when every play row matched its expected status
  *      — otherwise a runtime regression false-greens the gate behind a
  *      clean play-status summary. Asserted via the pure
@@ -29,7 +29,7 @@
  *
  * Plus the rf2-54xbp non-vacuous discovery guard (rf2-ljyp9 follow-up):
  *
- *   4. The :play-script gate must FAIL CLOSED on an empty / under-floor /
+ *   4. The play-scripts gate must FAIL CLOSED on an empty / under-floor /
  *      one-sided (no expected-fail) discovery rather than false-greening
  *      "nothing to assert". Asserted via the pure `checkRowsNonVacuous`
  *      / `MIN_PLAY_ROWS` exports, with the runtime call-site pinned.
@@ -189,7 +189,7 @@ test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
 // ---- Finding 4 (rf2-54xbp / rf2-ljyp9): non-vacuous discovery guard ----
 //
 // rf2-54xbp added `checkRowsNonVacuous(rows)` + `MIN_PLAY_ROWS` to the
-// :play-script runner: a pure (rows in → verdict out) guard that fails
+// play-scripts runner: a pure (rows in → verdict out) guard that fails
 // the gate closed on an empty / under-floor / one-sided discovery rather
 // than false-greening "nothing to assert". The runtime call-site is
 // pinned below; these cases lock the pure verdict (the canonical home the

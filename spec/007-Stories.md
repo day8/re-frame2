@@ -104,8 +104,8 @@ Concretely, the keys allowed in a `story/reg-variant` body:
 |---|---|---|
 | `:doc` | string | One-sentence what-and-why. |
 | `:extends` | variant-id | Parent variant; merged at registration time per [§Composed variants](#composed-variants--reference-parent-by-id-override-by-data). Resolves to a registered variant id; cycles are a registration error. |
-| `:setup` | vector of tagged setup steps | Preconditions; settled into the variant's frame in order, after `:loaders` complete. Data only. The P1 target name for the legacy `:events` slot (see [§Play functions](#play-functions) — the canonical vocabulary). |
-| `:script` | vector of tagged steps (incl. `[:assert …]`) | Post-render behaviour under test. Data only. The P1 target name for the legacy `:play-script` slot. |
+| `:setup` | vector of tagged setup steps | Preconditions; settled into the variant's frame in order, after `:loaders` complete. Data only (see [§Play functions](#play-functions) — the canonical vocabulary). |
+| `:script` | vector of tagged steps (incl. `[:assert …]`) | Post-render behaviour under test. Data only. |
 | `:args` | map | Override or extend the parent story's args. |
 | `:argtypes` | map (optional override) | Per-arg control description. Auto-derived from the view's [Spec 010](010-Schemas.md) schema where present. |
 | `:tags` | set of keyword | Inclusion tags from the registered vocabulary (see [§Inclusion tags](#inclusion-tags)). |
@@ -441,7 +441,7 @@ The same data drives every consumer. No artefact duplication.
 
 Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-- `:setup` preconditions and the `:script` (plus any named scripts derived from legacy `:plays`) behaviour surfaces (in order) — the legacy bare `:play` slot was removed (see [§Play functions](#play-functions) — the canonical vocabulary),
+- `:setup` preconditions and the `:script` (plus any named scripts from `:plays`) behaviour surfaces (in order) — the legacy bare `:play` slot was removed (see [§Play functions](#play-functions) — the canonical vocabulary),
 - the resolved (post-`:extends`-merge) args, decorators, and tags,
 - the variant's `:viewport` / `:background` visual chrome (they land in the screenshot),
 - the parent story's component id (`:component`) and decorators,
