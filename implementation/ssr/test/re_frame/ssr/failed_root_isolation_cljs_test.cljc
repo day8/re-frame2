@@ -83,10 +83,19 @@
 (defn- fresh-frame!
   "A `:client`-platform frame under an id no other test in this shared
   process has used. Frames are not torn down between tests, so a reused
-  id would carry a prior test's app-db into this one."
+  id would carry a prior test's app-db into this one.
+
+  `make-frame` opts are FLAT — `:platform` sits alongside `:id`. A nested
+  `{:config {:platform :client}}` stores `:config {:config {…}}` and the
+  frame is never platform-tagged at all; every test below would still pass,
+  because the runtime resolves the platform as
+  `(or (-> rec :config :platform) (interop/active-platform))` and the
+  host-wide marker is already `:client` on CLJS.
+  `the-fixture-frames-are-actually-platform-tagged` is what keeps that
+  accident from coming back."
   []
   (let [fid (keyword "rf.isolation" (str "f" (swap! frame-counter inc)))]
-    (rf/make-frame {:id fid :config {:platform :client}})
+    (rf/make-frame {:id fid :platform :client})
     fid))
 
 (defn- payload-for
@@ -203,6 +212,19 @@
       (assert-isolated! (ssr/hydrate-page! specs) frames fail-idx
                         (str label " @" fail-idx)))))
 
+;; ---------------------------------------------------------------------------
+;; The fixture's own tag, asserted so it cannot lapse
+;; ---------------------------------------------------------------------------
+
+(deftest the-fixture-frames-are-actually-platform-tagged
+  (testing "`fresh-frame!` asks for `:platform :client` and the frame CARRIES
+            it. Read through `frame-meta`, the canonical `:rf/frame-meta`
+            shape, which flattens the frame's OWN config and does not fall
+            back to the host-wide platform marker — so this discriminates a
+            tagged frame from an untagged one, where the isolation tests
+            below cannot: they would pass either way on CLJS."
+    (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
+
 (deftest a-root-whose-manifest-is-not-from-the-schema-family-fails-alone
   (testing "preflight step 1 kills one root; the page hydrates and runs"
     (run-arm! "manifest" manifest-lever)))
@@ -294,8 +316,10 @@
           (str "MEASURED: the seed did not land (the frame was not live), "
                "so the claim was released. Without the release this reads "
                "the claim record, and the assertion below fails."))
-      ;; The frame comes back — a legitimate SPA teardown/rebuild.
-      (rf/make-frame {:id fid :config {:platform :client}})
+      ;; The frame comes back — a legitimate SPA teardown/rebuild. Flat
+      ;; opts, exactly as `fresh-frame!` builds it: the rebuilt frame must
+      ;; carry the same `:client` tag the original did.
+      (rf/make-frame {:id fid :platform :client})
       (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                       :root-id :page/b})
       (is (hydrated? fid)

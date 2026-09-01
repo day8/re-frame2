@@ -37,10 +37,36 @@
 
 (def ^:private frame-counter (atom 0))
 
-(defn- fresh-frame! []
+(defn- fresh-frame!
+  "A `:client`-platform frame under an id no other test in this shared
+  process has used.
+
+  `make-frame` opts are FLAT — `:platform` sits alongside `:id`. A nested
+  `{:config {:platform :client}}` stores `:config {:config {…}}` and the
+  frame is never platform-tagged at all; every test below would still pass,
+  because the runtime resolves the platform as
+  `(or (-> rec :config :platform) (interop/active-platform))` and the
+  host-wide marker is already `:client` on CLJS.
+  `the-fixture-frames-are-actually-platform-tagged` is what keeps that
+  accident from coming back."
+  []
   (let [fid (keyword "rf.multiroot.dom" (str "f" (swap! frame-counter inc)))]
-    (rf/make-frame {:id fid :config {:platform :client}})
+    (rf/make-frame {:id fid :platform :client})
     fid))
+
+(deftest the-fixture-frames-are-actually-platform-tagged
+  (testing "`fresh-frame!` asks for `:platform :client` and the frame CARRIES
+            it. Read through `frame-meta`, the canonical `:rf/frame-meta`
+            shape, which flattens the frame's OWN config and does not fall
+            back to the host-wide platform marker — so this discriminates a
+            tagged frame from an untagged one, where the DOM tests below
+            cannot: they would pass either way on CLJS.
+
+            Deliberately NOT gated on `(browser?)`. Building a frame and
+            reading its tag needs no `js/document`, so this one assertion
+            runs under `:node-test` as well as in the browser — the only
+            test in this namespace that is not vacuous under node."
+    (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
 
 (defn- payload-for [db]
   (payload-policy/build-payload nil db "server-hash-1" {}))
