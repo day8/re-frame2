@@ -21,7 +21,9 @@
     |   destructured db param)         |                   |                       |
 
   Plus: shape-non-corruption (round-trips of untouched code), alias-agnostic
-  detection, scan-file/scan-paths over the filesystem, and idempotence. The
+  registrar detection, path-head RESOLUTION (only a head resolving to
+  re-frame.core/path lowers; custom `*/path` fns flag — rf2-8odvg reopen),
+  scan-file/scan-paths over the filesystem, and idempotence. The
   RUNTIME proof that the emitted chain shapes register against the real v2
   reg-event contract lives in the `:integration` alias
   (test-integration/, rf2-8odvg) so this default suite stays self-contained."
@@ -245,6 +247,121 @@
       (is (= :flag (:action (first findings))))
       (is (= :nil-capable (:flag (first findings))))
       (is (= src source)))))
+
+;; ---------------------------------------------------------------------------
+;; path-head resolution — only the STANDARD constructor is mechanical
+;; (rf2-8odvg reopen)
+;; ---------------------------------------------------------------------------
+;; `(app.interceptors/path :tenant)` shares the simple name `path` with the
+;; standard constructor while carrying entirely different author semantics.
+;; The head must RESOLVE to `re-frame.core/path` — through the file's ns form
+;; (the full namespace, an `:as` alias of it, or a bare `path` it `:refer`s),
+;; or, in an ns-less fragment, by the conventional bare/dotless-alias reading.
+;; Any other function named `path` is a custom inline interceptor: unresolved
+;; M-70 Type B, source unchanged — never a silent rewrite.
+
+(deftest custom-qualified-path-flagged-not-rewritten
+  (testing "the reopen probe: a custom qualified fn named `path` is NOT lowered"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :as rf]\n"
+                   "            [app.interceptors]))\n"
+                   "\n"
+                   "(rf/reg-event-db :tenant/load\n"
+                   "  {:interceptors [(app.interceptors/path :tenant)]}\n"
+                   "  (fn [db _] (assoc db :loaded true)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= 1 (count findings)))
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (not (str/includes? source ":rf.interceptor/path"))
+          "custom path semantics must never be replaced by the standard factory ref")
+      (is (= src source) "flagged site left byte-for-byte unchanged"))))
+
+(deftest custom-aliased-path-flagged
+  (testing "an ALIAS of a custom namespace whose fn is named `path` flags too"
+    (let [src (str "(ns app.events\n"
+                   "  (:require [re-frame.core :as rf]\n"
+                   "            [app.interceptors :as icpt]))\n"
+                   "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
+                   "  (fn [db _] (assoc db :k 1)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest custom-dotted-path-flagged-in-ns-less-fragment
+  (testing "even with no ns form, a DOTTED head namespace that is not re-frame.core flags"
+    (let [src "(rf/reg-event-db :x {:interceptors [(app.interceptors/path :tenant)]} (fn [db _] (assoc db :k 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest unknown-alias-path-flagged-when-ns-form-present
+  (testing "an alias the ns form does not resolve is ambiguous -> conservative flag"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(rf/reg-event-db :x {:interceptors [(xyz/path :a)]} (fn [db _] (assoc db :k 1)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest local-bare-path-flagged-when-not-referred
+  (testing "a bare `path` under an ns form that does NOT refer it is a local fn -> flag"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :flag (:action (first findings))))
+      (is (= :interceptors (:flag (first findings))))
+      (is (= src source)))))
+
+(deftest standard-alias-resolved-through-ns-form
+  (testing "the canonical rf alias resolves through the ns form and still lowers"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(rf/reg-event-db :counter/inc\n"
+                   "  {:interceptors [(rf/path :counter)]}\n"
+                   "  (fn [db _] (update db :value inc)))\n")
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
+      (is (not (str/includes? source "(rf/path"))))))
+
+(deftest standard-referred-bare-path-resolved
+  (testing "a bare `path` the ns form refers from re-frame.core lowers; :refer :all too"
+    (doseq [req ["[re-frame.core :refer [reg-event-db path]]"
+                 "[re-frame.core :refer :all]"]]
+      (let [src (str "(ns app.events (:require " req "))\n"
+                     "(reg-event-db :counter/inc\n"
+                     "  {:interceptors [(path :counter)]}\n"
+                     "  (fn [db _] (update db :value inc)))\n")
+            {:keys [source findings]} (cm/rewrite-string src)]
+        (is (= :rewrite (:action (first findings))) (str "require " req))
+        (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))))))
+
+(deftest standard-fully-qualified-path-resolved-everywhere
+  (testing "a fully qualified re-frame.core/path head is standard with or without an ns form"
+    (doseq [src [(str "(ns app.events (:require [re-frame.core]))\n"
+                      "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))\n")
+                 "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"]]
+      (let [{:keys [source findings]} (cm/rewrite-string src)]
+        (is (= :rewrite (:action (first findings))))
+        (is (str/includes? source "[:rf.interceptor/path [:a]]"))))))
+
+(deftest path-head-resolution-idempotent
+  (testing "flagged custom sites and resolved standard rewrites are both idempotent"
+    (let [custom   (str "(ns app.events\n"
+                        "  (:require [re-frame.core :as rf]\n"
+                        "            [app.interceptors :as icpt]))\n"
+                        "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
+                        "  (fn [db _] (assoc db :k 1)))\n")
+          standard (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                        "(rf/reg-event-db :counter/inc {:interceptors [(rf/path :counter)]}\n"
+                        "  (fn [db _] (update db :value inc)))\n")]
+      (is (= custom (:source (cm/rewrite-string custom))) "custom site untouched")
+      (let [once  (rewrite standard)
+            twice (rewrite once)]
+        (is (= once twice))
+        (is (empty? (cm/scan-string once)) "normalized ns-ful output rescans clean")))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event rescan — recovering a partially migrated tree

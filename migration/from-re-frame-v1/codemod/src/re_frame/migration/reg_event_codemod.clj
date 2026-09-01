@@ -43,12 +43,18 @@
       what is mechanical and flags the rest:
 
       - The standard `path` constructor is the ONE mechanical lowering:
-        `(rf/path p...)` (any alias; v1 flattens its args) becomes the
-        framework factory ref `[:rf.interceptor/path [p...]]` — recognized in
+        `(rf/path p...)` (v1 flattens its args) becomes the framework factory
+        ref `[:rf.interceptor/path [p...]]` — recognized in
         metadata-`:interceptors`, positional-vector, bare-middle, and
-        metadata-plus-vector source shapes. Positional chains are wrapped into
-        (or merged into) the ONE metadata-map `:interceptors` form; entry
-        declaration order is preserved.
+        metadata-plus-vector source shapes. The call HEAD must actually
+        resolve to `re-frame.core/path` through the file's ns form (the full
+        namespace, an `:as` alias of it, or a bare `path` it `:refer`s); a
+        custom function that merely SHARES the simple name `path` is NOT the
+        standard constructor and flags like any other custom inline call
+        (rf2-8odvg reopen; decision table at `path-head-context` below).
+        Positional chains are wrapped into (or merged into) the ONE
+        metadata-map `:interceptors` form; entry declaration order is
+        preserved.
       - Entries that are ALREADY v2 refs are preserved verbatim.
       - Any OTHER inline interceptor (a custom value, a var, `(rf/debug)`, a
         call whose registered id cannot be derived without author intent) makes
@@ -315,12 +321,137 @@
 ;; v2 chains are REFERENCE-ONLY (EP-0022): an entry is a bare keyword id or an
 ;; `[id arg]` 2-vector, and the chain lives in metadata `:interceptors`. v1
 ;; chains carried inline VALUES. The ONE mechanical (Type A) lowering is the
-;; standard `path` constructor — `(path p...)` (any alias; v1 flattens its
-;; args) becomes the framework factory ref `[:rf.interceptor/path [p...]]`.
-;; Any other inline entry has no derivable registered id (author intent), so
-;; it is surfaced as an unresolved M-70 Type-B finding (`:flag :interceptors`)
-;; and the site is left unchanged — the codemod must never certify output the
+;; standard `path` constructor — `(path p...)` (v1 flattens its args) becomes
+;; the framework factory ref `[:rf.interceptor/path [p...]]`. Any other
+;; inline entry has no derivable registered id (author intent), so it is
+;; surfaced as an unresolved M-70 Type-B finding (`:flag :interceptors`) and
+;; the site is left unchanged — the codemod must never certify output the
 ;; target rejects (rf2-8odvg).
+;;
+;; "Standard" is a RESOLUTION fact, not a naming fact (rf2-8odvg reopen):
+;; `(app.interceptors/path :tenant)` shares the simple name `path` with the
+;; standard constructor while carrying entirely different author semantics,
+;; and recognizing path calls by simple name alone silently replaced such
+;; custom interceptors with `[:rf.interceptor/path ...]`. The head must
+;; denote `re-frame.core/path`:
+;;
+;;   * `re-frame.core/path`          — always standard.
+;;   * `A/path`, ns form present     — standard iff the ns form `:require`s
+;;                                     re-frame.core `:as A`.
+;;   * bare `path`, ns form present  — standard iff the ns form refers `path`
+;;                                     from re-frame.core (`:refer [... path
+;;                                     ...]` / `:refer :all` / `:use`).
+;;   * anything else, ns form present — NOT the standard constructor (a
+;;                                     custom namespace or alias, an alias the
+;;                                     ns form does not resolve, a local
+;;                                     `path` fn): the entry takes the
+;;                                     unresolved M-70 flag route above —
+;;                                     conservative by construction, never a
+;;                                     silent rewrite.
+;;   * NO ns form (a REPL/test FRAGMENT — every real v1 file carries one):
+;;     bare `path` and a DOTLESS qualifier (an alias with nothing to resolve
+;;     it against, e.g. `rf/path`) keep the historical convention-based
+;;     reading; a DOTTED qualifier is a concrete namespace reference and must
+;;     BE re-frame.core.
+;;
+;; A require clause the parser cannot read (e.g. one inside a reader
+;; conditional) contributes nothing, so aliases it declares degrade to the
+;; FLAG route — never to a silent rewrite.
+
+(def ^:private standard-path-ns
+  "The one v1 namespace whose `path` is the standard interceptor constructor."
+  "re-frame.core")
+
+(defn- libspec-entries
+  "Flatten ONE `:require`/`:use` clause argument into entry maps
+  `{:ns \"...\" :alias \"...\"|nil :refers :all|#{\"name\" ...}|nil}`.
+  Handles a bare symbol, a `[ns & opts]` libspec (`:as`, `:refer`, `:only`),
+  and a prefix form `(prefix libspec+)`. Anything unreadable yields NO entry —
+  the conservative direction: an alias we fail to record makes its `path`
+  calls flag, never rewrite."
+  [spec]
+  (try
+    (cond
+      (symbol? spec)
+      [{:ns (str spec)}]
+
+      (and (sequential? spec) (symbol? (first spec)))
+      (let [[head & more] spec]
+        (if (or (empty? more) (keyword? (first more)))
+          ;; libspec: [ns :as A :refer [..]|:refer :all|:only [..]]
+          (let [opts    (apply hash-map more)
+                refers* (or (:refer opts) (:only opts))]
+            [{:ns     (str head)
+              :alias  (some-> (:as opts) str)
+              :refers (cond
+                        (= :all refers*)      :all
+                        (sequential? refers*) (into #{} (map str) refers*)
+                        :else                 nil)}])
+          ;; prefix form: (prefix libspec+) — the prefix prepends to each child ns
+          (into []
+                (comp (mapcat libspec-entries)
+                      (map #(update % :ns (fn [n] (str head "." n)))))
+                more)))
+
+      :else [])
+    (catch Exception _ [])))
+
+(defn- path-head-context
+  "Derive the path-head resolution context for ONE source (decision table in
+  the section comment above) from `zroot`, the zipper positioned at its first
+  top-level form. Returns
+    {:ns? bool           ;; did the source carry a top-level ns form?
+     :rf-aliases #{\"a\"} ;; aliases the ns form resolves to re-frame.core
+     :bare-path? bool}    ;; is bare `path` referred from re-frame.core?
+  An ns form whose sexpr cannot be read yields `{:ns? true}` with nothing
+  resolved — every path head then takes the conservative flag route."
+  [zroot]
+  (let [ns-sexpr (loop [zloc zroot]
+                   (when zloc
+                     (or (when (= :list (z/tag zloc))
+                           (let [head (try (some-> (z/down zloc) z/sexpr)
+                                           (catch Exception _ nil))]
+                             (when (= 'ns head)
+                               (or (try (z/sexpr zloc) (catch Exception _ nil))
+                                   ::unreadable))))
+                         (recur (z/right zloc)))))]
+    (if (nil? ns-sexpr)
+      {:ns? false}
+      (let [entries (when (not= ::unreadable ns-sexpr)
+                      (mapcat (fn [clause]
+                                (when (and (sequential? clause)
+                                           (#{:require :use} (first clause)))
+                                  ;; a bare/optless :use spec refers EVERYTHING
+                                  (let [use? (= :use (first clause))]
+                                    (map (fn [e]
+                                           (cond-> e
+                                             (and use? (nil? (:refers e)))
+                                             (assoc :refers :all)))
+                                         (mapcat libspec-entries (rest clause))))))
+                              (rest ns-sexpr)))
+            rf      (filter #(= standard-path-ns (:ns %)) entries)]
+        {:ns?        true
+         :rf-aliases (into #{} (keep :alias) rf)
+         :bare-path? (boolean (some #(let [r (:refers %)]
+                                       (or (= :all r)
+                                           (and (set? r) (contains? r "path"))))
+                                    rf))}))))
+
+(defn- standard-path-head?
+  "Does the call-head symbol `hv` — already known to carry the simple name
+  `path` — actually denote the STANDARD `re-frame.core/path` constructor
+  under `path-ctx` (per `path-head-context`)? Decision table in the section
+  comment above."
+  [hv {:keys [ns? rf-aliases bare-path?]}]
+  (if-let [q (namespace hv)]
+    (or (= q standard-path-ns)
+        (if ns?
+          (contains? rf-aliases q)
+          ;; fragment mode: a dotless qualifier is an unresolvable alias —
+          ;; keep the conventional reading; a dotted one is a concrete
+          ;; namespace and must BE re-frame.core (the branch above).
+          (not (str/includes? q "."))))
+    (or (not ns?) (boolean bare-path?))))
 
 (defn- path-literal?
   "A value usable as a literal path segment: keyword / string / number /
@@ -329,20 +460,23 @@
   (or (keyword? v) (string? v) (number? v) (boolean? v)))
 
 (defn- path-call-info
-  "If `node` is a call of the v1 standard `path` interceptor constructor —
-  `(rf/path :counter)`, `(re-frame.core/path :a :b)`, bare `(path [:a :b])` —
-  return `{:path-vec [...]}` when the path vector derives mechanically (every
-  arg a literal segment, or a vector of literal segments — spliced, matching
-  v1 `path`'s arg flatten); `:unresolved-args` when it IS a path call whose
-  args cannot be derived (a symbol / call / nested shape); nil when the node
-  is not a path call at all."
-  [node]
+  "If `node` is a call of the v1 STANDARD `path` interceptor constructor —
+  a head that resolves to `re-frame.core/path` under `path-ctx` (per
+  `standard-path-head?`) — return `{:path-vec [...]}` when the path vector
+  derives mechanically (every arg a literal segment, or a vector of literal
+  segments — spliced, matching v1 `path`'s arg flatten); `:unresolved-args`
+  when it IS a standard path call whose args cannot be derived (a symbol /
+  call / nested shape); nil when the node is not a standard path call at all.
+  A custom function that merely shares the simple name `path` returns nil
+  here and so takes the unresolved M-70 flag route (rf2-8odvg reopen)."
+  [node path-ctx]
   (when (and node (= :list (n/tag node)))
     (let [kids (sig-children node)
           hd   (first kids)]
       (when (and hd (= :token (n/tag hd)))
         (let [hv (try (n/sexpr hd) (catch Exception _ nil))]
-          (when (and (symbol? hv) (= "path" (name hv)))
+          (when (and (symbol? hv) (= "path" (name hv))
+                     (standard-path-head? hv path-ctx))
             (loop [args (rest kids)
                    acc  []]
               (if-let [a (first args)]
@@ -381,10 +515,10 @@
      {:kind :keep}                       — already a v2 ref; preserved verbatim
      {:kind :convert :node <ref-node>}   — standard path call, lowered
      {:kind :unresolved :offending node} — no derivable stable id (M-70 Type B)"
-  [node]
+  [node path-ctx]
   (if (ref-entry-node? node)
     {:kind :keep}
-    (let [pc (path-call-info node)]
+    (let [pc (path-call-info node path-ctx)]
       (if (map? pc)
         {:kind :convert :node (path-ref-node (:path-vec pc))}
         {:kind :unresolved :offending node}))))
@@ -396,12 +530,12 @@
      {:kind :ok}                          — every entry already a v2 ref
      {:kind :convert :node <new-vector>}  — >=1 path call lowered
      {:kind :unresolved :offending node}  — >=1 underivable entry"
-  [vec-node]
+  [vec-node path-ctx]
   (let [res (reduce
               (fn [acc kid]
                 (if (n/whitespace-or-comment? kid)
                   (update acc :kids conj kid)
-                  (let [{:keys [kind node offending]} (convert-entry kid)]
+                  (let [{:keys [kind node offending]} (convert-entry kid path-ctx)]
                     (case kind
                       :keep       (update acc :kids conj kid)
                       :convert    (-> acc
@@ -432,12 +566,12 @@
      {:kind :ok}   — no `:interceptors` key, or all entries already refs
      {:kind :convert :node <new-map-node>}
      {:kind :unresolved :offending node}"
-  [map-node]
+  [map-node path-ctx]
   (if-let [v (meta-map-interceptors-value map-node)]
     (if (not= :vector (n/tag v))
       ;; a non-vector `:interceptors` value cannot be certified (v2 rejects it)
       {:kind :unresolved :offending v}
-      (let [res (convert-chain-vector v)]
+      (let [res (convert-chain-vector v path-ctx)]
         (if (= :convert (:kind res))
           {:kind :convert
            :node (n/replace-children
@@ -459,15 +593,15 @@
   both sides. The map's own `:interceptors` entries come first, the positional
   entries are appended — declaration order preserved. Returns
      {:kind :convert :node <new-map-node>} | {:kind :unresolved :offending _}."
-  [map-node vec-node]
-  (let [vec-res (convert-chain-vector vec-node)]
+  [map-node vec-node path-ctx]
+  (let [vec-res (convert-chain-vector vec-node path-ctx)]
     (if (= :unresolved (:kind vec-res))
       vec-res
       (let [conv-vec (if (= :convert (:kind vec-res)) (:node vec-res) vec-node)]
         (if-let [existing (meta-map-interceptors-value map-node)]
           (if (not= :vector (n/tag existing))
             {:kind :unresolved :offending existing}
-            (let [ex-res (convert-chain-vector existing)]
+            (let [ex-res (convert-chain-vector existing path-ctx)]
               (if (= :unresolved (:kind ex-res))
                 ex-res
                 (let [conv-existing (if (= :convert (:kind ex-res))
@@ -502,18 +636,18 @@
      {:kind :ok}         — already valid v2 (metadata map; chain refs-only)
      {:kind :convert :replace {<old-node> <new-node>} :remove #{<node>}}
      {:kind :unresolved :offending <node>}   — M-70 Type B"
-  [middles]
+  [middles path-ctx]
   (case (count middles)
     0 {:kind :none}
     1 (let [m (first middles)]
         (case (n/tag m)
-          :map    (let [res (analyse-meta-map m)]
+          :map    (let [res (analyse-meta-map m path-ctx)]
                     (if (= :convert (:kind res))
                       {:kind :convert :replace {m (:node res)}}
                       res))
           ;; a positional chain is invalid v2 even when every entry is already
           ;; a ref — always wrap the (converted) vector into the metadata form
-          :vector (let [res (convert-chain-vector m)]
+          :vector (let [res (convert-chain-vector m path-ctx)]
                     (if (= :unresolved (:kind res))
                       res
                       {:kind :convert
@@ -523,7 +657,7 @@
                                        m))}}))
           ;; bare middle: v1 flattened chains, so a single bare interceptor
           ;; value was legal — mechanical only for the standard path call
-          (let [pc (path-call-info m)]
+          (let [pc (path-call-info m path-ctx)]
             (if (map? pc)
               {:kind :convert
                :replace {m (wrap-chain-in-meta-node
@@ -532,7 +666,7 @@
               {:kind :unresolved :offending m}))))
     2 (let [[a b] middles]
         (if (and (= :map (n/tag a)) (= :vector (n/tag b)))
-          (let [res (merge-vector-into-meta a b)]
+          (let [res (merge-vector-into-meta a b path-ctx)]
             (if (= :convert (:kind res))
               {:kind :convert :replace {a (:node res)} :remove #{b}}
               res))
@@ -590,7 +724,7 @@
      :simple-fn m|nil                                     — db-handler rewrite
      :middle analyse-middle-result|nil}                   — middle-slot conversion
   or nil — a `reg-event` site whose middle slot is already valid (no finding)."
-  [zloc form-kw {:keys [file force-db-wrap?]}]
+  [zloc form-kw {:keys [file force-db-wrap? path-ctx]}]
   (let [{:keys [line col]} (pos-of zloc)
         base    {:file file :line line :col col :form form-kw}
         kids    (sig-children (z/node zloc))
@@ -603,7 +737,7 @@
        :kind :flag}
 
       :reg-event-fx
-      (let [mid (analyse-middle middles)]
+      (let [mid (analyse-middle middles path-ctx)]
         (case (:kind mid)
           :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
                        :kind :flag}
@@ -619,7 +753,7 @@
       ;; (no middle, or a metadata map whose chain is refs-only) yields NO
       ;; finding — the rescan exists to recover partially migrated trees.
       :reg-event
-      (let [mid (analyse-middle middles)]
+      (let [mid (analyse-middle middles path-ctx)]
         (case (:kind mid)
           :unresolved {:finding (interceptors-flag-finding base form-kw (:offending mid))
                        :kind :flag}
@@ -629,7 +763,7 @@
           nil))
 
       :reg-event-db
-      (let [mid (analyse-middle middles)]
+      (let [mid (analyse-middle middles path-ctx)]
         (if (= :unresolved (:kind mid))
           {:finding (interceptors-flag-finding base form-kw (:offending mid))
            :kind :flag}
@@ -1076,7 +1210,9 @@
   ([s] (scan-string s {}))
   ([s opts]
    (let [zroot (z/of-string s {:track-position? true})]
-     (:findings (walk zroot (assoc opts :rewrite? false))))))
+     (:findings (walk zroot (assoc opts
+                                   :rewrite? false
+                                   :path-ctx (path-head-context zroot)))))))
 
 (defn rewrite-string
   "Apply the conservative codemod to a source string. Returns
@@ -1085,7 +1221,9 @@
   ([s] (rewrite-string s {}))
   ([s opts]
    (let [zroot  (z/of-string s {:track-position? true})
-         {:keys [zip findings]} (walk zroot (assoc opts :rewrite? true))]
+         {:keys [zip findings]} (walk zroot (assoc opts
+                                                   :rewrite? true
+                                                   :path-ctx (path-head-context zroot)))]
      {:source   (z/root-string (or zip zroot))
       :findings findings})))
 
