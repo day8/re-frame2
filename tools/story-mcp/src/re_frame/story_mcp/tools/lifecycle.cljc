@@ -2,17 +2,81 @@
   "Shared variant-lifecycle execution for `run-variant` and
   `preview-variant`.
 
-  This namespace owns blocking invocation, the common timeout, and
-  canonical exception normalization through `story/run-result`. That
-  boundary guarantees settled and error outcomes carry the same evidence
-  slots. Each tool still owns its projection, egress scrubbing,
-  annotations, indicators, and wire envelope."
-  (:require [re-frame.story :as story]
+  This namespace owns the shared PREREQUISITE check, blocking
+  invocation, the common timeout, and canonical exception normalization
+  through `story/run-result`. That boundary guarantees settled and error
+  outcomes carry the same evidence slots. Each tool still owns its
+  projection, egress scrubbing, annotations, indicators, and wire
+  envelope."
+  (:require [re-frame.core :as rf]
+            [re-frame.story :as story]
+            [re-frame.story-mcp.tools.result :as result]
             ;; JVM-only: `async/deref-blocking` is `#?(:clj …)` and is used
             ;; solely by the JVM bounded-lifecycle blocker below. story-mcp
             ;; is a JVM stdio server (deps.edn), so the require is clj-only —
             ;; the CLJS branch of this ns never blocks.
             #?(:clj [re-frame.story.async :as async])))
+
+(defn adapter-installed?
+  "True iff a re-frame reactive-substrate adapter is installed in THIS
+  process — the mandatory state substrate a variant frame allocates
+  against. Reads the public `rf/current-adapter-spec` introspection
+  surface (Spec 006 §Adapter introspection), which returns `nil` both
+  before any `rf/init!` and after the installed adapter was disposed.
+
+  A separate named fn rather than an inline `some?` so the negative
+  control can drive the refusal below without process-wide adapter
+  surgery."
+  []
+  (some? (rf/current-adapter-spec)))
+
+(defn no-adapter-error
+  "The ONE pre-flight refusal both lifecycle tools return when this
+  process has no installed adapter. Returns `nil` when an adapter IS
+  installed (so it composes into each handler's `or` chain beside the
+  arg-shape and `:substrate` guards); otherwise the machine-readable
+  `isError` result naming `rf/init!` as the recovery.
+
+  ## Why a REFUSAL and not a run (rf2-c9t52)
+
+  Story deliberately grades an actually-executed assertion-free variant
+  vacuously `:pass` (`re-frame.story.result` §Status), and that rule is
+  KEPT. What this guard removes is a different state wearing the same
+  answer: with no adapter installed the variant frame never obtains its
+  state substrate, so `:setup` dispatches reach nothing, the `:script`
+  plays nothing, and `story/run-variant` still settles the ordinary
+  `:status :pass` envelope over `{}` and `[]` — a success-shaped NON-RUN
+  indistinguishable on the wire from a genuine green (measured under
+  rf2-3n3dk). Executed-and-silent and never-executed are different
+  states; only the first may be green.
+
+  The check is a PRE-flight, before `story/run-variant` allocates, so the
+  refusal costs no lifecycle work and cannot be confused with a run
+  outcome: it carries `isError true`, never a `:status`.
+
+  `:rf.error/no-adapter-installed` is core's OWN id for this condition
+  (`re-frame.substrate.adapter`'s `require-adapter!`, catalogued in
+  spec/009 §Error event catalogue), reused rather than re-spelled so an
+  agent meets one word for one fact. `snapshot-identity` is deliberately
+  NOT guarded — it hashes the declared tuple and runs no lifecycle."
+  [tool-name]
+  (when-not (adapter-installed?)
+    (result/error-result
+      (str "Cannot run `" tool-name "`: no re-frame reactive-substrate adapter is "
+           "installed in this JVM, so the variant frame has no state substrate to "
+           "allocate — `rf/init!` has not run (or the installed adapter was "
+           "disposed). This is NOT a passing run and NOT an empty one: nothing "
+           "executed. Story-MCP's server deliberately does not choose a substrate "
+           "for you (spec/006 §Adapter selection at boot — the choice belongs to "
+           "the app). To run variants on this headless host, install the "
+           "renderer-free substrate in the namespace your launch alias preloads: "
+           "(require '[re-frame.core :as rf] '[re-frame.substrate.plain-atom :as plain-atom]) "
+           "then (rf/init! plain-atom/adapter). Catalogue reads (list-stories, "
+           "get-variant, variant->edn, …) need no adapter and keep working. "
+           "See tools/story-mcp/README.md §Loading your project's stories.")
+      {:rf.error :rf.error/no-adapter-installed
+       :tool     tool-name
+       :recovery :init-an-adapter-in-the-preloaded-namespace})))
 
 (defn error-outcome
   "Assemble the ONE canonical error run-result for a synchronous throw /
