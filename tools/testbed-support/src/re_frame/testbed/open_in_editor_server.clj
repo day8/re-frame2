@@ -35,6 +35,34 @@
   (when (and (string? editor) (not (str/blank? editor)))
     (get editor-command-by-keyword (str/lower-case (str/trim editor)))))
 
+;; launch-editor encodes a source position PER EDITOR BINARY. A binary it has
+;; no case for falls through to a bare-file launch — silently, and with a
+;; successful exit, which this endpoint would otherwise report as a 200.
+
+(def commands-without-position-support
+  "launch-editor commands it invokes with the BARE FILE, dropping any
+  requested line/column.
+
+  `launch-editor`'s `get-args.js` switches on the command's basename and
+  encodes a position for `code`, `code-insiders`, `cursor`, `zed` and the
+  JetBrains binaries, then falls through to `return [fileName]` for
+  everything else. At the pinned 2.14.1 — which is also the newest published
+  release — it has no `windsurf` case, so Windsurf alone in this endpoint's
+  vocabulary loses the coordinate. Drop an entry here when a pinned release
+  starts encoding that editor's position; the contract test comes with it."
+  #{"windsurf"})
+
+(defn position-would-be-dropped?
+  "Whether launching `command` would discard a requested `line`/`column`.
+
+  A request carrying no coordinate loses nothing by going through the
+  endpoint, and the endpoint's classpath resolution is real value the
+  client-side `editor://` URI fallback cannot supply — so only a
+  coordinate-BEARING request to a position-blind command is declined."
+  [command line column]
+  (boolean (and (or line column)
+                (contains? commands-without-position-support command))))
+
 ;; Core owns classpath URL decoding; this endpoint adds runtime cwd fallback.
 
 (defn resolve-file
@@ -324,7 +352,11 @@
 
   Query keys are `file` (required), `line`, `column`, and `editor`. Only a
   local POST reaches `launch!`. Invalid input produces JSON 400/403/405
-  responses; missing files and launch failures produce 422."
+  responses; missing files and launch failures produce 422, as does a
+  coordinate-bearing request for an editor whose `launch-editor` command
+  cannot carry the position (`position-would-be-dropped?`) — every one of
+  those non-2xx answers hands the launch to the client's `editor://` URI
+  fallback, which does carry it."
   [{:keys [uri request-method query-string] :as req}]
   (when (= uri endpoint-path)
     (let [ao (allow-origin req)]
@@ -353,8 +385,18 @@
                 line   (->int (get q "line"))
                 column (->int (get q "column"))
                 cmd    (editor-hint (get q "editor"))]
-            (if (str/blank? file)
+            (cond
+              (str/blank? file)
               (json-resp 400 ao {:ok false :error "missing-file"})
+
+              ;; A 200 here is a claim that the COORDINATE arrived, not merely
+              ;; that a process exited. Where the launcher would drop it,
+              ;; decline before spawning so the client's coordinate-preserving
+              ;; `editor://` URI fallback gets its turn (rf2-1i1ec).
+              (position-would-be-dropped? cmd line column)
+              (json-resp 422 ao {:ok false :error "editor-position-unsupported"})
+
+              :else
               (let [abs-path (resolve-file file)
                     {:keys [ok message]} (launch! abs-path line column cmd)]
                 (if ok

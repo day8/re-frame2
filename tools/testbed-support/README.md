@@ -75,6 +75,16 @@ files return 422 before Node is spawned so the browser client can fall back to
 its `editor://` URI. The handler lives in a `.clj` file and is never compiled
 into a browser bundle.
 
+A 200 from this endpoint means the whole source coordinate reached an editor,
+not merely that a process exited. `launch-editor` encodes a position per editor
+binary and has no case for `windsurf`, so it would launch Windsurf with the
+bare file and still exit 0. A coordinate-bearing `editor=windsurf` request is
+therefore declined with 422 `editor-position-unsupported` before Node is
+spawned, and the browser's `windsurf://file/<path>:<line>:<column>` fallback —
+which does carry the position — opens the file at the right place. A Windsurf
+request with no line or column is served normally. Every other editor in the
+vocabulary is unaffected.
+
 ## Wiring
 
 The testbed builds add `tools/testbed-support/src` to their shadow-cljs source
