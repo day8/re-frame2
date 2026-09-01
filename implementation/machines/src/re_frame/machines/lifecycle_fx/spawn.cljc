@@ -400,7 +400,7 @@
   the trace, the handler registration, the snapshot/system-id/spawn-slot
   install, the spawn-order record, AND the `:start` dispatch — the
   rejected actor leaves NO half-installed bookkeeping (no registered
-  handler, no actor state, no phantom `(rf/machines)` entry).
+  handler, no actor state, no phantom `(rf.machines/machines)` entry).
 
   `continue?` is A's exact-frame-incarnation continuation predicate
   (rf2-vxgfnd.153). The schema validator is application code that can destroy

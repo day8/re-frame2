@@ -15,7 +15,7 @@
 
   - `(spec->scxml machine-spec)` — produces an SCXML XML string for
     the given normalised machine definition (the same shape
-    `(rf/machine-meta id)` returns).
+    `(rf.machines/machine-meta id)` returns).
   - `(scxml->spec scxml-string)` — parses an SCXML XML string into a
     re-frame machine spec.
 
@@ -800,7 +800,7 @@
 (defn spec->scxml
   "Convert a re-frame2 machine spec to an SCXML XML string.
 
-  `machine-spec` is the normalised definition shape `(rf/machine-meta
+  `machine-spec` is the normalised definition shape `(rf.machines/machine-meta
   id)` returns (per Spec 005 §Transition table grammar):
 
   ```clojure

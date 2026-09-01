@@ -16,7 +16,7 @@
 
   Per spec/003-Machine-Inspector.md the panel's minimum surface is:
 
-    1. **Machine picker** — a dropdown over `(rf/machines)` (Spec 005
+    1. **Machine picker** — a dropdown over `(rf.machines/machines)` (Spec 005
        §Querying machines). Switching the selection re-binds the chart
        + transition-history ribbon to the new machine. Each picker
        option shows machine-id + current-state.
@@ -58,7 +58,7 @@
   sources into `project-data`:
 
     1. **`machines`** — vector of registered machine-ids
-       (`(rf/machines)`). Empty when the machines artefact is not on
+       (`(rf.machines/machines)`). Empty when the machines artefact is not on
        the classpath (Spec 005 §Querying machines: returns `[]`).
 
     2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
@@ -96,7 +96,7 @@
   ## What this doesn't do
 
   Pure data. No subscription, no atom, no `js/` interop — the same
-  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf/machines`
+  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf.machines/machines`
   on a populated registrar, `rf/app-db-value` on a frame) are read
   by the composite sub in `registry.cljs`; the result is handed to
   this ns as a plain map."
@@ -238,7 +238,7 @@
   "One row per registered machine. `machine-id` is the keyword the
   machine is registered under (per Spec 005); `snapshot` is the
   current `{:state :data}` map (or nil for uninitialised machines).
-  `definition` is the registered machine spec (`(rf/machine-meta
+  `definition` is the registered machine spec (`(rf.machines/machine-meta
   machine-id)`); nil when the spec is not yet introspectable.
 
   Per the panel's minimum-viable contract the row carries:
@@ -383,7 +383,7 @@
   Inputs:
 
     `machines`     — vector / seq of registered machine-ids
-                     (`(rf/machines)`). nil-safe.
+                     (`(rf.machines/machines)`). nil-safe.
     `snapshots`    — `{machine-id snapshot-or-nil}`. nil-safe.
     `trace-buffer` — Xray's trace ring buffer. nil-safe.
     `selected-id`  — the user's picker focus (keyword) or nil. nil

@@ -17,7 +17,7 @@
 
   ## Empty state
 
-  When `(rf/machines)` returns nothing: 'No machines registered. reg-
+  When `(rf.machines/machines)` returns nothing: 'No machines registered. reg-
   machine to add the first.'"
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]

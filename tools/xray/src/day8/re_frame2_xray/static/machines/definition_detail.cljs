@@ -41,7 +41,7 @@
 
   ## Empty state (no machine selected)
 
-  When `(rf/machines)` returns nothing the browse-list renders the
+  When `(rf.machines/machines)` returns nothing the browse-list renders the
   empty-state hint; the right pane mounts a matching empty surface
   to keep the visual balance."
   (:require [re-frame.core :as rf]

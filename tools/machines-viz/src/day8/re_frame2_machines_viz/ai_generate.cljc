@@ -212,7 +212,7 @@
   ## Returns
 
   The parsed + validated machine spec — the same shape `reg-machine`
-  accepts and `(rf/machine-meta id)` returns.
+  accepts and `(rf.machines/machine-meta id)` returns.
 
   ## Throws
 

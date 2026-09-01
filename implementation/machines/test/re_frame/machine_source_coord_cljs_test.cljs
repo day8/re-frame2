@@ -326,7 +326,7 @@
     (machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
     (is (some? (some #{:rf2-8bp3/plain} (machines/machines)))
-        "(rf/machines) lists the plain-fn registered machine")
+        "(rf.machines/machines) lists the plain-fn registered machine")
     (is (= {:initial :a :states {:a {}}}
            (machines/machine-meta :rf2-8bp3/plain))
         "spec round-trips verbatim")))

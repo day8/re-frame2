@@ -450,7 +450,7 @@
                      {:initial :a :states {:a {}}})
     (is (= :rf2-8bp3/plain
            (some #{:rf2-8bp3/plain} (machines/machines)))
-        "plain-fn registration shows up in (rf/machines) like macro registrations")
+        "plain-fn registration shows up in (rf.machines/machines) like macro registrations")
     (is (= {:initial :a :states {:a {}}}
            (machines/machine-meta :rf2-8bp3/plain))
         "spec round-trips verbatim")))

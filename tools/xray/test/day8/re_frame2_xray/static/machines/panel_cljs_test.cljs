@@ -126,7 +126,7 @@
         (is (= 3 (count row-buttons)) "one row per machine")))))
 
 (deftest browse-list-empty-state-when-no-machines
-  (testing "Empty state renders when (rf/machines) returns nothing"
+  (testing "Empty state renders when (rf.machines/machines) returns nothing"
     (xray-setup!)
     (seed-machines! [])
     (rf/with-frame :rf/xray

@@ -146,7 +146,7 @@
   'rf/reg-machine`, `rf/reg-machine*` raises with `:where 'rf/reg-machine*`.
 
   Callers should NOT invoke this directly — use `rf/reg-machine`
-  (macro) or `rf/reg-machine*` (plain fn). It is public only because
+  (macro) or `rf.machines/reg-machine*` (plain fn). It is public only because
   the macro emits a reference to it.
 
   Per rf2-wgmipl the 3-arity threads the macro's `opts` registration-metadata

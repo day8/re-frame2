@@ -1137,12 +1137,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn machines-list
-  "(rf/machines) — all registered machine ids."
+  "(rf.machines/machines) — all registered machine ids."
   []
   (vec (machines/machines)))
 
 (defn machine-describe
-  "(rf/machine-meta id) — registered spec map for one machine, or
+  "(rf.machines/machine-meta id) — registered spec map for one machine, or
    `{:ok? false :reason :not-a-machine}`."
   [machine-id]
   (or (machines/machine-meta machine-id)
@@ -3895,7 +3895,7 @@
                       process-wide registrar counts) in a multi-frame
                       ambiguous session or against an operating frame that
                       carries no sealed image generation.
-     :machines        the registered machine ids (`rf/machines`).
+     :machines        the registered machine ids (`rf.machines/machines`).
 
    Compact + summarized by design (respect the wire cap): counts + the
    high-value id vectors + per-frame top-keys, NOT the full app-db. The

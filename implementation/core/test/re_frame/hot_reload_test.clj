@@ -47,7 +47,7 @@
   ;; registrations so :rf/hydrate, :rf.nav/push-url etc. resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr    :reload)
-  ;; The snapshot test uses `rf/make-machine-handler`; re-load machines so
+  ;; The snapshot test uses `rf.machines/make-machine-handler`; re-load machines so
   ;; the artefact's reg surface is live in isolated runs too (the snapshot
   ;; slot lives in runtime-db per EP-0001).
   (require 're-frame.machines :reload)

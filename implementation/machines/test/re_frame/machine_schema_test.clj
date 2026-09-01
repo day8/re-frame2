@@ -6,7 +6,7 @@
 
    1. **Acceptance.** `reg-machine` accepts a machine-level `[:schemas :data]`
       schema on the machine spec; registration completes without error and the
-      registered spec carries the schema through `(rf/machine-meta id)`.
+      registered spec carries the schema through `(rf.machines/machine-meta id)`.
 
    2. **Macrostep boundary.** After a transition action returns a new
       `:data` that violates the schema, the runtime emits
@@ -261,12 +261,12 @@
                           [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")
         ;; Atomic reject: a schema-rejected spawn registers NOTHING —
-        ;; no event handler, no `(rf/machines)` entry — the install gate
+        ;; no event handler, no `(rf.machines/machines)` entry — the install gate
         ;; and registration are in lockstep.
         (is (nil? (registrar/lookup :event :rf.machine-schema/spawned))
             "rejected spawn: NO event handler is registered (rf2-f3kp7)")
         (is (not (contains? (set (machines/machines)) :rf.machine-schema/spawned))
-            "rejected spawn: the actor does NOT appear in (rf/machines) (rf2-f3kp7)")))))
+            "rejected spawn: the actor does NOT appear in (rf.machines/machines) (rf2-f3kp7)")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------
 

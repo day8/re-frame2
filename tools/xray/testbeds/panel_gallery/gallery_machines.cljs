@@ -6,14 +6,14 @@
   (rf2-2tkza Phase 1 + rf2-v869p Phase 2; spec/003-Machine-Inspector).
   The panel reads:
 
-    - `:rf.xray/registered-machines`  — defaults to `(rf/machines)`;
+    - `:rf.xray/registered-machines`  — defaults to `(rf.machines/machines)`;
                                          test override slot exists.
     - `:rf.xray/machine-snapshots`    — defaults to target-frame's
                                          `[:rf.runtime/machines
                                           :snapshots]` runtime-db subtree; test
                                          override slot exists.
     - `:rf.xray/machine-definitions`  — defaults to
-                                         `(rf/machine-meta ...)`; test
+                                         `(rf.machines/machine-meta ...)`; test
                                          override slot exists.
     - `:rf.xray/trace-buffer`         — drives transition-history.
     - `:rf.xray/selected-machine-id`  — picker focus.

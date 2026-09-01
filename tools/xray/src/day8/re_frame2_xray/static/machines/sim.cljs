@@ -192,7 +192,7 @@
   []
   ;; Start sim for `machine-id`. The payload carries the cloned
   ;; definition so the event handler doesn't need to reach back through
-  ;; `rf/machine-meta` (which would be re-resolved per step; sim wants
+  ;; `rf.machines/machine-meta` (which would be re-resolved per step; sim wants
   ;; the definition pinned at start time).
   (rf/reg-event :rf.xray.static.machines/sim-start
     (fn [{:keys [db]} [_ {:keys [machine-id definition]}]]

@@ -904,7 +904,7 @@
             ":rf/machine sub returns the same snapshot")))))
 
 (deftest machines-introspection
-  (testing "(rf/machines) returns only ids whose registration was via reg-machine"
+  (testing "(rf.machines/machines) returns only ids whose registration was via reg-machine"
     (let [tiny-spec   {:initial :idle
                        :data    {:n 0}
                        :doc     "A tiny test machine."
@@ -917,18 +917,18 @@
                                  :on  {:on {:flip :off}}}}]
       (rf/reg-machine :test/tiny  tiny-spec)
       (rf/reg-machine :test/other other-spec)
-      ;; A regular event-handler must NOT show up in (rf/machines).
+      ;; A regular event-handler must NOT show up in (rf.machines/machines).
       (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
 
       (let [ids (set (machines/machines))]
         (is (contains? ids :test/tiny)
-            "(rf/machines) lists machines registered via reg-machine")
+            "(rf.machines/machines) lists machines registered via reg-machine")
         (is (contains? ids :test/other)
-            "(rf/machines) lists every reg-machine id")
+            "(rf.machines/machines) lists every reg-machine id")
         (is (not (contains? ids :test/regular))
-            "(rf/machines) excludes plain event handlers"))
+            "(rf.machines/machines) excludes plain event handlers"))
 
-      (testing "(rf/machine-meta id) returns the spec map for registered machines"
+      (testing "(rf.machines/machine-meta id) returns the spec map for registered machines"
         (is (= tiny-spec (machines/machine-meta :test/tiny))
             "machine-meta returns the spec map passed to reg-machine")
         (is (= other-spec (machines/machine-meta :test/other)))
@@ -936,7 +936,7 @@
                (:doc (machines/machine-meta :test/tiny)))
             "the spec's :doc round-trips through machine-meta"))
 
-      (testing "(rf/machine-meta id) returns nil for unregistered or non-machine ids"
+      (testing "(rf.machines/machine-meta id) returns nil for unregistered or non-machine ids"
         (is (nil? (machines/machine-meta :test/regular))
             "non-machine event handlers return nil")
         (is (nil? (machines/machine-meta :test/never-registered))
