@@ -3,8 +3,22 @@
 'use strict';
 
 /*
- * Reproducible-install policy gate for `test-mcp-conformance.cjs`
- * (rf2-vtp2er).
+ * Policy gate for `test-mcp-conformance.cjs` — two concerns, one file.
+ *
+ *   A. Reproducible-install policy (rf2-vtp2er), below.
+ *   B. Profile SELECTION (rf2-a9l6e): default vs `--live` vs `--help` vs an
+ *      unknown option, and the verdict text each one renders. These are
+ *      pure-function assertions against the runner's exported
+ *      `parseArgs` / `planRun` / `renderReport` / `helpText`, so the suite
+ *      launches no Clojure, no shadow-cljs, no Chromium, and neither MCP
+ *      server — the runner only spawns under `require.main === module`,
+ *      which this section pins.
+ *
+ * They share a file rather than splitting because both pin the SAME script
+ * and both are static/pure; a second `_*.test.cjs` would only duplicate the
+ * fixture.
+ *
+ * --- A. Reproducible-install policy (rf2-vtp2er) ---
  *
  * `npm run test:mcp-conformance` must be a (near-)pure verification
  * command: it must not silently re-mutate dependency state on every run,
@@ -235,6 +249,223 @@ test('LIVE: lockfile-backed tool packages the runner installs have a present, dr
     'expected at least one lockfile-backed tool package (mcp-conformance) ' +
       'to be exercised by this gate.',
   );
+});
+
+// ---------------------------------------------------------------------
+// B. Profile selection + verdict honesty (rf2-a9l6e).
+//
+// Requiring the runner is itself part of the contract: it must expose its
+// selection/rendering as pure functions and spawn NOTHING at module load.
+// If that regressed, this `require` would start installing npm packages and
+// booting servers, and the suite would not finish.
+const runner = require('./test-mcp-conformance.cjs');
+
+test('the runner only spawns under require.main === module', () => {
+  assert.match(
+    RUNNER_CODE,
+    /require\.main\s*===\s*module/,
+    'expected the run loop to be guarded by `require.main === module` so ' +
+      'the profile-selection tests can require the runner without launching ' +
+      'Clojure, shadow-cljs, Chromium, or either MCP server (rf2-a9l6e).',
+  );
+});
+
+test('default selection: no flag selects the default profile', () => {
+  assert.deepEqual(runner.parseArgs([]), {
+    help: false,
+    profile: runner.PROFILE_DEFAULT,
+    error: null,
+  });
+});
+
+test('--live selects the live profile', () => {
+  assert.deepEqual(runner.parseArgs(['--live']), {
+    help: false,
+    profile: runner.PROFILE_LIVE,
+    error: null,
+  });
+});
+
+test('--help / -h select help, and help is side-effect-free text', () => {
+  for (const flag of ['--help', '-h']) {
+    const parsed = runner.parseArgs([flag]);
+    assert.equal(parsed.help, true, `${flag} must select help`);
+    assert.equal(parsed.error, null, `${flag} must not be a usage error`);
+  }
+  const help = runner.helpText();
+  // Both modes, the cost boundary, the prerequisites, which mode proves
+  // live runtime behaviour, and the narrower meaning of the conformance
+  // package's own `npm test` (acceptance 3).
+  for (const needle of [
+    runner.ROOT_COMMAND,
+    runner.LIVE_COMMAND,
+    'default (medium)',
+    '--live (expensive)',
+    'PREREQUISITES',
+    'PROFILE THAT PROVES LIVE RUNTIME SEMANTICS',
+    'NARROWER NEIGHBOUR',
+    'EXIT CODES',
+  ]) {
+    assert.ok(
+      help.includes(needle),
+      `--help output must mention ${JSON.stringify(needle)}.`,
+    );
+  }
+});
+
+test('an unknown option is a usage error naming the option, with no profile', () => {
+  const parsed = runner.parseArgs(['--liv']);
+  assert.equal(parsed.profile, null, 'a usage error must select no profile');
+  assert.equal(parsed.help, false);
+  assert.match(
+    String(parsed.error),
+    /unknown option `--liv`/,
+    'the usage error must name the offending option.',
+  );
+  // The usage exit code must not collide with the gate codes (1 = gate /
+  // inner-conformance failure, 2 = hermetic orchestration/cleanup failure).
+  assert.notEqual(runner.EXIT_USAGE, 0);
+  assert.notEqual(runner.EXIT_USAGE, 1);
+  assert.notEqual(runner.EXIT_USAGE, 2);
+});
+
+test('the live gate is ABSENT from the default plan and PRESENT in the live plan', () => {
+  const dflt = runner.planRun(runner.PROFILE_DEFAULT);
+  const live = runner.planRun(runner.PROFILE_LIVE);
+  assert.equal(dflt.gates.length, runner.DEFAULT_GATES.length);
+  assert.equal(live.gates.length, runner.DEFAULT_GATES.length + 1);
+  assert.ok(
+    !dflt.gates.includes(runner.LIVE_GATE),
+    'the default profile must not plan the hermetic live gate.',
+  );
+  assert.equal(
+    live.gates[live.gates.length - 1],
+    runner.LIVE_GATE,
+    'the live profile must append the hermetic live gate last.',
+  );
+  // Both profiles share the same prerequisites; --live adds a gate, not a
+  // second orchestrator.
+  assert.deepEqual(dflt.prep, live.prep);
+});
+
+test('the live gate delegates to the EXISTING hermetic entry point (no second roster)', () => {
+  const conformancePkg = JSON.parse(
+    fs.readFileSync(path.join(TOOLS, 'mcp-conformance', 'package.json'), 'utf8'),
+  );
+  const script = conformancePkg.scripts['test:re-frame2-pair-live-hermetic-suite'];
+  assert.ok(
+    script,
+    'tools/mcp-conformance/package.json must keep the ' +
+      'test:re-frame2-pair-live-hermetic-suite script the --live profile delegates to.',
+  );
+  assert.ok(
+    script.includes(runner.LIVE_GATE.args[0]),
+    `the --live gate runs ${runner.LIVE_GATE.args[0]}, which must be the same ` +
+      `entry point as the package script (${script}).`,
+  );
+  assert.equal(runner.LIVE_GATE.node, true, 'the live gate spawns under node');
+  // The live row count comes from the one live roster, never a copy.
+  assert.match(
+    RUNNER_CODE,
+    /require\([\s\S]{0,120}?live-test-inventory\.cjs['"]/,
+    'the runner must read LIVE_TESTS from ' +
+      'tools/mcp-conformance/scripts/live-test-inventory.cjs rather than ' +
+      'listing live rows itself (rf2-a9l6e acceptance 6).',
+  );
+});
+
+// A green that cannot be told apart from a skip is the defect rf2-a9l6e
+// exists to close, so the verdict text is pinned as tightly as the plan.
+function reportFor(profile, fail = null) {
+  const { gates } = runner.planRun(profile);
+  const results = gates.map((g) => ({ name: g.name, status: 0 }));
+  if (!fail) {
+    return runner.renderReport({ profile, gates, results, firstFailure: null });
+  }
+  return runner.renderReport({
+    profile,
+    gates,
+    // Fail-fast: the failing step's row, and nothing after it.
+    results: results
+      .slice(0, fail.index)
+      .concat([{ name: gates[fail.index].name, status: fail.status }]),
+    firstFailure: {
+      step: gates[fail.index].name,
+      status: fail.status,
+      signal: null,
+    },
+  });
+}
+
+test('the default-profile verdict names its profile and marks the live suite NOT RUN', () => {
+  const report = reportFor(runner.PROFILE_DEFAULT);
+  assert.match(
+    report,
+    /MCP-CONFORMANCE DEFAULT PROFILE GREEN — 6\/6 gates, hermetic live Pair suite NOT RUN/,
+  );
+  assert.ok(
+    report.includes('[NOT RUN ]'),
+    'the default summary must carry an explicit NOT RUN row for the hermetic suite.',
+  );
+  assert.ok(
+    report.includes(runner.LIVE_COMMAND),
+    'the default summary must print the exact --live invocation beside it.',
+  );
+});
+
+test('no unqualified all-green sentence survives anywhere in the runner', () => {
+  // The old sentinel. Renaming it is only worth anything if it cannot come
+  // back — pin the source AND the rendered default-profile report.
+  const forbidden = 'ALL MCP-CONFORMANCE GATES GREEN';
+  // RUNNER_CODE, not RUNNER_SRC: the header comment legitimately QUOTES the
+  // retired sentinel to explain why it went. Comments are stripped so the
+  // pin matches executable source only.
+  assert.ok(
+    !RUNNER_CODE.includes(forbidden),
+    `test-mcp-conformance.cjs must not emit "${forbidden}": it cannot be ` +
+      'told apart from a run whose live layer was skipped (rf2-a9l6e).',
+  );
+  const report = reportFor(runner.PROFILE_DEFAULT);
+  assert.ok(!report.includes(forbidden));
+  // Control: the pin is a real substring test, not a pattern that can only
+  // ever answer "no match" — the same shape IS found where it exists.
+  assert.ok(reportFor(runner.PROFILE_DEFAULT).includes('PROFILE GREEN'));
+});
+
+test('the live-profile verdict names its profile and carries no NOT RUN row', () => {
+  const report = reportFor(runner.PROFILE_LIVE);
+  assert.match(
+    report,
+    /MCP-CONFORMANCE LIVE PROFILE GREEN — 7\/7 gates, hermetic live Pair suite INCLUDED/,
+  );
+  assert.ok(
+    !report.includes('NOT RUN'),
+    'the live profile ran the hermetic suite — nothing may be marked NOT RUN.',
+  );
+  assert.ok(
+    report.includes(runner.LIVE_GATE.name),
+    'the live summary must show the hermetic gate as one of its rows.',
+  );
+});
+
+test('a failing gate renders a profile-named FAILED verdict in both profiles', () => {
+  const dflt = reportFor(runner.PROFILE_DEFAULT, { index: 2, status: 1 });
+  assert.match(dflt, /MCP-CONFORMANCE DEFAULT PROFILE FAILED — .* exited 1/);
+  assert.ok(!dflt.includes('PROFILE GREEN'));
+  assert.ok(
+    dflt.includes('halted by an earlier failure'),
+    'gates the fail-fast never reached must be labelled halted, never passed.',
+  );
+
+  // The hermetic suite's own 1-vs-2 distinction must survive to the verdict:
+  // 2 is an orchestration/cleanup failure, not an inner conformance failure.
+  const liveGates = runner.planRun(runner.PROFILE_LIVE).gates;
+  const live = reportFor(runner.PROFILE_LIVE, {
+    index: liveGates.indexOf(runner.LIVE_GATE),
+    status: 2,
+  });
+  assert.match(live, /MCP-CONFORMANCE LIVE PROFILE FAILED — .* exited 2/);
+  assert.ok(!live.includes('PROFILE GREEN'));
 });
 
 run();
