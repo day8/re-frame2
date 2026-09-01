@@ -68,11 +68,14 @@ the template you already know:
 ## Running it
 
 ```bash
-shadow-cljs watch examples/todomvc
+# From implementation/:
+npm run dev:example -- examples/todomvc
 ```
 
-Then open the served page in a browser. No backend ships — persistence
-runs entirely against the browser's own localStorage.
+Then open the URL it prints — the runner stages the two official CSS
+files above from `node_modules/` beside the bundle, so the page wears the
+real TodoMVC skin. No backend ships; persistence runs entirely against
+the browser's own localStorage.
 
 ## Cross-references
 

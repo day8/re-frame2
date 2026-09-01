@@ -53,8 +53,21 @@ The verbosity tax is real, and small. In return, every artefact is named, querya
 
 ## How to run
 
-Six tasks live in sub-folders under `seven_guis/<name>/`, each with its CLJS source and a thin HTML host page (for example `cells/core.cljs` + `cells/index.html`); the counter sits one folder up at `../counter/`. The build ids are defined in `implementation/shadow-cljs.edn`, so watch a task's build from `implementation/` to view it in a browser:
+Six tasks live in sub-folders under `seven_guis/<name>/`, each with its CLJS source and a thin HTML host page (for example `cells/core.cljs` + `cells/index.html`); the counter sits one folder up at `../counter/`. Run any one of them from `implementation/` and open the URL it prints:
 
 ```bash
-shadow-cljs watch examples/cells
+# From implementation/:
+npm run dev:example -- examples/cells
 ```
+
+Substitute any of the other build ids for `examples/cells`:
+
+| Task | Build id | Source |
+|---|---|---|
+| #1 Counter | `examples/counter` | [`../counter/`](../counter/) |
+| #2 Temperature converter | `examples/temperature` | [`temperature/`](temperature/) |
+| #3 Flight booker | `examples/flight-booker` | [`flight_booker/`](flight_booker/) |
+| #4 Timer | `examples/timer` | [`timer/`](timer/) |
+| #5 CRUD | `examples/crud` | [`crud/`](crud/) |
+| #6 Circle drawer | `examples/circle-drawer` | [`circle_drawer/`](circle_drawer/) |
+| #7 Cells | `examples/cells` | [`cells/`](cells/) |

@@ -8,7 +8,19 @@ These are small, complete apps you can run and read top to bottom — each one c
 - Real-apps — full applications that put it all together
 - Substrates — the same apps rendered on other substrates (UIx, reagent-slim)
 
-They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo). Run any from `implementation/` with `shadow-cljs watch <build-id>` (the build-id is in each row).
+They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo).
+
+## Running any of them
+
+One command, from `implementation/` — the build-id is in each row below:
+
+```bash
+npm run dev:example -- <build-id>
+```
+
+It cleans that build's output directory, stages the example's own `index.html` and the shared `_shared/` assets beside the compiled bundle, starts a watch so your edits recompile live, serves the result on a free loopback port, and prints the URL to open. Add `--no-watch` for a one-shot compile-and-serve, or `--list` to see every runnable build-id.
+
+> **Advanced — the compiler on its own.** `shadow-cljs watch <build-id>` compiles the bundle to `implementation/out/examples/<name>/` and does nothing else: it stages no host page, copies no `_shared/` assets, and starts no server, so there is no URL to open and the example's own `index.html` cannot find its `main.js`. Reach for it when you want the compiler alone; use `npm run dev:example` when you want the running app.
 
 ## Layout
 
