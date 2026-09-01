@@ -199,6 +199,82 @@
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
 
+;; ---- the no-hint path (rf2-1i1ec audit) ----------------------------------
+;;
+;; `editor->param` sends no `editor=` at all for a nil preference and for
+;; `{:custom …}`, which puts the server on `launch-editor`'s auto-detect —
+;; where the binary is chosen from the running process list and can be one
+;; `get-args.js` has no position case for. The server now declines that too.
+;; What the tests below witness is the half the server cannot: that declining
+;; actually leaves the user better off, because the fallback these two
+;; preferences reach still carries 27:9.
+
+(def ^:private custom-editor
+  "A `{:custom …}` preference, the other shape that sends no `editor=`."
+  {:custom "myeditor://open?f={file}&l={line}&c={column}"})
+
+(deftest no-editor-hint-requests-take-the-auto-detect-path
+  (testing "both preferences the audit names omit `editor=` entirely, so the
+            server auto-detects — this is the request that could return a
+            bare-file 200 before the repair"
+    (is (= (str open-endpoint/endpoint-path
+                "?file=src%2Fapp.cljs&line=27&column=9")
+           (open-endpoint/build-url coord nil))
+        "a nil preference sends the coordinate and no editor")
+    (is (= (str open-endpoint/endpoint-path
+                "?file=src%2Fapp.cljs&line=27&column=9")
+           (open-endpoint/build-url coord custom-editor))
+        "a {:custom …} preference likewise — the template is the client's own
+         business, so the server is told nothing about it")
+    (is (not (re-find #"editor=" (open-endpoint/build-url coord nil)))
+        "control: `editor=` really is absent, not merely differently spelled")
+    (is (re-find #"editor=" (open-endpoint/build-url coord :windsurf))
+        "control the other way: the same assertion FINDS `editor=` when a
+         keyword preference is set, so its absence above is a real difference")))
+
+(deftest declined-no-hint-answer-still-lands-on-the-coordinate
+  (testing "rf2-1i1ec audit — declining the auto-detect path is only a repair
+            if the fallback it hands over to keeps 27:9. For a nil preference
+            that is `editor-uri`'s default scheme; for `{:custom …}` it is the
+            user's own template, which the endpoint's auto-detect ignored
+            entirely. Both carry the coordinate the bare-file launch dropped"
+    (async done
+      (-> (click-each! [{:editor nil            :status 422}
+                        {:editor custom-editor :status 422}])
+          (.then (fn [outcomes]
+                   (is (= 2 (count outcomes)) "both preferences were exercised")
+                   (doseq [{:keys [editor fallbacks]} outcomes]
+                     (is (= 1 fallbacks)
+                         (str editor " → the fallback ran exactly once")))
+                   (let [{:keys [navigated]} (first outcomes)]
+                     (is (= "vscode://file/src/app.cljs:27:9" navigated)
+                         "a nil preference falls back to the default scheme,
+                          line 27 column 9 intact"))
+                   (let [{:keys [navigated]} (second outcomes)]
+                     (is (= "myeditor://open?f=src/app.cljs&l=27&c=9" navigated)
+                         "a {:custom …} preference gets its OWN template with
+                          27 and 9 substituted — declining honours the
+                          configuration the auto-detect launch overrode"))
+                   (is (fetch-restored?) "the fetch stub was not left installed")
+                   (done)))
+          (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
+
+(deftest a-2xx-no-hint-answer-suppresses-the-fallback-too
+  (testing "the defect's other half on the auto-detect path: a 200 is final
+            here as well, so a bare-file launch behind it is unrecoverable.
+            This is why the server had to decline rather than let the client
+            decide"
+    (async done
+      (-> (click! {:editor nil :status 200})
+          (.then (fn [{:keys [requested navigated fallbacks]}]
+                   (is (some? requested) "the endpoint was asked")
+                   (is (zero? fallbacks)
+                       "no fallback — nothing downstream could recover 27:9")
+                   (is (nil? navigated))
+                   (is (fetch-restored?) "the fetch stub was not left installed")
+                   (done)))
+          (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
+
 (deftest position-carrying-editors-keep-preferring-the-endpoint
   (testing "the repair must not make every editor fall back: for an editor the
             endpoint still serves, a 2xx is final and no URI is navigated —
