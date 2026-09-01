@@ -45,14 +45,23 @@ The example page reads a feed from app-db and includes a browser-only chart:
 
 No view code is specific to SSR.
 
-Use the optional server module to render one request:
+Use the optional server module to render one request. The Node renderer is a
+separate process from the browser, and nothing installs an adapter for it:
+`server/render` mints a frame per request, and building that frame's state
+container raises `:rf.error/no-adapter-installed` in a process where
+`rf/init!` never ran — before any HTML is produced. Install the headless SSR
+adapter once at process startup. It is boot work, not request work.
 
 ```clojure
 (ns app.server
-  (:require [re-frame.hicasso.server :as server]
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
+            [re-frame.hicasso.server :as server]
             [app.views :as views]
             [app.subs]
             [app.events]))
+
+(rf/init! ssr/adapter)   ;; once, at process startup — never per request
 
 (defn page-response
   "Render one request from an app-db snapshot."
@@ -112,7 +121,9 @@ a view body. Put browser work in client-only effects such as
 
 The first client render must see the same state used by the server, and the
 frame that state lands in must already exist. A hydrating boot therefore has
-three ordered steps:
+three ordered steps. They share the adapter precondition every browser boot
+has — install one with `rf/init!` before the first frame, per
+[Installation](00-installation.md#hicasso-needs-a-substrate-adapter).
 
 ```clojure
 (ns app.client
