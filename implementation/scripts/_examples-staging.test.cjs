@@ -218,18 +218,79 @@ it('buildNsIndex builds the full index with a clean io (no false failure) (rf2-3
   assert.ok(idx.size >= 30, `expected a non-vacuous ns-index, got ${idx.size}`);
 });
 
-it('listStandaloneExamples resolves the three UIx examples to a colocated index.html', () => {
-  const byId = Object.fromEntries(listStandaloneExamples().map((e) => [e.build, e]));
-  for (const build of ['examples/counter-uix', 'examples/login-uix', 'examples/dashboard-uix']) {
-    const e = byId[build];
-    assert.ok(e, `runnable manifest missing ${build}`);
-    assert.ok(fs.existsSync(e.htmlSrc), `${build} index.html missing on disk: ${e.htmlSrc}`);
-    assert.ok(
-      /out[\\/]examples[\\/]/.test(e.outDir),
-      `${build} outDir not under out/examples: ${e.outDir}`,
-    );
-  }
+// ---- the documented run recipes resolve to a real host page (rf2-iacw2, rf2-ujdn0)
+//
+// Every core and capability README tells the reader to run exactly
+// `npm run dev:example -- <build-id>`. That recipe only reaches a page if the
+// build is in listStandaloneExamples() AND has an index.html on disk to stage.
+// If a build falls out of the runner's manifest, the README keeps READING
+// correct while the command it documents stops working — the exact failure
+// these rosters exist to catch. Keep them in step with the READMEs.
+const DOCUMENTED_CORE_BUILDS = [
+  'examples/counter',
+  'examples/login',
+  'examples/todomvc',
+  'examples/flows',
+  'examples/managed-http-counter',
+  'examples/notebook',
+  // the 7GUIs cluster, documented as a build-id table in seven_guis/README.md
+  'examples/temperature',
+  'examples/flight-booker',
+  'examples/timer',
+  'examples/crud',
+  'examples/circle-drawer',
+  'examples/cells',
+];
+
+const DOCUMENTED_CAPABILITY_BUILDS = [
+  'examples/state-machine-walkthrough',
+  'examples/routing',
+  'examples/resources',
+  'examples/infinite-feed',
+  'examples/linearlite',
+  'examples/ssr',
+  'examples/resources-ssr',
+  'examples/ssr-streaming',
+];
+
+const DOCUMENTED_SUBSTRATE_BUILDS = [
+  'examples/counter-uix',
+  'examples/login-uix',
+  'examples/dashboard-uix',
+];
+
+it('the documented rosters are non-vacuous (a roster emptied by an edit cannot pass silently)', () => {
+  assert.strictEqual(DOCUMENTED_CORE_BUILDS.length, 12, 'expected 12 documented core builds');
+  assert.strictEqual(
+    DOCUMENTED_CAPABILITY_BUILDS.length,
+    8,
+    'expected 8 documented capability builds',
+  );
+  assert.strictEqual(
+    DOCUMENTED_SUBSTRATE_BUILDS.length,
+    3,
+    'expected 3 documented substrate builds',
+  );
 });
+
+for (const [family, builds] of [
+  ['core', DOCUMENTED_CORE_BUILDS],
+  ['capability', DOCUMENTED_CAPABILITY_BUILDS],
+  ['substrate', DOCUMENTED_SUBSTRATE_BUILDS],
+]) {
+  it(`listStandaloneExamples resolves every documented ${family} build to a colocated index.html`, () => {
+    const byId = Object.fromEntries(listStandaloneExamples().map((e) => [e.build, e]));
+    for (const build of builds) {
+      const e = byId[build];
+      assert.ok(e, `runnable manifest missing ${build} (documented as \`npm run dev:example -- ${build}\`)`);
+      assert.ok(fs.existsSync(e.htmlSrc), `${build} index.html missing on disk: ${e.htmlSrc}`);
+      assert.ok(
+        /out[\\/]examples[\\/]/.test(e.outDir),
+        `${build} outDir not under out/examples: ${e.outDir}`,
+      );
+    }
+  });
+}
 
 // ---- clean-stage boundary (rf2-bf4vdy) ----------------------------------
 //
