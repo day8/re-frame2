@@ -671,7 +671,11 @@ workers on one file.
 **Then route it**, rather than waiting for the holder to finish and losing the context it
 was found in: message the worker that holds the file, and the fix lands inside the change
 that is already open. Six routed findings landed that way in one evening, none
-conflicting, several fixed minutes after they were found.
+conflicting, several fixed minutes after they were found. **That the change is still open is
+a precondition rather than scene-setting**: routing works because there is an open change for
+the fix to land in, so test that before testing whether the agent is reachable. Where the
+holder's change has already merged there is nothing for the fix to land in, and a reachable
+agent is not a route — take queue-and-note below, even though no fence is being widened.
 
 **But routing does not create an owner, and that is the half people drop.** The message
 lives in one agent's transcript, so if that agent dies, times out, or reasonably declines the
