@@ -78,6 +78,14 @@ The connection machine composes the locked substrate:
 ;; self-dispatch.
 (defn- socket-id [data] (get-in data [:rf/spawned [:active]]))
 
+;; The connection-epoch test itself, factored out because more than one guard
+;; below needs it: is this event stamped with the id of the socket we are
+;; actually using right now? A torn-down socket reads nil, so every straggler
+;; from a replaced connection fails here for free.
+(defn- current-socket? [data source-socket-id]
+  (let [live (socket-id data)]
+    (and (some? live) (= source-socket-id live))))
+
 ;; The body the machine hands a waiting `:reply-event` when IT — not the server
 ;; — decides a request is over: the wire went away, or the deadline elapsed.
 ;; `:origin :ws/local` is the machine's own stamp, and it is what makes this
@@ -130,7 +138,8 @@ The connection machine composes the locked substrate:
                ;; which the runtime keeps current and clears on teardown.
                :subscriptions  #{}               ;; topics to (re-)subscribe on :connected entry
                :queue          []                ;; whole inbound events buffered while disconnected
-               :in-flight      {}                ;; {request-id → {:reply-event ... :timeout-ms ...}}
+               :in-flight      {}                ;; {request-id → {:reply-event ... :timeout-ms ... :token ...}}
+               :next-token     0                 ;; ticking source for each registration's :token (see :register-request)
                :error          nil}
 
      :guards
@@ -150,8 +159,33 @@ The connection machine composes the locked substrate:
       ;; live id read from `:rf/spawned`. A torn-down socket reads as nil, so
       ;; every straggler from a replaced connection is dropped for free.
       (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
-        (let [live (socket-id data)]
-          (and (some? live) (= source-socket-id live))))
+        (current-socket? data source-socket-id))
+
+      :own-request-timeout?
+      ;; The deadline gate, and like `:trusted-frame?` it asks BOTH questions a
+      ;; `:ws/request-timeout` must answer before it may settle anything: is it
+      ;; from the socket we own right now, and is it the timer the registration
+      ;; CURRENTLY in that slot armed?
+      ;;
+      ;; The epoch check alone rejects timers from an old CONNECTION; it says
+      ;; nothing about an old REGISTRATION on the same live socket, and that gap
+      ;; needs no reconnect to open. A `:request-id` is the app's own value and
+      ;; the app is invited to reuse one (see §Message correlation), so on one
+      ;; long-lived socket the same id can be registered, settled, and
+      ;; registered again well inside the first request's timeout window. The
+      ;; first timer is still armed and still stamped with the live socket, so
+      ;; it passes the epoch check, names an id the SECOND request now holds,
+      ;; and settles a request whose deadline has not elapsed.
+      ;;
+      ;; So `:register-request` stamps each registration with a `:token` and
+      ;; schedules the timeout carrying it. This is also what makes shipping no
+      ;; timer-cancellation facility safe: an obsolete timer is not cancelled,
+      ;; it is inert — it fires, fails this guard, and is dropped like any other
+      ;; straggler.
+      (fn [{:keys [data] [_ {:keys [source-socket-id request-id token]}] :event}]
+        (and (current-socket? data source-socket-id)
+             (when-let [entry (get-in data [:in-flight request-id])]
+               (= token (:token entry)))))
 
       :trusted-frame?
       ;; The inbound gate. Vouching for the SENDER is not vouching for the
@@ -269,27 +303,50 @@ The connection machine composes the locked substrate:
       :register-request
       ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
       ;; Record the in-flight entry, forward to the socket, schedule a timeout.
+      ;;
+      ;; Two details here are about the correlation id being the APP's, and
+      ;; therefore reusable. (1) The registration takes the next `:token`, which
+      ;; goes into the slot AND onto the scheduled timeout, so that timer can
+      ;; only ever settle THIS registration — see `:own-request-timeout?`.
+      ;; (2) Re-registering an id that is still in flight SUPERSEDES: the
+      ;; displaced caller is settled with `:ws/superseded` before the new
+      ;; request goes out, so it is never stranded. See item 6 below.
       (fn [{:keys [data] [_ {:keys [request-id body reply timeout-ms]
                              :or   {timeout-ms 30000}}] :event}]
-        {:data (assoc-in data [:in-flight request-id]
-                         {:reply-event reply :timeout-ms timeout-ms})
-         :fx   [[:dispatch [(socket-id data)
-                            [:send (assoc body :request-id request-id)]]]
-                ;; The timeout event carries the live socket-id too, so the
-                ;; same :current-socket? guard quietly discards a timeout left
-                ;; over from a connection we've already moved past.
-                [:dispatch-later
-                 {:ms    timeout-ms
-                  :event [:ws/connection
-                          [:ws/request-timeout
-                           {:request-id       request-id
-                            :source-socket-id (socket-id data)}]]}]]})
+        (let [token     (:next-token data)
+              displaced (:reply-event (get-in data [:in-flight request-id]))
+              send+arm  [[:dispatch [(socket-id data)
+                                     [:send (assoc body :request-id request-id)]]]
+                         ;; The timeout event carries the live socket-id too, so
+                         ;; the same epoch check quietly discards a timeout left
+                         ;; over from a connection we've already moved past.
+                         [:dispatch-later
+                          {:ms    timeout-ms
+                           :event [:ws/connection
+                                   [:ws/request-timeout
+                                    {:request-id       request-id
+                                     :token            token
+                                     :source-socket-id (socket-id data)}]]}]]]
+          {:data (-> data
+                     (assoc :next-token (inc token))
+                     (assoc-in [:in-flight request-id]
+                               {:reply-event reply
+                                :timeout-ms  timeout-ms
+                                :token       token}))
+           ;; Settle the displaced caller FIRST — it is done either way, and it
+           ;; should learn that before the wire moves on.
+           :fx   (if displaced
+                   (into [[:dispatch (conj displaced
+                                           (local-failure request-id :ws/superseded))]]
+                         send+arm)
+                   send+arm)}))
 
       :clear-request
       ;; A request's deadline fired — a `:ws/request-timeout` that passed
-      ;; `:current-socket?`, so the socket is still live but the reply never
-      ;; came. FAIL the request, don't just forget it: clear the in-flight slot
-      ;; AND fire the waiting `:reply-event` with an explicit timeout body, so a
+      ;; `:own-request-timeout?`, so the socket is still live, the slot is still
+      ;; occupied, and THIS registration is the one that armed the timer, but
+      ;; the reply never came. FAIL the request, don't just forget it: clear the
+      ;; in-flight slot AND fire the waiting `:reply-event` with a timeout body, so a
       ;; request that times out on a live socket learns its outcome instead of
       ;; hanging forever. This is `fail-in-flight`'s per-request twin — same
       ;; local-failure shape, scoped to the single request whose timer elapsed
@@ -455,8 +512,11 @@ The connection machine composes the locked substrate:
                   ;; the request is registered + sent immediately.
                   :ws/request {:action :register-request}
 
+                  ;; A deadline elapsed. Two questions, one guard: is the socket
+                  ;; still ours, and is this the timer the registration
+                  ;; currently in the slot armed? See :own-request-timeout?.
                   :ws/request-timeout
-                  {:guard  :current-socket?
+                  {:guard  :own-request-timeout?
                    :action :clear-request}}}}}
 
       :reconnecting
@@ -525,14 +585,15 @@ To subscribe / unsubscribe at runtime, the running app dispatches sub/unsub even
 Request-reply protocols carry a correlation id on every request and matching reply. The pattern, fully implemented in the worked example above:
 
 1. **Caller dispatches `[:ws/connection [:ws/request {:request-id ..., :body ..., :reply [::handler ...], :timeout-ms 10000}]]`.**
-2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout.
+2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ... :token ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout, carrying the same `:token`. Re-registering an id that is still in flight supersedes the earlier registration and settles its caller; both halves are item 6.
 3. **`:ws/received` arrives with `{:body {:type :reply :request-id ... :ok ...}}`.** The `:connected` state's `:trusted-frame?` guard checks the connection epoch **and** the closed wire contract; only then does the handler branch on the vetted `:type`. A `:reply` looks up the in-flight entry, clears the slot, and dispatches the registered reply event with the machine's `:origin :ws/server` stamp added; a `:push` only routes to `[:ws/handle-message body]`. Branch on `:type`, not on the presence of a `:request-id` — the frame's declared kind is part of the contract you just checked, whereas presence-of-a-key is a shape test a widened arm re-opens.
-4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry **and fires the caller's `:reply-event`** with `{:origin :ws/local :ok false :error :ws/timeout}` — the per-request twin of the loss body in item 5, minted through the same `local-failure` helper. A timeout is a terminal outcome, so the caller must learn it: clearing the slot silently would leave a request that timed out on a *live* socket waiting forever, with no reply and no timer left to fire. The socket is still up, so this is the one door where nothing else will ever settle the slot.
+4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:own-request-timeout?` guard admits it only if the socket is still the live one **and** the slot still holds the registration that armed this timer (item 6); the `:clear-request` action then removes the in-flight entry **and fires the caller's `:reply-event`** with `{:origin :ws/local :ok false :error :ws/timeout}` — the per-request twin of the loss body in item 5, minted through the same `local-failure` helper. A timeout is a terminal outcome, so the caller must learn it: clearing the slot silently would leave a request that timed out on a *live* socket waiting forever, with no reply and no timer left to fire. The socket is still up, so this is the one door where nothing else will ever settle the slot.
 5. **Losing the wire fails the slot — by every door, not only the drop.** A request accepted into `:in-flight` settles exactly once, and it settles whenever the socket goes away rather than only when it is lost underneath us. Every transition that exits `:active` destroys the socket actor, so all three doors run the shared `fail-in-flight` helper: the guarded `:ws/closed` drop (`:on-socket-lost`, which also bumps the retry counter), the clean `:ws/disconnect` (`:fail-in-flight`), and the app-level `:ws/fatal` escape hatch (`:on-fatal-error`, which also records the error). Each still-in-flight `:reply-event` fires with `{:origin :ws/local :ok false :error :ws/connection-lost}` and `:in-flight` is cleared, so no correlation slot leaks and no caller hangs. Semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution. (`:ws/auth-failed` is the exception that proves the rule — `:register-request` is bound only on `:connected`, so `:in-flight` is provably empty by the time that door can be taken, and plain `:record-error` is correct there.)
+6. **Correlate the timeout to the REGISTRATION, not to the id — and say what a duplicate id does.** Items 4 and 5 promise every accepted request a terminal outcome, exactly once. The correlation id alone cannot keep that promise, because the id is the app's and the app is invited to reuse one (the `[:feature/load slug]` shape below is a *recommendation*, not a hazard). On one long-lived socket, request A under id `R` can complete and request B re-register `R` well inside A's timeout window: A's timer is still armed and still stamped with the live socket, so the epoch check passes it, and it then deletes B's slot and hands B's caller a `:ws/timeout` its deadline never reached. The epoch check rejects timers from an old *connection*; nothing in it speaks to an old *registration* on the same live socket. So each registration takes a **`:token`** from `:data`'s `:next-token` counter — a counter rather than a fresh uuid, because the value lands in durable machine state and must replay identically — the scheduled timeout carries it, and `:own-request-timeout?` admits the timeout only while that token is still the one in the slot. An obsolete timer needs no cancellation facility: it fires, fails the guard, and is dropped like any other straggler. **The duplicate-in-flight policy is last-write-wins with the displaced caller settled:** re-registering an id that is still pending fires the earlier registration's `:reply-event` with `{:origin :ws/local :ok false :error :ws/superseded}` before the new request goes out. A reusable per-feature id is a *slot*, and re-issuing into it is the app saying the earlier question is obsolete; refusing the newcomer instead would make the recommended per-feature id unusable for the case it is recommended for, and silently overwriting the entry — which is what a plain `assoc-in` does — strands the first caller forever. What none of this promises is which *server* reply answers which registration: only one id goes on the wire, so concurrent reuse is ambiguous in the protocol itself, and the wire reply settles whichever registration holds the slot. Exactly-once per registration survives either way, which is what the caller is owed.
 
 **Two producers reach the reply event, so say which is which — with a key the sender cannot set.** A correlated wire reply and a locally minted loss/timeout failure both arrive at the caller's `:reply-event`, and they are different facts: one is the server's claim, the other is the machine's own truth about the connection. Discriminating between them by *shape* hands the choice to the sender, because a hostile server that has seen the wire request id can send back whatever shape the "local failure" arm describes and have its frame recorded as a connection fact the app minted itself. So the machine **stamps** `:origin` — `:ws/server` on the wire body as it hands it on, `:ws/local` on the bodies it mints — and the outcome schema is a closed union dispatching on that stamp. Stamped after receipt, `:origin` is not forgeable from the wire.
 
-The correlation id can be any `=`-comparable value — a `(random-uuid)` is the canonical default, but per-feature `[:feature/load slug]` vectors compose with [Spec 014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)'s precedent. Each request-reply *over* the open socket is a Pattern-AsyncEffect interaction; the connection machine is the long-lived host that performs the correlation step Pattern-AsyncEffect leaves to the caller.
+The correlation id can be any `=`-comparable value — a `(random-uuid)` is the canonical default, but per-feature `[:feature/load slug]` vectors compose with [Spec 014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)'s precedent. Uniqueness over a socket's lifetime is explicitly **not** required of it, which is why the machine correlates timeouts by registration token rather than by id (item 6); a design that quietly depends on unique ids has made the reusable per-feature shape unsafe without saying so. Each request-reply *over* the open socket is a Pattern-AsyncEffect interaction; the connection machine is the long-lived host that performs the correlation step Pattern-AsyncEffect leaves to the caller.
 
 > **This correlation shape is APP-LEVEL — NOT the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope).** The `:request-id` / `:reply` / `:in-flight` vocabulary above is the *app/library's own* correlation, not the framework's uniform reply envelope. That envelope (property 9) is the lowering target of framework-**shipped** managed async surfaces (HTTP, resources/mutations, machine async work, route loaders, timers); re-frame2 does **not** ship a managed WebSocket, so there is no `:rf/reply-to` target, `:status` taxonomy, `:work/id` correlation, or `:completed-at` metadata on a per-message reply here — the reply is the app's own message body dispatched to the app's own `:reply` event. Pattern-AsyncEffect leaves correlation to the caller; an app that *wants* envelope-shaped replies for its socket messages may build that itself, but the recommended worked shape is the app-level `:in-flight` map. (The Reagent adapter integration scaffold at `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs` pins this boundary.)
 
@@ -603,6 +664,8 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Storing a raw bearer / cookie / refresh token in machine `:data`, or dispatching one through the machine.** `:data` is framework-inspectable — app-db snapshots, trace emissions, recorder fixtures, pair tooling — so a credential held there is liable to be serialised somewhere nobody inspects character-by-character. Carry an opaque `:cred-ref` and resolve it to the real bearer inside the socket actor's host closure at authentication time (see §Parameters).
 - **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:cred-ref` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a credential expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/rotate-cred` slot at the parent level.
 - **Skipping the connection-epoch check on socket-sourced events.** Without `:current-socket?` (or equivalent) on `:ws/received` **and** on the lifecycle transitions `:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`, a slow event from a torn-down socket can land after a reconnect and act on the fresh connection: a stale `:message` processed against the new `:in-flight` map (wrong-reply dispatch, or a slot cleared by a stale correlation id), or a stale `:ws/closed` tearing the live connection back to `:reconnecting`. The guard is one key; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
+
+- **Correlating a request timeout by id alone — and treating the epoch check as if it covered that.** The connection epoch answers "is this from the socket we are using?", which reads like the whole staleness question and is only half of it. A `:request-id` is the app's own value and may be reused; on one live socket a completed request's uncancelled timer can arrive naming an id a *later* request now holds, sail through the epoch check, delete that request's slot and hand its caller a timeout its deadline never reached. Stamp each registration with a token, put it on the scheduled timeout, and admit the timeout only while that token still occupies the slot — see item 6 of §Message correlation for request-reply. The same paragraph is where the duplicate-in-flight policy belongs: a second registration under a live id must not `assoc-in` over the first and strand its caller.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
 - **Declaring a `:schema` on the receiving handler and calling the ingress guarded.** That schema is a development diagnostic and elides, so on the build facing the real network there is no check at all. Add `:rf.schema/at-boundary` to the handler's `:interceptors` — see [§Inbound frames are untrusted](#inbound-frames-are-untrusted-and-schema-alone-will-not-check-them).
 - **Letting the connection machine branch on the frame — or clear a correlation slot — before the frame has been vetted.** Checking only at the `app-db` ingress leaves the machine's own `:in-flight` map reachable by bytes the ingress will go on to refuse: the frame is rejected, `app-db` is untouched, the rejection counter fires, and the caller's request has still been silently consumed with no reply and no surviving timeout. Apply the wire contract in the transition guard, ahead of the branch — see [§Vet the frame before the machine acts on it](#vet-the-frame-before-the-machine-acts-on-it).
