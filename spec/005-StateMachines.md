@@ -4097,7 +4097,7 @@ Three test levels fall out naturally from the pure-factory contract on `make-mac
 
 ```clojure
 (let [{:keys [status snapshot fx error]}
-      (machines/machine-transition definition snapshot event)]
+      (rf.machines/machine-transition definition snapshot event)]
   (case status
     :ok    [snapshot fx]                            ;; post-transition snapshot + emitted fx
     :error (throw (ex-info "transition failed" error))))
