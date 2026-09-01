@@ -192,6 +192,74 @@
                {:pathname pathname :search search :hash hash}))
           "same base + same cell ⇒ same URL from either writer"))))
 
+;; ---- rf2-b7je1: the address bar owns ESCAPED spellings too --------------
+;;
+;; Unifying the two writers on `share/apply-story-params` carried the
+;; share builder's remaining ownership hole onto the LIVE address bar:
+;; ownership was matched on raw key text while `URLSearchParams` compares
+;; DECODED names, so a `location.search` spelling a Story key with escapes
+;; survived and the generated value was appended behind it. `.get` is
+;; first-value, so the next reload restored the stale cell — the very
+;; thing sharing one merge was supposed to make impossible. The pin is on
+;; the address-bar writer specifically: the repair lives in the shared
+;; helper, so this and the share-builder half must move together or not
+;; at all.
+
+(deftest url-from-state-clears-percent-encoded-story-keys
+  (testing "rf2-b7je1 audit — `%76ariant=` IS `variant=` to the browser, so
+            a state-driven push must clear it rather than append behind it"
+    (is (= "/p/?embed=1&variant=story.new%2Fb#/stories"
+           (us/url-from-state
+             {:selected-variant :story.new/b}
+             {:pathname "/p/"
+              :search   "?%76ariant=story.old%2Fa&embed=1"
+              :hash     "#/stories"}))
+        "the escaped stale key is gone; unowned embed=1 survives, in order")))
+
+(deftest url-from-state-clears-every-escaped-story-key
+  (testing "rf2-b7je1 audit — the whole vocabulary, spelled with escapes:
+            every Story key goes, both unowned params stay. Derived from
+            `share/story-query-keys` so a key added to the vocabulary is
+            covered here without editing this test."
+    (let [escape #(str "%" (format "%02X" (int (first %))) (subs % 1))
+          stale  {"variant"    "story.old%2Fa"
+                  "workspace"  "story.old%2Fws"
+                  "mode-tab"   "docs"
+                  "modes"      "Mode.app%2Fstale"
+                  "viewport"   "tablet"
+                  "background" "dark"
+                  "tag-filter" "stale"
+                  "overrides"  "%7B%3Afoo%201%7D"
+                  "substrate"  "uix"}
+          search (str "?"
+                      (str/join "&" (map #(str (escape (name %))
+                                               "="
+                                               (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1")]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "/p/?from=index&embed=1&variant=story.new%2Fb#/stories"
+             (us/url-from-state
+               {:selected-variant :story.new/b}
+               {:pathname "/p/" :search search :hash "#/stories"}))
+          "every escaped Story key is cleared; both unowned params survive"))))
+
+(deftest url-from-state-and-share-builder-agree-on-escaped-keys
+  (testing "rf2-b7je1 audit — one merge, one boundary: the fix must not
+            have taught only one of the two writers about escaped keys"
+    (let [pathname "/counter-with-stories/"
+          search   "?%76ariant=story.old%2Fa&embed=1&%73ubstrate=uix"
+          hash     "#/stories"]
+      (is (= (share/variant-share-url
+               :story.new/b
+               (str pathname search hash)
+               {:substrate :reagent})
+             (us/url-from-state
+               {:selected-variant :story.new/b :substrate :reagent}
+               {:pathname pathname :search search :hash hash}))
+          "same base + same cell ⇒ same URL from either writer"))))
+
 ;; ---- url-relevant-slots-changed? ----------------------------------------
 
 (deftest url-relevant-slots-changed-detects-variant-change

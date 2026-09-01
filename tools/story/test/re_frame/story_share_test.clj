@@ -252,6 +252,118 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
+;; ---- rf2-b7je1 (audit reopen 2): ownership compares DECODED key names ----
+;;
+;; The clear set was matched against the fragment's RAW key text. The
+;; consumer is `URLSearchParams`, which compares key names after percent-
+;; decoding, so `%76ariant=` — a valid spelling of `variant=` — is the
+;; SAME key to the browser and a different string to the builder. The
+;; stale entry therefore survived, the generated `variant=` was appended
+;; behind it, and `.get` (first-value) handed the hydrator the stale
+;; value: the original bug, reached through the key half instead of the
+;; value half.
+
+(defn- escape-first-char
+  "Spell `k` with its leading character percent-encoded — `\"variant\"` →
+  `\"%76ariant\"`. A valid, browser-equivalent spelling of the same key
+  that shares no prefix with the literal name, so a raw-text ownership
+  test cannot match it."
+  [k]
+  (str "%" (format "%02X" (int (first k))) (subs k 1)))
+
+(defn- decoded-key-count
+  "How many query fragments of `url` carry key `k` once the key half is
+  percent-decoded — i.e. how many values `URLSearchParams.getAll` would
+  report for `k`."
+  [url k]
+  (->> (str/split (or (query-part url) "") #"&")
+       (filter #(= k (java.net.URLDecoder/decode
+                       (first (str/split % #"=" 2)) "UTF-8")))
+       count))
+
+(def ^:private escaped-stale-base-url
+  "Base URL carrying a stale value for every Story key, each key spelled
+  with its first character percent-encoded, plus two unrelated params
+  and a hash route."
+  (str "https://example.test/?"
+       (str/join "&" (map #(str (escape-first-char (name %))
+                                "="
+                                (get stale-story-params (name %)))
+                          share/story-query-keys))
+       "&from=index&embed=1#/stories"))
+
+(deftest escaped-story-keys-are-the-same-keys-to-the-browser
+  (testing "rf2-b7je1 — the fixture is only a regression if the escaped
+            spellings really are the owned keys after decoding; pin that
+            before asserting anything about them"
+    (doseq [k (map name share/story-query-keys)]
+      (let [esc (escape-first-char k)]
+        (is (not= esc k)
+            (str k " is genuinely respelled, so raw matching cannot see it"))
+        (is (= k (java.net.URLDecoder/decode esc "UTF-8"))
+            (str esc " decodes to " k))))))
+
+(deftest variant-share-url-owns-percent-encoded-key-spellings
+  (testing "rf2-b7je1 audit — a base-url spelling the Story keys with
+            escapes (%76ariant=) is carrying those keys as far as the
+            browser is concerned. The builder must clear them, leaving one
+            effective value per owned key, while unrelated params, their
+            order, and the hash route survive."
+    (let [url    (share/variant-share-url
+                   :story.new/b
+                   escaped-stale-base-url
+                   {:active-modes [:Mode.app/dark]})
+          getter (first-value-getter url)
+          parsed (share/parse-params getter)]
+      (is (= 1 (decoded-key-count url "variant"))
+          "exactly one variant= the browser can see — the requested one")
+      (is (= 1 (decoded-key-count url "modes"))
+          "exactly one modes= the browser can see — the requested one")
+      (doseq [k (map name share/story-query-keys)
+              :when (not (#{"variant" "modes"} k))]
+        (is (zero? (decoded-key-count url k))
+            (str "stale escaped " k "= is cleared, not merely outranked")))
+      (is (= "story.new/b" (get getter "variant"))
+          "browser first-value read sees the requested variant")
+      (is (= "Mode.app/dark" (get getter "modes"))
+          "browser first-value read sees the requested modes")
+      (is (= :story.new/b (:variant-id parsed))
+          "parse-params reconstructs the requested variant")
+      (is (= [:Mode.app/dark] (:active-modes parsed))
+          "parse-params reconstructs the requested modes")
+      (doseq [slot [:workspace-id :mode-tab :viewport :background
+                    :tag-filter :cell-overrides :substrate]]
+        (is (nil? (get parsed slot))
+            (str "parse-params restores no stale " slot)))
+      (is (= "index" (get getter "from"))
+          "unrelated from= survives with its value")
+      (is (= "1" (get getter "embed"))
+          "unrelated embed= survives — chrome state, never Story's")
+      (is (str/starts-with? url "https://example.test/?from=index&embed=1&variant=")
+          "unrelated entries keep their order ahead of the generated params")
+      (is (str/ends-with? url "#/stories")
+          "the hash route survives, after the query"))))
+
+(deftest apply-story-params-preserves-undecodable-and-unowned-keys
+  (testing "rf2-b7je1 audit — decoding is an ownership TEST, never a
+            rewrite. A key half that does not decode at all falls through
+            and is preserved byte-for-byte; so is a key that decodes to
+            something Story does not own. `mode+tab` is the sharp case:
+            `+` is a space in a query component, so the browser reads it
+            as `mode tab`, which is NOT `mode-tab`."
+    (let [url (share/variant-share-url
+                :story.new/b
+                "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index"
+                nil)]
+      (is (str/starts-with?
+            url
+            "https://example.test/?%zz=keepme&100%=raw&mode+tab=notmine&from=index&variant=")
+          "every undecodable / unowned entry survives verbatim and in order")
+      (is (= 1 (decoded-key-count url "variant"))
+          "the generated variant= is still the only one")
+      (is (zero? (decoded-key-count url "mode-tab"))
+          "mode+tab is not mode-tab, so nothing of Story's was cleared"))))
+
 (deftest variant-share-url-inserts-query-before-hash-route
   (testing "hash-routed Story links keep query params in location.search"
     (let [url (share/variant-share-url

@@ -91,6 +91,26 @@
   #?(:clj  (java.net.URLEncoder/encode (str s) "UTF-8")
      :cljs (js/encodeURIComponent (str s))))
 
+(defn- ^:no-doc url-decode
+  "Percent-decode one query-component `s` the way `URLSearchParams` does,
+  or nil when `s` is not decodable at all (a lone `%`, a truncated
+  escape). Nil rather than a throw or a passthrough because the only
+  caller is an ownership TEST: an undecodable fragment is by definition
+  not one of Story's plain-ASCII keys, so it must fall through and be
+  preserved verbatim (rf2-b7je1 audit) — never dropped, and never
+  allowed to abort the merge.
+
+  `+` is a space in a query component, so both hosts must treat it as
+  one: `java.net.URLDecoder` already does, and the CLJS arm folds it to
+  `%20` before `decodeURIComponent`, which does not. Without that the
+  two hosts could classify the same URL differently, and the JVM tests
+  would stop being evidence about the browser."
+  [s]
+  #?(:clj  (try (java.net.URLDecoder/decode (str s) "UTF-8")
+                (catch Exception _ nil))
+     :cljs (try (js/decodeURIComponent (str/replace (str s) "+" "%20"))
+                (catch :default _ nil))))
+
 (defn- ^:no-doc kw->str
   "Render a keyword as a stable string `prefix:name` or `name`. Used so
   the URL params don't carry the `:` colon prefix Clojure keywords
@@ -382,14 +402,23 @@
     [(or url "") nil]))
 
 (defn- ^:no-doc query-param-key
-  "Key half of an already-encoded `k=v` query fragment — the text
-  before the first `=`, or the whole fragment when it carries none.
-  Compared in encoded form: every Story-owned key is plain ASCII, so
-  its encoded spelling is its literal name."
+  "DECODED key half of an encoded `k=v` query fragment — the text before
+  the first `=` (or the whole fragment when it carries none), run
+  through `url-decode`. Returns nil for a key half that does not decode.
+
+  Decoded, not raw (rf2-b7je1 audit): the consumer of this query is
+  `URLSearchParams`, which compares key NAMES after percent-decoding, so
+  `%76ariant=` IS `variant=` to the browser. Matching raw text instead
+  leaves such a spelling standing, the generated `variant=` is appended
+  after it, and `.get` — first-value — hands the hydrator the stale one.
+  Only the key half is decoded; the value half and the fragment's own
+  bytes are never rewritten, so unrelated and malformed entries survive
+  verbatim and in order."
   [fragment]
-  (if-let [idx (str/index-of fragment "=")]
-    (subs fragment 0 idx)
-    fragment))
+  (url-decode
+    (if-let [idx (str/index-of fragment "=")]
+      (subs fragment 0 idx)
+      fragment)))
 
 (defn apply-story-params
   "Rewrite `base-url`'s query so the Story vocabulary reads exactly the
@@ -421,12 +450,21 @@
   only what is emitted leaves a stale `modes=` standing when the caller
   requests no modes at all.
 
+  Ownership is decided on the DECODED key name, because that is the
+  comparison `URLSearchParams` makes (rf2-b7je1 audit). A base-url
+  spelling a Story key with escapes — `%76ariant=`, which is a perfectly
+  valid way to write `variant=` — is the same key to the browser, so
+  matching raw text would preserve it, append the generated `variant=`
+  behind it, and hand the hydrator the stale value through `.get`.
+  Nothing else is normalised: kept fragments are re-emitted byte-for-byte
+  in their original order, escapes and all.
+
   Pure data → data; JVM + CLJS-portable."
   [base-url params]
   (let [[path fragment] (split-fragment base-url)
         qidx            (str/index-of path "?")
         bare            (if qidx (subs path 0 qidx) path)
-        owned           (into #{} (map (comp url-encode name)) story-query-keys)
+        owned           (into #{} (map name) story-query-keys)
         kept            (when qidx
                           (->> (str/split (subs path (inc qidx)) #"&" -1)
                                (remove #(contains? owned (query-param-key %)))))

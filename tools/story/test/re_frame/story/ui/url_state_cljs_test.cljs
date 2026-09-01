@@ -112,6 +112,79 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
+;; ---- rf2-b7je1: the LIVE address bar owns escaped key spellings ---------
+;;
+;; Unifying the two writers on `share/apply-story-params` carried the
+;; share builder's last ownership hole onto the address bar: ownership was
+;; matched on raw key text, while the `URLSearchParams` this shell reads
+;; with compares DECODED names. A `location.search` spelling a Story key
+;; with escapes therefore survived a state-driven push, the generated
+;; value was appended behind it, and the next reload's `.get` —
+;; first-value — restored the stale cell. Asserted against the real
+;; browser API, on the address-bar writer specifically: the repair is in
+;; the shared helper, so this and the share-builder pin move together.
+
+(deftest url-from-state-clears-escaped-story-keys-through-urlsearchparams
+  (testing "rf2-b7je1 audit — `%76ariant=` IS `variant=` to the browser, so
+            a state-driven push must clear it rather than append behind it;
+            read back through the API the next mount will actually use"
+    (let [url (us/url-from-state
+                {:selected-variant :story.new/b}
+                {:pathname "/p/"
+                 :search   "?%76ariant=story.old%2Fa&embed=1"
+                 :hash     "#/stories"})
+          usp (js/URLSearchParams.
+                (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
+      (is (= "story.new/b" (.get usp "variant"))
+          "the reload reads the cell this state asked for, not the stale one")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value — the escaped one is gone, not outranked")
+      (is (= "1" (.get usp "embed"))
+          "embed=1 survives — chrome state Story does not own")
+      (is (= "/p/?embed=1&variant=story.new%2Fb#/stories" url)
+          "and the composed string is exactly that, in order"))))
+
+(deftest url-from-state-clears-every-escaped-story-key-cljs
+  (testing "rf2-b7je1 audit — the whole vocabulary spelled with escapes.
+            Derived from `share/story-query-keys`, so a key added to the
+            vocabulary is covered without editing this test."
+    (let [escape #(str "%" (.toUpperCase (.toString (.charCodeAt % 0) 16))
+                       (subs % 1))
+          stale  {"variant"    "story.old%2Fa"
+                  "workspace"  "story.old%2Fws"
+                  "mode-tab"   "docs"
+                  "modes"      "Mode.app%2Fstale"
+                  "viewport"   "tablet"
+                  "background" "dark"
+                  "tag-filter" "stale"
+                  "overrides"  "%7B%3Afoo%201%7D"
+                  "substrate"  "uix"}
+          search (str "?"
+                      (str/join "&" (map #(str (escape (name %))
+                                               "="
+                                               (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1")
+          url    (us/url-from-state
+                   {:selected-variant :story.new/b}
+                   {:pathname "/p/" :search search :hash "#/stories"})
+          usp    (js/URLSearchParams.
+                   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "story.new/b" (.get usp "variant"))
+          "URLSearchParams.get returns the variant this state asked for")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value")
+      (doseq [k (map name share/story-query-keys)
+              :when (not= k "variant")]
+        (is (zero? (count (.getAll usp k)))
+            (str "URLSearchParams sees no stale " k "= at all")))
+      (is (= "index" (.get usp "from")) "unrelated from= survives")
+      (is (= "1" (.get usp "embed")) "unrelated embed= survives")
+      (is (= "/p/?from=index&embed=1&variant=story.new%2Fb#/stories" url)
+          "every escaped Story key is cleared; both unowned params survive"))))
+
 (deftest url-from-state-consumes-a-browser-shaped-location
   (testing "rf2-gee8n — `current-location-shape` snapshots the browser's own
             {pathname, search, hash} triple off `window.location`. Drive the
