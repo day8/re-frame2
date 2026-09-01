@@ -46,7 +46,7 @@
   [:sup/flow [:done]]]
 
  :fixture/expect
- ;; Post-destroy: :rf/system-ids slot cleared, worker's snapshot gone,
+ ;; Post-destroy: :system-ids slot cleared, worker's snapshot gone,
  ;; only the parent's snapshot (now :idle) remains. Per rf2-grw4i /
  ;; rf2-v0rrr the :on-spawn callback is advisory only — the parent's
  ;; :data is unchanged by the callback's return, so the parent's :data
